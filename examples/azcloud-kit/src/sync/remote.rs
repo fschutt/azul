@@ -149,7 +149,10 @@ pub struct Tombstone {
     pub at: i64,
     pub device: String,
     /// The user confirmed this delete on the device that made it (a mass delete they were
-    /// asked about): other devices move the file into their trash without asking again.
+    /// asked about). Written for the day a drive authenticates who wrote a tombstone: until
+    /// then no reader believes it, because anyone who can write the index can set it and the
+    /// `device` beside it is a name the writer chose ([`super::trust`], SYNC-1) - other devices
+    /// ask their own user once more.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub confirmed: bool,
 }

@@ -113,6 +113,8 @@ mod sync_rules;
 mod sync_session;
 mod spend;
 mod sync_stream;
+/// Who may say "the user confirmed this delete": the trust judge's truth table.
+mod sync_trust;
 mod token;
 mod usage;
 mod transport;

@@ -13,10 +13,19 @@ pub use azul_storage::quarantine::{
     is_marked, macos_value, mark, mark_downloaded, supported, AGENT, ZONE_IDENTIFIER,
 };
 
-/// Who wrote a file, as the quarantine rule sees it: the user's own devices need no mark.
+/// Who wrote a file, as the quarantine rule sees it: the user's own devices need no mark. A NAME
+/// is enough for that - a wrong guess costs a warning that was not needed or one that was - and
+/// never enough to believe what a file's writer says of the user ([`super::trust`]).
 pub trait Writers: Sync {
     /// Whether `device` (a remote entry's writer) is one of the user's own devices.
     fn is_own(&self, device: &str) -> bool;
+}
+
+/// A run's options know the names: this device's own and the account's other devices'.
+impl Writers for super::SyncOptions {
+    fn is_own(&self, device: &str) -> bool {
+        device == self.device || self.own_devices.iter().any(|d| d == device)
+    }
 }
 
 /// The user's own devices by name (the command line's `--own-devices`; an app passes its

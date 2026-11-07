@@ -449,10 +449,12 @@ fn the_executable_bit_travels_through_a_drive_synced_by_name() {
     assert_eq!(mode(&b, "run.sh") & 0o111, 0, "{:o}", mode(&b, "run.sh"));
 }
 
-/// A mass delete the user confirmed on one device travels with its deletes: another device
-/// applies it (into its trash) without asking its own user again (D1).
+/// A mass delete the user confirmed on one device travels with its deletes, but the drive does not
+/// say who wrote them ([`crate::sync::trust`], SYNC-1): another device asks its own user again,
+/// even when it knows the writer's name as one of the account's devices - a name is no identity -
+/// and applies it (into its trash) when that user confirms.
 #[test]
-fn a_mass_delete_confirmed_on_one_device_is_not_asked_again_on_another() {
+fn a_mass_delete_confirmed_on_one_device_is_asked_again_on_another_and_applied_when_confirmed() {
     let s3 = FakeS3::new();
     let drive = s3_drive(&s3);
     let a = Device::new("dev-a-mass");
@@ -466,23 +468,87 @@ fn a_mass_delete_confirmed_on_one_device_is_not_asked_again_on_another() {
     let mut confirmed = a.opts();
     confirmed.allow_mass_delete = true;
     let hooks = RunHooks::default();
-    let sent = sync_to(Target::Named(&*drive), &a.root(), &a.index(), &confirmed, &hooks).unwrap();
+    let sent = sync_to(
+        Target::Named(&*drive),
+        &a.root(),
+        &a.index(),
+        &confirmed,
+        &hooks,
+    )
+    .unwrap();
     assert_eq!(sent.deleted_there, 12, "{}", sent.summary());
     let hooks = RunHooks {
         hold_mass_delete: true,
         ..RunHooks::default()
     };
-    // A tombstone's word that the user confirmed is believed when a device of the user's wrote it
-    // (AZ-S7): to a device that does not know a's name as the user's own it is asked about.
     let asked = b.run(&*drive, &hooks);
     assert!(asked.mass_delete.is_some(), "{}", asked.summary());
     assert_eq!(asked.deleted_here, 0, "{}", asked.summary());
+    // Knowing a's name as an own device changes nothing: the tombstone's `device` is a string its
+    // writer chose.
     let mut own = b.opts();
     own.own_devices = vec![String::from("dev-a-mass")];
-    let got = sync_to(Target::Named(&*drive), &b.root(), &b.index(), &own, &hooks).unwrap();
+    let still = sync_to(Target::Named(&*drive), &b.root(), &b.index(), &own, &hooks).unwrap();
+    assert!(still.mass_delete.is_some(), "{}", still.summary());
+    assert_eq!(still.deleted_here, 0, "{}", still.summary());
+    assert_eq!(b.tree().len(), 12);
+    // The user's own answer on this device does apply it.
+    let mut yes = b.opts();
+    yes.allow_mass_delete = true;
+    let got = sync_to(Target::Named(&*drive), &b.root(), &b.index(), &yes, &hooks).unwrap();
     assert!(got.mass_delete.is_none(), "{}", got.summary());
     assert_eq!(got.deleted_here, 12, "{}", got.summary());
-    assert!(b.tree().is_empty(), "{:?}", b.tree().keys().collect::<Vec<_>>());
+    assert!(
+        b.tree().is_empty(),
+        "{:?}",
+        b.tree().keys().collect::<Vec<_>>()
+    );
+}
+
+/// X-DELTA-AZDRIVE-SYNC-1 on a drive synced by name: the folder record carries the tombstones.
+/// A writer that names itself like the computer that reads them (`dev-b-forged` on both sides)
+/// had `confirmed` believed by `writer == self.device`. RED not run: the old judge finds the
+/// tombstones trusted and b deletes 12 files without a question.
+#[test]
+fn x_delta_azdrive_sync_1_a_writer_named_like_this_device_is_not_believed_on_a_named_drive() {
+    let s3 = FakeS3::new();
+    let drive = s3_drive(&s3);
+    let stranger = Device::new("dev-stranger-forged");
+    let b = Device::new("dev-b-forged");
+    for i in 0..12 {
+        stranger.write(&format!("docs/{i}.txt"), format!("doc {i}").as_bytes());
+    }
+    // The stranger syncs as "dev-b-forged": the name of the computer that will read its deletes.
+    let mut as_b = stranger.opts();
+    as_b.device = String::from("dev-b-forged");
+    let hooks = RunHooks::default();
+    sync_to(
+        Target::Named(&*drive),
+        &stranger.root(),
+        &stranger.index(),
+        &as_b,
+        &hooks,
+    )
+    .unwrap();
+    b.sync(&*drive);
+    fs::remove_dir_all(path_of(stranger.folder.path(), "docs")).unwrap();
+    as_b.allow_mass_delete = true;
+    let sent = sync_to(
+        Target::Named(&*drive),
+        &stranger.root(),
+        &stranger.index(),
+        &as_b,
+        &hooks,
+    )
+    .unwrap();
+    assert_eq!(sent.deleted_there, 12, "{}", sent.summary());
+    let hooks = RunHooks {
+        hold_mass_delete: true,
+        ..RunHooks::default()
+    };
+    let asked = b.run(&*drive, &hooks);
+    assert!(asked.mass_delete.is_some(), "{}", asked.summary());
+    assert_eq!(b.tree().len(), 12, "nothing was trashed");
 }
 
 /// An empty folder travels through a drive synced by name too, and so does its delete.

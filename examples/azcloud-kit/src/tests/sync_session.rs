@@ -674,16 +674,18 @@ fn a_mass_delete_waits_for_the_user_and_each_answer_does_what_it_says() {
 }
 
 /// The drive deleted most of this folder's files elsewhere, and the user confirmed it on the
-/// device that deleted them - one of the user's own devices: the confirmation travels in the
-/// tombstones, so this device moves its copies into its trash without asking again (D1, D2). A
-/// tombstone of any other writer is only a word anyone with access to the drive can write: it
-/// asks (AZ-S7, below).
+/// device that deleted them. The confirmation travels in the tombstones, but no drive of this build
+/// authenticates who wrote one, so the word is not believed ([`crate::sync::trust`], SYNC-1): the
+/// user's other computer asks once more - with the names the product has, a hostname for the sync
+/// and the token server's member id for the account's device, which never meet - and what its
+/// user answers goes into its trash (D1, D2 as built).
 #[test]
-fn a_mass_delete_confirmed_on_one_device_goes_into_the_others_trash_without_asking_again() {
+fn a_mass_delete_confirmed_on_one_device_is_asked_again_on_the_others_and_then_goes_into_their_trash(
+) {
     let store = Arc::new(S3Bucket::new());
-    let a = paired("dev-a", &store, |_| {});
-    let mut b = paired("dev-b", &store, |_| {});
-    b.session = b.session.with_own_devices(&[String::from("dev-a")]);
+    let a = paired("mac-a", &store, |_| {});
+    let mut b = paired("mac-b", &store, |_| {});
+    b.session = b.session.with_own_devices(&[String::from("membera")]);
     for i in 0..14 {
         a.write(&format!("{i}.txt"), format!("file {i}").as_bytes());
     }
@@ -697,7 +699,21 @@ fn a_mass_delete_confirmed_on_one_device_goes_into_the_others_trash_without_aski
     a.session.answer_mass_delete(true).unwrap();
     a.pass();
     let (states, _) = b.pass();
-    assert!(states.mass_delete.is_none(), "confirmed once, on the device that deleted them");
+    assert!(
+        states.mass_delete.is_some(),
+        "b asks again: a word in a tombstone is no proof of who wrote it"
+    );
+    assert_eq!(
+        b.read("0.txt").as_deref(),
+        Some(&b"file 0"[..]),
+        "nothing was trashed unasked"
+    );
+    b.session.answer_mass_delete(true).unwrap();
+    let (states, _) = b.pass();
+    assert!(
+        states.mass_delete.is_none(),
+        "answered once, on this device"
+    );
     assert!(b.read("0.txt").is_none());
     let trash = b.folder.path().join(".azlin").join("sync").join("trash");
     let mut trashed = Vec::new();
@@ -1620,8 +1636,9 @@ fn az_s13_free_up_space_keeps_a_file_edited_under_the_same_size_and_time() {
 
 /// AZ-S7. The breaker took a tombstone's `confirmed` as the user's word whoever wrote it: a share
 /// participant (or a buggy device) that deletes most of a folder and writes `confirmed: true`
-/// had every other device move its copies into the trash without a question. A tombstone counts
-/// as confirmed only when this device or one of the user's own devices wrote it.
+/// had every other device move its copies into the trash without a question. A tombstone's
+/// `confirmed` is believed when its writer was verified as one of the user's own devices
+/// ([`crate::sync::trust`]); no writer is verified in this build, so none is.
 #[test]
 fn az_s7_a_confirmed_tombstone_of_a_stranger_is_counted_by_the_breaker() {
     let store = Arc::new(S3Bucket::new());
@@ -1656,6 +1673,83 @@ fn az_s7_a_confirmed_tombstone_of_a_stranger_is_counted_by_the_breaker() {
         b.read("0.txt").as_deref(),
         Some(&b"file 0"[..]),
         "nothing was moved to the trash"
+    );
+}
+
+/// A participant that holds the drive key deletes 14 of the user's files and writes
+/// `confirmed: true` into every tombstone under the device name `forged`; `b` is the user's computer
+/// (device name `b_name`, the account's other devices `own`).
+fn forged_confirmation(forged: &str, b_name: &str, own: &[&str]) -> (SyncStates, Paired) {
+    let store = Arc::new(S3Bucket::new());
+    let stranger = paired(forged, &store, |_| {});
+    let mut b = paired(b_name, &store, |_| {});
+    let own: Vec<String> = own.iter().map(|d| (*d).to_string()).collect();
+    b.session = b.session.with_own_devices(&own);
+    for i in 0..14 {
+        stranger.write(&format!("{i}.txt"), format!("file {i}").as_bytes());
+    }
+    stranger.pass();
+    b.pass();
+    for i in 0..14 {
+        fs::remove_file(path_of(stranger.folder.path(), &format!("{i}.txt"))).unwrap();
+    }
+    stranger.pass();
+    stranger.session.answer_mass_delete(true).unwrap();
+    stranger.pass();
+    let (states, _) = b.pass();
+    (states, b)
+}
+
+/// X-DELTA-AZDRIVE-SYNC-1 (AZ-S7). Every Mac started from Finder names its sync "this device" (it
+/// has no `$HOSTNAME`), and a participant reads the other devices' names in every conflict copy of
+/// the drive. A stranger that names itself like the user's computer had its `confirmed` believed
+/// by `writer == self.device`: 14 copies went into the trash without a question. RED not run: the
+/// old `mass_delete` finds the tombstones trusted and `states.mass_delete` is `None`.
+#[test]
+fn x_delta_azdrive_sync_1_a_stranger_named_like_this_device_is_not_believed() {
+    let (states, b) = forged_confirmation("this device", "this device", &[]);
+    assert!(
+        states.mass_delete.is_some(),
+        "b asks: a name is not an identity"
+    );
+    assert_eq!(
+        b.read("0.txt").as_deref(),
+        Some(&b"file 0"[..]),
+        "nothing was trashed"
+    );
+}
+
+/// X-DELTA-AZDRIVE-SYNC-1. The same with the hostname the user's computer really has (readable in
+/// the drive's conflict copies).
+#[test]
+fn x_delta_azdrive_sync_1_a_stranger_named_like_the_users_hostname_is_not_believed() {
+    let (states, b) = forged_confirmation("annas-macbook", "annas-macbook", &[]);
+    assert!(
+        states.mass_delete.is_some(),
+        "b asks: a hostname is not an identity"
+    );
+    assert_eq!(
+        b.read("13.txt").as_deref(),
+        Some(&b"file 13"[..]),
+        "nothing was trashed"
+    );
+}
+
+/// X-DELTA-AZDRIVE-SYNC-1. The account's other devices are the token server's member ids
+/// (`owner`, letters only), which anyone with the drive key can read and write into a tombstone's
+/// `device`. A stranger that signs as `owner` had its `confirmed` believed through
+/// `own_devices`. RED not run: the old judge trusts the tombstone and nothing is asked.
+#[test]
+fn x_delta_azdrive_sync_1_a_stranger_who_signs_as_a_member_id_is_not_believed() {
+    let (states, b) = forged_confirmation("owner", "annas-macbook", &["owner"]);
+    assert!(
+        states.mass_delete.is_some(),
+        "b asks: a member id in a tombstone is not proof"
+    );
+    assert_eq!(
+        b.read("0.txt").as_deref(),
+        Some(&b"file 0"[..]),
+        "nothing was trashed"
     );
 }
 

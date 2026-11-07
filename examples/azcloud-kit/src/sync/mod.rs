@@ -95,6 +95,8 @@ pub mod rules;
 pub mod session;
 // Undoing a delete from this device: the trashed files put back.
 pub mod trash;
+// Whether a tombstone's "the user confirmed this delete" may be believed: one pure judge.
+pub mod trust;
 // The read-back of both sides against the hashes the pairing knows.
 pub mod verify;
 pub mod watcher;
@@ -186,9 +188,10 @@ pub struct SyncOptions {
     /// was given for ([`consent::Consent`]): a plan that deletes another set, or a pause that is
     /// another, asks again.
     pub consents: Vec<consent::Consent>,
-    /// The account's other devices (this one always counts): a mass delete a tombstone of theirs
-    /// says the user confirmed there is not asked again; a tombstone any other writer made - a
-    /// share participant - is counted by the breaker whatever it says (S7).
+    /// The account's other devices by name (this one always counts): files they wrote need no
+    /// quarantine mark ([`quarantine::Writers`]). A name only spares a warning; it is never
+    /// proof of who wrote a tombstone - the breaker counts a tombstone's delete whatever the
+    /// tombstone says ([`trust::trust_tombstone`], SYNC-1).
     pub own_devices: Vec<String>,
     /// Plan only: nothing is uploaded, written or deleted.
     pub dry_run: bool,
@@ -219,13 +222,6 @@ pub struct SyncOptions {
 }
 
 impl SyncOptions {
-    /// Whether a tombstone written by `writer` may say the user confirmed a delete: this device
-    /// and the account's other devices, no other writer.
-    #[must_use]
-    pub fn trusts(&self, writer: &str) -> bool {
-        writer == self.device || self.own_devices.iter().any(|d| d == writer)
-    }
-
     /// The defaults for `prefix` of `bucket` on the device `device`.
     ///
     /// # Errors
@@ -841,9 +837,9 @@ pub struct MassDelete {
 /// two) - a folder of four tax files emptied is as suspect as one of four thousand - or every
 /// file of a folder that stays ([`emptied_folder`], SYNC-F2). Deletes here and on the drive count
 /// together. A delete whose content goes up under another name in the same plan is a move, not
-/// counted; nor is a delete here whose tombstone says the user confirmed it on a device of theirs
-/// ([`SyncOptions::trusts`]): the flag is a word anyone who can write to the drive can put in a
-/// tombstone, so one a stranger wrote counts (S7).
+/// counted; a delete here is counted whatever its tombstone says: the flag `confirmed` is a word
+/// anyone who can write to the drive can put in a tombstone, and the drive authenticates no writer
+/// ([`trust::trust_tombstone`], S7, SYNC-1), so the user's other computer asks once more.
 fn mass_delete(
     actions: &[Action],
     scan: &Scan,
@@ -852,14 +848,18 @@ fn mass_delete(
     opts: &SyncOptions,
 ) -> Option<MassDelete> {
     let moved_here: BTreeSet<&str> = local_moves(actions, scan, remote).into_values().collect();
+    let own: Vec<trust::MemberId> = opts
+        .own_devices
+        .iter()
+        .map(|d| trust::MemberId::new(d))
+        .collect();
     let here: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteLocal { .. }))
         .filter(|a| {
-            !remote
-                .deleted
-                .get(a.key())
-                .is_some_and(|t| t.confirmed && opts.trusts(&t.device))
+            remote.deleted.get(a.key()).is_none_or(|t| {
+                trust::trust_tombstone(t, trust::verified_writer(t), &own) == trust::Trust::Ask
+            })
         })
         .filter(|a| !moved_here.contains(a.key()))
         .map(|a| a.key().to_string())
@@ -4693,7 +4693,7 @@ fn fetch_one<R: SyncRemote + ?Sized>(
     // "downloaded from elsewhere" mark, so the system looks at an `.exe`, a script or a shortcut
     // before it runs it, and the user's own devices' files do not (AZ-W20; X-DELTA-AZDRIVE-FILES-
     // 19). Before the base entry is taken: setting the mark changes the file's change time.
-    if !opts.trusts(&file.device) {
+    if !quarantine::Writers::is_own(opts, &file.device) {
         quarantine::mark_downloaded(&path);
     }
     root.drive().note_written(key);
