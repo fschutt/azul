@@ -9,11 +9,12 @@
 //! the same time (git's "racy" files); those are read again.
 //!
 //! A JSON-merge file (`config.json` of the `.azlin` folder) is synced as its
-//! object WITHOUT the machine-local keys (azul-appkit's `MACHINE_LOCAL_KEYS`:
-//! `endpoints`, `updates`), keys sorted, pretty-printed: its hash is that blob's, so a
-//! change of this computer's endpoints or update cohort is no change for the sync, and a
-//! downloaded copy gets this computer's own keys back. One that does not
-//! parse as an object is skipped (its keys cannot be held back).
+//! object with ONLY the keys that leave the computer (azul-appkit's `SYNCED_KEYS`: the look,
+//! `currentTheme` and `mode`; every other key - `endpoints`, `updates`, `trust`, `oauth` with its
+//! client secrets, a section of a later build - is this computer's own), keys sorted,
+//! pretty-printed: its hash is that blob's, so a change of this computer's endpoints or update
+//! cohort is no change for the sync, and a downloaded copy gets this computer's own keys back.
+//! One that does not parse as an object is skipped (its keys cannot be held back).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -23,7 +24,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use azul_appkit::azlin_config::MACHINE_LOCAL_KEYS;
+use azul_appkit::azlin_config::is_synced;
 use azul_storage::beneath::{self, BeneathError, FileId, Fingerprint, Kind, Stat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -849,12 +850,12 @@ pub fn json_object(bytes: &[u8]) -> Option<Map<String, Value>> {
     }
 }
 
-/// `map` without the machine-local keys.
+/// `map` with only the keys that leave the computer ([`is_synced`]): everything else is this
+/// computer's own, a key a later build adds included (it was a deny-list of three keys, so the
+/// `oauth` section with its client secrets synced).
 #[must_use]
 pub fn without_local_keys(mut map: Map<String, Value>) -> Map<String, Value> {
-    for key in MACHINE_LOCAL_KEYS {
-        map.remove(*key);
-    }
+    map.retain(|key, _| is_synced(key));
     map
 }
 
@@ -873,9 +874,9 @@ pub fn json_blob(bytes: &[u8]) -> Option<Vec<u8>> {
 pub fn json_with_local_keys(blob: &[u8], current: Option<&[u8]>) -> Option<Vec<u8>> {
     let mut map = without_local_keys(json_object(blob)?);
     if let Some(current) = current.and_then(json_object) {
-        for key in MACHINE_LOCAL_KEYS {
-            if let Some(value) = current.get(*key) {
-                map.insert((*key).to_string(), value.clone());
+        for (key, value) in current {
+            if !is_synced(&key) {
+                map.insert(key, value);
             }
         }
     }

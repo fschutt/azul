@@ -34,7 +34,7 @@
 //!
 //! The Azlin tree ([`azlin_roots`]) is two such folders: the data root of
 //! every app to `azlin/data/`, the `.azlin` folder to `azlin/config/`, whose
-//! `config.json` syncs key by key without the machine-local `endpoints`.
+//! `config.json` syncs key by key with the look (`currentTheme`, `mode`) only; the rest of it is this computer's.
 //!
 //! Every call blocks (call it from an azul `Thread`); small blobs travel several at once on
 //! threads of the run's own, against any [`RemoteStore`].
@@ -1182,7 +1182,7 @@ impl<S: RemoteStore + ?Sized> SyncRemote for BlobIndex<'_, S> {
 
 /// Merges every [`Action::MergeJson`] file: this side's object, the drive's
 /// and the base's (fetched by its hash; a blob collected since merges as an
-/// empty object), all without machine-local keys.
+/// empty object), all with the synced keys only.
 fn merge_json_files<R: SyncRemote + ?Sized>(
     remote_side: &R,
     root: &LocalRoot,

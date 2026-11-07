@@ -28,7 +28,7 @@
 //!   < flag) and says where every value came from. No address is built into
 //!   an app outside the profile table, so a value nobody configured shows up
 //!   as "profile ..." in `azcloud config`. The section never leaves this
-//!   computer ([`MACHINE_LOCAL_KEYS`]): the sync of the `.azlin` folder strips
+//!   computer (only [`SYNCED_KEYS`] do): the sync of the `.azlin` folder strips
 //!   it.
 //! - `updates`: how the Azlin apps stay current ([`UpdatesSection`]), in the
 //!   shape of azul's machine-wide `updates` section (`autoupdate`,
@@ -58,14 +58,29 @@
 //! choice.
 //!
 //! Reading is forgiving like `settings.json`'s: a missing file is no
-//! opinion, an unknown theme or mode is ignored (with a line saying so), a
-//! file that is not JSON is left alone and reported. Writing goes through a
-//! temporary file and a rename, so a crash never leaves half a config.
+//! opinion, an unknown theme or mode is ignored (with a line saying so). A
+//! file that is there and is NO config (not JSON, not an object, unreadable) is
+//! [`ConfigState::Broken`], not "no opinion": it holds the user's trust policy
+//! (pinned and distrusted roots), their OAuth client secrets and their update
+//! choices, and reading it as empty switched all of that off silently. Under a
+//! broken file every TLS connection is refused and says why, and nothing
+//! writes over it. [`AzlinConfig::edit`] is the ONE writer: under a lock, on
+//! what the file says now, through `azul_storage::durable` (synced, renamed,
+//! readable by this user alone - it can hold a client secret).
 //!
 //! No azul types here: tested without a window.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
+use azul_storage::{
+    docs,
+    durable::{self, Mode},
+    lock::LockDir,
+};
 use serde_json::{Map, Value};
 
 use crate::args::{ModePref, Theme};
@@ -97,7 +112,10 @@ pub fn config_path(var: Option<&str>, home: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// The shared config.
-#[derive(Clone, Debug, Default, PartialEq)]
+///
+/// `Debug` shows the keys of the bag of other sections and never their values: it holds the
+/// `oauth` client secrets.
+#[derive(Clone, Default, PartialEq)]
 pub struct AzlinConfig {
     /// `currentTheme`; `None` = no opinion.
     pub theme: Option<Theme>,
@@ -113,23 +131,103 @@ pub struct AzlinConfig {
     rest: Map<String, Value>,
 }
 
+impl fmt::Debug for AzlinConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AzlinConfig")
+            .field("theme", &self.theme)
+            .field("mode", &self.mode)
+            .field("endpoints", &self.endpoints)
+            .field("updates", &self.updates)
+            .field("trust", &self.trust)
+            .field("other_keys", &self.rest.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+/// What reading the shared config found. A file that is there and is no config is not "no
+/// opinion" ([`ConfigState::Broken`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConfigState {
+    /// No file, or an empty one: no opinion.
+    Absent,
+    /// The file, read. `problem` says what in it could not be used (an unknown theme, a section of
+    /// the wrong shape), for a log line.
+    Ok {
+        config: AzlinConfig,
+        problem: Option<String>,
+    },
+    /// The file is there and cannot be taken: it is not JSON (a trailing comma, a BOM), its top
+    /// level is not an object, or it cannot be read. `why` names the file and the reason. Never
+    /// the default config: the trust policy it holds is unknown, so every TLS connection is
+    /// refused ([`ConfigState::into_loaded`]), and no writer replaces it.
+    Broken { why: String },
+}
+
+impl ConfigState {
+    /// The config as the callers that take `(config, problem)` have it ([`AzlinConfig::load`]):
+    /// a missing file is the default, a broken one a config whose trust section refuses
+    /// ([`AzlinConfig::broken`]) with the reason as the problem.
+    #[must_use]
+    pub fn into_loaded(self) -> (AzlinConfig, Option<String>) {
+        match self {
+            ConfigState::Absent => (AzlinConfig::default(), None),
+            ConfigState::Ok { config, problem } => (config, problem),
+            ConfigState::Broken { why } => (AzlinConfig::broken(&why), Some(why)),
+        }
+    }
+
+    /// Whether the file is there and is no config.
+    #[must_use]
+    pub fn is_broken(&self) -> bool {
+        matches!(self, ConfigState::Broken { .. })
+    }
+}
+
+/// The longest a writer waits for another writer of the file (the apps and the manager write it in
+/// turn).
+const WRITE_WAIT: Duration = docs::WAIT;
+
 impl AzlinConfig {
+    /// A config for a file that is no config: it has no opinion on anything but trust, and its
+    /// trust section refuses every root ([`TrustSection::pems`] is an error), so no connection is
+    /// made under a policy nobody could read. Never written anywhere.
+    #[must_use]
+    pub fn broken(why: &str) -> AzlinConfig {
+        AzlinConfig {
+            trust: TrustSection::broken(why),
+            ..AzlinConfig::default()
+        }
+    }
+
     /// Reads the config. Never fails: what cannot be read is no opinion, and
     /// the second value says what was wrong (for a log line), if anything.
+    /// A text that is no config is [`AzlinConfig::broken`] - see [`AzlinConfig::read_text`].
     #[must_use]
     pub fn parse(json: &str) -> (AzlinConfig, Option<String>) {
+        AzlinConfig::read_text(json).into_loaded()
+    }
+
+    /// What the config text `json` is: nothing (blank), a config, or no config at all (not JSON,
+    /// not an object).
+    #[must_use]
+    pub fn read_text(json: &str) -> ConfigState {
+        // Windows' Notepad puts a byte order mark in front of what it saves; it is not a typo.
+        let json = json.strip_prefix('\u{feff}').unwrap_or(json);
         if json.trim().is_empty() {
-            return (AzlinConfig::default(), None);
+            return ConfigState::Absent;
         }
         let mut rest = match serde_json::from_str::<Value>(json) {
             Ok(Value::Object(map)) => map,
             Ok(_) => {
-                return (
-                    AzlinConfig::default(),
-                    Some("not a config: the top level is not an object".to_string()),
-                )
+                return ConfigState::Broken {
+                    why: "not a config: the top level is not an object".to_string(),
+                }
             }
-            Err(e) => return (AzlinConfig::default(), Some(format!("not a config: {e}"))),
+            Err(e) => {
+                return ConfigState::Broken {
+                    why: format!("not a config: {e}"),
+                }
+            }
         };
         let mut problems = Vec::new();
         let theme = match rest.remove(THEME_KEY) {
@@ -177,14 +275,15 @@ impl AzlinConfig {
             Some(Value::Object(map)) => TrustSection::parse(map, &mut problems),
             Some(other) => {
                 problems.push(format!("{TRUST_KEY} is not an object: {other}"));
+                let section = TrustSection::not_an_object(&other);
                 rest.insert(TRUST_KEY.to_string(), other);
-                TrustSection::default()
+                section
             }
             None => TrustSection::default(),
         };
         let problem = (!problems.is_empty()).then(|| problems.join("; "));
-        (
-            AzlinConfig {
+        ConfigState::Ok {
+            config: AzlinConfig {
                 theme,
                 mode,
                 endpoints,
@@ -193,7 +292,7 @@ impl AzlinConfig {
                 rest,
             },
             problem,
-        )
+        }
     }
 
     /// The file's text: pretty-printed JSON with sorted keys and a final
@@ -222,84 +321,110 @@ impl AzlinConfig {
         text
     }
 
-    /// Reads the config at `path`: a missing file is no opinion and no
-    /// problem.
+    /// What the file at `path` is: a missing file is [`ConfigState::Absent`], one that cannot be
+    /// read or is no config [`ConfigState::Broken`] (named with its path).
+    #[must_use]
+    pub fn read(path: &Path) -> ConfigState {
+        match std::fs::read_to_string(path) {
+            Ok(text) => match AzlinConfig::read_text(&text) {
+                ConfigState::Broken { why } => ConfigState::Broken {
+                    why: format!("{}: {why}", path.display()),
+                },
+                state => state,
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => ConfigState::Absent,
+            Err(e) => ConfigState::Broken {
+                why: format!("{}: unreadable: {e}", path.display()),
+            },
+        }
+    }
+
+    /// Reads the config at `path`: a missing file is no opinion and no problem; a file that is no
+    /// config is [`AzlinConfig::broken`] (its trust section refuses every connection) with the
+    /// reason as the problem - never the default, which would trust the public roots under a
+    /// policy the user wrote and broke with a typo (AZ-CN1).
     #[must_use]
     pub fn load(path: &Path) -> (AzlinConfig, Option<String>) {
-        match std::fs::read_to_string(path) {
-            Ok(text) => AzlinConfig::parse(&text),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (AzlinConfig::default(), None),
-            Err(e) => (AzlinConfig::default(), Some(format!("unreadable: {e}"))),
-        }
+        AzlinConfig::read(path).into_loaded()
     }
 
-    /// Writes the config to `path`, creating its folder: through a temporary
-    /// file beside it and a rename.
+    /// The lock of the config at `path`: a file in `locks/` beside it, the OS's own file lock, which
+    /// ends with its process (`azul_storage::docs` takes its documents' the same way).
+    fn lock(path: &Path) -> std::io::Result<azul_storage::lock::HeldLock> {
+        let folder = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let name = path.file_name().map_or_else(
+            || String::from("config"),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        // A folder made for the first config is for this user alone, as the file in it.
+        durable::create_private_dirs(folder)?;
+        LockDir::new(folder.join("locks"))
+            .lock(&format!("doc/{name}"), WRITE_WAIT)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::TimedOut, e.to_string()))
+    }
+
+    /// Puts this config in place at `path`: staged beside it, synced, renamed over it
+    /// ([`azul_storage::durable`], one temporary name per write and process), readable by this
+    /// user alone - it can hold an OAuth client secret. Only [`AzlinConfig::edit`] calls it.
+    fn write(&self, path: &Path) -> std::io::Result<()> {
+        durable::replace(path, self.to_json().as_bytes(), Mode::Private)
+    }
+
+    /// The config at `path` with `change` made to it, every other key kept; written only when
+    /// something changed. THE ONLY WRITER of the file: it takes the file's lock, reads what the file
+    /// says NOW (so the manager and an app writing in turn never undo each other, and a second
+    /// process's change is not lost), and puts the result in place durably. A file that is no
+    /// config ([`ConfigState::Broken`]) is left alone: writing would lose what the user typed -
+    /// the pinned roots, the client secrets, the update choices.
     ///
     /// # Errors
     ///
-    /// The I/O error that stopped the write.
-    pub fn store(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, self.to_json())?;
-        std::fs::rename(&tmp, path)
-    }
-
-    /// The config at `path` with `theme` (unless `None`: a pinned app leaves
-    /// the theme as it is) and `mode` written into it, every other key kept.
-    /// What the file says now is read first, so two apps writing in turn
-    /// never undo each other's other keys.
-    ///
-    /// # Errors
-    ///
-    /// The I/O error that stopped the write.
-    pub fn update(path: &Path, theme: Option<Theme>, mode: ModePref) -> std::io::Result<()> {
-        let (mut config, _problem) = AzlinConfig::load(path);
-        let before = config.clone();
-        if theme.is_some() {
-            config.theme = theme;
-        }
-        config.mode = Some(mode);
-        if config == before && path.exists() {
-            return Ok(());
-        }
-        config.store(path)
-    }
-
-    /// The config at `path` with `change` made to it, every other key kept;
-    /// written only when something changed. What the file says now is read
-    /// first, so the manager and an app writing in turn never undo each
-    /// other. A file that is no JSON object is left alone: writing would
-    /// lose what the user typed into it.
-    ///
-    /// # Errors
-    ///
-    /// The I/O error that stopped the write, or `InvalidData` for a file
-    /// that is not a config.
+    /// The I/O error that stopped the write, `TimedOut` when another process holds the file's lock,
+    /// or `InvalidData` for a file that is not a config.
     pub fn edit(
         path: &Path,
         change: impl FnOnce(&mut AzlinConfig),
     ) -> std::io::Result<AzlinConfig> {
-        if let Ok(text) = std::fs::read_to_string(path) {
-            let is_object = text.trim().is_empty()
-                || matches!(serde_json::from_str::<Value>(&text), Ok(Value::Object(_)));
-            if !is_object {
+        let _held = AzlinConfig::lock(path)?;
+        let mut config = match AzlinConfig::read(path) {
+            ConfigState::Broken { why } => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("{} is not a config; left as it is", path.display()),
+                    format!("{} is not a config; left as it is ({why})", path.display()),
                 ));
             }
-        }
-        let (mut config, _problem) = AzlinConfig::load(path);
+            ConfigState::Absent => AzlinConfig::default(),
+            ConfigState::Ok { config, .. } => config,
+        };
         let before = config.clone();
         change(&mut config);
         if config != before || !path.exists() {
-            config.store(path)?;
+            config.write(path)?;
         }
         Ok(config)
+    }
+
+    /// The config at `path` with `theme` (unless `None`: a pinned app leaves the theme as it is)
+    /// and `mode` written into it, every other key kept - what an app does when the look changes
+    /// ([`AzlinConfig::edit`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`AzlinConfig::edit`].
+    pub fn set_look(
+        path: &Path,
+        theme: Option<Theme>,
+        mode: ModePref,
+    ) -> std::io::Result<AzlinConfig> {
+        AzlinConfig::edit(path, |config| {
+            if theme.is_some() {
+                config.theme = theme;
+            }
+            config.mode = Some(mode);
+        })
     }
 }
 
@@ -315,13 +440,21 @@ pub const PROFILE_KEY: &str = "profile";
 pub const PROFILE_VAR: &str = "AZLIN_PROFILE";
 /// The flag naming the profile for a run (over the variable).
 pub const PROFILE_FLAG: &str = "--profile";
-/// The keys of this file that never leave this computer. The sync of the
-/// `.azlin` folder uploads the file without them and keeps this computer's
-/// own when it writes a downloaded copy: an endpoint read from the bucket
-/// would let whoever can write the bucket send this computer's credentials
-/// to a server of their choice, and a developer's local cluster must not
-/// follow the user to the laptop.
-pub const MACHINE_LOCAL_KEYS: &[&str] = &[ENDPOINTS_KEY, UPDATES_KEY, TRUST_KEY];
+/// The ONLY keys of this file that leave this computer: the look. The sync of the `.azlin` folder
+/// uploads the file with these and nothing else, and keeps this computer's own other keys when it
+/// writes a downloaded copy. It was a deny-list of three (`endpoints`, `updates`, `trust`), so every
+/// section added since - `oauth` with its client secrets among them - synced until somebody
+/// remembered (AZ-CN13): an endpoint read from the bucket would let whoever can write the bucket
+/// send this computer's credentials to a server of their choice, and a developer's local cluster
+/// must not follow the user to the laptop. Another app's key in this file stays on its computer
+/// too, until it is added HERE.
+pub const SYNCED_KEYS: &[&str] = &[THEME_KEY, MODE_KEY];
+
+/// Whether the key `key` of the file leaves this computer ([`SYNCED_KEYS`]).
+#[must_use]
+pub fn is_synced(key: &str) -> bool {
+    SYNCED_KEYS.contains(&key)
+}
 /// The profile when nothing names one: the LIVE service in a shipped build, the local mocked
 /// services in a test build (feature `test-hooks`) - so a test that forgot its config never signs
 /// up against the live service, and a release never talks to `http://127.0.0.1:8081` (REVIEW P7).
@@ -1352,6 +1485,11 @@ pub struct TrustSection {
     pub distrusted_roots: Vec<String>,
     /// Every other key of the section, as it was read.
     rest: Map<String, Value>,
+    /// Why the section cannot be taken as the user meant it (a list that is a text, a root that is
+    /// a number, a section that is no object, a config file that is broken): every connection is
+    /// refused ([`TrustSection::pems`]) - an unreadable policy is not an empty one, which would
+    /// trust the public roots (AZ-CN1). The value itself stays in `rest`, so a write keeps it.
+    invalid: Option<String>,
 }
 
 /// The `trust` section read into PEM text: what an app makes its `TrustRoots` of.
@@ -1394,13 +1532,43 @@ impl TrustPems {
 }
 
 impl TrustSection {
+    /// The trust section of a config file that is no config: it refuses every root.
+    fn broken(why: &str) -> TrustSection {
+        TrustSection {
+            invalid: Some(format!(
+                "the shared config cannot be read ({why}); every TLS connection is refused until \
+                 it is fixed"
+            )),
+            ..TrustSection::default()
+        }
+    }
+
+    /// The trust section of a `trust` key that is no object.
+    fn not_an_object(found: &Value) -> TrustSection {
+        TrustSection {
+            invalid: Some(format!(
+                "{TRUST_KEY} in the shared config is not an object ({found}); every TLS \
+                 connection is refused until it is fixed"
+            )),
+            ..TrustSection::default()
+        }
+    }
+
     /// Whether the file says nothing about trust.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.pinned_roots.is_empty() && self.distrusted_roots.is_empty() && self.rest.is_empty()
     }
 
+    /// Why the section is unreadable as the user meant it (every connection is refused then);
+    /// `None` for a section that reads.
+    #[must_use]
+    pub fn invalid(&self) -> Option<&str> {
+        self.invalid.as_deref()
+    }
+
     fn parse(mut map: Map<String, Value>, problems: &mut Vec<String>) -> TrustSection {
+        let mut invalid: Option<String> = None;
         let mut list = |key: &str, map: &mut Map<String, Value>, rest: &mut Map<String, Value>| {
             match map.remove(key) {
                 Some(Value::Array(items)) => {
@@ -1409,14 +1577,18 @@ impl TrustSection {
                         .map(|item| item.as_str().map(str::to_string))
                         .collect();
                     names.unwrap_or_else(|| {
-                        problems.push(format!("{TRUST_KEY}.{key} holds something not a text"));
+                        let why = format!("{TRUST_KEY}.{key} holds something not a text");
+                        problems.push(why.clone());
+                        invalid.get_or_insert(why);
                         rest.insert(key.to_string(), Value::Array(items));
                         Vec::new()
                     })
                 }
                 Some(Value::Null) | None => Vec::new(),
                 Some(other) => {
-                    problems.push(format!("{TRUST_KEY}.{key} is not a list: {other}"));
+                    let why = format!("{TRUST_KEY}.{key} is not a list: {other}");
+                    problems.push(why.clone());
+                    invalid.get_or_insert(why);
                     rest.insert(key.to_string(), other);
                     Vec::new()
                 }
@@ -1430,6 +1602,11 @@ impl TrustSection {
             pinned_roots,
             distrusted_roots,
             rest,
+            invalid: invalid.map(|why| {
+                format!(
+                    "the shared config's {why}; every TLS connection is refused until it is fixed"
+                )
+            }),
         }
     }
 
@@ -1458,6 +1635,10 @@ impl TrustSection {
     /// A file that cannot be read or holds no PEM certificate, named. The app then trusts
     /// nothing rather than more than the user asked for.
     pub fn pems(&self, base: Option<&Path>, home: Option<&Path>) -> Result<TrustPems, String> {
+        // A policy nobody could read is not an empty one: refuse before looking at a root.
+        if let Some(why) = &self.invalid {
+            return Err(why.clone());
+        }
         let read = |entry: &String| -> Result<String, String> {
             if entry.contains("-----BEGIN") {
                 return Ok(entry.clone());
@@ -1564,9 +1745,11 @@ mod tests {
         let (c, problem) = AzlinConfig::parse(r#"{"currentTheme": "monokai"}"#);
         assert_eq!(c.theme, None);
         assert!(problem.unwrap().contains("monokai"));
+        // A text that is no config is not "no opinion" (AZ-CN1): its trust section refuses.
         let (c, problem) = AzlinConfig::parse("not json");
-        assert_eq!(c, AzlinConfig::default());
+        assert_ne!(c, AzlinConfig::default());
         assert!(problem.is_some());
+        assert!(c.trust.pems(None, None).is_err());
     }
 
     #[test]
@@ -1576,13 +1759,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, r#"{"locale": "de"}"#).unwrap();
-        AzlinConfig::update(&path, Some(Theme::FloraRed), ModePref::Light).unwrap();
+        AzlinConfig::set_look(&path, Some(Theme::FloraRed), ModePref::Light).unwrap();
         let (c, _) = AzlinConfig::load(&path);
         assert_eq!(c.theme, Some(Theme::FloraRed));
         assert_eq!(c.mode, Some(ModePref::Light));
         assert!(c.to_json().contains("locale"));
         // A pinned app writes the mode only.
-        AzlinConfig::update(&path, None, ModePref::Dark).unwrap();
+        AzlinConfig::set_look(&path, None, ModePref::Dark).unwrap();
         let (c, _) = AzlinConfig::load(&path);
         assert_eq!(c.theme, Some(Theme::FloraRed), "the pinned app left the theme");
         assert_eq!(c.mode, Some(ModePref::Dark));
@@ -1850,7 +2033,7 @@ mod tests {
             r#"{"endpoints": {"profile": "trial", "s3": "http://127.0.0.1:9000"}}"#,
         )
         .unwrap();
-        AzlinConfig::update(&path, Some(Theme::Flat), ModePref::Dark).unwrap();
+        AzlinConfig::set_look(&path, Some(Theme::Flat), ModePref::Dark).unwrap();
         let (c, problem) = AzlinConfig::load(&path);
         assert_eq!(problem, None);
         assert_eq!(c.theme, Some(Theme::Flat));
@@ -1858,11 +2041,23 @@ mod tests {
         assert_eq!(c.endpoints.get(Endpoint::S3), Some("http://127.0.0.1:9000"));
     }
 
+    /// AZ-CN13 (RF54): what leaves the computer is an allow-list. `oauth` (client secrets,
+    /// endpoints), `endpoints`, `updates`, `trust` and every section a later build adds stay.
     #[test]
-    fn only_the_endpoints_the_updates_and_the_trust_never_leave_this_computer() {
-        assert_eq!(MACHINE_LOCAL_KEYS, &[ENDPOINTS_KEY, UPDATES_KEY, TRUST_KEY]);
-        assert!(!MACHINE_LOCAL_KEYS.contains(&THEME_KEY));
-        assert!(!MACHINE_LOCAL_KEYS.contains(&MODE_KEY));
+    fn az_cn13_only_the_look_leaves_this_computer() {
+        assert_eq!(SYNCED_KEYS, &[THEME_KEY, MODE_KEY]);
+        for key in [
+            ENDPOINTS_KEY,
+            UPDATES_KEY,
+            TRUST_KEY,
+            "oauth",
+            "locale",
+            "window",
+            "a-section-of-a-later-build",
+        ] {
+            assert!(!is_synced(key), "{key}");
+        }
+        assert!(is_synced(THEME_KEY) && is_synced(MODE_KEY));
     }
 
     #[test]
@@ -2161,5 +2356,228 @@ mod tests {
             AzlinConfig::parse(r#"{"endpoints": {"token": "not an address", "profile": "mars"}}"#);
         let cleaned = odd.endpoints.without_credential_destinations();
         assert!(cleaned.is_empty(), "{:?}", cleaned.to_value());
+    }
+    // ==== AZ-CN1 (RF54): a file that is no config is not "no opinion" ====
+
+    /// The review's case: the user hand-edits the file - the only place for the OAuth client
+    /// secret, the pinned roots, the update policy - and leaves a trailing comma.
+    const TYPO: &str =
+        "{\n  \"mode\": \"dark\",\n  \"oauth\": {\"google\": {\"client_secret\": \"s3cret\"}},\n  \
+                        \"trust\": {\"pinned_roots\": [\"~/.azlin/roots/company-ca.pem\"]},\n}\n";
+
+    #[test]
+    fn az_cn1_a_config_with_a_trailing_comma_is_broken_and_not_the_default() {
+        match AzlinConfig::read_text(TYPO) {
+            ConfigState::Broken { why } => assert!(why.contains("not a config"), "{why}"),
+            other => panic!("a trailing comma is no config: {other:?}"),
+        }
+        for not_an_object in ["[1, 2]", "\"dark\"", "42", "{\"mode\": }"] {
+            assert!(
+                AzlinConfig::read_text(not_an_object).is_broken(),
+                "{not_an_object:?} is no config"
+            );
+        }
+        // Blank and absent are no opinion, as they were.
+        assert_eq!(AzlinConfig::read_text("  \n"), ConfigState::Absent);
+        assert_eq!(
+            AzlinConfig::read(Path::new("/definitely/not/there/config.json")),
+            ConfigState::Absent
+        );
+    }
+
+    /// Notepad's byte order mark is not a typo: the file reads, and the mark is gone with the
+    /// next write.
+    #[test]
+    fn az_cn1_a_byte_order_mark_is_not_a_broken_file() {
+        match AzlinConfig::read_text("\u{feff}{\"mode\": \"dark\"}") {
+            ConfigState::Ok { config, problem } => {
+                assert_eq!(problem, None);
+                assert_eq!(config.mode, Some(ModePref::Dark));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(AzlinConfig::read_text("\u{feff}"), ConfigState::Absent);
+    }
+
+    /// Until the user fixes it, no connection is made under the public roots while a policy of
+    /// pinned and distrusted ones is on the disk: the trust of a broken file refuses, with a
+    /// sentence that says why. (It read as the default, i.e. the public roots, with pins and
+    /// distrusts silently off.)
+    #[test]
+    fn az_cn1_under_a_broken_config_the_trust_refuses_every_connection_and_says_why() {
+        let dir = azul_storage::testing::TempDir::new("azlin-config-broken");
+        let path = dir.path().join(CONFIG_DIR).join(CONFIG_FILE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, TYPO).unwrap();
+        let (config, problem) = AzlinConfig::load(&path);
+        let problem = problem.expect("the file is reported");
+        assert!(problem.contains(&path.display().to_string()), "{problem}");
+        let refused = config.trust.pems(path.parent(), None).unwrap_err();
+        assert!(
+            refused.contains("every TLS connection is refused"),
+            "{refused}"
+        );
+        assert!(refused.contains("not a config"), "{refused}");
+        assert_ne!(config.trust.pems(None, None), Ok(TrustPems::default()));
+        // The rest of a broken config has no opinion.
+        assert_eq!(config.theme, None);
+        assert_eq!(config.mode, None);
+        assert!(config.endpoints.is_empty() && config.updates.is_empty());
+    }
+
+    /// A section of the wrong shape is not "no pins" either: `"pinned_roots": "x"` read as an empty
+    /// list, i.e. the public roots, while the user had asked for one authority.
+    #[test]
+    fn az_cn1_a_trust_section_of_the_wrong_shape_refuses_too() {
+        for json in [
+            r#"{"trust": {"pinned_roots": "company-ca.pem"}}"#,
+            r#"{"trust": {"pinned_roots": [1, 2]}}"#,
+            r#"{"trust": {"distrusted_roots": {"a": "b"}}}"#,
+            r#"{"trust": "company-ca.pem"}"#,
+            r#"{"trust": ["company-ca.pem"]}"#,
+        ] {
+            let (config, problem) = AzlinConfig::parse(json);
+            assert!(problem.is_some(), "{json}");
+            let refused = config.trust.pems(None, None).expect_err(json);
+            assert!(
+                refused.contains("every TLS connection is refused"),
+                "{json}: {refused}"
+            );
+            assert!(config.trust.invalid().is_some(), "{json}");
+            // What the user typed is kept: writing the config back loses nothing.
+            let again = AzlinConfig::parse(&config.to_json()).0;
+            assert!(again.trust.invalid().is_some(), "{json}");
+        }
+        // The right shapes still read.
+        let (config, problem) = AzlinConfig::parse(r#"{"trust": {"pinned_roots": []}}"#);
+        assert_eq!(problem, None);
+        assert_eq!(config.trust.pems(None, None), Ok(TrustPems::default()));
+    }
+
+    /// What the apps do when the look changes - `AzlinConfig::set_look`, the call `save_settings`
+    /// makes on its file thread - never replaces a broken file: AzMaps saves after every pan, so
+    /// the next pan after a typo wrote `{"mode": ..}` over the client secret, the pins and the
+    /// update policy (`update()` started from the default). The bytes are as they were.
+    #[test]
+    fn az_cn1_saving_the_look_leaves_a_broken_config_as_it_is() {
+        let dir = azul_storage::testing::TempDir::new("azlin-config-keep-broken");
+        let path = dir.path().join(CONFIG_DIR).join(CONFIG_FILE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, TYPO).unwrap();
+        let error = AzlinConfig::set_look(&path, Some(Theme::Flat), ModePref::Light)
+            .expect_err("a broken file is not written over");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("left as it is"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            TYPO,
+            "the file is untouched"
+        );
+        // `edit` itself, with any change.
+        let edited = AzlinConfig::edit(&path, |c| c.mode = Some(ModePref::Dark));
+        assert!(edited.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), TYPO);
+        // Nothing was left beside it: no temporary file, no second copy.
+        let names: Vec<String> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "locks")
+            .collect();
+        assert_eq!(names, vec![CONFIG_FILE.to_string()], "{names:?}");
+    }
+
+    // ==== AZ-CN16 (RF54): the one writer, durable and private ====
+
+    /// The config can hold an OAuth client secret: the file is readable by this user alone, and the
+    /// write leaves no temporary file under a fixed name that two apps would share.
+    #[cfg(unix)]
+    #[test]
+    fn az_cn16_the_config_is_written_private_and_leaves_no_temporary_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = azul_storage::testing::TempDir::new("azlin-config-private");
+        let path = dir.path().join(CONFIG_DIR).join(CONFIG_FILE);
+        // An older build made it world-readable.
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"oauth": {"google": {"client_secret": "s3cret"}}}"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        AzlinConfig::set_look(&path, Some(Theme::Flat), ModePref::Dark).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the written config is for this user alone: {mode:o}"
+        );
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("s3cret"),
+            "a section of another build is kept: {text}"
+        );
+        assert!(text.contains("flat") && text.contains("dark"), "{text}");
+        let leftovers: Vec<String> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "locks" && name != CONFIG_FILE)
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+        // A new config in a new folder: the folder is private too.
+        let fresh = dir.path().join("fresh").join(CONFIG_DIR).join(CONFIG_FILE);
+        AzlinConfig::set_look(&fresh, None, ModePref::Light).unwrap();
+        let folder = std::fs::metadata(fresh.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(folder, 0o700, "{folder:o}");
+    }
+
+    /// Two apps (or an app and the manager) changing the file at once: each change lands on what the
+    /// file says when the writer has its turn - nothing one of them changed is lost.
+    #[test]
+    fn az_cn16_two_writers_at_once_lose_nothing() {
+        let dir = azul_storage::testing::TempDir::new("azlin-config-two-writers");
+        let path = dir.path().join(CONFIG_DIR).join(CONFIG_FILE);
+        std::thread::scope(|scope| {
+            for n in 0..8 {
+                let path = path.clone();
+                scope.spawn(move || {
+                    AzlinConfig::edit(&path, |c| {
+                        c.updates
+                            .set_skip_version(&format!("app{n}"), Some("1.0.0"));
+                    })
+                    .unwrap();
+                });
+            }
+        });
+        let (config, problem) = AzlinConfig::load(&path);
+        assert_eq!(problem, None);
+        for n in 0..8 {
+            assert_eq!(
+                config
+                    .updates
+                    .policy_for(&format!("app{n}"))
+                    .skip_version
+                    .as_deref(),
+                Some("1.0.0"),
+                "app{n}'s change was lost"
+            );
+        }
+    }
+
+    /// `Debug` of the config lists the keys of what it does not know and never their values: the
+    /// bag holds the OAuth client secrets.
+    #[test]
+    fn az_cn16_the_debug_output_of_a_config_hides_a_client_secret() {
+        let (config, _) = AzlinConfig::parse(
+            r#"{"mode": "dark", "oauth": {"google": {"client_id": "id-1", "client_secret": "s3cret"}}}"#,
+        );
+        let debug = format!("{config:?}");
+        assert!(
+            !debug.contains("s3cret") && !debug.contains("id-1"),
+            "{debug}"
+        );
+        assert!(debug.contains("oauth"), "the key is shown: {debug}");
     }
 }

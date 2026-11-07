@@ -66,7 +66,7 @@ use azul_storage::LocalDrive;
 use crate::{
     about::{about_rows, AboutInfo},
     args::{AppArgs, AppSpec, LanguagePref, ModePref, Theme},
-    azlin_config::{self, AzlinConfig},
+    azlin_config::{self, AzlinConfig, ConfigState},
     data::{self, app_key},
     files::{run_jobs, FileJob, FileOutcome},
     l10n::{self, label, phrase_dom, t_args, t_label, text_dom, Phrase, Text},
@@ -278,7 +278,15 @@ pub fn create_kit(
     let mut settings = settings;
     let mut trust = Ok(azlin_config::TrustPems::default());
     if let Some(path) = config_path.as_deref() {
-        let (shared, problem) = AzlinConfig::load(path);
+        let state = AzlinConfig::read(path);
+        // A file that is no config says so on the settings page: its trust policy is unknown, so
+        // every connection is refused until it is fixed (AZ-CN1).
+        if let ConfigState::Broken { why } = &state {
+            notice = Phrase::new("kit-config-broken")
+                .arg("problem", why.as_str())
+                .into();
+        }
+        let (shared, problem) = state.into_loaded();
         if let Some(problem) = problem {
             eprintln!("[{}] {}: {problem}", spec.binary, path.display());
         }
@@ -775,7 +783,9 @@ impl SharedConfigWrite {
         if self.seq <= *written {
             return;
         }
-        if let Err(e) = AzlinConfig::update(&self.path, self.theme, self.mode) {
+        // The one writer, under the file's lock, on what the file says now; a file that is no
+        // config (a typo the user left in it) is not written over (AZ-CN1).
+        if let Err(e) = AzlinConfig::set_look(&self.path, self.theme, self.mode) {
             eprintln!("[{}] {}: {e}", self.binary, self.path.display());
         }
         *written = self.seq;

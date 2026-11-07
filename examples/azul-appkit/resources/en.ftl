@@ -57,6 +57,7 @@ kit-data-note = Your data are plain files in this folder, one folder per app. An
 ## The settings file
 kit-settings-read-partly = The settings file could not be read fully ({ $problem }).
 kit-settings-unreadable = The settings file could not be read: { $detail }
+kit-config-broken = The shared config cannot be read ({ $problem }). Every connection is refused until it is fixed; nothing writes over it.
 kit-settings-not-saved = The settings could not be saved: { $detail }
 
 ## About

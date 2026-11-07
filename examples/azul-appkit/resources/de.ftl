@@ -57,6 +57,7 @@ kit-data-note = Deine Daten sind einfache Dateien in diesem Ordner, ein Ordner p
 ## Die Einstellungsdatei
 kit-settings-read-partly = Die Einstellungsdatei konnte nicht vollständig gelesen werden ({ $problem }).
 kit-settings-unreadable = Die Einstellungsdatei konnte nicht gelesen werden: { $detail }
+kit-config-broken = Die gemeinsame Konfiguration kann nicht gelesen werden ({ $problem }). Alle Verbindungen werden verweigert, bis sie repariert ist; nichts überschreibt sie.
 kit-settings-not-saved = Die Einstellungen konnten nicht gespeichert werden: { $detail }
 
 ## Info

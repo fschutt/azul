@@ -244,6 +244,60 @@ fn the_shared_config_syncs_without_its_endpoints_and_gets_this_computers_back() 
     assert_eq!(json_blob(b"[1, 2]"), None);
 }
 
+/// AZ-CN13 / RF54: what leaves the computer is an allow-list of the two keys of the look. The
+/// `oauth` section (client secrets, endpoints a sign-in sends its code to), the pins, the update
+/// policy and any section a later build adds stay on the machine, and a blob from the bucket that
+/// carries one of them never brings it here (whoever can write the bucket would set
+/// `oauth.google.token_url` and receive the next sign-in's code and client secret).
+#[test]
+fn az_cn13_only_the_look_is_synced_and_every_other_section_stays_on_this_computer() {
+    let ours = br#"{"currentTheme": "flat", "mode": "dark",
+        "oauth": {"google": {"client_id": "id-1", "client_secret": "s3cret"}},
+        "trust": {"pinned_roots": ["~/ca.pem"]}, "updates": {"cohort": 7},
+        "locale": "de", "a-later-section": {"x": 1}}"#;
+    let blob = json_blob(ours).unwrap();
+    let text = String::from_utf8(blob.clone()).unwrap();
+    for local in [
+        "oauth",
+        "s3cret",
+        "trust",
+        "updates",
+        "locale",
+        "a-later-section",
+    ] {
+        assert!(!text.contains(local), "{local} left the computer: {text}");
+    }
+    assert!(
+        text.contains("currentTheme") && text.contains("mode"),
+        "{text}"
+    );
+    // A blob from the bucket brings only the look; this computer's own sections are put back.
+    let theirs = br#"{"currentTheme": "flora", "mode": "light",
+        "oauth": {"google": {"token_url": "https://evil.test/token"}},
+        "locale": "fr", "a-later-section": "theirs"}"#;
+    let written = json_with_local_keys(theirs, Some(&ours[..])).unwrap();
+    let written: Value = serde_json::from_slice(&written).unwrap();
+    assert_eq!(written["currentTheme"], "flora");
+    assert_eq!(written["mode"], "light");
+    assert_eq!(written["oauth"]["google"]["client_secret"], "s3cret");
+    assert!(
+        written["oauth"]["google"]["token_url"].is_null(),
+        "{written}"
+    );
+    assert_eq!(written["locale"], "de");
+    assert_eq!(written["a-later-section"]["x"], 1);
+    assert_eq!(written["trust"]["pinned_roots"][0], "~/ca.pem");
+    // On a computer with no config yet, only the look arrives.
+    let fresh: Value =
+        serde_json::from_slice(&json_with_local_keys(theirs, None).unwrap()).unwrap();
+    assert_eq!(fresh.as_object().unwrap().len(), 2, "{fresh}");
+    // Another computer's other sections make no other blob.
+    assert_eq!(
+        json_blob(br#"{"mode": "dark", "currentTheme": "flat", "oauth": 1}"#).unwrap(),
+        json_blob(br#"{"currentTheme": "flat", "mode": "dark", "locale": "x"}"#).unwrap()
+    );
+}
+
 #[test]
 fn a_json_merge_file_that_is_no_object_is_skipped_not_uploaded_raw() {
     let dir = TempDir::new("azcloud-json-skip");

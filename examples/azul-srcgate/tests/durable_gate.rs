@@ -228,13 +228,6 @@ const ALLOWED: &[Allow] = &[
         "the shown-notices file and the waitlist: Z30-B (durable::replace)",
     ),
     Allow::exactly(
-        "examples/azul-appkit/src/azlin_config.rs",
-        RAW,
-        2,
-        "AzlinConfig::store writes `<path>.tmp` and renames it (a fixed temp name, the default \
-         mode): Z30-C2 (AR5b-4 step 2, durable::replace with Mode::Private)",
-    ),
-    Allow::exactly(
         "examples/azul-appkit/src/update.rs",
         RAW,
         4,
