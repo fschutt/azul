@@ -3,9 +3,12 @@
 //! months are issued with the key it keeps, a tier bought for a drive is taken when the token
 //! server allows it, and the reminders come before each deadline once.
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 use azlin_contract::DeadlineKind;
@@ -222,6 +225,75 @@ fn a_monthly_plan_whose_months_grow_issues_the_new_month_and_keeps_its_key() {
     assert_eq!(kept.issue_key, ISSUE_KEY);
     assert!(kept.is_open());
     assert_eq!(tokens.state().unwrap().tokens.len(), 2);
+}
+
+/// Every file below `dir`, its folders walked.
+fn files_below(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            found.extend(files_below(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found
+}
+
+/// LANE-AZ-2: `files_of` names every file the store keeps for a drive. After a vault, its second
+/// copy, the members seen and a reminder said for two drives, the folder holds exactly the files
+/// the two drives' lists name: a removed drive leaves none of its own behind, and none of the
+/// other drive's is named.
+#[test]
+fn lane_az_2_files_of_names_every_file_the_store_keeps_for_a_drive() {
+    let dir = TempDir::new("azcloud-store-files");
+    let store = store_in(&dir);
+    let until = NOW + 20 * DAY;
+    let status = crate::token::DriveStatus {
+        tier: Some(String::from("100GB")),
+        period_until: Some(until),
+        lockdown_pending_until: None,
+        read_only: false,
+        members: vec![String::from("m_laptop")],
+        you: None,
+        quota_bytes: None,
+        used_bytes: None,
+        ban: None,
+        read_only_why: None,
+        archive: None,
+    };
+    for drive in ["d_1", "d_2"] {
+        let tokens = store.on_this_device(drive).unwrap();
+        // The reminder is due while no months are kept for the drive.
+        let reminder = reminder_due(&status, &tokens.state().unwrap(), NOW).expect("a reminder");
+        assert!(store.remind_once(drive, &reminder).unwrap());
+        tokens.add_tokens(&[token_of_tier("100GB", "aa")]).unwrap();
+        tokens.keep_second_copy().unwrap();
+        store.see_members(drive, &status).unwrap();
+    }
+
+    let mut on_disk = files_below(store.dir());
+    on_disk.sort();
+    let mut named: Vec<PathBuf> = ["d_1", "d_2"]
+        .iter()
+        .flat_map(|drive| store.files_of(drive))
+        .collect();
+    named.sort();
+    assert_eq!(
+        on_disk, named,
+        "the files there are the files named, no more"
+    );
+    let first = store.files_of("d_1");
+    assert!(first.iter().all(|file| file.exists()), "{first:?}");
+    assert!(
+        first
+            .iter()
+            .all(|file| !store.files_of("d_2").contains(file)),
+        "no file is two drives'"
+    );
+    // An id that is no drive id has no files by name.
+    assert!(store.files_of("../d_1").is_empty());
 }
 
 fn token_of_tier(tier: &str, nonce: &str) -> PeriodToken {

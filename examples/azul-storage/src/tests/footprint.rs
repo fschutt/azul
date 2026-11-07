@@ -137,6 +137,74 @@ fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof(
     store.forget(DRIVE, Some(&proof)).unwrap();
 }
 
+/// A keyring that cannot be looked into: every read of an entry is refused.
+struct Unreadable(MemoryKeyring);
+
+impl KeyringStore for Unreadable {
+    fn get(&self, _key: &str) -> Result<Option<String>, KeyringError> {
+        Err(KeyringError::Denied)
+    }
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        self.0.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        self.0.delete(key)
+    }
+}
+
+/// LANE-AZ-2: "the keys stay" is said of keys that are there. A drive of a bucket has a session
+/// and no key, and its removal keeps nothing for want of a proof (the old answer listed all six
+/// key entries as kept whether or not they existed, so every removal of a drive without a checked
+/// code said that its keys stay).
+#[test]
+fn lane_az_2_a_drive_that_never_had_keys_keeps_none_for_want_of_a_proof() {
+    let keyring = MemoryKeyring::new();
+    keyring
+        .set(&KeyEntry::Session.name(DRIVE), "a session")
+        .unwrap();
+    let store = KeyringFootprint::new(&keyring);
+    let done = store.forget(DRIVE, None).unwrap();
+    assert!(done.kept.is_empty(), "{done:?}");
+    assert!(store.residue(DRIVE).unwrap().is_empty(), "the session went");
+
+    // One key entry is there: that one is kept, and only that one.
+    keyring
+        .set(&KeyEntry::DriveKey.name(DRIVE), "a key")
+        .unwrap();
+    let done = store.forget(DRIVE, None).unwrap();
+    assert_eq!(done.kept.len(), 1, "{done:?}");
+    assert_eq!(done.kept[0].what, KeyEntry::DriveKey.name(DRIVE));
+}
+
+/// LANE-AZ-2: a key entry that cannot be looked at is neither kept nor gone: the store fails, so
+/// the drive stays on the list for another try (an unreadable entry is not an absent one).
+#[test]
+fn lane_az_2_a_key_entry_that_cannot_be_read_fails_the_store_and_the_drive_stays_listed() {
+    let keyring = Unreadable(MemoryKeyring::new());
+    let store = KeyringFootprint::new(&keyring);
+    let failed = store.forget(DRIVE, None).unwrap_err();
+    assert!(
+        failed.to_string().contains(&KeyEntry::DriveKey.name(DRIVE)),
+        "{failed}"
+    );
+
+    let dir = TempDir::new("footprint-unreadable");
+    let drives = dir.path().join("drives.json");
+    DrivesFile::update(&drives, |file| file.add(local_entry(DRIVE))).unwrap();
+    let listing = DrivesListing::new(&drives);
+    let report = forget_drive(&[&listing, &store], DRIVE, None);
+    assert!(!report.complete());
+    assert!(report
+        .stores
+        .iter()
+        .any(|s| s.store == "keyring" && matches!(s.outcome, StoreOutcome::Failed(_))));
+    assert_eq!(
+        report.stores.last().map(|s| &s.outcome),
+        Some(&StoreOutcome::Skipped)
+    );
+    assert!(DrivesFile::load(&drives).unwrap().get(DRIVE).is_some());
+}
+
 /// LANE-AZ-2: a proof is for one drive. One for another drive is none.
 #[test]
 fn lane_az_2_a_proof_for_another_drive_is_no_proof() {

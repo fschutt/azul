@@ -313,6 +313,19 @@ fn az_u13_a_kept_folder_is_one_per_tag_private_and_swept_when_old() {
     assert!(other_version.exists());
 }
 
+/// LANE-AZ-2: what takes a kept folder away before its age does (a removed drive's copies) asks
+/// where it is: `kept` is the path `keep` makes, and makes nothing itself.
+#[test]
+fn lane_az_2_kept_names_the_folder_keep_makes_and_makes_nothing() {
+    let root = TempDir::new("scratch-kept");
+    let picked = Scratch::under(root.path(), "picked");
+    let named = picked.kept("d_1");
+    assert!(!root.path().join("picked").exists(), "nothing was made");
+    assert!(named.starts_with(picked.dir()));
+    assert_ne!(named, picked.kept("d_2"), "one folder a tag");
+    assert_eq!(picked.keep("d_1").unwrap(), named);
+}
+
 /// AZ-U13: the product call is a read-only copy; on a system without modes it is the read-only
 /// attribute.
 #[test]

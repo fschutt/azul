@@ -392,6 +392,22 @@ impl LocalVault {
         }
     }
 
+    /// The folder of the locks a change of the vaults is made under, `<dir>/locks`.
+    fn locks(&self) -> LockDir {
+        LockDir::new(self.dir.join("locks"))
+    }
+
+    /// Every file this drive's vault on this computer is in: the vault, its second copy and the
+    /// lock a change of them is made under (a removed drive leaves none of them).
+    #[must_use]
+    pub fn files(&self) -> Vec<PathBuf> {
+        vec![
+            self.path.clone(),
+            self.second_copy().path,
+            self.locks().file_of(&self.drive_id),
+        ]
+    }
+
     fn read_file(&self) -> CloudResult<VaultState> {
         Ok(read_json::<VaultState>(&self.path)?.unwrap_or_default())
     }
@@ -403,7 +419,7 @@ impl TokenVault for LocalVault {
     }
 
     fn join(&self, change: &VaultState) -> CloudResult<VaultState> {
-        let _lock = LockDir::new(self.dir.join("locks")).lock(&self.drive_id, LOCAL_WAIT)?;
+        let _lock = self.locks().lock(&self.drive_id, LOCAL_WAIT)?;
         let mut state = self.read_file()?;
         if state.holds(change) && state.format == VAULT_FORMAT {
             return Ok(state);

@@ -88,6 +88,16 @@ impl Outbox {
         &self.dir
     }
 
+    /// Every file an open call of `drive_id` is in, whichever its scope: a removed drive leaves
+    /// none of them.
+    #[must_use]
+    pub fn files_of(&self, drive_id: &str) -> Vec<PathBuf> {
+        IdempotentScope::ALL
+            .into_iter()
+            .map(|scope| self.file_of(scope, drive_id))
+            .collect()
+    }
+
     fn file_of(&self, scope: IdempotentScope, drive_id: &str) -> PathBuf {
         // a drive id is letters, digits, `_` and `-`; nothing else reaches a file name
         let drive: String = drive_id

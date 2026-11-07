@@ -48,6 +48,46 @@ fn an_open_call_keeps_its_key_until_a_final_answer_closes_it() {
     }
 }
 
+/// LANE-AZ-2: `files_of` names the file of every scope's open call of a drive: after one call of
+/// each scope for two drives, the folder holds exactly the files the two lists name, and what a
+/// removal of the first drive takes leaves the second drive's calls open.
+#[test]
+fn lane_az_2_files_of_names_every_scope_a_drive_has_an_open_call_in() {
+    let dir = TempDir::new("azcloud-outbox-files");
+    let outbox = Outbox::new(dir.path().join("outbox"));
+    let mut open = Vec::new();
+    for scope in IdempotentScope::ALL {
+        open.push(outbox.open(scope, "d_1", "a call").unwrap());
+        open.push(outbox.open(scope, "d_2", "a call").unwrap());
+    }
+    let mut on_disk: Vec<_> = std::fs::read_dir(outbox.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    on_disk.sort();
+    let mut named: Vec<_> = outbox
+        .files_of("d_1")
+        .into_iter()
+        .chain(outbox.files_of("d_2"))
+        .collect();
+    named.sort();
+    assert_eq!(
+        on_disk, named,
+        "the files there are the files named, no more"
+    );
+
+    for file in outbox.files_of("d_1") {
+        std::fs::remove_file(file).unwrap();
+    }
+    for scope in IdempotentScope::ALL {
+        assert!(outbox.pending(scope, "d_1").is_none(), "{scope:?}");
+        assert!(outbox.pending(scope, "d_2").is_some(), "{scope:?}");
+    }
+    for call in open {
+        call.close();
+    }
+}
+
 #[test]
 fn only_a_final_answer_closes_a_sent_call() {
     let dir = TempDir::new("azcloud-outbox-send");

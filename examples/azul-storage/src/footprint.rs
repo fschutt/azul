@@ -419,10 +419,18 @@ impl Footprint for KeyringFootprint<'_> {
         for entry in KeyEntry::ALL {
             let name = entry.name(drive);
             if entry.is_key_material() && proof.is_none() {
-                done.kept.push(Kept {
-                    what: name,
-                    because: KeptBecause::NoProof,
-                });
+                // Key material stays without the evidence - when there is some. An entry that is
+                // not there is nothing to keep and is not said to be (a drive of a bucket has a
+                // session and no key); one that cannot be looked at is neither kept nor gone: the
+                // store fails and the drive stays listed.
+                match self.keyring.get(&name) {
+                    Ok(None) => {}
+                    Ok(Some(_)) => done.kept.push(Kept {
+                        what: name,
+                        because: KeptBecause::NoProof,
+                    }),
+                    Err(e) => failures.push(format!("{name}: {e}")),
+                }
                 continue;
             }
             match self.keyring.delete(&name) {
@@ -443,6 +451,9 @@ impl Footprint for KeyringFootprint<'_> {
 pub struct Paths {
     store: &'static str,
     places_of: Box<dyn Fn(&str) -> Vec<PathBuf> + Send + Sync>,
+    /// Whether what is here may be the only way back to the drive or to what was paid for it,
+    /// so that it goes only with a [`RemovalProof`].
+    needs_proof: bool,
 }
 
 impl Paths {
@@ -455,7 +466,16 @@ impl Paths {
         Paths {
             store,
             places_of: Box::new(places_of),
+            needs_proof: false,
         }
+    }
+
+    /// This store goes only with a [`RemovalProof`], like the keys: a vault of paid months, the
+    /// calls that guard them. Without one everything in it stays and the report says so.
+    #[must_use]
+    pub fn only_with_proof(mut self) -> Paths {
+        self.needs_proof = true;
+        self
     }
 }
 
@@ -495,11 +515,20 @@ impl Footprint for Paths {
     fn forget(
         &self,
         drive: &str,
-        _proof: Option<&RemovalProof>,
+        proof: Option<&RemovalProof>,
     ) -> Result<Forgotten, FootprintError> {
         let mut done = Forgotten::default();
         let mut failures = Vec::new();
         for place in (self.places_of)(drive) {
+            if self.needs_proof && proof.is_none() {
+                if std::fs::symlink_metadata(&place).is_ok() {
+                    done.kept.push(Kept {
+                        what: place.display().to_string(),
+                        because: KeptBecause::NoProof,
+                    });
+                }
+                continue;
+            }
             match remove_place(&place) {
                 Ok(()) => done.removed.push(place.display().to_string()),
                 Err(e) => failures.push(e),

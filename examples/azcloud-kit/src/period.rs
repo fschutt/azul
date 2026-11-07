@@ -1597,6 +1597,39 @@ impl PeriodTokenStore {
         Ok(LocalVault::new(&self.dir, self.path_of(drive_id)?, drive_id))
     }
 
+    /// The file of the members `drive_id`'s status named at the last look.
+    fn members_path(&self, drive_id: &str) -> CloudResult<PathBuf> {
+        Ok(self
+            .dir
+            .join(format!("{}.members.json", check_id(drive_id)?)))
+    }
+
+    /// The file of the reminders already said for `drive_id`.
+    fn reminders_path(&self, drive_id: &str) -> CloudResult<PathBuf> {
+        Ok(self
+            .dir
+            .join(format!("{}.reminders.json", check_id(drive_id)?)))
+    }
+
+    /// Everything this computer keeps of `drive_id` in the folder: its vault and the copy of it,
+    /// the lock a change of them is made under, the members it saw and the reminders it said.
+    /// None for an id that is no drive id. (The issue requests an older version kept per
+    /// checkout belong to a checkout, not to a drive, and are not these.)
+    #[must_use]
+    pub fn files_of(&self, drive_id: &str) -> Vec<PathBuf> {
+        let (Ok(local), Ok(members), Ok(reminders)) = (
+            self.local(drive_id),
+            self.members_path(drive_id),
+            self.reminders_path(drive_id),
+        ) else {
+            return Vec::new();
+        };
+        let mut files = local.files();
+        files.push(members);
+        files.push(reminders);
+        files
+    }
+
     /// `drive`'s period tokens, kept on this computer and in the drive itself (encrypted with
     /// its key): any device of the drive that holds the key redeems them and issues its next
     /// months, whichever looks first. Tokens this computer kept before are joined into the
@@ -1692,9 +1725,7 @@ impl PeriodTokenStore {
     /// itself (`status.you`); none the first time, which learns them. What it saw is kept in
     /// `<dir>/<drive id>.members.json`, so a restart remembers it.
     pub fn see_members(&self, drive_id: &str, status: &DriveStatus) -> CloudResult<Vec<String>> {
-        let path = self
-            .dir
-            .join(format!("{}.members.json", check_id(drive_id)?));
+        let path = self.members_path(drive_id)?;
         let seen = read_json::<SeenMembers>(&path)?;
         let new = seen.as_ref().map_or_else(Vec::new, |seen| {
             status
@@ -1724,9 +1755,7 @@ impl PeriodTokenStore {
     /// Whether `reminder` of `drive_id` is to be said now: the first time it comes. What was
     /// said is kept in `<dir>/<drive id>.reminders.json`, so a restart does not say it again.
     pub fn remind_once(&self, drive_id: &str, reminder: &Reminder) -> CloudResult<bool> {
-        let path = self
-            .dir
-            .join(format!("{}.reminders.json", check_id(drive_id)?));
+        let path = self.reminders_path(drive_id)?;
         let mut said = read_json::<SaidReminders>(&path)?.unwrap_or_default();
         let key = reminder.key();
         if said.said.contains(&key) {

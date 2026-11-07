@@ -193,10 +193,18 @@ impl Scratch {
     /// When the folders cannot be made or checked.
     pub fn keep(&self, tag: &str) -> io::Result<PathBuf> {
         self.ensure()?;
-        let hash = blake3::hash(tag.as_bytes()).to_hex();
-        let path = self.dir.join(format!("{KEPT}{}", &hash.as_str()[..16]));
+        let path = self.kept(tag);
         private_folder(&path)?;
         Ok(path)
+    }
+
+    /// Where the folder kept under `tag` is ([`Scratch::keep`] makes it): the path alone, nothing
+    /// is made. What takes the folder away before its age does (a removed drive's copies) asks
+    /// for it here.
+    #[must_use]
+    pub fn kept(&self, tag: &str) -> PathBuf {
+        let hash = blake3::hash(tag.as_bytes()).to_hex();
+        self.dir.join(format!("{KEPT}{}", &hash.as_str()[..16]))
     }
 
     /// Removes what this purpose's folder holds that nobody uses: a file of a process that is

@@ -176,6 +176,13 @@ impl MemoryKeyring {
         Self::default()
     }
 
+    /// The names of the entries (never a text), in order: what a test that looks for the
+    /// traces of a drive walks.
+    #[must_use]
+    pub fn names(&self) -> Vec<String> {
+        self.entries().keys().cloned().collect()
+    }
+
     fn entries(&self) -> std::sync::MutexGuard<'_, std::collections::BTreeMap<String, String>> {
         self.entries
             .lock()
