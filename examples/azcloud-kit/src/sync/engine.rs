@@ -404,8 +404,20 @@ impl Engine {
             sync::atomic::Ordering,
             time::{Duration, Instant, SystemTime},
         };
-        let watcher = super::watcher::Watcher::start(&self.root).ok();
         let mut clock = super::watcher::RescanClock::default();
+        let (watcher, unwatchable) = match super::watcher::Watcher::start(&self.root) {
+            Ok(watcher) => (Some(watcher), None),
+            Err(e) => {
+                // No watcher at all (the user's limit of watch instances; a folder that is gone is
+                // the pass's to report): the clock is in charge, so it is shortened and the list
+                // says so, as for a folder that is only partly watched.
+                let said = super::watcher::unwatchable_problem(&e);
+                if said.is_some() {
+                    clock.interval = super::watcher::PARTIAL_RESCAN;
+                }
+                (None, said)
+            }
+        };
         let mut reason: Option<String> = None;
         while !stop.load(Ordering::SeqCst) {
             let due = clock.due(SystemTime::now(), Instant::now());
@@ -416,6 +428,14 @@ impl Engine {
                     reason = Some(why);
                     std::thread::sleep(wait.min(Duration::from_secs(1)));
                     continue;
+                }
+                // A folder the watcher could not watch everywhere, or at all, is said in the problem
+                // list with every pass (it is looked at again every minute meanwhile).
+                let partial = watcher
+                    .as_ref()
+                    .and_then(|w| super::watcher::coverage_problem(&w.coverage()));
+                if let Some(problem) = partial.or_else(|| unwatchable.clone()) {
+                    self.note(problem);
                 }
                 pass(&why);
                 clock.ran(Instant::now());

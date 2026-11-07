@@ -739,6 +739,7 @@ azdrive-sync-problem = { $code ->
         [server-moved] Das Laufwerk ist umgezogen (nichts wurde geändert)
         [read-only] Das Laufwerk nimmt gerade keine neuen Dateien an (hier behalten)
         [xattrs-not-synced] Attribute und Tags werden nicht synchronisiert (der Inhalt schon)
+        [watch-limited] Einige Ordner werden nicht überwacht: Änderungen dort werden eine Minute später gefunden
        *[other] Nicht synchronisiert
     }
 azdrive-sync-none = Noch kein Laufwerk wird mit einem Ordner synchronisiert: Das Menü eines Cloud-Laufwerks in der Navigationsleiste (oder Freigeben > Mit einem Ordner synchronisieren) verbindet es mit einem.

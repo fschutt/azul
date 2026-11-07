@@ -6,14 +6,21 @@
 //! pass.
 //!
 //! The backends: FSEvents on macOS, inotify on Linux (one watch per folder, new folders added
-//! as they appear), and on other systems a light poll of the folders' times.
+//! as they appear), and on other systems a poll of the folders' times that waits longer the longer
+//! a look at the tree takes ([`poll_wait`]), so a big folder costs a few percent of a core and
+//! not all of it.
+//!
+//! A backend that cannot watch everything says so ([`Watcher::coverage`]): inotify has a limit
+//! of watches per user (`fs.inotify.max_user_watches`), and a folder that is not watched wakes
+//! nothing. A partly watched folder is looked at again every [`PARTIAL_RESCAN`] instead of
+//! every 15 minutes, and the engine tells the user once per pass ([`Coverage::sentence`]).
 
 use std::{
     collections::BTreeSet,
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, Mutex, PoisonError,
     },
     time::{Duration, Instant, SystemTime},
 };
@@ -24,6 +31,78 @@ use azul_storage::names::Protected;
 pub const FULL_RESCAN: Duration = Duration::from_secs(15 * 60);
 /// A gap between the wall clock and the monotonic clock past this means the computer slept.
 pub const SLEEP_GAP: Duration = Duration::from_secs(30);
+/// How often a folder with unwatched folders in it is looked at in full anyway: a change in a
+/// folder nothing watches is found by this pass, not at once.
+pub const PARTIAL_RESCAN: Duration = Duration::from_secs(60);
+
+/// How completely a folder is watched. A folder the backend could not put a watch on wakes
+/// nothing when it changes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Coverage {
+    /// Folders without a watch.
+    pub unwatched: usize,
+    /// Why, as a clause for a sentence; the first reason a folder was missed.
+    pub why: Option<&'static str>,
+}
+
+impl Coverage {
+    /// Every folder has its watch.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.unwatched == 0
+    }
+
+    /// One folder the backend could not watch, for `why`.
+    pub fn missed(&mut self, why: &'static str) {
+        self.unwatched += 1;
+        self.why.get_or_insert(why);
+    }
+
+    /// What the problem list says of it; `None` when every folder is watched.
+    #[must_use]
+    pub fn sentence(&self) -> Option<String> {
+        if self.is_complete() {
+            return None;
+        }
+        let why = self.why.unwrap_or("they cannot be watched");
+        Some(format!(
+            "{} folder{} not watched ({why}): a change in {} is found by a pass within {} seconds, \
+             not at once",
+            self.unwatched,
+            if self.unwatched == 1 { " is" } else { "s are" },
+            if self.unwatched == 1 { "it" } else { "them" },
+            PARTIAL_RESCAN.as_secs()
+        ))
+    }
+}
+
+/// The problem a partly watched folder is for the problem list, once per pass: a warning (the
+/// folder syncs, later).
+#[must_use]
+pub fn coverage_problem(coverage: &Coverage) -> Option<super::problems::Problem> {
+    coverage.sentence().map(|sentence| {
+        super::problems::Problem::new(super::problems::Code::WatchLimited, "", sentence)
+    })
+}
+
+/// The problem of a folder no watcher could be started on (`inotify_init1` refused: the user's limit of
+/// watch instances is used up): the same warning, with the system's own words. `None` for a folder
+/// that is not there - the pass reports that itself.
+#[must_use]
+pub fn unwatchable_problem(error: &std::io::Error) -> Option<super::problems::Problem> {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        return None;
+    }
+    Some(super::problems::Problem::new(
+        super::problems::Code::WatchLimited,
+        "",
+        format!(
+            "the folder cannot be watched ({error}): a change in it is found by a pass within {} \
+             seconds, not at once",
+            PARTIAL_RESCAN.as_secs()
+        ),
+    ))
+}
 
 /// What the watcher heard.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +120,8 @@ pub struct Watcher {
     stop: Arc<AtomicBool>,
     /// The backend's own handle (the FSEvents stream); dropped with the watcher.
     _backend: Option<Box<dyn Send>>,
+    /// What the backend could not watch, as it learns it.
+    coverage: Arc<Mutex<Coverage>>,
 }
 
 impl Watcher {
@@ -53,12 +134,25 @@ impl Watcher {
         std::fs::metadata(root)?;
         let (sender, events) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
-        let backend = imp::start(root, sender, Arc::clone(&stop))?;
+        let coverage = Arc::new(Mutex::new(Coverage::default()));
+        let backend = imp::start(root, sender, Arc::clone(&stop), Arc::clone(&coverage))?;
         Ok(Watcher {
             events,
             stop,
             _backend: backend,
+            coverage,
         })
+    }
+
+    /// What is watched: a folder the backend could not put a watch on is counted, with the reason
+    /// of the first (the initial walk has finished by the time [`Watcher::start`] returns; folders
+    /// that appear later add to it).
+    #[must_use]
+    pub fn coverage(&self) -> Coverage {
+        self.coverage
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Waits up to `timeout` for the first wake, then gathers whatever else arrives within
@@ -184,18 +278,12 @@ mod imp {
         sync::{atomic::AtomicBool, mpsc, Arc, Mutex},
     };
 
-    use super::{folder_key, Wake};
+    use super::{folder_key, Coverage, Wake};
 
     type CFIndex = isize;
     type FSEventStreamRef = *mut c_void;
-    type Callback = extern "C" fn(
-        FSEventStreamRef,
-        *mut c_void,
-        usize,
-        *mut c_void,
-        *const u32,
-        *const u64,
-    );
+    type Callback =
+        extern "C" fn(FSEventStreamRef, *mut c_void, usize, *mut c_void, *const u32, *const u64);
 
     #[repr(C)]
     struct FSEventStreamContext {
@@ -326,8 +414,10 @@ mod imp {
         root: &Path,
         sender: mpsc::Sender<Wake>,
         _stop: Arc<AtomicBool>,
+        _coverage: Arc<Mutex<Coverage>>,
     ) -> std::io::Result<Option<Box<dyn Send>>> {
-        // FSEvents reports paths with symbolic links resolved (/private/var for /var).
+        // FSEvents reports paths with symbolic links resolved (/private/var for /var); it has no
+        // per-folder limit, so every folder is covered.
         let root = std::fs::canonicalize(root)?;
         let c_root = CString::new(root.as_os_str().as_bytes())
             .map_err(|_| std::io::Error::other("a NUL in the folder's path"))?;
@@ -398,7 +488,12 @@ mod imp {
         },
     };
 
-    use super::{Protected, Wake};
+    use std::{
+        sync::{Mutex, PoisonError},
+        time::Instant,
+    };
+
+    use super::{miss_reason, Coverage, Protected, Wake, PARTIAL_RESCAN};
 
     const MASK: u32 = libc::IN_CREATE
         | libc::IN_DELETE
@@ -417,6 +512,8 @@ mod imp {
         /// Watch descriptor -> the folder's key ("" is the root).
         watches: BTreeMap<i32, String>,
         root: PathBuf,
+        /// The folders no watch could be put on (the user's limit, a folder that cannot be entered).
+        coverage: Arc<Mutex<Coverage>>,
     }
 
     impl Inotify {
@@ -434,6 +531,15 @@ mod imp {
             let wd = unsafe { libc::inotify_add_watch(self.fd, c.as_ptr(), MASK) };
             if wd >= 0 {
                 self.watches.insert(wd, key.to_string());
+            } else if let Some(why) = std::io::Error::last_os_error()
+                .raw_os_error()
+                .and_then(miss_reason)
+            {
+                // A folder nothing watches wakes nothing: counted, not dropped without a word.
+                self.coverage
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .missed(why);
             }
             let Ok(entries) = std::fs::read_dir(&path) else {
                 return;
@@ -442,7 +548,11 @@ mod imp {
                 let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if is_dir && !(key.is_empty() && Protected::is_bookkeeping(&name)) {
-                    let child = if key.is_empty() { name } else { format!("{key}/{name}") };
+                    let child = if key.is_empty() {
+                        name
+                    } else {
+                        format!("{key}/{name}")
+                    };
                     self.add_tree(&child);
                 }
             }
@@ -460,6 +570,7 @@ mod imp {
         root: &Path,
         sender: mpsc::Sender<Wake>,
         stop: Arc<AtomicBool>,
+        coverage: Arc<Mutex<Coverage>>,
     ) -> std::io::Result<Option<Box<dyn Send>>> {
         // SAFETY: no arguments but flags.
         let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
@@ -470,6 +581,7 @@ mod imp {
             fd,
             watches: BTreeMap::new(),
             root: root.to_path_buf(),
+            coverage,
         };
         inotify.add_tree("");
         std::thread::Builder::new()
@@ -480,7 +592,23 @@ mod imp {
 
     fn run(mut inotify: Inotify, sender: &mpsc::Sender<Wake>, stop: &AtomicBool) {
         let mut buf = vec![0u8; 64 * 1024];
+        let mut last_partial = Instant::now();
         while !stop.load(Ordering::SeqCst) {
+            // Folders without a watch wake nothing: a pass looks at the whole folder every
+            // PARTIAL_RESCAN so a change in them is found within a minute, not in a quarter hour.
+            if last_partial.elapsed() >= PARTIAL_RESCAN {
+                last_partial = Instant::now();
+                let missing = inotify
+                    .coverage
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .sentence();
+                if let Some(why) = missing {
+                    if sender.send(Wake::Rescan(why)).is_err() {
+                        return;
+                    }
+                }
+            }
             let mut poll = libc::pollfd {
                 fd: inotify.fd,
                 events: libc::POLLIN,
@@ -518,7 +646,9 @@ mod imp {
                 let Some(folder) = inotify.watches.get(&event.wd).cloned() else {
                     continue;
                 };
-                if event.mask & (libc::IN_DELETE_SELF | libc::IN_MOVE_SELF) != 0 && folder.is_empty() {
+                if event.mask & (libc::IN_DELETE_SELF | libc::IN_MOVE_SELF) != 0
+                    && folder.is_empty()
+                {
                     rescan = Some("the folder itself moved or was removed");
                 }
                 if folder.is_empty() && Protected::is_bookkeeping(&name.to_string_lossy()) {
@@ -555,27 +685,57 @@ mod imp {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-mod imp {
-    //! A poll: every two seconds the folders' modification times and the files' sizes and
-    //! times are compared with the last look (a file changed in place changes its folder's
-    //! listing only on some systems, so files are looked at too).
+/// Why inotify could not put a watch on a folder, from the `errno` of `inotify_add_watch`: `None`
+/// for a folder that went away meanwhile (there is nothing left to watch), else the clause the
+/// problem list gives.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[must_use]
+pub(crate) fn miss_reason(errno: i32) -> Option<&'static str> {
+    match errno {
+        libc::ENOENT => None,
+        libc::ENOSPC => {
+            Some("the user's limit of watches, fs.inotify.max_user_watches, is used up")
+        }
+        _ => Some("a folder cannot be entered"),
+    }
+}
 
+/// The shortest wait between two looks of the poll.
+pub const POLL_MIN: Duration = Duration::from_secs(2);
+/// The longest.
+pub const POLL_MAX: Duration = Duration::from_secs(300);
+/// The wait is this many times as long as the look that came before it, so the poll costs at most
+/// a twentieth of one core.
+pub const POLL_DUTY: u32 = 20;
+
+/// How long the poll waits after a look at the whole tree that took `look`: [`POLL_DUTY`] times as
+/// long, at least [`POLL_MIN`], at most [`POLL_MAX`]. A folder of 200 000 files costs the poll a
+/// few seconds a look; looking every two seconds took a core and the battery.
+#[must_use]
+pub fn poll_wait(look: Duration) -> Duration {
+    look.saturating_mul(POLL_DUTY).clamp(POLL_MIN, POLL_MAX)
+}
+
+/// The poll: the folders' sizes and times compared with the last look. The backend of a system
+/// with no event interface here (Windows); the logic is plain `std`, so it is built and tested on
+/// every host.
+#[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(dead_code))]
+pub(crate) mod poll {
     use std::{
         collections::{BTreeMap, BTreeSet},
         path::Path,
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            mpsc, Arc,
-        },
-        time::{Duration, SystemTime},
+        time::SystemTime,
     };
 
-    use super::{Protected, Wake};
+    use super::Protected;
 
-    type Look = BTreeMap<String, (u64, Option<SystemTime>)>;
+    /// Every entry below the root by key: its size and its modification time.
+    pub type Look = BTreeMap<String, (u64, Option<SystemTime>)>;
 
-    fn look(root: &Path, key: &str, out: &mut Look) {
+    /// Adds the entries of `key` (a folder of `root`; `""` is the root) and everything below it to
+    /// `out`, but the bookkeeping folder.
+    pub fn look(root: &Path, key: &str, out: &mut Look) {
         let dir = if key.is_empty() {
             root.to_path_buf()
         } else {
@@ -589,7 +749,11 @@ mod imp {
             if key.is_empty() && Protected::is_bookkeeping(&name) {
                 continue;
             }
-            let child = if key.is_empty() { name } else { format!("{key}/{name}") };
+            let child = if key.is_empty() {
+                name
+            } else {
+                format!("{key}/{name}")
+            };
             let Ok(meta) = entry.metadata() else { continue };
             out.insert(child.clone(), (meta.len(), meta.modified().ok()));
             if meta.is_dir() {
@@ -598,33 +762,85 @@ mod imp {
         }
     }
 
+    /// The folders (keys; `""` is the root) that hold an entry which is new, gone or different
+    /// since `last`.
+    pub fn changed(last: &Look, now: &Look) -> BTreeSet<String> {
+        now.iter()
+            .filter(|(key, value)| last.get(*key) != Some(value))
+            .map(|(key, _)| folder_of(key))
+            .chain(
+                last.keys()
+                    .filter(|key| !now.contains_key(*key))
+                    .map(|key| folder_of(key)),
+            )
+            .collect()
+    }
+
     fn folder_of(key: &str) -> String {
-        key.rfind('/').map_or_else(String::new, |i| key[..i].to_string())
+        key.rfind('/')
+            .map_or_else(String::new, |i| key[..i].to_string())
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+mod imp {
+    //! A poll: the folders' sizes and times are compared with the last look (a file changed in
+    //! place changes its folder's listing only on some systems, so files are looked at too), and
+    //! the wait between looks grows with the look ([`super::poll_wait`]).
+
+    use std::{
+        path::Path,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc, Arc, Mutex,
+        },
+        time::{Duration, Instant},
+    };
+
+    use super::{
+        poll::{changed, look, Look},
+        poll_wait, Coverage, Wake,
+    };
+
+    /// Sleeps `total`, but not past a stop: a stopped watcher's thread does not linger for the
+    /// five minutes a poll of a big folder may wait.
+    fn sleep_unless_stopped(total: Duration, stop: &AtomicBool) {
+        let until = Instant::now() + total;
+        while !stop.load(Ordering::SeqCst) {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            std::thread::sleep(left.min(Duration::from_millis(500)));
+        }
     }
 
     pub fn start(
         root: &Path,
         sender: mpsc::Sender<Wake>,
         stop: Arc<AtomicBool>,
+        _coverage: Arc<Mutex<Coverage>>,
     ) -> std::io::Result<Option<Box<dyn Send>>> {
         let root = root.to_path_buf();
         std::thread::Builder::new()
             .name(String::from("azcloud-sync-watcher"))
             .spawn(move || {
                 let mut last = Look::new();
+                let started = Instant::now();
                 look(&root, "", &mut last);
+                let mut wait = poll_wait(started.elapsed());
                 while !stop.load(Ordering::SeqCst) {
-                    std::thread::sleep(Duration::from_secs(2));
+                    sleep_unless_stopped(wait, &stop);
+                    if stop.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    let started = Instant::now();
                     let mut now = Look::new();
                     look(&root, "", &mut now);
-                    let changed: BTreeSet<String> = now
-                        .iter()
-                        .filter(|(k, v)| last.get(*k) != Some(v))
-                        .map(|(k, _)| folder_of(k))
-                        .chain(last.keys().filter(|k| !now.contains_key(*k)).map(|k| folder_of(k)))
-                        .collect();
+                    wait = poll_wait(started.elapsed());
+                    let folders = changed(&last, &now);
                     last = now;
-                    if !changed.is_empty() && sender.send(Wake::Changed(changed)).is_err() {
+                    if !folders.is_empty() && sender.send(Wake::Changed(folders)).is_err() {
                         return;
                     }
                 }

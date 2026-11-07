@@ -127,6 +127,9 @@ pub enum Code {
     /// Items of the folder carry extended attributes, a resource fork or flags, which are not
     /// synced (their content is): a note, once per folder.
     XattrsNotSynced,
+    /// Some folders are not watched (the system's limit of watches is used up, or a folder cannot
+    /// be entered): a change in them wakes nothing, and a pass a minute later finds it.
+    WatchLimited,
     /// Anything else, with its sentence.
     Other,
 }
@@ -156,6 +159,7 @@ impl Code {
             | Code::Busy
             | Code::HeldBack
             | Code::XattrsNotSynced
+            | Code::WatchLimited
             | Code::ChangedDuringSync => Severity::Warning,
             _ => Severity::Error,
         }
@@ -174,6 +178,7 @@ impl Code {
                 | Code::ChangedDuringSync
                 | Code::ServerRestored
                 | Code::StateReset
+                | Code::WatchLimited
         )
     }
 
@@ -196,6 +201,7 @@ impl Code {
                 | Code::Busy
                 | Code::UploadsPaused
                 | Code::ServerMoved
+                | Code::WatchLimited
         )
     }
 }

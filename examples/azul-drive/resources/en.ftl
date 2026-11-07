@@ -741,6 +741,7 @@ azdrive-sync-problem = { $code ->
         [server-moved] The drive moved to another address (nothing changed)
         [read-only] The drive takes no new files now (kept here)
         [xattrs-not-synced] Attributes and tags are not synced (the content is)
+        [watch-limited] Some folders are not watched: a change there is found a minute later
        *[other] Not synced
     }
 azdrive-sync-none = No drive syncs with a folder yet: a cloud drive's menu in the source list (or Share > Sync with a folder) pairs it with one.
