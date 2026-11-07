@@ -63,8 +63,24 @@ pub const DROP_PREFIX: &str = ".azlin/drop/";
 /// The drop key's file in the bucket.
 pub const DROP_KEY_FILE: &str = ".azlin/keys/_drop.key";
 /// The drop key before a key rotation replaced it, kept (sealed with the new drive key) for the
-/// drops the Worker sealed to it until it got the new one.
+/// drops the Worker sealed to it until it got the new one. The one before that is
+/// [`previous_drop_key_file`]`(2)`, and so on: a second rotation, before the Worker has the key of
+/// the first, must not make the mail sealed to the first key unreadable.
 pub const PREVIOUS_DROP_KEY_FILE: &str = ".azlin/keys/_drop-previous.key";
+/// How many drop keys from before rotations a drive keeps (the eighth rotation without delivery
+/// drops the oldest: its mail has waited for seven rotations of the drive's keys).
+pub const MAX_PREVIOUS_DROP_KEYS: usize = 8;
+
+/// The file of the `n`th drop key before the current one (`n` from 1; the newest is the first,
+/// [`PREVIOUS_DROP_KEY_FILE`]). Its name starts with `_` like the others, which no member id can.
+#[must_use]
+pub fn previous_drop_key_file(n: usize) -> String {
+    if n <= 1 {
+        PREVIOUS_DROP_KEY_FILE.to_string()
+    } else {
+        format!(".azlin/keys/_drop-previous-{n}.key")
+    }
+}
 /// The first bytes of a drop.
 pub const MAGIC: &[u8; 4] = b"AZD1";
 pub const VERSION: u8 = 1;
@@ -516,7 +532,9 @@ impl DropKeyFile {
 }
 
 /// The drive's drop key, opened with its drive key; `None` when the bucket holds none, or one
-/// sealed with another drive key (from before a rotation: [`enable_drop`] replaces it).
+/// sealed with another drive key (from before a rotation: [`enable_drop`] replaces it), or a file
+/// that is no drop key (damaged, planted: nothing opens it, and it must not stop a rotation or a
+/// new key).
 pub fn load_drop_key(
     bucket: &dyn Drive,
     drive_key: &DriveKey,
@@ -526,6 +544,7 @@ pub fn load_drop_key(
 }
 
 /// The drop key a rotation replaced (see [`PREVIOUS_DROP_KEY_FILE`]); `None` when there is none.
+/// The ones before it: [`load_previous_drop_keys`].
 pub fn load_previous_drop_key(
     bucket: &dyn Drive,
     drive_key: &DriveKey,
@@ -534,18 +553,41 @@ pub fn load_previous_drop_key(
     load_drop_key_at(bucket, PREVIOUS_DROP_KEY_FILE, drive_key, drive)
 }
 
+/// Every drop key from before the drive's rotations that `drive_key` opens, the newest first (at
+/// most [`MAX_PREVIOUS_DROP_KEYS`]): the mail the Worker sealed to any of them is still opened.
+pub fn load_previous_drop_keys(
+    bucket: &dyn Drive,
+    drive_key: &DriveKey,
+    drive: &str,
+) -> Result<Vec<DropSecret>, DriveError> {
+    let mut keys = Vec::new();
+    for n in 1..=MAX_PREVIOUS_DROP_KEYS {
+        if let Some(key) = load_drop_key_at(bucket, &previous_drop_key_file(n), drive_key, drive)? {
+            keys.push(key);
+        }
+    }
+    Ok(keys)
+}
+
 fn load_drop_key_at(
     bucket: &dyn Drive,
     at: &str,
     drive_key: &DriveKey,
     drive: &str,
 ) -> Result<Option<DropSecret>, DriveError> {
-    let bytes = match bucket.get_limited(at, crate::limits::named::KEY_FILE) {
+    let bytes = match crate::limits::named::KEY_FILE.read_from(bucket, at) {
         Ok(bytes) => bytes,
         Err(DriveError::NotFound { .. }) => return Ok(None),
+        // Too big to be a drop key: nobody who holds the drive key wrote it.
+        Err(DriveError::Corrupt { .. }) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let file = DropKeyFile::parse(&bytes).map_err(|e| e.for_key(at))?;
+    let file = match DropKeyFile::parse(&bytes) {
+        Ok(file) => file,
+        // Not a drop key file (planted, cut off): no key, and not a reason to stop.
+        Err(CryptoError::Damaged(_)) => return Ok(None),
+        Err(e) => return Err(e.for_key(at)),
+    };
     match file.open(drive_key, drive) {
         Ok(secret) => Ok(Some(secret)),
         Err(CryptoError::WrongKey) => Ok(None),
@@ -554,8 +596,11 @@ fn load_drop_key_at(
 }
 
 /// A key rotation's step: the drive's drop key (opened with `old`, if there is one) is kept as
-/// the previous one sealed with `new`, and a new drop key takes its place. Returns the new
-/// public half (for the Worker) when the drive had incoming mail on.
+/// the previous one sealed with `new` - the drop keys before it with it, each sealed with `new`
+/// too, up to [`MAX_PREVIOUS_DROP_KEYS`] - and a new drop key takes its place. Returns the new
+/// public half (for the Worker) when the drive had incoming mail on. Run again after a stop at
+/// any point it finishes: the files are written oldest first, so no key is overwritten before its
+/// successor is in place, and a key found twice (sealed with `old` and with `new`) is kept once.
 pub fn rotate_drop_key(
     bucket: &dyn Drive,
     old: &DriveKey,
@@ -566,20 +611,41 @@ pub fn rotate_drop_key(
         // Done already (a resumed rotation).
         return Ok(Some(current.public()));
     }
-    let Some(previous) = load_drop_key(bucket, old, drive)? else {
+    let Some(current) = load_drop_key(bucket, old, drive)? else {
         return Ok(None);
     };
-    let file = DropKeyFile::seal(new, drive, &previous).map_err(|e| e.for_key(PREVIOUS_DROP_KEY_FILE))?;
-    bucket.put(PREVIOUS_DROP_KEY_FILE, &file.to_bytes())?;
+    let mut history = vec![current];
+    for n in 1..=MAX_PREVIOUS_DROP_KEYS {
+        let file = previous_drop_key_file(n);
+        // Sealed with `old`, or already with `new` by an earlier try of this rotation.
+        let found = match load_drop_key_at(bucket, &file, old, drive)? {
+            Some(key) => Some(key),
+            None => load_drop_key_at(bucket, &file, new, drive)?,
+        };
+        if let Some(key) = found {
+            if !history.iter().any(|kept| kept.public() == key.public()) {
+                history.push(key);
+            }
+        }
+    }
+    history.truncate(MAX_PREVIOUS_DROP_KEYS);
+    for (n, key) in history.iter().enumerate().rev() {
+        let file = previous_drop_key_file(n + 1);
+        let sealed = DropKeyFile::seal(new, drive, key).map_err(|e| e.for_key(&file))?;
+        bucket.put(&file, &sealed.to_bytes())?;
+    }
     replace_drop_key(bucket, new, drive).map(Some)
 }
 
-/// Forgets the previous drop key (the Worker seals to the new one, the old drops are in).
+/// Forgets the previous drop keys (the Worker seals to the new one, the old drops are in).
 pub fn forget_previous_drop_key(bucket: &dyn Drive) -> Result<(), DriveError> {
-    match bucket.delete(PREVIOUS_DROP_KEY_FILE) {
-        Ok(()) | Err(DriveError::NotFound { .. }) => Ok(()),
-        Err(e) => Err(e),
+    for n in 1..=MAX_PREVIOUS_DROP_KEYS {
+        match bucket.delete(&previous_drop_key_file(n)) {
+            Ok(()) | Err(DriveError::NotFound { .. }) => {}
+            Err(e) => return Err(e),
+        }
     }
+    Ok(())
 }
 
 /// Turns incoming mail on for an encrypted drive: its drop key (the bucket's, else a new one,

@@ -2,16 +2,22 @@
 //! device joining with an invite (once), recovery with the code, two devices setting one drive
 //! up at once.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 
-use super::mem_bucket::MemBucket;
+use super::{
+    faulty::{Fail, Faulty},
+    mem_bucket::MemBucket,
+};
 use crate::{
     crypto::{
         device::{
-            adopt_invite, adopt_invite_reporting, drive_key_entry, enroll, forget_keys,
-            invite_from_text, invite_text, is_encrypted, key_entries, load_drive_key, load_key_at,
-            load_member_secret, member_key_entry, plan_drive_key, planned_key_entry, recover,
-            request_key, rotation_key_entries, seal_invite, setup_new_drive, unlock,
+            add_recovery_code, adopt_invite, adopt_invite_reporting, drive_key_entry, enroll,
+            forget_keys, invite_from_text, invite_text, is_encrypted, key_entries, load_drive_key,
+            load_key_at, load_member_secret, member_key_entry, plan_drive_key, planned_key_entry,
+            recover, request_key, rotation_key_entries, seal_invite, setup_new_drive, unlock,
             withdraw_invite,
         },
         keys::{RecoveryCode, RecoveryKdf, RECOVERY_KEY_FILE},
@@ -782,4 +788,171 @@ fn x_ar5b_9_a_delete_whose_answer_was_lost_leaves_no_live_invite_to_report() {
         adopt_invite_reporting(&bucket, &MemoryKeyring::new(), DRIVE, &invite, None),
         Err(DriveError::Denied { .. })
     ));
+}
+
+// ==== X-DELTA-AZDRIVE-KEYS-3: the answer of a PUT is not what the bucket holds ====
+
+/// A bucket with conditional writes whose faults the test sets, over a fresh `MemBucket`.
+fn faulty_bucket() -> (Arc<MemBucket>, Arc<Faulty>) {
+    let mem = Arc::new(MemBucket::with_conditional_writes());
+    let faulty = Arc::new(Faulty::new(mem.clone()));
+    (mem, faulty)
+}
+
+/// X-DELTA-AZDRIVE-KEYS-3: the first PUT of `recovery.key` lands and its answer is lost. The
+/// setup deleted the only copy of the key it had made on ANY error of that PUT - while the wrap
+/// sealed to it was in the bucket: a bucket that counts as encrypted, a recovery code never shown,
+/// and no key to open it. Now the bucket is looked at: our wrap is there, the setup goes on.
+#[test]
+fn x_delta_azdrive_keys_3_a_wrap_that_landed_with_its_answer_lost_ends_the_setup() {
+    let (mem, faulty) = faulty_bucket();
+    faulty.fail_write(RECOVERY_KEY_FILE, Fail::AnswerLost, 1);
+    let keyring = MemoryKeyring::new();
+    let (key, code) = setup_new_drive(faulty.as_ref(), &keyring, DRIVE, cheap())
+        .expect("the wrap is in the bucket: the setup is finished");
+    assert_eq!(
+        recover(mem.as_ref(), &MemoryKeyring::new(), DRIVE, &code).unwrap(),
+        key,
+        "the code returned is the one the wrap holds"
+    );
+    assert_eq!(unlock(mem.as_ref(), &keyring, DRIVE).unwrap(), Some(key));
+    assert!(load_key_at(&keyring, &planned_key_entry(DRIVE))
+        .unwrap()
+        .is_none());
+}
+
+/// X-DELTA-AZDRIVE-KEYS-3: the same, but the resend of the conditional PUT is refused as "the
+/// object is there" (412, `Conflict`): the answer a landed write gets the second time.
+#[test]
+fn x_delta_azdrive_keys_3_a_wrap_whose_resend_is_refused_as_there_already_ends_the_setup() {
+    let (mem, faulty) = faulty_bucket();
+    faulty.fail_write(RECOVERY_KEY_FILE, Fail::AnswerConflict, 1);
+    let keyring = MemoryKeyring::new();
+    let (key, code) = setup_new_drive(faulty.as_ref(), &keyring, DRIVE, cheap())
+        .expect("the 412 is our own write: the setup is finished");
+    assert_eq!(
+        recover(mem.as_ref(), &MemoryKeyring::new(), DRIVE, &code).unwrap(),
+        key
+    );
+    assert_eq!(load_drive_key(&keyring, DRIVE).unwrap(), Some(key));
+}
+
+/// X-DELTA-AZDRIVE-KEYS-3: a PUT that did not land (nothing in the bucket) keeps the key it made:
+/// the next call finds it as the planned key and finishes with it.
+#[test]
+fn x_delta_azdrive_keys_3_a_wrap_that_never_landed_keeps_the_planned_key() {
+    let (mem, faulty) = faulty_bucket();
+    faulty.fail_write(RECOVERY_KEY_FILE, Fail::Refused, 1);
+    let keyring = MemoryKeyring::new();
+    assert!(matches!(
+        setup_new_drive(faulty.as_ref(), &keyring, DRIVE, cheap()),
+        Err(DriveError::Transport(_))
+    ));
+    let planned = load_key_at(&keyring, &planned_key_entry(DRIVE))
+        .unwrap()
+        .expect("the key made now stays: the bucket holds no wrap that says it is for nothing");
+    let (key, code) = setup_new_drive(faulty.as_ref(), &keyring, DRIVE, cheap()).unwrap();
+    assert_eq!(key, planned, "the same key");
+    assert_eq!(
+        recover(mem.as_ref(), &MemoryKeyring::new(), DRIVE, &code).unwrap(),
+        key
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-3: a bucket that cannot be read back after a failed PUT does not say
+/// whether the key seals anything: it stays.
+#[test]
+fn x_delta_azdrive_keys_3_a_bucket_that_cannot_be_read_back_keeps_the_planned_key() {
+    let (_mem, faulty) = faulty_bucket();
+    faulty.fail_write(RECOVERY_KEY_FILE, Fail::AnswerLost, 1);
+    faulty.fail_read(RECOVERY_KEY_FILE, 1);
+    let keyring = MemoryKeyring::new();
+    assert!(setup_new_drive(faulty.as_ref(), &keyring, DRIVE, cheap()).is_err());
+    assert!(
+        load_key_at(&keyring, &planned_key_entry(DRIVE))
+            .unwrap()
+            .is_some(),
+        "the wrap may be in the bucket: the key is the only way into what it seals"
+    );
+    // The next call: the wrap of the earlier try is ours (the key id), it is replaced, done.
+    let (key, code) = setup_new_drive(faulty.as_ref(), &keyring, DRIVE, cheap()).unwrap();
+    assert_eq!(
+        recover(faulty.as_ref(), &MemoryKeyring::new(), DRIVE, &code).unwrap(),
+        key
+    );
+}
+
+// ==== X-DELTA-AZDRIVE-KEYS-41: a key file over the limit, on a bucket that refuses it on its way ====
+
+/// What an S3 bucket does with `get_limited`: an object over the limit is refused as a transport
+/// error (its text names the limit, it is not for sorting), where `MemBucket` answers `Protocol`.
+struct Strict<'a>(&'a MemBucket);
+
+impl Drive for Strict<'_> {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.0.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.0.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.0.get_range(key, range)
+    }
+    fn get_limited(&self, key: &str, limit: crate::limits::Limit) -> Result<Vec<u8>, DriveError> {
+        if self.0.head(key)?.size > limit.max {
+            return Err(DriveError::Transport(String::from(
+                "ResponseTooLarge { limit: .. }",
+            )));
+        }
+        self.0.get(key)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.0.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.0.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.0.head(key)
+    }
+}
+
+/// X-DELTA-AZDRIVE-KEYS-41: a writer puts 65 KiB at the first code's file and among the further
+/// codes' files. On S3 the recovery by a second kit stopped at the first one (a transport error is
+/// not "no wrap"); now an over-limit file is no wrap on any kind of drive, and the kit opens.
+#[test]
+fn x_delta_azdrive_keys_41_an_oversize_key_file_on_a_refusing_bucket_stops_no_recovery() {
+    let mem = MemBucket::new();
+    let keyring = MemoryKeyring::new();
+    let (key, _first_code) = setup_new_drive(&mem, &keyring, DRIVE, cheap()).unwrap();
+    let (_file, second_code) = add_recovery_code(&mem, &keyring, DRIVE, cheap()).unwrap();
+    mem.set(RECOVERY_KEY_FILE, vec![b' '; 65 * 1024]);
+    mem.set(
+        ".azlin/keys/recovery-0000000000000001.key",
+        vec![b' '; 65 * 1024],
+    );
+    let recovered = recover(&Strict(&mem), &MemoryKeyring::new(), DRIVE, &second_code)
+        .expect("the second kit opens the drive: the junk files are no wraps");
+    assert_eq!(recovered, key);
+}
+
+/// X-DELTA-AZDRIVE-KEYS-41: a further code's wrap of a cost this build does not derive with is
+/// left out, and said when no wrap opens: the code may be right.
+#[test]
+fn x_delta_azdrive_keys_41_a_wrap_of_a_cost_this_build_cannot_try_is_said_not_called_a_wrong_code()
+{
+    let mem = MemBucket::new();
+    let keyring = MemoryKeyring::new();
+    setup_new_drive(&mem, &keyring, DRIVE, cheap()).unwrap();
+    let (file, code) = add_recovery_code(&mem, &keyring, DRIVE, cheap()).unwrap();
+    let mut json: serde_json::Value = serde_json::from_slice(&mem.object(&file).unwrap()).unwrap();
+    json["kdf"]["memory_kib"] = serde_json::json!(4_000_000_000u64);
+    mem.set(&file, serde_json::to_vec(&json).unwrap());
+    // The first code's wrap is there and is another code's: this code opens nothing, and one of
+    // the wraps it could have opened is one this build cannot derive.
+    let err = recover(&mem, &MemoryKeyring::new(), DRIVE, &code).unwrap_err();
+    assert!(
+        matches!(err, DriveError::Unsupported(_)),
+        "an unsupported cost is said, the code is not called wrong: {err:?}"
+    );
 }

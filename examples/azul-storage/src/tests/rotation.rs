@@ -7,18 +7,29 @@ use std::sync::{
     Arc,
 };
 
-use super::mem_bucket::MemBucket;
+use super::{
+    faulty::{Fail, Faulty},
+    mem_bucket::MemBucket,
+};
 use crate::{
     crypto::{
         azl1::OpenObject,
         device::{self, enroll, recover, rotation_key_entries, seal_invite, setup_new_drive},
-        drops::{enable_drop, load_previous_drop_key},
-        keys::{load_key_chain, KeyChain, RecoveryCode, RecoveryKdf, CHAIN_KEY_FILE},
+        drops::{
+            enable_drop, load_drop_key, load_previous_drop_key, load_previous_drop_keys,
+            DROP_KEY_FILE,
+        },
+        keys::{
+            load_key_chain, KeyChain, RecoveryCode, RecoveryKdf, CHAIN_KEY_FILE, RECOVERY_KEY_FILE,
+        },
         CryptoError, DriveKey, ObjectId,
     },
     encrypted::{open_encrypted, Expect, IndexChange, IndexProvider, MemoryIndex, NameIndex},
-    keyring::{KeyringStore, MemoryKeyring},
-    rotation::{pending, reencrypt_pass, resumable, rotate, Phase, ReencryptState, JOURNAL_FILE},
+    keyring::{KeyringError, KeyringStore, MemoryKeyring},
+    rotation::{
+        lockdown_needed, pending, reencrypt_pass, resumable, rotate, Phase, ReencryptState,
+        JOURNAL_FILE,
+    },
     sharing::{list_shares, share},
     time::now_unix,
     Drive, DriveError, ListRequest,
@@ -574,5 +585,354 @@ fn a_key_chain_file_is_read_with_bounds_and_the_other_devices_count_leaves_it_ou
         (before, after),
         (1, 0),
         "the other device went; the chain and the journal are none"
+    );
+}
+
+// ==== X-DELTA-AZDRIVE-KEYS: the delta review of the key lanes ====
+
+/// X-DELTA-AZDRIVE-KEYS-6: a journal over the size a journal has (one byte past 64 KiB) used to
+/// answer `Protocol` (a bucket that checks after the read) or a transport error (one that refuses
+/// the answer on its way): the check "is a rotation of this device under way" ended in an error
+/// and "I was hacked" never reached its lockdown. A device without the new key of a rotation has
+/// no journal of its own; the bucket is not even asked.
+#[test]
+fn x_delta_azdrive_keys_6_a_planted_journal_over_the_limit_stops_neither_the_check_nor_the_rotation(
+) {
+    let s = set_up();
+    let bucket: Arc<dyn Drive> = s.bucket.clone();
+    s.bucket.set(JOURNAL_FILE, vec![b' '; 64 * 1024 + 1]);
+    assert!(
+        resumable(bucket.as_ref(), &s.keyring, DRIVE)
+            .unwrap()
+            .is_none(),
+        "no K2 on this device: the planted file is none of its journals"
+    );
+    assert!(
+        lockdown_needed(bucket.as_ref(), &s.keyring, DRIVE).unwrap(),
+        "the account's lockdown runs"
+    );
+
+    // The same on a device whose own rotation stopped: its K2 is there, and the journal was
+    // replaced by the big file. Not its journal; the rotation goes on with the K2 it has.
+    s.provider.rekey_failures.store(1, Ordering::SeqCst);
+    assert!(rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).is_err());
+    let (_, next) = rotation_key_entries(DRIVE);
+    let k2 = device::load_key_at(&s.keyring, &next).unwrap().unwrap();
+    s.bucket.set(JOURNAL_FILE, vec![b' '; 64 * 1024 + 1]);
+    assert!(resumable(bucket.as_ref(), &s.keyring, DRIVE)
+        .unwrap()
+        .is_none());
+    assert!(lockdown_needed(bucket.as_ref(), &s.keyring, DRIVE).unwrap());
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    assert_eq!(
+        rotated.drive_key,
+        k2.id(),
+        "the K2 it had, not a second one"
+    );
+    assert!(pending(bucket.as_ref()).unwrap().is_none());
+}
+
+/// X-DELTA-AZDRIVE-KEYS-6: a key chain file that is garbage, or too big to be one, used to stop
+/// `open_encrypted` for every device (the doc said "fewer keys") and every rotation. Nothing it
+/// holds can be opened or trusted: the drive opens without older keys, and a rotation starts the
+/// chain anew with its own link.
+#[test]
+fn x_delta_azdrive_keys_6_a_chain_file_that_is_garbage_stops_no_open_and_no_rotation() {
+    let s = set_up();
+    let bucket: Arc<dyn Drive> = s.bucket.clone();
+    for planted in [b"{ not a chain".to_vec(), vec![b' '; 300 * 1024]] {
+        s.bucket.set(CHAIN_KEY_FILE, planted);
+        let drive = open_encrypted(bucket.clone(), &s.keyring, DRIVE, &s.provider)
+            .expect("a damaged chain gives no older keys, and the drive opens");
+        assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
+    }
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    let new_key = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(new_key.id(), rotated.drive_key);
+    let chain = load_key_chain(bucket.as_ref())
+        .unwrap()
+        .expect("a chain of its own");
+    assert_eq!(chain.open(DRIVE, &new_key), vec![s.old_key.clone()]);
+}
+
+/// X-DELTA-AZDRIVE-KEYS-6: the chain takes the first link of a key it finds; a link somebody
+/// planted for the same key, ahead of the genuine one, ended the walk and hid K1.
+#[test]
+fn x_delta_azdrive_keys_6_a_planted_link_does_not_hide_the_genuine_one() {
+    let (a, b) = (DriveKey::generate().unwrap(), DriveKey::generate().unwrap());
+    let mut chain = KeyChain::new();
+    chain.add(DRIVE, &a, &b).unwrap();
+    let mut json: serde_json::Value = serde_json::from_slice(&chain.to_bytes()).unwrap();
+    let bogus = serde_json::json!({
+        "older": "ab".repeat(16),
+        "newer": b.id().to_hex(),
+        "nonce": "00".repeat(24),
+        "sealed": "00".repeat(48),
+    });
+    json["links"].as_array_mut().unwrap().insert(0, bogus);
+    let planted = KeyChain::parse(&serde_json::to_vec(&json).unwrap()).unwrap();
+    assert_eq!(planted.len(), 2);
+    assert_eq!(planted.open(DRIVE, &b), vec![a], "the genuine link opens");
+}
+
+/// X-DELTA-AZDRIVE-KEYS-6: the rotation reads the chain back and does not let go of K1 unless K2
+/// opens it from there: a chain write that did not keep it stops the rotation with the old key
+/// still on this device.
+#[test]
+fn x_delta_azdrive_keys_6_the_old_key_stays_unless_the_chain_holds_it() {
+    let s = set_up();
+    // The chain put is answered Ok, and the file is not what was written (a writer replaced it).
+    struct Replaced(Arc<MemBucket>);
+    impl Drive for Replaced {
+        fn list(&self, r: &ListRequest) -> Result<crate::ListPage, DriveError> {
+            self.0.list(r)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.0.get(key)
+        }
+        fn get_range(&self, key: &str, range: crate::ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.0.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            if key == CHAIN_KEY_FILE {
+                return self.0.put(key, b"{ planted over it");
+            }
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.0.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<crate::ObjectInfo, DriveError> {
+            self.0.head(key)
+        }
+    }
+    let replaced: Arc<dyn Drive> = Arc::new(Replaced(s.bucket.clone()));
+    let err = rotate(replaced, &s.keyring, DRIVE, &s.provider, cheap()).unwrap_err();
+    assert!(
+        matches!(err, DriveError::Io(ref why) if why.contains("key chain")),
+        "{err:?}"
+    );
+    let (previous, _) = rotation_key_entries(DRIVE);
+    assert!(
+        device::load_key_at(&s.keyring, &previous)
+            .unwrap()
+            .is_some(),
+        "K1 is still in the keyring: nothing else holds it"
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-7: the recovery wrap was replaced before the drop key and the shares; a
+/// failure after it left a wrap sealed under a code nobody saw while the old sheet's code passed
+/// every drill. The wrap is the last step that can fail: before it, the old wrap and its code
+/// stand as they were, and the retry makes the new code.
+#[test]
+fn x_delta_azdrive_keys_7_a_failure_before_the_recovery_wrap_leaves_the_old_wrap_and_its_code() {
+    let s = set_up();
+    let faulty = Arc::new(Faulty::new(s.bucket.clone()));
+    let bucket: Arc<dyn Drive> = faulty.clone();
+    let wrap_before = s.bucket.object(RECOVERY_KEY_FILE).unwrap();
+    faulty.fail_write(DROP_KEY_FILE, Fail::Refused, 1);
+    assert!(rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).is_err());
+    assert_eq!(
+        s.bucket.object(RECOVERY_KEY_FILE).unwrap(),
+        wrap_before,
+        "the wrap of the old sheet is the wrap still"
+    );
+
+    // The journal says Members: the same call goes on and ends with the code the wrap holds.
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    assert_ne!(s.bucket.object(RECOVERY_KEY_FILE).unwrap(), wrap_before);
+    let new_key = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(
+        recover(
+            bucket.as_ref(),
+            &MemoryKeyring::new(),
+            DRIVE,
+            &rotated.recovery_code
+        )
+        .unwrap()
+        .id(),
+        new_key.id()
+    );
+    assert!(matches!(
+        recover(bucket.as_ref(), &MemoryKeyring::new(), DRIVE, &s.old_code),
+        Err(DriveError::Denied { .. })
+    ));
+}
+
+/// X-DELTA-AZDRIVE-KEYS-7: a drop key file somebody planted (junk that opens with nothing) made
+/// `rotate_drop_key` fail on every retry. It is no drop key: the rotation does not stop on it.
+#[test]
+fn x_delta_azdrive_keys_7_a_planted_drop_key_file_stops_no_rotation() {
+    let s = set_up();
+    let bucket: Arc<dyn Drive> = s.bucket.clone();
+    s.bucket
+        .set(DROP_KEY_FILE, b"junk, not a drop key".to_vec());
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    assert!(
+        rotated.drop_key.is_none(),
+        "no drop key to carry over: incoming mail is off until it is turned on again"
+    );
+    let new_key = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(
+        recover(
+            bucket.as_ref(),
+            &MemoryKeyring::new(),
+            DRIVE,
+            &rotated.recovery_code
+        )
+        .unwrap()
+        .id(),
+        new_key.id()
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-7: from the recovery wrap on nothing returns an error - the code is the
+/// drive's and has to reach the user. A journal that cannot be deleted, a keyring entry that is
+/// refused: said in `left_over`, the keys are changed.
+#[test]
+fn x_delta_azdrive_keys_7_what_cannot_be_cleaned_up_after_the_new_wrap_is_said_not_raised() {
+    let s = set_up();
+    let faulty = Arc::new(Faulty::new(s.bucket.clone()));
+    let bucket: Arc<dyn Drive> = faulty.clone();
+    faulty.fail_delete(JOURNAL_FILE, 1);
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap())
+        .expect("the keys are changed: the code reaches the user");
+    assert!(
+        rotated
+            .left_over
+            .iter()
+            .any(|left| left.contains(JOURNAL_FILE)),
+        "{:?}",
+        rotated.left_over
+    );
+    let (previous, next) = rotation_key_entries(DRIVE);
+    assert_eq!(s.keyring.get(&previous).unwrap(), None);
+    assert_eq!(s.keyring.get(&next).unwrap(), None);
+    // The journal that stayed is inert: nothing of this device vouches for it, so it skips no
+    // lockdown of a later "I was hacked".
+    assert!(s.bucket.object(JOURNAL_FILE).is_some());
+    assert!(resumable(bucket.as_ref(), &s.keyring, DRIVE)
+        .unwrap()
+        .is_none());
+    assert!(lockdown_needed(bucket.as_ref(), &s.keyring, DRIVE).unwrap());
+    let new_key = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(
+        recover(
+            bucket.as_ref(),
+            &MemoryKeyring::new(),
+            DRIVE,
+            &rotated.recovery_code
+        )
+        .unwrap()
+        .id(),
+        new_key.id()
+    );
+}
+
+/// A keyring that refuses to delete one entry (the user said "No" to the prompt).
+struct RefusesToDelete {
+    inner: MemoryKeyring,
+    entry: String,
+}
+
+impl KeyringStore for RefusesToDelete {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        self.inner.get(key)
+    }
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        self.inner.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        if key == self.entry {
+            return Err(KeyringError::Denied);
+        }
+        self.inner.delete(key)
+    }
+}
+
+/// X-DELTA-AZDRIVE-KEYS-7: the keyring's last deletes ran after the journal was gone and, refused,
+/// ended the rotation with an error after the wrap was replaced. Now the code comes back, with the
+/// entry named in `left_over`.
+#[test]
+fn x_delta_azdrive_keys_7_a_keyring_that_refuses_the_last_delete_still_returns_the_code() {
+    let s = set_up();
+    let bucket: Arc<dyn Drive> = s.bucket.clone();
+    let (previous, _) = rotation_key_entries(DRIVE);
+    let keyring = RefusesToDelete {
+        inner: MemoryKeyring::new(),
+        entry: previous.clone(),
+    };
+    // This device's keys: the drive key and its member key, as set_up made them in `s.keyring`.
+    for entry in [
+        device::drive_key_entry(DRIVE),
+        device::member_key_entry(DRIVE),
+    ] {
+        keyring
+            .inner
+            .set(&entry, &s.keyring.get(&entry).unwrap().unwrap())
+            .unwrap();
+    }
+    let rotated = rotate(bucket.clone(), &keyring, DRIVE, &s.provider, cheap())
+        .expect("the code is the drive's: it comes back");
+    assert!(
+        rotated
+            .left_over
+            .iter()
+            .any(|left| left.contains(&previous)),
+        "{:?}",
+        rotated.left_over
+    );
+    assert!(
+        pending(bucket.as_ref()).unwrap().is_none(),
+        "the journal is gone"
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-30: the previous drop key was one deep; a second rotation before the
+/// Worker had the key of the first put the first key out, and the mail sealed to it could never
+/// be opened. Now the keys before the current one are a list, newest first.
+#[test]
+fn x_delta_azdrive_keys_30_the_mail_sealed_to_the_first_drop_key_still_opens_after_a_second_rotation(
+) {
+    let s = set_up();
+    let bucket: Arc<dyn Drive> = s.bucket.clone();
+    let k1 = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    let first = load_drop_key(bucket.as_ref(), &k1, DRIVE)
+        .unwrap()
+        .unwrap()
+        .public();
+
+    rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    let k2 = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    let second = load_drop_key(bucket.as_ref(), &k2, DRIVE)
+        .unwrap()
+        .unwrap()
+        .public();
+    assert_ne!(first, second);
+
+    rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    let k3 = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    let third = load_drop_key(bucket.as_ref(), &k3, DRIVE)
+        .unwrap()
+        .unwrap()
+        .public();
+    assert!(third != first && third != second);
+    let kept: Vec<_> = load_previous_drop_keys(bucket.as_ref(), &k3, DRIVE)
+        .unwrap()
+        .iter()
+        .map(|key| key.public())
+        .collect();
+    assert_eq!(
+        kept,
+        vec![second, first],
+        "newest first; the first key is not lost"
+    );
+    assert_eq!(
+        load_previous_drop_key(bucket.as_ref(), &k3, DRIVE)
+            .unwrap()
+            .map(|key| key.public()),
+        Some(second),
+        "the single-key reader still gives the newest"
     );
 }

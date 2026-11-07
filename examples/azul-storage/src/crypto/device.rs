@@ -709,16 +709,30 @@ pub fn setup_new_drive(
         // The earlier try's code was never shown: this one replaces it.
         publish_recovery_wrap(bucket, &stashed, &recovery, Publish::FirstReplace)?;
     } else if let Err(e) = publish_recovery_wrap(bucket, &stashed, &recovery, Publish::FirstNew) {
-        // A key made now for nothing (another device was first) goes again.
-        if generated {
-            let _ = delete_key_at(keyring, &planned_entry);
+        // The answer of a PUT is not what the bucket holds: a write whose answer got lost lands,
+        // and its resend is refused as "the object is there" (a conditional write is sent again
+        // blind). So the bucket is looked at before the key made now goes (K3).
+        match load_recovery_wrap(bucket) {
+            // Our wrap is there: the PUT landed. It is put again the way an earlier try's wrap
+            // is replaced (the same bytes, a plain write), and the setup goes on.
+            Ok(wrap) if wrap.drive_key_id == drive_key.id() => {
+                publish_recovery_wrap(bucket, &stashed, &recovery, Publish::FirstReplace)?;
+            }
+            // Another device was first with a wrap of another key: the key made now is for
+            // nothing and goes again.
+            Ok(_) => {
+                if generated {
+                    delete_key_at(keyring, &planned_entry)?;
+                }
+                return Err(DriveError::Conflict {
+                    key: String::from(RECOVERY_KEY_FILE),
+                });
+            }
+            // None there, or the bucket cannot be read: whether the key seals anything is not
+            // known, so it stays (the planned key is found by the next call, which finishes the
+            // setup) and the PUT's own failure is the answer.
+            Err(_) => return Err(e),
         }
-        return Err(match e {
-            DriveError::Conflict { .. } => DriveError::Conflict {
-                key: String::from(RECOVERY_KEY_FILE),
-            },
-            other => other,
-        });
     }
     enroll(bucket, keyring, drive, &drive_key)?;
     delete_key_at(keyring, &planned_entry)?;
@@ -1074,15 +1088,28 @@ pub fn recover_within(
     };
     if opened.is_none() {
         for file in extra_recovery_files(bucket)? {
-            let bytes = match bucket.get_limited(&file, crate::limits::named::KEY_FILE) {
+            let bytes = match crate::limits::named::KEY_FILE.read_from(bucket, &file) {
                 Ok(bytes) => bytes,
-                // Gone meanwhile, or bigger than any key file is: no wrap, the others are tried.
-                Err(DriveError::NotFound { .. } | DriveError::Protocol(_)) => continue,
+                // Gone meanwhile, or bigger than any key file is (whatever kind of drive says
+                // so: a bucket refuses it on its way, a folder after the read): no wrap, the
+                // others are tried.
+                Err(
+                    DriveError::NotFound { .. }
+                    | DriveError::Protocol(_)
+                    | DriveError::Corrupt { .. },
+                ) => continue,
                 Err(e) => return Err(e),
             };
-            // A file that holds no usable wrap (damaged, of a cost no wrap has) is left out.
-            let Ok(wrap) = RecoveryWrap::parse(&bytes) else {
-                continue;
+            // A file that holds no usable wrap is left out: a damaged one is junk, and one of a
+            // cost this build does not derive with is said when no wrap opens (the code may be
+            // right and the wrap one this build cannot try, which is not "the code is wrong").
+            let wrap = match RecoveryWrap::parse(&bytes) {
+                Ok(wrap) => wrap,
+                Err(CryptoError::Unsupported(why)) => {
+                    first_problem.get_or_insert(CryptoError::Unsupported(why).for_key(&file));
+                    continue;
+                }
+                Err(_) => continue,
             };
             spent = spent.saturating_add(wrap.kdf.work());
             if spent > budget {

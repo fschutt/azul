@@ -136,9 +136,10 @@ pub fn file_drops(
         file_drop(drive.as_ref(), dropped)
     })?
     .delivered;
-    // After a key rotation: the drops the Worker sealed to the old drop key before it got the
-    // new one.
-    if let Some(previous) = drops::load_previous_drop_key(bucket, &drive_key, drive_id)? {
+    // After key rotations: the drops the Worker sealed to an old drop key before it got the new
+    // one - the key of the last rotation and the ones before it (a second rotation before the
+    // Worker was updated must not strand the mail sealed to the first key).
+    for previous in drops::load_previous_drop_keys(bucket, &drive_key, drive_id)? {
         delivered += drops::ingest(bucket, &previous, drive_id, &mut |dropped| {
             file_drop(drive.as_ref(), dropped)
         })?

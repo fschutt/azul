@@ -2538,11 +2538,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 let provider = index_provider()
                     .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
                 // The rotation of THIS device that stopped has had its lockdown. A journal anyone
-                // planted in the bucket is none: it must not skip the lockdown.
-                let resuming = rotation::resumable(auto.bucket().as_ref(), &keyring, auto.drive())
+                // planted in the bucket is none: it must not skip the lockdown. A rotation that
+                // cannot be finished is refused here, before the lockdown.
+                if rotation::lockdown_needed(auto.bucket().as_ref(), &keyring, auto.drive())
                     .map_err(|e| e.to_string())?
-                    .is_some();
-                if !resuming {
+                {
                     azlin.lockdown().map_err(|e| e.to_string())?;
                 }
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;

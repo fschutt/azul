@@ -864,7 +864,10 @@ impl KeyChain {
 
     /// The drive keys before `newest` the chain opens, the nearest first: the one `newest`
     /// replaced, the one that replaced, and so on. A link that does not open (changed, sealed
-    /// for another drive) ends the walk there: a chain only gives keys it proves.
+    /// for another drive) is passed over: a chain only gives keys it proves, and a link that
+    /// somebody planted for a key (the file is the bucket's, anyone who can write there can add a
+    /// line) does not hide the genuine link of the same key, wherever it stands in the file. The
+    /// walk ends where no link opens.
     #[must_use]
     pub fn open(&self, drive: &str, newest: &DriveKey) -> Vec<DriveKey> {
         let mut keys: Vec<DriveKey> = Vec::new();
@@ -872,21 +875,25 @@ impl KeyChain {
         let mut current = newest.clone();
         // Each link is used at most once.
         for _ in 0..self.links.len() {
-            let Some(link) = self
+            let wrapping_key = current.derive(CHAIN_WRAP_CONTEXT);
+            let current_id = current.id();
+            let Some((link, older)) = self
                 .links
                 .iter()
-                .find(|link| link.newer == current.id() && !seen.contains(&link.older))
+                .filter(|link| link.newer == current_id && !seen.contains(&link.older))
+                .find_map(|link| {
+                    open_drive_key(
+                        &wrapping_key,
+                        &link.nonce,
+                        &link.sealed,
+                        &chain_aad(drive, &link.older, &link.newer),
+                        &link.older,
+                    )
+                    // collapse-ok: a link that does not open is passed over, the next one is tried.
+                    .ok()
+                    .map(|older| (link, older))
+                })
             else {
-                break;
-            };
-            let wrapping_key = current.derive(CHAIN_WRAP_CONTEXT);
-            let Ok(older) = open_drive_key(
-                &wrapping_key,
-                &link.nonce,
-                &link.sealed,
-                &chain_aad(drive, &link.older, &link.newer),
-                &link.older,
-            ) else {
                 break;
             };
             seen.push(link.older);
@@ -956,8 +963,12 @@ pub fn store_key_chain(bucket: &dyn Drive, chain: &KeyChain) -> Result<(), Drive
 }
 
 /// The drive's key chain from `bucket`; `None` for a drive that was never rotated.
+///
+/// A file over the size a chain can have is [`DriveError::Corrupt`], like one that does not parse
+/// (whoever can write to the bucket can plant either); a bucket that cannot be asked is an error
+/// of its own.
 pub fn load_key_chain(bucket: &dyn Drive) -> Result<Option<KeyChain>, DriveError> {
-    let bytes = match bucket.get_limited(CHAIN_KEY_FILE, crate::limits::named::KEY_CHAIN) {
+    let bytes = match crate::limits::named::KEY_CHAIN.read_from(bucket, CHAIN_KEY_FILE) {
         Ok(bytes) => bytes,
         Err(DriveError::NotFound { .. }) => return Ok(None),
         Err(e) => return Err(e),
@@ -977,7 +988,7 @@ pub fn store_member_wrap(bucket: &dyn Drive, wrap: &MemberWrap) -> Result<(), Dr
 /// The wrap of `member` from `bucket`.
 pub fn load_member_wrap(bucket: &dyn Drive, member: &str) -> Result<MemberWrap, DriveError> {
     let key = member_key_file(member).map_err(|e| e.for_key(member))?;
-    let bytes = bucket.get_limited(&key, crate::limits::named::KEY_FILE)?;
+    let bytes = crate::limits::named::KEY_FILE.read_from(bucket, &key)?;
     MemberWrap::parse(&bytes).map_err(|e| e.for_key(&key))
 }
 
@@ -998,9 +1009,10 @@ pub fn load_member_wraps(bucket: &dyn Drive) -> Result<BTreeMap<String, Vec<u8>>
         if check_member(member).is_err() || member.starts_with(INVITE_PREFIX) {
             continue;
         }
-        let bytes = match bucket.get_limited(&object.key, crate::limits::named::KEY_FILE) {
+        let bytes = match crate::limits::named::KEY_FILE.read_from(bucket, &object.key) {
             Ok(bytes) => bytes,
-            Err(DriveError::NotFound { .. }) => continue,
+            // Gone meanwhile, or bigger than any key file is: it is no member's wrap.
+            Err(DriveError::NotFound { .. } | DriveError::Corrupt { .. }) => continue,
             Err(e) => return Err(e),
         };
         if MemberWrap::parse(&bytes).is_ok_and(|wrap| wrap.member == member) {
@@ -1019,6 +1031,6 @@ pub(crate) fn store_recovery_wrap(bucket: &dyn Drive, wrap: &RecoveryWrap) -> Re
 
 /// The recovery wrap from `bucket`.
 pub fn load_recovery_wrap(bucket: &dyn Drive) -> Result<RecoveryWrap, DriveError> {
-    let bytes = bucket.get_limited(RECOVERY_KEY_FILE, crate::limits::named::KEY_FILE)?;
+    let bytes = crate::limits::named::KEY_FILE.read_from(bucket, RECOVERY_KEY_FILE)?;
     RecoveryWrap::parse(&bytes).map_err(|e| e.for_key(RECOVERY_KEY_FILE))
 }

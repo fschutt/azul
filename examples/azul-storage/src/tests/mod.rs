@@ -135,6 +135,10 @@ mod azl1_transform;
 /// A bucket in memory that counts and records its calls (the encryption tests).
 #[cfg(feature = "encryption")]
 mod mem_bucket;
+/// A bucket that misbehaves where a test asks it to: a refused write, a lost answer, a failing
+/// delete (the tests of the key lanes' delta review).
+#[cfg(feature = "encryption")]
+mod faulty;
 /// The encrypted drive (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod encrypted;

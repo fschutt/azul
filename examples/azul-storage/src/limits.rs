@@ -12,7 +12,7 @@
 
 use std::{fmt, ops::Range};
 
-use crate::DriveError;
+use crate::{Drive, DriveError};
 
 /// What a number read from a header, an index entry or a chunk size may make this device reserve up
 /// front. What is really read grows the buffer after that.
@@ -54,6 +54,41 @@ impl Limit {
     /// [`DriveError::Protocol`] when `got` is more than [`Limit::max`].
     pub fn check_object(self, key: &str, got: u64) -> Result<u64, DriveError> {
         self.within(got).map_err(|e| e.of_object(key))
+    }
+
+    /// The object `key` of `bucket` when it is at most this big: [`Drive::get_limited`] with the
+    /// refusal for size made ONE error whatever kind of drive answers. A drive that checks after
+    /// the read says `Protocol`; a bucket whose transport refuses the answer on its way says a
+    /// transport error whose text is not for sorting. So an answer that failed is asked once more
+    /// as a HEAD, which says the size as a number: an object found over the limit is
+    /// [`DriveError::Corrupt`] (a file nobody who holds the key wrote), anything else is the
+    /// failure it was (a network that went is not "a file that is too big").
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` for no object, `Corrupt` for one over the limit, else the drive's own.
+    pub fn read_from(self, bucket: &dyn Drive, key: &str) -> Result<Vec<u8>, DriveError> {
+        match bucket.get_limited(key, self) {
+            Ok(bytes) => Ok(bytes),
+            Err(
+                e @ (DriveError::Protocol(_)
+                | DriveError::Transport(_)
+                | DriveError::Service(_)
+                | DriveError::Io(_)),
+            ) => match bucket.head(key) {
+                Ok(info) if info.size > self.max => Err(DriveError::Corrupt {
+                    key: key.to_string(),
+                    reason: LimitError {
+                        limit: self,
+                        got: info.size,
+                    }
+                    .to_string(),
+                }),
+                // A HEAD that failed, or found the object small, says nothing about its size.
+                _ => Err(e),
+            },
+            Err(e) => Err(e),
+        }
     }
 }
 

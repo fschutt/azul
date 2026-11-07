@@ -1588,9 +1588,14 @@ impl<D: Drive> EncryptedDrive<D> {
     /// drive that never was has no chain. A chain that is damaged, or whose links do not open,
     /// gives fewer keys, never wrong ones.
     pub fn with_key_chain(self, drive: &str) -> Result<EncryptedDrive<D>, DriveError> {
-        let older = match load_key_chain(&self.inner)? {
-            Some(chain) => chain.open(drive, &self.drive_key),
-            None => Vec::new(),
+        let older = match load_key_chain(&self.inner) {
+            Ok(Some(chain)) => chain.open(drive, &self.drive_key),
+            Ok(None) => Vec::new(),
+            // A file that is damaged, or too big to be a chain (the bucket's writers can put
+            // either there), opens nothing: fewer keys, as this says, and not a drive that no
+            // device opens. The files of the history that needed a key it held read as damaged.
+            Err(DriveError::Corrupt { .. }) => Vec::new(),
+            Err(e) => return Err(e),
         };
         Ok(self.with_older_keys(older))
     }
