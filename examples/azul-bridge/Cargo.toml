@@ -73,8 +73,10 @@ encryption = ["azul-mail-core/encryption", "azcloud-kit/encryption", "azul-stora
 # calls: azul-storage's AzulKeyring, which links libazul (AZ_LINK_PATH) - the build the apps
 # ship. Without it the secrets are the state folder's 0600 file.
 os-keyring = ["azul-storage/azul"]
-# azul-bridge-tray (src/tray_main.rs): `serve` with a menu-bar / tray item, with the OS keyring.
-tray = ["dep:azul", "os-keyring"]
+# azul-bridge-tray (src/tray_main.rs): `serve` with a menu-bar / tray item, with the OS keyring and the
+# kit's secret clipboard (the password it copies is concealed and taken off again: azul-appkit's
+# `azul` feature links libazul the same way).
+tray = ["dep:azul", "os-keyring", "azul-appkit/azul"]
 # A TEST build (the E2E scripts against a local stack): `--token-url`, `--s3-url` and
 # `AZLIN_TOKEN_URL` and the shared config's `endpoints` choose where the drive token goes. A shipped
 # bridge talks to the live token server and ignores all of them (azul_appkit::anchors).

@@ -798,7 +798,9 @@ pub(crate) struct Sheet {
     /// encryption afterwards.
     pub new_drive: bool,
     /// "Copy" put the code on the clipboard (cleared again after
-    /// [`crate::ui_bridge::CLEAR_SECRET_MS`]).
+    /// [`azul_appkit::secret_clipboard::CLEAR_SECRET_MS`]). The sheet takes the code off the
+    /// clipboard when it leaves a step whether or not this is set: the text on the page is
+    /// selectable, and a Cmd-C of it is a copy this flag never heard of.
     pub copied: bool,
     /// The code this one replaces, as typed under "I was hacked: new keys": it signs the new
     /// code's registration at the token server (F12 C). A secret: never printed.
@@ -2153,17 +2155,17 @@ extern "C" fn on_encrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-/// "Hide the code and check it": the second step of the sheet. A code that was copied leaves the
-/// clipboard now (when it is still the code), so that the check cannot be pasted.
+/// "Hide the code and check it": the second step of the sheet. The code leaves the clipboard now
+/// (when it is still the code), so that the check cannot be pasted - also when it got there by
+/// a Cmd-C of the selectable text and not by the Copy button, which is the only thing that sets
+/// `copied` (X-DELTA-AZDRIVE-KEYS-24).
 extern "C" fn on_sheet_hide(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, _app, s| {
         let Some(Popup::Encryption(Dialog::Sheet(sheet))) = s.popup.as_mut() else {
             return;
         };
-        if sheet.copied {
-            crate::ui_bridge::clipboard_forget(info, sheet.code.as_str());
-            sheet.copied = false;
-        }
+        crate::ui_bridge::clipboard_forget(info, sheet.code.as_str());
+        sheet.copied = false;
         sheet.hide_code();
     })
 }
@@ -2192,6 +2194,9 @@ extern "C" fn on_sheet_done(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let drive_id = sheet.drive_id.clone();
         let (extra, after_rotation, new_drive) =
             (sheet.extra, sheet.after_rotation, sheet.new_drive);
+        // The sheet closes: the code leaves the clipboard if it is still there, however it got
+        // there (X-DELTA-AZDRIVE-KEYS-24).
+        crate::ui_bridge::clipboard_forget(info, sheet.code.as_str());
         // The groups typed back are the user's own close of the sheet: it goes now, and what
         // follows shows after it.
         s.popup.user_closed();
@@ -3063,9 +3068,11 @@ pub(crate) fn adopt_join_key(
     spawn(info, app, s, Job::Encryption(job));
 }
 
-/// "Save to a file…" of the join code: the system's save dialog (the app's state let go
-/// before it).
-extern "C" fn on_invite_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// "Save to a file…" of the join code: the system's save dialog asks for the place, and the file is
+/// written HERE, readable by this user only (`paper::save_private`) - `FileDialog::save_bytes`
+/// writes it with the default mode (0644 on Unix), and a join code is the drive token and the key
+/// seal of a computer that joins: whoever reads the file joins (X-DELTA-AZDRIVE-KEYS-24).
+extern "C" fn on_invite_save(mut data: RefAny, _info: CallbackInfo) -> Update {
     let code = {
         let Some(s) = data.downcast_ref::<DriveState>() else {
             return Update::DoNothing;
@@ -3075,14 +3082,38 @@ extern "C" fn on_invite_save(mut data: RefAny, mut info: CallbackInfo) -> Update
             _ => return Update::DoNothing,
         }
     };
-    let name = t("azdrive-invite-file-name");
-    let saved =
-        azul::dialog::FileDialog::save_bytes(name.as_str(), "text/plain", code.as_bytes().to_vec());
-    with_state(&mut data, &mut info, |_info, _app, s| {
+    crate::paper::save_private(
+        "azdrive-invite-save",
+        &t("azdrive-invite-file-name"),
+        Zeroizing::new(code.as_bytes().to_vec()),
+        RefAny::new(InviteSave { app: data.clone() }),
+        on_invite_saved,
+    );
+    Update::DoNothing
+}
+
+/// The join code's save dialog: the app.
+struct InviteSave {
+    app: RefAny,
+}
+
+/// The save dialog of the join code answered: what became of it is said in the dialog.
+fn on_invite_saved(
+    info: &mut CallbackInfo,
+    mut then: RefAny,
+    saved: crate::paper::Saved,
+) -> Update {
+    let Some(mut app) = then.downcast_ref::<InviteSave>().map(|d| d.app.clone()) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, info, |_info, _app, s| {
         if let Some(Popup::Encryption(Dialog::Invite { note, .. })) = s.popup.as_mut() {
-            *note = if saved {
+            *note = if saved.ok {
                 println!("AZDRIVE_INVITE_SAVED");
-                t_args("azdrive-kit-saved", &[("name", Arg::from(name.as_str()))])
+                t_args(
+                    "azdrive-kit-saved",
+                    &[("name", Arg::from(saved.name.as_str()))],
+                )
             } else {
                 t("azdrive-kit-not-saved")
             };
@@ -5529,5 +5560,39 @@ mod tests {
             move_is_due(marked, None),
             "and the resume finds the files due to move"
         );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-24: a page or a join code that is saved goes into the file readable by
+    /// this user only - the function the save dialog's answer writes with. `FileDialog::save_bytes`
+    /// wrote it with the default mode (0644 on Unix): any user of the computer could read a recovery
+    /// code, a share, a claim code or a join code from the file. The save replaces a file that is
+    /// there (a world-readable one stays no longer so) and leaves no temporary file beside it.
+    #[test]
+    fn x_delta_azdrive_keys_24_a_saved_page_or_join_code_is_readable_by_this_user_only() {
+        use azul_storage::testing::TempDir;
+        let dir = TempDir::new("invite-save");
+        let path = dir.path().join("join-code.txt");
+        std::fs::write(&path, "an older file").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        crate::paper::write_private(&path, b"AZJ1-the-join-code").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "AZJ1-the-join-code"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "this user's only: {mode:o}");
+        }
+        let names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["join-code.txt"], "no temporary file is left");
     }
 }

@@ -7,18 +7,13 @@
 use std::{path::PathBuf, time::Duration};
 
 use azcloud_kit::bridge::{self, BridgeSettings, PasswordSource, Row};
-use azul::{
-    callbacks::ButtonOnClickCallbackType,
-    dom::ClipboardContent,
-    file::FilePath,
-    option::OptionString,
-    prelude::*,
-    str::String as AzString,
-    time::{Duration as UiDuration, SystemTimeDiff},
-    vec::StyledTextRunVec,
-};
+use azul::{callbacks::ButtonOnClickCallbackType, file::FilePath, prelude::*};
 
 use azul_appkit::l10n::{label, Phrase, Text};
+// The one place a secret goes to the clipboard is the kit's (X-DELTA-AZDRIVE-KEYS-24): the recovery
+// sheet, "Copy password" here, AzMail's and the bridge tray's.
+pub(crate) use azul_appkit::secret_clipboard::{clipboard_forget, clipboard_secret};
+use azul_appkit::secret_clipboard::{content_of, SecretClipboard};
 
 use crate::{keyring, with_state, DriveState, KeyringCall, KeyringOp};
 
@@ -66,112 +61,9 @@ fn line(text: &str) -> Dom {
     Dom::create_span_with_text(label(text)).with_css(TEXT)
 }
 
-/// The clipboard's content for `text`: `concealed` keeps clipboard managers and history from
-/// recording it.
-fn content_of(text: &str, concealed: bool) -> ClipboardContent {
-    ClipboardContent {
-        plain_text: AzString::from(text),
-        styled_runs: StyledTextRunVec::create(),
-        html: OptionString::None,
-        files: azul::vec::StringVec::create(),
-        image: azul::option::OptionU8Vec::None,
-        link: azul::option::OptionString::None,
-        concealed,
-    }
-}
-
 /// An address or a name on the clipboard (nothing secret).
 pub(crate) fn clipboard(info: &mut CallbackInfo, text: &str) {
     info.set_clipboard_content(content_of(text, false));
-}
-
-/// How long a secret stays on the clipboard: a password manager's habit.
-pub(crate) const CLEAR_SECRET_MS: u64 = 60_000;
-
-/// What copying a secret asks of the window: the clipboard and a timer. [`CallbackInfo`] is the
-/// window; a test is a recording of what was asked.
-pub(crate) trait SecretClipboard {
-    /// Puts `content` on the clipboard.
-    fn put(&mut self, content: ClipboardContent);
-
-    /// Calls the clear timer ([`on_clear_copied_secret`]) with `secret` after `delay_ms`.
-    fn clear_later(&mut self, secret: CopiedSecret, delay_ms: u64);
-}
-
-impl SecretClipboard for CallbackInfo {
-    fn put(&mut self, content: ClipboardContent) {
-        self.set_clipboard_content(content);
-    }
-
-    fn clear_later(&mut self, secret: CopiedSecret, delay_ms: u64) {
-        let get_time = self.get_system_time_fn();
-        self.add_timer(
-            TimerId::unique(),
-            Timer::create(RefAny::new(secret), on_clear_copied_secret, get_time)
-                .with_delay(UiDuration::System(SystemTimeDiff::from_millis(delay_ms))),
-        );
-    }
-}
-
-/// A secret on the clipboard - the recovery code, the bridge's password: flagged `concealed`, so
-/// that clipboard managers and history leave it alone, and taken off again after
-/// [`CLEAR_SECRET_MS`] unless something else was copied meanwhile (the timer keeps the text, to
-/// tell). `cleared` is the line printed when it is taken off (AZ-K14: the bridge's password went
-/// to the clipboard unconcealed and stayed for ever, while the recovery code did neither).
-pub(crate) fn clipboard_secret(
-    window: &mut dyn SecretClipboard,
-    text: &str,
-    cleared: &'static str,
-) {
-    window.put(content_of(text, true));
-    window.clear_later(
-        CopiedSecret {
-            text: text.to_string(),
-            cleared,
-        },
-        CLEAR_SECRET_MS,
-    );
-}
-
-/// A secret that was copied is taken off the clipboard now - when the clipboard still holds it
-/// (or cannot be read): what the user copied since stays.
-pub(crate) fn clipboard_forget(info: &mut CallbackInfo, secret: &str) {
-    let now = info.get_system_clipboard().into_option();
-    if still_ours(now.as_ref().map(|c| c.plain_text.as_str()), secret) {
-        info.set_clipboard_content(content_of("", false));
-    }
-}
-
-/// A secret the clear timer takes off the clipboard again.
-pub(crate) struct CopiedSecret {
-    text: String,
-    cleared: &'static str,
-}
-
-/// Whether the clipboard still holds the secret that was copied (or nothing readable): then it is
-/// ours to clear; anything else was copied by the user since, and stays.
-fn still_ours(current: Option<&str>, copied: &str) -> bool {
-    current.is_none_or(|current| current == copied)
-}
-
-extern "C" fn on_clear_copied_secret(
-    mut data: RefAny,
-    info: TimerCallbackInfo,
-) -> TimerCallbackReturn {
-    let mut callback_info = info.callback_info;
-    let Some((copied, cleared)) = data
-        .downcast_ref::<CopiedSecret>()
-        .map(|c| (c.text.clone(), c.cleared))
-    else {
-        return TimerCallbackReturn::terminate_unchanged();
-    };
-    let now = callback_info.get_system_clipboard().into_option();
-    if !still_ours(now.as_ref().map(|c| c.plain_text.as_str()), &copied) {
-        return TimerCallbackReturn::terminate_unchanged();
-    }
-    callback_info.set_clipboard_content(content_of("", false));
-    println!("{cleared}");
-    TimerCallbackReturn::terminate_unchanged()
 }
 
 fn copy_button(app: &RefAny, words: &str, text: &str, what: &str) -> Dom {
@@ -303,17 +195,21 @@ mod tests {
     /// A window that records what a copy asked of it.
     #[derive(Default)]
     struct Recorded {
-        put: Vec<ClipboardContent>,
+        put: Vec<azul::dom::ClipboardContent>,
         timers: Vec<(String, u64)>,
     }
 
     impl SecretClipboard for Recorded {
-        fn put(&mut self, content: ClipboardContent) {
+        fn put(&mut self, content: azul::dom::ClipboardContent) {
             self.put.push(content);
         }
 
-        fn clear_later(&mut self, secret: CopiedSecret, delay_ms: u64) {
-            self.timers.push((secret.text, delay_ms));
+        fn clear_later(
+            &mut self,
+            secret: azul_appkit::secret_clipboard::CopiedSecret,
+            delay_ms: u64,
+        ) {
+            self.timers.push((secret.text().to_string(), delay_ms));
         }
     }
 
@@ -343,15 +239,21 @@ mod tests {
         assert!(!content_of("http://127.0.0.1:1180/", false).concealed);
         assert!(content_of("k7m2p-9qxat-4bfw8", true).concealed);
         assert!(
-            still_ours(Some("k7m2p-9qxat-4bfw8"), "k7m2p-9qxat-4bfw8"),
+            azul_appkit::secret_clipboard::still_ours(
+                Some("k7m2p-9qxat-4bfw8"),
+                "k7m2p-9qxat-4bfw8"
+            ),
             "the secret: clear it"
         );
         assert!(
-            still_ours(None, "k7m2p-9qxat-4bfw8"),
+            azul_appkit::secret_clipboard::still_ours(None, "k7m2p-9qxat-4bfw8"),
             "nothing readable: clear it"
         );
         assert!(
-            !still_ours(Some("something the user copied since"), "k7m2p-9qxat-4bfw8"),
+            !azul_appkit::secret_clipboard::still_ours(
+                Some("something the user copied since"),
+                "k7m2p-9qxat-4bfw8"
+            ),
             "another copy stays"
         );
     }

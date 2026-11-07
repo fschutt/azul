@@ -15,9 +15,9 @@ use std::{
 };
 
 use azcloud_kit::Zeroizing;
-use azul::{pdf::Pdf, prelude::*, str::String as AzString};
+use azul::{dialog::FileDialog, pdf::Pdf, prelude::*, str::String as AzString};
 use azul_appkit::{
-    l10n::{t, t_label},
+    l10n::{label, t, t_label},
     qr::QrCode,
     ui::qr_dom,
 };
@@ -138,6 +138,87 @@ pub(crate) fn forget_print_copies() {
 /// file or the new one and never half a recovery sheet.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     azul_storage::durable::replace(path, bytes, azul_storage::durable::Mode::Private)
+}
+
+/// What became of a page handed to the save dialog ([`save_private`]).
+pub(crate) struct Saved {
+    /// The name the dialog proposed.
+    pub name: String,
+    /// The bytes of the page.
+    pub len: usize,
+    /// The page was written where the user chose; not when they cancelled, chose a place that is
+    /// no path on this computer (a browser's download) or the write failed.
+    pub ok: bool,
+}
+
+/// What a caller does with the answer: its own `then` (the data it handed in) and what became
+/// of the save.
+pub(crate) type SavedHook = fn(&mut CallbackInfo, RefAny, Saved) -> Update;
+
+/// The save dialog's request: the page waits in it for the place.
+struct SaveRequest {
+    name: String,
+    bytes: Option<Zeroizing<Vec<u8>>>,
+    then: Option<RefAny>,
+    done: SavedHook,
+}
+
+/// "Save as PDF" of a page with a secret on it (the emergency kit, a trusted contact's share, a
+/// cash order's claim code) or of a join code: the system's save dialog asks for the place, and the
+/// bytes are written HERE, readable by this user only ([`write_private`]).
+/// `FileDialog::save_bytes` writes with the default mode (0644 on Unix), so that any user of the
+/// computer could read a recovery code, a share or a join code from the file
+/// (X-DELTA-AZDRIVE-KEYS-24). `done` is called with `then` once the dialog answered.
+pub(crate) fn save_private(
+    title: &str,
+    name: &str,
+    bytes: Zeroizing<Vec<u8>>,
+    then: RefAny,
+    done: SavedHook,
+) {
+    let _request = FileDialog::save_file(
+        label(title),
+        AzString::from(name),
+        RefAny::new(SaveRequest {
+            name: name.to_string(),
+            bytes: Some(bytes),
+            then: Some(then),
+            done,
+        }),
+        on_save_target,
+    );
+}
+
+/// Where the user chose to save, from the dialog's answer (`None`: cancelled, or a place that is
+/// no path on this computer).
+fn chosen_path(result: RefAny) -> Option<PathBuf> {
+    azul::dialog::SaveTargetResult::downcast(result)
+        .into_option()?
+        .target
+        .into_option()?
+        .as_path()
+        .into_option()
+        .map(|path| PathBuf::from(path.inner.as_str()))
+}
+
+extern "C" fn on_save_target(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let (name, bytes, then, done) = {
+        let Some(mut request) = data.downcast_mut::<SaveRequest>() else {
+            return Update::DoNothing;
+        };
+        (
+            request.name.clone(),
+            request.bytes.take(),
+            request.then.take(),
+            request.done,
+        )
+    };
+    let (Some(bytes), Some(then)) = (bytes, then) else {
+        return Update::DoNothing;
+    };
+    let len = bytes.len();
+    let ok = chosen_path(result).is_some_and(|path| write_private(&path, &bytes).is_ok());
+    done(&mut info, then, Saved { name, len, ok })
 }
 
 /// Print's copy of a page: `kit-print/<random>/<file name>` (a folder of this user's only).

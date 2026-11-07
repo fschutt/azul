@@ -236,9 +236,22 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
         )
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-            app,
+            app.clone(),
             on_main_key,
         )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app,
+            on_main_close_requested,
+        )
+}
+
+/// The main window is asked to close: a secret AzMail put on the clipboard (the bridge's
+/// password) does not outlive it - the clear timer of the window would never fire
+/// (X-DELTA-AZDRIVE-KEYS-24). The close itself goes on.
+extern "C" fn on_main_close_requested(_data: RefAny, mut info: CallbackInfo) -> Update {
+    azul_appkit::secret_clipboard::forget_copied(&mut info);
+    Update::DoNothing
 }
 
 /// The banner over an Azlin account whose drive is banned: why, the hours left to migrate (the

@@ -247,7 +247,7 @@ azmail-bridge-copy-password = Copy password
 azmail-bridge-copied = Copied: { $what }.
 azmail-bridge-no-file-password = The bridge's secrets file has no password: azul-bridge password makes a new one.
 azmail-bridge-asking-keyring = Asking the system keyring for the bridge's password …
-azmail-bridge-password-copied = Copied the bridge's password: paste it where the other program asks for the password.
+azmail-bridge-password-copied = Copied the bridge's password: paste it where the other program asks for the password. It leaves the clipboard again in a minute.
 
 ## The account wizard and Account Settings
 

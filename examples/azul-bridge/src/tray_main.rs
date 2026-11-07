@@ -20,14 +20,12 @@ use std::{
 
 use azcloud_kit::bridge::BridgeSettings;
 use azul::{
-    dom::ClipboardContent,
     menu::{Menu, MenuItem, MenuItemState, StringMenuItem},
-    option::OptionString,
     prelude::*,
     str::String as AzString,
     tray::TrayIconData,
-    vec::StyledTextRunVec,
 };
+use azul_appkit::secret_clipboard::{clipboard_secret, content_of, forget_copied};
 use azul_bridge::{
     autostart, cli,
     secrets::{KeyringStore, PASSWORD_ENTRY},
@@ -48,16 +46,9 @@ struct EntryRef {
     entry: Entry,
 }
 
+/// An address or a setting on the clipboard (nothing secret).
 fn clipboard(info: &mut CallbackInfo, text: &str) {
-    info.set_clipboard_content(ClipboardContent {
-        plain_text: AzString::from(text),
-        styled_runs: StyledTextRunVec::create(),
-        html: OptionString::None,
-        files: azul::vec::StringVec::create(),
-        image: azul::option::OptionU8Vec::None,
-        link: azul::option::OptionString::None,
-        concealed: false,
-    });
+    info.set_clipboard_content(content_of(text, false));
 }
 
 /// Makes the login item (`on`) or removes it; what happened, as a line.
@@ -92,6 +83,9 @@ extern "C" fn on_entry(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     if entry == Entry::Quit {
+        // The password this tray put on the clipboard does not outlive it: the clear timer would
+        // never fire (X-DELTA-AZDRIVE-KEYS-24).
+        forget_copied(&mut info);
         std::process::exit(0);
     }
     let Some(t) = tray_ref.downcast_ref::<Tray>() else {
@@ -100,7 +94,13 @@ extern "C" fn on_entry(mut data: RefAny, mut info: CallbackInfo) -> Update {
     match &entry {
         Entry::CopyPassword => {
             if let Some(password) = &t.password {
-                clipboard(&mut info, password);
+                // A secret: concealed from clipboard managers, taken off again after a minute
+                // (X-DELTA-AZDRIVE-KEYS-24: it went there plain and stayed for ever).
+                clipboard_secret(
+                    &mut info,
+                    password,
+                    "AZUL_BRIDGE_PASSWORD_CLIPBOARD_CLEARED",
+                );
             }
         }
         Entry::StartAtLogin(on) => println!("{}", login_item(*on, &t.state)),

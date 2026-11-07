@@ -9,15 +9,7 @@ use std::{path::PathBuf, time::Duration};
 
 use azcloud_kit::bridge::{self, BridgeSettings, PasswordSource, Row};
 use azul_appkit::l10n::{label, t, t_args, t_label, Arg};
-use azul::{
-    callbacks::ButtonOnClickCallbackType,
-    dom::ClipboardContent,
-    file::FilePath,
-    option::OptionString,
-    prelude::*,
-    str::String as AzString,
-    vec::StyledTextRunVec,
-};
+use azul::{callbacks::ButtonOnClickCallbackType, file::FilePath, prelude::*};
 
 use crate::{keyring_call, with_app, KeyringCall, KeyringOp, MailApp};
 
@@ -76,16 +68,9 @@ fn line(text: &str) -> Dom {
     Dom::create_span_with_text(label(text)).with_css(TEXT)
 }
 
+/// An address or a name on the clipboard (nothing secret).
 fn clipboard(info: &mut CallbackInfo, text: &str) {
-    info.set_clipboard_content(ClipboardContent {
-        plain_text: AzString::from(text),
-        styled_runs: StyledTextRunVec::create(),
-        html: OptionString::None,
-        files: azul::vec::StringVec::create(),
-        image: azul::option::OptionU8Vec::None,
-        link: azul::option::OptionString::None,
-        concealed: false,
-    });
+    info.set_clipboard_content(azul_appkit::secret_clipboard::content_of(text, false));
 }
 
 fn copy_button(app: &RefAny, words: &str, text: &str, what: &str) -> Dom {
@@ -219,9 +204,15 @@ extern "C" fn on_copy_password(mut data: RefAny, mut info: CallbackInfo) -> Upda
     .unwrap_or(Update::DoNothing)
 }
 
-/// The bridge's password, read: into the clipboard, never onto the screen.
+/// The bridge's password, read: into the clipboard as a secret - concealed from clipboard managers
+/// and taken off again after a minute and when AzMail closes -, never onto the screen
+/// (X-DELTA-AZDRIVE-KEYS-24: it went there plain and stayed for ever).
 pub(crate) fn copy_password(s: &mut MailApp, info: &mut CallbackInfo, password: &str) {
-    clipboard(info, password);
+    azul_appkit::secret_clipboard::clipboard_secret(
+        info,
+        password,
+        "AZMAIL_BRIDGE_PASSWORD_CLIPBOARD_CLEARED",
+    );
     set_note(s, &t("azmail-bridge-password-copied"));
 }
 

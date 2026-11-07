@@ -3898,6 +3898,14 @@ pub(crate) fn close_popup(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSt
         cancel_transfer(info, app, s, id);
         return;
     }
+    // The join code made for another computer is selectable text on the page: it leaves the
+    // clipboard with the dialog if a Cmd-C put it there (X-DELTA-AZDRIVE-KEYS-24).
+    #[cfg(feature = "encryption")]
+    if let Some(Popup::Encryption(crate::encryption::Dialog::Invite { code, .. })) =
+        s.popup.as_ref()
+    {
+        crate::ui_bridge::clipboard_forget(info, code.as_str());
+    }
     match s.popup.as_ref() {
         // A payment shown is abandoned, one waited for is waited for in the background.
         Some(Popup::AddDrive(_)) => crate::add_flow::close(info, app, s),

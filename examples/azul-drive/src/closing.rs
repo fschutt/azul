@@ -160,6 +160,9 @@ pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: Callback
     match drive_close(work, s.closing) {
         DriveClose::Close => {
             let_spends_land();
+            // A secret this window put on the clipboard does not outlive it: the clear timer
+            // would never fire (X-DELTA-AZDRIVE-KEYS-24).
+            azul_appkit::secret_clipboard::forget_copied(&mut info);
             // The drives' keys leave memory with the window (zeroed, not just freed).
             crate::unlock::wipe_all(s);
             Update::DoNothing
@@ -175,6 +178,7 @@ pub(crate) extern "C" fn on_close_requested(mut data: RefAny, mut info: Callback
             stop_work(s);
             println!("AZDRIVE_CLOSE_STOPPED {work}");
             let_spends_land();
+            azul_appkit::secret_clipboard::forget_copied(&mut info);
             crate::unlock::wipe_all(s);
             Update::DoNothing
         }

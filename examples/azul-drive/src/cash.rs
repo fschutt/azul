@@ -26,10 +26,7 @@
 //! `AZDRIVE_CASH_ENDED <checkout id>`, `AZDRIVE_PICKED_UP <checkout id>`.
 
 use azcloud_kit::{CashKept, ClaimCode, PendingCheckout, Zeroizing};
-use azul::{
-    callbacks::ButtonOnClickCallbackType, dialog::FileDialog, prelude::*,
-    str::String as AzString,
-};
+use azul::{callbacks::ButtonOnClickCallbackType, prelude::*, str::String as AzString};
 use azul_appkit::{
     l10n::{label, t, t_args, Arg},
     pieces::{block, text},
@@ -518,16 +515,49 @@ extern "C" fn on_paper(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
         }
         Ok(bytes) => {
-            let len = bytes.len();
-            if FileDialog::save_bytes(name.as_str(), "application/pdf", bytes.to_vec()) {
-                println!("AZDRIVE_CASH_SAVED {} {len}", page.word());
-                t_args("azdrive-kit-saved", &[("name", Arg::from(name.as_str()))])
-            } else {
-                t("azdrive-kit-not-saved")
-            }
+            // The page carries the claim code: written where the user chose, readable by this
+            // user only (X-DELTA-AZDRIVE-KEYS-24); the answer comes back to `on_paper_saved`.
+            crate::paper::save_private(
+                match page {
+                    Page::Copy => "azdrive-cash-save-copy",
+                    Page::Slip => "azdrive-cash-save-slip",
+                },
+                &name,
+                bytes,
+                RefAny::new(PaperRef {
+                    app: app.clone(),
+                    checkout_id: checkout_id.clone(),
+                    page,
+                    print: false,
+                }),
+                on_paper_saved,
+            );
+            return Update::DoNothing;
         }
     };
     crate::ui_add_drive::everywhere(with_state(&mut app, &mut info, |_info, _app, s| {
+        say(s, &checkout_id, note);
+    }))
+}
+
+/// The save dialog of a cash page answered: what became of it is said.
+fn on_paper_saved(info: &mut CallbackInfo, mut then: RefAny, saved: crate::paper::Saved) -> Update {
+    let Some((mut app, checkout_id, page)) = then
+        .downcast_ref::<PaperRef>()
+        .map(|r| (r.app.clone(), r.checkout_id.clone(), r.page))
+    else {
+        return Update::DoNothing;
+    };
+    let note = if saved.ok {
+        println!("AZDRIVE_CASH_SAVED {} {}", page.word(), saved.len);
+        t_args(
+            "azdrive-kit-saved",
+            &[("name", Arg::from(saved.name.as_str()))],
+        )
+    } else {
+        t("azdrive-kit-not-saved")
+    };
+    crate::ui_add_drive::everywhere(with_state(&mut app, info, |_info, _app, s| {
         say(s, &checkout_id, note);
     }))
 }

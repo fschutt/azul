@@ -51,6 +51,9 @@
 //!   back).
 //! - `pieces` (feature `look`, part of `azul`): the small DOM pieces every
 //!   app's screens are built from (text, block, flex column / row, buttons).
+//! - `secret_clipboard` (feature `look`, part of `azul`): a secret on the clipboard - concealed,
+//!   taken off again after a minute and when the program closes - for the recovery code and the
+//!   Azlin Bridge's password in every app that copies one.
 //! - `look` (feature `look`, part of `azul`): the settings page's look -
 //!   Outlook 2010's Options dialog in pieces (the category list, the header
 //!   line, banded sections, rows, OK / Cancel) - for the kit's page and for an
@@ -115,6 +118,8 @@ pub mod look;
 pub mod pieces;
 #[cfg(feature = "azul")]
 pub mod ribbon;
+#[cfg(feature = "look")]
+pub mod secret_clipboard;
 #[cfg(feature = "azul")]
 pub mod ui;
 

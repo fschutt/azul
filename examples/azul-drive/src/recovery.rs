@@ -369,7 +369,8 @@ extern "C" fn on_kit_print(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-/// Save as PDF: the system's save dialog (the app's state let go before it).
+/// Save as PDF: the system's save dialog (the app's state let go before it), and the page is
+/// written where the user chose, readable by this user only (X-DELTA-AZDRIVE-KEYS-24).
 extern "C" fn on_kit_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, which)) = paper_ref(&mut data) else {
         return Update::DoNothing;
@@ -383,20 +384,42 @@ extern "C" fn on_kit_save(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((name, bytes)) = made else {
         return Update::DoNothing;
     };
-    let (note, saved) = match bytes {
+    match bytes {
         Ok(bytes) => {
-            let len = bytes.len();
-            if FileDialog::save_bytes(name.as_str(), "application/pdf", bytes.to_vec()) {
-                println!("AZDRIVE_KIT_SAVED {len}");
-                (t_args("azdrive-kit-saved", &[("name", Arg::from(name.as_str()))]), true)
-            } else {
-                (t("azdrive-kit-not-saved"), false)
-            }
+            crate::paper::save_private(
+                "azdrive-kit-save-pdf",
+                &name,
+                bytes,
+                RefAny::new(PaperRef {
+                    app: app.clone(),
+                    which,
+                }),
+                on_kit_saved,
+            );
+            Update::DoNothing
         }
-        Err(why) => (why, false),
+        Err(why) => with_state(&mut app, &mut info, |_info, _app, s| {
+            set_kit_note(s, why);
+        }),
+    }
+}
+
+/// The save dialog answered: what became of the page is said.
+fn on_kit_saved(info: &mut CallbackInfo, mut then: RefAny, saved: crate::paper::Saved) -> Update {
+    let Some((mut app, which)) = paper_ref(&mut then) else {
+        return Update::DoNothing;
     };
-    with_state(&mut app, &mut info, |_info, _app, s| {
-        if saved && which != Which::Shown {
+    let note = if saved.ok {
+        println!("AZDRIVE_KIT_SAVED {}", saved.len);
+        t_args(
+            "azdrive-kit-saved",
+            &[("name", Arg::from(saved.name.as_str()))],
+        )
+    } else {
+        t("azdrive-kit-not-saved")
+    };
+    with_state(&mut app, info, |_info, _app, s| {
+        if saved.ok && which != Which::Shown {
             crate::recovery_contacts::handed(s, which);
         }
         set_kit_note(s, note);
