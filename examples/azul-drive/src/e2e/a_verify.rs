@@ -17,9 +17,12 @@ use super::{
 use crate::{sync_jobs, DriveState};
 
 /// `drive_verify`: AzDrive's read-back of the device's pairing. Answers `checked`,
-/// `mismatches` (the drive's copies that did not read back whole), `healed` (of those, sent
-/// again from here), `rotted` (this device's copies changed under the same size and time) and
-/// `restored` (of those, put back from the drive).
+/// `mismatches` (the drive's copies read whole that are not the listed version while the drive
+/// still names it: damage), `healed` (of those, sent again from here, conditional on the version
+/// listed), `unread` (copies whose read failed: not checked, not touched), `changed` (copies
+/// another device changed or deleted while the check ran: left as they are), `rotted` (this
+/// device's copies changed under the same size and time) and `restored` (of those, put back from
+/// the drive).
 pub(super) fn verify(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, args: &Args) -> Answer {
     let state_dir = with_harness(|h| {
         h.device(args)?
@@ -55,6 +58,8 @@ pub(super) fn verify(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, 
         "checked": report.checked,
         "mismatches": report.mismatches,
         "healed": report.healed,
+        "unread": report.unread,
+        "changed": report.changed,
         "rotted": report.rotted,
         "restored": report.restored,
     }))

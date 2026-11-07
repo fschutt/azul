@@ -38,15 +38,15 @@ use std::{
 };
 
 use azul_storage::{
-    limits::named::SYNC_OBJECT_CEILING, ops, BatchDelete, BatchMove, BatchPut, BatchStream, Drive,
-    DriveError, Limit, Precondition, CONTENT_HASH_METADATA, SMALL_FILE_BYTES,
+    checked::HashCheck, limits::named::SYNC_OBJECT_CEILING, ops, BatchDelete, BatchMove, BatchPut,
+    BatchStream, Drive, DriveError, Limit, Precondition, CONTENT_HASH_METADATA, SMALL_FILE_BYTES,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
-    blob_job, job_bytes, local, lock, open_job_file, record, remote, uploaded_hash, Action,
-    BlobJob, BlobSource, CheckedRead, RemoteFile, RemoteIndex, SyncEvent, SyncRemote, SyncReport,
-    Uploads, MAX_ATTEMPTS,
+    blob_job, job_bytes, local, lock, open_job_file, record, remote, uploaded_hash,
+    verify::ReadBack, Action, BlobJob, BlobSource, CheckedRead, RemoteFile, RemoteIndex, SyncEvent,
+    SyncRemote, SyncReport, Uploads, MAX_ATTEMPTS,
 };
 use crate::{
     error::{fail, CloudError, CloudResult},
@@ -765,6 +765,85 @@ impl SyncRemote for NamedFiles<'_> {
             }
         }
         Ok(got)
+    }
+
+    /// SYNC-4. The bytes are read whole and hashed. A hash that is not the listed one is DAMAGE
+    /// only while the drive still names the version the listing carried (its tag is the one
+    /// `read` saw): a different tag is another device's newer file, no tag is a file deleted
+    /// meanwhile, and a drive that tells no tags cannot say either. A read that failed is no
+    /// finding about the copy.
+    fn read_back(&self, key: &str, file: &RemoteFile, spool: Option<&Path>) -> ReadBack {
+        // A version whose content was never known has nothing to be compared with: read, and
+        // remembered once the drive still has it, as a fetch does.
+        if !remote::is_hash(&file.hash) {
+            return super::verify::read_back_by_fetch(self, key, file, spool);
+        }
+        let full = self.full(key);
+        let read = match spool {
+            Some(dest) => {
+                super::drive_store::download_told(self.drive, &full, file.size, dest, &|| {})
+                    .map_err(CloudError::from)
+                    .and_then(|_| local::hash_file(dest).map_err(CloudError::from))
+            }
+            None => self
+                .drive
+                .get(&full)
+                .map(|bytes| local::hash_bytes(&bytes))
+                .map_err(CloudError::from),
+        };
+        let got = match read {
+            Ok(got) => got,
+            // Deleted by another device since the listing.
+            Err(e) if matches!(e.root(), CloudError::Drive(DriveError::NotFound { .. })) => {
+                return ReadBack::Changed;
+            }
+            Err(e) => return ReadBack::Unread(e),
+        };
+        if got == file.hash {
+            return ReadBack::Whole;
+        }
+        let listed = lock(&self.seen).get(key).cloned().unwrap_or_default();
+        match self.tag_now(key) {
+            Err(e) => ReadBack::Unread(e.into()),
+            Ok(None) => ReadBack::Changed,
+            Ok(Some(now)) if listed.is_empty() || now.is_empty() => {
+                ReadBack::Unread(CloudError::failed(format!(
+                    "the drive names no version of {key}, so its bytes cannot be told from a \
+                     newer file"
+                )))
+            }
+            Ok(Some(now)) if now == listed => ReadBack::Damaged,
+            Ok(Some(_)) => ReadBack::Changed,
+        }
+    }
+
+    /// SYNC-4. The write is conditional on the version the listing carried (`If-Match`; an
+    /// encrypted drive: the index entry still names that object), so a file another device saved
+    /// since is never overwritten, and the body is hashed as it is read: a file here that is not
+    /// the version's fails the upload before it completes.
+    fn heal(&self, key: &str, file: &RemoteFile, from: &Path) -> CloudResult<()> {
+        let tag = lock(&self.seen).get(key).cloned().filter(|tag| !tag.is_empty());
+        let Some(tag) = tag else {
+            fail!(
+                "the drive names no version of {key}, so a write over it could not be conditional"
+            );
+        };
+        let mut body = HashCheck::new(std::fs::File::open(from)?, &file.hash);
+        match self
+            .drive
+            .put_from_if(&self.full(key), &mut body, &Precondition::Matches(tag))
+        {
+            Ok(written) => {
+                if let Some(written) = written {
+                    self.remember(key, &bare(&written), &file.hash);
+                }
+                Ok(())
+            }
+            Err(DriveError::Conflict { .. }) => {
+                fail!("{key} was changed on the drive meanwhile; it is left as it is")
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn fetch_hash(&self, hash: &str, _size: u64) -> CloudResult<Vec<u8>> {

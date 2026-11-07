@@ -737,10 +737,13 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
                 .verify()
                 .map(|report| {
                     Text::plain(format!(
-                        "checked={} mismatches={} healed={} rotted={} restored={}",
+                        "checked={} mismatches={} healed={} unread={} changed={} rotted={} \
+                         restored={}",
                         report.checked,
                         report.mismatches.len(),
                         report.healed.len(),
+                        report.unread.len(),
+                        report.changed.len(),
                         report.rotted.len(),
                         report.restored.len()
                     ))

@@ -8,7 +8,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -27,8 +27,9 @@ use crate::sync::{
     local::{hash_bytes, path_of},
     problems::Code,
     remote::index_key,
-    sync_folder, sync_to, Conditional, LocalRoot, RemoteStore, RunHooks, SyncOptions, SyncReport,
-    Target,
+    sync_folder, sync_to,
+    verify::{verify, VerifyReport},
+    Conditional, LocalRoot, RemoteStore, RunHooks, SyncOptions, SyncReport, Target,
 };
 
 const PREFIX: &str = "Documents/";
@@ -891,4 +892,336 @@ fn x_delta_azdrive_keys_43_the_folders_record_is_read_within_the_size_its_head_s
         "never by a plain GET that takes whatever comes"
     );
     assert_eq!(b.read("notes/a.md").as_deref(), Some(&b"alpha"[..]));
+}
+
+// ==== The read-back of a drive synced by name (X-DELTA-AZDRIVE-SYNC-4) ====
+
+/// What happens to the read of one key of a [`ReadBackProbe`].
+enum Fate {
+    /// Nothing: the drive answers as it is.
+    Fine,
+    /// The read fails with this error.
+    Fails(DriveError),
+    /// The bytes read have a flipped bit under the tag the listing carried: a disk that rots.
+    Rots,
+    /// A disk that rots, and another device saves a newer file after the damage was found and
+    /// before the heal writes: the heal meets a changed tag.
+    RotsThenRaced(Vec<u8>),
+    /// Another device saves a newer file after the check listed the drive and before it reads
+    /// the file.
+    Replaced(Vec<u8>),
+}
+
+/// A drive for the read-back: the read of one key can fail, rot or be raced, and every write the
+/// read-back makes to it is recorded - with its condition or without.
+struct ReadBackProbe {
+    inner: Arc<dyn Drive>,
+    s3: Arc<FakeS3>,
+    key: Mutex<String>,
+    fate: Mutex<Fate>,
+    plain: Mutex<Vec<String>>,
+    conditional: Mutex<Vec<(String, Precondition)>>,
+}
+
+impl ReadBackProbe {
+    fn new(s3: &Arc<FakeS3>) -> ReadBackProbe {
+        ReadBackProbe {
+            inner: s3_drive(s3),
+            s3: s3.clone(),
+            key: Mutex::new(String::new()),
+            fate: Mutex::new(Fate::Fine),
+            plain: Mutex::new(Vec::new()),
+            conditional: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// From now on `key` (the drive's full key) meets `fate`, and the writes made so far are
+    /// forgotten.
+    fn arm(&self, key: &str, fate: Fate) {
+        *self.key.lock().unwrap() = key.to_string();
+        *self.fate.lock().unwrap() = fate;
+        self.plain.lock().unwrap().clear();
+        self.conditional.lock().unwrap().clear();
+    }
+
+    /// Every write since [`ReadBackProbe::arm`], as text.
+    fn writes(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .plain
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|key| format!("unconditional {key}"))
+            .collect();
+        out.extend(
+            self.conditional
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(key, condition)| format!("conditional {key} {condition:?}")),
+        );
+        out
+    }
+
+    fn is_armed(&self, key: &str) -> bool {
+        *self.key.lock().unwrap() == key
+    }
+}
+
+impl Drive for ReadBackProbe {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        if !self.is_armed(key) {
+            return self.inner.get(key);
+        }
+        let mut fate = self.fate.lock().unwrap();
+        match &*fate {
+            Fate::Fine => self.inner.get(key),
+            Fate::Fails(e) => Err(e.clone()),
+            Fate::Rots | Fate::RotsThenRaced(_) => {
+                let mut bytes = self.inner.get(key)?;
+                if let Some(first) = bytes.first_mut() {
+                    *first ^= 1;
+                }
+                Ok(bytes)
+            }
+            Fate::Replaced(newer) => {
+                self.s3.write(key, newer.clone());
+                let newer = newer.clone();
+                *fate = Fate::Fine;
+                Ok(newer)
+            }
+        }
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.plain.lock().unwrap().push(key.to_string());
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.conditional
+            .lock()
+            .unwrap()
+            .push((key.to_string(), condition.clone()));
+        // The race: the other device saves right before this write reaches the drive.
+        let raced = match &*self.fate.lock().unwrap() {
+            Fate::RotsThenRaced(newer) if self.is_armed(key) => Some(newer.clone()),
+            _ => None,
+        };
+        if let Some(newer) = raced {
+            self.s3.write(key, newer);
+            *self.fate.lock().unwrap() = Fate::Fine;
+        }
+        self.inner.put_if(key, bytes, condition)
+    }
+}
+
+/// A device that synced `plan.md` and `other.md` to a probe drive.
+fn synced_pair(name: &'static str) -> (Arc<FakeS3>, ReadBackProbe, Device) {
+    let s3 = FakeS3::new();
+    let probe = ReadBackProbe::new(&s3);
+    let a = Device::new(name);
+    a.write("plan.md", b"plan one");
+    a.write("other.md", b"other");
+    let sent = a.sync(&probe);
+    assert_eq!(sent.files_up, 2, "{}", sent.summary());
+    (s3, probe, a)
+}
+
+fn read_back_of(probe: &ReadBackProbe, a: &Device) -> VerifyReport {
+    verify(Target::Named(probe), &a.root(), &a.index(), &a.opts()).unwrap()
+}
+
+fn code_of(report: &VerifyReport, key: &str) -> Vec<Code> {
+    report
+        .problems
+        .iter()
+        .filter(|p| p.key == key)
+        .map(|p| p.code)
+        .collect()
+}
+
+/// X-DELTA-AZDRIVE-SYNC-4, the scenario of the finding. The check lists the drive, device B saves
+/// `plan.md` meanwhile, and the check reads B's bytes: they are not the version it listed. The old
+/// read-back took that for damage, found its own copy to be the listed version and wrote it over
+/// B's file with an unconditional put - B's edit was gone from the drive, and came down over B's
+/// own copy at its next pass. RED not run: the old code makes one unconditional write of
+/// `Documents/plan.md` and the drive holds `plan one` afterwards.
+#[test]
+fn x_delta_azdrive_sync_4_a_file_another_device_saved_during_the_check_is_not_overwritten() {
+    let (s3, probe, a) = synced_pair("dev-sync4-race");
+    probe.arm(
+        "Documents/plan.md",
+        Fate::Replaced(b"plan two, saved on b".to_vec()),
+    );
+    let report = read_back_of(&probe, &a);
+    assert_eq!(
+        s3.read("Documents/plan.md").as_deref(),
+        Some(&b"plan two, saved on b"[..]),
+        "B's newer file is still the drive's: {report:?}"
+    );
+    assert_eq!(
+        probe.writes(),
+        Vec::<String>::new(),
+        "the check wrote nothing"
+    );
+    assert!(report.mismatches.is_empty(), "{report:?}");
+    assert!(report.healed.is_empty(), "{report:?}");
+    assert_eq!(report.changed, vec![String::from("plan.md")], "{report:?}");
+    assert_eq!(code_of(&report, "plan.md"), vec![Code::ChangedDuringSync]);
+    // The other file was read whole.
+    assert_eq!(report.checked, 2);
+}
+
+/// X-DELTA-AZDRIVE-SYNC-4: a read that fails says nothing about the copy. RED not run: the old
+/// code listed the file as a `hash-mismatch`, found its own copy to be the listed version and
+/// wrote it to the drive again.
+#[test]
+fn x_delta_azdrive_sync_4_a_read_that_fails_is_not_damage_and_writes_nothing() {
+    let (_s3, probe, a) = synced_pair("dev-sync4-fails");
+    probe.arm(
+        "Documents/plan.md",
+        Fate::Fails(DriveError::Transport(String::from(
+            "connection reset by peer",
+        ))),
+    );
+    let report = read_back_of(&probe, &a);
+    assert_eq!(report.unread, vec![String::from("plan.md")], "{report:?}");
+    assert!(report.mismatches.is_empty(), "{report:?}");
+    assert!(report.healed.is_empty(), "{report:?}");
+    assert_eq!(probe.writes(), Vec::<String>::new());
+    assert_eq!(code_of(&report, "plan.md"), vec![Code::Unchecked]);
+    assert_eq!(a.read("plan.md").as_deref(), Some(&b"plan one"[..]));
+}
+
+/// X-DELTA-AZDRIVE-SYNC-4: a file that is gone when the check reads it was deleted by another
+/// device after the listing; the heal would have put it back.
+#[test]
+fn x_delta_azdrive_sync_4_a_file_deleted_during_the_check_is_not_put_back() {
+    let (_s3, probe, a) = synced_pair("dev-sync4-gone");
+    probe.arm(
+        "Documents/plan.md",
+        Fate::Fails(DriveError::NotFound {
+            key: String::from("Documents/plan.md"),
+        }),
+    );
+    let report = read_back_of(&probe, &a);
+    assert_eq!(report.changed, vec![String::from("plan.md")], "{report:?}");
+    assert!(
+        report.mismatches.is_empty() && report.healed.is_empty(),
+        "{report:?}"
+    );
+    assert_eq!(probe.writes(), Vec::<String>::new());
+}
+
+/// X-DELTA-AZDRIVE-SYNC-4: an object that does not authenticate (a rotated key, a damaged
+/// ciphertext, a change by someone without the key) is listed as damaged, and nothing is written
+/// over it: the check cannot tell which of the three it met.
+#[test]
+fn x_delta_azdrive_sync_4_a_copy_that_does_not_authenticate_is_listed_and_left_alone() {
+    let (_s3, probe, a) = synced_pair("dev-sync4-corrupt");
+    probe.arm(
+        "Documents/plan.md",
+        Fate::Fails(DriveError::Corrupt {
+            key: String::from("Documents/plan.md"),
+            reason: String::from("the object does not authenticate"),
+        }),
+    );
+    let report = read_back_of(&probe, &a);
+    assert_eq!(report.unread, vec![String::from("plan.md")], "{report:?}");
+    assert!(report.healed.is_empty(), "{report:?}");
+    assert_eq!(probe.writes(), Vec::<String>::new());
+    assert_eq!(code_of(&report, "plan.md"), vec![Code::HashMismatch]);
+}
+
+/// X-DELTA-AZDRIVE-SYNC-4, the one case that IS damage: the bytes were read whole, they are not
+/// the listed version's, and the drive still names the tag the listing carried. The heal is ONE
+/// write, conditional on that tag.
+#[test]
+fn x_delta_azdrive_sync_4_a_damaged_object_is_healed_by_a_write_conditional_on_its_tag() {
+    let (_s3, probe, a) = synced_pair("dev-sync4-rot");
+    let tag = probe
+        .head("Documents/plan.md")
+        .unwrap()
+        .etag
+        .expect("the drive names a tag")
+        .trim_matches('"')
+        .to_string();
+    probe.arm("Documents/plan.md", Fate::Rots);
+    let report = read_back_of(&probe, &a);
+    assert_eq!(
+        report.mismatches,
+        vec![String::from("plan.md")],
+        "{report:?}"
+    );
+    assert_eq!(report.healed, vec![String::from("plan.md")], "{report:?}");
+    assert_eq!(
+        probe.writes(),
+        vec![format!(
+            "conditional Documents/plan.md {:?}",
+            Precondition::Matches(tag)
+        )],
+        "one write, conditional on the version the listing carried"
+    );
+    assert_eq!(code_of(&report, "plan.md"), vec![Code::HashMismatch]);
+}
+
+/// X-DELTA-AZDRIVE-SYNC-4: the heal is not sent from a copy that is not the version. This device
+/// edited `plan.md` since it synced; the drive's copy is damaged; nothing is written.
+#[test]
+fn x_delta_azdrive_sync_4_a_damaged_object_is_not_healed_from_a_copy_that_is_another_version() {
+    let (_s3, probe, a) = synced_pair("dev-sync4-edited");
+    a.write("plan.md", b"plan, edited here");
+    probe.arm("Documents/plan.md", Fate::Rots);
+    let report = read_back_of(&probe, &a);
+    assert_eq!(
+        report.mismatches,
+        vec![String::from("plan.md")],
+        "{report:?}"
+    );
+    assert!(report.healed.is_empty(), "{report:?}");
+    assert_eq!(probe.writes(), Vec::<String>::new());
+    assert_eq!(
+        a.read("plan.md").as_deref(),
+        Some(&b"plan, edited here"[..])
+    );
+}
+
+/// X-DELTA-AZDRIVE-SYNC-4: another device saves a newer file between the damage verdict and the
+/// heal's write. The write carries the old tag, the drive refuses it, and the newer file stays.
+/// RED not run: the old heal was `put_from` (unconditional) and the drive held `plan one` after.
+#[test]
+fn x_delta_azdrive_sync_4_a_heal_that_meets_a_newer_file_leaves_it() {
+    let (s3, probe, a) = synced_pair("dev-sync4-late");
+    probe.arm(
+        "Documents/plan.md",
+        Fate::RotsThenRaced(b"plan two, saved on b".to_vec()),
+    );
+    let report = read_back_of(&probe, &a);
+    assert_eq!(
+        s3.read("Documents/plan.md").as_deref(),
+        Some(&b"plan two, saved on b"[..]),
+        "{report:?}"
+    );
+    assert_eq!(
+        report.mismatches,
+        vec![String::from("plan.md")],
+        "{report:?}"
+    );
+    assert!(report.healed.is_empty(), "{report:?}");
 }

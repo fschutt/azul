@@ -112,7 +112,7 @@ use std::{
 use azul_storage::{
     beneath::{self, BeneathError, Kind, Stat},
     cap::{Cap, Posture},
-    checked::FileCheck,
+    checked::{FileCheck, HashCheck},
     ctl::Quiet,
     durable::{self, Expect, Mode, Publish, PublishError},
     restore::{self, Standing},
@@ -1009,6 +1009,24 @@ trait SyncRemote: Sync {
     /// when the drive no longer has them.
     fn fetch_hash(&self, hash: &str, size: u64) -> CloudResult<Vec<u8>>;
 
+    /// Reads the drive's copy of `key` (`file` as the listing named it; a big one into `spool`)
+    /// back whole and says what came of it (SYNC-4, [`verify::ReadBack`]). By default by
+    /// [`SyncRemote::fetch`]: every failure is a read that failed, never damage - a remote that
+    /// cannot tell a damaged copy from another device's newer version says neither.
+    fn read_back(&self, key: &str, file: &RemoteFile, spool: Option<&Path>) -> verify::ReadBack {
+        verify::read_back_by_fetch(self, key, file, spool)
+    }
+
+    /// Sends the version `file` of `key` again from the file at `from` over the drive's damaged
+    /// copy of it (SYNC-4). Only a write that is conditional on the version the listing carried
+    /// and that completes only when `from` still holds the version's bytes: a copy that changed
+    /// since it was hashed, or a drive file another device replaced, is left as it is and the
+    /// error says so. By default a remote heals nothing.
+    fn heal(&self, key: &str, file: &RemoteFile, from: &Path) -> CloudResult<()> {
+        let _ = (file, from);
+        fail!("the drive's copy of {key} is not sent again from here: this drive is not healed")
+    }
+
     /// Whether the drive keeps a file's executable bit. A drive that cannot (one synced by name
     /// that keeps no folder record) leaves it out of every comparison: a file would otherwise
     /// look changed there on every run.
@@ -1139,6 +1157,45 @@ impl<S: RemoteStore + ?Sized> SyncRemote for BlobIndex<'_, S> {
 
     fn fetch_hash(&self, hash: &str, size: u64) -> CloudResult<Vec<u8>> {
         fetch_blob(self.store, &self.prefix, hash, size)
+    }
+
+    /// A blob is named by its BLAKE3: bytes that were read whole and are not their name are
+    /// damaged, whatever the index says now (another version is another blob), and a blob the
+    /// index names that is not there is lost - the same repair, which writes the version's bytes
+    /// under the version's own name and so cannot overwrite anything. A read that failed is no
+    /// finding about the blob.
+    fn read_back(&self, _key: &str, file: &RemoteFile, spool: Option<&Path>) -> verify::ReadBack {
+        let blob = remote::blob_key(&self.prefix, &file.hash);
+        let read = match spool {
+            Some(dest) => match self.store.fetch_to_with(&blob, file.size, dest, &|| {}) {
+                Ok(true) => local::hash_file(dest).map_err(CloudError::from),
+                Ok(false) => return verify::ReadBack::Damaged,
+                Err(e) => Err(e),
+            },
+            None => match self.store.fetch(&blob, file.size) {
+                Ok(Some(bytes)) => Ok(local::hash_bytes(&bytes)),
+                Ok(None) => return verify::ReadBack::Damaged,
+                Err(e) => Err(e),
+            },
+        };
+        match read {
+            Ok(got) if got == file.hash => verify::ReadBack::Whole,
+            Ok(_) => verify::ReadBack::Damaged,
+            Err(e) => verify::ReadBack::Unread(e),
+        }
+    }
+
+    /// The blob goes back under its own name (it cannot revert anything: the name is the
+    /// content), from a file that is hashed as it is read and fails the upload when it is not
+    /// the version's.
+    fn heal(&self, _key: &str, file: &RemoteFile, from: &Path) -> CloudResult<()> {
+        let mut body = HashCheck::new(fs::File::open(from)?, &file.hash);
+        self.store.put_from(
+            &remote::blob_key(&self.prefix, &file.hash),
+            &mut body,
+            file.size,
+        )?;
+        Ok(())
     }
 
     fn fetch_to(&self, key: &str, hash: &str, size: u64, dest: &Path) -> CloudResult<String> {

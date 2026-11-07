@@ -576,14 +576,16 @@ keyring and has no passphrase of its own (a wrong recovery code is `drive_recove
 
 | op | arguments | result |
 |---|---|---|
-| `drive_verify` | `device` | `checked`, `mismatches`, `healed`, `rotted`, `restored` (keys) |
+| `drive_verify` | `device` | `checked`, `mismatches`, `healed`, `unread`, `changed`, `rotted`, `restored` (keys) |
 | `drive_sync` | as above, plus `verify` (bool): the read-back first, then the pass | as above |
 | `drive_bitrot` | `device`, `path`, `offset`, `hex` or `byte` (or content as `drive_write`) | `changed` (bytes) |
 
 `drive_verify` runs AzDrive's read-back of the pairing (azcloud-kit's `sync::verify`): every
-file the drive's index names is read back and checked against its BLAKE3 - a copy that does not
-read back whole is a mismatch, sent again from here when this device holds that version
-(`healed`) - and every synced file here whose size and time are as its last sync left them but
+file the drive's index names is read back and checked against its BLAKE3 - a copy read whole
+that is not the listed version while the drive still names it is a mismatch, sent again from
+here when this device holds that version (`healed`, a write conditional on the version listed);
+a read that failed (`unread`) or met a version another device wrote or deleted meanwhile
+(`changed`) is listed and nothing is written - and every synced file here whose size and time are as its last sync left them but
 whose bytes are not (`rotted`) gets the drive's version back (`restored`), the damaged bytes
 going into the folder's trash (and its operations log). Each finding is listed as
 `hash-mismatch`; the report is kept as `verify.json` in the state folder. `drive_bitrot` changes

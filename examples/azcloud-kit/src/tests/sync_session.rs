@@ -1515,6 +1515,58 @@ fn az_s4_a_rotted_file_stays_where_it_is_when_the_replacement_cannot_be_fetched(
     assert!(a.read("b.bin").is_some());
 }
 
+/// X-DELTA-AZDRIVE-SYNC-4 on a plain drive: a fetch that does not answer (a dropped connection) is
+/// a read that failed, not a damaged blob. RED not run: the old read-back listed the file as a
+/// `hash-mismatch` (`mismatches` is `["a.bin"]`) and sent its blob to the drive again.
+#[test]
+fn x_delta_azdrive_sync_4_a_fetch_that_drops_is_not_a_damaged_blob_on_a_plain_drive() {
+    let store = Arc::new(S3Bucket::new());
+    let drops = Arc::new(DropsAfter {
+        inner: store.clone(),
+        fetches_left: AtomicUsize::new(usize::MAX),
+    });
+    let folder = TempDir::new("azcloud-session-verify-sync4");
+    let state = TempDir::new("azcloud-session-state-verify-sync4");
+    let remote: Arc<dyn RemoteStore> = drops.clone();
+    let a = Paired {
+        session: SyncSession::plain(
+            setup_of(&folder),
+            state.path().to_path_buf(),
+            "verify-sync4",
+            remote,
+        ),
+        folder,
+        state,
+    };
+    aged(&a, "a.bin", b"archive a");
+    a.pass();
+    let puts = store.count("PUT");
+    drops.fetches_left.store(0, Ordering::SeqCst);
+    let report = a.session.verify().unwrap();
+    assert_eq!(report.unread, vec![String::from("a.bin")], "{report:?}");
+    assert!(report.mismatches.is_empty(), "{report:?}");
+    assert!(report.healed.is_empty(), "{report:?}");
+    assert_eq!(store.count("PUT"), puts, "the read-back wrote nothing");
+}
+
+/// X-DELTA-AZDRIVE-SYNC-4, kept: a blob the plain index names that is not on the drive is lost, and
+/// sending it again from the device that holds the version is safe (the blob is named by its
+/// content, so the write cannot overwrite another version).
+#[test]
+fn x_delta_azdrive_sync_4_a_blob_the_index_names_that_is_gone_is_sent_again() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("verify-sync4-gone", &store, |_| {});
+    aged(&a, "a.bin", b"archive a");
+    a.pass();
+    let blob =
+        crate::sync::remote::blob_key("Documents/", &crate::sync::local::hash_bytes(b"archive a"));
+    store.remove(&blob);
+    let report = a.session.verify().unwrap();
+    assert_eq!(report.mismatches, vec![String::from("a.bin")], "{report:?}");
+    assert_eq!(report.healed, vec![String::from("a.bin")], "{report:?}");
+    assert_eq!(store.read(&blob).as_deref(), Some(&b"archive a"[..]));
+}
+
 /// AZ-S13. The read-back judged "rot" by size and modification time alone, so an edit that keeps
 /// both (`rsync -t`, `touch -r`, a volume of whole-second times) was taken for rot: the drive's
 /// version was put over it and the edit sat in the trash. The change time moves with every write

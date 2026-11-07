@@ -2,9 +2,14 @@
 //! found before anyone needs the file.
 //!
 //! - **The drive's copies**: every file the drive's index names is read back and checked
-//!   against its BLAKE3. A copy that does not read back whole is listed (`hash-mismatch`) and,
-//!   when this device holds that very version, sent again from here - the drive heals from a
-//!   good copy, never from a guess.
+//!   against its BLAKE3. A copy is DAMAGED when its bytes were read whole and are not the
+//!   version listed while the drive still names that version ([`ReadBack`]); it is listed
+//!   (`hash-mismatch`) and, when this device holds that very version, sent again from here -
+//!   only as a write that is conditional on the version the listing carried, so another
+//!   device's newer file is never overwritten. A read that FAILED (a dropped connection, a 404,
+//!   a copy that does not authenticate, a timeout) or that met a version another device wrote
+//!   meanwhile says nothing about the copy: it is listed as not checked and nothing is written
+//!   (SYNC-4; the drive heals from a good copy, never from a guess).
 //! - **This device's copies**: a synced file whose size, times and identity are as its last
 //!   sync left them but whose bytes are not (a failing disk, a raw write) is no edit: the
 //!   drive's version is put back and the damaged bytes go into the folder's trash (and the
@@ -20,6 +25,7 @@ use std::{collections::BTreeSet, path::Path};
 use azul_storage::{
     beneath::{self, BeneathError, Fingerprint, Kind},
     durable::{self, Expect, PublishError},
+    DriveError,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +35,7 @@ use super::{
     named, names,
     oplog::{Op, OpKind, OpLog},
     problems::{Code, Problem},
-    remote::{self, RemoteFile},
+    remote::RemoteFile,
     root, synced_index, synced_publish, BlobIndex, LocalRoot, SyncOptions, SyncRemote, Target,
     TempBlob,
 };
@@ -52,16 +58,42 @@ pub struct VerifyReport {
     /// this device's good copy.
     pub mismatches: Vec<String>,
     pub healed: Vec<String>,
+    /// The drive's copies whose read failed: not checked, not touched (SYNC-4).
+    #[serde(default)]
+    pub unread: Vec<String>,
+    /// The drive's copies another device changed or deleted while the check ran: left as they
+    /// are, the next pass takes the new version (SYNC-4).
+    #[serde(default)]
+    pub changed: Vec<String>,
     /// This device's copies whose bytes changed under the same size and time, and of those the
     /// ones whose synced version was put back.
     pub rotted: Vec<String>,
     pub restored: Vec<String>,
-    /// What it lists, one `hash-mismatch` per file.
+    /// What it lists: a `hash-mismatch` per damaged copy, a `changed-during-sync` per drive copy
+    /// another device changed meanwhile, an `unchecked` per read that failed.
     pub problems: Vec<Problem>,
 }
 
-/// Sends `key`'s version `hash` again from the file at `path` (`size` bytes).
-type Heal<'a> = &'a dyn Fn(&str, &str, &Path, u64) -> CloudResult<()>;
+/// What reading one of the drive's copies back found (SYNC-4). Damage is ONE finding: the bytes
+/// were read whole, they are not the version the listing named, and the drive - asked again -
+/// still names that very version. Everything else says nothing about the copy and is never healed:
+/// the read-back used to take any failed read for damage and write this device's copy over the
+/// drive's file, which overwrote a newer version another device had just saved.
+#[derive(Debug)]
+pub(super) enum ReadBack {
+    /// The bytes are the version's.
+    Whole,
+    /// Read whole, not the listed version's, and the drive still names the version the check
+    /// began with: the drive's copy is damaged.
+    Damaged,
+    /// Bytes that are not the listed version's because the drive names another version now (or
+    /// none): another device wrote or deleted the file since the listing. Not damage.
+    Changed,
+    /// The read itself failed - a dropped connection, a timeout, a copy that does not
+    /// authenticate, a drive that cannot say which version it holds - so there are no bytes to
+    /// judge. Not damage.
+    Unread(CloudError),
+}
 
 /// Reads both sides of the synced folder `root` back (its base in `index_path`), against the
 /// drive behind `target`.
@@ -77,27 +109,22 @@ pub fn verify(
     opts: &SyncOptions,
 ) -> CloudResult<VerifyReport> {
     match target {
-        Target::Index(store) => {
-            let heal = |_key: &str, hash: &str, path: &Path, size: u64| -> CloudResult<()> {
-                let mut file = std::fs::File::open(path)?;
-                store.put_from(&remote::blob_key(&opts.prefix, hash), &mut file, size)?;
-                Ok(())
-            };
-            run(&BlobIndex::new(store, &opts.prefix), root, index_path, &heal)
-        }
-        Target::Named(drive) => {
-            let heal = |key: &str, _hash: &str, path: &Path, _size: u64| -> CloudResult<()> {
-                let mut file = std::fs::File::open(path)?;
-                drive.put_from(&format!("{}{key}", opts.prefix), &mut file)?;
-                Ok(())
-            };
-            run(
-                &named::NamedFiles::new(drive, &opts.prefix, index_path),
-                root,
-                index_path,
-                &heal,
-            )
-        }
+        Target::Index(store) => run(&BlobIndex::new(store, &opts.prefix), root, index_path),
+        Target::Named(drive) => run(
+            &named::NamedFiles::new(drive, &opts.prefix, index_path),
+            root,
+            index_path,
+        ),
+    }
+}
+
+/// Which problem a read that failed is listed as: a copy that does not authenticate is the
+/// drive's damage or a change by someone without the key (`hash-mismatch`, an error); any other
+/// failure is a check this device could not make (`unchecked`, a warning).
+fn unread_code(e: &CloudError) -> Code {
+    match e.root() {
+        CloudError::Drive(DriveError::Corrupt { .. }) => Code::HashMismatch,
+        _ => Code::Unchecked,
     }
 }
 
@@ -105,7 +132,6 @@ fn run<R: SyncRemote + ?Sized>(
     remote_side: &R,
     root: &LocalRoot,
     index_path: &Path,
-    heal: Heal<'_>,
 ) -> CloudResult<VerifyReport> {
     let mut index = synced_index(root, index_path)?;
     let cached = load_cache(index_path, &index);
@@ -123,29 +149,62 @@ fn run<R: SyncRemote + ?Sized>(
             whole.insert(key.as_str());
             continue;
         }
-        let Err(e) = read_back(remote_side, root, key, file) else {
-            whole.insert(key.as_str());
-            continue;
-        };
-        report.mismatches.push(key.clone());
-        let here = path_of(&root.path, key);
-        let good_here = hash_here(&root.path, key).as_deref() == Some(file.hash.as_str());
-        let healed = good_here && heal(key, &file.hash, &here, file.size).is_ok();
-        if healed {
-            report.healed.push(key.clone());
-        }
-        report.problems.push(Problem::new(
-            Code::HashMismatch,
-            key,
-            format!(
-                "the drive's copy did not read back whole ({e}); {}",
-                if healed {
-                    "it was sent again from this device"
+        match read_back(remote_side, root, key, file) {
+            ReadBack::Whole => {
+                whole.insert(key.as_str());
+            }
+            ReadBack::Changed => {
+                report.changed.push(key.clone());
+                report.problems.push(Problem::new(
+                    Code::ChangedDuringSync,
+                    key,
+                    "another device changed or deleted the drive's copy while it was read back; \
+                     it was left as it is and the next pass takes the new version",
+                ));
+            }
+            ReadBack::Unread(e) => {
+                report.unread.push(key.clone());
+                report.problems.push(Problem::new(
+                    unread_code(&e),
+                    key,
+                    format!(
+                        "the drive's copy could not be read back ({e}); it was not checked and \
+                         nothing was changed"
+                    ),
+                ));
+            }
+            ReadBack::Damaged => {
+                report.mismatches.push(key.clone());
+                let here = path_of(&root.path, key);
+                let good_here = hash_here(&root.path, key).as_deref() == Some(file.hash.as_str());
+                let outcome = if good_here {
+                    remote_side.heal(key, file, &here)
                 } else {
-                    "no good copy of this version is on this device"
+                    Err(CloudError::failed(
+                        "no good copy of this version is on this device",
+                    ))
+                };
+                let healed = outcome.is_ok();
+                if healed {
+                    report.healed.push(key.clone());
                 }
-            ),
-        ));
+                report.problems.push(Problem::new(
+                    Code::HashMismatch,
+                    key,
+                    match outcome {
+                        Ok(()) => String::from(
+                            "the drive's copy is damaged (its bytes are not this version's, or it \
+                             is gone); it was sent again from this device",
+                        ),
+                        Err(e) => format!(
+                            "the drive's copy is damaged (its bytes are not this version's, or it \
+                             is gone); it was not sent again from this device ({e}) and was left \
+                             as it is"
+                        ),
+                    },
+                ));
+            }
+        }
     }
     // This device's copies: the ones a pass would trust by their size and time.
     let tree = beneath::Root::open(&root.path)?;
@@ -207,6 +266,12 @@ fn run<R: SyncRemote + ?Sized>(
             if restored {
                 "this device's copy changed under the same size and time (a failing disk?); the \
                  synced version was put back and the damaged bytes are in the trash"
+            } else if there.is_some() {
+                // The drive names that version, but its copy was not read back whole just now:
+                // nothing is put over this device's bytes from a copy nobody checked.
+                "this device's copy changed under the same size and time (a failing disk?); the \
+                 drive's copy of the synced version was not read back whole, so nothing was put \
+                 back"
             } else {
                 "this device's copy changed under the same size and time (a failing disk?); no \
                  good copy of the synced version is on the drive to put back"
@@ -220,20 +285,42 @@ fn run<R: SyncRemote + ?Sized>(
 }
 
 /// Reads the drive's copy of `key` back whole, checked against its BLAKE3 (a big file through
-/// the folder's spool, never whole in memory).
+/// the folder's spool, never whole in memory), and says what came of it ([`ReadBack`]).
 fn read_back<R: SyncRemote + ?Sized>(
     remote_side: &R,
     root: &LocalRoot,
     key: &str,
     file: &RemoteFile,
-) -> CloudResult<()> {
+) -> ReadBack {
     if file.size > BIG_BLOB {
-        let spool = TempBlob::for_download(&root.path, key, &file.hash)?;
-        remote_side.fetch_to(key, &file.hash, file.size, spool.path())?;
+        match TempBlob::for_download(&root.path, key, &file.hash) {
+            Ok(spool) => remote_side.read_back(key, file, Some(spool.path())),
+            Err(e) => ReadBack::Unread(e),
+        }
     } else {
-        remote_side.fetch(key, &file.hash, file.size)?;
+        remote_side.read_back(key, file, None)
     }
-    Ok(())
+}
+
+/// [`SyncRemote::read_back`] by the remote's own checked fetch: any failure is a read that
+/// failed, never damage (a remote that cannot tell a damaged copy from a changed one or from a
+/// dropped connection has no way to say it).
+pub(super) fn read_back_by_fetch<R: SyncRemote + ?Sized>(
+    remote_side: &R,
+    key: &str,
+    file: &RemoteFile,
+    spool: Option<&Path>,
+) -> ReadBack {
+    let read = match spool {
+        Some(dest) => remote_side
+            .fetch_to(key, &file.hash, file.size, dest)
+            .map(drop),
+        None => remote_side.fetch(key, &file.hash, file.size).map(drop),
+    };
+    match read {
+        Ok(()) => ReadBack::Whole,
+        Err(e) => ReadBack::Unread(e),
+    }
 }
 
 /// The drive's version of a file, fetched and checked against its BLAKE3: in memory when small,
