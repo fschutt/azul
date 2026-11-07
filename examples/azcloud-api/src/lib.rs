@@ -99,10 +99,14 @@ pub mod https {
         timeout: Duration,
         roots: Option<&Arc<Vec<reqwest::Certificate>>>,
     ) -> reqwest::ClientBuilder {
+        // No redirect is followed (RF39 2c): the Azlin service answers itself, and a signed
+        // request and a drive token go where they were sent and nowhere else - a 3xx is the
+        // answer, as the bridge's transport has it.
         let mut builder = reqwest::Client::builder()
             .timeout(timeout)
             .connect_timeout(CONNECT_TIMEOUT)
-            .pool_max_idle_per_host(32);
+            .pool_max_idle_per_host(32)
+            .redirect(reqwest::redirect::Policy::none());
         if let Some(roots) = roots {
             builder = builder.tls_built_in_root_certs(false);
             for root in roots.iter() {
@@ -337,6 +341,7 @@ mod tests {
         io::{BufRead, BufReader, Write},
         net::TcpListener,
         sync::mpsc,
+        time::Duration,
     };
 
     use azul_storage::{transport::is_dns_failure, HttpCall, Method, Transport};
@@ -345,6 +350,13 @@ mod tests {
 
     /// An HTTP server on this computer answering `ok` to one request; the request's head lines.
     fn server() -> (u16, mpsc::Receiver<Vec<String>>) {
+        server_replying(String::from(
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+        ))
+    }
+
+    /// An HTTP server on this computer sending `reply` to one request; the request's head lines.
+    fn server_replying(reply: String) -> (u16, mpsc::Receiver<Vec<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let (tx, rx) = mpsc::channel();
@@ -361,7 +373,7 @@ mod tests {
                 }
                 head.push(line.trim_end().to_string());
             }
-            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+            let _ = stream.write_all(reply.as_bytes());
             let _ = tx.send(head);
         });
         (port, rx)
@@ -400,6 +412,35 @@ mod tests {
             .send(&call("https://evil.example\\@b1.s3.azlin.io/d-1/key"))
             .unwrap_err();
         assert!(why.contains("names no host"), "{why}");
+    }
+
+    /// RF39 2c: a signed request and a drive token go where they were sent. A redirect from an
+    /// Azlin host is the answer (the 303 itself) and is not followed - the second server hears
+    /// nothing (reqwest follows ten by default).
+    #[test]
+    fn a_redirect_is_the_answer_and_is_not_followed() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let transport = HttpsTransport::new(runtime.handle().clone(), HTTPS_TIMEOUT).unwrap();
+        let (elsewhere, elsewhere_heard) = server();
+        let (moved, _) = server_replying(format!(
+            "HTTP/1.1 303 See Other\r\nLocation: http://127.0.0.1:{elsewhere}/moved\r\nContent-Length: 0\r\n\r\n"
+        ));
+        let call = HttpCall {
+            method: Method::Get,
+            url: format!("http://127.0.0.1:{moved}/x"),
+            headers: Vec::new(),
+            body: Vec::new(),
+            content_type: String::new(),
+            limits: azul_storage::CallLimits::json(),
+        };
+        let reply = transport.send(&call).unwrap();
+        assert_eq!(reply.status, 303, "the redirect is the answer");
+        assert!(
+            elsewhere_heard
+                .recv_timeout(Duration::from_millis(500))
+                .is_err(),
+            "the redirect was followed to port {elsewhere}"
+        );
     }
 
     /// DNS down: a node whose name does not resolve is reached at the addresses the failover
