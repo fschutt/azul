@@ -541,4 +541,25 @@ fn az_p2_each_method_keeps_the_charge_it_makes_whatever_the_offers_price() {
         card.charge.as_ref().map(|c| c.currency.as_str()),
         Some("PLN")
     );
+    // X-DELTA-AZDRIVE-MONEY-15: a method that names an amount and no currency, or a currency and
+    // no amount, has NO charge - neither the offer's zloty nor a euro is made up for it, and no
+    // amount is 0. (The test above passed on any reading that kept what the wire gave.)
+    for half in [
+        json!({"method": "sepa_debit", "surfaces": ["page", "browser"], "settles": "days",
+               "amount_cents": 99}),
+        json!({"method": "sepa_debit", "surfaces": ["page", "browser"], "settles": "days",
+               "currency": "EUR"}),
+    ] {
+        let offer = parse(json!({
+            "country": "PL", "currency": "PLN",
+            "offers": [{"provider": "gocardless", "default": true, "methods": [half]}],
+            "price": {"amount_cents": 449, "currency": "PLN"},
+        }));
+        let sepa = offer
+            .provider("gocardless")
+            .unwrap()
+            .method(Method::SepaDebit)
+            .unwrap();
+        assert_eq!(sepa.charge, None, "half a charge is no charge");
+    }
 }
