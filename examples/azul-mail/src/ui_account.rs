@@ -1259,21 +1259,21 @@ extern "C" fn on_kind(mut data: RefAny, _info: CallbackInfo, state: SegmentedSta
 }
 
 /// "Create a new drive": a drive at the token server, on a thread ([`drive_created`] takes
-/// it). The token server is the typed one, else the one this run was told.
+/// it). The token server is the typed one, else the one this run was told - in a TEST build; a
+/// shipped build makes the drive at the live token server, whatever is typed (the drive is then
+/// refreshed there and nowhere else: [`azlin::Endpoints::token_url_for`]).
 extern "C" fn on_create_drive(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, |s, app| {
+        let endpoints = s.endpoints.clone();
         let Some(editor) = s.editor.as_mut() else {
             return Update::DoNothing;
         };
         if editor.azlin_busy {
             return Update::DoNothing;
         }
-        let typed = editor.form.token_url.trim();
-        let url = if typed.is_empty() {
-            editor.form.token_default.trim().to_string()
-        } else {
-            typed.to_string()
-        };
+        let url = endpoints
+            .token_url_for(editor.form.token_url.trim())
+            .unwrap_or_default();
         if url.is_empty() {
             editor.error = form_error(&account::FormError::NoTokenServer);
             return Update::RefreshDom;

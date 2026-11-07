@@ -653,14 +653,41 @@ fn said(value: Option<String>) -> Option<String> {
 }
 
 impl Endpoints {
-    /// The shared config's `endpoints` section (the file's text, if there is a file), then the
-    /// environment (`env` reads a variable), then the switches: a later source wins where it
-    /// says something.
+    /// The Azlin services of this run. A TEST build (appkit's cargo feature `test-hooks`): the
+    /// shared config's `endpoints` section (the file's text, if there is a file), then the
+    /// environment (`env` reads a variable), then the switches - a later source wins where it
+    /// says something. A SHIPPED build: the live token server and the drive's own S3 endpoint,
+    /// whatever the file, the environment and the switches say ([`Endpoints::resolve_with`]).
     pub fn resolve(
         config_json: Option<&str>,
         env: &dyn Fn(&str) -> Option<String>,
         flags: &Endpoints,
     ) -> Endpoints {
+        Endpoints::resolve_with(
+            azul_appkit::anchors::layers_honoured(),
+            config_json,
+            env,
+            flags,
+        )
+    }
+
+    /// [`Endpoints::resolve`] with the build's choice as an argument (the tests set both):
+    /// `honour_layers` is whether this build may take an address a CREDENTIAL travels to from its
+    /// layers (the file, the environment, the switches). A shipped build may not (REVIEW K20, P7,
+    /// X-DELTA-AZDRIVE-KEYS-9): the drive token and the period tokens go wherever the token
+    /// server's address says, and a file, a variable and a switch are all things a same-user
+    /// process can set. It gets the live token server ([`azul_appkit::anchors::TOKEN_SERVER`])
+    /// and no S3 override - SigV4-signed traffic goes to the endpoint the drive's own bundle
+    /// names.
+    pub fn resolve_with(
+        honour_layers: bool,
+        config_json: Option<&str>,
+        env: &dyn Fn(&str) -> Option<String>,
+        flags: &Endpoints,
+    ) -> Endpoints {
+        if !honour_layers {
+            return Endpoints::pinned();
+        }
         let mut out = config_json.map(endpoints_from_config).unwrap_or_default();
         if let Some(url) = said(env(TOKEN_URL_VAR)) {
             out.token_url = Some(url);
@@ -677,9 +704,27 @@ impl Endpoints {
         out
     }
 
-    /// The token server an account uses: its own (the one it was created with), else this
-    /// run's.
+    /// What a shipped build uses: the live token server, no S3 override.
+    #[must_use]
+    pub fn pinned() -> Endpoints {
+        Endpoints {
+            token_url: Some(azul_appkit::anchors::TOKEN_SERVER.to_string()),
+            s3_url: None,
+        }
+    }
+
+    /// The token server an account's drive token is sent to. A TEST build: the account's own
+    /// (the one it was created with), else this run's. A SHIPPED build: the live one, whatever
+    /// the account's file says (`account.json` is a file any process of the user can write).
     pub fn token_url_for(&self, account_url: &str) -> Option<String> {
+        self.token_url_for_with(azul_appkit::anchors::layers_honoured(), account_url)
+    }
+
+    /// [`Endpoints::token_url_for`] with the build's choice as an argument (the tests set both).
+    pub fn token_url_for_with(&self, honour_layers: bool, account_url: &str) -> Option<String> {
+        if !honour_layers {
+            return Endpoints::pinned().token_url;
+        }
         said(Some(account_url.to_string())).or_else(|| self.token_url.clone())
     }
 }
@@ -1171,7 +1216,7 @@ mod tests {
     fn the_endpoints_come_from_the_shared_config_then_the_environment_then_the_switches() {
         let config = r#"{"currentTheme": "flora", "endpoints": {"token": " http://127.0.0.1:8081 ", "s3": ""}}"#;
         let none = |_: &str| -> Option<String> { None };
-        let from_config = Endpoints::resolve(Some(config), &none, &Endpoints::default());
+        let from_config = Endpoints::resolve_with(true, Some(config), &none, &Endpoints::default());
         assert_eq!(
             from_config.token_url.as_deref(),
             Some("http://127.0.0.1:8081")
@@ -1179,7 +1224,7 @@ mod tests {
         assert_eq!(from_config.s3_url, None, "an empty value says nothing");
         let env =
             |name: &str| (name == TOKEN_URL_VAR).then(|| String::from("http://127.0.0.1:18081"));
-        let from_env = Endpoints::resolve(Some(config), &env, &Endpoints::default());
+        let from_env = Endpoints::resolve_with(true, Some(config), &env, &Endpoints::default());
         assert_eq!(
             from_env.token_url.as_deref(),
             Some("http://127.0.0.1:18081")
@@ -1188,10 +1233,10 @@ mod tests {
             token_url: Some(String::from("http://127.0.0.1:28081")),
             s3_url: Some(String::from("http://127.0.0.1:29000")),
         };
-        let from_flags = Endpoints::resolve(Some(config), &env, &flags);
+        let from_flags = Endpoints::resolve_with(true, Some(config), &env, &flags);
         assert_eq!(from_flags, flags);
         assert_eq!(
-            Endpoints::resolve(None, &none, &Endpoints::default()),
+            Endpoints::resolve_with(true, None, &none, &Endpoints::default()),
             Endpoints::default()
         );
         assert_eq!(endpoints_from_config("not json"), Endpoints::default());
@@ -1204,12 +1249,59 @@ mod tests {
         assert_eq!(read.s3_url, None);
         // The account's own token server wins over this run's.
         assert_eq!(
-            from_config.token_url_for("https://own.example").as_deref(),
+            from_config
+                .token_url_for_with(true, "https://own.example")
+                .as_deref(),
             Some("https://own.example")
         );
         assert_eq!(
-            from_config.token_url_for(" ").as_deref(),
+            from_config.token_url_for_with(true, " ").as_deref(),
             Some("http://127.0.0.1:8081")
+        );
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-9: a SHIPPED AzMail sends the drive token and the period tokens to the
+    /// live token server and signs its S3 traffic for the endpoint of the drive's own bundle,
+    /// whatever the shared config, `AZLIN_TOKEN_URL` / `AZLIN_S3_URL`, the switches and the
+    /// account's saved server say - the old code took each of them (a same-user process writes
+    /// any), and the next sync sent `Authorization: Bearer <drive token>` there.
+    #[test]
+    fn a_shipped_build_takes_no_credential_destination_from_a_file_a_variable_or_a_switch() {
+        let live = Some(String::from(azul_appkit::anchors::TOKEN_SERVER));
+        let config =
+            r#"{"endpoints": {"token": "https://evil.example", "s3": "https://evil-s3.example"}}"#;
+        let env = |name: &str| match name {
+            n if n == TOKEN_URL_VAR => Some(String::from("https://evil-env.example")),
+            n if n == S3_URL_VAR => Some(String::from("https://evil-env-s3.example")),
+            _ => None,
+        };
+        let flags = Endpoints {
+            token_url: Some(String::from("https://evil-flag.example")),
+            s3_url: Some(String::from("https://evil-flag-s3.example")),
+        };
+        let shipped = Endpoints::resolve_with(false, Some(config), &env, &flags);
+        assert_eq!(shipped.token_url, live);
+        assert_eq!(shipped.s3_url, None, "no S3 override");
+        assert_eq!(shipped, Endpoints::pinned());
+        // The same inputs in a test build are taken, in their order.
+        let test = Endpoints::resolve_with(true, Some(config), &env, &flags);
+        assert_eq!(test, flags);
+
+        // The account's own saved server is no destination either - nor is a run's that came
+        // from somewhere else.
+        for run in [shipped.clone(), flags.clone(), Endpoints::default()] {
+            assert_eq!(
+                run.token_url_for_with(false, "https://evil-account.example"),
+                live
+            );
+            assert_eq!(run.token_url_for_with(false, ""), live);
+        }
+        // A test build: the account's, else the run's.
+        assert_eq!(
+            flags
+                .token_url_for_with(true, "https://own.example")
+                .as_deref(),
+            Some("https://own.example")
         );
     }
 

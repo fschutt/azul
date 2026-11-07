@@ -158,9 +158,20 @@ impl Schedule {
     }
 }
 
-/// The Azlin drive of `entry`: its id at the token server and that server (the entry's
-/// `account_url`, else `fallback`); `None` for every other drive.
-pub(crate) fn azlin_drive(
+/// The Azlin drive of `entry`: its id at the token server and that server - the one a drive
+/// token, a recovery key, a voucher, a period token or a lockdown is SENT to. A shipped build
+/// answers `fallback` (the run's, the live server's), whatever the entry's `account_url` says:
+/// `drives.json` is a file any process of the user can write, and a hostile token server can
+/// seed the address (REVIEW K20, X-DELTA-AZDRIVE-KEYS-9). A test build answers the entry's, else
+/// `fallback` ([`azul_appkit::anchors::token_server_for`]). `None` for every other drive, and for
+/// one with no server to name. This is the only place of the app that reads the entry's address.
+pub(crate) fn azlin_drive(entry: &DriveEntry, fallback: Option<&str>) -> Option<(String, String)> {
+    azlin_drive_choice(azul_appkit::anchors::layers_honoured(), entry, fallback)
+}
+
+/// [`azlin_drive`] with the build's choice as an argument (the tests set both).
+pub(crate) fn azlin_drive_choice(
+    honour_entry: bool,
     entry: &DriveEntry,
     fallback: Option<&str>,
 ) -> Option<(String, String)> {
@@ -176,12 +187,15 @@ pub(crate) fn azlin_drive(
     else {
         return None;
     };
-    let url = if account_url.trim().is_empty() {
-        fallback?.to_string()
-    } else {
-        account_url.clone()
-    };
-    Some((drive_id.clone(), url))
+    let url = azul_appkit::anchors::token_server_choice(
+        honour_entry,
+        account_url,
+        fallback.unwrap_or_default(),
+    );
+    if url.is_empty() {
+        return None;
+    }
+    Some((drive_id.clone(), url.to_string()))
 }
 
 /// The open Azlin drives by their id at the token server: their period tokens are kept in

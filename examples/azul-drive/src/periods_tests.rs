@@ -8,7 +8,8 @@ use azul_appkit::l10n::Arg;
 use azul_storage::time::iso8601;
 
 use crate::periods::{
-    check_every, new_device_text, new_devices, recovery_text, Schedule, DAY_SECS, RETRY_SECS,
+    azlin_drive, azlin_drive_choice, check_every, new_device_text, new_devices, recovery_text,
+    Schedule, DAY_SECS, RETRY_SECS,
 };
 
 const NOW: u64 = 1_791_450_000;
@@ -195,4 +196,98 @@ fn x_ar5b_24_a_shipped_build_looks_at_its_own_pace_whatever_the_environment_says
     let every = Schedule::default().every();
     std::env::remove_var("AZDRIVE_PERIOD_CHECK_SECS");
     assert_eq!(every, DAY_SECS);
+}
+
+// ==== Where a drive token goes (X-DELTA-AZDRIVE-KEYS-9, AZ-K20) ====
+
+/// The live token server and a hostile one that `drives.json` (any process of the user can write
+/// it) or a lying token server's bundle names.
+const LIVE: &str = "https://token.azlin.io";
+const HOSTILE: &str = "https://evil.example";
+
+fn azlin_entry(account_url: &str) -> azul_storage::config::DriveEntry {
+    use azul_storage::config::{DriveAuth, DriveEntry, DriveLocation};
+    DriveEntry {
+        id: String::from("d_1"),
+        name: String::from("Photos"),
+        location: DriveLocation::S3 {
+            endpoint: String::from("https://s3.example.test"),
+            region: String::from("us-east-1"),
+            bucket: String::from("d-1"),
+            path_style: true,
+            auth: DriveAuth::Azlin {
+                drive_id: String::from("d_1"),
+                account_url: account_url.to_string(),
+                encrypted: false,
+                key_id: None,
+            },
+        },
+    }
+}
+
+/// A SHIPPED build sends the drive token, the period tokens, a recovery key, a voucher and a
+/// lockdown to the server the run resolved (the live one), whatever the entry says: the old code
+/// took `account_url` of `drives.json` and the next start's daily look sent the drive token there
+/// (`Authorization: Bearer ...`), which the attacker spends at the real server.
+#[test]
+fn a_shipped_build_sends_the_drive_token_to_the_live_server_whatever_the_entry_names() {
+    assert_eq!(
+        azlin_drive_choice(false, &azlin_entry(HOSTILE), Some(LIVE)),
+        Some((String::from("d_1"), String::from(LIVE)))
+    );
+    // The same for an entry that names the live server, and one that names nothing.
+    assert_eq!(
+        azlin_drive_choice(false, &azlin_entry(LIVE), Some(LIVE)),
+        Some((String::from("d_1"), String::from(LIVE)))
+    );
+    assert_eq!(
+        azlin_drive_choice(false, &azlin_entry(""), Some(LIVE)),
+        Some((String::from("d_1"), String::from(LIVE)))
+    );
+    // A run with no server to name sends nothing - not to the entry's.
+    assert_eq!(azlin_drive_choice(false, &azlin_entry(HOSTILE), None), None);
+    assert_eq!(
+        azlin_drive_choice(false, &azlin_entry(HOSTILE), Some("  ")),
+        None
+    );
+}
+
+/// A TEST build keeps what it had: the entry's server (a local stack's drive), else the run's.
+#[test]
+fn a_test_build_takes_the_entrys_server_else_the_runs() {
+    assert_eq!(
+        azlin_drive_choice(true, &azlin_entry("http://127.0.0.1:18081"), Some(LIVE)),
+        Some((String::from("d_1"), String::from("http://127.0.0.1:18081")))
+    );
+    assert_eq!(
+        azlin_drive_choice(true, &azlin_entry("  "), Some("http://127.0.0.1:8081")),
+        Some((String::from("d_1"), String::from("http://127.0.0.1:8081")))
+    );
+    assert_eq!(azlin_drive_choice(true, &azlin_entry(""), None), None);
+}
+
+/// Only an Azlin drive has a token server.
+#[test]
+fn a_drive_that_is_not_an_azlin_drive_has_no_token_server() {
+    use azul_storage::config::{DriveEntry, DriveLocation};
+    let local = DriveEntry {
+        id: String::from("home"),
+        name: String::from("Home"),
+        location: DriveLocation::Local {
+            root: String::from("/tmp/home"),
+        },
+    };
+    assert_eq!(azlin_drive_choice(true, &local, Some(LIVE)), None);
+    assert_eq!(azlin_drive_choice(false, &local, Some(LIVE)), None);
+}
+
+/// The build under test is a test build (appkit's `test-hooks` is a dev-dependency): the choice
+/// `azlin_drive` makes is the one the anchors make for it - the shipped branch is the one above.
+#[test]
+fn azlin_drive_follows_the_anchors_choice_for_its_build() {
+    let honoured = azul_appkit::anchors::layers_honoured();
+    assert_eq!(
+        azlin_drive(&azlin_entry(HOSTILE), Some(LIVE)),
+        azlin_drive_choice(honoured, &azlin_entry(HOSTILE), Some(LIVE))
+    );
 }

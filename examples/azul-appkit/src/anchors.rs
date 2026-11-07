@@ -61,8 +61,13 @@ pub fn token_server_for<'a>(named_by_entry: &'a str, resolved: &'a str) -> &'a s
     token_server_choice(layers_honoured(), named_by_entry, resolved)
 }
 
-/// [`token_server_for`] with the build's choice as an argument (the tests set both).
-fn token_server_choice<'a>(
+/// [`token_server_for`] with the build's choice as an argument: `honour_entry` is whether this
+/// build may take the address from the drive's entry ([`layers_honoured`]). The callers that
+/// resolve a drive's token server through [`token_server_for`] test both choices with it - a
+/// build under test has appkit's `test-hooks` on, so only an explicit choice reaches the shipped
+/// branch.
+#[must_use]
+pub fn token_server_choice<'a>(
     honour_entry: bool,
     named_by_entry: &'a str,
     resolved: &'a str,
