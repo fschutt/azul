@@ -153,3 +153,98 @@ fn no_message_of_azdrive_names_a_storage_provider_but_a_source_types_own_label()
         }
     }
 }
+
+/// AZ-CN8 / AZ-CN9: the new things a form can say are said in German too, and a form's problem
+/// names its field.
+#[test]
+fn the_new_form_problems_are_said_in_english_and_german() {
+    keep(&sources());
+    let endpoint = catalog::service("webdav")
+        .unwrap()
+        .field("endpoint")
+        .unwrap();
+    let credential = catalog::service("gcs")
+        .unwrap()
+        .field("credential")
+        .unwrap();
+    let problems = [
+        FormProblem::WrongScheme(endpoint),
+        FormProblem::AddressHasLogin(endpoint),
+        FormProblem::SendsInClear(endpoint),
+        FormProblem::NoCredential(credential),
+        FormProblem::NotAKey(credential),
+    ];
+    set_locale("en-US");
+    for problem in problems {
+        assert_eq!(
+            source_words::problem(problem),
+            problem.to_string(),
+            "{problem:?}"
+        );
+    }
+    set_locale("de-DE");
+    for problem in problems {
+        let german = source_words::problem(problem);
+        assert_ne!(german, problem.to_string(), "{problem:?}");
+        assert!(
+            !german.contains("azdrive-form-"),
+            "a missing key shows itself: {german}"
+        );
+    }
+    assert!(
+        source_words::problem(FormProblem::WrongScheme(endpoint)).contains("https:// / http://")
+    );
+    set_locale("en-US");
+}
+
+/// AZ-CN8: a stored address with a password in it is shown without; AZ-CN6: a database says how
+/// many rows of a table it shows.
+#[test]
+fn az_cn8_az_cn6_the_rows_of_a_source_hide_a_password_and_name_the_row_limit() {
+    use azul_storage::config::{DatabaseEngine, DriveEntry, DriveLocation};
+    keep(&sources());
+    set_locale("en-US");
+    let mut options = std::collections::BTreeMap::new();
+    options.insert(
+        "endpoint".to_string(),
+        "https://ann:hunter2@cloud.example/dav".to_string(),
+    );
+    options.insert("username".to_string(), "ann".to_string());
+    let webdav = DriveEntry {
+        id: "nas-1".to_string(),
+        name: "NAS".to_string(),
+        location: DriveLocation::Opendal {
+            scheme: "webdav".to_string(),
+            options,
+            keyring: true,
+        },
+    };
+    let DriveLocation::Opendal { options, .. } = &webdav.location else {
+        unreachable!()
+    };
+    let rows = crate::ui_dialogs::source_rows(&webdav, options);
+    assert_eq!(rows[0].1, "https://cloud.example/dav");
+    assert!(
+        rows.iter().all(|(_, value)| !value.contains("hunter2")),
+        "{rows:?}"
+    );
+    assert_eq!(rows.len(), 2, "a web source has no row limit: {rows:?}");
+
+    let mut options = std::collections::BTreeMap::new();
+    options.insert("host".to_string(), "db.example".to_string());
+    let database = DriveEntry {
+        id: "shop-1".to_string(),
+        name: "Shop".to_string(),
+        location: DriveLocation::Database {
+            engine: DatabaseEngine::Postgres,
+            options: options.clone(),
+            keyring: false,
+        },
+    };
+    let rows = crate::ui_dialogs::source_rows(&database, &options);
+    assert_eq!(
+        rows.last()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+        Some(("Rows shown per table (at most)", "10,000"))
+    );
+}

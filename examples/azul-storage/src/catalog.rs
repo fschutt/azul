@@ -105,6 +105,9 @@ pub struct FieldSpec {
     pub help: &'static str,
     /// What a new form holds; empty for nothing.
     pub default: &'static str,
+    /// The schemes an address field takes (`https`, `http`; FTP's `ftp`, `ftps`); empty for a
+    /// field that is no address.
+    pub schemes: &'static [&'static str],
 }
 
 /// What a source can do beyond browsing, as an app decides on it BEFORE it offers a command
@@ -155,6 +158,11 @@ pub struct ServiceSpec {
     pub read_only: bool,
     /// What it can do ([`Capabilities`]).
     pub caps: Capabilities,
+    /// A source whose credentials are optional - it would otherwise use whatever this computer
+    /// has: the developer's gcloud login, an environment variable - needs one of these fields
+    /// filled in (a switch counts when it is on); empty: the source has no such fallback
+    /// (AZ-CN9).
+    pub needs_one_of: &'static [&'static str],
 }
 
 impl ServiceSpec {
@@ -241,7 +249,23 @@ const fn field(
         placeholder,
         help: "",
         default: "",
+        schemes: match kind {
+            FieldKind::Url => HTTP_SCHEMES,
+            _ => &[],
+        },
     }
+}
+
+/// The schemes of a web address: TLS first.
+const HTTP_SCHEMES: &[&str] = &["https", "http"];
+/// FTP's.
+const FTP_SCHEMES: &[&str] = &["ftp", "ftps"];
+/// Redis'.
+const REDIS_SCHEMES: &[&str] = &["tcp", "redis", "rediss"];
+
+const fn with_schemes(mut f: FieldSpec, schemes: &'static [&'static str]) -> FieldSpec {
+    f.schemes = schemes;
+    f
 }
 
 const fn with_default(mut f: FieldSpec, default: &'static str) -> FieldSpec {
@@ -303,6 +327,26 @@ const GCS_FIELDS: &[FieldSpec] = &[
     with_help(
         field("credential", "Service account key", FieldKind::Secret, false, ""),
         "The service account's JSON key, base64-encoded.",
+    ),
+    with_default(
+        field(
+            "anonymous",
+            "Public bucket, no credentials",
+            FieldKind::Bool,
+            false,
+            "",
+        ),
+        "false",
+    ),
+    with_default(
+        field(
+            "machine_identity",
+            "Use this computer's Google login",
+            FieldKind::Bool,
+            false,
+            "",
+        ),
+        "false",
     ),
     ROOT,
     field(
@@ -446,15 +490,18 @@ const WEBDAV_FIELDS: &[FieldSpec] = &[
 ];
 
 const FTP_FIELDS: &[FieldSpec] = &[
-    with_help(
-        field(
-            "endpoint",
-            "Server address",
-            FieldKind::Url,
-            true,
-            "ftp://nas.local:21",
+    with_schemes(
+        with_help(
+            field(
+                "endpoint",
+                "Server address",
+                FieldKind::Url,
+                true,
+                "ftp://nas.local:21",
+            ),
+            "ftps:// for FTP over TLS.",
         ),
-        "ftps:// for FTP over TLS.",
+        FTP_SCHEMES,
     ),
     field("user", "User name", FieldKind::Text, false, ""),
     field("password", "Password", FieldKind::Secret, false, ""),
@@ -597,15 +644,18 @@ const IPFS_FIELDS: &[FieldSpec] = &[
 ];
 
 const REDIS_FIELDS: &[FieldSpec] = &[
-    with_help(
-        field(
-            "endpoint",
-            "Address",
-            FieldKind::Url,
-            true,
-            "tcp://127.0.0.1:6379",
+    with_schemes(
+        with_help(
+            field(
+                "endpoint",
+                "Address",
+                FieldKind::Url,
+                true,
+                "tcp://127.0.0.1:6379",
+            ),
+            "rediss:// for TLS. Keys with / in them show as folders.",
         ),
-        "rediss:// for TLS. Keys with / in them show as folders.",
+        REDIS_SCHEMES,
     ),
     field("username", "User name", FieldKind::Text, false, ""),
     field("password", "Password", FieldKind::Secret, false, ""),
@@ -716,6 +766,7 @@ const fn source(
         fields,
         read_only: false,
         caps: Capabilities::NONE,
+        needs_one_of: &[],
     }
 }
 
@@ -726,6 +777,11 @@ const fn read_only(mut s: ServiceSpec) -> ServiceSpec {
 
 const fn with_caps(mut s: ServiceSpec, caps: Capabilities) -> ServiceSpec {
     s.caps = caps;
+    s
+}
+
+const fn needing_one_of(mut s: ServiceSpec, keys: &'static [&'static str]) -> ServiceSpec {
+    s.needs_one_of = keys;
     s
 }
 
@@ -758,41 +814,53 @@ static SERVICES: &[ServiceSpec] = &[
         ),
         Capabilities::CONDITIONAL,
     ),
-    source(
-        "gcs",
-        "Google Cloud Storage",
-        CloudStorage,
-        "cloud",
-        "A bucket with a service account's key",
-        Dal("gcs"),
-        GCS_FIELDS,
+    needing_one_of(
+        source(
+            "gcs",
+            "Google Cloud Storage",
+            CloudStorage,
+            "cloud",
+            "A bucket with a service account's key",
+            Dal("gcs"),
+            GCS_FIELDS,
+        ),
+        &["credential", "anonymous", "machine_identity"],
     ),
-    source(
-        "azblob",
-        "Azure Blob Storage",
-        CloudStorage,
-        "cloud",
-        "A container of a storage account",
-        Dal("azblob"),
-        AZBLOB_FIELDS,
+    needing_one_of(
+        source(
+            "azblob",
+            "Azure Blob Storage",
+            CloudStorage,
+            "cloud",
+            "A container of a storage account",
+            Dal("azblob"),
+            AZBLOB_FIELDS,
+        ),
+        &["account_key", "sas_token"],
     ),
-    source(
-        "azdls",
-        "Azure Data Lake Storage Gen2",
-        CloudStorage,
-        "cloud",
-        "A file system of a storage account",
-        Dal("azdls"),
-        AZDLS_FIELDS,
+    needing_one_of(
+        source(
+            "azdls",
+            "Azure Data Lake Storage Gen2",
+            CloudStorage,
+            "cloud",
+            "A file system of a storage account",
+            Dal("azdls"),
+            AZDLS_FIELDS,
+        ),
+        &["account_key"],
     ),
-    source(
-        "azfile",
-        "Azure Files",
-        CloudStorage,
-        "folder_shared",
-        "A file share of a storage account",
-        Dal("azfile"),
-        AZFILE_FIELDS,
+    needing_one_of(
+        source(
+            "azfile",
+            "Azure Files",
+            CloudStorage,
+            "folder_shared",
+            "A file share of a storage account",
+            Dal("azfile"),
+            AZFILE_FIELDS,
+        ),
+        &["account_key", "sas_token"],
     ),
     source(
         "b2",
@@ -812,32 +880,41 @@ static SERVICES: &[ServiceSpec] = &[
         Dal("swift"),
         SWIFT_FIELDS,
     ),
-    source(
-        "oss",
-        "Alibaba Cloud OSS",
-        CloudStorage,
-        "cloud",
-        "Object Storage Service",
-        Dal("oss"),
-        OSS_FIELDS,
+    needing_one_of(
+        source(
+            "oss",
+            "Alibaba Cloud OSS",
+            CloudStorage,
+            "cloud",
+            "Object Storage Service",
+            Dal("oss"),
+            OSS_FIELDS,
+        ),
+        &["access_key_secret"],
     ),
-    source(
-        "cos",
-        "Tencent Cloud COS",
-        CloudStorage,
-        "cloud",
-        "Cloud Object Storage",
-        Dal("cos"),
-        COS_FIELDS,
+    needing_one_of(
+        source(
+            "cos",
+            "Tencent Cloud COS",
+            CloudStorage,
+            "cloud",
+            "Cloud Object Storage",
+            Dal("cos"),
+            COS_FIELDS,
+        ),
+        &["secret_key"],
     ),
-    source(
-        "obs",
-        "Huawei Cloud OBS",
-        CloudStorage,
-        "cloud",
-        "Object Storage Service",
-        Dal("obs"),
-        OBS_FIELDS,
+    needing_one_of(
+        source(
+            "obs",
+            "Huawei Cloud OBS",
+            CloudStorage,
+            "cloud",
+            "Object Storage Service",
+            Dal("obs"),
+            OBS_FIELDS,
+        ),
+        &["secret_access_key"],
     ),
     source(
         "upyun",
@@ -1202,6 +1279,21 @@ pub enum FormProblem {
     NotOnOff(&'static FieldSpec),
     /// A drop-down's value that is none of its words.
     NotOneOf(&'static FieldSpec),
+    /// An address whose scheme is none of the field's ([`FieldSpec::schemes`]): `ssh://` for a
+    /// WebDAV server, `javascript:` for anything.
+    WrongScheme(&'static FieldSpec),
+    /// An address with a user name or a password in it (`https://ann:pw@host/`): drives.json would
+    /// keep it in plain text and every window would show it (AZ-CN8). The form has fields for them.
+    AddressHasLogin(&'static FieldSpec),
+    /// An address that sends the form's password or token over the internet unencrypted
+    /// (`http://`, `ftp://`, `tcp://` to a host that is not on this computer or its own network).
+    SendsInClear(&'static FieldSpec),
+    /// A service whose credentials are optional (it would use whatever this computer has: the
+    /// developer's gcloud login, an environment variable) and none is filled in (AZ-CN9).
+    NoCredential(&'static FieldSpec),
+    /// A credential that is not what the service hands out (a Google key that is neither the
+    /// service account's JSON nor its base64): ignored by the service, which then uses ambient ones.
+    NotAKey(&'static FieldSpec),
 }
 
 impl FormProblem {
@@ -1214,7 +1306,12 @@ impl FormProblem {
             | FormProblem::NotAnAddress(f)
             | FormProblem::NotANumber(f)
             | FormProblem::NotOnOff(f)
-            | FormProblem::NotOneOf(f) => f
+            | FormProblem::NotOneOf(f)
+            | FormProblem::WrongScheme(f)
+            | FormProblem::AddressHasLogin(f)
+            | FormProblem::SendsInClear(f)
+            | FormProblem::NoCredential(f)
+            | FormProblem::NotAKey(f) => f
                 .placeholder
                 .split_once("://")
                 .map_or("https", |(scheme, _)| scheme),
@@ -1242,7 +1339,160 @@ impl fmt::Display for FormProblem {
                 };
                 write!(out, "\"{}\" must be one of: {words}.", f.label)
             }
+            FormProblem::WrongScheme(f) => write!(
+                out,
+                "\"{}\" must start with {}.",
+                f.label,
+                f.schemes
+                    .iter()
+                    .map(|scheme| format!("{scheme}://"))
+                    .collect::<Vec<_>>()
+                    .join(" or ")
+            ),
+            FormProblem::AddressHasLogin(f) => write!(
+                out,
+                "\"{}\" must not hold a user name or a password: type them in their own fields.",
+                f.label
+            ),
+            FormProblem::SendsInClear(f) => write!(
+                out,
+                "\"{}\" would send the password over the internet unencrypted: use the secure \
+                 address (https://, ftps://, rediss://). A server on your own network may use the \
+                 plain one.",
+                f.label
+            ),
+            FormProblem::NoCredential(f) => write!(
+                out,
+                "\"{}\" or another credential is needed: without one the service would use \
+                 whatever credentials this computer has.",
+                f.label
+            ),
+            FormProblem::NotAKey(f) => write!(
+                out,
+                "\"{}\" is not the key the service hands out (its JSON text, or that text in \
+                 base64).",
+                f.label
+            ),
         }
+    }
+}
+
+/// An address as the form reads it: its scheme, whether it holds a user name or password, and its
+/// host (without a port and without brackets).
+struct Address<'a> {
+    scheme: &'a str,
+    has_login: bool,
+    host: &'a str,
+}
+
+/// `text` as an address: `scheme://authority...` with a scheme of letters, digits, `+`, `-`, `.`
+/// and an authority that is not empty.
+fn address(text: &str) -> Option<Address<'_>> {
+    let (scheme, rest) = text.split_once("://")?;
+    if scheme.is_empty()
+        || !scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    {
+        return None;
+    }
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    if authority.is_empty() {
+        return None;
+    }
+    // The user info ends at the LAST '@' (a password may hold one).
+    let (has_login, host_port) = match authority.rsplit_once('@') {
+        Some((_, host_port)) => (true, host_port),
+        None => (false, authority),
+    };
+    let host = match host_port.strip_prefix('[') {
+        Some(inner) => inner.split(']').next().unwrap_or(inner),
+        None => host_port.split(':').next().unwrap_or(host_port),
+    };
+    Some(Address {
+        scheme,
+        has_login,
+        host,
+    })
+}
+
+/// Whether the address `text` holds a user name or a password (`https://ann:pw@host/`).
+#[must_use]
+pub fn address_has_login(text: &str) -> bool {
+    address(text.trim()).is_some_and(|address| address.has_login)
+}
+
+/// Whether `host` is this computer or lies on its own network: a loopback, private or link-local
+/// address, `localhost`, a name with one label (`nas`) or one of the names a home or an office
+/// network gives itself (`.local`, `.lan`, `.home.arpa`, `.internal`). A password sent in clear to
+/// such a host does not cross the internet.
+#[must_use]
+pub fn is_own_network(host: &str) -> bool {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() {
+        return false;
+    }
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+            std::net::IpAddr::V6(v6) => {
+                let first = v6.segments()[0];
+                v6.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+            }
+        };
+    }
+    host == "localhost"
+        || !host.contains('.')
+        || [
+            ".localhost",
+            ".local",
+            ".lan",
+            ".home.arpa",
+            ".internal",
+            ".localdomain",
+        ]
+        .iter()
+        .any(|end| host.ends_with(end))
+}
+
+/// Whether a connection to `address` carries what is sent over it in clear text to a host that is
+/// not on this computer or its own network.
+fn sends_in_clear(address: &Address<'_>) -> bool {
+    let secure = ["https", "ftps", "rediss", "wss"]
+        .iter()
+        .any(|scheme| scheme.eq_ignore_ascii_case(address.scheme));
+    !secure && !is_own_network(address.host)
+}
+
+/// The text of a Google service account key as OpenDAL takes it - base64 of the key's JSON - from
+/// what the user pasted: the JSON itself (as Google's console hands it out) or its base64. `None`
+/// for anything else. A key pasted as JSON used to be ignored by the service, which then used the
+/// machine's own login (AZ-CN9).
+#[must_use]
+pub fn service_account_key(text: &str) -> Option<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let text = text.trim();
+    let (json, based) = if text.starts_with('{') {
+        (text.as_bytes().to_vec(), STANDARD.encode(text))
+    } else {
+        (STANDARD.decode(text).ok()?, text.to_string())
+    };
+    let key: serde_json::Value = serde_json::from_slice(&json).ok()?;
+    let holds = |name: &str| {
+        key.get(name)
+            .and_then(|v| v.as_str())
+            .is_some_and(|v| !v.is_empty())
+    };
+    (holds("client_email") && holds("private_key")).then_some(based)
+}
+
+/// Whether the field `f` has an answer in `values`: a value, or a switch that is on.
+fn is_set(values: &FormValues, f: &FieldSpec) -> bool {
+    if f.kind == FieldKind::Bool {
+        values.get(f.key).is_some_and(|v| v.trim() == "true")
+    } else {
+        value(values, f).is_some()
     }
 }
 
@@ -1250,21 +1500,20 @@ impl fmt::Display for FormProblem {
 fn check_field(f: &'static FieldSpec, v: &str) -> Result<(), FormProblem> {
     match f.kind {
         FieldKind::Url => {
-            let ok = v
-                .split_once("://")
-                .is_some_and(|(scheme, rest)| {
-                    !scheme.is_empty()
-                        && scheme
-                            .chars()
-                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
-                        && !rest.is_empty()
-                })
-                && !v.chars().any(char::is_whitespace);
-            if ok {
-                Ok(())
-            } else {
-                Err(FormProblem::NotAnAddress(f))
+            let Some(address) = address(v).filter(|_| !v.chars().any(char::is_whitespace)) else {
+                return Err(FormProblem::NotAnAddress(f));
+            };
+            if !f
+                .schemes
+                .iter()
+                .any(|scheme| scheme.eq_ignore_ascii_case(address.scheme))
+            {
+                return Err(FormProblem::WrongScheme(f));
             }
+            if address.has_login {
+                return Err(FormProblem::AddressHasLogin(f));
+            }
+            Ok(())
         }
         FieldKind::Number => {
             if v.chars().all(|c| c.is_ascii_digit()) {
@@ -1312,6 +1561,37 @@ pub fn problem(spec: &ServiceSpec, name: &str, values: &FormValues) -> Option<Fo
                 if let Err(problem) = check_field(f, v) {
                     return Some(problem);
                 }
+                // Google's key: the JSON text or its base64, nothing else (AZ-CN9).
+                if spec.id == "gcs" && f.key == "credential" && service_account_key(v).is_none() {
+                    return Some(FormProblem::NotAKey(f));
+                }
+            }
+        }
+    }
+    // A service that would otherwise use whatever credentials this computer has needs one filled
+    // in (AZ-CN9).
+    if let Some(first) = spec.needs_one_of.first().and_then(|key| spec.field(key)) {
+        let filled = spec
+            .needs_one_of
+            .iter()
+            .filter_map(|key| spec.field(key))
+            .any(|f| is_set(values, f));
+        if !filled {
+            return Some(FormProblem::NoCredential(first));
+        }
+    }
+    // A password or a token never goes over the internet in clear text (AZ-CN8).
+    let carries_secret = spec
+        .fields
+        .iter()
+        .any(|f| f.kind == FieldKind::Secret && value(values, f).is_some());
+    if carries_secret {
+        for f in spec.fields.iter().filter(|f| f.kind == FieldKind::Url) {
+            let clear = value(values, f)
+                .and_then(address)
+                .is_some_and(|address| sends_in_clear(&address));
+            if clear {
+                return Some(FormProblem::SendsInClear(f));
             }
         }
     }
@@ -1443,7 +1723,12 @@ fn split(spec: &ServiceSpec, values: &FormValues) -> (BTreeMap<String, String>, 
             continue;
         };
         if f.kind == FieldKind::Secret {
-            secrets.insert(f.key, v);
+            // A Google key pasted as JSON is kept as the base64 OpenDAL takes: pasted raw it was
+            // ignored and the service used the machine's own login (AZ-CN9).
+            let key = (spec.id == "gcs" && f.key == "credential")
+                .then(|| service_account_key(v))
+                .flatten();
+            secrets.insert(f.key, key.as_deref().unwrap_or(v));
         } else {
             options.insert(f.key.to_string(), v.to_string());
         }

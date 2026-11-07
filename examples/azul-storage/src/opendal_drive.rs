@@ -245,6 +245,47 @@ fn page_of(mut listed: Vec<Listed>, request: &ListRequest) -> ListPage {
     page
 }
 
+/// The settings OpenDAL gets for `scheme`: the form's options and secrets, a switch of the form
+/// that is no OpenDAL option made one, and - for a source that would otherwise look for
+/// credentials on this computer (Google's login, the environment) - the lookup off when the form
+/// chose a credential (AZ-CN9): a key that is mis-pasted must fail, not be replaced by the
+/// developer's own login. A source with no explicit credential at all is one saved before the form
+/// asked for one, and keeps its lookup.
+pub(crate) fn settings_of(
+    scheme: &str,
+    options: &BTreeMap<String, String>,
+    secrets: &SecretOptions,
+) -> Vec<(String, String)> {
+    let mut settings: Vec<(String, String)> = options
+        .iter()
+        .filter(|(key, _)| !matches!(key.as_str(), "anonymous" | "machine_identity"))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .chain(secrets.iter().map(|(k, v)| (k.to_string(), v.to_string())))
+        .filter(|(_, v)| !v.trim().is_empty())
+        .collect();
+    let on = |key: &str| options.get(key).is_some_and(|v| v.trim() == "true");
+    match scheme {
+        "gcs" => {
+            let anonymous = on("anonymous");
+            let chosen = anonymous || secrets.get("credential").is_some_and(|k| !k.is_empty());
+            if anonymous {
+                settings.push((String::from("skip_signature"), String::from("true")));
+            }
+            if chosen && !on("machine_identity") {
+                settings.push((String::from("disable_config_load"), String::from("true")));
+                settings.push((String::from("disable_vm_metadata"), String::from("true")));
+            }
+        }
+        "cos" => {
+            if secrets.get("secret_key").is_some_and(|k| !k.is_empty()) {
+                settings.push((String::from("disable_config_load"), String::from("true")));
+            }
+        }
+        _ => {}
+    }
+    settings
+}
+
 /// Whether `scheme` with `options` speaks TLS through a client of its own instead of the
 /// transport: FTP over TLS (`ftps://`, or an address without a scheme, which OpenDAL takes
 /// as FTPS) and Redis over TLS (`rediss://`) load the OS's roots themselves.
@@ -282,14 +323,20 @@ impl OpendalDrive {
                  connect without TLS only inside a network you trust"
             )));
         }
+        // A user name and a password in an address are kept in drives.json in plain text and shown
+        // by every window: they have fields of their own (AZ-CN8).
+        if let Some((key, _)) = options
+            .iter()
+            .find(|(_, value)| crate::catalog::address_has_login(value))
+        {
+            return Err(DriveError::InvalidConfig(format!(
+                "the {scheme} source's \"{key}\" holds a user name or a password: take them out \
+                 of the address and fill in the source's own fields"
+            )));
+        }
         // The services of this build, registered once (no constructor runs before `main`).
         ::opendal::init_default_registry();
-        let settings: Vec<(String, String)> = options
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .chain(secrets.iter().map(|(k, v)| (k.to_string(), v.to_string())))
-            .filter(|(_, v)| !v.trim().is_empty())
-            .collect();
+        let settings = settings_of(scheme, options, secrets);
         let op = Operator::via_iter(scheme, settings).map_err(|e| {
             DriveError::InvalidConfig(scrub_url(&format!(
                 "the {scheme} source cannot be opened: {e}"

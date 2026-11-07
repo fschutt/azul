@@ -659,3 +659,343 @@ fn az_cn2_the_tls_default_of_a_database_form_verifies_the_server() {
         }
     }
 }
+
+// ==== AZ-CN8: what an address field takes ====
+
+/// A form with every required field of `id` filled (addresses with their placeholder) and `extra`
+/// laid over it.
+fn form_of(id: &str, extra: &[(&str, &str)]) -> FormValues {
+    let mut form = FormValues::new();
+    for field in spec(id).fields {
+        if field.required {
+            let value = match field.kind {
+                FieldKind::Url => field.placeholder,
+                FieldKind::Number => "1",
+                _ => "x",
+            };
+            form.insert(field.key.to_string(), value.to_string());
+        }
+    }
+    form.extend(values(extra));
+    form
+}
+
+fn problem_of(id: &str, extra: &[(&str, &str)]) -> Option<FormProblem> {
+    catalog::problem(spec(id), "Drive", &form_of(id, extra))
+}
+
+/// The review: "Server address" took `ftp://`, `javascript:`, any scheme at all.
+#[test]
+fn az_cn8_an_address_takes_the_schemes_of_its_field_and_no_other() {
+    let wrong = |id: &str, address: &str| {
+        matches!(
+            problem_of(id, &[("endpoint", address)]),
+            Some(FormProblem::WrongScheme(_))
+        )
+    };
+    for address in ["ssh://nas/dav", "ftp://nas.local/dav", "gopher://x"] {
+        assert!(wrong("webdav", address), "{address}");
+    }
+    for address in [
+        "https://nas.example/dav",
+        "HTTPS://nas.example/dav",
+        "http://nas.local/dav",
+    ] {
+        assert_eq!(
+            problem_of("webdav", &[("endpoint", address)]),
+            None,
+            "{address}"
+        );
+    }
+    assert!(wrong("ftp", "https://nas.local"));
+    assert!(wrong("redis", "http://127.0.0.1:6379"));
+    for address in ["ftp://nas.local:21", "FTPS://nas.local"] {
+        assert_eq!(
+            problem_of("ftp", &[("endpoint", address)]),
+            None,
+            "{address}"
+        );
+    }
+    for address in [
+        "tcp://127.0.0.1:6379",
+        "redis://127.0.0.1",
+        "rediss://cache.example",
+    ] {
+        assert_eq!(
+            problem_of("redis", &[("endpoint", address)]),
+            None,
+            "{address}"
+        );
+    }
+    // No scheme or nothing after it is no address.
+    for address in [
+        "nas.local",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://",
+        "https:///dav",
+        "://x",
+    ] {
+        assert!(
+            matches!(
+                problem_of("webdav", &[("endpoint", address)]),
+                Some(FormProblem::NotAnAddress(_))
+            ),
+            "{address}"
+        );
+    }
+    // The placeholder of every address field is an address the field takes.
+    for service in catalog::services() {
+        for field in service.fields.iter().filter(|f| f.kind == FieldKind::Url) {
+            assert!(!field.schemes.is_empty(), "{}.{}", service.id, field.key);
+            let scheme = field
+                .placeholder
+                .split_once("://")
+                .map(|(scheme, _)| scheme);
+            assert!(
+                scheme.is_some_and(|scheme| field.schemes.contains(&scheme)),
+                "{}.{}: {:?}",
+                service.id,
+                field.key,
+                field.placeholder
+            );
+        }
+    }
+}
+
+#[test]
+fn az_cn8_an_address_with_a_user_name_or_a_password_is_refused() {
+    for address in [
+        "https://ann:pw@cloud.example/dav",
+        "https://ann@cloud.example/dav",
+        "https://ann:p@ss@cloud.example",
+        "http://:secret@127.0.0.1:9000",
+    ] {
+        assert!(
+            matches!(
+                problem_of("webdav", &[("endpoint", address)]),
+                Some(FormProblem::AddressHasLogin(_))
+            ),
+            "{address}"
+        );
+    }
+    // An '@' in the path is no user info.
+    assert_eq!(
+        problem_of(
+            "webdav",
+            &[("endpoint", "https://cloud.example/files/@ann/dav")]
+        ),
+        None
+    );
+    assert!(catalog::address_has_login(
+        "https://ann:pw@cloud.example/dav"
+    ));
+    assert!(!catalog::address_has_login("https://cloud.example/@ann"));
+    assert!(!catalog::address_has_login("not an address"));
+}
+
+#[test]
+fn az_cn8_the_hosts_of_a_home_or_office_network_are_own_network_and_the_internet_is_not() {
+    for host in [
+        "localhost",
+        "app.localhost",
+        "127.0.0.1",
+        "127.9.9.9",
+        "10.0.0.5",
+        "172.16.0.1",
+        "172.31.255.255",
+        "192.168.1.5",
+        "169.254.1.1",
+        "::1",
+        "fd12:3456::1",
+        "fe80::1",
+        "nas",
+        "nas.local",
+        "nas.lan",
+        "box.home.arpa",
+        "db.internal",
+        "printer.localdomain",
+        "NAS.LOCAL.",
+    ] {
+        assert!(catalog::is_own_network(host), "{host}");
+    }
+    for host in [
+        "",
+        "example.com",
+        "cloud.example.org",
+        "8.8.8.8",
+        "172.32.0.1",
+        "172.15.255.255",
+        "192.169.1.1",
+        "11.0.0.1",
+        "2001:db8::1",
+        "fe00::1",
+        "local",
+        "nas.local.example.com",
+    ] {
+        // `local` alone has one label; it is the one name here that IS own network.
+        let expected = host == "local";
+        assert_eq!(catalog::is_own_network(host), expected, "{host:?}");
+    }
+}
+
+/// The review: `http://nas/dav` with Basic auth, `ftp://`, `tcp://` cross the network in clear with
+/// no warning (the token server refuses it). A form that carries a password or a token does not
+/// send it over the internet unencrypted; a server on the user's own network may use the plain
+/// address, and a form with nothing to hide may too.
+#[test]
+fn az_cn8_a_password_never_goes_over_the_internet_in_clear() {
+    let clear = |id: &str, address: &str, secret: (&str, &str)| {
+        matches!(
+            problem_of(id, &[("endpoint", address), secret]),
+            Some(FormProblem::SendsInClear(_))
+        )
+    };
+    let password = ("password", "sesame-42");
+    assert!(clear("webdav", "http://cloud.example/dav", password));
+    assert!(clear("webdav", "http://8.8.8.8/dav", password));
+    assert!(clear("ftp", "ftp://files.example.org", password));
+    assert!(clear("redis", "tcp://cache.example.org:6379", password));
+    assert!(clear(
+        "s3",
+        "http://s3.example.org",
+        ("secret_access_key", "k")
+    ));
+    assert!(clear(
+        "webhdfs",
+        "http://namenode.example.org:9870",
+        ("delegation", "token")
+    ));
+    for ok in [
+        ("webdav", "https://cloud.example/dav"),
+        ("webdav", "http://nas.local:5005/dav"),
+        ("webdav", "http://nas/dav"),
+        ("webdav", "http://192.168.1.5:5005/dav"),
+        ("webdav", "http://127.0.0.1:8080"),
+        ("webdav", "http://[::1]:8080/dav"),
+        ("ftp", "ftps://files.example.org"),
+        ("ftp", "ftp://nas.lan"),
+        ("redis", "rediss://cache.example.org:6380"),
+        ("redis", "tcp://10.1.2.3:6379"),
+    ] {
+        assert_eq!(
+            problem_of(ok.0, &[("endpoint", ok.1), password]),
+            None,
+            "{ok:?}"
+        );
+    }
+    // Nothing to hide, nothing to protect: a public web server read without a login.
+    assert_eq!(
+        problem_of("http", &[("endpoint", "http://files.example.org/pub/")]),
+        None
+    );
+    assert_eq!(
+        problem_of(
+            "webdav",
+            &[
+                ("endpoint", "http://cloud.example/dav"),
+                ("username", "ann")
+            ]
+        ),
+        None,
+        "a user name alone is no secret"
+    );
+}
+
+// ==== AZ-CN9: no fallback to the credentials this computer happens to have ====
+
+const GOOGLE_KEY: &str = r#"{"type": "service_account", "client_email": "bot@p.iam.gserviceaccount.com", "private_key": "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"}"#;
+
+#[test]
+fn az_cn9_a_service_that_would_use_the_machines_login_needs_a_credential_in_its_form() {
+    let missing = |id: &str, extra: &[(&str, &str)]| {
+        matches!(problem_of(id, extra), Some(FormProblem::NoCredential(_)))
+    };
+    // Google Cloud Storage: a key, or a public bucket, or the machine's login ON PURPOSE.
+    assert!(missing("gcs", &[]));
+    assert!(missing(
+        "gcs",
+        &[("anonymous", "false"), ("machine_identity", "false")]
+    ));
+    assert_eq!(problem_of("gcs", &[("anonymous", "true")]), None);
+    assert_eq!(problem_of("gcs", &[("machine_identity", "true")]), None);
+    assert_eq!(problem_of("gcs", &[("credential", GOOGLE_KEY)]), None);
+    // Azure, Alibaba, Tencent, Huawei: their keys.
+    assert!(missing("azblob", &[]));
+    assert_eq!(problem_of("azblob", &[("sas_token", "sv=2024")]), None);
+    assert_eq!(problem_of("azblob", &[("account_key", "k")]), None);
+    assert!(missing("azdls", &[("account_name", "acct")]));
+    assert_eq!(problem_of("azdls", &[("account_key", "k")]), None);
+    assert!(missing("azfile", &[]));
+    for (id, id_key, secret_key) in [
+        ("oss", "access_key_id", "access_key_secret"),
+        ("cos", "secret_id", "secret_key"),
+        ("obs", "access_key_id", "secret_access_key"),
+    ] {
+        assert!(missing(id, &[(id_key, "AKID")]), "{id}: an id alone");
+        assert_eq!(
+            problem_of(id, &[(id_key, "AKID"), (secret_key, "s")]),
+            None,
+            "{id}"
+        );
+    }
+    // The services with no fallback keep their optional fields optional.
+    assert_eq!(problem_of("webdav", &[]), None);
+    assert_eq!(problem_of("github", &[]), None);
+    // Every source that needs a credential names fields its form has.
+    for service in catalog::services() {
+        for key in service.needs_one_of {
+            assert!(service.field(key).is_some(), "{}: {key}", service.id);
+        }
+    }
+}
+
+/// The review: Google hands out the key as raw JSON but the help said base64; pasted raw it was
+/// ignored, "Test connection" passed with the developer's gcloud identity and later deletes ran as
+/// it. Raw JSON is taken and kept as the base64 OpenDAL wants; anything that is not a key is said.
+#[test]
+fn az_cn9_a_google_key_pasted_as_json_is_kept_as_base64_and_a_wrong_text_is_refused() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let new = catalog::build_entry(
+        spec("gcs"),
+        "g-1",
+        "Archive",
+        &form_of("gcs", &[("credential", GOOGLE_KEY)]),
+    )
+    .expect("a pasted JSON key");
+    let secret = new.secret.expect("the key is a secret");
+    let options = SecretOptions::from_keyring_secret(&secret).unwrap();
+    let kept = options.get("credential").unwrap();
+    assert_eq!(
+        STANDARD.decode(kept).unwrap(),
+        GOOGLE_KEY.as_bytes(),
+        "base64 of the pasted text"
+    );
+    // The base64 text pasted is kept as it is.
+    let based = STANDARD.encode(GOOGLE_KEY);
+    let again = catalog::build_entry(
+        spec("gcs"),
+        "g-2",
+        "Archive",
+        &form_of("gcs", &[("credential", &based)]),
+    )
+    .unwrap();
+    assert!(again.secret.unwrap().contains(&based));
+    for bad in [
+        "not a key",
+        "{\"client_email\": \"x\"}",
+        "e30=",
+        "{ broken json",
+        "AAAA",
+    ] {
+        assert!(
+            matches!(
+                problem_of("gcs", &[("credential", bad)]),
+                Some(FormProblem::NotAKey(_))
+            ),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(catalog::service_account_key(GOOGLE_KEY), Some(based));
+    assert_eq!(catalog::service_account_key("  "), None);
+}

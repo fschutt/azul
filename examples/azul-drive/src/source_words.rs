@@ -93,6 +93,22 @@ pub(crate) fn problem(problem: FormProblem) -> String {
                 &[field(f), ("words", Arg::from(words))],
             )
         }
+        FormProblem::WrongScheme(f) => {
+            let schemes = f
+                .schemes
+                .iter()
+                .map(|scheme| format!("{scheme}://"))
+                .collect::<Vec<_>>()
+                .join(" / ");
+            t_args(
+                "azdrive-form-wrong-scheme",
+                &[field(f), ("schemes", Arg::from(schemes))],
+            )
+        }
+        FormProblem::AddressHasLogin(f) => t_args("azdrive-form-address-has-login", &[field(f)]),
+        FormProblem::SendsInClear(f) => t_args("azdrive-form-sends-in-clear", &[field(f)]),
+        FormProblem::NoCredential(f) => t_args("azdrive-form-no-credential", &[field(f)]),
+        FormProblem::NotAKey(f) => t_args("azdrive-form-not-a-key", &[field(f)]),
     }
 }
 

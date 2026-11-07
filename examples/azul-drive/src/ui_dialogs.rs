@@ -111,23 +111,30 @@ fn property_rows(rows: Vec<(String, String)>) -> Dom {
 }
 
 /// A data source's plain settings as (label, value) rows, in its form's order (a setting the
-/// form does not know under its own name).
+/// form does not know under its own name), and - for a database - how many rows of a table it
+/// shows. An address is shown without a user name and a password in it, as an older build let a
+/// user type them (AZ-CN8): drives.json holds them, a window does not show them.
 pub(crate) fn source_rows(
     entry: &azul_storage::config::DriveEntry,
     options: &std::collections::BTreeMap<String, String>,
 ) -> Vec<(String, String)> {
-    match azul_storage::catalog::service_of(entry) {
+    let shown = |value: &String| azul_storage::scrub::scrub_url(value);
+    let mut rows: Vec<(String, String)> = match azul_storage::catalog::service_of(entry) {
         Some(spec) => spec
             .fields
             .iter()
             .filter_map(|f| {
                 options
                     .get(f.key)
-                    .map(|v| (crate::source_words::field_label(f), v.clone()))
+                    .map(|v| (crate::source_words::field_label(f), shown(v)))
             })
             .collect(),
-        None => options.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        None => options.iter().map(|(k, v)| (k.clone(), shown(v))).collect(),
+    };
+    if let Some(cap) = azul_storage::catalog::capabilities_of(entry).rows_cap {
+        rows.push((t("azdrive-source-row-limit"), l10n::grouped(cap)));
     }
+    rows
 }
 
 /// "Choose location"'s typed path (the Add drive dialog's fields are `ui_add_drive`'s).

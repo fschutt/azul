@@ -439,3 +439,129 @@ fn a_source_with_its_own_tls_roots_is_refused_when_the_app_narrowed_its_trusted_
     assert!(open("ftp", "ftp://nas.local:21", Box::new(NarrowedTrust)).is_ok());
     assert!(open("redis", "tcp://cache.local:6379", Box::new(NarrowedTrust)).is_ok());
 }
+
+// ==== AZ-CN8 / AZ-CN9: what the source is told ====
+
+fn settings_for(
+    scheme: &str,
+    options: &[(&str, &str)],
+    secrets: &[(&str, &str)],
+) -> Vec<(String, String)> {
+    let options: BTreeMap<String, String> = options
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let mut keyring = SecretOptions::new();
+    for (key, value) in secrets {
+        keyring.insert(key, value);
+    }
+    let mut settings = crate::opendal_drive::settings_of(scheme, &options, &keyring);
+    settings.sort();
+    settings
+}
+
+fn has(settings: &[(String, String)], key: &str, value: &str) -> bool {
+    settings.iter().any(|(k, v)| k == key && v == value)
+}
+
+/// A Google source whose form chose a credential does not look for another on this computer: a key
+/// that is mis-pasted fails instead of being replaced by the developer's gcloud login. The machine's
+/// login is a choice of its own, and a source saved before the form asked is as it was.
+#[test]
+fn az_cn9_a_google_source_with_a_key_does_not_look_for_the_machines_login() {
+    let key = [("credential", "a2V5")];
+    let with_key = settings_for("gcs", &[("bucket", "b")], &key);
+    assert!(
+        has(&with_key, "disable_config_load", "true"),
+        "{with_key:?}"
+    );
+    assert!(
+        has(&with_key, "disable_vm_metadata", "true"),
+        "{with_key:?}"
+    );
+    assert!(has(&with_key, "credential", "a2V5"));
+    let public = settings_for("gcs", &[("bucket", "b"), ("anonymous", "true")], &[]);
+    assert!(has(&public, "skip_signature", "true"), "{public:?}");
+    assert!(has(&public, "disable_config_load", "true"), "{public:?}");
+    // The machine's login, on purpose.
+    let machine = settings_for("gcs", &[("bucket", "b"), ("machine_identity", "true")], &[]);
+    assert!(
+        !machine.iter().any(|(k, _)| k.starts_with("disable_")),
+        "{machine:?}"
+    );
+    let both = settings_for(
+        "gcs",
+        &[("bucket", "b"), ("machine_identity", "true")],
+        &key,
+    );
+    assert!(
+        !both.iter().any(|(k, _)| k.starts_with("disable_")),
+        "{both:?}"
+    );
+    // Saved before the form asked for a credential: unchanged.
+    let old = settings_for("gcs", &[("bucket", "b")], &[]);
+    assert!(
+        !old.iter().any(|(k, _)| k.starts_with("disable_")),
+        "{old:?}"
+    );
+    // The form's two switches are no OpenDAL options.
+    for settings in [&with_key, &public, &machine, &old] {
+        assert!(
+            !settings
+                .iter()
+                .any(|(k, _)| k == "anonymous" || k == "machine_identity"),
+            "{settings:?}"
+        );
+    }
+    // Tencent's lookup is off once its key is given; the others have no switch.
+    let cos = settings_for("cos", &[("bucket", "b")], &[("secret_key", "s")]);
+    assert!(has(&cos, "disable_config_load", "true"), "{cos:?}");
+    let webdav = settings_for(
+        "webdav",
+        &[("endpoint", "https://h/dav")],
+        &[("password", "p")],
+    );
+    assert!(
+        !webdav.iter().any(|(k, _)| k.starts_with("disable_")),
+        "{webdav:?}"
+    );
+}
+
+/// A source already saved with a user name and a password inside its address is not opened with
+/// them: drives.json keeps them in plain text and every window showed them. The reason does not
+/// repeat the password.
+#[test]
+fn az_cn8_a_source_whose_address_holds_a_login_is_refused_without_repeating_it() {
+    let mut options = BTreeMap::new();
+    options.insert(
+        "endpoint".to_string(),
+        "https://ann:hunter2@cloud.example/dav".to_string(),
+    );
+    match OpendalDrive::open(
+        "webdav",
+        &options,
+        &SecretOptions::new(),
+        Box::new(NoNetwork),
+    ) {
+        Err(DriveError::InvalidConfig(why)) => {
+            assert!(
+                why.contains("endpoint") && why.contains("user name"),
+                "{why}"
+            );
+            assert!(!why.contains("hunter2"), "{why}");
+        }
+        other => panic!("{:?}", other.map(|_| ())),
+    }
+    // Without the login it opens.
+    options.insert(
+        "endpoint".to_string(),
+        "https://cloud.example/dav".to_string(),
+    );
+    assert!(OpendalDrive::open(
+        "webdav",
+        &options,
+        &SecretOptions::new(),
+        Box::new(NoNetwork)
+    )
+    .is_ok());
+}
