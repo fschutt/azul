@@ -110,3 +110,50 @@ fn az_s19_a_state_file_that_cannot_be_replaced_leaves_the_old_one_and_no_tempora
         assert_eq!(bits(&state.join("keys.json")), 0o600);
     }
 }
+
+/// AZ-W12, the kit's sites: the state folder `create_private_dir` makes and the private file
+/// `write_atomic` puts in it were `rwx------` / `rw-------` on Unix and nothing on Windows. A state
+/// folder on a volume that lets every user read (`--state-dir D:\\az`) inherited that.
+#[cfg(windows)]
+#[test]
+fn windows_az_w12_the_state_folder_and_a_private_file_in_it_are_closed_to_other_users() {
+    use crate::state::create_private_dir;
+    struct RemoveOnDrop(std::path::PathBuf);
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let list_of = |path: &std::path::Path| -> String {
+        let out = std::process::Command::new("icacls")
+            .arg(path)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).replace(&*path.to_string_lossy(), "")
+    };
+    let open_to_others = |list: &str| {
+        [
+            "Everyone",
+            "BUILTIN\\Users",
+            "Authenticated Users",
+            "INTERACTIVE",
+        ]
+        .iter()
+        .any(|who| list.contains(who))
+    };
+    // A folder under the Public folder, whose list a new folder would inherit.
+    let public = std::path::PathBuf::from(std::env::var_os("PUBLIC").expect("%PUBLIC%"))
+        .join(format!("azcloud-kit-state-{}", std::process::id()));
+    let _clean = RemoveOnDrop(public.clone());
+    let state = public.join("state");
+    create_private_dir(&state.join("sync")).unwrap();
+    for folder in [&public, &state, &state.join("sync")] {
+        let list = list_of(folder);
+        assert!(!open_to_others(&list), "{folder:?}: {list}");
+    }
+    let secrets = state.join("secrets.json");
+    write_atomic(&secrets, b"one", true).unwrap();
+    write_atomic(&secrets, b"two", true).unwrap();
+    assert_eq!(fs::read(&secrets).unwrap(), b"two");
+    assert!(!open_to_others(&list_of(&secrets)));
+}

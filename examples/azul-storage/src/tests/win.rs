@@ -393,6 +393,46 @@ mod on_windows {
         assert_eq!(access_list(&deeper), before);
     }
 
+    /// AZ-W12, the site that makes folders on the way: a private write into folders that are not
+    /// there makes them private (`parent_of`), outermost first, and the file in them is closed too.
+    #[test]
+    fn windows_az_w12_a_private_write_that_makes_its_folders_makes_them_private() {
+        let public = Public::new("private-write");
+        let file = public.0.join("a").join("b").join("secrets.json");
+        durable::replace(&file, b"s3cret", Mode::Private).unwrap();
+        for folder in [
+            public.0.clone(),
+            public.0.join("a"),
+            public.0.join("a").join("b"),
+        ] {
+            let list = access_list(&folder);
+            assert!(!open_to_others(&list), "{folder:?}: {list}");
+        }
+        assert!(!open_to_others(&access_list(&file)));
+        assert_eq!(fs::read(&file).unwrap(), b"s3cret");
+    }
+
+    /// AZ-W12, scratch: the root and the purpose's folder, and the folders kept in it, are closed to
+    /// other users (scratch holds decrypted copies of files).
+    #[test]
+    fn windows_az_w12_the_folders_of_scratch_are_closed_to_other_users() {
+        let public = Public::new("scratch");
+        let scratch = crate::scratch::Scratch::under(&public.0.join("root"), "open");
+        scratch.ensure().unwrap();
+        let kept = scratch.keep("a tag").unwrap();
+        for folder in [
+            public.0.join("root"),
+            scratch.dir().to_path_buf(),
+            kept.clone(),
+        ] {
+            let list = access_list(&folder);
+            assert!(!open_to_others(&list), "{folder:?}: {list}");
+        }
+        // And a file made there is the user's to read and write.
+        let file = scratch.file().unwrap();
+        drop(file);
+    }
+
     /// AZ-W12: a private file made in a folder that others may read is closed to them before a byte
     /// of it is written, and a second write over it keeps the list.
     #[test]
