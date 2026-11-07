@@ -302,7 +302,7 @@ pub fn save(path: &Path, index: &LocalIndex) -> CloudResult<()> {
 }
 
 fn make_private_dir(dir: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(dir)?;
+    azul_storage::durable::create_private_dirs(dir)?;
     set_private_dir(dir)
 }
 

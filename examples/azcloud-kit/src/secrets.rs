@@ -1,6 +1,6 @@
 //! The secrets of one state folder: `secrets.json`, readable by this user
-//! only (0600 on Unix), written through a temporary file that is flushed to
-//! the disk before the rename.
+//! only (0600 on Unix, an access list for this user on Windows), written through a temporary file
+//! that is flushed to the disk before the rename.
 //!
 //! The entries are named as the OS keyring entries the apps use, so moving a
 //! device to the OS keyring changes where the strings live, not what they are:

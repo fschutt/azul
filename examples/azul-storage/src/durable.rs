@@ -48,7 +48,9 @@ const CHUNK: usize = 256 * 1024;
 /// The permission bits the new version gets (Unix; elsewhere the system's own).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// `rw-------`, and a folder made on the way `rwx------`: secrets, keys, a device's state.
+    /// `rw-------`, and a folder made on the way `rwx------`: secrets, keys, a device's state. On
+    /// Windows a protected access list for this user, the system and the administrators, set
+    /// before the first byte is written ([`create_private_dirs`] for folders).
     Private,
     /// What a new file gets by default: `rw-rw-rw-` less the user's umask (`rw-r--r--`).
     Shared,
@@ -409,6 +411,10 @@ pub(crate) fn stage_probed<'a>(
     let mut file = dir.create_new(&name, create)?;
     // From here on the file is ours until it is renamed in: every way out removes it.
     let written = (|| -> Result<(u64, [u8; 32], Stat), PublishError> {
+        // Private to this user before a byte of it is written (Unix made it `rw-------`).
+        if o.mode == Mode::Private {
+            keep_new_file_private(dir, &name)?;
+        }
         let mut hasher = blake3::Hasher::new();
         let mut buf = vec![0u8; CHUNK];
         let mut total = 0u64;
@@ -743,20 +749,88 @@ fn parent_of(path: &Path, private: bool) -> io::Result<(Dir, String)> {
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     if !parent.is_dir() {
-        let mut builder = std::fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            if private {
-                builder.mode(0o700);
-            }
-        }
-        #[cfg(not(unix))]
-        let _ = private;
-        builder.create(parent)?;
+        make_dirs(parent, private)?;
     }
     Ok((Dir::open_following(parent)?, name))
+}
+
+/// Makes `dir` and the folders above it that are missing; with `private`, the ones made are for this
+/// user alone: `rwx------` on Unix, on Windows a protected access list (this user, the system and
+/// the administrators) that what is made inside inherits - a data volume's root grants its users
+/// read, and the folder made there inherited it (AZ-W12). A disk that keeps no owners (FAT) keeps
+/// none, as `chmod` on it does nothing.
+fn make_dirs(dir: &Path, private: bool) -> io::Result<()> {
+    #[cfg(windows)]
+    if private {
+        return make_private_dirs(dir);
+    }
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        if private {
+            builder.mode(0o700);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = private;
+    builder.create(dir)
+}
+
+/// Windows: the missing folders of `dir`, outermost first, each made and given its access list
+/// before anything is made inside it. A folder somebody else made meanwhile is theirs, not ours to
+/// restrict.
+#[cfg(windows)]
+fn make_private_dirs(dir: &Path) -> io::Result<()> {
+    let mut missing = Vec::new();
+    let mut at = Some(dir);
+    while let Some(folder) = at {
+        if folder.is_dir() {
+            break;
+        }
+        missing.push(folder);
+        at = folder.parent().filter(|p| !p.as_os_str().is_empty());
+    }
+    for folder in missing.into_iter().rev() {
+        match std::fs::create_dir(folder) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+        crate::win::make_private(folder, true)?;
+    }
+    Ok(())
+}
+
+/// Makes `dir`, and the folders above it that are missing, private to this user: `rwx------` on
+/// Unix, an access list for this user, the system and the administrators on Windows (see
+/// [`Mode::Private`]). A folder that is there already is left as it is: it may be somebody's, and
+/// this does not take it over.
+///
+/// # Errors
+///
+/// The I/O error that stopped it; on Windows also a refusal of the access list on a disk that
+/// keeps lists - a state folder is not left readable by others because the protection did not take.
+pub fn create_private_dirs(dir: &Path) -> io::Result<()> {
+    if dir.is_dir() {
+        return Ok(());
+    }
+    make_dirs(dir, true)
+}
+
+/// A file just made with [`Mode::Private`] given the Windows access list before it is written to
+/// (on Unix it was made `rw-------`).
+fn keep_new_file_private(dir: &Dir, name: &str) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        crate::win::make_private(&dir.path().join(name), false).map(|_| ())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (dir, name);
+        Ok(())
+    }
 }
 
 pub(crate) fn replace_probed(

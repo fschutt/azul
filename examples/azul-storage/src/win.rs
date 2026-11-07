@@ -214,10 +214,57 @@ pub(crate) fn is_held_open(e: &io::Error) -> bool {
 /// at most.
 pub(crate) const HELD_BACKOFF_MS: [u64; 5] = [20, 50, 120, 300, 600];
 
+/// What making something private to this user came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Private {
+    /// The access list holds this user, the system and the administrators, and nobody else; what
+    /// is made inside a private folder inherits it.
+    Kept,
+    /// The file system keeps no access lists (FAT, exFAT): there is nobody to keep out, as with a
+    /// Unix `chmod` on such a disk.
+    NoAcls,
+}
+
+/// Whether `text` has the shape of a SID string (`S-1-5-21-...`): the one thing that is put into
+/// an access list's text.
+#[must_use]
+pub(crate) fn is_sid_string(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix("S-1-") else {
+        return false;
+    };
+    !rest.is_empty()
+        && !rest.starts_with('-')
+        && !rest.ends_with('-')
+        && !rest.contains("--")
+        && rest.chars().all(|c| c.is_ascii_digit() || c == '-')
+}
+
+/// The access list of something private to the user, as SDDL: protected (nothing is inherited from
+/// the folder above - a data volume's root grants its users read), full access for the system
+/// (backup and virus scanners), the administrators and the user `user_sid`; for a folder, inherited
+/// by what is made inside. `None` for a `user_sid` that is no SID string.
+#[must_use]
+pub(crate) fn private_sddl(user_sid: &str, folder: bool) -> Option<String> {
+    if !is_sid_string(user_sid) {
+        return None;
+    }
+    let inherit = if folder { "OICI" } else { "" };
+    Some(format!(
+        "D:P(A;{inherit};FA;;;SY)(A;{inherit};FA;;;BA)(A;{inherit};FA;;;{user_sid})"
+    ))
+}
+
+/// Whether the Windows error number `code` says the file system keeps no access lists
+/// (`ERROR_INVALID_FUNCTION`, `ERROR_NOT_SUPPORTED`).
+#[must_use]
+pub(crate) fn means_no_acls(code: i32) -> bool {
+    matches!(code, 1 | 50)
+}
+
 // ---- The calls: Windows only ----
 
 #[cfg(windows)]
-pub(crate) use sys::{file_system_name, free_space, fstat, lstat, rename, stat};
+pub(crate) use sys::{file_system_name, free_space, fstat, lstat, make_private, rename, stat};
 
 #[cfg(windows)]
 mod sys {
@@ -236,7 +283,16 @@ mod sys {
     };
 
     use windows_sys::Win32::{
-        Foundation::HANDLE,
+        Foundation::{CloseHandle, LocalFree, HANDLE},
+        Security::{
+            Authorization::{
+                ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+                SetNamedSecurityInfoW, SDDL_REVISION_1, SE_FILE_OBJECT,
+            },
+            GetSecurityDescriptorDacl, GetTokenInformation, TokenUser, ACL,
+            DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+            TOKEN_QUERY, TOKEN_USER,
+        },
         Storage::FileSystem::{
             FileAttributeTagInfo, FileBasicInfo, FileIdInfo, GetDiskFreeSpaceExW,
             GetFileInformationByHandle, GetFileInformationByHandleEx, GetVolumeInformationW,
@@ -245,9 +301,13 @@ mod sys {
             FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
             FILE_SHARE_WRITE, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
         },
+        System::Threading::{GetCurrentProcess, OpenProcessToken},
     };
 
-    use super::{file_index, is_held_open, Info, ATTR_REPARSE_POINT, HELD_BACKOFF_MS};
+    use super::{
+        file_index, is_held_open, means_no_acls, private_sddl, Info, Private, ATTR_REPARSE_POINT,
+        HELD_BACKOFF_MS,
+    };
     use crate::beneath::Stat;
 
     /// `ERROR_ACCESS_DENIED`.
@@ -411,8 +471,11 @@ mod sys {
         Ok(available)
     }
 
-    /// The name of the file system of the volume `path` is on (`NTFS`, `FAT32`, `exFAT`, `ReFS`).
-    pub(crate) fn file_system_name(path: &Path) -> io::Result<String> {
+    /// `FILE_PERSISTENT_ACLS`: the file system keeps access lists.
+    const FILE_PERSISTENT_ACLS: u32 = 0x0000_0008;
+
+    /// What `GetVolumeInformation` says of the volume `path` is on: its file system's flags and name.
+    fn volume_info(path: &Path) -> io::Result<(u32, String)> {
         const ROOT: usize = 1024;
         const NAME: usize = 64;
         let path = wide(path)?;
@@ -421,9 +484,9 @@ mod sys {
         if unsafe { GetVolumePathNameW(path.as_ptr(), root.as_mut_ptr(), ROOT as u32) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        let mut name = vec![0u16; NAME];
-        // SAFETY: `root` is NUL-terminated by the call above; the name buffer has the length passed;
-        // the other out-pointers are null, which the call allows.
+        let (mut flags, mut name) = (0u32, vec![0u16; NAME]);
+        // SAFETY: `root` is NUL-terminated by the call above; the flags and the name buffer (of the
+        // length passed) live across the call; the other out-pointers are null, which it allows.
         let ok = unsafe {
             GetVolumeInformationW(
                 root.as_ptr(),
@@ -431,7 +494,7 @@ mod sys {
                 0,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                &mut flags,
                 name.as_mut_ptr(),
                 NAME as u32,
             )
@@ -443,9 +506,147 @@ mod sys {
             .iter()
             .position(|unit| *unit == 0)
             .unwrap_or(name.len());
-        Ok(std::ffi::OsString::from_wide(&name[..end])
+        let name = std::ffi::OsString::from_wide(&name[..end])
             .to_string_lossy()
-            .into_owned())
+            .into_owned();
+        Ok((flags, name))
+    }
+
+    /// The name of the file system of the volume `path` is on (`NTFS`, `FAT32`, `exFAT`, `ReFS`).
+    pub(crate) fn file_system_name(path: &Path) -> io::Result<String> {
+        volume_info(path).map(|(_, name)| name)
+    }
+
+    /// Whether the volume of `path` keeps access lists.
+    fn keeps_acls(path: &Path) -> io::Result<bool> {
+        volume_info(path).map(|(flags, _)| flags & FILE_PERSISTENT_ACLS != 0)
+    }
+
+    /// The text of a NUL-terminated UTF-16 string the system allocated.
+    ///
+    /// # Safety
+    ///
+    /// `text` points at a NUL-terminated UTF-16 string.
+    unsafe fn text_of(text: *const u16) -> String {
+        let mut len = 0;
+        while *text.add(len) != 0 {
+            len += 1;
+        }
+        String::from_utf16_lossy(std::slice::from_raw_parts(text, len))
+    }
+
+    /// The SID of the user this process runs as, as `S-1-5-21-...` (the same account elevated or not).
+    fn user_sid() -> io::Result<String> {
+        let mut token: HANDLE = std::ptr::null_mut();
+        // SAFETY: the pseudo handle of this process; `token` receives a handle that is closed below.
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let sid = (|| {
+            // The first call only asks how long the answer is (it fails with ERROR_INSUFFICIENT_BUFFER).
+            let mut needed = 0u32;
+            // SAFETY: a null buffer of length 0 and one out-pointer to a u32.
+            unsafe { GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut needed) };
+            if needed == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // Eight-byte units: the answer holds pointers.
+            let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
+            // SAFETY: a buffer of the length passed.
+            let ok = unsafe {
+                GetTokenInformation(
+                    token,
+                    TokenUser,
+                    buffer.as_mut_ptr().cast::<c_void>(),
+                    (buffer.len() * 8) as u32,
+                    &mut needed,
+                )
+            };
+            if ok == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: the call filled a TOKEN_USER at the start of the buffer; it is aligned to 8.
+            let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
+            let mut text: *mut u16 = std::ptr::null_mut();
+            // SAFETY: a SID the call above wrote into `buffer`, and an out-pointer for the string.
+            if unsafe { ConvertSidToStringSidW(user.User.Sid, &mut text) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: `text` is the NUL-terminated string the call allocated; freed once, here.
+            let sid = unsafe { text_of(text) };
+            unsafe { LocalFree(text.cast::<c_void>()) };
+            Ok(sid)
+        })();
+        // SAFETY: the handle `OpenProcessToken` returned, closed once.
+        unsafe { CloseHandle(token) };
+        sid
+    }
+
+    /// Makes the file or folder at `path` - which the caller has just made, so this user owns it -
+    /// private to this user: a protected access list ([`private_sddl`]) that gives full access to the
+    /// system, the administrators and this user and nobody else, and for a folder is inherited by
+    /// what is made inside. A file system that keeps no access lists is [`Private::NoAcls`], not a
+    /// failure; any other refusal is an error - a secret is not left readable because the protection
+    /// did not take.
+    pub(crate) fn make_private(path: &Path, folder: bool) -> io::Result<Private> {
+        if !keeps_acls(path)? {
+            return Ok(Private::NoAcls);
+        }
+        let sddl = private_sddl(&user_sid()?, folder).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "the system's user id is no SID")
+        })?;
+        let sddl: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        // SAFETY: a NUL-terminated wide SDDL string; the descriptor the call allocates is freed below.
+        let converted = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                SDDL_REVISION_1,
+                &mut descriptor,
+                std::ptr::null_mut(),
+            )
+        };
+        if converted == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let target = wide(path);
+        let result = target.and_then(|target| {
+            let (mut present, mut defaulted) = (0i32, 0i32);
+            let mut dacl: *mut ACL = std::ptr::null_mut();
+            // SAFETY: the descriptor the call above made; three out-pointers that live across the call.
+            if unsafe {
+                GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted)
+            } == 0
+                || present == 0
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "the access list has no DACL",
+                ));
+            }
+            // SAFETY: a NUL-terminated wide path; `dacl` points into `descriptor`, alive until freed.
+            let code = unsafe {
+                SetNamedSecurityInfoW(
+                    target.as_ptr(),
+                    SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    dacl,
+                    std::ptr::null(),
+                )
+            };
+            match i32::try_from(code) {
+                Ok(0) => Ok(Private::Kept),
+                Ok(code) if means_no_acls(code) => Ok(Private::NoAcls),
+                Ok(code) => Err(io::Error::from_raw_os_error(code)),
+                Err(_) => Err(io::Error::other("the access list was refused")),
+            }
+        });
+        // SAFETY: the descriptor `ConvertStringSecurityDescriptorToSecurityDescriptorW` allocated,
+        // freed once.
+        unsafe { LocalFree(descriptor) };
+        result
     }
 
     /// Renames `from` to `to`, written through to the disk before it returns

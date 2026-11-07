@@ -7,9 +7,10 @@
 use crate::{
     beneath::{self, Fingerprint, Kind, Tri},
     win::{
-        fat_cap, file_index, filetime_ns, is_held_open, is_held_open_code, is_transparent_tag,
-        kind_of, Info, ATTR_DIRECTORY, ATTR_OFFLINE, ATTR_READONLY, ATTR_RECALL_ON_DATA_ACCESS,
-        ATTR_REPARSE_POINT, FAT_FILE_MAX, HELD_BACKOFF_MS,
+        fat_cap, file_index, filetime_ns, is_held_open, is_held_open_code, is_sid_string,
+        is_transparent_tag, kind_of, means_no_acls, private_sddl, Info, ATTR_DIRECTORY,
+        ATTR_OFFLINE, ATTR_READONLY, ATTR_RECALL_ON_DATA_ACCESS, ATTR_REPARSE_POINT, FAT_FILE_MAX,
+        HELD_BACKOFF_MS,
     },
 };
 
@@ -225,12 +226,164 @@ fn az_w11_a_busy_file_is_told_from_a_broken_one_and_the_wait_for_it_is_bounded()
     );
 }
 
+const USER: &str = "S-1-5-21-1004336348-1177238915-682003330-1001";
+
+#[test]
+fn az_w12_what_is_private_is_closed_to_everyone_but_this_user_the_system_and_the_administrators() {
+    let folder = private_sddl(USER, true).unwrap();
+    assert_eq!(
+        folder,
+        format!("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{USER})"),
+        "a folder: protected, inherited by what is made in it"
+    );
+    let file = private_sddl(USER, false).unwrap();
+    assert_eq!(
+        file,
+        format!("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{USER})"),
+        "a file: protected"
+    );
+    // Three entries and no more: nothing for Everyone, the users or the authenticated users, and
+    // "P" - nothing is inherited from the folder above (a data volume's root grants its users read).
+    for list in [&folder, &file] {
+        assert!(list.starts_with("D:P("), "{list}");
+        assert_eq!(list.matches("(A;").count(), 3, "{list}");
+        assert!(!list.contains("WD") && !list.contains(";BU)") && !list.contains(";AU)"));
+    }
+}
+
+#[test]
+fn az_w12_only_a_sid_string_is_put_into_an_access_list_and_a_disk_without_lists_is_not_a_refusal() {
+    for sid in ["S-1-5-18", "S-1-5-32-544", USER] {
+        assert!(is_sid_string(sid), "{sid}");
+    }
+    for text in [
+        "",
+        "S-1-",
+        "S-1--5",
+        "S-1-5-",
+        "S-1-5--18",
+        "S-1-5-1a",
+        "s-1-5-18",
+        "S-2-5-18",
+        "S-1-5 18",
+        // Whatever else could be written into the list's text.
+        "S-1-5-21-1-2-3-1001)(A;;FA;;;WD",
+    ] {
+        assert!(!is_sid_string(text), "{text:?}");
+        assert_eq!(private_sddl(text, true), None, "{text:?}");
+    }
+    // ERROR_INVALID_FUNCTION and ERROR_NOT_SUPPORTED: FAT and exFAT keep no lists. Access denied,
+    // not found and a bad parameter are refusals.
+    assert!(means_no_acls(1) && means_no_acls(50));
+    for code in [0, 2, 5, 87, 1314] {
+        assert!(!means_no_acls(code), "{code}");
+    }
+}
+
 #[cfg(windows)]
 mod on_windows {
-    use std::fs;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use super::super::TempDir;
-    use crate::beneath::{self, Kind, Root, Tri};
+    use crate::{
+        beneath::{self, Kind, Root, Tri},
+        durable::{self, Mode},
+    };
+
+    /// What `icacls` lists for `path`, without the path itself (which names `Users`, too).
+    fn access_list(path: &Path) -> String {
+        let out = std::process::Command::new("icacls")
+            .arg(path)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).replace(&*path.to_string_lossy(), "")
+    }
+
+    /// A folder under the Public folder - which every user may use, so what is made in it inherits
+    /// a list that grants others - removed again when this drops.
+    struct Public(PathBuf);
+
+    impl Public {
+        fn new(what: &str) -> Public {
+            let public = std::env::var_os("PUBLIC")
+                .map(PathBuf::from)
+                .expect("%PUBLIC%");
+            Public(public.join(format!("azul-storage-{what}-{}", std::process::id())))
+        }
+    }
+
+    impl Drop for Public {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn open_to_others(list: &str) -> bool {
+        [
+            "Everyone",
+            "BUILTIN\\Users",
+            "Authenticated Users",
+            "INTERACTIVE",
+        ]
+        .iter()
+        .any(|who| list.contains(who))
+    }
+
+    /// AZ-W12: a state folder made on a volume that lets every user read inherited that, and its
+    /// files with it: `private` was a silent no-op on Windows.
+    #[test]
+    fn windows_az_w12_a_private_folder_and_what_is_made_in_it_are_closed_to_other_users() {
+        let public = Public::new("private-dirs");
+        let deeper = public.0.join("state").join("deeper");
+        durable::create_private_dirs(&deeper).unwrap();
+        for folder in [&public.0, &public.0.join("state"), &deeper] {
+            let list = access_list(folder);
+            assert!(!open_to_others(&list), "{folder:?}: {list}");
+            assert!(
+                list.contains("SYSTEM") && list.contains("Administrators"),
+                "{list}"
+            );
+        }
+        // What is made in it inherits that, and is this user's to read and write.
+        let file = deeper.join("secrets.json");
+        durable::replace(&file, b"secret", Mode::Private).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"secret");
+        let list = access_list(&file);
+        assert!(!open_to_others(&list), "{list}");
+        // A folder that is there is not taken over.
+        let before = access_list(&deeper);
+        durable::create_private_dirs(&deeper).unwrap();
+        assert_eq!(access_list(&deeper), before);
+    }
+
+    /// AZ-W12: a private file made in a folder that others may read is closed to them before a byte
+    /// of it is written, and a second write over it keeps the list.
+    #[test]
+    fn windows_az_w12_a_private_file_in_a_folder_others_may_read_is_closed_to_them() {
+        let public = Public::new("private-file");
+        fs::create_dir_all(&public.0).unwrap();
+        let file = public.0.join("secrets.json");
+        durable::replace(&file, b"one", Mode::Private).unwrap();
+        let list = access_list(&file);
+        assert!(!open_to_others(&list), "{list}");
+        assert!(
+            list.contains("SYSTEM") && list.contains("Administrators"),
+            "{list}"
+        );
+        durable::replace(&file, b"two", Mode::Private).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"two");
+        assert!(!open_to_others(&access_list(&file)));
+        // A file that asked for no privacy keeps what its folder gives it.
+        let shared = public.0.join("shared.txt");
+        durable::replace(&shared, b"all", Mode::Shared).unwrap();
+        assert!(
+            open_to_others(&access_list(&shared)),
+            "the control: the folder is open"
+        );
+    }
 
     /// The system gives a file an identity: another name of it (a hard link) is the same file, a
     /// copy of it is another, and the rename of a file keeps its identity.

@@ -472,7 +472,11 @@ fn make_private(path: &Path) -> io::Result<()> {
         use std::os::unix::fs::DirBuilderExt;
         builder.mode(0o700);
     }
-    builder.create(path)
+    builder.create(path)?;
+    // Windows: the folder is this user's alone, and what is made in it inherits that.
+    #[cfg(windows)]
+    crate::win::make_private(path, true)?;
+    Ok(())
 }
 
 /// `path` is a folder (not a link to one), belongs to this user, and nobody else can enter it;

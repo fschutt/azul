@@ -121,7 +121,7 @@ fn fail(message: impl std::fmt::Display) -> ! {
 }
 
 fn private_dir(dir: &Path) {
-    if let Err(e) = fs::create_dir_all(dir) {
+    if let Err(e) = azul_storage::durable::create_private_dirs(dir) {
         fail(format!("{}: {e}", dir.display()));
     }
     #[cfg(unix)]

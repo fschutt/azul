@@ -248,31 +248,19 @@ fn absolute(path: &Path) -> PathBuf {
     }
 }
 
-/// Makes `dir` and its parents; on Unix the last one readable by this user
-/// only.
+/// Makes `dir` and its parents, the ones made readable by this user only: `rwx------` on Unix, on
+/// Windows an access list for this user, the system and the administrators that what is made inside
+/// inherits ([`azul_storage::durable::create_private_dirs`]; AZ-W12: a state folder on a data volume
+/// inherited that volume's "everyone may read").
 pub(crate) fn create_private_dir(dir: &Path) -> std::io::Result<()> {
-    if dir.is_dir() {
-        return Ok(());
-    }
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true);
-    private_dir_mode(&mut builder);
-    builder.create(dir)
+    azul_storage::durable::create_private_dirs(dir)
 }
-
-#[cfg(unix)]
-fn private_dir_mode(builder: &mut fs::DirBuilder) {
-    use std::os::unix::fs::DirBuilderExt;
-    builder.mode(0o700);
-}
-
-#[cfg(not(unix))]
-fn private_dir_mode(_builder: &mut fs::DirBuilder) {}
 
 /// Writes `bytes` to `path` through a temporary file beside it and a rename
 /// ([`azul_storage::durable::replace`]): the file is synced to the disk before the rename and the
 /// folder after, so a power cut leaves the old file or the new one and never an empty one;
-/// `private` makes it (and the folders made on the way) readable by this user only (Unix).
+/// `private` makes it (and the folders made on the way) readable by this user only (`rw-------` on
+/// Unix, an access list for this user on Windows).
 ///
 /// # Errors
 ///
