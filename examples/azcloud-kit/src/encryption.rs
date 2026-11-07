@@ -320,10 +320,11 @@ impl Account {
         let record = file
             .get(Some(&self.record().id))
             .unwrap_or_else(|| self.record());
-        Ok(Recorded {
-            encrypted: record.encrypted,
-            key_id: record.key_id.as_deref().and_then(KeyId::from_hex),
-        })
+        // A key id that cannot be read is a damaged record, not "no id" (X-DELTA-AZDRIVE-KEYS-21).
+        Ok(Recorded::from_entry(
+            record.encrypted,
+            record.key_id.as_deref(),
+        ))
     }
 
     /// The drive key the recovery code opens, kept in `keyring` with this device enrolled.

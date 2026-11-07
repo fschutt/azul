@@ -239,10 +239,8 @@ pub(crate) fn wrap_with(
 
 /// What the drives file says of a drive's encryption, as azul-storage's `AutoEncrypted` takes it.
 fn recorded(record: &EncryptionRecord) -> Recorded {
-    Recorded {
-        encrypted: record.encrypted,
-        key_id: record.key_id.as_deref().and_then(KeyId::from_hex),
-    }
+    // A key id that cannot be read is a damaged record, not "no id" (X-DELTA-AZDRIVE-KEYS-21).
+    Recorded::from_entry(record.encrypted, record.key_id.as_deref())
 }
 
 /// "Remove drive" confirmed: the drive leaves this computer. A worker thread takes it off - its

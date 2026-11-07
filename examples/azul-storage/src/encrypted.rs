@@ -418,6 +418,11 @@ pub struct Recorded {
     pub encrypted: bool,
     /// The id of the drive key it held then.
     pub key_id: Option<KeyId>,
+    /// The record names a key id that is no key id (not 32 hex digits): it exists and says
+    /// nothing that can be compared with a key. The drive does not open until the user opens it
+    /// again on purpose ([`AutoEncrypted::reopen`]) - never "no id, so no check"
+    /// (X-DELTA-AZDRIVE-KEYS-21).
+    pub damaged: bool,
 }
 
 /// How long a declined keychain prompt is remembered ([`AutoEncrypted::with_denied_backoff`]).
@@ -558,7 +563,9 @@ impl AutoEncrypted {
         *lock(&self.state) = EncState::Undecided;
         *lock(&self.denied) = None;
         if new_key {
-            lock(&self.record).key_id = None;
+            let mut record = lock(&self.record);
+            record.key_id = None;
+            record.damaged = false;
         }
     }
 
@@ -745,6 +752,7 @@ impl AutoEncrypted {
             *lock(&self.record) = Recorded {
                 encrypted: true,
                 key_id: Some(id),
+                damaged: false,
             };
             if let Some(tell) = &self.on_encrypted {
                 tell(&id);
@@ -990,10 +998,37 @@ impl Facts {
 }
 
 impl Recorded {
+    /// The record as the drives file (or the account file) holds it: whether the device found the
+    /// drive encrypted, and the id of its key as text. A key id that is not 32 hex digits is not
+    /// "no id": it is a record that cannot be compared with any key ([`Recorded::damaged`]), and
+    /// the drive counts as found encrypted. The one place the text is read.
+    #[must_use]
+    pub fn from_entry(encrypted: bool, key_id: Option<&str>) -> Recorded {
+        match key_id {
+            None => Recorded {
+                encrypted,
+                key_id: None,
+                damaged: false,
+            },
+            Some(text) => match KeyId::from_hex(text) {
+                Some(id) => Recorded {
+                    encrypted,
+                    key_id: Some(id),
+                    damaged: false,
+                },
+                None => Recorded {
+                    encrypted: true,
+                    key_id: None,
+                    damaged: true,
+                },
+            },
+        }
+    }
+
     /// The key this device recorded is the key `drive` opened with, or a key it replaced (a
     /// rotation: the drive's key chain holds the older keys). Another line of keys is not the key
     /// of the drive this device found encrypted: [`DriveError::KeyRefused`]. A record without a
-    /// key id asks nothing.
+    /// key id asks nothing; one whose id cannot be read is refused ([`Recorded::damaged`]).
     ///
     /// # Errors
     ///
@@ -1003,6 +1038,16 @@ impl Recorded {
         drive: &str,
         opened: &EncryptedDrive<D>,
     ) -> Result<(), DriveError> {
+        if self.damaged {
+            return Err(DriveError::KeyRefused {
+                drive: drive.to_string(),
+                reason: format!(
+                    "the id of the drive key that this computer recorded is not readable, so the \
+                     key it holds ({}) cannot be compared with it",
+                    opened.drive_key_id()
+                ),
+            });
+        }
         match self.key_id {
             Some(recorded) if !opened.holds_key(&recorded) => Err(DriveError::KeyRefused {
                 drive: drive.to_string(),

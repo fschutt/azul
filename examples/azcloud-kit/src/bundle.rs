@@ -243,6 +243,10 @@ impl DriveBundle {
                 "the answer names no drive with an id, a name and a location",
             ))
         })?;
+        // What this device found of the drive's encryption is its own word, never the server's: a
+        // bundle that says "encrypted" with a key id of its own makes a drive no key of this device
+        // opens, and a re-add must not carry a record in (X-DELTA-AZDRIVE-KEYS-21).
+        let entry = entry.without_encryption_record();
         if entry.id.trim().is_empty() || !matches!(entry.location, DriveLocation::S3 { .. }) {
             return Err(TokenError::Protocol(String::from(
                 "the answer's drive is not an S3 bucket with an id",

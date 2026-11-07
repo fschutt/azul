@@ -1255,3 +1255,33 @@ fn az_p3_the_payment_page_is_built_and_an_answer_must_name_the_same_one() {
         assert!(!page_is(ours, "ck_1", other), "{other:?}");
     }
 }
+
+/// X-DELTA-AZDRIVE-KEYS-21: a bundle cannot carry the record of a drive's encryption in. The drives
+/// file's entry is made from the server's JSON, and a server that wrote `"encrypted": true` with a
+/// key id of its own made a drive that no key of this device opens (and one a re-add turned from
+/// "found plain" to "found encrypted by a key that was never ours"). The record is this device's
+/// word: the entry a bundle makes has none.
+#[test]
+fn x_delta_azdrive_keys_21_a_bundle_cannot_carry_the_record_of_a_drives_encryption() {
+    let honest = bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa");
+    let hostile = honest.replace(
+        &format!(r#""account_url": "{TOKEN}""#),
+        &format!(
+            r#""account_url": "{TOKEN}", "encrypted": true, "key_id": "ffeeddccbbaa99887766554433221100""#
+        ),
+    );
+    assert_ne!(hostile, honest, "the fixture really names a record");
+    let read = DriveBundle::parse(&hostile).unwrap();
+    let entry = read.entry_named("Cloud", TOKEN);
+    let record = entry.encryption_record().expect("an Azlin drive");
+    assert!(
+        !record.encrypted,
+        "the server's word is not the device's: {record:?}"
+    );
+    assert_eq!(record.key_id, None);
+    assert_eq!(
+        read.entry.encryption_record(),
+        Some(record),
+        "nor in the raw entry"
+    );
+}

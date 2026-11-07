@@ -674,3 +674,98 @@ fn az_cn7_a_database_and_a_signed_in_drive_are_bound_too() {
     // A folder, a bucket and an Azlin drive are not bound this way.
     assert_eq!(s3_entry("s3-1").secret_origin(), None);
 }
+
+fn azlin_entry(id: &str, name: &str, encrypted: bool, key: Option<&str>) -> DriveEntry {
+    DriveEntry {
+        id: id.to_string(),
+        name: name.to_string(),
+        location: DriveLocation::S3 {
+            endpoint: "https://s3.example".to_string(),
+            region: "us-east-1".to_string(),
+            bucket: id.replace('_', "-"),
+            path_style: true,
+            auth: DriveAuth::Azlin {
+                drive_id: id.to_string(),
+                account_url: "https://token.azlin.io".to_string(),
+                encrypted,
+                key_id: key.map(str::to_string),
+            },
+        },
+    }
+}
+
+/// X-DELTA-AZDRIVE-KEYS-21: what this device wrote down of an Azlin drive's encryption is monotone.
+/// A drive added again (a purchase picked up once more, a join, a hand-over) arrives as the
+/// server's bundle describes it, and `add` used to replace the whole entry: the device then
+/// decided the drive by its key and the listing alone, and a hidden-key bucket read as plain. The
+/// record stays, with the key id that was written down, whatever the new entry says - through
+/// `DrivesFile::update`, the one writer of shipped code.
+#[test]
+fn x_delta_azdrive_keys_21_a_drive_added_again_keeps_the_record_of_its_encryption() {
+    let dir = TempDir::new("drives-readd");
+    let path = dir.path().join("drives.json");
+    let key = "00112233445566778899aabbccddeeff";
+    let stranger = "ffeeddccbbaa99887766554433221100";
+    let mut first = azlin_entry("d_k3f9", "Azlin Storage", false, None);
+    assert!(first.record_encryption(key));
+    DrivesFile::update(&path, |file| file.add(first)).unwrap();
+
+    // The bundle of a re-add knows nothing of the record: it stays, the rest is replaced.
+    DrivesFile::update(&path, |file| {
+        file.add(azlin_entry("d_k3f9", "Cloud", false, None));
+    })
+    .unwrap();
+    let file = DrivesFile::load(&path).unwrap();
+    assert_eq!(file.drives.len(), 1);
+    assert_eq!(
+        file.get("d_k3f9").unwrap().name,
+        "Cloud",
+        "the rest is replaced"
+    );
+    let record = file.get("d_k3f9").unwrap().encryption_record().unwrap();
+    assert!(
+        record.encrypted,
+        "a drive found encrypted stays found encrypted: {record:?}"
+    );
+    assert_eq!(record.key_id.as_deref(), Some(key));
+
+    // An entry that names another key id does not replace the one the device recorded.
+    DrivesFile::update(&path, |file| {
+        file.add(azlin_entry("d_k3f9", "Cloud", true, Some(stranger)));
+    })
+    .unwrap();
+    let record = DrivesFile::load(&path)
+        .unwrap()
+        .get("d_k3f9")
+        .unwrap()
+        .encryption_record()
+        .unwrap();
+    assert_eq!(
+        record.key_id.as_deref(),
+        Some(key),
+        "the device's own key id stays"
+    );
+
+    // A drive the device had NOT found encrypted takes what the new entry says (its own entry).
+    let mut file = DrivesFile::empty();
+    file.add(azlin_entry("d_other", "A", false, None));
+    file.add(azlin_entry("d_other", "B", true, Some(key)));
+    assert_eq!(
+        file.get("d_other").unwrap().encryption_record(),
+        Some(EncryptionRecord {
+            encrypted: true,
+            key_id: Some(key.to_string()),
+        })
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-21: an entry without its record - what a server's bundle is made into.
+#[test]
+fn x_delta_azdrive_keys_21_an_entry_can_be_stripped_of_the_record_of_its_encryption() {
+    let key = "00112233445566778899aabbccddeeff";
+    let entry = azlin_entry("d_k3f9", "Azlin Storage", true, Some(key)).without_encryption_record();
+    assert_eq!(entry.encryption_record(), Some(EncryptionRecord::default()));
+    // A drive that is no Azlin drive has no record to strip.
+    let nas = s3_entry("nas-1").without_encryption_record();
+    assert_eq!(nas.encryption_record(), None);
+}

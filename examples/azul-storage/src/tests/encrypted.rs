@@ -875,6 +875,7 @@ fn a_drive_recorded_as_encrypted_is_locked_without_its_key_whatever_the_bucket_l
     .with_record(Recorded {
         encrypted: true,
         key_id: Some(key.id()),
+        ..Recorded::default()
     });
     let locked = |what: &str, error: DriveError| {
         assert!(
@@ -906,6 +907,7 @@ fn a_drive_recorded_as_encrypted_is_locked_without_its_key_whatever_the_bucket_l
     .with_record(Recorded {
         encrypted: true,
         key_id: None,
+        ..Recorded::default()
     });
     assert!(matches!(
         device.put("a.txt", b"x"),
@@ -950,7 +952,8 @@ fn the_app_is_told_the_drive_keys_id_when_the_drive_opens_encrypted() {
         drive.recorded(),
         Recorded {
             encrypted: true,
-            key_id: Some(key.id())
+            key_id: Some(key.id()),
+            ..Recorded::default()
         }
     );
     drive.put("b.txt", b"sealed").unwrap();
@@ -1447,6 +1450,7 @@ fn x_ar6_26802cb54_2_a_recorded_key_is_the_drives_own_or_one_that_replaced_it() 
         AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider()).with_record(Recorded {
             encrypted: true,
             key_id: Some(first.id()),
+            ..Recorded::default()
         });
     rotated.list(&ListRequest::folder("")).unwrap();
     assert_eq!(
@@ -1460,6 +1464,7 @@ fn x_ar6_26802cb54_2_a_recorded_key_is_the_drives_own_or_one_that_replaced_it() 
         AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider()).with_record(Recorded {
             encrypted: true,
             key_id: Some(stranger.id()),
+            ..Recorded::default()
         });
     let refused = swapped.list(&ListRequest::folder(""));
     assert!(
@@ -1587,6 +1592,7 @@ fn x_ar5b_3_decide_says_what_it_decided_or_why_it_could_not() {
         AutoEncrypted::new(mem.clone(), "d_1", recorded, provider()).with_record(Recorded {
             encrypted: true,
             key_id: Some(key.id()),
+            ..Recorded::default()
         });
     assert_eq!(
         by_record.decide().unwrap(),
@@ -1685,6 +1691,7 @@ fn x_ar5b_1_open_encrypted_only_refuses_what_is_not_encrypted_and_has_no_plain_p
         Recorded {
             encrypted: true,
             key_id: Some(key.id()),
+            ..Recorded::default()
         },
     );
     assert!(
@@ -1737,6 +1744,7 @@ fn x_ar5b_1_open_encrypted_only_refuses_what_is_not_encrypted_and_has_no_plain_p
         Recorded {
             encrypted: true,
             key_id: Some(DriveKey::generate().unwrap().id()),
+            ..Recorded::default()
         },
     );
     assert!(matches!(
@@ -1947,6 +1955,7 @@ fn x_delta_azdrive_keys_18_a_reload_keeps_the_recorded_key_and_a_reopening_takes
         AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider()).with_record(Recorded {
             encrypted: true,
             key_id: Some(first.id()),
+            ..Recorded::default()
         });
     drive.list(&ListRequest::folder("")).unwrap();
     assert_eq!(drive.recorded().key_id, Some(second.id()));
@@ -2025,4 +2034,88 @@ fn x_delta_azdrive_keys_22_a_root_listing_that_never_ends_is_a_drive_that_takes_
         EncState::Unencrypted(Why::HiddenOrAbsent)
     );
     assert_eq!(repeating.asked(), 2);
+}
+
+/// X-DELTA-AZDRIVE-KEYS-21: a key id in the record that is no key id is a damaged record, not "no
+/// id": `and_then(KeyId::from_hex)` turned it into "nothing to compare", the drive opened with
+/// whatever key the keyring held and the id was written down as the truth. Now the drive is found
+/// encrypted, does not open (`KeyRefused`, the record named) and stays shut until the user opens it
+/// on purpose; that brings the key and records it.
+#[test]
+fn x_delta_azdrive_keys_21_an_unreadable_key_id_in_the_record_is_refused_and_not_skipped() {
+    // The text is read in one place.
+    assert_eq!(Recorded::from_entry(false, None), Recorded::default());
+    let key = DriveKey::generate().unwrap();
+    assert_eq!(
+        Recorded::from_entry(true, Some(&key.id().to_hex())),
+        Recorded {
+            encrypted: true,
+            key_id: Some(key.id()),
+            damaged: false,
+        }
+    );
+    for text in [
+        "",
+        "not a key id",
+        "0011",
+        "zz112233445566778899aabbccddeeff",
+    ] {
+        let record = Recorded::from_entry(false, Some(text));
+        assert!(
+            record.damaged && record.encrypted && record.key_id.is_none(),
+            "{text:?}"
+        );
+    }
+
+    // Through the drive: this device holds the key of an encrypted drive.
+    let mem = Arc::new(MemBucket::new());
+    let keyring = Arc::new(MemoryKeyring::new());
+    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    setup_new_drive(mem.as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
+    let drive = AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), provider())
+        .with_record(Recorded::from_entry(true, Some("not a key id")));
+    let refused = drive.list(&ListRequest::folder(""));
+    assert!(
+        matches!(&refused, Err(DriveError::KeyRefused { drive, reason })
+            if drive == "d_1" && reason.contains("not readable")),
+        "{refused:?}"
+    );
+    assert!(drive.put("a.txt", b"x").is_err(), "and nothing is written");
+    assert!(mem.object("a.txt").is_none());
+    assert_eq!(drive.state(), EncState::Undecided, "nothing was decided");
+
+    // The apps that open an encrypted drive only refuse it as well.
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let refused = crate::encrypted::open_encrypted_only(
+        mem.clone(),
+        keyring.as_ref(),
+        "d_1",
+        &provider,
+        Recorded::from_entry(true, Some("not a key id")),
+    );
+    assert!(
+        matches!(
+            &refused,
+            Err(crate::encrypted::OpenRefusal::Refused(
+                DriveError::KeyRefused { .. }
+            ))
+        ),
+        "{:?}",
+        refused.as_ref().err()
+    );
+
+    // The user's own act that brings a key records it.
+    drive.reopen();
+    drive.list(&ListRequest::folder("")).unwrap();
+    let held = crate::crypto::device::load_drive_key(keyring.as_ref(), "d_1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        drive.recorded(),
+        Recorded {
+            encrypted: true,
+            key_id: Some(held.id()),
+            damaged: false,
+        }
+    );
 }

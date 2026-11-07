@@ -535,6 +535,45 @@ impl DriveEntry {
         }
     }
 
+    /// The entry without the record of the drive's encryption: that record is this device's own
+    /// word (it found the drive encrypted, with this key), written by [`Self::record_encryption`]
+    /// and by nothing else. An entry that comes from a server's bundle carries whatever the server
+    /// put there, and a server that says "encrypted" with a key id of its own makes a drive that
+    /// no key of this device opens.
+    #[must_use]
+    pub fn without_encryption_record(mut self) -> DriveEntry {
+        if let DriveLocation::S3 {
+            auth: DriveAuth::Azlin {
+                encrypted, key_id, ..
+            },
+            ..
+        } = &mut self.location
+        {
+            *encrypted = false;
+            *key_id = None;
+        }
+        self
+    }
+
+    /// Keeps `kept` - what this device had written down of the drive in the entry this one
+    /// replaces - over what this entry says: a drive found encrypted stays found encrypted, with
+    /// the key id that was recorded (the entry's own id counts only where none was). Nothing for a
+    /// drive that is no Azlin drive, or one the device had not found encrypted.
+    pub fn keep_encryption_record(&mut self, kept: EncryptionRecord) {
+        if let DriveLocation::S3 {
+            auth: DriveAuth::Azlin {
+                encrypted, key_id, ..
+            },
+            ..
+        } = &mut self.location
+        {
+            if kept.encrypted {
+                *encrypted = true;
+                *key_id = kept.key_id.or_else(|| key_id.take());
+            }
+        }
+    }
+
     /// Writes down that this device found the Azlin drive encrypted, with the id of its drive
     /// key. Whether the entry changed; `false` as well for a drive that is no Azlin drive.
     pub fn record_encryption(&mut self, key: &str) -> bool {
@@ -636,10 +675,21 @@ impl DrivesFile {
             .map_err(|e| DriveError::Io(format!("{}: {e}", path.display())))
     }
 
-    /// Adds `entry`, or replaces the drive with its id.
+    /// Adds `entry`, or replaces the drive with its id. What this device wrote down of the drive's
+    /// encryption survives the replacement ([`DriveEntry::keep_encryption_record`]): a drive that
+    /// is added again (a purchase picked up once more, a join, a hand-over) arrives as the server's
+    /// bundle describes it, which knows nothing of what this device found, and the record is
+    /// monotone - a device that found a drive encrypted never takes it for a plain one again
+    /// because its entry was written anew (X-DELTA-AZDRIVE-KEYS-21).
     pub fn add(&mut self, entry: DriveEntry) {
         match self.drives.iter_mut().find(|d| d.id == entry.id) {
-            Some(existing) => *existing = entry,
+            Some(existing) => {
+                let kept = existing.encryption_record();
+                *existing = entry;
+                if let Some(kept) = kept {
+                    existing.keep_encryption_record(kept);
+                }
+            }
             None => self.drives.push(entry),
         }
     }

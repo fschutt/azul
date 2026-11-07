@@ -854,3 +854,43 @@ fn x_delta_azdrive_keys_25_a_rotation_with_a_keyring_that_keeps_no_key_is_refuse
         .to_string();
     assert!(refused.contains("plain file"), "{refused}");
 }
+
+/// X-DELTA-AZDRIVE-KEYS-21: the account file's record is read the way AzDrive reads the drives
+/// file's: a key id that is no key id is a damaged record, and the drive does not open on it - it
+/// was "no id, so nothing to compare" (`and_then(KeyId::from_hex)`).
+#[test]
+fn x_delta_azdrive_keys_21_an_unreadable_key_id_in_the_account_file_is_a_damaged_record() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-damaged-record");
+    let state = StateDir::open(dir.path()).unwrap();
+    let keys = MemoryKeyring::new();
+    let made = crate::encryption::NewKeys {
+        keyring: &keys,
+        s3_endpoint: None,
+        kdf: cheap(),
+    };
+    let (account, _code) =
+        Account::signup(&state, TOKEN, transports, "100GB", "Ann's drive", made).unwrap();
+    let good = account.recorded().unwrap();
+    assert!(
+        good.encrypted && good.key_id.is_some() && !good.damaged,
+        "{good:?}"
+    );
+
+    let mut file = AccountFile::load(&state.account_file()).unwrap();
+    file.drives[0].key_id = Some(String::from("not a key id"));
+    file.save(&state.account_file()).unwrap();
+    let damaged = account.recorded().unwrap();
+    assert!(damaged.damaged && damaged.encrypted, "{damaged:?}");
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let refused = account.open_encrypted_only(&keys, &provider);
+    assert!(
+        matches!(
+            &refused,
+            Err(OpenRefusal::Refused(DriveError::KeyRefused { .. }))
+        ),
+        "{:?}",
+        refused.as_ref().err()
+    );
+}
