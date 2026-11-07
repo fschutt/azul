@@ -28,6 +28,7 @@ use crate::{
     ctl::{Ctl, Quiet, Stopped},
     durable::{self, Blob, Expect, Mode, Publish},
     key::safe_file_name,
+    limits::Limit,
     local::{beneath_error, source_bits},
     multipart::{in_parallel, STALE_AFTER_SECS},
     quarantine, ByteRange, Drive, DriveError, ObjectInfo, Precondition,
@@ -542,21 +543,36 @@ pub fn download_guarded(
             size
         }
     };
-    if size <= chunk {
-        let bytes = drive.get(key)?;
-        stop_if_asked(ctl)?;
-        let (folder, name) = folder_of(dest, key)?;
-        durable::publish(
-            &folder,
-            &name,
-            &mut &bytes[..],
-            Publish::new(expect, Mode::Shared, &Quiet),
-        )
-        .map_err(|e| e.into_drive(key))?;
-        ctl.bytes(bytes.len() as u64);
-        return Ok(bytes.len() as u64);
-    }
     // The version (ETag, date) a resumed download must still find.
+    let mut info = info;
+    if size <= chunk {
+        // The size is the listing's: an object that grew since (a log) is not read whole into
+        // memory because the drive's `get` has no limit - it is refused at the limit, and the
+        // ranges take it by the size it has now (X-DELTA-AZDRIVE-FILES-36).
+        match drive.get_limited(key, Limit::new("a listed file", chunk)) {
+            Ok(bytes) => {
+                stop_if_asked(ctl)?;
+                let (folder, name) = folder_of(dest, key)?;
+                durable::publish(
+                    &folder,
+                    &name,
+                    &mut &bytes[..],
+                    Publish::new(expect, Mode::Shared, &Quiet),
+                )
+                .map_err(|e| e.into_drive(key))?;
+                ctl.bytes(bytes.len() as u64);
+                return Ok(bytes.len() as u64);
+            }
+            Err(DriveError::Protocol(why)) => {
+                let now = info_of(drive, key)?;
+                if now.size <= chunk {
+                    return Err(DriveError::Protocol(why));
+                }
+                info = Some(now);
+            }
+            Err(e) => return Err(e),
+        }
+    }
     let info = match info {
         Some(info) => info,
         None => info_of(drive, key)?,
@@ -783,15 +799,31 @@ pub fn copy_object_when(
                 Some(size) => size,
                 None => source.head(key)?.size,
             };
+            let mut size = size;
             if size <= CHUNK {
-                let bytes = source.get(key)?;
-                stop_if_asked(ctl)?;
-                match condition {
-                    Some(condition) => target.put_if(target_key, &bytes, condition).map(|_| ())?,
-                    None => target.put(target_key, &bytes)?,
+                // As a download: the listing's size is not the object's if it grew since; it is
+                // refused at the limit and goes by ranges (X-DELTA-AZDRIVE-FILES-36).
+                match source.get_limited(key, Limit::new("a listed file", CHUNK)) {
+                    Ok(bytes) => {
+                        stop_if_asked(ctl)?;
+                        match condition {
+                            Some(condition) => {
+                                target.put_if(target_key, &bytes, condition).map(|_| ())?
+                            }
+                            None => target.put(target_key, &bytes)?,
+                        }
+                        ctl.bytes(bytes.len() as u64);
+                        return Ok(bytes.len() as u64);
+                    }
+                    Err(DriveError::Protocol(why)) => {
+                        let now = source.head(key)?.size;
+                        if now <= CHUNK {
+                            return Err(DriveError::Protocol(why));
+                        }
+                        size = now;
+                    }
+                    Err(e) => return Err(e),
                 }
-                ctl.bytes(bytes.len() as u64);
-                return Ok(bytes.len() as u64);
             }
             let mut ranges = RangeReader {
                 drive: source,

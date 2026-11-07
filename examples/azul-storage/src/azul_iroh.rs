@@ -30,7 +30,8 @@ use crate::{
 /// Seconds one request over iroh may take at least (a relayed first request sets up its
 /// connection too); a call whose limits allow more gets more ([`crate::HttpCall::budget`]).
 pub const IROH_TIMEOUT_SECS: u32 = 120;
-/// The largest answer taken (a whole object of a GET without ranges).
+/// The largest answer the engine takes (a whole object of a GET without ranges): its frame limit.
+/// A call's own, smaller limit is checked on the answer once it is here (see `send`).
 pub const MAX_ANSWER_BYTES: u32 = 1 << 30;
 
 /// The library's endpoint handle, shared by the threads of the process.
@@ -173,6 +174,11 @@ impl Transport for AzulIrohTransport {
             }
             ResultU8VecString::Err(why) => return Err(format!("over iroh: {}", why.as_str())),
         };
+        // The engine hands an answer over whole, up to its own frame limit ([`MAX_ANSWER_BYTES`]):
+        // this call's limit is checked when the answer is here, so it refuses a reply, not the
+        // memory the reply took. (A transport that reads the body itself refuses on the way in:
+        // `azul_transport`'s `with_max_size`.) A caller that must not take that memory asks by
+        // ranges ([`crate::Drive::get_range`]).
         if reply.body.len() as u64 > budget.max_answer {
             return Err(format!(
                 "over iroh: the answer has {} bytes, more than the {} this call takes",

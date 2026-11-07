@@ -612,3 +612,171 @@ fn x_delta_azdrive_files_5_a_range_is_on_the_disk_before_the_state_says_it_is_do
     );
     assert!(done < 4, "{state}");
 }
+
+// ---- X-DELTA-AZDRIVE-FILES-36: a listed size is not the object's
+
+/// A drive whose object grew since it was listed: the listing said 5 bytes, `head` says a chunk
+/// and ten bytes, and a whole-object `get` would put all of it in memory (S3's `get` takes
+/// `u64::MAX`). It records which reads were made.
+struct Grown {
+    limited: Mutex<Vec<u64>>,
+    gets: AtomicU32,
+    ranges: AtomicU32,
+    /// What `head` says the size is now.
+    now: u64,
+}
+
+impl Grown {
+    fn new(now: u64) -> Grown {
+        Grown {
+            limited: Mutex::new(Vec::new()),
+            gets: AtomicU32::new(0),
+            ranges: AtomicU32::new(0),
+            now,
+        }
+    }
+}
+
+impl Drive for Grown {
+    fn list(&self, _: &ListRequest) -> Result<ListPage, DriveError> {
+        Ok(ListPage::default())
+    }
+    fn get(&self, _: &str) -> Result<Vec<u8>, DriveError> {
+        self.gets.fetch_add(1, Ordering::SeqCst);
+        Err(DriveError::Io(String::from(
+            "the whole object must not be read",
+        )))
+    }
+    fn get_limited(&self, key: &str, limit: crate::limits::Limit) -> Result<Vec<u8>, DriveError> {
+        self.limited.lock().unwrap().push(limit.max);
+        if self.now > limit.max {
+            return Err(limit.check_object(key, self.now).unwrap_err());
+        }
+        Ok(vec![7u8; usize::try_from(self.now).unwrap()])
+    }
+    fn get_range(&self, _: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.ranges.fetch_add(1, Ordering::SeqCst);
+        let end = range.end.unwrap_or(self.now - 1).min(self.now - 1);
+        Ok(vec![7u8; usize::try_from(end - range.start + 1).unwrap()])
+    }
+    fn put(&self, _: &str, _: &[u8]) -> Result<(), DriveError> {
+        Err(DriveError::Io(String::from("read-only")))
+    }
+    fn delete(&self, _: &str) -> Result<(), DriveError> {
+        Ok(())
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        Ok(ObjectInfo {
+            key: key.to_string(),
+            size: self.now,
+            modified: Some(1),
+            etag: Some(String::from("grown")),
+        })
+    }
+}
+
+/// The listing said 5 bytes and the object has a chunk and ten more: the whole-object read is
+/// limited to the chunk, refused, and the ranges take the object by the size it has now.
+#[test]
+fn x_delta_azdrive_files_36_an_object_that_grew_since_it_was_listed_is_read_by_ranges() {
+    let tmp = TempDir::new("dx36-download");
+    let now = crate::transfer::CHUNK + 10;
+    let drive = Grown::new(now);
+    let dest = tmp.path().join("big.log");
+    let len = crate::transfer::download_guarded(
+        &drive,
+        "big.log",
+        Some(5),
+        &dest,
+        crate::transfer::CHUNK,
+        crate::durable::Expect::Absent,
+        &crate::ctl::Quiet,
+    )
+    .unwrap();
+    assert_eq!(len, now);
+    assert_eq!(std::fs::metadata(&dest).unwrap().len(), now);
+    assert_eq!(
+        drive.gets.load(Ordering::SeqCst),
+        0,
+        "never the whole object, unlimited"
+    );
+    assert_eq!(*drive.limited.lock().unwrap(), vec![crate::transfer::CHUNK]);
+    assert!(drive.ranges.load(Ordering::SeqCst) >= 2, "ranges took it");
+}
+
+/// The same between two drives that are no folders: the listing's size picks the single GET, which
+/// is limited, and an object that grew is copied by ranges.
+#[test]
+fn x_delta_azdrive_files_36_a_copy_of_an_object_that_grew_goes_by_ranges_too() {
+    let source = Grown::new(crate::transfer::CHUNK + 10);
+    let target_dir = TempDir::new("dx36-copy");
+    let target = Counting::new(LocalDrive::without_manifest(target_dir.path()));
+    let len = crate::transfer::copy_object_guarded(
+        &source,
+        "big.log",
+        Some(5),
+        &target,
+        "big.log",
+        crate::durable::Expect::Any,
+        &crate::ctl::Quiet,
+    )
+    .unwrap();
+    assert_eq!(len, crate::transfer::CHUNK + 10);
+    assert_eq!(source.gets.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        *source.limited.lock().unwrap(),
+        vec![crate::transfer::CHUNK]
+    );
+    assert_eq!(
+        std::fs::metadata(target_dir.path().join("big.log"))
+            .unwrap()
+            .len(),
+        crate::transfer::CHUNK + 10
+    );
+}
+
+/// A refusal that is no growth stays the refusal: the object is as small as the listing said and
+/// the drive still refused it.
+#[test]
+fn x_delta_azdrive_files_36_a_refusal_of_an_object_that_did_not_grow_is_not_hidden() {
+    struct Refuses(Grown);
+    impl Drive for Refuses {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            self.0.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.0.get(key)
+        }
+        fn get_limited(&self, _: &str, _: crate::limits::Limit) -> Result<Vec<u8>, DriveError> {
+            Err(DriveError::Protocol(String::from(
+                "the drive's own refusal",
+            )))
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.0.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.0.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            self.0.head(key)
+        }
+    }
+    let tmp = TempDir::new("dx36-refused");
+    let drive = Refuses(Grown::new(5));
+    let refused = crate::transfer::download_guarded(
+        &drive,
+        "small.log",
+        Some(5),
+        &tmp.path().join("small.log"),
+        crate::transfer::CHUNK,
+        crate::durable::Expect::Absent,
+        &crate::ctl::Quiet,
+    )
+    .unwrap_err();
+    assert!(matches!(refused, DriveError::Protocol(_)), "{refused:?}");
+    assert!(!tmp.path().join("small.log").exists());
+}
