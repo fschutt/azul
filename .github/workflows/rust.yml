@@ -105,6 +105,11 @@ jobs:
       - name: Panic surface (the places a panic is written in the crates that read hostile bytes)
         run: python3 scripts/panic_surface.py
 
+      # The release-signing script has tests of its own (a recording stand-in for minisign: stdlib
+      # only). No CI step ran them (X-DELTA-AZDRIVE-KEYS-40).
+      - name: Test the release-signing script
+        run: python3 scripts/test_sign_release.py
+
       - name: Backends must not touch content state
         run: |
           set -e

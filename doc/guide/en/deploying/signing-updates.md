@@ -352,16 +352,26 @@ cargo run -p azul-layout --features updater --example verify_update_manifest -- 
 
 ## What a client remembers
 
-Each program keeps `update-state.json` in its state folder: the highest version
-it has seen **verified**, the highest signing-key generation it has accepted, and
-the cooldown and cohort of the checks. The two marks are what refuse an
-older release or a retired key, so they are handled with care: the file is
-replaced atomically, a writer never lowers a mark another one raised (the app
-and the install manager both write them), and a file that cannot be read is
-**not** treated as a fresh start. Staging and installing stop with an error
-that names the file; delete it to start over, knowing that an older release is
-accepted again from then on. The install manager keeps the marks of an app it
-uninstalls for the same reason.
+Each program keeps `update-state.json` in its state folder, in the user's own
+data folder (with none set, checking and installing stop with an error; the
+shared temporary folder is never a fallback): the highest version it has seen
+**verified**, the highest signing-key generation it has accepted, the time of
+the last chain that verified, and the cooldown and cohort of the checks. The
+three marks are what refuse an older release, a retired key and a statement
+that has expired (the time is a floor for the clock: a clock set back does not
+make an expired statement valid again), so they are handled with care: the file
+is replaced atomically under a lock, a writer never lowers a mark another one
+raised (the app and the install manager both write them), and a file that
+cannot be read - or has a field of another type - is **not** treated as a fresh
+start. Staging and installing stop with an error that names the file; delete it
+to start over, knowing that an older release is accepted again from then on.
+The install manager keeps the marks of an app it uninstalls for the same
+reason.
+
+A release that is signed but numbered **below** the highest version the client
+has verified is refused as a rollback, whatever the manifest lists beside it.
+So a release you pull is replaced by a higher version number, never by a
+re-release of a lower one.
 
 Download limits: a release is taken in 1 MiB windows and a `206` answer is
 believed only when its `Content-Range` starts where the request did and the

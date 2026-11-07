@@ -357,6 +357,12 @@ pub struct UpdateState {
     /// lower generation is a rollback (an attacker replaying a retired,
     /// possibly leaked key) and is refused.
     pub key_generation: u64,
+    /// The latest time (unix seconds) a signature chain was fully verified at: a FLOOR for the
+    /// clock the chain's expiry and "dated in the future" checks use. A clock set back (an
+    /// on-path NTP answer, a user's change) must not revive a signing-key statement that
+    /// expired; it only goes up, and only with a chain that verified - so it never runs ahead of
+    /// a statement's own expiry (X-DELTA-AZDRIVE-KEYS-33).
+    pub clock_floor_unix: u64,
 }
 
 /// The file of [`UpdateState`] in a state folder.
@@ -364,10 +370,11 @@ const STATE_FILE: &str = "update-state.json";
 
 impl UpdateState {
     /// Reads `dir/update-state.json`. A file that is not there is a first run (`Ok(default)`); a
-    /// file that is there and cannot be read or parsed is an ERROR, not a fresh start: the marks it
-    /// held (the highest version, the key generation) are what refuse a rollback to a retired,
-    /// possibly leaked signing key, and starting again from zero would accept that key once more
-    /// (REVIEW Y7). The message says which file to delete to start over, knowingly.
+    /// file that is there and cannot be read or parsed - or has a field of another type than it is
+    /// written with - is an ERROR, not a fresh start: the marks it held (the highest version, the
+    /// key generation) are what refuse a rollback to a retired, possibly leaked signing key, and
+    /// starting again from zero would accept that key once more (REVIEW Y7). The message says
+    /// which file to delete to start over, knowingly.
     ///
     /// # Errors
     ///
@@ -392,29 +399,40 @@ impl UpdateState {
         if !v.is_object() {
             return Err(damaged("not a JSON object"));
         }
+        // A field that is there has the type it is written with: `"key_generation": "5"` is not
+        // a zero to be written back over the mark. A field that is not there is a file from
+        // before the field, or a first write: its zero (X-DELTA-AZDRIVE-KEYS-33).
+        let text_field = |name: &str| -> Result<String, String> {
+            match v.get(name) {
+                None => Ok(String::new()),
+                Some(serde_json::Value::String(s)) => Ok(s.clone()),
+                Some(_) => Err(damaged(&format!("`{name}` is not text"))),
+            }
+        };
+        let number_field = |name: &str| -> Result<u64, String> {
+            match v.get(name) {
+                None => Ok(0),
+                Some(x) => x
+                    .as_u64()
+                    .ok_or_else(|| damaged(&format!("`{name}` is not a whole number"))),
+            }
+        };
+        let rollout_bucket = match v.get("rollout_bucket") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(x) => Some(
+                x.as_u64()
+                    .and_then(|b| u8::try_from(b).ok())
+                    .filter(|b| *b < 100)
+                    .ok_or_else(|| damaged("`rollout_bucket` is not a number from 0 to 99"))?,
+            ),
+        };
         Ok(Self {
-            highest_seen: v
-                .get("highest_seen")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_owned(),
-            last_check_unix: v
-                .get("last_check_unix")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0),
-            suspended_until_unix: v
-                .get("suspended_until_unix")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0),
-            rollout_bucket: v
-                .get("rollout_bucket")
-                .and_then(serde_json::Value::as_u64)
-                .and_then(|b| u8::try_from(b).ok())
-                .filter(|b| *b < 100),
-            key_generation: v
-                .get("key_generation")
-                .and_then(serde_json::Value::as_u64)
-                .unwrap_or(0),
+            highest_seen: text_field("highest_seen")?,
+            last_check_unix: number_field("last_check_unix")?,
+            suspended_until_unix: number_field("suspended_until_unix")?,
+            rollout_bucket,
+            key_generation: number_field("key_generation")?,
+            clock_floor_unix: number_field("clock_floor_unix")?,
         })
     }
 
@@ -427,14 +445,15 @@ impl UpdateState {
         Self::read(dir).unwrap_or_default()
     }
 
-    /// The marks only go up: raises this state's highest version and key generation to the ones
-    /// `other` holds, and takes its cohort when this has none.
+    /// The marks only go up: raises this state's highest version, key generation and clock floor
+    /// to the ones `other` holds, and takes its cohort when this has none.
     fn raise_marks_to(&mut self, other: &Self) {
         if compare_versions(&other.highest_seen, &self.highest_seen) == core::cmp::Ordering::Greater
         {
             self.highest_seen.clone_from(&other.highest_seen);
         }
         self.key_generation = self.key_generation.max(other.key_generation);
+        self.clock_floor_unix = self.clock_floor_unix.max(other.clock_floor_unix);
         if self.rollout_bucket.is_none() {
             self.rollout_bucket = other.rollout_bucket;
         }
@@ -469,8 +488,9 @@ impl UpdateState {
     /// Writes to `dir/update-state.json`, atomically (a temp file in the same folder, then a
     /// rename: a crash leaves the old file or the new one, never half of one), and never LOWER
     /// than what is on disk - the app and the install manager each hold the marks of a program
-    /// and may both write, and the marks only go up. A file on disk that is damaged is not written
-    /// over (see [`UpdateState::read`]).
+    /// and may both write, and the marks only go up; the read of what is on disk, the merge and
+    /// the rename happen under a lock on `update-state.json.lock`. A file on disk that is damaged
+    /// is not written over (see [`UpdateState::read`]).
     ///
     /// # Errors
     ///
@@ -478,6 +498,10 @@ impl UpdateState {
     pub fn try_save(&self, dir: &Path) -> Result<(), String> {
         let path = dir.join(STATE_FILE);
         std::fs::create_dir_all(dir).map_err(|e| format!("update state {}: {e}", dir.display()))?;
+        // The app and the install manager both write the marks of a program: the read, the merge
+        // and the rename are ONE step under an exclusive lock, or a mark one of them raised in
+        // between is written over by the other (X-DELTA-AZDRIVE-KEYS-33).
+        let _lock = StateLock::take(dir)?;
         let mut merged = self.clone();
         merged.raise_marks_to(&Self::read(dir)?);
         let text = serde_json::json!({
@@ -486,6 +510,7 @@ impl UpdateState {
             "suspended_until_unix": merged.suspended_until_unix,
             "rollout_bucket": merged.rollout_bucket,
             "key_generation": merged.key_generation,
+            "clock_floor_unix": merged.clock_floor_unix,
         })
         .to_string();
         let temp = dir.join(format!("{STATE_FILE}.{}.tmp", unique_suffix()));
@@ -508,6 +533,34 @@ impl UpdateState {
     /// [`UpdateState::try_save`] for a state that is only about a check: a failure is dropped.
     pub fn save(&self, dir: &Path) {
         drop(self.try_save(dir));
+    }
+}
+
+/// The exclusive lock of a state folder (`update-state.json.lock`), held for one read-merge-rename
+/// and let go on drop. The OS lets go of it with the handle, also when the process dies.
+struct StateLock {
+    _file: std::fs::File,
+}
+
+impl StateLock {
+    /// Waits for the lock of `dir` (its holders hold it for one small read and one rename).
+    fn take(dir: &Path) -> Result<Self, String> {
+        let path = dir.join(format!("{STATE_FILE}.lock"));
+        let failed = |e: std::io::Error| format!("update state {}: {e}", path.display());
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(failed)?;
+        match file.lock() {
+            Ok(()) => {}
+            // A platform whose files cannot be locked: the rename is atomic all the same.
+            Err(e) if e.kind() == std::io::ErrorKind::Unsupported => {}
+            Err(e) => return Err(failed(e)),
+        }
+        Ok(Self { _file: file })
     }
 }
 
@@ -1181,7 +1234,9 @@ pub fn parse_release_document(
         }
         return Err(format!(
             "the update URL returned neither JSON nor a version number (it starts with {:?})",
-            &trimmed[..trimmed.len().min(40)]
+            // Characters, not bytes: a body that has a multi-byte character at the 40th byte
+            // panics on a slice, and with `panic = "abort"` that ends the app on every check.
+            trimmed.chars().take(40).collect::<String>()
         ));
     };
 
@@ -2511,8 +2566,11 @@ fn check_release_statement(
 ///    unsigned words; the bytes of a genuine old release must not pass under a new label).
 ///
 /// Only a fully verified chain advances the marks: the highest signing-key generation accepted
-/// (also to the release's `min_generation`) and the highest VERSION seen - an unverified
-/// manifest, which can say anything, moves neither.
+/// (also to the release's `min_generation`), the highest VERSION seen and the clock floor - an
+/// unverified manifest, which can say anything, moves none of them. A chain that verifies for a
+/// version BELOW the highest one seen is refused, however well it is signed: that is a rollback
+/// to a release whose flaws are known. The clock the expiry and "dated in the future" checks go
+/// by never runs behind the floor, so a clock set back does not revive a statement that expired.
 ///
 /// A manifest that omits any part of the chain is a HARD error: "this release is unsigned" is
 /// never a downgrade path, and there is no root key that is empty ([`RootKeys`]). The file is
@@ -2533,6 +2591,9 @@ pub fn verify_release_signature(
     if !chain_is_complete(release) {
         return Err(UNSIGNED_RELEASE.to_owned());
     }
+    // The time of the last chain that verified is a floor for the clock (a clock set back must
+    // not make an expired statement valid again).
+    let now_unix = now_unix.max(state.clock_floor_unix);
 
     let statement_str = release.signing_key_statement.as_str();
     let statement_sig =
@@ -2588,6 +2649,16 @@ pub fn verify_release_signature(
         .map_err(|e| format!("release statement not signed by the signing key: {e}"))?;
     let released = parse_release_statement(release.release_statement.as_str())?;
     check_release_statement(&released, release, expect, &sha256, &statement, now_unix)?;
+    // What is compared with the mark is the version the signing key vouches for, not a label of
+    // the manifest: a manifest that lists a decoy "newer" release (one this client's cohort is
+    // not offered) beside a genuine older one gets past the check on the unsigned labels.
+    if compare_versions(&released.version, &state.highest_seen) == core::cmp::Ordering::Less {
+        return Err(format!(
+            "release version ROLLBACK: the signed release is {} but this client already \
+             verified {}",
+            released.version, state.highest_seen
+        ));
+    }
 
     // Only a fully verified chain advances the marks.
     state.key_generation = state
@@ -2597,6 +2668,7 @@ pub fn verify_release_signature(
     if compare_versions(&released.version, &state.highest_seen) == core::cmp::Ordering::Greater {
         state.highest_seen.clone_from(&released.version);
     }
+    state.clock_floor_unix = state.clock_floor_unix.max(now_unix);
     Ok(sha256)
 }
 
@@ -3482,26 +3554,79 @@ struct CheckOutcome {
     info: UpdateCheckInfo,
 }
 
+/// The folder the platform keeps a user's program data in, from the environment as it is given:
+/// `APPDATA` (Windows), `~/Library/Application Support` (macOS), `$XDG_DATA_HOME` or
+/// `~/.local/share` (elsewhere). `None` when the variable is not set - or is not an absolute
+/// path: an empty `HOME` would put the folder under whatever the working directory is.
+fn data_home_from(
+    home: Option<std::ffi::OsString>,
+    xdg_data_home: Option<std::ffi::OsString>,
+    appdata: Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    let absolute = |v: std::ffi::OsString| Some(PathBuf::from(v)).filter(|p| p.is_absolute());
+    if cfg!(target_os = "windows") {
+        appdata.and_then(absolute)
+    } else if cfg!(target_os = "macos") {
+        home.and_then(absolute)
+            .map(|h| h.join("Library").join("Application Support"))
+    } else {
+        xdg_data_home.and_then(absolute).or_else(|| {
+            home.and_then(absolute)
+                .map(|h| h.join(".local").join("share"))
+        })
+    }
+}
+
+/// [`data_home_from`] of this process's environment.
+fn data_home() -> Option<PathBuf> {
+    data_home_from(
+        std::env::var_os("HOME"),
+        std::env::var_os("XDG_DATA_HOME"),
+        std::env::var_os("APPDATA"),
+    )
+}
+
 /// Platform data directory for the updater's state
-/// (`update-state.json` + the staging area), keyed by app name.
+/// (`update-state.json` + the staging area), keyed by app name. Falls back to the shared
+/// temporary folder when the platform's folder is not set: fine for what is only a convenience
+/// (the problem reports), NOT for the marks that refuse a rollback or the staged update - see
+/// [`private_state_dir`].
 #[must_use]
 pub fn default_state_dir(app_name: &str) -> PathBuf {
-    #[cfg(target_os = "windows")]
-    let base = std::env::var_os("APPDATA").map_or_else(std::env::temp_dir, PathBuf::from);
-    #[cfg(target_os = "macos")]
-    let base = std::env::var_os("HOME").map_or_else(std::env::temp_dir, |h| {
-        PathBuf::from(h).join("Library").join("Application Support")
-    });
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let base = std::env::var_os("XDG_DATA_HOME").map_or_else(
-        || {
-            std::env::var_os("HOME").map_or_else(std::env::temp_dir, |h| {
-                PathBuf::from(h).join(".local").join("share")
-            })
-        },
-        PathBuf::from,
-    );
-    base.join(app_name)
+    data_home()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(app_name)
+}
+
+/// The updater's state folder in the user's OWN data folder, or the reason there is none. The
+/// shared temporary folder is never a fallback: another user of the computer can make
+/// `/tmp/<app>` first, and the marks and the staged update in it would be theirs to choose
+/// (X-DELTA-AZDRIVE-KEYS-33). What checks for an update or installs one goes through this.
+///
+/// # Errors
+///
+/// The platform's data folder is not set (`HOME`, `XDG_DATA_HOME` or `APPDATA`), or `app_name` is
+/// not a single folder name.
+pub fn private_state_dir(app_name: &str) -> Result<PathBuf, String> {
+    private_state_dir_in(data_home(), app_name)
+}
+
+/// [`private_state_dir`] under `data_home` (`None` = the platform's folder is not set).
+fn private_state_dir_in(data_home: Option<PathBuf>, app_name: &str) -> Result<PathBuf, String> {
+    let single_name = !app_name.is_empty()
+        && app_name != "."
+        && app_name != ".."
+        && !app_name.contains(['/', '\\', ':', '\0']);
+    if !single_name {
+        return Err(format!(
+            "the app name {app_name:?} is not a folder name: the update state has no place"
+        ));
+    }
+    data_home.map(|home| home.join(app_name)).ok_or_else(|| {
+        "the user's data folder is not set (HOME, XDG_DATA_HOME or APPDATA): the update state is \
+         not kept in a folder that other users of the computer can write"
+            .to_owned()
+    })
 }
 
 /// Runs one full check (+ optional staging) as an azul [`Thread`], reading
@@ -3584,7 +3709,9 @@ extern "C" fn update_check_worker(
 
     let install = InstallKind::detect();
     let effective = apply_shared_update_policy(effective_mode(task.env.update_mode, &install));
-    let state_dir = default_state_dir(&task.env.app_name);
+    // The marks that refuse a rollback and the staged update live in the user's own folder; the
+    // shared temporary folder is no place for them.
+    let state_dir = private_state_dir(&task.env.app_name);
     let policy = task.env.update_policy();
 
     let result = match (task.env.update_manifest.as_deref(), effective, &policy) {
@@ -3597,36 +3724,35 @@ extern "C" fn update_check_worker(
         // An app that replaces itself and has no way to prove an update says so before it asks
         // anyone for one; a notify-only app needs no proof for a notification.
         (Some(_), UpdateMode::SelfUpdate, Err(why)) => UpdateCheckResult::Error(why.clone().into()),
-        (Some(url), _, _) => {
-            let audience = if effective == UpdateMode::SelfUpdate {
-                UpdateAudience::AutoUpdate
-            } else {
-                UpdateAudience::NotifyOnly
-            };
-            let mut state = UpdateState::load(&state_dir);
-            let r = check_for_updates_blocking(
-                url,
-                &task.env.current_version,
-                &task.env.update_channel,
-                &mut state,
-                audience,
-            );
-            state.save(&state_dir);
-            r
-        }
+        (Some(url), _, _) => match &state_dir {
+            Err(why) => UpdateCheckResult::Error(why.clone().into()),
+            Ok(dir) => {
+                let audience = if effective == UpdateMode::SelfUpdate {
+                    UpdateAudience::AutoUpdate
+                } else {
+                    UpdateAudience::NotifyOnly
+                };
+                let mut state = UpdateState::load(dir);
+                let r = check_for_updates_blocking(
+                    url,
+                    &task.env.current_version,
+                    &task.env.update_channel,
+                    &mut state,
+                    audience,
+                );
+                state.save(dir);
+                r
+            }
+        },
     };
 
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let staged_path = stage_automatically(
-        &task.env,
-        &result,
-        task.options,
-        effective,
-        now_unix,
-        &state_dir,
-    );
+    let staged_path = match &state_dir {
+        Ok(dir) => stage_automatically(&task.env, &result, task.options, effective, now_unix, dir),
+        Err(_) => azul_css::OptionString::None,
+    };
 
     let outcome = CheckOutcome {
         callback: task.callback.clone(),
@@ -3780,6 +3906,7 @@ mod tests {
             suspended_until_unix: 1_700_100_000,
             rollout_bucket: Some(42),
             key_generation: 3,
+            clock_floor_unix: 1_700_000_500,
         };
         state.save(&dir);
         assert_eq!(UpdateState::load(&dir), state);
@@ -3853,6 +3980,34 @@ mod tests {
         assert!(err.contains("neither JSON nor a version"), "{err}");
         assert!(parse_release_document("", None, "").is_err());
         assert!(parse_release_document(r#"{"whatever":1}"#, None, "").is_err());
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-34: the error quoted the first 40 BYTES of the body, and a body with a
+    /// multi-byte character across byte 40 made `&trimmed[..40]` panic - and a panic aborts the
+    /// app, on every check. Red on the old code: the call panics instead of returning the error.
+    #[test]
+    fn a_body_with_a_multibyte_character_at_the_cut_is_an_error_not_a_panic() {
+        // 39 ASCII bytes, then a three-byte character: byte 40 is inside it.
+        let body = format!("{}\u{20ac}tail", "A".repeat(39));
+        let err = parse_release_document(&body, None, "").unwrap_err();
+        assert!(err.contains("neither JSON nor a version"), "{err}");
+        assert!(
+            err.contains(&"A".repeat(39)),
+            "the answer names how it starts: {err}"
+        );
+        // The same for a body that is only multi-byte characters, and for the replacement
+        // character a lossy decode of invalid bytes leaves.
+        for body in [
+            "\u{20ac}".repeat(30),
+            format!("{}\u{fffd}", "B".repeat(39)),
+            format!("{}\u{1f980}", "x".repeat(38)),
+        ] {
+            let err = parse_release_document(&body, None, "stable").unwrap_err();
+            assert!(err.contains("neither JSON nor a version"), "{err}");
+        }
+        // A body shorter than the cut is quoted whole.
+        let err = parse_release_document("<html>", None, "").unwrap_err();
+        assert!(err.contains("<html>"), "{err}");
     }
 
     fn gh_asset(name: &str, digest: Option<&str>) -> serde_json::Value {
@@ -5482,12 +5637,20 @@ mod tests {
         let dir = scratch_dir("y7-atomic");
         UpdateState::default().try_save(&dir).unwrap();
         UpdateState::default().try_save(&dir).unwrap();
-        let names: Vec<String> = std::fs::read_dir(&dir)
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap()
             .flatten()
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
-        assert_eq!(names, vec!["update-state.json".to_owned()]);
+        names.sort();
+        // The state and the file the writers lock; no temp file is left.
+        assert_eq!(
+            names,
+            vec![
+                "update-state.json".to_owned(),
+                "update-state.json.lock".to_owned()
+            ]
+        );
         drop(std::fs::remove_dir_all(&dir));
     }
 
@@ -5784,8 +5947,58 @@ mod tests {
             (state.highest_seen.as_str(), state.key_generation),
             ("2.0.0", 3)
         );
-        // A verified release below the mark does not lower it.
+        // A verified release below the mark does not lower it - it is refused (see
+        // `a_signed_release_below_the_mark_is_a_rollback_and_is_refused`).
         state.highest_seen = "5.0.0".into();
+        let err = verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect_err("a release below the mark is a rollback");
+        assert!(err.contains("version ROLLBACK"), "{err}");
+        assert_eq!(state.highest_seen, "5.0.0");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33 (a): a release the signing key vouches for that is OLDER than the
+    /// highest one this client verified is refused, whatever the manifest lists. Red on the old
+    /// code, which only raised the mark. The same version again is a re-install, not a rollback.
+    #[test]
+    fn a_signed_release_below_the_mark_is_a_rollback_and_is_refused() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "rollback-below");
+        let mut state = UpdateState {
+            highest_seen: "3.0.0".into(),
+            ..UpdateState::default()
+        };
+        let err = verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect_err("the genuine 2.0.0 is below the 3.0.0 this client verified");
+        assert!(
+            err.contains("version ROLLBACK") && err.contains("2.0.0") && err.contains("3.0.0"),
+            "{err}"
+        );
+        assert_eq!(
+            (
+                state.highest_seen.as_str(),
+                state.key_generation,
+                state.clock_floor_unix
+            ),
+            ("3.0.0", 0, 0),
+            "a refused chain moves no mark"
+        );
+
+        // The version it already verified is no rollback: a retry of an install that failed.
+        state.highest_seen = "2.0.0".into();
         verify_release_signature(
             &f.artifact,
             &f.release,
@@ -5794,9 +6007,311 @@ mod tests {
             &mut state,
             CHAIN_NOW,
         )
-        .expect("verifies again");
-        assert_eq!(state.highest_seen, "5.0.0");
+        .expect("the same version again verifies");
+        assert_eq!(state.highest_seen, "2.0.0");
+
+        // A candidate of a LATER version is above it too.
+        state.highest_seen = "2.0.1-rc1".into();
+        assert!(verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .is_err());
         drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33 (a), the decoy: the manifest lists a "newer" release this client's
+    /// cohort is not offered (so the check on the unsigned labels passes: the highest label is
+    /// above the mark) beside a genuine older one that is open to everyone. The check offers the
+    /// older one; the signature step is what refuses it.
+    #[test]
+    fn a_decoy_newer_label_does_not_let_a_genuine_older_release_through() {
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "decoy");
+        let now = unix_now();
+        let manifest = format!(
+            r#"{{"latest": {{"version": "99.0.0", "download_url": "http://127.0.0.1:9/decoy.bin",
+                "release_date": {now}, "slow": {{"10": {}, "100": {}}}}},
+               "releases": [{{"version": "2.0.0", "download_url": "http://127.0.0.1:9/app.bin",
+                "slow": "off"}}]}}"#,
+            now + 3 * DAY,
+            now + 5 * DAY
+        );
+        let url = serve_bytes(manifest.into_bytes(), "updates.json");
+        let mut state = UpdateState {
+            highest_seen: "3.0.0".into(),
+            rollout_bucket: Some(50),
+            ..UpdateState::default()
+        };
+        let result = check_for_updates_blocking(
+            &url,
+            "1.0.0",
+            "stable",
+            &mut state,
+            UpdateAudience::AutoUpdate,
+        );
+        let UpdateCheckResult::Available(offered) = result else {
+            panic!("the unsigned labels pass the manifest-level check: {result:?}");
+        };
+        assert_eq!(
+            offered.version.as_str(),
+            "2.0.0",
+            "the decoy is not offered to this cohort, the genuine older release is"
+        );
+        let err = verify_release_signature(
+            &f.artifact,
+            &ReleaseInfo {
+                version: offered.version.clone(),
+                ..f.release.clone()
+            },
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect_err("the signed 2.0.0 is below the mark");
+        assert!(err.contains("version ROLLBACK"), "{err}");
+        assert_eq!(state.highest_seen, "3.0.0");
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33 (c): a clock set back does not make an expired signing-key
+    /// statement valid again. The floor is the time of the last chain that verified; the check
+    /// goes by the later of the clock and the floor. Red on the old code (no floor).
+    #[test]
+    fn a_clock_set_back_does_not_revive_an_expired_statement() {
+        // The statement is good for a day after CHAIN_NOW.
+        let f = chain_fixture(CHAIN_NOW + DAY, 3, "clock-floor");
+        let mut state = UpdateState::default();
+        verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut state,
+            CHAIN_NOW + DAY - 10,
+        )
+        .expect("verifies just before it expires");
+        assert_eq!(
+            state.clock_floor_unix,
+            CHAIN_NOW + DAY - 10,
+            "a verified chain raises the floor to its time"
+        );
+
+        // Two days later the statement is expired.
+        let mut later = state.clone();
+        assert!(verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut later,
+            CHAIN_NOW + 2 * DAY,
+        )
+        .unwrap_err()
+        .contains("expired"));
+        assert_eq!(
+            later.clock_floor_unix,
+            CHAIN_NOW + DAY - 10,
+            "a chain that did not verify does not raise the floor"
+        );
+
+        // A clock set back by the attacker: the floor (the time the last chain verified at) is
+        // later than "now"; the statement is still judged at the later time.
+        let mut floored = UpdateState {
+            clock_floor_unix: CHAIN_NOW + 2 * DAY,
+            ..UpdateState::default()
+        };
+        let err = verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &roots_of(&f),
+            &expect(),
+            &mut floored,
+            CHAIN_NOW,
+        )
+        .expect_err("the clock says CHAIN_NOW, the floor says two days later");
+        assert!(err.contains("expired"), "{err}");
+        assert_eq!(floored.clock_floor_unix, CHAIN_NOW + 2 * DAY);
+
+        // The floor is a mark: it is saved, read back and never lowered by a stale writer.
+        let dir = scratch_dir("clock-floor");
+        state.try_save(&dir).unwrap();
+        assert_eq!(
+            UpdateState::read(&dir).unwrap().clock_floor_unix,
+            CHAIN_NOW + DAY - 10
+        );
+        UpdateState::default().try_save(&dir).unwrap();
+        assert_eq!(
+            UpdateState::read(&dir).unwrap().clock_floor_unix,
+            CHAIN_NOW + DAY - 10,
+            "a writer that never saw the floor does not lower it"
+        );
+        drop(std::fs::remove_dir_all(&dir));
+        drop(std::fs::remove_dir_all(&f._dir));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33 (d): a field that is there with another type is a damaged file, not
+    /// a zero that the next save writes back over the mark. Red on the old code, which read
+    /// `"key_generation": "5"` as 0.
+    #[test]
+    fn a_mistyped_field_of_the_state_file_is_a_damaged_file() {
+        let dir = scratch_dir("typed-fields");
+        let file = dir.join("update-state.json");
+        for (bad, what) in [
+            (r#"{"key_generation": "5"}"#, "key_generation"),
+            (r#"{"key_generation": -1}"#, "key_generation"),
+            (r#"{"key_generation": 5.5}"#, "key_generation"),
+            (r#"{"key_generation": null}"#, "key_generation"),
+            (r#"{"highest_seen": 5}"#, "highest_seen"),
+            (r#"{"highest_seen": ["2.0.0"]}"#, "highest_seen"),
+            (r#"{"last_check_unix": "yesterday"}"#, "last_check_unix"),
+            (r#"{"suspended_until_unix": true}"#, "suspended_until_unix"),
+            (r#"{"clock_floor_unix": "0"}"#, "clock_floor_unix"),
+            (r#"{"rollout_bucket": "7"}"#, "rollout_bucket"),
+            (r#"{"rollout_bucket": 100}"#, "rollout_bucket"),
+        ] {
+            std::fs::write(&file, bad).unwrap();
+            let err = UpdateState::read(&dir).expect_err(bad);
+            assert!(
+                err.contains("damaged") && err.contains(what),
+                "{bad}: {err}"
+            );
+            // And the marks in it are not written over.
+            UpdateState {
+                key_generation: 1,
+                ..UpdateState::default()
+            }
+            .save(&dir);
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), bad);
+        }
+
+        // What is absent is a file from before the field; the cohort may be null (none drawn).
+        std::fs::write(
+            &file,
+            r#"{"highest_seen": "1.2.3", "key_generation": 4, "rollout_bucket": null}"#,
+        )
+        .unwrap();
+        let read = UpdateState::read(&dir).unwrap();
+        assert_eq!(read.highest_seen, "1.2.3");
+        assert_eq!(read.key_generation, 4);
+        assert_eq!(read.rollout_bucket, None);
+        assert_eq!(read.clock_floor_unix, 0);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33 (d): a save is read-merge-rename under a lock on the state folder,
+    /// so a mark that another process raises between the read and the rename is not written over.
+    /// While the lock is held elsewhere the save waits; red on the old code (no lock: it returned).
+    #[test]
+    fn a_save_waits_for_the_lock_another_writer_holds() {
+        let dir = scratch_dir("state-lock");
+        std::fs::create_dir_all(&dir).unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join("update-state.json.lock"))
+            .unwrap();
+        held.lock().unwrap();
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let saver = {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                let result = UpdateState {
+                    key_generation: 7,
+                    ..UpdateState::default()
+                }
+                .try_save(&dir);
+                drop(done_tx.send(result));
+            })
+        };
+        assert!(
+            done_rx
+                .recv_timeout(std::time::Duration::from_millis(300))
+                .is_err(),
+            "the save went on while another writer held the lock"
+        );
+        held.unlock().unwrap();
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the save goes on once the lock is let go")
+            .expect("and it succeeds");
+        saver.join().unwrap();
+        assert_eq!(UpdateState::read(&dir).unwrap().key_generation, 7);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-33 (e): the update flow keeps its state in the user's own data folder
+    /// and has none when that is not set - never the shared temporary folder. Red on the old
+    /// code, which fell back to `temp_dir()/<app>` for the marks and the staged update.
+    #[test]
+    fn the_update_state_has_no_shared_temp_folder_to_fall_back_to() {
+        use std::ffi::OsString;
+        let abs = |p: &str| {
+            OsString::from(if cfg!(windows) {
+                format!("C:{p}")
+            } else {
+                p.to_owned()
+            })
+        };
+
+        // Nothing set: no folder at all.
+        assert_eq!(data_home_from(None, None, None), None);
+        let err = private_state_dir_in(None, "azwriter").unwrap_err();
+        assert!(err.contains("not set"), "{err}");
+
+        // Empty or relative values are not a folder (an empty HOME is the working directory).
+        for bad in ["", "relative/path", "."] {
+            assert_eq!(
+                data_home_from(
+                    Some(OsString::from(bad)),
+                    Some(OsString::from(bad)),
+                    Some(OsString::from(bad))
+                ),
+                None,
+                "{bad:?}"
+            );
+        }
+
+        // A set one is the platform's data folder.
+        let home = data_home_from(
+            Some(abs("/home/u")),
+            Some(abs("/xdg")),
+            Some(abs("/appdata")),
+        )
+        .expect("an absolute variable is a folder");
+        if cfg!(target_os = "windows") {
+            assert!(home.ends_with("appdata"));
+        } else if cfg!(target_os = "macos") {
+            assert!(home.ends_with("Library/Application Support"), "{home:?}");
+        } else {
+            assert!(home.ends_with("xdg"), "{home:?}");
+            // XDG_DATA_HOME unset: under HOME.
+            let fallback = data_home_from(Some(abs("/home/u")), None, None).unwrap();
+            assert!(fallback.ends_with(".local/share"), "{fallback:?}");
+            // XDG_DATA_HOME relative: ignored, as the spec says.
+            let ignored =
+                data_home_from(Some(abs("/home/u")), Some(OsString::from("rel")), None).unwrap();
+            assert!(ignored.ends_with(".local/share"), "{ignored:?}");
+        }
+        assert_eq!(
+            private_state_dir_in(Some(home.clone()), "azwriter"),
+            Ok(home.join("azwriter"))
+        );
+
+        // The app name is one folder name.
+        for bad in ["", ".", "..", "a/b", "a\\b", "c:x", "x\0y"] {
+            assert!(
+                private_state_dir_in(Some(home.clone()), bad).is_err(),
+                "{bad:?}"
+            );
+        }
     }
 
     /// AZ-Y11 through the mark: a client that verified `2.0.0-rc1` takes the final `2.0.0` as a
@@ -6119,7 +6634,9 @@ mod tests {
         // The check's bookkeeping is the program's own, the machine's cohort with it.
         let state = UpdateState::load(&dir.join("out"));
         assert_eq!(state.rollout_bucket, Some(90));
-        assert_eq!(state.highest_seen, "2.0.0");
+        // A check reads an unsigned manifest: it moves no mark (REVIEW Y3). The mark moves in
+        // `verify_release_signature` only; this assertion used to expect "2.0.0" and was red.
+        assert_eq!(state.highest_seen, "");
         drop(std::fs::remove_dir_all(&dir));
     }
 

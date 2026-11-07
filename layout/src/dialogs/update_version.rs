@@ -34,8 +34,8 @@ use crate::{
         WriteBackCallbackType,
     },
     updater::{
-        apply_update, check_for_updates_blocking, default_state_dir, download_and_verify,
-        effective_mode, InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdatePolicy,
+        apply_update, check_for_updates_blocking, download_and_verify, effective_mode,
+        private_state_dir, InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdatePolicy,
         UpdateState,
     },
     widgets::button::{Button, ButtonOnClickCallbackType},
@@ -129,40 +129,44 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
         // An app that can install an update but has no way to prove one does not offer it:
         // the dialog says why instead of showing an Install button that cannot work.
         (Some(_), UpdateMode::SelfUpdate, Err(why)) => UpdatePhase::Failed { error: why.clone() },
-        (Some(url), _, _) => {
-            let dir = default_state_dir(&env.app_name);
-            let audience = if effective == UpdateMode::SelfUpdate {
-                crate::updater::UpdateAudience::AutoUpdate
-            } else {
-                crate::updater::UpdateAudience::NotifyOnly
-            };
-            let mut state = UpdateState::load(&dir);
-            let result = check_for_updates_blocking(
-                url,
-                &env.current_version,
-                &env.update_channel,
-                &mut state,
-                audience,
-            );
-            state.save(&dir);
-            match result {
-                UpdateCheckResult::UpToDate => UpdatePhase::UpToDate {
-                    current: env.current_version.clone(),
-                },
-                UpdateCheckResult::Error(e) => UpdatePhase::Failed {
-                    error: e.as_str().to_owned(),
-                },
-                UpdateCheckResult::Available(release) => {
-                    let changelog = fetch_changelog(&release, env.changelog_md.as_deref());
-                    UpdatePhase::Available {
-                        release,
-                        changelog,
-                        effective,
-                        install_hint: install.package_manager_hint().to_owned(),
+        // The marks that refuse a rollback live in the user's own folder, not in the shared
+        // temporary one: with no such folder there is no check.
+        (Some(url), _, _) => match private_state_dir(&env.app_name) {
+            Err(error) => UpdatePhase::Failed { error },
+            Ok(dir) => {
+                let audience = if effective == UpdateMode::SelfUpdate {
+                    crate::updater::UpdateAudience::AutoUpdate
+                } else {
+                    crate::updater::UpdateAudience::NotifyOnly
+                };
+                let mut state = UpdateState::load(&dir);
+                let result = check_for_updates_blocking(
+                    url,
+                    &env.current_version,
+                    &env.update_channel,
+                    &mut state,
+                    audience,
+                );
+                state.save(&dir);
+                match result {
+                    UpdateCheckResult::UpToDate => UpdatePhase::UpToDate {
+                        current: env.current_version.clone(),
+                    },
+                    UpdateCheckResult::Error(e) => UpdatePhase::Failed {
+                        error: e.as_str().to_owned(),
+                    },
+                    UpdateCheckResult::Available(release) => {
+                        let changelog = fetch_changelog(&release, env.changelog_md.as_deref());
+                        UpdatePhase::Available {
+                            release,
+                            changelog,
+                            effective,
+                            install_hint: install.package_manager_hint().to_owned(),
+                        }
                     }
                 }
             }
-        }
+        },
     };
 
     let _ = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
@@ -268,14 +272,15 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
     drop(task);
 
     let version = release.version.as_str().to_owned();
-    let state_dir = default_state_dir(&app_name);
-    let staging_dir = state_dir.join("staging");
     // Even a previously staged artifact goes through download_and_verify:
     // its cached exit re-checks the digest AND the signature chain on THIS
     // call, so a file tampered on disk between staging and consent can
     // never reach apply_update - which takes the proof, not a path, and
-    // hashes the copy it installs.
-    let verified = UpdateState::read(&state_dir).and_then(|mut state| {
+    // hashes the copy it installs. The marks and the staging are in the user's own folder:
+    // with none (the shared temporary folder is no place for them) nothing is installed.
+    let verified = private_state_dir(&app_name).and_then(|state_dir| {
+        let staging_dir = state_dir.join("staging");
+        let mut state = UpdateState::read(&state_dir)?;
         let verified = download_and_verify(
             &release,
             &crate::updater::Expect::here(&app_name),
@@ -308,13 +313,15 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
 extern "C" fn on_remind_later(mut _state: RefAny, mut info: CallbackInfo) -> Update {
     // "Remind me later" = a 7-day suspension in the updater's state file;
     // checks report UpToDate until it passes.
-    let dir = default_state_dir(&crate::appenv::app_env().app_name);
-    let mut state = UpdateState::load(&dir);
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    state.suspended_until_unix = now + 7 * 86_400;
-    state.save(&dir);
+    // With no folder of the user's own the suspension is not kept (the next check asks again).
+    if let Ok(dir) = private_state_dir(&crate::appenv::app_env().app_name) {
+        let mut state = UpdateState::load(&dir);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        state.suspended_until_unix = now + 7 * 86_400;
+        state.save(&dir);
+    }
     info.close_window();
     Update::DoNothing
 }
