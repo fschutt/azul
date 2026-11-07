@@ -14,8 +14,10 @@
 //!
 //! Windows has no descriptor-relative calls in std: there each name of the path is looked at right
 //! before the step ([`crate::win`]: a link, a junction or a mount point is a [`Kind::Link`]; a file
-//! a filter serves - a compressed one, a hydrated cloud file - is itself). That leaves a short
-//! window between the check and the step.
+//! a filter serves - a compressed one, a hydrated cloud file - is itself), and what a step opened
+//! is asked afterwards where it really is - under the root's resolved path, whatever swapped in
+//! between. A step that opens nothing (rename, unlink, rmdir) asks its folder right before: the
+//! window that is left is one system call wide.
 
 #[cfg(unix)]
 use std::ffi::OsStr;
@@ -106,6 +108,27 @@ pub fn is_disk_full(e: &io::Error) -> bool {
     {
         let _ = e;
         false
+    }
+}
+
+/// Windows: `file`, just opened below the root, still lies under the root's resolved path. Paths are
+/// walked name by name and each name is looked at (`symlink_metadata`) right before the step - but a
+/// folder swapped for a junction after its look makes the system open the next name in another tree,
+/// for the whole length of a scan (AZ-W14). Where the opened file really is does not depend on how it
+/// was reached: it is asked once the file is open.
+///
+/// `anchor` `None` is `Posture::Degrade`: the root's resolved path could not be had when it was
+/// opened, and the walk is checked before each step only, as it was.
+#[cfg(windows)]
+fn still_beneath(anchor: Option<&str>, file: &File, rel: &str) -> Result<(), BeneathError> {
+    let Some(anchor) = anchor else {
+        return Ok(());
+    };
+    let at = crate::win::final_path(file)?;
+    if crate::win::is_under(anchor, &at) {
+        Ok(())
+    } else {
+        Err(BeneathError::ThroughLink(rel.to_string()))
     }
 }
 
@@ -403,6 +426,11 @@ pub struct Root {
     /// Linux: the mount points below the root (bind mounts share the root's device number, so
     /// only the mount table tells them apart).
     mounts: Vec<PathBuf>,
+    /// Windows: the root's own path as the system resolves it (links and junctions followed), which
+    /// every file and folder opened below the root must still lie under (AZ-W14). `None`: the
+    /// system did not say; the walk is then checked before each step only.
+    #[cfg(windows)]
+    anchor: Option<std::sync::Arc<str>>,
 }
 
 impl fmt::Debug for Root {
@@ -419,6 +447,9 @@ pub struct Dir {
     /// The device it is on (0 where the system gives none): a folder below it on another device is
     /// a disk mounted there, or - on Linux - a subvolume of the same file system.
     dev: u64,
+    /// Windows: the root's resolved path ([`Root`]).
+    #[cfg(windows)]
+    anchor: Option<std::sync::Arc<str>>,
     #[cfg(unix)]
     fd: std::os::fd::OwnedFd,
 }
@@ -458,6 +489,8 @@ impl Root {
                 path: path.to_path_buf(),
                 dev: 0,
                 mounts: Vec::new(),
+                #[cfg(windows)]
+                anchor: crate::win::resolved(path),
             })
         }
     }
@@ -488,6 +521,8 @@ impl Root {
                 rel: String::new(),
                 path: self.path.clone(),
                 dev: self.dev,
+                #[cfg(windows)]
+                anchor: self.anchor.clone(),
             })
         }
     }
@@ -562,6 +597,20 @@ impl Dir {
         &self.path
     }
 
+    /// Windows: the folder is still under the root's resolved path, asked right before a step that
+    /// names a file by path and opens nothing (rename, unlink, rmdir) - a junction swapped in for a
+    /// folder above it since it was walked would send the step to another tree. The window between
+    /// this look and the step is that of one system call; only a handle-relative step closes it
+    /// (AZ-W14: `NtCreateFile` relative to a directory handle, which std does not give).
+    #[cfg(windows)]
+    fn still_here(&self) -> Result<(), BeneathError> {
+        still_beneath(
+            self.anchor.as_deref(),
+            &crate::win::open_dir(&self.path)?,
+            &self.rel,
+        )
+    }
+
     fn rel_of(&self, name: &str) -> String {
         if self.rel.is_empty() {
             name.to_string()
@@ -628,10 +677,16 @@ impl Dir {
             if st.kind != Kind::Dir {
                 return Err(BeneathError::ThroughLink(rel));
             }
+            // The folder opened, and where it really is: a junction swapped in for a folder above it
+            // since the walk looked sends the open to another tree.
+            #[cfg(windows)]
+            still_beneath(self.anchor.as_deref(), &crate::win::open_dir(&path)?, &rel)?;
             Ok(Dir {
                 rel,
                 path,
                 dev: self.dev,
+                #[cfg(windows)]
+                anchor: self.anchor.clone(),
             })
         }
     }
@@ -735,6 +790,10 @@ impl Dir {
                 return Err(BeneathError::ThroughLink(rel));
             }
             let file = File::open(&path)?;
+            // Opened through a path, so a folder swapped for a junction since the walk would have
+            // sent the open to another tree: the file says where it is.
+            #[cfg(windows)]
+            still_beneath(self.anchor.as_deref(), &file, &rel)?;
             let st = fstat_file(&file)?;
             if st.kind != Kind::File {
                 return Err(BeneathError::ThroughLink(rel));
@@ -763,11 +822,23 @@ impl Dir {
             let _ = mode;
             // Read as well as write: a handle that cannot read attributes cannot be asked for its
             // identity and times ([`stat_of`]).
-            Ok(std::fs::OpenOptions::new()
+            let path = self.path.join(name);
+            let file = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create_new(true)
-                .open(self.path.join(name))?)
+                .open(&path)?;
+            #[cfg(windows)]
+            if let Err(e) = still_beneath(self.anchor.as_deref(), &file, &self.rel_of(name)) {
+                // The folder was swapped for a junction since it was walked, and the file was made
+                // in another tree. It is the one this call just made: it goes again.
+                drop(file);
+                // collapse-ok: a file we made a moment ago that cannot be removed again is the
+                // error already being returned; the refusal is what matters.
+                let _ = std::fs::remove_file(&path);
+                return Err(e);
+            }
+            Ok(file)
         }
     }
 
@@ -792,6 +863,8 @@ impl Dir {
         }
         #[cfg(windows)]
         {
+            self.still_here()?;
+            target.still_here()?;
             Ok(crate::win::rename(
                 &self.path.join(from),
                 &target.path.join(to),
@@ -830,6 +903,8 @@ impl Dir {
         {
             // `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`: taken in the one step, or
             // `AlreadyExists`.
+            self.still_here()?;
+            target.still_here()?;
             Ok(crate::win::rename(
                 &self.path.join(from),
                 &target.path.join(to),
@@ -875,6 +950,8 @@ impl Dir {
         }
         #[cfg(not(unix))]
         {
+            #[cfg(windows)]
+            self.still_here()?;
             Ok(std::fs::remove_file(self.path.join(name))?)
         }
     }
@@ -918,6 +995,8 @@ impl Dir {
         }
         #[cfg(not(unix))]
         {
+            #[cfg(windows)]
+            self.still_here()?;
             Ok(std::fs::remove_dir(self.path.join(name))?)
         }
     }

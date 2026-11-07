@@ -182,6 +182,20 @@ pub(crate) fn fat_cap(name: &str) -> Option<u64> {
     (name.eq_ignore_ascii_case("FAT32") || name.eq_ignore_ascii_case("FAT")).then_some(FAT_FILE_MAX)
 }
 
+/// Whether `path`, a resolved path as `GetFinalPathNameByHandle` writes it (`\\?\C:\...`, links
+/// and junctions resolved, the names as stored), lies at or below `root`, another one: at a
+/// component boundary (`C:\sync2` is not below `C:\sync`), without regard to case (Windows ignores
+/// it).
+#[must_use]
+pub(crate) fn is_under(root: &str, path: &str) -> bool {
+    let root = root.trim_end_matches('\\').to_lowercase();
+    let path = path.to_lowercase();
+    path == root
+        || path
+            .strip_prefix(root.as_str())
+            .is_some_and(|rest| rest.starts_with('\\'))
+}
+
 /// `ERROR_SHARING_VIOLATION`: another program has the file open and does not share it.
 pub(crate) const ERROR_SHARING_VIOLATION: i32 = 32;
 /// `ERROR_LOCK_VIOLATION`: another program has locked the part of the file asked for.
@@ -264,7 +278,10 @@ pub(crate) fn means_no_acls(code: i32) -> bool {
 // ---- The calls: Windows only ----
 
 #[cfg(windows)]
-pub(crate) use sys::{file_system_name, free_space, fstat, lstat, make_private, rename, stat};
+pub(crate) use sys::{
+    file_system_name, final_path, free_space, fstat, lstat, make_private, open_dir, rename,
+    resolved, stat,
+};
 
 #[cfg(windows)]
 mod sys {
@@ -279,6 +296,7 @@ mod sys {
             io::AsRawHandle,
         },
         path::Path,
+        sync::Arc,
         time::Duration,
     };
 
@@ -295,11 +313,12 @@ mod sys {
         },
         Storage::FileSystem::{
             FileAttributeTagInfo, FileBasicInfo, FileIdInfo, GetDiskFreeSpaceExW,
-            GetFileInformationByHandle, GetFileInformationByHandleEx, GetVolumeInformationW,
-            GetVolumePathNameW, MoveFileExW, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_TAG_INFO,
-            FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-            FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-            FILE_SHARE_WRITE, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+            GetFileInformationByHandle, GetFileInformationByHandleEx, GetFinalPathNameByHandleW,
+            GetVolumeInformationW, GetVolumePathNameW, MoveFileExW, BY_HANDLE_FILE_INFORMATION,
+            FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS,
+            FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+            VOLUME_NAME_DOS,
         },
         System::Threading::{GetCurrentProcess, OpenProcessToken},
     };
@@ -340,6 +359,50 @@ mod sys {
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
             .custom_flags(flags)
             .open(path)
+    }
+
+    /// The folder or file at `path` opened for its attributes only, links followed: a handle to ask
+    /// [`final_path`] about.
+    pub(crate) fn open_dir(path: &Path) -> io::Result<File> {
+        open_attributes(path, true)
+    }
+
+    /// The path the system resolves `file` to, as `\\?\C:\...` (or `\\?\UNC\server\share\...`): links and
+    /// junctions resolved, the names as stored. Where a file really is, whatever path it was opened
+    /// by.
+    pub(crate) fn final_path(file: &File) -> io::Result<String> {
+        /// Longer than any path the system writes (32 767 units).
+        const MOST: usize = 32 * 1024;
+        let handle = file.as_raw_handle();
+        let mut buffer = vec![0u16; 512];
+        loop {
+            // SAFETY: `handle` is open for the call and the buffer is as long as said.
+            let len = unsafe {
+                GetFinalPathNameByHandleW(
+                    handle,
+                    buffer.as_mut_ptr(),
+                    buffer.len() as u32,
+                    VOLUME_NAME_DOS,
+                )
+            } as usize;
+            if len == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if len < buffer.len() {
+                return Ok(String::from_utf16_lossy(&buffer[..len]));
+            }
+            // Too small: `len` is the size needed, the terminating NUL included.
+            if len > MOST {
+                return Err(io::Error::other("a path longer than the system writes"));
+            }
+            buffer.resize(len, 0);
+        }
+    }
+
+    /// The path the folder `path` resolves to, once; `None` when the system does not say.
+    pub(crate) fn resolved(path: &Path) -> Option<Arc<str>> {
+        let folder = open_attributes(path, true).ok()?;
+        final_path(&folder).ok().map(Arc::from)
     }
 
     /// One `GetFileInformationByHandleEx` class into `out`.

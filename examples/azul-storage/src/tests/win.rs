@@ -8,7 +8,7 @@ use crate::{
     beneath::{self, Fingerprint, Kind, Tri},
     win::{
         fat_cap, file_index, filetime_ns, is_held_open, is_held_open_code, is_sid_string,
-        is_transparent_tag, kind_of, means_no_acls, private_sddl, Info, ATTR_DIRECTORY,
+        is_transparent_tag, is_under, kind_of, means_no_acls, private_sddl, Info, ATTR_DIRECTORY,
         ATTR_OFFLINE, ATTR_READONLY, ATTR_RECALL_ON_DATA_ACCESS, ATTR_REPARSE_POINT, FAT_FILE_MAX,
         HELD_BACKOFF_MS,
     },
@@ -227,6 +227,40 @@ fn az_w11_a_busy_file_is_told_from_a_broken_one_and_the_wait_for_it_is_bounded()
 }
 
 const USER: &str = "S-1-5-21-1004336348-1177238915-682003330-1001";
+
+/// AZ-W14: the check that a file opened below the root still lies under it compares resolved paths
+/// at a component boundary, without regard to case.
+#[test]
+fn az_w14_a_resolved_path_is_under_a_root_only_at_a_component_boundary_and_without_regard_to_case()
+{
+    let root = r"\\?\C:\Users\me\sync";
+    for under in [
+        r"\\?\C:\Users\me\sync",
+        r"\\?\C:\Users\me\sync\a\b.txt",
+        r"\\?\c:\users\ME\SYNC\a",
+        r"\\?\C:\Users\me\sync\",
+    ] {
+        assert!(is_under(root, under), "{under}");
+    }
+    for elsewhere in [
+        r"\\?\C:\Users\me\sync2\a",
+        r"\\?\C:\Users\me",
+        r"\\?\D:\Users\me\sync\a",
+        r"\\?\C:\Users\me\syn",
+        r"\\?\C:\other\Users\me\sync",
+        r"\\?\UNC\evil\share\sync\a",
+        "",
+    ] {
+        assert!(!is_under(root, elsewhere), "{elsewhere:?}");
+    }
+    // A root that is a whole drive, and one that was written with its closing backslash.
+    assert!(is_under(r"\\?\C:\", r"\\?\C:\any\thing"));
+    assert!(!is_under(r"\\?\C:\", r"\\?\D:\any"));
+    assert!(is_under(
+        r"\\?\C:\Users\me\sync\",
+        r"\\?\C:\Users\me\sync\a"
+    ));
+}
 
 #[test]
 fn az_w12_what_is_private_is_closed_to_everyone_but_this_user_the_system_and_the_administrators() {
@@ -458,6 +492,67 @@ mod on_windows {
             beneath::file_size_limit(tmp.path()).is_some(),
             crate::win::fat_cap(&name).is_some()
         );
+    }
+
+    /// A junction (no privilege needed) from `link` to `target`.
+    fn junction(link: &Path, target: &Path) {
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+    }
+
+    /// AZ-W14: every step looked at its names with `symlink_metadata` and then went by path, and a
+    /// `Dir` that lives for a whole scan re-resolved its path at every call: a folder swapped for a
+    /// junction after the walk sent the next read, create, rename or delete into another tree. The
+    /// file says where it really is once it is open; a step that opens nothing asks its folder first.
+    #[test]
+    fn windows_az_w14_a_folder_swapped_for_a_junction_after_the_walk_is_never_used_through() {
+        let tmp = TempDir::new("win-swap");
+        let root = tmp.path().join("root");
+        let outside = tmp.path().join("outside");
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("sub").join("a.txt"), b"mine").unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("a.txt"), b"theirs").unwrap();
+        fs::write(outside.join("victim.txt"), b"keep").unwrap();
+
+        let tree = Root::open(&root).unwrap();
+        let sub = tree.top().unwrap().child("sub", false).unwrap();
+        // Walked as a folder; then the folder moves away and a junction to the other tree takes
+        // its name.
+        fs::rename(root.join("sub"), root.join("sub.moved")).unwrap();
+        junction(&root.join("sub"), &outside);
+
+        let through = |result: Result<(), beneath::BeneathError>| {
+            matches!(result, Err(beneath::BeneathError::ThroughLink(_)))
+        };
+        // Read: the other tree's `a.txt` exists under the same name - the old code opened it.
+        assert!(through(sub.open_read("a.txt").map(drop)));
+        // Create: refused, and nothing is left in the other tree.
+        assert!(through(sub.create_new("planted.txt", 0o644).map(drop)));
+        assert!(!outside.join("planted.txt").exists());
+        // Steps that open nothing.
+        assert!(through(sub.unlink("victim.txt")));
+        assert!(through(sub.rename("victim.txt", &sub, "renamed.txt")));
+        assert!(through(sub.rename_noreplace(
+            "victim.txt",
+            &sub,
+            "renamed.txt"
+        )));
+        assert_eq!(fs::read(outside.join("victim.txt")).unwrap(), b"keep");
+        assert!(!outside.join("renamed.txt").exists());
+        // The control: a folder that was not swapped works as before.
+        fs::create_dir_all(root.join("plain")).unwrap();
+        let plain = tree.top().unwrap().child("plain", false).unwrap();
+        fs::write(root.join("plain").join("x.txt"), b"x").unwrap();
+        assert!(plain.open_read("x.txt").is_ok());
+        plain.create_new("y.txt", 0o644).unwrap();
+        plain.rename("x.txt", &plain, "z.txt").unwrap();
+        plain.unlink("z.txt").unwrap();
     }
 
     /// A virus scanner or an indexer has the new file open for a moment, without sharing delete:
