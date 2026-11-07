@@ -550,6 +550,19 @@ impl CompositorState {
 
         while i < display_list.items.len() {
             let depth_before = layer_stack.len();
+            // A turned frame painted in place is open (`FramePlacement::Turned`).
+            // The rasteriser paints what it holds into a surface of its own and
+            // turns that; a layer opened inside it is composited into ITS
+            // parent layer, around the frame and without the turn - so the
+            // child of a turned box came out axis-aligned and clipped by the
+            // box's unturned clip when the box itself was painted over later
+            // and the child was not (LANE-AZ-1: seed 25, 261 px). A group
+            // inside such a frame is painted in place with it, where the
+            // rasteriser turns it exactly: a scroll frame, an opacity group,
+            // a reference frame. A blur or a backdrop filter has no in-place
+            // painting (the rasteriser skips them) and keeps its layer, which
+            // is still composited without the turn - the one case left.
+            let inside_turned_frame = ref_frame_placed.contains(&FramePlacement::Turned);
             match &display_list.items[i] {
                 DisplayListItem::PushScrollFrame {
                     clip_bounds,
@@ -591,6 +604,7 @@ impl CompositorState {
                     let created = !covers_root
                         && !split
                         && !rounded_clips.contains(&true)
+                        && !inside_turned_frame
                         && pw > 0
                         && ph > 0
                         && end > i + 1
@@ -659,6 +673,7 @@ impl CompositorState {
                     let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
                     let promote = effective < 1.0
                         && !rounded_clips.contains(&true)
+                        && !inside_turned_frame
                         && pw > 0
                         && ph > 0
                         && end > i + 1
@@ -766,6 +781,7 @@ impl CompositorState {
                     let promote = !is_identity
                         && translation.is_none()
                         && !rounded_clips.contains(&true)
+                        && !inside_turned_frame
                         && end > i + 1
                         && !painted_over(
                             layer_stack.as_slice(),
@@ -784,7 +800,8 @@ impl CompositorState {
                                 .push((InPlaceShift::Translation(tx, ty), layer_stack.len()));
                             FramePlacement::Moved
                         }
-                        None => FramePlacement::InPlace,
+                        None if is_identity => FramePlacement::InPlace,
+                        None => FramePlacement::Turned,
                     });
                     if promote {
                         let (pw, ph) =
@@ -835,7 +852,7 @@ impl CompositorState {
                         Some(FramePlacement::Moved) => {
                             in_place_frames.pop();
                         }
-                        Some(FramePlacement::InPlace) | None => {}
+                        Some(FramePlacement::InPlace | FramePlacement::Turned) | None => {}
                     }
                 }
                 // `backdrop-filter` (superplan g4): allocate a layer mirroring
@@ -1649,9 +1666,16 @@ enum FramePlacement {
     /// Painted in place, moved by its translation
     /// ([`InPlaceShift::Translation`]).
     Moved,
-    /// Painted in place: the identity, or a matrix the rasteriser turns in
-    /// a group of its own there.
+    /// Painted in place: the identity.
     InPlace,
+    /// Painted in place although its matrix turns, scales or skews (the
+    /// list paints something over it afterwards, or a rounded clip is open):
+    /// the rasteriser paints its content into a surface of its own and
+    /// composites that through the matrix. A layer opened inside would be
+    /// composited into ITS parent layer, around the frame and without the
+    /// matrix - so none is opened inside (see `inside_turned_frame` in
+    /// `allocate_layers_from_display_list`).
+    Turned,
 }
 
 /// A frame open at some point of the layer allocation walk, as
@@ -10558,5 +10582,300 @@ mod autotest_generated {
             [255, 255, 255, 255],
             "an item claimed by a child layer must not be drawn twice"
         );
+    }
+}
+
+// ============================================================================
+// A group inside a turned frame that is painted in place is turned with it
+// (LANE-AZ-1)
+// ============================================================================
+//
+// `an_incremental_cpu_frame_matches_a_full_redraw` (layout/tests), seed 25
+// frame 4: a box turned 12 degrees with `overflow: hidden` and a child that
+// sticks out of it. The list paints a later box over the turned box's extent,
+// so the turned frame is painted in place (the rasteriser turns it in a surface
+// of its own); the child's scroll frame is painted over by nothing, so the walk
+// made a LAYER of it - a child of the root layer, composited around the frame
+// and without its turn: the child came out axis-aligned and clipped by the box's
+// unturned clip, 261 px away from what the incremental raster paints (CSS
+// turns the child with its box). The frame in these lists is turned about the
+// frame's origin (a matrix without a translation), the later box overlaps the
+// frame's turned extent but not the group's, and the pixel `PROBE` is inside the
+// frame's background and inside the group's UNTURNED place.
+#[cfg(test)]
+mod lane_az_1_a_group_inside_a_turned_frame {
+    use std::collections::HashMap;
+
+    use azul_core::{
+        resources::{RendererResources, TransformKey},
+        transform::ComputedTransform3D,
+    };
+    use azul_css::props::basic::color::ColorU;
+
+    use super::*;
+    use crate::{
+        cpurender::{CpuRenderState, ScrollOffsetMap},
+        solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect},
+    };
+
+    const W: u32 = 200;
+    const H: u32 = 140;
+    /// Inside the turned frame's blue background (its top edge is at y = 44.9
+    /// here) and inside the green group's unturned place, (100, 40)-(150, 80);
+    /// the turned green group's top edge is at y = 55.1 over it.
+    const PROBE: (u32, u32) = (110, 50);
+
+    fn wlr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h)).into()
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32, [r, g, b]: [u8; 3]) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: wlr(x, y, w, h),
+            color: ColorU { r, g, b, a: 255 },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    const WHITE: [u8; 3] = [255, 255, 255];
+    const BLUE: [u8; 3] = [0, 0, 255];
+    const GREEN: [u8; 3] = [0, 200, 0];
+    const MAGENTA: [u8; 3] = [255, 0, 255];
+
+    /// A frame at `bounds` turned by `degrees` about its origin (the matrix has
+    /// no translation).
+    fn turned(key: usize, degrees: f32, bounds: WindowLogicalRect) -> DisplayListItem {
+        let (s, c) = degrees.to_radians().sin_cos();
+        DisplayListItem::PushReferenceFrame {
+            transform_key: TransformKey { id: key },
+            initial_transform: ComputedTransform3D {
+                m: [
+                    [c, s, 0.0, 0.0],
+                    [-s, c, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+            },
+            bounds,
+        }
+    }
+
+    /// A frame at `bounds` scaled by `by` about its origin.
+    fn scaled(key: usize, by: f32, bounds: WindowLogicalRect) -> DisplayListItem {
+        DisplayListItem::PushReferenceFrame {
+            transform_key: TransformKey { id: key },
+            initial_transform: ComputedTransform3D {
+                m: [
+                    [by, 0.0, 0.0, 0.0],
+                    [0.0, by, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+            },
+            bounds,
+        }
+    }
+
+    fn list(items: Vec<DisplayListItem>) -> DisplayList {
+        DisplayList {
+            items,
+            ..Default::default()
+        }
+    }
+
+    /// The page: white, a blue box (40, 30)-(160, 90) turned 12 degrees about its
+    /// origin, `group` inside it over (100, 40)-(150, 80), and - when
+    /// `painted_over` - a magenta box (10, 30)-(45, 90) AFTER the frame. The
+    /// magenta box overlaps the frame's turned extent (x 27.5 to 157.4) and not
+    /// the group's (x from 88.3), so the list paints over the frame and over
+    /// nothing of the group.
+    fn page(group: Vec<DisplayListItem>, painted_over: bool) -> DisplayList {
+        let mut items = vec![
+            rect(0.0, 0.0, W as f32, H as f32, WHITE),
+            turned(1, 12.0, wlr(40.0, 30.0, 120.0, 60.0)),
+            rect(40.0, 30.0, 120.0, 60.0, BLUE),
+        ];
+        items.extend(group);
+        items.push(DisplayListItem::PopReferenceFrame);
+        if painted_over {
+            items.push(rect(10.0, 30.0, 35.0, 60.0, MAGENTA));
+        }
+        list(items)
+    }
+
+    fn scroll_group() -> Vec<DisplayListItem> {
+        vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: wlr(100.0, 40.0, 50.0, 40.0),
+                content_size: LogicalSize::new(50.0, 400.0),
+                scroll_id: 7,
+            },
+            rect(100.0, 40.0, 50.0, 40.0, GREEN),
+            DisplayListItem::PopScrollFrame,
+        ]
+    }
+
+    fn opacity_group() -> Vec<DisplayListItem> {
+        vec![
+            DisplayListItem::PushOpacity {
+                bounds: wlr(100.0, 40.0, 50.0, 40.0),
+                opacity: 0.5,
+                opacity_key: None,
+            },
+            rect(100.0, 40.0, 50.0, 40.0, GREEN),
+            DisplayListItem::PopOpacity,
+        ]
+    }
+
+    /// A frame of its own inside the turned one, scaled to half about its origin.
+    fn frame_group() -> Vec<DisplayListItem> {
+        vec![
+            scaled(2, 0.5, wlr(100.0, 40.0, 50.0, 40.0)),
+            rect(100.0, 40.0, 50.0, 40.0, GREEN),
+            DisplayListItem::PopReferenceFrame,
+        ]
+    }
+
+    fn font_manager() -> FontManager<FontRef> {
+        FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new")
+    }
+
+    /// The frame painted in full, through the layered compositor, with the
+    /// compositor that painted it.
+    fn composited(list: &DisplayList) -> (CompositorState, AzulPixmap) {
+        let mut c = CompositorState::new(W, H);
+        c.allocate_layers_from_display_list(list, 1.0, &HashMap::new(), &HashMap::new());
+        let rr = RendererResources::default();
+        let mut glyphs = GlyphCache::new();
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        c.render_layers(list, 1.0, &rr, &font_manager(), &mut glyphs, &state)
+            .expect("the layers render");
+        let mut out = AzulPixmap::new(W, H).expect("a pixmap");
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        (c, out)
+    }
+
+    /// The same list painted the way the incremental raster paints it: the item
+    /// walk, the whole window as one damage rect.
+    fn repainted(list: &DisplayList) -> AzulPixmap {
+        let rr = RendererResources::default();
+        let mut glyphs = GlyphCache::new();
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut out = AzulPixmap::new(W, H).expect("a pixmap");
+        out.fill(128, 128, 128, 255);
+        let whole = LogicalRect::new(
+            LogicalPosition::zero(),
+            LogicalSize::new(W as f32, H as f32),
+        );
+        render_display_list_damaged(
+            list,
+            &mut out,
+            1.0,
+            &rr,
+            &font_manager(),
+            &mut glyphs,
+            &state,
+            &[whole],
+        )
+        .expect("the damage repaints");
+        out
+    }
+
+    fn pixel(p: &AzulPixmap, (x, y): (u32, u32)) -> [u8; 4] {
+        let i = ((y * p.width() + x) * 4) as usize;
+        let d = p.data();
+        [d[i], d[i + 1], d[i + 2], d[i + 3]]
+    }
+
+    fn is_blue([r, g, b, _]: [u8; 4]) -> bool {
+        r < 60 && g < 60 && b > 200
+    }
+
+    /// Pixels where the two frames differ by more than a rounding.
+    fn differing(a: &AzulPixmap, b: &AzulPixmap) -> usize {
+        a.data()
+            .chunks_exact(4)
+            .zip(b.data().chunks_exact(4))
+            .filter(|(p, q)| p.iter().zip(q.iter()).any(|(x, y)| x.abs_diff(*y) > 48))
+            .count()
+    }
+
+    /// What every test of a group inside the turned frame asks: no layer of its
+    /// own (it is painted in place with the frame), the pixel over the group's
+    /// unturned place is the frame's background, and the compositor paints the
+    /// frame as the incremental raster does.
+    fn assert_turned_with_its_frame(what: &str, list: &DisplayList) {
+        let (compositor, frame) = composited(list);
+        assert_eq!(
+            compositor.layers.len(),
+            1,
+            "{what}: the turned frame is painted in place (the list paints over it), so the \
+             group inside it is painted in place with it; a layer of its own is composited \
+             around the frame, without the turn"
+        );
+        let at_probe = pixel(&frame, PROBE);
+        assert!(
+            is_blue(at_probe),
+            "{what}: {PROBE:?} is the frame's background; the group's UNTURNED place shows \
+             here when the group is composited without the frame's turn: {at_probe:?}"
+        );
+        let n = differing(&frame, &repainted(list));
+        assert!(
+            n <= 40,
+            "{what}: the compositor and the incremental raster disagree on {n} pixels"
+        );
+    }
+
+    /// The scroll frame of `overflow: hidden` (LANE-AZ-1 itself): old, it was a
+    /// layer of the root, so the layer count is 2 and the probe is green.
+    #[test]
+    fn lane_az_1_a_scroll_frame_in_a_turned_frame_painted_over_later_is_turned_with_it() {
+        assert_turned_with_its_frame("scroll frame", &page(scroll_group(), true));
+    }
+
+    /// The same for an opacity group: old, a layer of the root, composited at
+    /// half and around the frame's turn.
+    #[test]
+    fn lane_az_1_an_opacity_group_in_a_turned_frame_painted_over_later_is_turned_with_it() {
+        assert_turned_with_its_frame("opacity group", &page(opacity_group(), true));
+    }
+
+    /// The same for a frame of its own inside the turned one: old, a layer of the
+    /// root composited through ITS matrix alone (the scale, not the turn).
+    #[test]
+    fn lane_az_1_a_frame_in_a_turned_frame_painted_over_later_is_turned_with_it() {
+        assert_turned_with_its_frame("nested reference frame", &page(frame_group(), true));
+    }
+
+    /// Guard: when nothing is painted over the turned frame it is a layer, and a
+    /// group inside it is a layer of that layer - composited through the frame's
+    /// turn, as before. Only a frame painted in place keeps its groups in place.
+    #[test]
+    fn lane_az_1_the_groups_of_a_promoted_turned_frame_keep_their_layers() {
+        for (what, group) in [
+            ("scroll frame", scroll_group()),
+            ("opacity group", opacity_group()),
+        ] {
+            let list = page(group, false);
+            let (compositor, frame) = composited(&list);
+            assert_eq!(
+                compositor.layers.len(),
+                3,
+                "{what}: the turned frame is a layer (nothing is painted over it) and the \
+                 group inside it a layer of that layer"
+            );
+            let at_probe = pixel(&frame, PROBE);
+            assert!(
+                is_blue(at_probe),
+                "{what}: the group inside the promoted frame is turned with it: {at_probe:?}"
+            );
+            let n = differing(&frame, &repainted(&list));
+            assert!(
+                n <= 400,
+                "{what}: a layer resampled through the turn and a surface of the rasteriser \
+                 differ along the edges only, not by {n} pixels"
+            );
+        }
     }
 }

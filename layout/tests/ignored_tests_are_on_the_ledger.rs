@@ -174,15 +174,6 @@ const LEDGER: &[Row] = &[
         reason: "a measurement: cargo test --release -- --ignored --nocapture",
     },
     Row {
-        file: "layout/tests/an_incremental_cpu_frame_matches_a_full_redraw.rs",
-        test: "a_moved_turned_box_clipping_its_child_is_painted_as_a_full_redraw_paints_it",
-        kind: Kind::Red,
-        id: Some("LANE-AZ-1"),
-        owner: "cpurender / compositor (Z30-E2E-ENGINE)",
-        reason: "the compositor paints the child of a turned, clipping box axis-aligned, the \
-                 incremental raster turns it with the box (seed 25, frame 4): 261 px at 1x",
-    },
-    Row {
         file: "layout/tests/flex_intrinsic_text.rs",
         test: "frame_around_overflow_hidden_strip_shrinks_too",
         kind: Kind::Gap,
@@ -317,7 +308,8 @@ const LEDGER: &[Row] = &[
 /// How many ignored tests of each kind there are. A number to RAISE on purpose, with the
 /// row that explains it; it goes down when a test is made to run.
 const COUNTS: &[(Kind, usize)] = &[
-    (Kind::Red, 1),
+    // LANE-AZ-1 (the one Red row: seed 25, frame 4) runs again: 1 -> 0, the total 30 -> 29.
+    (Kind::Red, 0),
     (Kind::Gap, 2),
     (Kind::Stale, 12),
     (Kind::Diagnostic, 4),
