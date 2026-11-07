@@ -113,6 +113,9 @@ pub mod ui_thread;
 /// What std does not tell on Windows - a file's identity and change time, the free space and the file
 /// system of a disk, a rename written through -; its model is built and tested on every host.
 pub(crate) mod win;
+/// Extended attributes carried with a copy on this computer (Finder tags and labels, the resource
+/// fork, `user.*` attributes): a Move whose copy would lose them keeps its source.
+pub mod xattrs;
 /// The transfer engine: where drives are and whether two places overlap, the plan of a copy or
 /// a move, the run that lands every file before it retires a source.
 pub mod xfer;

@@ -69,6 +69,8 @@ mod transfer;
 mod win;
 /// Names a Windows disk cannot hold, refused before a key becomes a path there.
 mod windows_names;
+/// Extended attributes carried with a copy on this computer.
+mod xattrs;
 /// The conservation matrix of a move: whichever call fails, whenever it is stopped, every file is at
 /// the source or at the target.
 mod xfer_conserve;

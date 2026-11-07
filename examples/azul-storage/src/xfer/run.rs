@@ -583,11 +583,26 @@ pub fn run(
         match result {
             Ok(len) => {
                 out.done += 1;
-                landed.push(Landing {
-                    key: file.source_key.clone(),
-                    seen,
-                    proof: Receipt::landed(len),
-                });
+                // A copy between two folders of this computer carries what the file carries
+                // besides its bytes (tags, labels, the resource fork); what the disk of the copy
+                // would not take decides what happens to the source (X-DELTA-AZDRIVE-FILES-16).
+                let lost = lost_attributes(source, target, file);
+                match attrs_outcome(&lost, removes_source, &file.source_key) {
+                    AttrsOutcome::KeepSource(why) => {
+                        out.failed
+                            .push((file.source_key.clone(), DriveError::Unsupported(why)));
+                    }
+                    outcome => {
+                        if let AttrsOutcome::Note(note) = outcome {
+                            crate::cap::note_unchecked(&note);
+                        }
+                        landed.push(Landing {
+                            key: file.source_key.clone(),
+                            seen,
+                            proof: Receipt::landed(len),
+                        });
+                    }
+                }
             }
             Err(DriveError::Cancelled) => {
                 out.cancelled = true;
@@ -651,6 +666,50 @@ pub fn run(
         }
     }
     out
+}
+
+/// What the attributes of a file that was copied between two folders of this computer mean for the
+/// run.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AttrsOutcome {
+    /// The copy has everything the original carries (or the original carries nothing).
+    Whole,
+    /// A Move: the copy lacks attributes of the original, which stays where it is - the sentence.
+    KeepSource(String),
+    /// A Copy: the copy lacks attributes of the original, and the report says so - the sentence.
+    Note(String),
+}
+
+/// What the attributes `lost` (the names a disk would not take) mean for the copy of `key`: a Move
+/// keeps its source, a Copy says it once.
+pub(crate) fn attrs_outcome(lost: &[String], removes_source: bool, key: &str) -> AttrsOutcome {
+    if lost.is_empty() {
+        return AttrsOutcome::Whole;
+    }
+    let names = lost.join(", ");
+    if removes_source {
+        AttrsOutcome::KeepSource(format!(
+            "\"{key}\" was copied and is kept where it was: the disk of the copy would not take \
+             its attributes ({names})"
+        ))
+    } else {
+        AttrsOutcome::Note(format!(
+            "\"{key}\": the copy lacks attributes of the original that its disk would not take \
+             ({names})"
+        ))
+    }
+}
+
+/// Carries the attributes of `file`'s source to its copy when both are files of this computer;
+/// the names the copy lacks.
+fn lost_attributes(source: &dyn Drive, target: &dyn Drive, file: &PlannedFile) -> Vec<String> {
+    match (
+        source.local_path(&file.source_key),
+        target.local_path(&file.target_key),
+    ) {
+        (Some(from), Some(to)) => crate::xattrs::carry(&from, &to).lost,
+        _ => Vec::new(),
+    }
 }
 
 /// The last name of a key, for the progress line.
