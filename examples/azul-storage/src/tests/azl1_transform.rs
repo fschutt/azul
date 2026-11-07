@@ -268,3 +268,42 @@ fn compression_is_on_by_default_and_text_is_stored_smaller() {
     assert_eq!(summary.transform, None, "text has no whole-file transform");
     assert!(object.len() < text.len() / 10, "{} bytes for {}", object.len(), text.len());
 }
+
+/// X-DELTA-AZDRIVE-KEYS-44: naming the folder of the poison pill drops the markers in it that
+/// expired (a kill of 40 days ago is no record) and keeps a fresh one - the application that
+/// names the folder (AzDrive's start) is the one place the sweep runs, so the folder does not
+/// collect the trace of every quit.
+#[test]
+fn x_delta_azdrive_keys_44_naming_the_marker_folder_drops_the_markers_that_expired() {
+    /// The folder of the pill is the process's one: it is put back whatever the test comes to.
+    struct Unset;
+    impl Drop for Unset {
+        fn drop(&mut self) {
+            crate::crypto::codec::set_analysis_marker_dir(None);
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("azl1-marker-sweep-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let hash_of = |content: &[u8]| blake3::hash(content).to_hex().to_string();
+    let expired = dir.join(format!("{}.analysing", hash_of(b"expired")));
+    let fresh = dir.join(format!("{}.decoding", hash_of(b"fresh")));
+    std::fs::write(&expired, "analysing 2\n").unwrap();
+    std::fs::write(&fresh, "decoding 1\n").unwrap();
+    let forty_days = std::time::Duration::from_secs(40 * 24 * 3600);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&expired)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - forty_days)
+        .unwrap();
+
+    let _unset = Unset;
+    crate::crypto::codec::set_analysis_marker_dir(Some(dir.clone()));
+    assert!(
+        !expired.exists(),
+        "a record of 40 days ago is swept when the folder is named"
+    );
+    assert!(fresh.exists(), "a fresh record stays");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -31,6 +31,10 @@ pub(crate) mod records;
 pub(crate) mod scan;
 mod work;
 
+/// Removes the poison pill's markers in a folder that expired ([`marker`]'s module doc); the
+/// application runs it when it names the folder ([`crate::Options::poison_dir`]).
+pub use marker::sweep as sweep_markers;
+
 /// The id byte of no transform.
 pub const TRANSFORM_NONE: u8 = 0;
 /// The id byte of the JPEG (Lepton) transform, and the version this build writes.
@@ -168,7 +172,8 @@ pub fn codec_kind(kind: Kind, id: TransformId) -> Kind {
 /// The transform of `input` (a file of `kind`), already decoded and compared with `input`.
 ///
 /// With [`Options::poison_dir`] the analysis is bracketed by a marker ([`marker`]): a file whose
-/// analysis never came back (it ended the program) is not analysed again.
+/// analysis never came back [`marker::ANALYSIS_TRIES`] times (it ended the program) is not
+/// analysed again; one that was only interrupted is.
 #[must_use]
 pub fn forward(input: &[u8], kind: Kind, options: &Options) -> Forward {
     // Held until the analysis is over, then removed; a process that ends inside it leaves it.
@@ -178,8 +183,9 @@ pub fn forward(input: &[u8], kind: Kind, options: &Options) -> Forward {
             Some(dir) => match marker::Marker::enter(dir, input) {
                 marker::Entered::Clear(marker) => Some(marker),
                 marker::Entered::Left => {
-                    return Forward::NotApplied(String::from(
-                        "an earlier analysis of this file did not come back: it is stored as it is",
+                    return Forward::NotApplied(format!(
+                        "the analysis of this file has ended the program {} times: it is stored as it is",
+                        marker::ANALYSIS_TRIES
                     ))
                 }
                 marker::Entered::Unavailable => None,

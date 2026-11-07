@@ -56,8 +56,13 @@ impl From<azlin_compress::Error> for CryptoError {
 static ANALYSIS_MARKERS: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 
 /// Sets the folder the analysis of a file leaves its marker in while it runs (the poison pill: a
-/// file whose analysis ended the program is stored as it is from then on).
+/// file whose analysis ended the program three times is stored as it is from then on). Naming the
+/// folder drops the markers in it that expired (a kill of a month ago is no record,
+/// X-DELTA-AZDRIVE-KEYS-44), so it does not collect the trace of every quit.
 pub fn set_analysis_marker_dir(dir: Option<std::path::PathBuf>) {
+    if let Some(dir) = &dir {
+        azlin_compress::transform::sweep_markers(dir);
+    }
     *ANALYSIS_MARKERS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = dir;

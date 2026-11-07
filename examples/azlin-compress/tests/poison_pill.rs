@@ -1,7 +1,8 @@
 //! The poison pill (ARCH28 RF50 / AR5b-5): `panic = "abort"` makes a panic inside the analysis of a
 //! file the end of the program, and the next pass reads the same file again. The analysis leaves a
-//! marker (the file's BLAKE3) while it runs; a marker found when it is about to start means the
-//! last one did not come back, and the file is stored as it is.
+//! marker (the file's BLAKE3, with a count) while it runs; a marker found when it is about to
+//! start means the last one did not come back, and a file whose analyses did not come back three
+//! times is stored as it is (a quit or a kill is one try and no verdict, X-DELTA-AZDRIVE-KEYS-44).
 
 use azlin_compress::{transform, Kind, Options, TransformId};
 
@@ -33,19 +34,38 @@ fn x_ar5b_5_a_file_whose_analysis_did_not_come_back_is_not_analysed_again() {
         "no marker after an analysis that returned: {left:?}"
     );
 
-    // The marker of an analysis that ended the program: the file is stored as it is.
+    // The marker of analyses that ended the program (three tries on record): the file is stored
+    // as it is.
     let marker = dir.join(format!("{}.analysing", blake3::hash(BASELINE).to_hex()));
-    std::fs::write(&marker, b"analysing").unwrap();
+    std::fs::write(&marker, b"analysing 3\n").unwrap();
     match transform::forward(BASELINE, Kind::Jpeg, &options) {
         transform::Forward::NotApplied(why) => {
-            assert!(why.contains("did not come back"), "{why}");
+            assert!(why.contains("ended the program"), "{why}");
         }
-        transform::Forward::Applied(_) => panic!("a file with a marker is analysed again"),
+        transform::Forward::Applied(_) => {
+            panic!("a file with three tries on record is analysed again")
+        }
     }
     assert!(
         marker.exists(),
         "the marker stays: the file is out of the analysis from now on"
     );
+
+    // X-DELTA-AZDRIVE-KEYS-44: one try on record - a quit, a kill, a shutdown during the
+    // analysis - is no verdict: the file is analysed again, and the analysis that comes back
+    // erases the record. (The old build marked a file for ever at the first.) So is the record
+    // the first build wrote, which held no count.
+    for record in [&b"analysing 1\n"[..], &b"analysing"[..]] {
+        std::fs::write(&marker, record).unwrap();
+        assert!(
+            matches!(
+                transform::forward(BASELINE, Kind::Jpeg, &options),
+                transform::Forward::Applied(_)
+            ),
+            "a file that was only interrupted is analysed again"
+        );
+        assert!(!marker.exists(), "it came back: the record goes");
+    }
 
     // Another file is not affected.
     assert!(matches!(

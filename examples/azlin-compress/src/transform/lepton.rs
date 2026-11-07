@@ -74,6 +74,10 @@ pub(crate) fn decode(
     features.max_processor_threads = u32::try_from(threads.max(1)).unwrap_or(1);
     let pool = SpawnPool { threads };
     let mut out = Zeroizing::new(Vec::with_capacity(jpeg_len));
+    // With unwinding a panic of Lepton on a malformed record means "this record does not
+    // decode"; the shipped profile is `panic = "abort"` and this catch does nothing there: the
+    // stream ends the program. `inverse_guarded` brackets the call with the poison pill, and the
+    // lib doc states the residual risk (X-DELTA-AZDRIVE-KEYS-15).
     let result = catch_unwind(AssertUnwindSafe(|| {
         lepton_jpeg::decode_lepton(&mut Cursor::new(lepton), &mut *out, &features, &pool)
     }));

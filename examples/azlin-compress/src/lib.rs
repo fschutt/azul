@@ -19,8 +19,23 @@
 //! [`plan`] says up front what will happen (whether the caller must hold the whole file in
 //! memory for a transform), and [`estimate`] guesses the saving cheaply for the UI.
 //!
-//! Everything is synchronous and `Send`, touches no network and keeps no global state. Every
-//! decoder checks before it allocates and returns an error, never panics, on any input.
+//! Everything is synchronous and `Send` and touches no network. It keeps no global state but one
+//! table: which poison-pill markers (`transform/marker.rs`) this process has under way. Every
+//! decoder checks before it allocates and returns an error on any input - except where the code
+//! is not ours:
+//!
+//! **Residual risk (X-DELTA-AZDRIVE-KEYS-15, ARCH28 Q24).** Lepton's decoder and the vendored
+//! preflate port still hold `unwrap`s and `assert!`s that a malformed stream can reach, and the
+//! shipped profile is `panic = "abort"`, so a `catch_unwind` around them does nothing: such a
+//! stream ends the program. What is built is the poison pill: the analysis of a file and the
+//! decode of a stored transform leave a counted marker in a folder the application names
+//! ([`Options::poison_dir`]; [`transform::sweep_markers`] drops the old ones), and a content that
+//! has ended the program three times is refused by name. The FIRST abort per content is not
+//! prevented, and a member of a drive can vary the bytes of a malformed stream without limit,
+//! each variant a new content. The cure is a process of its own for the content engines, with a
+//! time limit (AR4's option 2); ARCH28 Q24 decided it is not built now (process isolation is a
+//! product-sized change; the panics are removed first, and the fuzz targets look for the rest).
+//! A program that names no folder has no pill at all.
 
 #![forbid(unsafe_code)]
 #![cfg_attr(

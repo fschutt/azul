@@ -396,8 +396,11 @@ fn rebuild_deflate(
     if u64::from(stream_len) > MAX_STREAM_PER_PLAIN * plain.len() as u64 + MAX_STREAM_SLACK {
         return Err(damaged("a deflate record longer than its plain text allows"));
     }
-    // The rebuild runs vendored code over our own (authenticated) bytes; a panic there on
-    // damaged bytes still only means "this record does not decode".
+    // The rebuild runs vendored code over bytes that any member of the drive wrote ("authenticated"
+    // means only that the writer holds the file key). With unwinding a panic there means "this
+    // record does not decode"; the shipped profile is `panic = "abort"` and this catch does
+    // nothing: the stream ends the program. `inverse_guarded` brackets the call with the poison
+    // pill and the lib doc states the residual risk (X-DELTA-AZDRIVE-KEYS-15).
     let rebuilt = catch_unwind(AssertUnwindSafe(|| {
         azlin_preflate::recreate_whole_deflate_stream(&plain, reconstruction, stream_len as usize)
     }));
