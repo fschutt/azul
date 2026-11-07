@@ -1285,6 +1285,43 @@ jobs:
             exit 1
           fi
 
+  windows_storage_check:
+    # The storage layer and the sync kit of AzDrive built for Windows, tests included (ARCH28 RF49
+    # / AR5a-9; AZ-W3, AZ-W6, AZ-W11, AZ-W14): the Windows half of azul-storage's beneath.rs and
+    # win.rs and the kit's watcher, lock probe and quarantine mark are `cfg(windows)` code no other
+    # job compiles, and a use that only Windows misses (a cfg'd import, a unix-only dependency) is
+    # found in a user's build otherwise. Neither crate links libazul (the `azul` feature is off), so
+    # no bindings are needed. Any warning of a crate of this tree fails the job: a helper that only
+    # one target leaves unused is a defect there too. REQUIRED: the native end-to-end stage and the
+    # deploy wait for it. It builds, it does not run: the tests of these crates on a real Windows
+    # machine are the owner's to run (`cargo test -p azul-storage --features encryption`).
+    name: Windows check (azul-storage, azcloud-kit)
+    needs: [supply_chain_preflight]
+    timeout-minutes: 60
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+
+      - name: cargo check azul-storage and azcloud-kit (every target, no warning)
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check -p azul-storage -p azcloud-kit --all-targets \
+            --features azul-storage/encryption,azcloud-kit/encryption,azcloud-kit/state-db 2>&1 | tee windows-check.txt
+          # `cargo check` prints the warnings of the crates of this tree only (a registry crate's
+          # are capped); each of ours points into the tree (`--> examples\azul-storage\src\...`).
+          if grep -E '^[[:space:]]+--> (examples|core|css|layout|dll)[/\\]' windows-check.txt; then
+            echo "::error::the Windows build of azul-storage / azcloud-kit has warnings (listed above)."
+            exit 1
+          fi
+
   wasm32_check:
     # azul-dll for wasm32, as soon as the bindings are generated and gated by nothing else: the
     # generated C-ABI bodies must resolve through `azul_dll::unified` there too (the desktop
@@ -3653,7 +3690,7 @@ jobs:
   e2e_native:
     # AZ_E2E language board on Ubuntu. Sharded by language.
     name: AZ_E2E ${{ matrix.family.key }} (${{ matrix.os }})
-    needs: [build_dll_e2e, ffi_safety_tests, dll_windows_unit_tests]
+    needs: [build_dll_e2e, ffi_safety_tests, dll_windows_unit_tests, windows_storage_check]
     timeout-minutes: 60
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     continue-on-error: ${{ matrix.family.experimental }}
@@ -5222,7 +5259,7 @@ jobs:
     # Deploys to GitHub Pages. Merges all artifacts into the website tree.
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    needs: [test_lib, test_heavy, miri, wasm32_check, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
+    needs: [test_lib, test_heavy, miri, wasm32_check, windows_storage_check, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
