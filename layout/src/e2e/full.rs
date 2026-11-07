@@ -6731,7 +6731,7 @@ impl AssertionResult {
 /// | `assert_manager_invariants`  | `managers?`, `cross?`                |
 /// | `assert_only_managers_changed` | `vs`, `changed`, `min_populated?`  |
 /// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
-/// | `assert_damage_sound`| `vs`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
+/// | `assert_damage_sound`| `vs`, `which?`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
 /// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `payload?`, `withdrawn?`, `count?`, `scheduled?`, `deliver_at?` |
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
 #[cfg(feature = "std")]
@@ -13069,9 +13069,25 @@ pub fn e2e_presented_frame(
 /// no adjustment at all: it compares the damage-driven framebuffer against a
 /// FRESH full repaint at the CURRENT size, never against the snapshot.
 ///
-/// Parameters: `vs` (snapshot name, required), `max_overpaint_ratio` (default
-/// 4.0), `forbid_full` (default false), `threshold` (default 2), `slack_px`
-/// (default 1), `pixel_identity` (default false).
+/// # Which damage must cover the change (`which`)
+///
+/// `paint` (the default) is the rects the frame RE-RASTERISED; `present` is
+/// what reached the screen ([`DAMAGE_WHICH_VALUES`], the same closed set as
+/// `assert_damage_covers_changes`). A box a neighbour's size change pushes
+/// aside is moved by a blit (`cpurender::execute_translate_blit`): its pixels
+/// change on screen and are in the PRESENT damage, but nothing re-rasterised
+/// them, so the PAINT damage does not hold them and a paint-covering check
+/// rejects a frame that is right (`gen-e2e` batch 1, R11). `which: "present"`
+/// asks the change to lie inside what was presented. Everything else keeps
+/// reading the paint damage - `forbid_full`, the tightness bound and the
+/// `present ⊇ paint` check - and `pixel_identity` still compares the frame the
+/// damage produced with an independent full repaint, which is what catches a
+/// pixel the blit carried wrong.
+///
+/// Parameters: `vs` (snapshot name, required), `which` (default `paint`),
+/// `max_overpaint_ratio` (default 4.0), `forbid_full` (default false),
+/// `threshold` (default 2), `slack_px` (default 1), `pixel_identity` (default
+/// false).
 #[cfg(feature = "std")]
 #[allow(clippy::too_many_lines)]
 fn eval_assert_damage_sound(
@@ -13083,6 +13099,7 @@ fn eval_assert_damage_sound(
         params,
         &[
             "vs",
+            "which",
             "threshold",
             "slack_px",
             "max_overpaint_ratio",
@@ -13121,9 +13138,20 @@ fn eval_assert_damage_sound(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
+        // The damage that must cover the change: a value outside the closed set
+        // is refused, not read as the default.
+        let which = match params.get("which") {
+            Some(v) => match closed_value("assert_damage_sound", "which", v) {
+                Ok(which) => which,
+                Err(refused) => return AssertionResult::fail(refused),
+            },
+            None => "paint",
+        };
+
         let report = frame_report_of(callback_info);
         let paint = report.accumulated_paint_damage.clone();
         let present = report.accumulated_present_damage.clone();
+        let covering = if which == "present" { &present } else { &paint };
 
         if forbid_full && paint.is_full() {
             return AssertionResult::fail_with(
@@ -13172,8 +13200,13 @@ fn eval_assert_damage_sound(
         };
         let paint_rects = to_px(&paint);
         let present_rects = to_px(&present);
+        let covering_rects = if which == "present" {
+            &present_rects
+        } else {
+            &paint_rects
+        };
 
-        // ---- (1) COVERAGE: every changed pixel lies inside the paint damage --
+        // ---- (1) COVERAGE: every changed pixel lies inside the `which` damage --
         let (bd, ad) = (before.data(), after.data());
         let w = after.width() as usize;
         let h = after.height() as usize;
@@ -13200,11 +13233,11 @@ fn eval_assert_damage_sound(
                 by0 = by0.min(y);
                 bx1 = bx1.max(x + 1);
                 by1 = by1.max(y + 1);
-                if paint.is_full() {
+                if covering.is_full() {
                     continue;
                 }
                 let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-                if !paint_rects
+                if !covering_rects
                     .iter()
                     .any(|(x0, y0, x1, y1)| px >= *x0 && px < *x1 && py >= *y0 && py < *y1)
                 {
@@ -13218,16 +13251,20 @@ fn eval_assert_damage_sound(
         if uncovered > 0 {
             let (fx, fy) = first.unwrap_or((0, 0));
             return AssertionResult::fail_with(
-                "assert_damage_sound: UNDER-PAINT — the damage set does not cover every changed \
-                 pixel, so those pixels are stale on a real screen"
-                    .to_string(),
+                format!(
+                    "assert_damage_sound: UNDER-PAINT — the {which} damage set does not cover \
+                     every changed pixel, so those pixels are stale on a real screen"
+                ),
                 "0 uncovered changed pixels".to_string(),
                 format!("{uncovered} uncovered of {changed} changed, first at ({fx}, {fy})"),
             );
         }
-        if changed > 0 && paint.is_none() {
+        if changed > 0 && covering.is_none() {
             return AssertionResult::fail_with(
-                format!("assert_damage_sound: {changed} pixels changed but NO damage was reported"),
+                format!(
+                    "assert_damage_sound: {changed} pixels changed but NO {which} damage was \
+                     reported"
+                ),
                 "damage != none".to_string(),
                 "none".to_string(),
             );
@@ -13364,10 +13401,10 @@ fn eval_assert_damage_sound(
             String::new()
         };
         AssertionResult::pass(format!(
-            "assert_damage_sound: {changed} changed px all covered by the {} paint damage ({} \
+            "assert_damage_sound: {changed} changed px all covered by the {} {which} damage ({} \
              rect(s)), present ⊇ paint, tightness {tightness}{identity}{across}",
-            damage_kind_str(&paint),
-            paint.rect_count()
+            damage_kind_str(covering),
+            covering.rect_count()
         ))
     }
 }

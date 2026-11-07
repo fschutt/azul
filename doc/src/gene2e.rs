@@ -1682,10 +1682,10 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
      on screen) and `frame` is exactly "accumulated" (default) or "last"; any other value is
      refused, and "last" is a value of `frame`, never of `which`. A box displaced by a
      neighbour's size change is moved by a blit: it appears in PRESENT damage and not in PAINT
-     damage, so for that case use "which":"present" on `assert_damage_covers_changes` and on
-     `assert_changed` (a control that only MOVES boxes is `assert_changed {{"vs":
-     "ctl_before", "which": "present"}}`), and do not use `assert_damage_sound`, which has no
-     `which` and judges paint only.
+     damage, so for that case use "which":"present" on `assert_damage_covers_changes`, on
+     `assert_damage_sound` (the change must then lie inside what was presented; its tightness
+     bound and `forbid_full` still read the paint damage) and on `assert_changed` (a control
+     that only MOVES boxes is `assert_changed {{"vs": "ctl_before", "which": "present"}}`).
    - `assert_changed` means "damage is not none AND pixels differ": never write it straight
      after an assertion that damage is none, and `min_damage_rects: 0` is meaningless.
    - "nothing panics"                    -> the steps running at all IS the assertion; still end with a liveness or idle assertion.
@@ -5862,7 +5862,13 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         assert!(p.contains("DAMAGE ASSERTIONS READ AN ACCUMULATOR"));
         assert!(p.contains("\"frame\": \"last\""));
         assert!(p.contains("\"last\" is a value of `frame`, never of `which`"));
-        assert!(p.contains("not use `assert_damage_sound`, which has no `which`"));
+        assert!(
+            p.contains("`assert_damage_sound` (the change must then lie inside what was presented")
+        );
+        assert!(
+            !p.contains("which has no `which`"),
+            "`assert_damage_sound` takes a `which` now (R11)"
+        );
         assert!(
             !p.contains("silently treated as \"paint\""),
             "an unknown `which` is refused now, not read as paint"

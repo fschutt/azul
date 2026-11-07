@@ -115,6 +115,11 @@ mod css_override_cost_tests;
 #[cfg(test)]
 mod moved_frame_tests;
 
+// `assert_damage_sound` takes `which` ("paint" by default, "present" for a frame
+// whose boxes a blit moved): the same closed set as `assert_damage_covers_changes`.
+#[cfg(test)]
+mod damage_which_tests;
+
 // `set_node_classes` re-runs the cascade for the new classes (R-classes): the rules
 // of the class a node has now apply, a colour-only swap changes a pixel, the
 // classes a node already has cost nothing.
