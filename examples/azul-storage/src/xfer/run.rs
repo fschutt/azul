@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     ctl::Ctl, durable::Expect, local, ops, quarantine, same_etag, transfer, BatchDelete, BatchMove,
-    BatchPut, Drive, DriveError, Precondition,
+    BatchPut, Drive, DriveError, ObjectInfo, Precondition,
 };
 
 /// Where a running transfer is.
@@ -87,27 +87,88 @@ impl Receipt {
     }
 }
 
-/// One source to retire: the file, the version that was copied (when the drive tells one) and the
-/// receipt of its copy.
+/// The version of a source file a move noted before it copied the file: the one version it may
+/// delete afterwards, and no other (X-DELTA-AZDRIVE-FILES-4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SourceVersion {
+    /// The drive's entity tag: the delete names it ([`BatchDelete::of_version`]).
+    Tag(String),
+    /// A drive that gives no tag: the size and the date it gave. They are looked at again right
+    /// before the delete, and a source that differs is kept (an edit saved while the file was
+    /// copied changes at least one of them).
+    Stamp { size: u64, modified: Option<u64> },
+}
+
+impl SourceVersion {
+    /// The version `info` names: its tag, else (a drive that gives none) its size and date; `None`
+    /// when the drive gives nothing a later look could compare (no tag and no date).
+    #[must_use]
+    pub fn of(info: &ObjectInfo) -> Option<SourceVersion> {
+        match (&info.etag, info.modified) {
+            (Some(tag), _) => Some(SourceVersion::Tag(tag.clone())),
+            (None, Some(_)) => Some(SourceVersion::Stamp {
+                size: info.size,
+                modified: info.modified,
+            }),
+            (None, None) => None,
+        }
+    }
+}
+
+/// One source to retire: the file, the version that was copied and the receipt of its copy.
 pub struct Retire<'a> {
     pub key: &'a str,
-    pub seen: Option<&'a str>,
+    pub seen: &'a SourceVersion,
     pub proof: &'a Receipt,
 }
 
 /// Deletes the sources whose copies landed - the version that was copied, no other: one that
-/// changed since is [`DriveError::Conflict`] and stays. The only delete of a source in a transfer.
-/// One result per item, in order.
+/// changed since is [`DriveError::Conflict`] and stays. A tagged source goes by its tag; a
+/// source that has only a size and a date is looked at again first, and kept when either differs.
+/// The only delete of a source in a transfer. One result per item, in order.
 #[must_use]
 pub fn retire_sources(source: &dyn Drive, items: &[Retire<'_>]) -> Vec<Result<(), DriveError>> {
-    let batch: Vec<BatchDelete<'_>> = items
-        .iter()
-        .map(|item| match item.seen {
-            Some(version) => BatchDelete::new(item.key).of_version(version),
-            None => BatchDelete::new(item.key),
+    let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
+    let mut batch: Vec<BatchDelete<'_>> = Vec::new();
+    let mut at: Vec<usize> = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        match item.seen {
+            SourceVersion::Tag(tag) => {
+                batch.push(BatchDelete::new(item.key).of_version(tag));
+                at.push(i);
+            }
+            SourceVersion::Stamp { .. } => match source.head(item.key) {
+                Ok(info) if SourceVersion::of(&info).as_ref() == Some(item.seen) => {
+                    batch.push(BatchDelete::new(item.key));
+                    at.push(i);
+                }
+                // Another size or date: an edit saved while the file was copied. It stays.
+                Ok(_) => {
+                    results[i] = Some(Err(DriveError::Conflict {
+                        key: item.key.to_string(),
+                    }));
+                }
+                // Gone already: nothing is left to retire.
+                Err(DriveError::NotFound { .. }) => results[i] = Some(Ok(())),
+                Err(e) => results[i] = Some(Err(e)),
+            },
+        }
+    }
+    if !batch.is_empty() {
+        for (i, answer) in at.into_iter().zip(source.delete_many(&batch)) {
+            results[i] = Some(answer);
+        }
+    }
+    results
+        .into_iter()
+        .map(|answer| {
+            answer.unwrap_or_else(|| {
+                Err(DriveError::Transport(String::from(
+                    "the batch gave no answer",
+                )))
+            })
         })
-        .collect();
-    source.delete_many(&batch)
+        .collect()
 }
 
 /// What the name must hold when a file is put in place there.
@@ -252,7 +313,8 @@ fn small_local_file(
 /// A file that landed: its source, the version of it that was copied, the receipt.
 struct Landing {
     key: String,
-    seen: Option<String>,
+    /// `None`: the drive names no version of it (the file is copied, and kept).
+    seen: Option<SourceVersion>,
     proof: Receipt,
 }
 
@@ -262,7 +324,7 @@ struct Pending {
     target_key: String,
     bytes: Vec<u8>,
     guard: Guard,
-    seen: Option<String>,
+    seen: Option<SourceVersion>,
 }
 
 /// Small files from this computer into a bucket go in batches (`put_many`): an encrypted drive
@@ -451,14 +513,24 @@ pub fn run(
         }
         let guard = Guard::of(file);
         // The version of the source that is copied: what a move retires and nothing else. A
-        // bucket's listing says; a folder on disk is looked at now, before its bytes are read.
+        // bucket's listing says; a folder on disk is looked at now, before its bytes are read. A
+        // look that FAILS is no "unknown version": the file is not copied (and not retired), the
+        // failure is the file's; a drive that names no version at all copies the file and keeps it
+        // (X-DELTA-AZDRIVE-FILES-4).
         let seen = if removes_source {
-            file.source_etag.clone().or_else(|| {
-                source
-                    .head(&file.source_key)
-                    .ok()
-                    .and_then(|info| info.etag)
-            })
+            match &file.source_etag {
+                Some(tag) => Some(SourceVersion::Tag(tag.clone())),
+                None => match source.head(&file.source_key) {
+                    Ok(info) => SourceVersion::of(&info),
+                    Err(e) => {
+                        out.failed.push((file.source_key.clone(), e));
+                        progress.bytes_done = base + file.size.unwrap_or(0);
+                        progress.files_done += 1;
+                        report(&progress);
+                        continue;
+                    }
+                },
+            }
         } else {
             None
         };
@@ -520,15 +592,32 @@ pub fn run(
         batch.send(target, &mut out, &mut landed, &mut progress, report);
     }
     if removes_source && !landed.is_empty() {
-        let items: Vec<Retire<'_>> = landed
+        // A file whose version is unknown landed and stays where it is: its source is not
+        // deleted on a guess, and the user is told it was copied, not moved.
+        let (known, unknown): (Vec<&Landing>, Vec<&Landing>) =
+            landed.iter().partition(|landing| landing.seen.is_some());
+        for landing in unknown {
+            out.failed.push((
+                landing.key.clone(),
+                DriveError::Unsupported(format!(
+                    "\"{}\" was copied and is kept where it was: the drive names no version of \
+                     it, so an edit made while it was copied could not be told from the file that \
+                     was copied",
+                    landing.key
+                )),
+            ));
+        }
+        let items: Vec<Retire<'_>> = known
             .iter()
-            .map(|landing| Retire {
-                key: &landing.key,
-                seen: landing.seen.as_deref(),
-                proof: &landing.proof,
+            .filter_map(|landing| {
+                Some(Retire {
+                    key: &landing.key,
+                    seen: landing.seen.as_ref()?,
+                    proof: &landing.proof,
+                })
             })
             .collect();
-        for (landing, result) in landed.iter().zip(retire_sources(source, &items)) {
+        for (landing, result) in known.iter().zip(retire_sources(source, &items)) {
             if let Err(e) = result {
                 out.failed.push((landing.key.clone(), e));
             }

@@ -416,3 +416,189 @@ fn x_delta_azdrive_files_3_put_file_if_of_a_drive_that_cannot_ask_is_refused_unr
         "the missing file was opened first: {error:?}"
     );
 }
+
+// ==== X-DELTA-AZDRIVE-FILES-4: a source retired by a version the drive could not name ====
+
+/// A source whose head and listing carry no entity tag (a WebDAV server that sends none, a data
+/// source): at most a size and a date. `dates`: whether it gives the date.
+struct NoTags {
+    files: Mutex<BTreeMap<String, (Vec<u8>, u64)>>,
+    clock: AtomicU64,
+    dates: bool,
+    /// The key to edit right after a read of it: an editor saving while the copy runs.
+    edit_after_read: Mutex<Option<String>>,
+    /// A look at a file fails (a connection that dropped for a moment).
+    head_fails: std::sync::atomic::AtomicBool,
+}
+
+impl NoTags {
+    fn with(files: &[(&str, &[u8])], dates: bool) -> NoTags {
+        let drive = NoTags {
+            files: Mutex::new(BTreeMap::new()),
+            clock: AtomicU64::new(0),
+            dates,
+            edit_after_read: Mutex::new(None),
+            head_fails: std::sync::atomic::AtomicBool::new(false),
+        };
+        for (key, bytes) in files {
+            drive.write(key, bytes);
+        }
+        drive
+    }
+
+    fn write(&self, key: &str, bytes: &[u8]) {
+        let at = self.clock.fetch_add(1, Ordering::SeqCst) + 1;
+        self.files
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), (bytes.to_vec(), at));
+    }
+
+    fn info(&self, key: &str, bytes: &[u8], at: u64) -> ObjectInfo {
+        ObjectInfo {
+            key: key.to_string(),
+            size: bytes.len() as u64,
+            modified: self.dates.then_some(at),
+            etag: None,
+        }
+    }
+}
+
+impl Drive for NoTags {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        let files = self.files.lock().unwrap();
+        let mut page = ListPage::default();
+        for (key, (bytes, at)) in files.iter() {
+            if key.starts_with(&request.prefix) {
+                page.objects.push(self.info(key, bytes, *at));
+            }
+        }
+        Ok(page)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        let bytes = self
+            .files
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|(bytes, _)| bytes.clone())
+            .ok_or_else(|| DriveError::NotFound { key: key.into() })?;
+        let edit = self.edit_after_read.lock().unwrap().take();
+        if edit.as_deref() == Some(key) {
+            self.write(key, b"edited meanwhile, and longer");
+        }
+        Ok(bytes)
+    }
+    fn get_range(&self, key: &str, _: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.get(key)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.write(key, bytes);
+        Ok(())
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.files.lock().unwrap().remove(key);
+        Ok(())
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        if self.head_fails.load(Ordering::SeqCst) {
+            return Err(DriveError::Transport(String::from(
+                "the connection dropped",
+            )));
+        }
+        self.files
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|(bytes, at)| self.info(key, bytes, *at))
+            .ok_or_else(|| DriveError::NotFound { key: key.into() })
+    }
+}
+
+fn move_one(source: &NoTags, target: &LocalDrive, tamper: impl FnOnce(&NoTags)) -> Report {
+    let items = [Item {
+        key: String::from("a.txt"),
+        is_folder: false,
+        size: Some(7),
+    }];
+    let plan = make_plan(source, &items, target, "", true, "Copy").unwrap();
+    tamper(source);
+    go(&plan, source, target, true)
+}
+
+/// X-DELTA-AZDRIVE-FILES-4. A Move from a drive whose head names no tag (a WebDAV server without
+/// ETags) retired the source with an unconditional delete: the edit the user saved at the source
+/// while the file was copied was deleted with it, the copy holding the old bytes. The source's size
+/// and date noted before the copy are looked at again before the delete: it is kept when either
+/// differs.
+#[test]
+fn x_delta_azdrive_files_4_a_source_without_tags_is_kept_when_it_changed_while_it_was_copied() {
+    let tmp = TempDir::new("dx4-edit");
+    let target = LocalDrive::without_manifest(tmp.path().join("other"));
+    let source = NoTags::with(&[("a.txt", b"v1 text")], true);
+    let report = move_one(&source, &target, |source| {
+        *source.edit_after_read.lock().unwrap() = Some(String::from("a.txt"));
+    });
+    assert!(conflict(&report, "a.txt"), "{report:?}");
+    assert_eq!(
+        source.get("a.txt").unwrap(),
+        b"edited meanwhile, and longer",
+        "the edit saved while the file was copied was deleted"
+    );
+    assert_eq!(target.get("a.txt").unwrap(), b"v1 text", "the copy landed");
+}
+
+/// The ordinary case of such a source: nothing changed, so the file moves.
+#[test]
+fn x_delta_azdrive_files_4_a_source_without_tags_that_did_not_change_is_moved() {
+    let tmp = TempDir::new("dx4-same");
+    let target = LocalDrive::without_manifest(tmp.path().join("other"));
+    let source = NoTags::with(&[("a.txt", b"v1 text")], true);
+    let report = move_one(&source, &target, |_| {});
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(report.done, 1);
+    assert!(source.get("a.txt").is_err(), "retired");
+    assert_eq!(target.get("a.txt").unwrap(), b"v1 text");
+}
+
+/// A drive that names neither a tag nor a date cannot tell an edit from the file that was copied:
+/// the file is copied and kept, and the report says so (not "moved").
+#[test]
+fn x_delta_azdrive_files_4_a_source_with_no_version_at_all_is_copied_and_kept() {
+    let tmp = TempDir::new("dx4-none");
+    let target = LocalDrive::without_manifest(tmp.path().join("other"));
+    let source = NoTags::with(&[("a.txt", b"v1 text")], false);
+    let report = move_one(&source, &target, |_| {});
+    assert_eq!(report.done, 1, "{report:?}");
+    assert_eq!(report.failed.len(), 1, "{report:?}");
+    assert!(
+        matches!(report.failed[0].1, DriveError::Unsupported(_)),
+        "{report:?}"
+    );
+    assert_eq!(
+        source.get("a.txt").unwrap(),
+        b"v1 text",
+        "deleted on a guess"
+    );
+    assert_eq!(target.get("a.txt").unwrap(), b"v1 text");
+}
+
+/// A look at the source that fails is no "unknown version": the file is neither copied nor
+/// retired (the old code took the failure for "no tag" and deleted the source unconditionally).
+#[test]
+fn x_delta_azdrive_files_4_a_failed_look_at_the_source_moves_nothing() {
+    let tmp = TempDir::new("dx4-head");
+    let target = LocalDrive::without_manifest(tmp.path().join("other"));
+    let source = NoTags::with(&[("a.txt", b"v1 text")], true);
+    let report = move_one(&source, &target, |source| {
+        source.head_fails.store(true, Ordering::SeqCst);
+    });
+    assert_eq!(report.done, 0, "{report:?}");
+    assert_eq!(report.failed.len(), 1, "{report:?}");
+    assert!(
+        matches!(report.failed[0].1, DriveError::Transport(_)),
+        "{report:?}"
+    );
+    assert_eq!(source.get("a.txt").unwrap(), b"v1 text");
+    assert!(target.get("a.txt").is_err(), "nothing was copied");
+}

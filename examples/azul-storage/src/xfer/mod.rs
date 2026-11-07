@@ -18,6 +18,6 @@ pub mod site;
 pub mod targets;
 
 pub use plan::{parent_of, plan, Choice, Item, Plan, PlannedFile};
-pub use run::{retire_sources, run, Progress, Receipt, Report, Retire};
+pub use run::{retire_sources, run, Progress, Receipt, Report, Retire, SourceVersion};
 pub use site::{names_below, overlap, OtherId, Overlap, Site, Space};
 pub use targets::{volume_of, Claim, TargetSet};
