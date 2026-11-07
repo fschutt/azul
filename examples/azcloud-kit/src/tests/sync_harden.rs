@@ -316,6 +316,45 @@ fn a_delete_from_the_drive_moves_the_file_into_the_trash_here() {
     assert!(!index_of(&store).files.keys().any(|k| k.contains("trash")));
 }
 
+/// AZ-S21. A big download cut off leaves a partial (sparse, as big as the file) and a state file in
+/// the folder's spool, `.azlin/sync/tmp`; when the file changes on the drive its name changes and
+/// nothing ever took the old one away. Every pass now removes what nothing wrote to for six days;
+/// a younger partial stays (it resumes). RED not run: the old code keeps both.
+#[test]
+fn az_s21_a_partial_download_nothing_wrote_to_for_days_is_removed_from_the_spool() {
+    let store = S3Bucket::new();
+    let a = Device::new("s21-a");
+    a.write("a.txt", b"a");
+    a.sync(&store);
+    let spool = a.path().join(".azlin/sync/tmp");
+    fs::create_dir_all(&spool).unwrap();
+    let write_at = |name: &str, days_ago: u64| {
+        let path = spool.join(name);
+        fs::write(&path, vec![0u8; 4096]).unwrap();
+        let when = std::time::SystemTime::now() - std::time::Duration::from_secs(days_ago * 86_400);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+        path
+    };
+    let cut_off = write_at("azcloud-sync-00112233445566778899aabbccddeeff.blob", 10);
+    let its_state = write_at(
+        "azcloud-sync-00112233445566778899aabbccddeeff.blob-state.part",
+        10,
+    );
+    let resuming = write_at("azcloud-sync-ffeeddccbbaa99887766554433221100.blob", 1);
+    a.sync(&store);
+    assert!(
+        !cut_off.exists(),
+        "the partial of a download cut off ten days ago is gone"
+    );
+    assert!(!its_state.exists(), "and its state file");
+    assert!(resuming.exists(), "a download written to yesterday resumes");
+}
+
 #[test]
 fn a_download_is_renamed_in_whole_and_leaves_no_temporary_file() {
     let store = S3Bucket::new();

@@ -3868,6 +3868,7 @@ fn run<R: SyncRemote + ?Sized>(
             }
             if let Ok(tree) = beneath::Root::open(&root.path) {
                 root::purge_trash(&tree, crate::now());
+                root::purge_spool(&tree);
             }
         }
     }

@@ -293,6 +293,47 @@ pub fn spool(root: &Root) -> Result<beneath::Dir, BeneathError> {
     root.dir(SPOOL_DIR, true)
 }
 
+/// How long a partial download stays in the spool when nothing writes to it. It resumes where
+/// it stopped; one whose file changed or was deleted on the drive since is never resumed, and a
+/// 20 GB sparse file of it is the disk the free-space reserve is meant to protect.
+pub const SPOOL_DAYS: u64 = 6;
+
+/// Removes what the spool holds that nothing has written to for [`SPOOL_DAYS`] (AZ-S21): the
+/// partial files of downloads that were cut off and not taken up again, and their state files.
+/// The age is the file system's own record of the last write. Scratch: it is a copy of what is on
+/// the drive, so a clock that is wrong costs a download made again, nothing else. Links are
+/// removed as links, a folder in the spool is left alone, and an entry that cannot be looked at
+/// (or whose last write the system does not say) stays. A last write more than a day in the
+/// future is no recent one: it counts as idle. How many entries went.
+pub fn purge_spool(root: &Root) -> usize {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    let Ok(spool) = root.dir(SPOOL_DIR, false) else {
+        return 0;
+    };
+    let Ok(names) = spool.names() else {
+        return 0;
+    };
+    let now = SystemTime::now();
+    let mut removed = 0;
+    for name in names {
+        let Some(name) = name.to_str() else { continue };
+        let Ok(st) = spool.lstat(name) else { continue };
+        if st.kind == Kind::Dir || st.mtime_ns == 0 {
+            continue;
+        }
+        let written = UNIX_EPOCH + Duration::from_nanos(st.mtime_ns);
+        let idle = match now.duration_since(written) {
+            Ok(idle) => idle >= Duration::from_secs(SPOOL_DAYS * 86_400),
+            Err(ahead) => ahead.duration() > Duration::from_secs(86_400),
+        };
+        if idle && spool.unlink(name).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 /// What the disk under `root` does with names, probed with empty files in the bookkeeping
 /// folder (removed again). Windows refuses its own names anyway, and creating `a:b` there
 /// would write a stream of `a`, so that probe runs elsewhere only.
