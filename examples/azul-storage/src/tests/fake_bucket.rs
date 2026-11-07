@@ -4,8 +4,9 @@
 //! parts, ListParts, complete, abort. It answers path-style requests for the bucket `azdrive`
 //! at any host (the failover tests ask several). Every request is logged (`POST start big.bin`,
 //! `PUT part 3 big.bin`, `GET list-parts big.bin`, ...). Switches: after a number of parts no
-//! part gets an answer (an app killed half way), and a part takes a while (to see how many are
-//! in flight at once).
+//! part gets an answer (an app killed half way), a part takes a while (to see how many are
+//! in flight at once), and the parts or the completion are refused with an answer of the test's
+//! choosing (a quota, credentials that ran out).
 
 use std::{
     collections::BTreeMap,
@@ -63,7 +64,13 @@ pub(super) struct FakeBucket {
     range_delay: Mutex<Duration>,
     ranges_in_flight: AtomicUsize,
     most_ranges_in_flight: AtomicUsize,
+    /// Requests of a kind (`part`, `complete`) the service refuses: the answer they get.
+    refusals: Mutex<BTreeMap<&'static str, Refusal>>,
 }
+
+/// An answer that refuses a request: the status, the S3 error code, and a node's own
+/// `x-azlin-error` code (`quota_exceeded`, `session_expired`, ...).
+pub(super) type Refusal = (u16, &'static str, Option<&'static str>);
 
 fn reply(status: u16, headers: &[(&str, &str)], body: impl Into<Vec<u8>>) -> HttpReply {
     HttpReply {
@@ -211,6 +218,34 @@ impl FakeBucket {
         }
         self.ranges_in_flight.fetch_sub(1, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// Every request of this kind - `part` (UploadPart) or `complete` (CompleteMultipartUpload) -
+    /// from now on is refused with `answer`; `None`: answered as usual.
+    pub(super) fn refuse(&self, kind: &'static str, answer: Option<Refusal>) {
+        let mut refusals = lock(&self.refusals);
+        match answer {
+            Some(answer) => {
+                refusals.insert(kind, answer);
+            }
+            None => {
+                refusals.remove(kind);
+            }
+        }
+    }
+
+    /// The refusal `kind` of request gets, when the service refuses them.
+    fn refusal(&self, kind: &str) -> Option<HttpReply> {
+        let (status, code, azlin) = lock(&self.refusals).get(kind).copied()?;
+        let mut headers = vec![("content-type", "application/xml")];
+        if let Some(azlin) = azlin {
+            headers.push(("x-azlin-error", azlin));
+        }
+        Some(reply(
+            status,
+            &headers,
+            format!("<Error><Code>{code}</Code><Message>{code}</Message></Error>"),
+        ))
     }
 
     /// Every abort from now on is refused (`true`) or answered (`false`).
@@ -381,6 +416,10 @@ impl FakeBucket {
                 None => {}
             }
         }
+        if let Some(refused) = self.refusal("part") {
+            self.note(format!("PUT refused-part {number} {key}"));
+            return Ok(refused);
+        }
         let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.most_in_flight.fetch_max(now, Ordering::SeqCst);
         let delay = *lock(&self.part_delay);
@@ -423,6 +462,9 @@ impl FakeBucket {
 
     fn complete(&self, key: &str, id: &str, call: &HttpCall) -> HttpReply {
         self.note(format!("POST complete {key}"));
+        if let Some(refused) = self.refusal("complete") {
+            return refused;
+        }
         let mut state = lock(&self.state);
         let current = state.objects.get(key).map(|(_, e)| e.clone());
         if !state.uploads.contains_key(id) {

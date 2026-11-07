@@ -18,7 +18,12 @@
 //!   ones. An upload that is stale ([`STALE_AFTER_SECS`]) or whose file changed is aborted and
 //!   started again - it is never completed with parts of two versions - and so is one whose
 //!   file changed while it was sent. [`S3Drive::abort_stale_uploads`] sweeps the ones nobody
-//!   resumes; every new multipart upload of the drive sweeps first.
+//!   resumes; every new multipart upload of the drive sweeps first. A sweep aborts an upload
+//!   for a file that is gone or other, never for one it merely cannot read at that moment,
+//!   and never an upload this process is sending (the uploads of other threads).
+//!   An upload the service refused for want of room (over the quota, an object too large, a
+//!   banned drive) is aborted at once, not kept: its parts count against the quota, and
+//!   resuming it would meet the same refusal.
 //! - A conditional upload (`If-None-Match: *`, `If-Match`) asks its condition when it is
 //!   completed (S3 checks it on CompleteMultipartUpload): a 412 is [`DriveError::Conflict`],
 //!   and its parts are aborted.
@@ -27,8 +32,9 @@
 
 use std::{
     collections::BTreeMap,
+    ffi::OsString,
     fs::{self, File},
-    io::{Read, Seek, SeekFrom, Write},
+    io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -317,6 +323,44 @@ fn write_state(path: &Path, state: &UploadState) {
     }
 }
 
+/// The uploads of files this process is sending right now, by the name of their state file
+/// (which `state_path` makes of the endpoint, bucket, key and source alone, so that the same
+/// upload is the same name in whatever way its folder is spelled), with how many threads send
+/// it. A sweep ([`abort_stale`]) of another thread's drive keeps these: whatever its file looks
+/// like at that moment, the upload is in use.
+static IN_FLIGHT: Mutex<BTreeMap<OsString, usize>> = Mutex::new(BTreeMap::new());
+
+/// An upload of a file under way in this process, for as long as it lives ([`IN_FLIGHT`]).
+struct InFlight(OsString);
+
+impl InFlight {
+    /// Marks the upload whose state file is `state_file`.
+    fn enter(state_file: &Path) -> Option<InFlight> {
+        let name = state_file.file_name()?.to_os_string();
+        *lock(&IN_FLIGHT).entry(name.clone()).or_insert(0) += 1;
+        Some(InFlight(name))
+    }
+
+    /// Whether this process is sending the upload whose state file is `state_file`.
+    fn sending(state_file: &Path) -> bool {
+        state_file
+            .file_name()
+            .is_some_and(|name| lock(&IN_FLIGHT).contains_key(name))
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        let mut sending = lock(&IN_FLIGHT);
+        if let Some(threads) = sending.get_mut(&self.0) {
+            *threads = threads.saturating_sub(1);
+            if *threads == 0 {
+                sending.remove(&self.0);
+            }
+        }
+    }
+}
+
 /// The record of a streamed upload under way (`stream-<hash of the upload id>.json` in the
 /// resume folder). A stream cannot be resumed, so the record only names the upload to abort:
 /// the uploading process holds the file locked while it sends, and a sweep that can lock it
@@ -413,6 +457,25 @@ fn upload_gone(e: &DriveError) -> bool {
 fn cannot_list(e: &DriveError) -> bool {
     matches!(e, DriveError::Service(service)
         if service.status == 501 || service.status == 405 || service.code == "NotImplemented")
+}
+
+/// Whether `e` says the drive has no room for the upload: over its quota, an object too large
+/// for it, a drive that is banned. The parts it holds count against the quota, and a resume
+/// would meet the same refusal: the upload is aborted, not kept.
+fn out_of_room(e: &DriveError) -> bool {
+    use crate::AzlinError;
+    let DriveError::Service(service) = e else {
+        return false;
+    };
+    service.status == 507
+        || matches!(
+            service.azlin_error,
+            Some(AzlinError::QuotaExceeded | AzlinError::ObjectTooLarge | AzlinError::DriveBanned)
+        )
+        || matches!(
+            service.code.as_str(),
+            "QuotaExceeded" | "EntityTooLarge" | "InsufficientStorage"
+        )
 }
 
 /// Up to `size` bytes of `body` (fewer only where it ends).
@@ -623,6 +686,9 @@ fn upload_file_with(
     let (planned, parallel) = drive.upload_plan();
     let folder = drive.resume_dir();
     let state_file = folder.as_deref().map(|f| state_path(f, drive, key, path));
+    // From here to the end this process is sending the upload: no sweep of another thread
+    // aborts it, whatever its file looks like at that moment.
+    let _sending = state_file.as_deref().and_then(InFlight::enter);
     let kept = state_file.as_deref().and_then(read_state);
     // An upload of this very file that is kept goes on in its own part size: its parts are
     // sent in it. A new one takes the planned size, big enough for MAX_PARTS parts.
@@ -734,7 +800,7 @@ fn upload_file_with(
     // A stop aborts the upload and forgets its state, so that nothing of it stays on the service
     // or on this computer; an abort the service did not take stays in the state file, which the
     // next upload of the file resumes and the next sweep aborts when nobody does.
-    let stopped = |state_file: &Option<PathBuf>| {
+    let give_up = |state_file: &Option<PathBuf>| {
         let aborted = match drive.abort_multipart(key, &upload_id) {
             Ok(()) => true,
             Err(gone) => upload_gone(&gone),
@@ -742,6 +808,9 @@ fn upload_file_with(
         if aborted {
             forget(state_file);
         }
+    };
+    let stopped = |state_file: &Option<PathBuf>| {
+        give_up(state_file);
         DriveError::Cancelled
     };
     // The bytes the parts of an earlier run already sent (`held` is the checked file's handle).
@@ -786,9 +855,13 @@ fn upload_file_with(
         if matches!(e, DriveError::Cancelled) || ctl.cancelled() {
             return Err(stopped(&state_file));
         }
-        // With a state file the next upload resumes; without one nothing could.
+        // With a state file the next upload resumes; without one nothing could. A service
+        // that has no room for the upload (AZ-M14) is no use to resume against: its parts
+        // count against the quota, and the next try would meet the same refusal.
         if state_file.is_none() {
             let _ = drive.abort_multipart(key, &upload_id);
+        } else if out_of_room(&e) {
+            give_up(&state_file);
         }
         return Err(e);
     }
@@ -820,6 +893,8 @@ fn upload_file_with(
             if matches!(e, DriveError::Conflict { .. }) || state_file.is_none() {
                 let _ = drive.abort_multipart(key, &upload_id);
                 forget(&state_file);
+            } else if out_of_room(&e) {
+                give_up(&state_file);
             } else if upload_gone(&e) {
                 forget(&state_file);
             }
@@ -828,9 +903,40 @@ fn upload_file_with(
     }
 }
 
+/// What became of the file an unfinished upload was made from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// The file whose parts were sent.
+    Same,
+    /// Another file now - other bytes, size or date, or no file, or no regular file: no upload
+    /// will resume from it.
+    Different,
+    /// A file that cannot be read at this moment (no permission, a volume that does not answer,
+    /// a lock): nothing is known of it, and no upload is aborted for it.
+    Unreadable,
+}
+
+/// What `state`'s source file is now.
+fn source_of(state: &UploadState) -> Source {
+    let path = Path::new(&state.source);
+    match fs::metadata(path) {
+        Ok(meta) if meta.is_file() => match fingerprint(path) {
+            Ok(now) if now == state.fingerprint() => Source::Same,
+            Ok(_) => Source::Different,
+            Err(_) => Source::Unreadable,
+        },
+        Ok(_) => Source::Different,
+        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+            Source::Different
+        }
+        Err(_) => Source::Unreadable,
+    }
+}
+
 /// Aborts the unfinished uploads of `drive`'s bucket in its resume folder that will not be
-/// resumed - a file upload that is stale, or whose file is gone or changed; a streamed upload
-/// no process holds any more - and forgets them; how many.
+/// resumed - a file upload that is stale, or whose file is gone or changed (not one whose file
+/// is merely unreadable now, and not one this process is sending); a streamed upload no process
+/// holds any more - and forgets them; how many.
 pub(crate) fn abort_stale(drive: &S3Drive) -> usize {
     let Some(folder) = drive.resume_dir() else {
         return 0;
@@ -850,15 +956,21 @@ pub(crate) fn abort_stale(drive: &S3Drive) -> usize {
             aborted += usize::from(abort_dead_stream(drive, &path));
             continue;
         }
+        // An upload another thread of this process is sending is in use, however its file looks.
+        if InFlight::sending(&path) {
+            continue;
+        }
         let Some(state) = read_state(&path) else {
             continue;
         };
         if state.endpoint != config.endpoint || state.bucket != config.bucket {
             continue;
         }
-        let unchanged =
-            fingerprint(Path::new(&state.source)).is_ok_and(|now| now == state.fingerprint());
-        if unchanged && !state.is_stale(now) {
+        if source_of(&state) != Source::Different && !state.is_stale(now) {
+            continue;
+        }
+        // Asked again now that the file was looked at: the upload may have started meanwhile.
+        if InFlight::sending(&path) {
             continue;
         }
         match drive.abort_multipart(&state.key, &state.upload_id) {

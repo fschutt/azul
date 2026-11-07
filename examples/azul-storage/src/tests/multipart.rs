@@ -443,3 +443,165 @@ fn a_streamed_upload_under_way_is_never_aborted_by_another_upload() {
     assert_eq!(s3.count("DELETE abort"), 0, "{:?}", s3.log());
     assert!(state_files(&resume).is_empty());
 }
+
+/// The answers that say the drive has no room for an upload: over its quota (a node's code, or
+/// S3's 507), an object too large for it, a banned drive.
+const NO_ROOM: [(u16, &str, Option<&str>); 4] = [
+    (507, "InsufficientStorage", None),
+    (403, "AccessDenied", Some("quota_exceeded")),
+    (413, "EntityTooLarge", Some("object_too_large")),
+    (403, "AccessDenied", Some("drive_banned")),
+];
+
+/// AZ-M14. The parts of an open upload count against the quota, and a resume would meet the
+/// same refusal: an upload the service refused for want of room is aborted and its state
+/// forgotten, where it was kept for six days.
+#[test]
+fn az_m14_an_upload_refused_for_want_of_room_is_aborted_and_forgotten() {
+    for (kind, (status, code, azlin)) in NO_ROOM
+        .into_iter()
+        .flat_map(|answer| [("part", answer), ("complete", answer)])
+    {
+        let tmp = TempDir::new("multipart-m14-room");
+        let resume = tmp.path().join("resume");
+        let (path, _) = file_with(&tmp, "big.bin", 6, 11);
+        let s3 = FakeBucket::new();
+        // The first run is killed after two parts: their bytes sit in the bucket, counted.
+        s3.take_parts(Some(2));
+        assert!(drive_on(&s3, Some(&resume), NOW)
+            .put_file("big.bin", &path, &no_progress)
+            .is_err());
+        assert_eq!(state_files(&resume).len(), 1);
+        assert_eq!(s3.uploads().len(), 1);
+        // The next run is refused for want of room.
+        s3.take_parts(None);
+        s3.refuse(kind, Some((status, code, azlin)));
+        s3.clear_log();
+        let error = drive_on(&s3, Some(&resume), NOW + 60)
+            .put_file("big.bin", &path, &no_progress)
+            .unwrap_err();
+        assert!(matches!(error, DriveError::Service(_)), "{error:?}");
+        assert_eq!(s3.count("DELETE abort"), 1, "{kind} {code}: {:?}", s3.log());
+        assert!(
+            s3.uploads().is_empty(),
+            "{kind} {code}: the parts that counted are given back"
+        );
+        assert!(
+            state_files(&resume).is_empty(),
+            "{kind} {code}: nothing is left to resume"
+        );
+    }
+}
+
+/// AZ-M14. Credentials that ran out, a node that is busy, a drive that is unpaid: the same
+/// upload goes on once it is over, so it stays.
+#[test]
+fn az_m14_an_upload_refused_for_another_reason_is_kept_for_the_resume() {
+    for (kind, (status, code, azlin)) in [
+        ("part", (403, "ExpiredToken", Some("session_expired"))),
+        ("part", (503, "ServiceUnavailable", Some("unavailable"))),
+        ("part", (403, "AccessDenied", Some("read_only_unpaid"))),
+        ("complete", (403, "ExpiredToken", Some("session_expired"))),
+        ("complete", (503, "ServiceUnavailable", Some("unavailable"))),
+    ] {
+        let tmp = TempDir::new("multipart-m14-kept");
+        let resume = tmp.path().join("resume");
+        let (path, bytes) = file_with(&tmp, "big.bin", 6, 12);
+        let s3 = FakeBucket::new();
+        s3.take_parts(Some(2));
+        assert!(drive_on(&s3, Some(&resume), NOW)
+            .put_file("big.bin", &path, &no_progress)
+            .is_err());
+        s3.take_parts(None);
+        s3.refuse(kind, Some((status, code, azlin)));
+        s3.clear_log();
+        assert!(drive_on(&s3, Some(&resume), NOW + 60)
+            .put_file("big.bin", &path, &no_progress)
+            .is_err());
+        assert_eq!(s3.count("DELETE abort"), 0, "{kind} {code}: {:?}", s3.log());
+        assert_eq!(s3.uploads().len(), 1, "{kind} {code}: the upload stays");
+        assert_eq!(
+            state_files(&resume).len(),
+            1,
+            "{kind} {code}: and its state"
+        );
+        // The refusal ends: the same upload is finished, with the parts it holds.
+        s3.refuse(kind, None);
+        s3.clear_log();
+        drive_on(&s3, Some(&resume), NOW + 120)
+            .put_file("big.bin", &path, &no_progress)
+            .unwrap();
+        assert_eq!(s3.object("big.bin").unwrap(), bytes);
+        assert_eq!(s3.count("POST start"), 0, "{kind} {code}: {:?}", s3.log());
+        assert!(state_files(&resume).is_empty());
+    }
+}
+
+/// AZ-M14. A sweep aborts an upload for a file that is gone or other; a file that exists and
+/// cannot be looked at just now (a folder this user may not enter, a volume that does not
+/// answer) says nothing, and its upload stays.
+#[cfg(unix)]
+#[test]
+fn az_m14_a_sweep_does_not_abort_an_upload_whose_file_it_cannot_read_now() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new("multipart-m14-unreadable");
+    let resume = tmp.path().join("resume");
+    let shelf = tmp.path().join("shelf");
+    std::fs::create_dir_all(&shelf).unwrap();
+    let (path, _) = file_with(&tmp, "shelf/big.bin", 4, 14);
+    let s3 = FakeBucket::new();
+    s3.take_parts(Some(0));
+    let drive = drive_on(&s3, Some(&resume), NOW);
+    assert!(drive.put_file("big.bin", &path, &no_progress).is_err());
+    assert_eq!(state_files(&resume).len(), 1);
+    // The shelf is shut: the file is there, and this process cannot look at it.
+    std::fs::set_permissions(&shelf, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let swept = if std::fs::metadata(&path).is_ok() {
+        None // a user who reads everything (root): nothing can be made unreadable
+    } else {
+        Some(drive.abort_stale_uploads())
+    };
+    std::fs::set_permissions(&shelf, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let Some(swept) = swept else {
+        return;
+    };
+    assert_eq!(
+        swept,
+        0,
+        "an unreadable file is no gone file: {:?}",
+        s3.log()
+    );
+    assert_eq!(state_files(&resume).len(), 1, "the upload is remembered");
+    assert_eq!(s3.uploads().len(), 1, "and not aborted");
+    // Once the file is really gone, the upload goes with it.
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(drive.abort_stale_uploads(), 1);
+    assert!(state_files(&resume).is_empty());
+    assert!(s3.uploads().is_empty());
+}
+
+/// AZ-M14. The sweep of one drive never aborts the upload another thread of the process is
+/// sending, however stale it looks to the drive's clock.
+#[test]
+fn az_m14_a_sweep_never_aborts_an_upload_this_process_is_sending() {
+    let tmp = TempDir::new("multipart-m14-busy");
+    let resume = tmp.path().join("resume");
+    let (path, bytes) = file_with(&tmp, "big.bin", 8, 13);
+    let s3 = FakeBucket::new();
+    s3.slow_parts(Duration::from_millis(150));
+    let sending = {
+        let drive = drive_on(&s3, Some(&resume), NOW);
+        let path = path.clone();
+        std::thread::spawn(move || drive.put_file("big.bin", &path, &no_progress))
+    };
+    // The state file is there once the upload started; its parts take their time.
+    while state_files(&resume).is_empty() {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let swept = drive_on(&s3, Some(&resume), NOW + STALE_AFTER_SECS + 1).abort_stale_uploads();
+    assert_eq!(swept, 0, "{:?}", s3.log());
+    sending.join().unwrap().expect("the upload goes up whole");
+    assert_eq!(s3.object("big.bin").unwrap(), bytes);
+    assert_eq!(s3.count("DELETE abort"), 0, "{:?}", s3.log());
+    assert!(state_files(&resume).is_empty());
+}
