@@ -3320,6 +3320,18 @@ pub enum DebugEvent {
         /// The stylesheet, one array element per line (or a single string).
         #[serde(default)]
         css: TextLines,
+        /// Drop the white space that only lays the markup out: a run of
+        /// white space with a line break in it that stands between two tags
+        /// (or at the start or end of the markup) makes no text node
+        /// ([`collapse_blank_runs`], JSX's rule). Off by default - the
+        /// scenarios under `e2e/` number their nodes with those runs in
+        /// them - and then every newline or indent between two tags is a
+        /// node that takes an id of its own, so the ids of an indented
+        /// document do not count its elements. A space on one line
+        /// (`<b>a</b> <i>b</i>`) and the text inside an element are kept;
+        /// keep `<pre>` and `<textarea>` content on one line.
+        #[serde(default)]
+        collapse_whitespace: bool,
     },
     /// Remove the `mount` override: the next DOM regeneration goes back to the
     /// app's own `layout_callback`.
@@ -4918,18 +4930,85 @@ fn advance_engine_time(callback_info: &mut azul_layout::callbacks::CallbackInfo,
 ///
 /// The CSS is injected as a `<style>` element inside a `<head>` — the XML parser
 /// collects `<style>` text into the cascade and drops `<head>` from the DOM.
+/// With `collapse_whitespace` the markup first goes through
+/// [`collapse_blank_runs`] and the `<body>` it is wrapped in has no line breaks
+/// of its own.
 #[cfg(feature = "std")]
-fn build_mount_document(html: &TextLines, css: &TextLines) -> String {
-    let html_src = html.join();
+fn build_mount_document(html: &TextLines, css: &TextLines, collapse_whitespace: bool) -> String {
+    let html_src = if collapse_whitespace {
+        collapse_blank_runs(&html.join())
+    } else {
+        html.join()
+    };
     let css_src = css.join();
     let trimmed = html_src.trim_start();
     let has_body = trimmed.starts_with("<body") || trimmed.starts_with("<html");
     let body = if has_body {
         html_src.clone()
+    } else if collapse_whitespace {
+        format!("<body>{html_src}</body>")
     } else {
         format!("<body>\n{html_src}\n</body>")
     };
     format!("<html>\n<head>\n<style>\n{css_src}\n</style>\n</head>\n{body}\n</html>")
+}
+
+/// JSX's rule for the white space of markup written across lines: a run of
+/// nothing but white space that contains a line break and stands between two
+/// tags - or before the first or after the last - is not text and is dropped.
+/// Anything else is kept as written: a space on one line between inline
+/// elements, and every non-blank run. The scan walks tags, attribute values,
+/// comments and CDATA as units, so a `>` or a line break inside one is not a
+/// boundary; it does not know `<pre>` or `<textarea>`, whose content it would
+/// treat as any other.
+///
+/// This is the `collapse_whitespace` of the `mount` op ([`DebugEvent::Mount`]):
+/// the line break and the indent between two tags used to be a text node with an
+/// id of its own in every indented document.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn collapse_blank_runs(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut at = 0;
+    while at < src.len() {
+        // The text up to the next markup construct.
+        let lt = src[at..].find('<').map_or(src.len(), |p| at + p);
+        let run = &src[at..lt];
+        if !(run.contains('\n') && run.chars().all(char::is_whitespace)) {
+            out.push_str(run);
+        }
+        if lt >= src.len() {
+            break;
+        }
+        // The construct itself, copied through to its end.
+        let rest = &src[lt..];
+        let len = if rest.starts_with("<!--") {
+            rest.find("-->").map_or(rest.len(), |p| p + 3)
+        } else if rest.starts_with("<![CDATA[") {
+            rest.find("]]>").map_or(rest.len(), |p| p + 3)
+        } else {
+            // A tag, a processing instruction, a doctype: to the first `>`
+            // that is not inside a quoted attribute value.
+            let mut quote: Option<char> = None;
+            let mut end = rest.len();
+            for (offset, c) in rest.char_indices() {
+                match (quote, c) {
+                    (Some(q), c) if c == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, '"' | '\'') => quote = Some(c),
+                    (None, '>') => {
+                        end = offset + 1;
+                        break;
+                    }
+                    (None, _) => {}
+                }
+            }
+            end
+        };
+        out.push_str(&rest[..len]);
+        at = lt + len;
+    }
+    out
 }
 
 /// What a node of a mounted document IS, for a caller that has to know which id
@@ -4986,9 +5065,25 @@ pub struct MountedNode {
 /// The `mount` op's own message when the markup does not parse.
 #[cfg(feature = "std")]
 pub fn mounted_nodes(html: &TextLines, css: &TextLines) -> Result<Vec<MountedNode>, String> {
+    mounted_nodes_with(html, css, false)
+}
+
+/// [`mounted_nodes`] for a `mount` with `collapse_whitespace` ([`DebugEvent::Mount`]):
+/// the nodes the document has once the blank runs between its tags are dropped
+/// ([`collapse_blank_runs`]) - no [`MountedKind::Whitespace`] among them.
+///
+/// # Errors
+///
+/// The `mount` op's own message when the markup does not parse.
+#[cfg(feature = "std")]
+pub fn mounted_nodes_with(
+    html: &TextLines,
+    css: &TextLines,
+    collapse_whitespace: bool,
+) -> Result<Vec<MountedNode>, String> {
     use azul_core::dom::NodeType;
 
-    let xml = build_mount_document(html, css);
+    let xml = build_mount_document(html, css, collapse_whitespace);
     let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml)
         .map_err(|e| format!("mount: XML parse error: {e:?}"))?;
     let node_data = styled_dom.node_data.as_container();
@@ -17181,11 +17276,15 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::Mount { html, css } => {
+        DebugEvent::Mount {
+            html,
+            css,
+            collapse_whitespace,
+        } => {
             if html.is_empty() {
                 send_err(request, "mount: 'html' is empty".to_string());
             } else {
-                let xml = build_mount_document(html, css);
+                let xml = build_mount_document(html, css, *collapse_whitespace);
                 // Validate up-front so a broken test fails at the mount step
                 // rather than silently rendering the app's own DOM.
                 match azul_layout::xml::parse_xml_to_styled_dom(&xml) {

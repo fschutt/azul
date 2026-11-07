@@ -37,9 +37,9 @@ use azul_core::{
     id::NodeId,
     styled_dom::{NodeHierarchyItem, StyledDom},
 };
-use azul_css::props::layout::LayoutDisplay;
+use azul_css::props::{layout::LayoutDisplay, style::StyleWhiteSpace};
 
-use crate::solver3::getters::{get_display_property, MultiValue};
+use crate::solver3::getters::{get_display_property, get_white_space_property, MultiValue};
 
 /// Distinct findings kept alive process-wide. A DOM that is wrong in a
 /// hundred places has one bug, not a hundred; past this the developer is
@@ -122,6 +122,32 @@ impl Finding {
 
 const fn is_text(node_type: &NodeType) -> bool {
     matches!(node_type, NodeType::Text(_))
+}
+
+/// A text run of nothing but ASCII white space (a space, a tab, a line feed, a
+/// carriage return, a form feed): the line break or the indent between two
+/// tags of markup.
+fn is_blank_run(node_type: &NodeType) -> bool {
+    matches!(
+        node_type,
+        NodeType::Text(t) if t.as_str().chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c'))
+    )
+}
+
+/// Whether `parent` collapses the white space of the text under it: the
+/// initial `white-space: normal` and `nowrap` do; `pre`, `pre-wrap`, `pre-line`
+/// and `break-spaces` keep it, and a kept run is rendered.
+fn collapses_white_space(styled_dom: &StyledDom, parent: NodeId) -> bool {
+    let state = &styled_dom.styled_nodes.as_container()[parent].styled_node_state;
+    !matches!(
+        get_white_space_property(styled_dom, parent, state),
+        MultiValue::Exact(
+            StyleWhiteSpace::Pre
+                | StyleWhiteSpace::PreWrap
+                | StyleWhiteSpace::PreLine
+                | StyleWhiteSpace::BreakSpaces
+        )
+    )
 }
 
 fn has_ids_or_classes(data: &azul_core::dom::NodeData) -> bool {
@@ -284,12 +310,26 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
         // block-level child / how many items does it have?" once per parent
         // keeps the pass linear; asking it per text child made a wide parent
         // with several text children quadratic.
+        //
+        // A run of nothing but white space that the parent collapses (the line
+        // break and the indent between two tags of markup) makes no box: CSS 2.1
+        // 9.2.2.1 gives it no anonymous inline box, and a flex or grid container
+        // does not make it an item ("not rendered", Flexbox 4). It is neither a
+        // text child nor an item below - the same indented document no longer
+        // prints a `text-without-block` line per gap (E2E-M4). Asked of the
+        // parent's `white-space` once, and only when such a run is met.
         let mut child_count = 0usize;
         let mut has_text_child = false;
+        let mut collapses: Option<bool> = None;
         let mut child = h.first_child_id(node_id);
         while let Some(cc) = child {
-            child_count += 1;
-            has_text_child |= is_text(node_data[cc].get_node_type());
+            let ty = node_data[cc].get_node_type();
+            let ignorable = is_blank_run(ty)
+                && *collapses.get_or_insert_with(|| collapses_white_space(styled_dom, node_id));
+            if !ignorable {
+                child_count += 1;
+                has_text_child |= is_text(ty);
+            }
             child = hierarchy
                 .get(cc)
                 .and_then(NodeHierarchyItem::next_sibling_id);
@@ -342,7 +382,9 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
 
         let mut child = h.first_child_id(node_id);
         while let Some(cc) = child {
-            if is_text(node_data[cc].get_node_type()) {
+            let ty = node_data[cc].get_node_type();
+            let ignorable = collapses == Some(true) && is_blank_run(ty);
+            if is_text(ty) && !ignorable {
                 found.push((cc.index(), finding));
             }
             child = hierarchy
@@ -767,6 +809,90 @@ mod autotest_generated {
                     .with_child(Dom::create_div()),
             ),
             "",
+        );
+        let w = collect_text_placement_warnings(&sd);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("block-level siblings"), "{w:?}");
+    }
+
+    #[test]
+    fn e2e_m4_a_blank_run_between_flex_items_is_no_item_and_no_finding() {
+        // The indented markup of a mounted document: a line break and an indent
+        // between two items. Not rendered (Flexbox 4), so neither an item nor a
+        // text without a block - it printed a line per gap in every scenario.
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div())
+                    .with_child(raw_text("\n    "))
+                    .with_child(Dom::create_div()),
+            ),
+            "body > div { display: flex; }",
+        );
+        assert_eq!(collect_text_placement_warnings(&sd), Vec::<String>::new());
+    }
+
+    #[test]
+    fn e2e_m4_blank_runs_around_block_siblings_are_no_finding() {
+        // CSS 2.1 9.2.2.1: white space that collapses away generates no anonymous
+        // inline box, so it has no line box to lack.
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(raw_text("\n  "))
+                    .with_child(Dom::create_div())
+                    .with_child(raw_text("\n  \t"))
+                    .with_child(Dom::create_div())
+                    .with_child(raw_text(" ")),
+            ),
+            "",
+        );
+        assert_eq!(collect_text_placement_warnings(&sd), Vec::<String>::new());
+    }
+
+    #[test]
+    fn e2e_m4_real_text_among_blank_runs_is_still_reported_alone() {
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div())
+                    .with_child(raw_text("\n  "))
+                    .with_child(raw_text("title"))
+                    .with_child(raw_text("\n  "))
+                    .with_child(Dom::create_div()),
+            ),
+            "",
+        );
+        let w = collect_text_placement_warnings(&sd);
+        assert_eq!(w.len(), 1, "only the word, not the gaps: {w:?}");
+        assert!(w[0].contains("\"title\""), "{w:?}");
+    }
+
+    #[test]
+    fn e2e_m4_a_word_in_a_flex_wrapper_with_blank_runs_is_still_the_sanctioned_pattern() {
+        // The wrapper has ONE item, the word; the gaps around it count for nothing.
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(raw_text("\n  "))
+                    .with_child(raw_text("flexed"))
+                    .with_child(raw_text("\n")),
+            ),
+            "div { display: flex; }",
+        );
+        assert_eq!(collect_text_placement_warnings(&sd), Vec::<String>::new());
+    }
+
+    #[test]
+    fn e2e_m4_a_blank_run_the_parent_keeps_is_rendered_and_still_a_finding() {
+        // `white-space: pre` keeps the run: it is a box, beside a block sibling.
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div())
+                    .with_child(raw_text("\n")),
+            ),
+            "body > div { white-space: pre; }",
         );
         let w = collect_text_placement_warnings(&sd);
         assert_eq!(w.len(), 1, "{w:?}");

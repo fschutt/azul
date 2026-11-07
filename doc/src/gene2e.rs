@@ -99,7 +99,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use azul_layout::e2e::{
-    closed_param_values, load_e2e_tests, mounted_nodes, parse_debug_event, render_report,
+    closed_param_values, load_e2e_tests, mounted_nodes_with, parse_debug_event, render_report,
     DebugEvent, E2eTest, E2eTestResult, MountedKind, MountedNode, CLOSED_STRING_PARAMS,
     DEAD_CONTROL_MARKER, STALE_SCREEN_MARKER,
 };
@@ -1718,7 +1718,10 @@ almost never the box you mean (in a first batch every numeric id landed on `<htm
 a whitespace run), and the checker REJECTS such an id. The few ops that have no `selector` and
 need a number (`add_timer`, which takes the id of a TEXT node, `click_node`, `get_node_dataset`)
 take the id of the node they name: count it over the whole mounted document, whitespace runs
-included. To recolour or resize the page itself, give the selector `body` or `html`.
+included - unless the `mount` says `"collapse_whitespace": true`, which drops the line break and
+the indent between two tags (JSX's rule; a space on one line and the text inside an element stay):
+no run then takes an id, the ids count only the elements and their text, and the checker counts
+the same way. To recolour or resize the page itself, give the selector `body` or `html`.
 
 Output the JSON object now — nothing else."#
     )
@@ -2392,7 +2395,12 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
         }
         // THE DOCUMENT. `mount` is read with the parser the `mount` op uses; its
         // nodes are what a numeric id will mean once it has landed.
-        if let Some(DebugEvent::Mount { html, css }) = &event {
+        if let Some(DebugEvent::Mount {
+            html,
+            css,
+            collapse_whitespace,
+        }) = &event
+        {
             if html.is_empty() {
                 bail!(
                     "step {i}: `mount` has an empty `html` ({}): the runtime refuses it (\"mount: \
@@ -2401,7 +2409,8 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
                     s.get("html").map_or_else(String::new, ToString::to_string)
                 );
             }
-            let nodes = mounted_nodes(html, css).map_err(|e| anyhow::anyhow!("step {i}: {e}"))?;
+            let nodes = mounted_nodes_with(html, css, *collapse_whitespace)
+                .map_err(|e| anyhow::anyhow!("step {i}: {e}"))?;
             dom.mount(i, nodes);
         }
         if op == "unmount" {
@@ -5806,6 +5815,7 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "WHY NOT A NUMBER",
             "`<html>` (node 0) and `<body>` (node 1)",
             "whitespace text node that takes an id of its own",
+            "unless the `mount` says `\"collapse_whitespace\": true`",
             "the checker REJECTS such an id",
             "`parent_selector`",
             "AFTER that `wait_frame`",
