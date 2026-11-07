@@ -1,7 +1,7 @@
 [
   {
     "name": "deleting files on a drive whose quota is full still commits, and the files that do not fit are listed one by one",
-    "description": "INFOMANIAK-006 (Infomaniak Swiss Backup, trigger a): with the quota full, old backups could not be deleted and no space was freed. Rules V7 and E4 of planning/sync-engine-v1.md: a full quota turns the drive read-only for new bytes, never for the owner's deletes; a file that does not fit is listed (quota-exceeded) and stays here untouched while the rest of the pass goes on. sync-chaos srv-s3-conformance (server side) and res-quota-exceeded.",
+    "description": "INFOMANIAK-006 (Infomaniak Swiss Backup, trigger a): with the quota full, old backups could not be deleted and no space was freed. Rules V7 and E4 of azul-apps/planning/architecture.md §6.10: a full quota turns the drive read-only for new bytes, never for the owner's deletes; a file that does not fit is listed (quota-exceeded) and stays here untouched while the rest of the pass goes on. sync-chaos srv-s3-conformance (server side) and res-quota-exceeded.",
     "steps": [
       { "op": "drive_create", "remote": "r", "encrypted": true },
       { "op": "drive_open", "device": "a", "remote": "r" },
@@ -36,7 +36,7 @@
   },
   {
     "name": "the S3 gateway's own conformance (aws-chunked uploads, Duplicati, restic) is a server property",
-    "description": "INFOMANIAK-006 (triggers b and c): the AWS CLI's aws-chunked uploads were refused and Duplicati got 502 on two clusters. Rule V1 is the S3 service's, proven by sync-chaos srv-s3-conformance in dc mode (azctl test e2e --only aws --only rclone, s3tests).",
+    "description": "INFOMANIAK-006 (triggers b and c): the AWS CLI's aws-chunked uploads were refused and Duplicati got 502 on two clusters. Rule V1 is the storage layer's (azul-apps/planning/architecture.md §6.10): a node lost during an upload loses nothing acknowledged.",
     "not_applicable": "AzDrive's sync talks to its drive through the engine's own Drive interface, not through an S3 client; the gateway's aws-chunked, trailing-checksum and third-party-client conformance is the server's test (sync-chaos srv-s3-conformance, dc mode)",
     "steps": []
   },

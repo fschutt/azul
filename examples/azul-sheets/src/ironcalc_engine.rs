@@ -1,7 +1,7 @@
 //! [`SheetEngine`] on IronCalc 0.9.1 (`ironcalc_base::UserModel` plus the
 //! `ironcalc` xlsx import / export).
 //!
-//! Embedding rules (planning/engines/ironcalc.md): the model is a
+//! Embedding rules: the model is a
 //! `UserModel<'static>` (built from string literals, `Send`), every mutating
 //! call recalculates the workbook, rows and columns are 1-based. The pure
 //! mapping functions between IronCalc's types and the engine trait's are
