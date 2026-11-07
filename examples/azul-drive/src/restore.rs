@@ -10,7 +10,10 @@
 //!   drive that is not (yet) known to be encrypted is asked to be opened first, or encrypted
 //!   first, since the bucket's restore would roll an encrypted drive's every object back.
 //!
-//! AzDrive restores the last [`RESTORE_DAYS`] days (what a node keeps, D38).
+//! AzDrive restores the last [`RESTORE_DAYS`] days: as long as an encrypted drive keeps the
+//! versions of its files (`azul_storage::meta::RETENTION`: ninety days; the reclaimer deletes a
+//! released object only after that), and - for a drive of a build without encrypted drives - what
+//! its node keeps (fourteen days, D38). One owner for the span, not a number of the dialog's own.
 //!
 //! On stdout: `AZDRIVE_RESTORED <drive id> <as of> files|objects <count>`, or `... queued
 //! <request>` when the node had not done it when AzDrive stopped waiting;
@@ -36,8 +39,14 @@ use crate::{
     periods, spawn, with_state, DriveState, Popup, USER_AGENT,
 };
 
-/// How far back AzDrive restores a drive.
-pub(crate) const RESTORE_DAYS: u64 = 14;
+/// How far back AzDrive restores a drive: the span the drive keeps what it released
+/// (`azul_storage::meta::RETENTION`) - the versions of an encrypted drive's files, the trash of a
+/// bucket the node restores itself.
+pub(crate) const RESTORE_DAYS: u64 = if cfg!(feature = "encryption") {
+    azul_storage::meta::RETENTION.versions_days()
+} else {
+    azul_storage::meta::RETENTION.trash_days()
+};
 /// How long the job waits for the drive's node, and how often it asks.
 const WAIT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(2);

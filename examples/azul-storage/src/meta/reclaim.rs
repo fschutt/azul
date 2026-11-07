@@ -920,6 +920,45 @@ impl LiveObjects {
     }
 }
 
+/// Of the pointer files `blobs` (ids in `repo`'s copy, which must hold them), the ones whose data
+/// object is no longer in the bucket: a restore that commits such a pointer names an object that
+/// is gone, and the file it replaces - a good one - would read "its object is missing" from then
+/// on (AZ-U24: the retention had removed the object). A blob that is no pointer, or one of a
+/// newer format, names nothing this can judge and is not reported; a bucket that cannot be asked
+/// is an error, never "it is there". Each object is asked once.
+///
+/// # Errors
+///
+/// The repository's (a blob the copy does not hold) or the bucket's.
+pub fn gone_objects<B: Bucket, S: Sealer>(
+    repo: &MetaRepo<B, S>,
+    blobs: &[GitId],
+) -> Result<Vec<GitId>, MetaError> {
+    let mut asked: HashMap<ObjectId, bool> = HashMap::new();
+    let mut gone = Vec::new();
+    for blob in blobs {
+        let bytes = repo.objects().blob(blob)?;
+        let Ok(entry) = pointer::decode(bytes) else {
+            continue;
+        };
+        let Some(object) = entry.bucket_object() else {
+            continue;
+        };
+        let there = match asked.get(&object) {
+            Some(there) => *there,
+            None => {
+                let there = repo.store().bucket().exists(&object.bucket_key())?;
+                asked.insert(object, there);
+                there
+            }
+        };
+        if !there {
+            gone.push(*blob);
+        }
+    }
+    Ok(gone)
+}
+
 /// What a reclaimer run found and did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReclaimReport {

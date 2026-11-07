@@ -35,7 +35,7 @@ fn a_time_is_a_while_ago_or_a_utc_time_within_the_days_the_drive_keeps() {
     assert_eq!(later.keys(), ["azdrive-restore-in-future"], "{later}");
     let too_old = parse_as_of(&iso8601(NOW - RESTORE_DAYS * 86_400 - 1), NOW).unwrap_err();
     let days = too_old.phrase("azdrive-restore-too-old").and_then(|p| p.get("days"));
-    assert_eq!(days, Some(&Arg::Int(14)), "{too_old}");
+    assert_eq!(days, Some(&Arg::from(RESTORE_DAYS)), "{too_old}");
     let unknown = parse_as_of("soon", NOW).unwrap_err();
     let text = unknown.phrase("azdrive-restore-unknown-time").and_then(|p| p.get("text"));
     assert_eq!(text, Some(&Arg::from("soon")));
@@ -139,4 +139,19 @@ fn x_ar5b_2_an_encrypted_restore_that_failed_is_the_end_of_the_job_not_a_bucket_
         run("d_1", NOW, token_url, &keyring, Some(two_files)).unwrap(),
         Restored::Files(2)
     );
+}
+
+/// X-AR5a-21. The window of "Restore as of..." is the span the drive keeps what it released - the
+/// versions of an encrypted drive's files, ninety days, which the drive's reclaimer honours; the
+/// trash of a bucket the node restores itself, fourteen - read from the one `Retention`, not a
+/// number of the dialog's own (it was fourteen, shorter than the versions' ninety).
+#[test]
+fn x_ar5a_21_the_restore_window_is_the_retention_of_the_kind_of_drive() {
+    let retention = azul_storage::meta::RETENTION;
+    #[cfg(feature = "encryption")]
+    assert_eq!(RESTORE_DAYS, retention.versions_days());
+    #[cfg(not(feature = "encryption"))]
+    assert_eq!(RESTORE_DAYS, retention.trash_days());
+    let inside = NOW - (RESTORE_DAYS - 1) * 86_400;
+    assert_eq!(parse_as_of(&iso8601(inside), NOW), Ok(inside));
 }

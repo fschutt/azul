@@ -134,6 +134,8 @@ pub use reclaim::{
     Caps, Certainty, Deleted, LiveObjects, NotYet, ReclaimMode, ReclaimOptions, ReclaimReport,
     PurgeConfirmation, Reclaimable, Released, ServerClock,
 };
+#[cfg(feature = "encryption")]
+pub use reclaim::gone_objects;
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
 pub use retention::{Retention, RETENTION};
 #[cfg(feature = "encryption")]
@@ -270,6 +272,9 @@ pub enum MetaError {
     LeaseHeld { holder: String, expires_at: u64 },
     /// A git object the repository needs is in none of its packs.
     MissingObject { id: String },
+    /// A stored version whose bytes have left the drive (the retention removed them, or they
+    /// were erased): it can no longer be brought back.
+    Expired { key: String },
 }
 
 impl fmt::Display for MetaError {
@@ -320,6 +325,11 @@ impl fmt::Display for MetaError {
                 "the device {holder} is tidying the index (until {expires_at})"
             ),
             MetaError::MissingObject { id } => write!(f, "the index lacks the object {id}"),
+            MetaError::Expired { key } => write!(
+                f,
+                "the stored version of \"{key}\" is gone: its bytes left the drive when its time \
+                 was over"
+            ),
         }
     }
 }

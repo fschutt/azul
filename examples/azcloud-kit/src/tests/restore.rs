@@ -393,3 +393,164 @@ mod after_a_key_rotation {
         );
     }
 }
+
+// ==== AZ-U24: a restore never names bytes that are gone ====
+
+/// The restore of an encrypted drive after the retention removed some of its objects: the files
+/// it can bring back come back, the ones whose bytes are gone stay as they are and are said.
+#[cfg(feature = "encryption")]
+mod bytes_gone {
+    use azul_storage::{
+        crypto::DriveKey,
+        encrypted::{EncryptedDrive, NameIndex},
+        meta::{merge::keep_both, MemoryBucket, MetaError, MetaIndex, MetaRepo, RepoOptions},
+        Drive,
+    };
+
+    use super::*;
+
+    const DAY: u64 = 86_400;
+
+    /// An encrypted drive over a repository, with a clock the test sets.
+    struct Lab {
+        bucket: MemoryBucket,
+        key: DriveKey,
+        clock: Arc<AtomicU64>,
+        drive: EncryptedDrive<MemoryBucket>,
+    }
+
+    fn reader(clock: &Arc<AtomicU64>) -> impl Fn() -> u64 + Send + Sync + 'static {
+        let clock = Arc::clone(clock);
+        move || clock.load(Ordering::SeqCst)
+    }
+
+    impl Lab {
+        fn new() -> Lab {
+            let clock = Arc::new(AtomicU64::new(T0));
+            let key = DriveKey::generate().unwrap();
+            let bucket = MemoryBucket::new();
+            let repo = MetaRepo::create_with(
+                bucket.clone(),
+                key.clone(),
+                "laptop",
+                "Laptop",
+                &RepoOptions::default(),
+            )
+            .unwrap()
+            .with_clock(reader(&clock));
+            let index: Arc<dyn NameIndex> = Arc::new(MetaIndex::new(repo).with_poll_every(0));
+            let drive = EncryptedDrive::new(bucket.clone(), key.clone(), index);
+            Lab {
+                bucket,
+                key,
+                clock,
+                drive,
+            }
+        }
+
+        fn at(&self, secs: u64) {
+            self.clock.store(secs, Ordering::SeqCst);
+        }
+
+        /// A copy of the repository of its own that judges time by `now`.
+        fn repo(&self, now: u64) -> MetaRepo<MemoryBucket, DriveKey> {
+            MetaRepo::open_with(
+                self.bucket.clone(),
+                self.key.clone(),
+                "restorer",
+                "Restorer",
+                &RepoOptions::default(),
+            )
+            .unwrap()
+            .with_clock(move || now)
+        }
+
+        /// The bucket key of the object `path` names now.
+        fn object_of(&self, path: &str) -> String {
+            self.drive
+                .entry(path)
+                .unwrap()
+                .bucket_object()
+                .unwrap()
+                .bucket_key()
+        }
+    }
+
+    #[test]
+    fn az_u24_restoring_a_drive_does_not_put_back_a_file_whose_bytes_are_gone() {
+        let lab = Lab::new();
+        lab.drive.put("keep.txt", b"keep one").unwrap();
+        lab.drive.put("lost.txt", b"lost one").unwrap();
+        let gone = lab.object_of("lost.txt");
+        lab.at(T0 + 100);
+        lab.drive.put("keep.txt", b"keep two").unwrap();
+        lab.drive.put("lost.txt", b"lost two").unwrap();
+        // The retention removed the first version of lost.txt.
+        lab.drive.inner().delete(&gone).unwrap();
+
+        let mut repo = lab.repo(T0 + 200);
+        let restore = restore_drive_as_of(&mut repo, (T0 + 50) as i64, &mut keep_both)
+            .unwrap()
+            .expect("the drive had a state then");
+        assert_eq!(restore.missing, vec![String::from("lost.txt")]);
+        assert_eq!((restore.restored, restore.removed), (1, 0));
+        assert_eq!(
+            lab.drive.get("keep.txt").unwrap(),
+            b"keep one",
+            "what can come back does"
+        );
+        assert_eq!(
+            lab.drive.get("lost.txt").unwrap(),
+            b"lost two",
+            "and a file whose old bytes are gone stays the good file it is"
+        );
+    }
+
+    #[test]
+    fn az_u24_a_version_whose_bytes_are_gone_is_not_offered_and_not_restored() {
+        let lab = Lab::new();
+        lab.drive.put("a.txt", b"version one").unwrap();
+        let gone = lab.object_of("a.txt");
+        lab.at(T0 + DAY);
+        lab.drive.put("a.txt", b"version two").unwrap();
+        lab.at(T0 + 2 * DAY);
+        lab.drive.put("a.txt", b"version three").unwrap();
+        let now = T0 + 3 * DAY;
+        let before = file_versions(&mut lab.repo(now), "a.txt").unwrap();
+        assert_eq!(before.len(), 3);
+        let first = before[0].id;
+
+        lab.drive.inner().delete(&gone).unwrap();
+        let mut repo = lab.repo(now);
+        let after = file_versions(&mut repo, "a.txt").unwrap();
+        assert_eq!(after.len(), 2, "version one is not offered: {after:?}");
+        let refused = restore_file_version(&mut repo, "a.txt", first, &mut keep_both);
+        assert!(
+            matches!(refused, Err(MetaError::Expired { .. })),
+            "{refused:?}"
+        );
+        assert_eq!(
+            lab.drive.get("a.txt").unwrap(),
+            b"version three",
+            "nothing changed"
+        );
+    }
+
+    #[test]
+    fn x_ar5a_21_only_versions_inside_the_retention_are_offered() {
+        let lab = Lab::new();
+        lab.drive.put("a.txt", b"version one").unwrap();
+        lab.at(T0 + DAY);
+        lab.drive.put("a.txt", b"version two").unwrap();
+        lab.at(T0 + 200 * DAY);
+        lab.drive.put("a.txt", b"version three").unwrap();
+        // 210 days on: version one was replaced 209 days ago, version two 10 days ago.
+        let versions = file_versions(&mut lab.repo(T0 + 210 * DAY), "a.txt").unwrap();
+        assert_eq!(versions.len(), 2, "{versions:?}");
+        assert_eq!(
+            versions[0].at,
+            (T0 + DAY) as i64,
+            "version two, replaced inside the window"
+        );
+    }
+}

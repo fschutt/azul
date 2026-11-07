@@ -2,11 +2,14 @@
 //! repository says it was at a time, as one new commit.
 //!
 //! An encrypted drive's index is a repository that keeps every state of the drive
-//! (azul-storage's `meta`), and it releases no data object, so every file version within the
-//! retention can come back. A restore writes the drive's files as they were at the time on top
-//! of the current head: files changed or deleted since come back, files made since go. Nothing
-//! in between is lost - the drive as it was just before the restore stays in the history and
-//! comes back the same way.
+//! (azul-storage's `meta`), and it deletes no data object before its retention
+//! ([`RETENTION`]: ninety days) is over, so every file version within the retention can come
+//! back. A restore writes the drive's files as they were at the time on top of the current
+//! head: files changed or deleted since come back, files made since go. Nothing in between is
+//! lost - the drive as it was just before the restore stays in the history and comes back the
+//! same way. A version whose bytes are gone from the bucket (the retention removed them, or they
+//! were erased) is neither offered nor put back: a pointer to an object that is not there would
+//! replace a good file with one that cannot be read.
 //!
 //! `.azlin` at the root - the drive's policy and the members' keys - is never restored: a
 //! restore brings back no removed member and no old key.
@@ -23,7 +26,7 @@ use std::{
 use azlin_contract::IdempotentScope;
 use azul_storage::meta::{
     tree::walk, Bucket, Change, Commit, CommitOutcome, Conflict, MetaError, MetaRepo, Mode,
-    ObjectId, Objects, Resolution, Sealer,
+    ObjectId, Objects, Resolution, Sealer, RETENTION,
 };
 
 use crate::{
@@ -44,6 +47,9 @@ pub struct DriveRestore {
     pub restored: usize,
     /// Files taken away (made since).
     pub removed: usize,
+    /// Files that could not come back: their bytes are no longer in the bucket. They stay as
+    /// they are now.
+    pub missing: Vec<String>,
     /// The restore's commit; `None` when the drive was as it was then already.
     pub outcome: Option<CommitOutcome>,
 }
@@ -81,18 +87,61 @@ pub fn restore_drive_as_of<B: Bucket, S: Sealer>(
     let then = repo.objects().commit(&state)?.tree;
     let now = repo.root()?;
     let back = changes_back(repo.objects(), now.as_ref(), &then)?;
-    let outcome = if back.changes.is_empty() {
+    // A file whose bytes are gone stays as it is: its pointer would name an object that is not
+    // there (AZ-U24).
+    let (changes, missing) = keep_restorable(repo, back.changes)?;
+    let outcome = if changes.is_empty() {
         None
     } else {
         let message = format!("Restore the drive as of {}", crate::rfc3339(as_of));
-        Some(repo.commit(&back.changes, &message, resolve)?)
+        Some(repo.commit(&changes, &message, resolve)?)
     };
     Ok(Some(DriveRestore {
         state,
-        restored: back.restored,
+        restored: back.restored.saturating_sub(missing.len()),
         removed: back.removed,
+        missing,
         outcome,
     }))
+}
+
+/// `changes` without the files whose bytes have left the bucket, and the paths of those.
+#[cfg(feature = "encryption")]
+fn keep_restorable<B: Bucket, S: Sealer>(
+    repo: &MetaRepo<B, S>,
+    changes: Vec<Change>,
+) -> Result<(Vec<Change>, Vec<String>), MetaError> {
+    let blobs: Vec<ObjectId> = changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::Put { id, .. } => Some(*id),
+            Change::Folder { .. } | Change::Delete { .. } => None,
+        })
+        .collect();
+    let gone: std::collections::HashSet<ObjectId> = azul_storage::meta::gone_objects(repo, &blobs)?
+        .into_iter()
+        .collect();
+    if gone.is_empty() {
+        return Ok((changes, Vec::new()));
+    }
+    let mut kept = Vec::new();
+    let mut missing = Vec::new();
+    for change in changes {
+        match change {
+            Change::Put { path, id } if gone.contains(&id) => missing.push(path),
+            other => kept.push(other),
+        }
+    }
+    Ok((kept, missing))
+}
+
+/// Without encrypted drives there are no pointers to judge: every change stays.
+#[cfg(not(feature = "encryption"))]
+fn keep_restorable<B: Bucket, S: Sealer>(
+    _repo: &MetaRepo<B, S>,
+    changes: Vec<Change>,
+) -> Result<(Vec<Change>, Vec<String>), MetaError> {
+    Ok((changes, Vec::new()))
 }
 
 /// One stored version of a file of an encrypted drive: its content object, when it became the
@@ -104,9 +153,11 @@ pub struct FileVersion {
     pub device: String,
 }
 
-/// Every version the repository keeps of the file `path`, oldest first: each content the file
-/// had, once per change (a commit that left it as it was adds none; a delete and a later file
-/// of that name are two lives of the name, both listed).
+/// Every version of the file `path` that can still be brought back, oldest first: each content
+/// the file had, once per change (a commit that left it as it was adds none; a delete and a later
+/// file of that name are two lives of the name, both listed) - those inside the retention
+/// ([`RETENTION`]: a version replaced longer ago than that is not offered; the current one always
+/// is) whose bytes are still in the bucket.
 ///
 /// # Errors
 ///
@@ -118,7 +169,14 @@ pub fn file_versions<B: Bucket, S: Sealer>(
     repo.pull()?;
     repo.fetch_all()?;
     let history = repo.history()?;
-    let mut out: Vec<FileVersion> = Vec::new();
+    let window_start = i64::try_from(
+        repo.store()
+            .now()
+            .saturating_sub(RETENTION.versions.as_secs()),
+    )
+    .unwrap_or(i64::MAX);
+    // Oldest first: (the version, the moment the next change replaced it).
+    let mut listed: Vec<(FileVersion, Option<i64>)> = Vec::new();
     let mut last: Option<ObjectId> = None;
     for (_, commit) in history.iter().rev() {
         let now = entries(repo.objects(), Some(&commit.tree))?;
@@ -126,16 +184,54 @@ pub fn file_versions<B: Bucket, S: Sealer>(
             Some((Mode::File, id)) => Some(*id),
             _ => None,
         };
+        if last != id {
+            // A change: the version before it ends here.
+            if let Some((_, ended)) = listed.last_mut() {
+                ended.get_or_insert(commit.committer.time);
+            }
+        }
         if let Some(id) = id.filter(|id| last != Some(*id)) {
-            out.push(FileVersion {
-                id,
-                at: commit.committer.time,
-                device: commit.committer.name.clone(),
-            });
+            listed.push((
+                FileVersion {
+                    id,
+                    at: commit.committer.time,
+                    device: commit.committer.name.clone(),
+                },
+                None,
+            ));
         }
         last = id;
     }
-    Ok(out)
+    let inside: Vec<FileVersion> = listed
+        .into_iter()
+        .filter(|(_, ended)| ended.is_none_or(|ended| ended >= window_start))
+        .map(|(version, _)| version)
+        .collect();
+    drop_gone(repo, inside)
+}
+
+/// `versions` without those whose bytes are no longer in the bucket.
+#[cfg(feature = "encryption")]
+fn drop_gone<B: Bucket, S: Sealer>(
+    repo: &MetaRepo<B, S>,
+    versions: Vec<FileVersion>,
+) -> Result<Vec<FileVersion>, MetaError> {
+    let blobs: Vec<ObjectId> = versions.iter().map(|version| version.id).collect();
+    let gone: std::collections::HashSet<ObjectId> = azul_storage::meta::gone_objects(repo, &blobs)?
+        .into_iter()
+        .collect();
+    Ok(versions
+        .into_iter()
+        .filter(|version| !gone.contains(&version.id))
+        .collect())
+}
+
+#[cfg(not(feature = "encryption"))]
+fn drop_gone<B: Bucket, S: Sealer>(
+    _repo: &MetaRepo<B, S>,
+    versions: Vec<FileVersion>,
+) -> Result<Vec<FileVersion>, MetaError> {
+    Ok(versions)
 }
 
 /// Puts the version `id` of the file `path` back as the drive's (a stored version, or a file
@@ -157,10 +253,20 @@ pub fn restore_file_version<B: Bucket, S: Sealer>(
         )));
     }
     repo.pull()?;
-    let changes = vec![Change::Put {
-        path: path.to_string(),
-        id,
-    }];
+    repo.fetch_all()?;
+    // A version whose bytes are gone is not put back over a good file (AZ-U24).
+    let (changes, missing) = keep_restorable(
+        repo,
+        vec![Change::Put {
+            path: path.to_string(),
+            id,
+        }],
+    )?;
+    if !missing.is_empty() {
+        return Err(MetaError::Expired {
+            key: path.to_string(),
+        });
+    }
     repo.commit(&changes, &format!("Restore {path}"), resolve)
 }
 
