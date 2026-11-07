@@ -913,23 +913,26 @@ for wk, _why, _t, _m in IDLE_FIXTURES:
     else:
         drop("idle/noop-text: widget has no text")
 
-# `idle/noop-class` is HELD, not reworded. `CallbackChange::SetNodeIdsAndClasses`
-# (layout/src/e2e/runner.rs) writes `styled_dom.node_data` and returns
-# `ShouldIncrementalRelayout` — it never calls `StyledDom::restyle`, which is
-# exactly what the CSS-override arm one screen up DOES call ("STALE-SCREEN FIX").
-# So setting the SAME classes and setting COMPLETELY DIFFERENT ones are
-# indistinguishable: zero style change, zero damage, zero regenerations. The
-# family cannot even be repaired by adding a positive control, because no control
-# is constructible with the op. Held until the class path re-cascades.
+# `idle/noop-class` was HELD while `CallbackChange::SetNodeIdsAndClasses`
+# (layout/src/e2e/runner.rs) wrote `styled_dom.node_data` and nothing else: it
+# never re-ran the cascade, so setting the SAME classes and setting COMPLETELY
+# DIFFERENT ones were indistinguishable (zero style change, zero damage) and no
+# positive control was constructible. RELEASED: the arm calls
+# `LayoutWindow::set_node_ids_and_classes`, which restyles from the retained
+# sheet (a colour-only swap changes a pixel: class_swap_tests.rs) and treats the
+# classes a node already has as no change at all (zero layout passes, no damage).
+# The gate below still reads the arm's source for "restyle" and keeps the family
+# held on a checkout whose arm lost it.
 CLASS_RESTYLES = "restyle" in read(os.path.join(ROOT, "layout/src/e2e/runner.rs")).split(
     "CallbackChange::SetNodeIdsAndClasses")[1][:600]
 if CLASS_RESTYLES:
     for wk, _why, _t, _m in IDLE_FIXTURES:
         emit("idle/noop-class",
              "mount %s then call set_node_classes with exactly the class list AND the exact id the "
-             "node already has, assert the accumulated paint damage stays kind \"none\" and no "
-             "pixel differs from the pre-call snapshot; then set a class the stylesheet styles "
-             "differently as a POSITIVE CONTROL and assert THAT does produce damage"
+             "node already has, assert the engine recognises the no-op: ZERO layout passes, the "
+             "accumulated paint damage stays kind \"none\" and no pixel differs from the pre-call "
+             "snapshot; then set a class the stylesheet styles differently as a POSITIVE CONTROL "
+             "and assert THAT does spend a layout pass and does produce damage"
              % WDESC[wk],
              fam=["a", "d"], op="set_node_classes", rank=11)
 else:

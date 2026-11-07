@@ -115,7 +115,9 @@ mod css_override_cost_tests;
 #[cfg(test)]
 mod moved_frame_tests;
 
-// `set_node_classes` must re-run the cascade (R-classes, ignored until fixed).
+// `set_node_classes` re-runs the cascade for the new classes (R-classes): the rules
+// of the class a node has now apply, a colour-only swap changes a pixel, the
+// classes a node already has cost nothing.
 #[cfg(test)]
 mod class_swap_tests;
 

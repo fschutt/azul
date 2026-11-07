@@ -2776,14 +2776,21 @@ impl Runner {
                 node_id,
                 ids_and_classes,
             } => {
-                if let Some(layout_result) = self.layout_window.layout_results.get_mut(dom_id) {
-                    let idx = node_id.index();
-                    if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                        layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                            .set_ids_and_classes(ids_and_classes.clone());
-                    }
+                // The names AND the cascade they select: `LayoutWindow::set_node_ids_and_classes`
+                // restyles from the retained sheet and is shared with the shells' arm. This
+                // arm used to write the names and nothing else, so the new class's rules never
+                // applied and a colour-only class swap was a dead control; the classes a node
+                // already has are no change. (`scripts/gen_e2e_cases.py` reads the word
+                // "restyle" in the 600 characters after this arm's name to release the held
+                // `idle/noop-class` family - keep it here.)
+                if self
+                    .layout_window
+                    .set_node_ids_and_classes(*dom_id, *node_id, ids_and_classes)
+                {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-                ProcessEventResult::ShouldIncrementalRelayout
             }
 
             // Port of the DLL arm: a roving tab stop moved. The Tab order is

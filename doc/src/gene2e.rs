@@ -1625,6 +1625,11 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
      `exact_layout_passes: 0`: write it exactly like that. The positive control "does spend
      a layout pass" is `min_layout_passes: 1` and nothing more: never `exact_layout_passes: 1`
      or `max_layout_passes: 1` unless the line itself says "exactly one" / "at most one".
+   - `set_node_classes` re-matches the stylesheet against the node's new classes: the rules
+     of the classes it has now apply and those of the classes it lost do not (a colour-only
+     swap repaints, so it is a valid positive control, and a `.b:hover` rule is the one the
+     pointer finds afterwards). The window lays out once. Writing the classes (and id) the
+     node already has is a no-op like the re-set value above: zero layout passes, no damage.
    - `virtual_view_size_passes` counts the ONE extra pass a content-sized VirtualView
      (a status-bar label, an icon view - no stated width/height) costs when its
      callback reports a size the solver has not seen: on its first frame, and on a

@@ -25051,6 +25051,84 @@ impl LayoutWindow {
         true
     }
 
+    /// `CallbackChange::SetNodeIdsAndClasses`: the app sets the ids and the
+    /// classes of the node `node_id` of `dom_id` to `ids_and_classes` (the
+    /// WHOLE list: what is not in it is gone). Returns whether anything
+    /// changed; the caller owes the relayout, as with [`Self::set_node_text`].
+    /// ONE function for the shells' arm and the headless E2E runner's.
+    ///
+    /// The names a stylesheet selects by are the node's own, so a new list
+    /// is matched against the author sheet the DOM was created with
+    /// ([`StyledDom::restyle_retained`]): the rules of a class the node has
+    /// now apply, those of one it lost no longer do, `:hover` and the other
+    /// states by the state the node is in (the restyle reads the states), a
+    /// user override (`set_css_property`) stays on top of the cascade. Until
+    /// 2026-11 both arms wrote the names and nothing else: the layout ran,
+    /// the cascade did not, and a colour-only class swap was a dead control
+    /// (`gen-e2e` batch 3, probes `s1`-`s4`).
+    ///
+    /// A list the node already has is no change and costs nothing - the
+    /// order counts, a reordered list is a new one. A sheet that is empty
+    /// has no rule to match: the names change, the cascade does not, and the
+    /// warm layout stays (the reconcile finds the new names by their hash).
+    ///
+    /// With a sheet the layout is cold (`LayoutCache::reset_incremental`, as
+    /// for an inserted node): the reconcile fingerprints a node's own
+    /// data, so the node whose names changed is found, but a rule that
+    /// reaches the NODES AROUND it (`.dark .row`, `.a + .b`, an inherited
+    /// value) changes boxes whose own data did not, and the warm tree would
+    /// keep their old ones. A child DOM (a `VirtualView`'s content) lays out
+    /// cold on its own cache the same way, in the pass that keeps it
+    /// (`content_changed_doms`).
+    ///
+    /// A `::before` / `::after` a class newly asks for gets no node: the
+    /// generated nodes join the tree when the DOM is created.
+    pub fn set_node_ids_and_classes(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        ids_and_classes: &azul_core::dom::IdOrClassVec,
+    ) -> bool {
+        let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+            return false;
+        };
+        let styled_dom = &mut layout_result.styled_dom;
+        {
+            let mut nodes = styled_dom.node_data.as_container_mut();
+            let Some(node) = nodes.get_mut(node_id) else {
+                return false;
+            };
+            if node.get_ids_and_classes() == *ids_and_classes {
+                return false;
+            }
+            node.set_ids_and_classes(ids_and_classes.clone());
+        }
+        // The sheet is the one `restyle_retained` matches; with none there is
+        // nothing a name can select.
+        let selects = !styled_dom
+            .get_css_property_cache()
+            .retained_author_css
+            .is_empty();
+        if selects {
+            styled_dom.restyle_retained();
+        }
+        // The next pass must reconcile: a latch a tween tick armed
+        // (`LayoutCache::overrides_only_hint`) would hand it the retained
+        // tree, and its stamp cannot see the names.
+        self.layout_cache.overrides_only_hint = None;
+        if dom_id == DomId::ROOT_ID {
+            if selects {
+                self.layout_cache.reset_incremental();
+            }
+        } else {
+            self.content_changed_doms.insert(dom_id);
+            if selects {
+                self.child_layout_caches.remove(&dom_id);
+            }
+        }
+        true
+    }
+
     /// The IFC root whose text-overlay entry covers `node_id` - the node
     /// itself or its nearest ancestor holding one (the edit keys the entry to
     /// the caret's inline-layout owner, the value `<p>` of a text field, not

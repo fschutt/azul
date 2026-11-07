@@ -8334,21 +8334,24 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
+            // The names AND the cascade they select: `LayoutWindow::set_node_ids_and_classes`,
+            // shared with the headless E2E runner. This arm used to write the names and
+            // nothing else, so the rules of the new class never applied (a colour-only
+            // class swap showed nothing) while the layout ran for nothing. The classes a
+            // node already has are no change: no relayout is owed for them.
             CallbackChange::SetNodeIdsAndClasses {
                 dom_id,
                 node_id,
                 ids_and_classes,
             } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
-                        let idx = node_id.index();
-                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                                .set_ids_and_classes(ids_and_classes.clone());
-                        }
-                    }
+                let changed = self.get_layout_window_mut().is_some_and(|lw| {
+                    lw.set_node_ids_and_classes(*dom_id, *node_id, ids_and_classes)
+                });
+                if changed {
+                    ProcessEventResult::ShouldIncrementalRelayout
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-                ProcessEventResult::ShouldIncrementalRelayout
             }
 
             // A roving tab stop moved (a composite widget's arrow key). The
