@@ -78,7 +78,10 @@ use azul_storage::{
     packing::{pack_reads, PackUpkeep},
     keyring::KeyringStore,
     scratch::Scratch,
-    meta::{merge::keep_both, DriveBucket, Maintained, Maintenance, MetaIndexProvider, MetaRepo},
+    meta::{
+        merge::keep_both, DriveBucket, Maintained, Maintenance, MetaIndexProvider, MetaRepo,
+        RestoreSource,
+    },
     migrate::{migrate, MigrationState},
     recompress::{run_pass, RecompressPolicy, RecompressState},
     rotation::{self, reencrypt_pass, ReencryptState},
@@ -117,6 +120,15 @@ pub(crate) fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
         .with_cache_root(cache_root)
         .with_lazy(true)
         .with_packing(true)
+}
+
+/// [`meta_provider`] for one drive: its indexes ask `restore` (the drive's restore announcement
+/// as the token server gave it) at every poll and every commit.
+pub(crate) fn restoring_provider(
+    cache_root: Option<PathBuf>,
+    restore: RestoreSource,
+) -> Arc<dyn IndexProvider> {
+    Arc::new(meta_provider(cache_root).with_restore(restore))
 }
 
 /// The run's cache folder (`--cache-dir`, else `<cache>/AzDrive`; `None` in a `--shot` run
@@ -175,16 +187,20 @@ pub(crate) fn objects_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf>
 /// the drives file says of it (`slot` is the drive's id there): a drive recorded as encrypted is
 /// locked without its key, and every time the drive opens encrypted, the id of its key goes to
 /// `records`, for the UI thread to write into the drives file ([`crate::take_key_records`]).
+/// `restore` is the drive's restore announcement (the token server's word, as the drive's last
+/// refresh answered it): the drive's index copy asks it, so a drive the operator restored from
+/// its off-site copy is read anew once instead of being refused as a rollback for good.
 pub(crate) fn wrap(
     drive_id: &str,
     bucket: Arc<dyn Drive>,
     record: EncryptionRecord,
     slot: &str,
     records: &crate::KeyRecords,
+    restore: RestoreSource,
 ) -> Arc<AutoEncrypted> {
     wrap_with(
         Arc::new(azlin_keyring(Asking::User)),
-        index_provider(),
+        Some(restoring_provider(drive_index_root(), restore)),
         drive_id,
         bucket,
         record,
@@ -612,8 +628,9 @@ fn run_maintenance(
     let drive_key = device::unlock(bucket.as_ref(), keyring, drive)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
+    // The round knows the drive: it refuses a manifest older than this computer's copy has seen.
     let maintained = provider
-        .maintain(Arc::clone(bucket), &drive_key, rules)
+        .maintain_drive(drive, Arc::clone(bucket), &drive_key, rules)
         .map_err(|e| e.to_string())?;
     // The packs of small files, when the index's round ran (there is an index): uploads a
     // crash left half done cleared up, sparse packs repacked, retired packs deleted after
@@ -4296,6 +4313,33 @@ mod tests {
             .count();
         assert_eq!(packs_read, 0, "no pack read whole before the first listing");
         assert!(bucket.counts().range_reads > 0);
+    }
+
+    /// AZ-M4. The provider an Azlin drive's slot gets asks the drive's restore announcement (the
+    /// token server's word, as the drive's last refresh answered it) when its index opens: the
+    /// wiring that lets the index copy take an operator's restore once instead of refusing the
+    /// restored drive as a rollback for good.
+    #[test]
+    fn az_m4_the_provider_of_a_slot_asks_the_restore_announcement_of_its_drive() {
+        use azul_storage::{crypto::DriveKey, meta::MemoryBucket};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let asked = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&asked);
+        let provider = restoring_provider(
+            None,
+            RestoreSource::new(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                None
+            }),
+        );
+        let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+        let key = DriveKey::generate().unwrap();
+        provider.open_index("d_restore", bucket, &key).unwrap();
+        assert!(
+            asked.load(Ordering::SeqCst) > 0,
+            "the index asked where the drive's restore stands"
+        );
     }
 
     #[test]

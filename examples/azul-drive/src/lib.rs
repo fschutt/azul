@@ -641,6 +641,14 @@ impl Slot {
                 },
             );
             self.azlin = Some(concrete.clone());
+            // The drive's restore announcement as its last refresh answered it: the drive's index
+            // asks it at every poll and commit (never the bucket: whoever controls the storage
+            // could announce a restore).
+            #[cfg(feature = "encryption")]
+            let restore = {
+                let announcer = concrete.clone();
+                azul_storage::meta::RestoreSource::new(move || announcer.restore_notice())
+            };
             let azlin: Arc<dyn Drive> = connection(concrete);
             // Plain or encrypted: the first call (a worker thread) decides.
             #[cfg(feature = "encryption")]
@@ -670,6 +678,7 @@ impl Slot {
                     self.entry.encryption_record().unwrap_or_default(),
                     &self.entry.id,
                     records,
+                    restore,
                 );
                 self.auto = Some(auto.clone());
                 auto
