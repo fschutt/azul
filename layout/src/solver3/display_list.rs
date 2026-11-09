@@ -8015,6 +8015,18 @@ where
                     y_position
                 );
             }
+
+            // A multi-column container on paged media lays its columns out page
+            // by page (`multicol::plan_paged_columns`): every row after its first
+            // starts a page, whatever the break analysis would make of the lines
+            // it cuts between (widows, orphans, atomic lines).
+            if let Some(record) = self.ctx.cache_map.column_pages.flows.get(&dom_id) {
+                let bp = node.box_props.unpack();
+                let content_top = paint_rect.origin.y + bp.border.top + bp.padding.top;
+                for &top in record.row_tops.iter().filter(|top| **top > 0.0) {
+                    builder.add_forced_page_break(content_top + top, Some(dom_id));
+                }
+            }
         }
 
         // CSS 2.2 §11.2: visibility:hidden — box is invisible but still affects layout.

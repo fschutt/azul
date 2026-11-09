@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use azul_core::{dom::NodeId, geom::LogicalPosition};
 use azul_layout::{solver3::LayoutNodeId, Solver3LayoutCache};
 
-use crate::pagination_dom_breaks::paginate;
+use crate::pagination_dom_breaks::{paginate, paginate_with_policy};
 
 const PAGE: f32 = 200.0;
 const LEAD: f32 = 60.0;
@@ -241,4 +241,39 @@ fn a_page_break_before_a_container_moves_the_page_its_columns_end_on() {
     assert_eq!((pos(3).x, pos(3).y), (0.0, 180.0));
     assert!(pos(4).x > 100.0 && pos(4).y == 60.0, "c4 tops the right column: {:?}", pos(4));
     assert!(pos(8).x == 0.0 && pos(8).y == 220.0, "c8 tops the next page: {:?}", pos(8));
+}
+
+#[test]
+fn the_break_analysis_cuts_the_pages_at_the_rows_whatever_it_honours() {
+    // A PDF is cut with widows, orphans and atomic lines honoured: with the
+    // paragraphs' lines running across the columns the analysis pushed every
+    // page's break up past the rows' ends, and the rows no longer stood on
+    // their pages. A row after the first starts a page, verbatim.
+    let policy = azul_layout::solver3::page_breaks::BreakPolicy {
+        honor_break_inside: true,
+        widows_orphans: true,
+        atomic_lines: true,
+        atomic_table_rows: true,
+        repeat_table_headers: true,
+        ..Default::default()
+    };
+    let text = "Der Papst ist an die göttliche Offenbarung gebunden und an die Tradition, \
+                wie die Kirche seit jeher lehrt. "
+        .repeat(4);
+    let paragraphs: String = (0..16)
+        .map(|i| format!("<p id=\"p{i}\">{text}</p>"))
+        .collect();
+    let html = format!(
+        "<html><head><style>* {{ margin: 0; padding: 0; }} #lead {{ height: 60px }} \
+         .cols {{ column-count: 2; column-gap: 20px; width: 420px; line-height: 20px; \
+         font-size: 14px }} p {{ margin: 0 0 8px 0; orphans: 3; widows: 3; \
+         text-align: justify }}</style></head><body><div id=\"lead\"></div>\
+         <div class=\"cols\">{paragraphs}</div></body></html>"
+    );
+    let (_cache, _dom, pagination) = paginate_with_policy(&html, 800.0, PAGE, policy);
+    let breaks: Vec<f32> = pagination.breaks.as_ref().iter().map(|b| b.y).collect();
+    assert!(
+        breaks.len() >= 3 && breaks.iter().enumerate().all(|(i, y)| *y == PAGE * (i + 1) as f32),
+        "the pages break every {PAGE}px, as the rows are laid out: {breaks:?}"
+    );
 }

@@ -666,6 +666,8 @@ pub struct ColumnFlowRecord {
     pub count: u32,
     /// The height the container's content got in that pass.
     pub height: f32,
+    /// Where its rows start, from its content-box top ([`ColumnPlan::row_tops`]).
+    pub row_tops: Vec<f32>,
 }
 
 /// What the multi-column layout of one pass leaves for the next.
@@ -1055,6 +1057,7 @@ mod tests {
                         boxes: boxes_of(12),
                         count: 2,
                         height: 240.0, // balanced: six boxes a column
+                        row_tops: vec![0.0],
                     },
                 )
             })
@@ -1088,6 +1091,7 @@ mod tests {
                 boxes: boxes_of(12),
                 count: 2,
                 height: 240.0,
+                row_tops: vec![0.0],
             },
         )]
         .into_iter()
@@ -1114,6 +1118,7 @@ mod tests {
                 boxes: boxes_of(4),
                 count: 2,
                 height: 80.0,
+                row_tops: vec![0.0],
             },
         )]
         .into_iter()

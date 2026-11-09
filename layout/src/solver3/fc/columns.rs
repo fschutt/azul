@@ -256,6 +256,7 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
                 boxes: boxes.clone(),
                 count: columns.geometry.count,
                 height: plan.height,
+                row_tops: plan.row_tops.clone(),
             },
         );
     }

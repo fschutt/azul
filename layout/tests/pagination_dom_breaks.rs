@@ -42,6 +42,21 @@ pub(crate) fn paginate(
     azul_core::styled_dom::StyledDom,
     azul_layout::PaginationInfo,
 ) {
+    paginate_with_policy(html, w, h, azul_layout::solver3::page_breaks::BreakPolicy::default())
+}
+
+/// [`paginate`] with the given break-awareness (`BreakPolicy`): the pages of
+/// a PDF are cut with widows, orphans and atomic lines honoured.
+pub(crate) fn paginate_with_policy(
+    html: &str,
+    w: f32,
+    h: f32,
+    policy: azul_layout::solver3::page_breaks::BreakPolicy,
+) -> (
+    Solver3LayoutCache,
+    azul_core::styled_dom::StyledDom,
+    azul_layout::PaginationInfo,
+) {
     let styled_dom = Dom::from_xml_string(html);
     let fc_cache = build_font_cache();
     let mut font_manager = FontManager::new(fc_cache).expect("FontManager");
@@ -90,7 +105,11 @@ pub(crate) fn paginate(
         azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
         font_loader,
-        FakePageConfig::new(),
+        {
+            let mut config = FakePageConfig::new();
+            config.break_policy = policy;
+            config
+        },
         &azul_core::resources::ImageCache::default(),
         azul_core::task::GetSystemTimeCallback {
             cb: azul_core::task::get_system_time_libstd,
