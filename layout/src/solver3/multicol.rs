@@ -687,10 +687,10 @@ pub struct ColumnPages {
     /// The heights of the pages the layout is cut into; `None` = continuous
     /// media (or a caller that does not know them): the columns stay one row.
     pub pages: Option<crate::solver3::page_breaks::PageConstraints>,
-    /// Where the break analysis cut the pages the last time it ran: the
-    /// breaks it pushed up for its avoid rules (widows, orphans, atomic lines)
-    /// are not where the pages' heights alone put them.
-    pub breaks: Vec<f32>,
+    /// How much earlier than [`plan_page_rooms`] counts on the break analysis
+    /// ends the first page of a container: a break it pushed up (widows,
+    /// orphans, atomic lines) moved the page's end - and the pages after it.
+    pub slack: std::collections::BTreeMap<NodeId, f32>,
     /// How often the pages were laid out again for what the break analysis
     /// made of them.
     pub retries: usize,
@@ -718,7 +718,8 @@ impl PageEvent {
 /// has on it, given the canvas of the last pass: `events` as that pass
 /// positioned them, `flows` as it kept them, the first page `first` tall and
 /// every other `rest` (a footer takes room from all but the first), pages
-/// breaking at their heights and at each forced break.
+/// breaking at their heights and at each forced break, the first page of a
+/// container `slack` shorter where the break analysis pushed its end up.
 ///
 /// A container that is laid out over several pages is taller or shorter
 /// than it was, and everything below it moves; the events below it are
@@ -730,6 +731,7 @@ pub fn plan_page_rooms(
     rest: f32,
     events: &[PageEvent],
     flows: &std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
+    slack: &std::collections::BTreeMap<NodeId, f32>,
 ) -> std::collections::BTreeMap<NodeId, f32> {
     let mut rooms = std::collections::BTreeMap::new();
     if !(first.is_finite() && first > 0.0 && rest.is_finite() && rest > 0.0) {
@@ -768,13 +770,22 @@ pub fn plan_page_rooms(
                 };
                 let y = y + shift;
                 advance(&mut page_top, &mut page_height, y, true);
-                let room = page_top + page_height - y;
+                let room = (page_top + page_height - y - slack.get(&node).copied().unwrap_or(0.0))
+                    .max(0.0);
                 let unpaged = plan_columns(&flow.boxes, flow.count, None, ColumnFill::Balance);
                 let height = if unpaged.height <= room + FIT_EPS {
                     unpaged.height
                 } else {
                     rooms.insert(node, room);
-                    plan_paged_columns(&flow.boxes, flow.count, PageRoom { first: room, rest }).height
+                    let plan =
+                        plan_paged_columns(&flow.boxes, flow.count, PageRoom { first: room, rest });
+                    // Its rows start pages (forced breaks): the pages after it go on from
+                    // its last row, not from the grid it started on.
+                    if let Some(&last_row) = plan.row_tops.last() {
+                        page_top = y + last_row;
+                        page_height = rest;
+                    }
+                    plan.height
                 };
                 shift += height - flow.height;
                 advance(&mut page_top, &mut page_height, y + height, false);
@@ -782,6 +793,48 @@ pub fn plan_page_rooms(
         }
     }
     rooms
+}
+
+/// The first container, in the order of the canvas, whose first page the
+/// break analysis cut earlier than its layout counted on - its columns end
+/// at `counted_on`, and a break fell before - and by how much. `breaks` are
+/// the pages' ends as the analysis made them for THIS layout.
+#[must_use]
+pub fn early_page_end(
+    events: &[PageEvent],
+    flows: &std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
+    breaks: &[f32],
+) -> Option<(NodeId, f32)> {
+    let mut containers: Vec<(NodeId, f32)> = events
+        .iter()
+        .filter_map(|event| match *event {
+            PageEvent::Container { node, y } => Some((node, y)),
+            PageEvent::ForcedBreak { .. } => None,
+        })
+        .collect();
+    containers.sort_by(|a, b| a.1.total_cmp(&b.1));
+    for (node, y) in containers {
+        let Some(flow) = flows.get(&node) else {
+            continue;
+        };
+        // Where its first page ends: the second row's top (or the start of
+        // a container that moved to the next page), else the container's end.
+        let counted_on = y + flow
+            .row_tops
+            .iter()
+            .copied()
+            .find(|top| *top > 0.0)
+            .unwrap_or(flow.height);
+        let first_break = breaks
+            .iter()
+            .copied()
+            .filter(|b| *b > y + 1.0)
+            .fold(f32::MAX, f32::min);
+        if first_break < counted_on - 1.0 {
+            return Some((node, counted_on - first_break));
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -1083,7 +1136,7 @@ mod tests {
                 y: 300.0,
             },
         ];
-        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows);
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default());
         assert_eq!(rooms.len(), 2, "{rooms:?}");
         assert!(near(rooms[&NodeId::new(1)], 140.0), "{rooms:?}");
         assert!(near(rooms[&NodeId::new(2)], 80.0), "{rooms:?}");
@@ -1112,7 +1165,7 @@ mod tests {
                 y: 70.0,
             },
         ];
-        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows);
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default());
         assert!(near(rooms[&NodeId::new(1)], 180.0), "{rooms:?}");
     }
 
@@ -1134,6 +1187,72 @@ mod tests {
             node: NodeId::new(1),
             y: 100.0,
         }];
-        assert!(plan_page_rooms(200.0, 200.0, &events, &flows).is_empty());
+        assert!(plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default()).is_empty());
+    }
+    #[test]
+    fn a_break_pushed_up_before_the_end_of_the_first_page_is_its_slack() {
+        use std::collections::BTreeMap;
+        let flows: BTreeMap<NodeId, ColumnFlowRecord> = [(
+            NodeId::new(1),
+            ColumnFlowRecord {
+                boxes: boxes_of(12),
+                count: 2,
+                height: 260.0,
+                row_tops: vec![0.0, 140.0],
+            },
+        )]
+        .into_iter()
+        .collect();
+        let events = [PageEvent::Container {
+            node: NodeId::new(1),
+            y: 60.0,
+        }];
+        // the rows end at 200; the analysis cut the page at 188 instead
+        let early = early_page_end(&events, &flows, &[188.0, 388.0]);
+        assert_eq!(early.map(|(n, e)| (n, e.round())), Some((NodeId::new(1), 12.0)));
+        // a break where the rows end, or none before it, is no slack
+        assert!(early_page_end(&events, &flows, &[200.0, 400.0]).is_none());
+        // and the room takes the slack off
+        let slack: BTreeMap<NodeId, f32> = [(NodeId::new(1), 12.0)].into_iter().collect();
+        let boxes12 = ColumnFlowRecord {
+            boxes: boxes_of(12),
+            count: 2,
+            height: 240.0,
+            row_tops: vec![0.0],
+        };
+        let flows12: BTreeMap<NodeId, ColumnFlowRecord> = [(NodeId::new(1), boxes12)].into_iter().collect();
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows12, &slack);
+        assert!(near(rooms[&NodeId::new(1)], 128.0), "{rooms:?}");
+    }
+    #[test]
+    fn the_pages_after_a_paged_container_go_on_from_its_last_row() {
+        use std::collections::BTreeMap;
+        let record = |height: f32| ColumnFlowRecord {
+            boxes: boxes_of(12),
+            count: 2,
+            height,
+            row_tops: vec![0.0],
+        };
+        let flows: BTreeMap<NodeId, ColumnFlowRecord> =
+            [(NodeId::new(1), record(240.0)), (NodeId::new(2), record(240.0))].into_iter().collect();
+        // 200px pages; the break analysis cut the first container's first page 30px early,
+        // so its rows start pages at 60 + 110 and 60 + 310. The second container, below it,
+        // stands where the first container's new height puts it, on the page that begins
+        // with the first one's last row.
+        let events = [
+            PageEvent::Container { node: NodeId::new(1), y: 60.0 },
+            PageEvent::Container { node: NodeId::new(2), y: 300.0 },
+        ];
+        let slack: BTreeMap<NodeId, f32> = [(NodeId::new(1), 30.0)].into_iter().collect();
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &slack);
+        let first = rooms[&NodeId::new(1)];
+        assert!(near(first, 110.0), "{rooms:?}");
+        // the first container's rows: [0, 110, 310]: the last row starts at 60 + 310 = 370;
+        // the second container, 40px taller below it than it stood (shift), is on that page
+        let plan = plan_paged_columns(&boxes_of(12), 2, PageRoom { first, rest: 200.0 });
+        let last_row_top = 60.0 + plan.row_tops.last().copied().unwrap();
+        let second_y = 300.0 + (plan.height - 240.0);
+        let expected = last_row_top + 200.0 - second_y;
+        assert!(near(rooms[&NodeId::new(2)], expected), "{rooms:?} expected {expected}");
     }
 }

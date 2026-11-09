@@ -223,8 +223,10 @@ fn a_container_below_one_that_spilled_over_a_page_starts_where_that_one_ended() 
 
 #[test]
 fn a_page_break_before_a_container_moves_the_page_its_columns_end_on() {
-    // A forced break at 20px: the pages are 20..220, 220..420. The
-    // container at 60 has 160px on its first page: four boxes a column.
+    // A forced break at 20px: with break-awareness on (a PDF's), the pages
+    // go on from it: 20..220, 220..420. The container at 60 has 160px on its
+    // first page: four boxes a column. (The plain algorithm cuts every 200px
+    // AND at each forced break, 20..200: the layout follows what it cuts.)
     let html = format!(
         "<html><head><style>* {{ margin: 0; padding: 0; }} \
          #lead {{ height: 20px }} #brk {{ height: 40px; page-break-before: always }} \
@@ -234,7 +236,14 @@ fn a_page_break_before_a_container_moves_the_page_its_columns_end_on() {
          <div class=\"cols\">{}</div></body></html>",
         twelve("c")
     );
-    let (cache, dom, _) = paginate(&html, 800.0, PAGE);
+    let config = azul_layout::solver3::pagination::FakePageConfig {
+        break_policy: azul_layout::solver3::page_breaks::BreakPolicy {
+            honor_break_inside: true,
+            ..Default::default()
+        },
+        ..azul_layout::solver3::pagination::FakePageConfig::new()
+    };
+    let (cache, dom, _) = paginate_with_config(&html, 800.0, PAGE, config);
     let pos = |i: usize| layout_box(&cache, &dom, &format!("c{i}")).1;
     // 60..220 holds four boxes a column; the second page balances the rest.
     assert_eq!((pos(0).x, pos(0).y), (0.0, 60.0));

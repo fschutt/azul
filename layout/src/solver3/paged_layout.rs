@@ -563,7 +563,7 @@ where
 
     // Paged Layout
 
-    cache.cache_map.column_pages.breaks.clear();
+    cache.cache_map.column_pages.slack.clear();
     cache.cache_map.column_pages.retries = 0;
 
     // The heights of the pages the layout is cut into: the footer takes room
@@ -733,26 +733,25 @@ where
         let total_content_height = calculate_display_list_height(&full_display_list);
 
         // The pages as the break analysis cut them: the rows of a paged
-        // multi-column container end where it cuts them, and a break it
-        // pushed up (widows, orphans, atomic lines) moves the room the
-        // containers below have on their first page. When it differs from
-        // the rooms the layout worked with, lay the containers out again.
+        // multi-column container end where it cuts them, but a break it pushed
+        // up (widows, orphans, atomic lines) before the end of a container's
+        // first page moves that end - and the pages after it. The first
+        // container whose page it cut short has the layout made again, with
+        // that much less room on its first page.
         cache.cache_map = std::mem::take(&mut ctx.cache_map);
-        if let Some(pages) = pages {
-            let column_pages = &mut cache.cache_map.column_pages;
-            if column_pages.retries < MAX_COLUMN_PAGE_RETRIES && !column_pages.flows.is_empty() {
-                column_pages.breaks = breaks.iter().map(|b| b.y).collect();
-                let rooms = column_page_rooms(cache, new_dom, viewport.size, pages);
-                if !same_rooms(&rooms, &cache.cache_map.column_pages.rooms) {
-                    let mut column_pages = core::mem::take(&mut cache.cache_map.column_pages);
-                    column_pages.retries += 1;
-                    column_pages.rooms = rooms;
-                    cache.cache_map = cache::LayoutCacheMap::default();
-                    cache.cache_map.column_pages = column_pages;
-                    cache.float_cache.clear();
-                    cache.tree = None;
-                    continue;
-                }
+        if pages.is_some() && cache.cache_map.column_pages.retries < MAX_COLUMN_PAGE_RETRIES {
+            let events = canvas_events(cache, new_dom, viewport.size);
+            let ends: Vec<f32> = breaks.iter().map(|b| b.y).collect();
+            let flows = &cache.cache_map.column_pages.flows;
+            if let Some((node, early)) = crate::solver3::multicol::early_page_end(&events, flows, &ends) {
+                let mut column_pages = core::mem::take(&mut cache.cache_map.column_pages);
+                column_pages.retries += 1;
+                *column_pages.slack.entry(node).or_insert(0.0) += early;
+                cache.cache_map = cache::LayoutCacheMap::default();
+                cache.cache_map.column_pages = column_pages;
+                cache.float_cache.clear();
+                cache.tree = None;
+                continue;
             }
         }
         break (full_display_list, slicer_config, breaks, total_content_height);
@@ -872,7 +871,7 @@ const MAX_COLUMN_PAGE_PASSES: usize = 4;
 
 /// How often a paged layout is made again for what the break analysis made of
 /// the pages it laid the multi-column containers out for.
-const MAX_COLUMN_PAGE_RETRIES: usize = 3;
+const MAX_COLUMN_PAGE_RETRIES: usize = 6;
 
 /// One layout pass, repeated while the multi-column containers that do not
 /// fit the page they start on change where everything below them stands.
@@ -942,24 +941,22 @@ fn same_rooms(a: &BTreeMap<NodeId, f32>, b: &BTreeMap<NodeId, f32>) -> bool {
             .all(|((na, ra), (nb, rb))| na == nb && (ra - rb).abs() < 0.5)
 }
 
-/// The room every multi-column container that does not fit its first page
-/// has there, from the canvas the last pass left in `cache`.
-fn column_page_rooms(
+/// What on the canvas the last pass left in `cache` decides where the pages
+/// break: the forced breaks and the multi-column containers.
+fn canvas_events(
     cache: &LayoutCache,
     styled_dom: &StyledDom,
     viewport_size: LogicalSize,
-    pages: crate::solver3::page_breaks::PageConstraints,
-) -> BTreeMap<NodeId, f32> {
+) -> Vec<crate::solver3::multicol::PageEvent> {
     use crate::solver3::{
         getters::{get_break_after, get_break_before, is_forced_page_break},
-        multicol::{column_style, plan_page_rooms, PageEvent},
+        multicol::{column_style, PageEvent},
     };
     let Some(tree) = cache.tree.as_deref() else {
-        return BTreeMap::new();
+        return Vec::new();
     };
     let flows = &cache.cache_map.column_pages.flows;
     let mut events = Vec::new();
-    let mut spans: Vec<(f32, f32)> = Vec::new();
     for (&dom_id, indices) in &tree.dom_to_layout {
         let (Some(&idx), true) = (indices.first(), dom_id.index() < styled_dom.node_data.len())
         else {
@@ -977,28 +974,34 @@ fn column_page_rooms(
             events.push(PageEvent::ForcedBreak { y: pos.y + height });
         }
         let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-        if let (Some(flow), true) = (
-            flows.get(&dom_id),
-            column_style(styled_dom, dom_id, node_state, viewport_size).is_some(),
-        ) {
+        if flows.contains_key(&dom_id)
+            && column_style(styled_dom, dom_id, node_state, viewport_size).is_some()
+        {
             let bp = node.box_props.unpack();
-            let y = pos.y + bp.border.top + bp.padding.top;
-            spans.push((y, y + flow.height));
-            events.push(PageEvent::Container { node: dom_id, y });
+            events.push(PageEvent::Container {
+                node: dom_id,
+                y: pos.y + bp.border.top + bp.padding.top,
+            });
         }
     }
-    // The pages as the break analysis cut them last (its pushes included),
-    // but for the rows of the containers, which it cuts where they say.
-    for &y in &cache.cache_map.column_pages.breaks {
-        if !spans.iter().any(|&(top, bottom)| y > top && y <= bottom + 1.0) {
-            events.push(PageEvent::ForcedBreak { y });
-        }
-    }
-    plan_page_rooms(
+    events
+}
+
+/// The room every multi-column container that does not fit its first page
+/// has there, from the canvas the last pass left in `cache`.
+fn column_page_rooms(
+    cache: &LayoutCache,
+    styled_dom: &StyledDom,
+    viewport_size: LogicalSize,
+    pages: crate::solver3::page_breaks::PageConstraints,
+) -> BTreeMap<NodeId, f32> {
+    let column_pages = &cache.cache_map.column_pages;
+    crate::solver3::multicol::plan_page_rooms(
         pages.first_page_content_height,
         pages.normal_page_content_height,
-        &events,
-        flows,
+        &canvas_events(cache, styled_dom, viewport_size),
+        &column_pages.flows,
+        &column_pages.slack,
     )
 }
 
