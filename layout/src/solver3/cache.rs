@@ -497,6 +497,9 @@ impl NodeCache {
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCacheMap {
     pub entries: Vec<NodeCache>,
+    /// What the multi-column containers of one layout pass leave for the
+    /// next on paged media (`multicol::ColumnPages`).
+    pub column_pages: super::multicol::ColumnPages,
 }
 
 impl LayoutCacheMap {
@@ -522,7 +525,10 @@ impl LayoutCacheMap {
         new_tree: &LayoutTree,
         carried: &HashMap<usize, usize>,
     ) -> Self {
-        let mut remapped = Self::default();
+        let mut remapped = Self {
+            column_pages: core::mem::take(&mut self.column_pages),
+            ..Self::default()
+        };
         remapped.resize_to_tree(new_tree.nodes.len());
         let mut hand_over = |old: usize, new: usize| {
             if old < self.entries.len() && new < remapped.entries.len() {

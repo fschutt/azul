@@ -27,8 +27,8 @@ use crate::{
     font_traits::{ParsedFontTrait, TextLayoutCache},
     paged::FragmentationContext,
     solver3::{
-        cache::LayoutCache, display_list::DisplayList, layout_tree::LayoutNodeId,
-        pagination::FakePageConfig, LayoutContext, LayoutError, Result,
+        cache, cache::LayoutCache, display_list::DisplayList, layout_tree::LayoutNodeId,
+        multicol, pagination::FakePageConfig, LayoutContext, LayoutError, Result,
     },
 };
 
@@ -821,7 +821,125 @@ where
 #[cfg(feature = "text_layout")]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
+/// The most layout passes a paged layout makes (see
+/// [`compute_layout_with_fragmentation`]).
+const MAX_COLUMN_PAGE_PASSES: usize = 4;
+
+/// One layout pass, repeated while the multi-column containers that do not
+/// fit the page they start on change where everything below them stands.
+///
+/// A multi-column container on paged media lays its columns out page by
+/// page, and so how tall it is depends on how much of its first page is
+/// left where it starts - which no box knows while it is laid out. Every
+/// pass lays the containers out with the rooms the pass before worked out
+/// from where it positioned them (`multicol::plan_page_rooms`); the first
+/// pass has none, and a document without a container that spills over a
+/// page is laid out once.
 fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
+    cache: &mut LayoutCache,
+    text_cache: &mut TextLayoutCache,
+    fragmentation_context: &mut FragmentationContext,
+    new_dom: &StyledDom,
+    viewport: LogicalRect,
+    font_manager: &crate::font_traits::FontManager<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    image_cache: &azul_core::resources::ImageCache,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    print_timing: bool,
+) -> Result<()> {
+    for pass in 1..=MAX_COLUMN_PAGE_PASSES {
+        compute_layout_pass(
+            cache,
+            text_cache,
+            fragmentation_context,
+            new_dom,
+            viewport,
+            font_manager,
+            debug_messages,
+            image_cache,
+            get_system_time_fn,
+            print_timing,
+        )?;
+        if !fragmentation_context.is_paged() {
+            return Ok(());
+        }
+        let rooms = column_page_rooms(
+            cache,
+            new_dom,
+            viewport.size,
+            fragmentation_context.page_content_height(),
+        );
+        if same_rooms(&rooms, &cache.cache_map.column_pages.rooms) || pass == MAX_COLUMN_PAGE_PASSES
+        {
+            return Ok(());
+        }
+        // Again from scratch: the containers' layouts are not the ones their
+        // new rooms make.
+        let flows = core::mem::take(&mut cache.cache_map.column_pages.flows);
+        cache.cache_map = cache::LayoutCacheMap::default();
+        cache.cache_map.column_pages = multicol::ColumnPages { rooms, flows };
+        cache.float_cache.clear();
+        cache.tree = None;
+    }
+    Ok(())
+}
+
+/// Whether two sets of rooms are the same to the pixel.
+fn same_rooms(a: &BTreeMap<NodeId, f32>, b: &BTreeMap<NodeId, f32>) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|((na, ra), (nb, rb))| na == nb && (ra - rb).abs() < 0.5)
+}
+
+/// The room every multi-column container that does not fit its first page
+/// has there, from the canvas the last pass left in `cache`.
+fn column_page_rooms(
+    cache: &LayoutCache,
+    styled_dom: &StyledDom,
+    viewport_size: LogicalSize,
+    page: f32,
+) -> BTreeMap<NodeId, f32> {
+    use crate::solver3::{
+        getters::{get_break_after, get_break_before, is_forced_page_break},
+        multicol::{column_style, plan_page_rooms, PageEvent},
+    };
+    let Some(tree) = cache.tree.as_deref() else {
+        return BTreeMap::new();
+    };
+    let flows = &cache.cache_map.column_pages.flows;
+    let mut events = Vec::new();
+    for (&dom_id, indices) in &tree.dom_to_layout {
+        let (Some(&idx), true) = (indices.first(), dom_id.index() < styled_dom.node_data.len())
+        else {
+            continue;
+        };
+        let (Some(pos), Some(node)) = (cache.calculated_positions.get(idx.index()), tree.get(idx))
+        else {
+            continue;
+        };
+        let height = node.used_size.map_or(0.0, |size| size.height);
+        if is_forced_page_break(get_break_before(styled_dom, Some(dom_id))) {
+            events.push(PageEvent::ForcedBreak { y: pos.y });
+        }
+        if is_forced_page_break(get_break_after(styled_dom, Some(dom_id))) {
+            events.push(PageEvent::ForcedBreak { y: pos.y + height });
+        }
+        let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        if flows.contains_key(&dom_id)
+            && column_style(styled_dom, dom_id, node_state, viewport_size).is_some()
+        {
+            let bp = node.box_props.unpack();
+            events.push(PageEvent::Container {
+                node: dom_id,
+                y: pos.y + bp.border.top + bp.padding.top,
+            });
+        }
+    }
+    plan_page_rooms(page, &events, flows)
+}
+
+fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
     fragmentation_context: &mut FragmentationContext,

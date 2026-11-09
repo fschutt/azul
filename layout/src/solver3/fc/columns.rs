@@ -88,6 +88,15 @@ pub(super) struct BlockColumns {
     definite_height: Option<f32>,
     /// `direction: rtl`: the columns run right to left.
     rtl: bool,
+    /// The container, whose flow the next layout pass learns from.
+    dom_id: NodeId,
+    /// The page height when the container is laid out on paged media with
+    /// columns of its own height - its columns then wrap from page to page
+    /// (`multicol::plan_paged_columns`); `None` in continuous media.
+    page: Option<f32>,
+    /// The room the first page leaves its columns, when it is too little for
+    /// the whole container (`multicol::ColumnPages::rooms`).
+    first_room: Option<f32>,
 }
 
 /// The content extent of a multi-column container's columns.
@@ -142,12 +151,22 @@ pub(super) fn block_columns<T: ParsedFontTrait>(
         get_direction_property(ctx.styled_dom, dom_id, node_state),
         MultiValue::Exact(StyleDirection::Rtl)
     );
+    let page = ctx
+        .fragmentation_context
+        .as_deref()
+        .filter(|fragmentation| fragmentation.is_paged())
+        .map(|fragmentation| fragmentation.page_content_height())
+        .filter(|_| definite_height.is_none());
+    let first_room = page.and_then(|_| ctx.cache_map.column_pages.rooms.get(&dom_id).copied());
     Some(BlockColumns {
         geometry: style.geometry(content_box.width),
         style,
         content_width: content_box.width,
         definite_height,
         rtl,
+        dom_id,
+        page,
+        first_room,
     })
 }
 
@@ -173,7 +192,9 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
     floats: &FloatingContext,
     constraints: &LayoutConstraints<'_>,
 ) -> Result<ColumnsExtent> {
-    use crate::solver3::multicol::{plan_columns, FlowBox};
+    use crate::solver3::multicol::{
+        plan_columns, plan_paged_columns, ColumnFlowRecord, FlowBox, PageRoom,
+    };
 
     // The heights the floats' margin boxes span, in the single column.
     let float_spans: Vec<(f32, f32)> = floats
@@ -217,12 +238,27 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
     }
 
     let boxes: Vec<FlowBox> = flow.iter().map(|(_, b)| b.clone()).collect();
-    let plan = plan_columns(
-        &boxes,
-        columns.geometry.count,
-        columns.definite_height,
-        columns.style.fill,
-    );
+    let plan = match (columns.page, columns.first_room) {
+        (Some(rest), Some(first)) => {
+            plan_paged_columns(&boxes, columns.geometry.count, PageRoom { first, rest })
+        }
+        _ => plan_columns(
+            &boxes,
+            columns.geometry.count,
+            columns.definite_height,
+            columns.style.fill,
+        ),
+    };
+    if columns.page.is_some() {
+        ctx.cache_map.column_pages.flows.insert(
+            columns.dom_id,
+            ColumnFlowRecord {
+                boxes: boxes.clone(),
+                count: columns.geometry.count,
+                height: plan.height,
+            },
+        );
+    }
     let column_x = |k: usize| {
         columns
             .geometry
@@ -233,10 +269,31 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
         let k = placement.column;
         let start = plan.starts.get(k).copied().unwrap_or(0.0);
         if let Some(pos) = positions.get_mut(child) {
-            *pos = LogicalPosition::new(pos.x + column_x(k), pos.y - start);
+            *pos = LogicalPosition::new(
+                pos.x + column_x(plan.lane(k)),
+                pos.y - start + plan.row_top(k),
+            );
         }
         if !placement.line_breaks.is_empty() {
             let next_start = plan.starts.get(k + 1).copied().unwrap_or(flow_box.bottom);
+            let content_top = flow_box.top
+                + tree
+                    .get(LayoutNodeId::new(*child))
+                    .map_or(0.0, |n| {
+                        let bp = n.box_props.unpack();
+                        bp.border.top + bp.padding.top
+                    });
+            // Where each further column of the paragraph starts, seen from
+            // the paragraph's content-box top and first column.
+            let places = (1..=placement.line_breaks.len())
+                .map(|n| {
+                    let j = k + n;
+                    crate::text3::cache::ColumnPlace {
+                        dx: column_x(plan.lane(j)) - column_x(plan.lane(k)),
+                        top: plan.row_top(j) - plan.row_top(k) + start - content_top,
+                    }
+                })
+                .collect();
             split_into_columns(
                 ctx,
                 tree,
@@ -244,10 +301,11 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
                 float_cache,
                 *child,
                 flow_box,
-                start,
                 next_start,
-                &placement.line_breaks,
-                columns,
+                crate::text3::cache::ColumnFlow {
+                    breaks: placement.line_breaks.clone(),
+                    places,
+                },
                 constraints,
             )?;
         }
@@ -256,12 +314,15 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
         if let Some(pos) = positions.get_mut(&child) {
             let k = plan.column_at(pos.y);
             let start = plan.starts.get(k).copied().unwrap_or(0.0);
-            *pos = LogicalPosition::new(pos.x + column_x(k), pos.y - start);
+            *pos = LogicalPosition::new(
+                pos.x + column_x(plan.lane(k)),
+                pos.y - start + plan.row_top(k),
+            );
         }
     }
 
     let width = (0..plan.starts.len())
-        .map(|k| column_x(k) + columns.geometry.width)
+        .map(|k| column_x(plan.lane(k)) + columns.geometry.width)
         .fold(columns.content_width, f32::max);
     Ok(ColumnsExtent {
         height: plan.height,
@@ -327,10 +388,10 @@ pub(super) fn splittable_lines<T: ParsedFontTrait>(
 }
 
 /// Lays the paragraph at `child` out again as one piece of its
-/// multi-column container's flow: from each line index in `line_breaks` on
-/// its lines continue at the top of the next column
+/// multi-column container's flow: from each line index in `column_flow`
+/// on its lines continue at the top of the next column
 /// (`text3::cache::ColumnFlow`), and its box keeps the part in its first
-/// column (`column_start..next_column_start` on the flow). The lines break
+/// column (down to `next_column_start` on the flow). The lines break
 /// exactly as in the single column - same width, same content - so the
 /// plan made on that layout holds.
 #[allow(clippy::too_many_arguments)] // one layout step, the layout state it needs
@@ -341,10 +402,8 @@ pub(super) fn split_into_columns<T: ParsedFontTrait>(
     float_cache: &mut HashMap<usize, FloatingContext>,
     child: usize,
     flow_box: &crate::solver3::multicol::FlowBox,
-    column_start: f32,
     next_column_start: f32,
-    line_breaks: &[usize],
-    columns: &BlockColumns,
+    column_flow: crate::text3::cache::ColumnFlow,
     constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     let node = tree
@@ -353,7 +412,6 @@ pub(super) fn split_into_columns<T: ParsedFontTrait>(
     let size = node.used_size.unwrap_or_default();
     let bp = node.box_props.unpack();
     let content_size = bp.inner_size(size, LayoutWritingMode::HorizontalTb);
-    let content_top = flow_box.top + bp.border.top + bp.padding.top;
 
     let mut bfc_state = BfcState::new();
     let split_constraints = LayoutConstraints {
@@ -365,13 +423,7 @@ pub(super) fn split_into_columns<T: ParsedFontTrait>(
         containing_block_size: constraints.containing_block_size,
         available_width_type: Text3AvailableSpace::Definite(content_size.width),
         fragmentainer: None,
-        column_flow: Some(crate::text3::cache::ColumnFlow {
-            breaks: line_breaks.to_vec(),
-            advance: columns.geometry.advance(columns.rtl),
-            // Every further column's top, from this paragraph's content
-            // top: as far up as the paragraph starts below its column's.
-            column_top: column_start - content_top,
-        }),
+        column_flow: Some(column_flow),
     };
     let split = layout_formatting_context(
         ctx,
