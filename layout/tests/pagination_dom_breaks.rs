@@ -42,16 +42,17 @@ pub(crate) fn paginate(
     azul_core::styled_dom::StyledDom,
     azul_layout::PaginationInfo,
 ) {
-    paginate_with_policy(html, w, h, azul_layout::solver3::page_breaks::BreakPolicy::default())
+    paginate_with_config(html, w, h, FakePageConfig::new())
 }
 
-/// [`paginate`] with the given break-awareness (`BreakPolicy`): the pages of
-/// a PDF are cut with widows, orphans and atomic lines honoured.
-pub(crate) fn paginate_with_policy(
+/// [`paginate`] with the given page setup: a PDF's pages are cut with widows,
+/// orphans and atomic lines honoured, and a footer takes room from all of them
+/// but the first.
+pub(crate) fn paginate_with_config(
     html: &str,
     w: f32,
     h: f32,
-    policy: azul_layout::solver3::page_breaks::BreakPolicy,
+    page_config: FakePageConfig,
 ) -> (
     Solver3LayoutCache,
     azul_core::styled_dom::StyledDom,
@@ -105,11 +106,7 @@ pub(crate) fn paginate_with_policy(
         azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
         font_loader,
-        {
-            let mut config = FakePageConfig::new();
-            config.break_policy = policy;
-            config
-        },
+        page_config,
         &azul_core::resources::ImageCache::default(),
         azul_core::task::GetSystemTimeCallback {
             cb: azul_core::task::get_system_time_libstd,

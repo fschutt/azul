@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use azul_core::{dom::NodeId, geom::LogicalPosition};
 use azul_layout::{solver3::LayoutNodeId, Solver3LayoutCache};
 
-use crate::pagination_dom_breaks::{paginate, paginate_with_policy};
+use crate::pagination_dom_breaks::{paginate, paginate_with_config};
 
 const PAGE: f32 = 200.0;
 const LEAD: f32 = 60.0;
@@ -245,11 +245,17 @@ fn a_page_break_before_a_container_moves_the_page_its_columns_end_on() {
 
 #[test]
 fn the_break_analysis_cuts_the_pages_at_the_rows_whatever_it_honours() {
-    // A PDF is cut with widows, orphans and atomic lines honoured: with the
-    // paragraphs' lines running across the columns the analysis pushed every
-    // page's break up past the rows' ends, and the rows no longer stood on
-    // their pages. A row after the first starts a page, verbatim.
-    let policy = azul_layout::solver3::page_breaks::BreakPolicy {
+    // A PDF is cut with widows, orphans and atomic lines honoured, and a
+    // footer takes room from every page but the first: with the lines of a
+    // paragraph running across the columns the analysis pushed every page's
+    // break up past the rows' ends, and the rows no longer stood on their
+    // pages. The rows are as tall as the pages are, and a row after the
+    // first starts a page, verbatim.
+    let mut config = azul_layout::solver3::pagination::FakePageConfig::new()
+        .with_footer_page_numbers();
+    config.skip_first_page = true;
+    config.footer_height = 30.0;
+    config.break_policy = azul_layout::solver3::page_breaks::BreakPolicy {
         honor_break_inside: true,
         widows_orphans: true,
         atomic_lines: true,
@@ -270,10 +276,14 @@ fn the_break_analysis_cuts_the_pages_at_the_rows_whatever_it_honours() {
          text-align: justify }}</style></head><body><div id=\"lead\"></div>\
          <div class=\"cols\">{paragraphs}</div></body></html>"
     );
-    let (_cache, _dom, pagination) = paginate_with_policy(&html, 800.0, PAGE, policy);
+    let (_cache, _dom, pagination) = paginate_with_config(&html, 800.0, PAGE, config);
     let breaks: Vec<f32> = pagination.breaks.as_ref().iter().map(|b| b.y).collect();
+    let expected: Vec<f32> = (0..breaks.len())
+        .map(|i| PAGE + i as f32 * (PAGE - 30.0))
+        .collect();
     assert!(
-        breaks.len() >= 3 && breaks.iter().enumerate().all(|(i, y)| *y == PAGE * (i + 1) as f32),
-        "the pages break every {PAGE}px, as the rows are laid out: {breaks:?}"
+        breaks.len() >= 3 && breaks == expected,
+        "the first page is {PAGE}px, the others {}px: {breaks:?}",
+        PAGE - 30.0
     );
 }

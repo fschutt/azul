@@ -152,10 +152,10 @@ pub(super) fn block_columns<T: ParsedFontTrait>(
         MultiValue::Exact(StyleDirection::Rtl)
     );
     let page = ctx
-        .fragmentation_context
-        .as_deref()
-        .filter(|fragmentation| fragmentation.is_paged())
-        .map(|fragmentation| fragmentation.page_content_height())
+        .cache_map
+        .column_pages
+        .pages
+        .map(|pages| pages.normal_page_content_height)
         .filter(|_| definite_height.is_none());
     let first_room = page.and_then(|_| ctx.cache_map.column_pages.rooms.get(&dom_id).copied());
     Some(BlockColumns {

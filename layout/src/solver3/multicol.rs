@@ -684,6 +684,16 @@ pub struct ColumnPages {
     pub rooms: std::collections::BTreeMap<NodeId, f32>,
     /// The flow of every multi-column block container of the last pass.
     pub flows: std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
+    /// The heights of the pages the layout is cut into; `None` = continuous
+    /// media (or a caller that does not know them): the columns stay one row.
+    pub pages: Option<crate::solver3::page_breaks::PageConstraints>,
+    /// Where the break analysis cut the pages the last time it ran: the
+    /// breaks it pushed up for its avoid rules (widows, orphans, atomic lines)
+    /// are not where the pages' heights alone put them.
+    pub breaks: Vec<f32>,
+    /// How often the pages were laid out again for what the break analysis
+    /// made of them.
+    pub retries: usize,
 }
 
 /// One thing on the canvas that decides where the pages break, in the
@@ -706,8 +716,9 @@ impl PageEvent {
 
 /// The room each multi-column container that does not fit its first page
 /// has on it, given the canvas of the last pass: `events` as that pass
-/// positioned them, `flows` as it kept them, pages `page` tall that break
-/// every `page` px and at each forced break.
+/// positioned them, `flows` as it kept them, the first page `first` tall and
+/// every other `rest` (a footer takes room from all but the first), pages
+/// breaking at their heights and at each forced break.
 ///
 /// A container that is laid out over several pages is taller or shorter
 /// than it was, and everything below it moves; the events below it are
@@ -715,36 +726,40 @@ impl PageEvent {
 /// restarts them.
 #[must_use]
 pub fn plan_page_rooms(
-    page: f32,
+    first: f32,
+    rest: f32,
     events: &[PageEvent],
     flows: &std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
 ) -> std::collections::BTreeMap<NodeId, f32> {
     let mut rooms = std::collections::BTreeMap::new();
-    if !(page.is_finite() && page > 0.0) {
+    if !(first.is_finite() && first > 0.0 && rest.is_finite() && rest > 0.0) {
         return rooms;
     }
     let mut events: Vec<&PageEvent> = events.iter().collect();
     events.sort_by(|a, b| a.y().total_cmp(&b.y()));
 
     let mut shift = 0.0_f32;
+    // The page being filled: where it starts and how tall it is.
     let mut page_top = 0.0_f32;
-    // Moves `page_top` to the page `y` is on; an end (`inclusive` false)
-    // on a boundary is still on the page before it.
-    let advance = |page_top: &mut f32, y: f32, starts_here: bool| {
-        let boundary = |top: f32| top + page;
-        while (starts_here && boundary(*page_top) <= y + FIT_EPS)
-            || (!starts_here && boundary(*page_top) < y - FIT_EPS)
+    let mut page_height = first;
+    // Moves to the page `y` is on; an end (`starts_here` false) on a
+    // boundary is still on the page before it.
+    let advance = |page_top: &mut f32, page_height: &mut f32, y: f32, starts_here: bool| {
+        while (starts_here && *page_top + *page_height <= y + FIT_EPS)
+            || (!starts_here && *page_top + *page_height < y - FIT_EPS)
         {
-            *page_top += page;
+            *page_top += *page_height;
+            *page_height = rest;
         }
     };
     for event in events {
         match *event {
             PageEvent::ForcedBreak { y } => {
                 let y = y + shift;
-                advance(&mut page_top, y, true);
+                advance(&mut page_top, &mut page_height, y, true);
                 if y > page_top + FIT_EPS {
                     page_top = y;
+                    page_height = rest;
                 }
             }
             PageEvent::Container { node, y } => {
@@ -752,25 +767,17 @@ pub fn plan_page_rooms(
                     continue;
                 };
                 let y = y + shift;
-                advance(&mut page_top, y, true);
-                let room = page_top + page - y;
+                advance(&mut page_top, &mut page_height, y, true);
+                let room = page_top + page_height - y;
                 let unpaged = plan_columns(&flow.boxes, flow.count, None, ColumnFill::Balance);
                 let height = if unpaged.height <= room + FIT_EPS {
                     unpaged.height
                 } else {
                     rooms.insert(node, room);
-                    plan_paged_columns(
-                        &flow.boxes,
-                        flow.count,
-                        PageRoom {
-                            first: room,
-                            rest: page,
-                        },
-                    )
-                    .height
+                    plan_paged_columns(&flow.boxes, flow.count, PageRoom { first: room, rest }).height
                 };
                 shift += height - flow.height;
-                advance(&mut page_top, y + height, false);
+                advance(&mut page_top, &mut page_height, y + height, false);
             }
         }
     }
@@ -1076,7 +1083,7 @@ mod tests {
                 y: 300.0,
             },
         ];
-        let rooms = plan_page_rooms(200.0, &events, &flows);
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows);
         assert_eq!(rooms.len(), 2, "{rooms:?}");
         assert!(near(rooms[&NodeId::new(1)], 140.0), "{rooms:?}");
         assert!(near(rooms[&NodeId::new(2)], 80.0), "{rooms:?}");
@@ -1105,7 +1112,7 @@ mod tests {
                 y: 70.0,
             },
         ];
-        let rooms = plan_page_rooms(200.0, &events, &flows);
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows);
         assert!(near(rooms[&NodeId::new(1)], 180.0), "{rooms:?}");
     }
 
@@ -1127,6 +1134,6 @@ mod tests {
             node: NodeId::new(1),
             y: 100.0,
         }];
-        assert!(plan_page_rooms(200.0, &events, &flows).is_empty());
+        assert!(plan_page_rooms(200.0, 200.0, &events, &flows).is_empty());
     }
 }

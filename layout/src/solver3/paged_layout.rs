@@ -506,6 +506,7 @@ where
             image_cache,
             get_system_time_fn,
             print_timing,
+            None,
         )?;
 
         // Generate display list from cached tree/positions
@@ -562,154 +563,200 @@ where
 
     // Paged Layout
 
-    // Perform layout with fragmentation context (layout only, no display list)
-    let p_layout = crate::probe::Probe::span("paged_layout_pass");
-    compute_layout_with_fragmentation(
-        cache,
-        text_cache,
-        &mut fragmentation_context,
-        new_dom,
-        viewport,
-        font_manager,
-        debug_messages,
-        image_cache,
-        get_system_time_fn,
-        print_timing,
-    )?;
+    cache.cache_map.column_pages.breaks.clear();
+    cache.cache_map.column_pages.retries = 0;
 
-    // Get the layout tree and positions
-    let tree = cache.tree.as_deref().ok_or(LayoutError::InvalidTree)?;
-    let calculated_positions = &cache.calculated_positions;
+    // The heights of the pages the layout is cut into: the footer takes room
+    // from every page but the first (`PageConstraints`). Multi-column blocks
+    // lay their columns out page by page against them.
+    let pages = page_config
+        .page_sequence
+        .clone()
+        .into_option()
+        .is_none()
+        .then(|| {
+            page_breaks::PageConstraints::new(
+                page_content_height,
+                &page_config.to_header_footer_config(),
+            )
+        });
 
-    // Debug: log page layout info
-    if let Some(msgs) = debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!(
-            "[PagedLayout] Page content height: {page_content_height}"
-        )));
-    }
+    let (full_display_list, slicer_config, breaks, total_content_height) = loop {
+        // Perform layout with fragmentation context (layout only, no display list)
+        let p_layout = crate::probe::Probe::span("paged_layout_pass");
+        compute_layout_with_fragmentation(
+            cache,
+            text_cache,
+            &mut fragmentation_context,
+            new_dom,
+            viewport,
+            font_manager,
+            debug_messages,
+            image_cache,
+            get_system_time_fn,
+            print_timing,
+            pages,
+        )?;
 
-    // Use scroll IDs computed by compute_layout_with_fragmentation (stored in cache)
-    let scroll_ids = &cache.scroll_ids;
+        // Get the layout tree and positions
+        let tree = cache.tree.as_deref().ok_or(LayoutError::InvalidTree)?;
+        let calculated_positions = &cache.calculated_positions;
 
-    // Create temporary context for display list generation
-    let mut counter_values = cache.counters.clone();
-    let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
-    let mut ctx = LayoutContext {
-        owner_colors: Default::default(),
-        seat_focus_rings: Vec::new(),
-        paint_selection_handles: false,
-        reflowed_ifcs: std::collections::BTreeSet::new(),
-        style_cache: Default::default(),
-        virtual_view_sizes: None,
-        scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
-        styled_dom: new_dom,
-        font_manager: &*font_manager,
-        text_selections: &empty_text_selections,
-        debug_messages,
-        counters: &mut counter_values,
-        viewport_size: viewport.size,
-        canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
-        fragmentation_context: Some(&mut fragmentation_context),
-        cursor_is_visible: true,      // Paged layout: cursor always visible
-        cursor_locations: Vec::new(), // Paged layout: no cursor
-        preedit_text: None,
-        cache_map: std::mem::take(&mut cache.cache_map),
-        image_cache,
-        content_overlay: None,
-        system_style: None,
-        get_system_time_fn,
+        // Debug: log page layout info
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[PagedLayout] Page content height: {page_content_height}"
+            )));
+        }
+
+        // Use scroll IDs computed by compute_layout_with_fragmentation (stored in cache)
+        let scroll_ids = &cache.scroll_ids;
+
+        // Create temporary context for display list generation
+        let mut counter_values = cache.counters.clone();
+        let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
+        let mut ctx = LayoutContext {
+            owner_colors: Default::default(),
+            seat_focus_rings: Vec::new(),
+            paint_selection_handles: false,
+            reflowed_ifcs: std::collections::BTreeSet::new(),
+            style_cache: Default::default(),
+            virtual_view_sizes: None,
+            scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+            styled_dom: new_dom,
+            font_manager: &*font_manager,
+            text_selections: &empty_text_selections,
+            debug_messages,
+            counters: &mut counter_values,
+            viewport_size: viewport.size,
+            canvas_rect: LogicalRect::new(LogicalPosition::zero(), viewport.size),
+            fragmentation_context: Some(&mut fragmentation_context),
+            cursor_is_visible: true,      // Paged layout: cursor always visible
+            cursor_locations: Vec::new(), // Paged layout: no cursor
+            preedit_text: None,
+            cache_map: std::mem::take(&mut cache.cache_map),
+            image_cache,
+            content_overlay: None,
+            system_style: None,
+            get_system_time_fn,
+        };
+
+        // NEW: Use the commitment-based pagination approach with CSS break properties
+        //
+        // This treats pages as viewports into a single infinite canvas:
+        // 1. Generate ONE complete display list on infinite vertical strip
+        // 2. Analyze CSS break properties (break-before, break-after, break-inside)
+        // 3. Calculate page boundaries based on break properties
+        // 4. Slice content to page boundaries (items are NEVER shifted, only clipped)
+        // 5. Headers and footers are injected per-page
+        //
+        // Benefits over the old approach:
+        // - No coordinate desynchronization between page_index and actual Y position
+        // - Backgrounds render correctly (clipped, not torn/duplicated)
+        // - Simple mental model: pages are just views into continuous content
+        // - Headers/footers with page numbers are automatically generated
+        // - CSS fragmentation properties are respected
+
+        // Step 1: Generate ONE complete display list (infinite canvas)
+        drop(p_layout);
+        let _p_dl = crate::probe::Probe::span("paged_display_list");
+        let full_display_list = generate_display_list(
+            &mut ctx,
+            tree,
+            calculated_positions,
+            scroll_offsets,
+            scroll_ids,
+            gpu_value_cache,
+            renderer_resources,
+            id_namespace,
+            dom_id,
+        )?;
+
+        if let Some(msgs) = ctx.debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[PagedLayout] Generated master display list with {} items",
+                full_display_list.items.len()
+            )));
+        }
+
+        // Step 2: Configure the slicer with page dimensions and headers/footers
+        let page_width = viewport.size.width;
+        let header_footer = page_config.to_header_footer_config();
+
+        if let Some(msgs) = ctx.debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[PagedLayout] Page config: header={}, footer={}, skip_first={}",
+                header_footer.show_header, header_footer.show_footer, header_footer.skip_first_page
+            )));
+        }
+
+        // B3c: with repeat_table_headers on, capture every table's thead from
+        // the master display list — the registration side the tracker lacked.
+        let table_headers = if page_config.break_policy.repeat_table_headers {
+            crate::solver3::pagination::collect_table_headers(&full_display_list, new_dom)
+        } else {
+            crate::solver3::pagination::TableHeaderTracker::default()
+        };
+
+        let slicer_config = SlicerConfig {
+            page_content_height,
+            page_gap: 0.0,
+            allow_clipping: true,
+            header_footer,
+            page_width,
+            table_headers,
+            break_policy: page_config.break_policy,
+            page_sequence: page_config.page_sequence.clone().into_option(),
+        };
+
+        // Step 3: Analyze the breaks, THEN paginate against them — the analysis
+        // is part of the result (document editors consume it without the pages).
+        // Break-awareness runs per `slicer_config.break_policy` (all-off default
+        // = the plain interval algorithm).
+        let break_input = page_breaks::PageBreakInput {
+            display_list: &full_display_list,
+            layout_tree: cache.tree.as_deref(),
+            styled_dom: new_dom,
+            table_headers: Some(&slicer_config.table_headers),
+        };
+        let breaks = if let Some(sequence) = &slicer_config.page_sequence {
+            // classic office suites model: every page's height from ITS setup.
+            page_breaks::compute_page_breaks_with_sequence(
+                &break_input,
+                sequence,
+                &slicer_config.break_policy,
+            )
+        } else {
+            let constraints = page_breaks::PageConstraints::from_slicer_config(&slicer_config);
+            page_breaks::compute_page_breaks(&break_input, &constraints, &slicer_config.break_policy)
+        };
+        let total_content_height = calculate_display_list_height(&full_display_list);
+
+        // The pages as the break analysis cut them: the rows of a paged
+        // multi-column container end where it cuts them, and a break it
+        // pushed up (widows, orphans, atomic lines) moves the room the
+        // containers below have on their first page. When it differs from
+        // the rooms the layout worked with, lay the containers out again.
+        cache.cache_map = std::mem::take(&mut ctx.cache_map);
+        if let Some(pages) = pages {
+            let column_pages = &mut cache.cache_map.column_pages;
+            if column_pages.retries < MAX_COLUMN_PAGE_RETRIES && !column_pages.flows.is_empty() {
+                column_pages.breaks = breaks.iter().map(|b| b.y).collect();
+                let rooms = column_page_rooms(cache, new_dom, viewport.size, pages);
+                if !same_rooms(&rooms, &cache.cache_map.column_pages.rooms) {
+                    let mut column_pages = core::mem::take(&mut cache.cache_map.column_pages);
+                    column_pages.retries += 1;
+                    column_pages.rooms = rooms;
+                    cache.cache_map = cache::LayoutCacheMap::default();
+                    cache.cache_map.column_pages = column_pages;
+                    cache.float_cache.clear();
+                    cache.tree = None;
+                    continue;
+                }
+            }
+        }
+        break (full_display_list, slicer_config, breaks, total_content_height);
     };
-
-    // NEW: Use the commitment-based pagination approach with CSS break properties
-    //
-    // This treats pages as viewports into a single infinite canvas:
-    // 1. Generate ONE complete display list on infinite vertical strip
-    // 2. Analyze CSS break properties (break-before, break-after, break-inside)
-    // 3. Calculate page boundaries based on break properties
-    // 4. Slice content to page boundaries (items are NEVER shifted, only clipped)
-    // 5. Headers and footers are injected per-page
-    //
-    // Benefits over the old approach:
-    // - No coordinate desynchronization between page_index and actual Y position
-    // - Backgrounds render correctly (clipped, not torn/duplicated)
-    // - Simple mental model: pages are just views into continuous content
-    // - Headers/footers with page numbers are automatically generated
-    // - CSS fragmentation properties are respected
-
-    // Step 1: Generate ONE complete display list (infinite canvas)
-    drop(p_layout);
-    let _p_dl = crate::probe::Probe::span("paged_display_list");
-    let full_display_list = generate_display_list(
-        &mut ctx,
-        tree,
-        calculated_positions,
-        scroll_offsets,
-        scroll_ids,
-        gpu_value_cache,
-        renderer_resources,
-        id_namespace,
-        dom_id,
-    )?;
-
-    if let Some(msgs) = ctx.debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!(
-            "[PagedLayout] Generated master display list with {} items",
-            full_display_list.items.len()
-        )));
-    }
-
-    // Step 2: Configure the slicer with page dimensions and headers/footers
-    let page_width = viewport.size.width;
-    let header_footer = page_config.to_header_footer_config();
-
-    if let Some(msgs) = ctx.debug_messages {
-        msgs.push(LayoutDebugMessage::info(format!(
-            "[PagedLayout] Page config: header={}, footer={}, skip_first={}",
-            header_footer.show_header, header_footer.show_footer, header_footer.skip_first_page
-        )));
-    }
-
-    // B3c: with repeat_table_headers on, capture every table's thead from
-    // the master display list — the registration side the tracker lacked.
-    let table_headers = if page_config.break_policy.repeat_table_headers {
-        crate::solver3::pagination::collect_table_headers(&full_display_list, new_dom)
-    } else {
-        crate::solver3::pagination::TableHeaderTracker::default()
-    };
-
-    let slicer_config = SlicerConfig {
-        page_content_height,
-        page_gap: 0.0,
-        allow_clipping: true,
-        header_footer,
-        page_width,
-        table_headers,
-        break_policy: page_config.break_policy,
-        page_sequence: page_config.page_sequence.into_option(),
-    };
-
-    // Step 3: Analyze the breaks, THEN paginate against them — the analysis
-    // is part of the result (document editors consume it without the pages).
-    // Break-awareness runs per `slicer_config.break_policy` (all-off default
-    // = the plain interval algorithm).
-    let break_input = page_breaks::PageBreakInput {
-        display_list: &full_display_list,
-        layout_tree: cache.tree.as_deref(),
-        styled_dom: new_dom,
-        table_headers: Some(&slicer_config.table_headers),
-    };
-    let breaks = if let Some(sequence) = &slicer_config.page_sequence {
-        // classic office suites model: every page's height from ITS setup.
-        page_breaks::compute_page_breaks_with_sequence(
-            &break_input,
-            sequence,
-            &slicer_config.break_policy,
-        )
-    } else {
-        let constraints = page_breaks::PageConstraints::from_slicer_config(&slicer_config);
-        page_breaks::compute_page_breaks(&break_input, &constraints, &slicer_config.break_policy)
-    };
-    let total_content_height = calculate_display_list_height(&full_display_list);
 
     let mut page_count = 0usize;
     if materialize_pages {
@@ -728,13 +775,11 @@ where
         )?;
     }
 
-    if let Some(msgs) = ctx.debug_messages {
+    if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Paginated into {page_count} pages with CSS break support"
         )));
     }
-
-    cache.cache_map = std::mem::take(&mut ctx.cache_map);
 
     Ok(PagedLayoutResult {
         pages: Vec::new(),
@@ -825,6 +870,10 @@ where
 /// [`compute_layout_with_fragmentation`]).
 const MAX_COLUMN_PAGE_PASSES: usize = 4;
 
+/// How often a paged layout is made again for what the break analysis made of
+/// the pages it laid the multi-column containers out for.
+const MAX_COLUMN_PAGE_RETRIES: usize = 3;
+
 /// One layout pass, repeated while the multi-column containers that do not
 /// fit the page they start on change where everything below them stands.
 ///
@@ -846,7 +895,9 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     image_cache: &azul_core::resources::ImageCache,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     print_timing: bool,
+    pages: Option<crate::solver3::page_breaks::PageConstraints>,
 ) -> Result<()> {
+    cache.cache_map.column_pages.pages = pages;
     for pass in 1..=MAX_COLUMN_PAGE_PASSES {
         compute_layout_pass(
             cache,
@@ -863,21 +914,20 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         if !fragmentation_context.is_paged() {
             return Ok(());
         }
-        let rooms = column_page_rooms(
-            cache,
-            new_dom,
-            viewport.size,
-            fragmentation_context.page_content_height(),
-        );
+        let Some(pages) = pages else {
+            return Ok(());
+        };
+        let rooms = column_page_rooms(cache, new_dom, viewport.size, pages);
         if same_rooms(&rooms, &cache.cache_map.column_pages.rooms) || pass == MAX_COLUMN_PAGE_PASSES
         {
             return Ok(());
         }
         // Again from scratch: the containers' layouts are not the ones their
         // new rooms make.
-        let flows = core::mem::take(&mut cache.cache_map.column_pages.flows);
+        let mut column_pages = core::mem::take(&mut cache.cache_map.column_pages);
+        column_pages.rooms = rooms;
         cache.cache_map = cache::LayoutCacheMap::default();
-        cache.cache_map.column_pages = multicol::ColumnPages { rooms, flows };
+        cache.cache_map.column_pages = column_pages;
         cache.float_cache.clear();
         cache.tree = None;
     }
@@ -898,7 +948,7 @@ fn column_page_rooms(
     cache: &LayoutCache,
     styled_dom: &StyledDom,
     viewport_size: LogicalSize,
-    page: f32,
+    pages: crate::solver3::page_breaks::PageConstraints,
 ) -> BTreeMap<NodeId, f32> {
     use crate::solver3::{
         getters::{get_break_after, get_break_before, is_forced_page_break},
@@ -909,6 +959,7 @@ fn column_page_rooms(
     };
     let flows = &cache.cache_map.column_pages.flows;
     let mut events = Vec::new();
+    let mut spans: Vec<(f32, f32)> = Vec::new();
     for (&dom_id, indices) in &tree.dom_to_layout {
         let (Some(&idx), true) = (indices.first(), dom_id.index() < styled_dom.node_data.len())
         else {
@@ -926,17 +977,29 @@ fn column_page_rooms(
             events.push(PageEvent::ForcedBreak { y: pos.y + height });
         }
         let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-        if flows.contains_key(&dom_id)
-            && column_style(styled_dom, dom_id, node_state, viewport_size).is_some()
-        {
+        if let (Some(flow), true) = (
+            flows.get(&dom_id),
+            column_style(styled_dom, dom_id, node_state, viewport_size).is_some(),
+        ) {
             let bp = node.box_props.unpack();
-            events.push(PageEvent::Container {
-                node: dom_id,
-                y: pos.y + bp.border.top + bp.padding.top,
-            });
+            let y = pos.y + bp.border.top + bp.padding.top;
+            spans.push((y, y + flow.height));
+            events.push(PageEvent::Container { node: dom_id, y });
         }
     }
-    plan_page_rooms(page, &events, flows)
+    // The pages as the break analysis cut them last (its pushes included),
+    // but for the rows of the containers, which it cuts where they say.
+    for &y in &cache.cache_map.column_pages.breaks {
+        if !spans.iter().any(|&(top, bottom)| y > top && y <= bottom + 1.0) {
+            events.push(PageEvent::ForcedBreak { y });
+        }
+    }
+    plan_page_rooms(
+        pages.first_page_content_height,
+        pages.normal_page_content_height,
+        &events,
+        flows,
+    )
 }
 
 fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
@@ -1673,6 +1736,7 @@ mod autotest_generated {
             &ImageCache::default(),
             time_fn(),
             false,
+            None,
         )
     }
 
@@ -2980,6 +3044,7 @@ where
         image_cache,
         get_system_time_fn,
         false,
+        None,
     )?;
 
     // 2. The page loop.
