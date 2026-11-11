@@ -988,6 +988,15 @@ mod encrypted_copies {
         }
     }
 
+    /// `path` made `days` old (not a link).
+    #[cfg(unix)]
+    fn age(path: &std::path::Path, days: u64) {
+        if !path.is_symlink() {
+            let when = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+            std::fs::File::open(path).unwrap().set_modified(when).unwrap();
+        }
+    }
+
     /// `path` and everything below it made `days` old (a kept folder is as old as the newest
     /// thing in it).
     #[cfg(unix)]
@@ -997,10 +1006,31 @@ mod encrypted_copies {
                 age_tree(&entry.unwrap().path(), days);
             }
         }
-        if !path.is_symlink() {
-            let when = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
-            std::fs::File::open(path).unwrap().set_modified(when).unwrap();
+        age(path, days);
+    }
+
+    /// The kept `folder` after `days` days in which nobody touched it, its copy `name` noted as
+    /// made. A record names the time of the file it describes, so the tree is aged FIRST (a file
+    /// aged after it was noted is another file to its record), then the copy is noted, then
+    /// everything else is aged again - the record that was just written and the folder, which
+    /// writing it made young - and the copy is left as it was noted.
+    #[cfg(unix)]
+    fn grown_old(folder: &std::path::Path, name: &str, days: u64) {
+        use azul_storage::scratch::{MadeState, Scratch};
+        age_tree(folder, days);
+        Scratch::note_made(folder, name).unwrap();
+        for entry in std::fs::read_dir(folder).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_name() != name {
+                age(&entry.path(), days);
+            }
         }
+        age(folder, days);
+        assert_eq!(
+            Scratch::made_state(folder, name),
+            MadeState::Untouched,
+            "the copy is the file that was written, {days} days on"
+        );
     }
 
     /// X-DELTA-AZDRIVE-SYNC-2 (AZ-U13 again). The decrypted copy of an encrypted-copies pairing
@@ -1047,17 +1077,16 @@ mod encrypted_copies {
         let folder = opened.path.parent().unwrap().to_path_buf();
         let mine = folder.join("diary - my version.txt");
         std::fs::write(&mine, b"my version").unwrap();
-        // Everything in the folder is four days old; the copy is noted again for the time it has
-        // now (ageing a file changes the time its record names).
-        age_tree(&folder, 4);
-        azul_storage::scratch::Scratch::note_made(&folder, "diary.txt").unwrap();
+        // Everything in the folder is four days old, and the copy is as it was noted for the time
+        // it has now: only the user's file tells the folder from an untouched copy's (a folder
+        // that was young would be left for its age, and the test would not need the record).
+        grown_old(&folder, "diary.txt", 4);
         let removed = t.copies().sweep(azul_storage::scratch::OPEN_COPY_KEPT);
         assert_eq!(removed, 0, "a folder that holds the user's file is not swept");
         assert_eq!(std::fs::read(&mine).unwrap(), b"my version");
         // The folder of an untouched copy of the same age goes, as before.
         std::fs::remove_file(&mine).unwrap();
-        age_tree(&folder, 4);
-        azul_storage::scratch::Scratch::note_made(&folder, "diary.txt").unwrap();
+        grown_old(&folder, "diary.txt", 4);
         assert_eq!(t.copies().sweep(azul_storage::scratch::OPEN_COPY_KEPT), 1);
         assert!(!folder.exists());
     }
