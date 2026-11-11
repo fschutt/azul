@@ -8,7 +8,8 @@
 //! through the stores. Five rules keep it so:
 //!
 //! - a string that starts with `azul-storage/` is the first half of an entry name written by hand:
-//!   it belongs to `KeyEntry::name` (or `contact_key_entry`), nowhere else (no allowance);
+//!   it belongs to `KeyEntry::name` (or `contact_key_entry`), nowhere else (one allowance, below:
+//!   the label bound into a sealed small file's associated data, which names no entry);
 //! - nor is the kind of an entry written as the END of a name built from another
 //!   (`format!("{}/device-key", session_name)`): a string with a `/` before the word of a kind
 //!   (`drive-key`, `vault-key`, `device-key`, ...) is the same hand-written name, one the first
@@ -87,8 +88,18 @@ const NO_PROTECTION: &str = "keyring-store-without-protection";
 const BUILT_BY_HAND: &str = "azul-keyring-built-by-hand";
 const PROOF_BY_HAND: &str = "removal-proof-made-by-hand";
 
-/// Where an `AzulKeyring` is built by hand, and who changes it. TO SHRINK.
+/// Where an `AzulKeyring` is built by hand, and who changes it, where a proof is made, and the one
+/// string that starts like an entry's name and is none. TO SHRINK.
 const ALLOWED: &[Allow] = &[
+    Allow::exactly(
+        "examples/azul-storage/src/crypto/blob.rs",
+        BY_HAND,
+        1,
+        "AZ-K13, `AAD_LABEL`: the domain label bound into the associated data of every sealed small \
+         file (the period vault's). It is a format constant - respelled, no file sealed so far would \
+         open - and no keyring entry's name: `KeyEntry` has no `blob` kind, and nothing reads a \
+         keyring with it",
+    ),
     Allow::exactly(
         "examples/azul-storage/src/azul_keyring.rs",
         BUILT_BY_HAND,
