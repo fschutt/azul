@@ -420,6 +420,18 @@ const OTHERS: &[(&str, &str)] = &[
         "Stoppable",
         "the six calls a download makes, failing once its process is gone: it forwards no more",
     ),
+    (
+        "Stops",
+        "the seven calls the copy of a locked drive reads through, failing with Cancelled once the \
+         drive's removal raised its flag: an adapter of the few calls one caller makes, it forwards \
+         no more (X-DELTA-AZDRIVE-KEYS-32)",
+    ),
+    (
+        "NoEncryption",
+        "the mail's stand-in in a build without the encryption: an Azlin drive is encrypted and \
+         this build can open none, so every call answers a refusal - nothing is forwarded and no \
+         place is claimed (X-DELTA-AZDRIVE-KEYS-23)",
+    ),
 ];
 
 /// The rows of the `// inherits: a, b - reason` comments inside `block`: the methods, the reason.
