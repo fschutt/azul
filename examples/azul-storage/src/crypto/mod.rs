@@ -57,6 +57,9 @@ pub mod contacts;
 pub mod device;
 pub mod drops;
 pub mod keys;
+/// Key permits: the observed state of a drive's key on this device, the judge of what may be done in
+/// it, and what a drive key touches (ARCH29 C7).
+pub mod keystate;
 pub mod passkey;
 pub mod share;
 pub mod shamir;

@@ -283,15 +283,18 @@ pub enum Start {
     Fresh { old: DriveKey },
 }
 
+/// The sentence of a rotation that cannot start ([`opens_nothing`]); also what the key permit
+/// says of a drive whose keys opened nothing ([`crate::crypto::keystate::Refusal::OpensNothing`]).
+pub(crate) const OPENS_NOTHING: &str =
+    "the drive's index opens with none of the drive keys this device holds: its keys were \
+     changed from another device. Nothing was changed here: join the drive again with a \
+     code from that device, or unlock it with its recovery code";
+
 /// A rotation cannot start: the drive's index opens with none of the drive keys this device holds,
 /// so the keys were changed from another device, and a rotation here could only fail half way.
-fn opens_nothing() -> DriveError {
+pub(crate) fn opens_nothing() -> DriveError {
     DriveError::Denied {
-        message: String::from(
-            "the drive's index opens with none of the drive keys this device holds: its keys were \
-             changed from another device. Nothing was changed here: join the drive again with a \
-             code from that device, or unlock it with its recovery code",
-        ),
+        message: String::from(OPENS_NOTHING),
     }
 }
 
@@ -512,7 +515,7 @@ fn chain_of(bucket: &dyn Drive) -> Result<KeyChain, DriveError> {
 /// that is there already keeps its links), and reads the chain back: the old key opens from it
 /// with the new one, or this fails. Again for the same pair: one link. It is the one copy of K1
 /// that outlives the keyring's, so nothing lets go of K1 on the word of a `put` alone.
-fn chain_old_key(
+pub(crate) fn chain_old_key(
     bucket: &dyn Drive,
     drive: &str,
     old: &DriveKey,
@@ -539,7 +542,7 @@ fn chain_old_key(
 /// it): every member its policy names, and every wrap it holds. Then every member wrap and
 /// invite in the bucket, and every further recovery code's wrap (`recovery-<id>`). Returns how many
 /// members and invites were removed, from either, and how many further recovery codes.
-fn remove_other_members(
+pub(crate) fn remove_other_members(
     bucket: &dyn Drive,
     drive_key: &DriveKey,
     keep: &str,

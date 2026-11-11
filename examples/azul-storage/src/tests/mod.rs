@@ -170,6 +170,10 @@ mod rotation;
 /// The key rotation through the drive index (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod rotation_meta;
+/// Key permits: the truth table of the judge, the observed state, what a drive key touches (feature
+/// `encryption`).
+#[cfg(feature = "encryption")]
+mod keystate;
 /// The key flows over the drive index's policy (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod policy_keys;
