@@ -270,7 +270,9 @@ fn x_delta_azdrive_keys_8_this_computers_vault_is_redundant_only_when_the_drive_
         vec![stored("aa")]
     );
 
-    // The drive's vault does not take the write: the months are only here.
+    // The drive's vault does not take the write: the months are only here. (A bucket of its own:
+    // a drive's vault object is bound to its drive id, so the vault of "d_1" in the bucket above
+    // does not open for "d_2" - see the end of this test.)
     let other = TempDir::new("azcloud-vault-other");
     let store = PeriodTokenStore::new(other.path().join("period-tokens"));
     store
@@ -279,13 +281,23 @@ fn x_delta_azdrive_keys_8_this_computers_vault_is_redundant_only_when_the_drive_
         .add_tokens(&[stored("bb")])
         .unwrap();
     let refusing: Arc<dyn Drive> = Arc::new(RefusesPuts {
-        inner: mem,
+        inner: Arc::new(MemoryBucket::new()),
         key: DriveVault::KEY,
     });
-    let unlocked = UnlockedDrive::new("d_2", refusing, key);
+    let unlocked = UnlockedDrive::new("d_2", refusing, key.clone());
     let tokens = store.for_drive(&unlocked).unwrap();
     assert!(
         !tokens.local_is_redundant().unwrap(),
         "the drive's vault lacks them"
+    );
+
+    // A vault that does not open for this drive - another drive's, found in its bucket - is not
+    // a vault that lacks the months: whether they are kept elsewhere is not known, and not
+    // knowing is no answer (`local_is_redundant`), so a removal keeps the keys.
+    let unlocked = UnlockedDrive::new("d_2", mem, key);
+    let tokens = store.for_drive(&unlocked).unwrap();
+    assert!(
+        tokens.local_is_redundant().is_err(),
+        "d_1's vault in d_2's bucket is refused, not read as empty"
     );
 }
