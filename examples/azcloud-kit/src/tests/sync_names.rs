@@ -285,3 +285,82 @@ fn az_w7_the_short_names_and_other_spellings_of_a_protected_folder_are_refused_l
         assert_eq!(problem, None, "{fine:?}");
     }
 }
+
+/// ARCH29 C6c, sync/mod.rs. The pass has ONE create, `names::make_parent_of`: a file or a link a run
+/// writes, a file moved here, a folder renamed to the drive's new name, a file opened from the cloud and
+/// a file put back from the trash are made through it, after the rows of a name from the drive. A name
+/// the full rows refuse - a repository's or the bookkeeping's folder in any spelling, a reserved Windows
+/// name on a disk that reads them - is refused BEFORE a folder of it is made, on every volume (the old
+/// walk took any `&str` and a flag, and made a drive-renamed `.git`: FILES-1). A name that is on the
+/// disk already is walked to by `walk_entry` and `walk_record`, which have no create: a missing folder
+/// stays missing. The call sites are counted by `names_gate` (`make-parent-of-call`).
+#[test]
+fn c6c_the_syncs_one_create_makes_a_folder_only_for_a_name_the_full_rows_admit() {
+    use crate::sync::{
+        names::{make_parent_of, walk_entry, walk_record, Policy},
+        root::unprobed_volume,
+    };
+    use azul_storage::{
+        beneath::{BeneathError, Root},
+        testing::TempDir,
+    };
+    let tmp = TempDir::new("c6c-make-parent");
+    let tree = Root::open(tmp.path()).unwrap();
+    let refused = [
+        ".git/hooks/post-commit",
+        ".GIT/hooks/post-commit",
+        "proj/.git./hooks/x",
+        "GIT~1/config",
+        "a/.g\u{200c}it/x",
+        ".hg/x",
+        "proj/.SVN/x",
+        ".azlin/sync/x",
+        ".AZLIN/x",
+        ".git::$INDEX_ALLOCATION/x",
+    ];
+    for volume in [Volume::default(), unprobed_volume()] {
+        let policy = Policy::here(volume);
+        for key in refused {
+            let walked = make_parent_of(&tree, &policy, key);
+            assert!(
+                matches!(walked, Err(BeneathError::BadName(_))),
+                "{key:?} on {volume:?}"
+            );
+        }
+    }
+    // The strict side (a disk that could not be probed) also refuses the names Windows reads.
+    let strict = Policy::here(unprobed_volume());
+    for key in ["docs/CON", "a/nul.txt", "x/aux"] {
+        assert!(
+            matches!(
+                make_parent_of(&tree, &strict, key),
+                Err(BeneathError::BadName(_))
+            ),
+            "{key:?}"
+        );
+    }
+    assert_eq!(
+        std::fs::read_dir(tmp.path()).unwrap().count(),
+        0,
+        "a folder was made for a name the rows refuse"
+    );
+    // A name the rows admit is made with its folders, and the name is the last one.
+    let policy = Policy::here(Volume::default());
+    let (dir, name) = make_parent_of(&tree, &policy, "docs/2026/a.txt").unwrap();
+    assert_eq!(name, "a.txt");
+    assert!(dir.path().ends_with("docs/2026"), "{:?}", dir.path());
+    // What is on the disk is walked to, never made: a missing folder stays missing, whatever the
+    // spelling.
+    for key in refused {
+        assert!(walk_entry(&tree, key).is_err(), "{key:?}");
+        assert!(walk_record(&tree, key).is_err(), "{key:?}");
+    }
+    assert_eq!(
+        std::fs::read_dir(tmp.path()).unwrap().count(),
+        1,
+        "only `docs` is there: a look made a folder"
+    );
+    let (found, name) = walk_entry(&tree, "docs/2026/a.txt").unwrap();
+    assert_eq!(name, "a.txt");
+    assert!(found.path().ends_with("docs/2026"));
+}

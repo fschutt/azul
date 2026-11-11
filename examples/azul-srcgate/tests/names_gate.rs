@@ -28,6 +28,11 @@
 //!   `Root::parent_of_existing`, never makes a folder) and `Admitted` (a name to be made:
 //!   `Root::parent_of_new`). The count of this rule per file only goes down; the deleting step is
 //!   after the recorded baseline.
+//! - **`walk-existing-call`** and **`make-parent-of-call`**: the sync's own walks (`sync/names.rs`):
+//!   `names::walk_entry` and `names::walk_record` walk to a name that is on the disk (an entry of a
+//!   scan, a record this device wrote) and cannot make a folder; `names::make_parent_of` is the one
+//!   create, after the rows of a name from the drive. The create sites are counted by file: a new
+//!   one is a line here and a question about where its name came from.
 //! - **`on-disk-key`**: the callers of `OnDisk::of_entry` and `OnDisk::of_record`, the only ways to
 //!   an `OnDisk` key - a directory entry or a record this device wrote. A new caller is a new
 //!   claim about where a key came from, and a line here.
@@ -46,6 +51,8 @@ const BOOKKEEPING_NAME: &str = "bookkeeping-name";
 const VCS_NAME: &str = "vcs-name";
 const PARENT_OF: &str = "parent-of-call";
 const WALK_LOCAL: &str = "walk-local-call";
+const WALK_EXISTING: &str = "walk-existing-call";
+const MAKE_PARENT_OF: &str = "make-parent-of-call";
 const ON_DISK_KEY: &str = "on-disk-key";
 const PARENT_OF_EXISTING: &str = "parent-of-existing-call";
 const PARENT_OF_NEW: &str = "parent-of-new-call";
@@ -136,6 +143,33 @@ fn rules() -> Vec<Rule> {
                 "let (dir, name) = walk(&tree, key);",
                 "let x = walk_local_total(1);",
                 "pub fn walk_local(root: &Root, key: &str, create: bool) {}",
+            ],
+        ),
+        Rule::new(
+            WALK_EXISTING,
+            |t| {
+                let mut lines = calls(t, "names::walk_entry");
+                lines.extend(calls(t, "names::walk_record"));
+                lines.sort_unstable();
+                lines
+            },
+            &[
+                "let (dir, name) = names::walk_entry(&tree, key)?;",
+                "let (dir, name) = names::walk_record(&tree, key)?;",
+            ],
+            &[
+                "let (dir, name) = walk_entry(&tree, key);",
+                "pub fn walk_record(tree: &Root, key: &str) {}",
+                "let x = names::walk_entry_total(1);",
+            ],
+        ),
+        Rule::new(
+            MAKE_PARENT_OF,
+            |t| calls(t, "names::make_parent_of"),
+            &["let (dir, name) = names::make_parent_of(&tree, &policy, key)?;"],
+            &[
+                "let (dir, name) = make_parent_of(&tree, &policy, key);",
+                "pub fn make_parent_of(tree: &Root, policy: &Policy, key: &str) {}",
             ],
         ),
         Rule::new(
@@ -276,10 +310,38 @@ const ALLOWED: &[Allow] = &[
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/mod.rs",
-        WALK_LOCAL,
-        14,
-        "the pass's looks, renames, deletes, downloads and links; four of them make a name (create \
-         = true) and move to Admitted, the rest to OnDisk (ARCH29 C6c)",
+        WALK_EXISTING,
+        10,
+        "the pass's walks to a name that is on the disk: four a scan's entry (open_found, move_here's \
+         source, the delete, the conflict copy), six a record of the engine's (read_here, the JSON \
+         merge, a folder moved, a folder removed, hash_here, evict_file); no folder is made (ARCH29 \
+         C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/mod.rs",
+        MAKE_PARENT_OF,
+        5,
+        "the pass's creates, each after the rows of a name from the drive: move_here's target, \
+         write_download, write_link, fetch_one and move_folders_here's target (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/names.rs",
+        ON_DISK_KEY,
+        2,
+        "walk_entry and walk_record: the one place of the sync that says where an OnDisk key came \
+         from (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/names.rs",
+        PARENT_OF_EXISTING,
+        2,
+        "walk_entry and walk_record walk to what is there (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/names.rs",
+        PARENT_OF_NEW,
+        1,
+        "make_parent_of: the sync's one create, after Policy::admitted (ARCH29 C6c)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/journal.rs",
