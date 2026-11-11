@@ -23,8 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use azul_storage::{
     checked::{CheckedUpload, FileCheck},
-    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit,
-    ListPage, ListRequest, ObjectInfo, Precondition,
+    BatchDelete, BatchMove, BatchPut, BatchStream, Ctl, Drive, DriveError, Precondition,
 };
 
 use crate::{
@@ -424,91 +423,33 @@ impl RetryingDrive {
     }
 }
 
-impl Drive for RetryingDrive {
-    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        self.call(|| self.inner.list(request))
+/// What a `RetryingDrive` does with a call, as [`azul_storage::DriveDelegate`] says it (named by
+/// path: its methods carry the names of `Drive`'s): a request that may be sent again as it is goes
+/// through [`RetryingDrive::call`]; the calls written out below are the wrapper's own shapes - a
+/// body that is read once, a file's upload that hears a stop, a batch - and what it does not write
+/// is forwarded as it is: the place of the drive below, its path, its resume folder, whether it
+/// writes conditionally. `delegate_drive!` writes the `impl Drive` that calls these (ARCH29 C6e), so
+/// a method the trait gets next is forwarded here without touching this file
+/// (X-DELTA-AZDRIVE-FILES-2: `site()` and `remove_empty_folder()` were once answered by the trait's
+/// defaults, and every Move out of a local slot ended "failed").
+impl azul_storage::DriveDelegate for RetryingDrive {
+    fn below(&self) -> &dyn Drive {
+        &*self.inner
     }
 
-    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        self.call(|| self.inner.get(key))
-    }
-
-    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        self.call(|| self.inner.get_range(key, range))
-    }
-
-    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
-        self.call(|| self.inner.get_limited(key, limit))
-    }
-
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        self.call(|| self.inner.put(key, bytes))
-    }
-
-    fn delete(&self, key: &str) -> Result<(), DriveError> {
-        self.call(|| self.inner.delete(key))
-    }
-
-    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        self.call(|| self.inner.head(key))
+    /// Every `send` method of the trait goes through the gate and the backoff. A lost answer may
+    /// have landed (a conditional write too): a retry that then loses the race reads the index
+    /// again, as any lost compare-and-swap does. Removing an empty folder twice is no harm: a retry
+    /// is safe.
+    fn send<T>(
+        &self,
+        request: impl Fn(&dyn Drive) -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
+        self.call(|| request(&*self.inner))
     }
 
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
         self.once(|| self.inner.put_from(key, body))
-    }
-
-    fn put_if(
-        &self,
-        key: &str,
-        bytes: &[u8],
-        condition: &Precondition,
-    ) -> Result<Option<String>, DriveError> {
-        // A lost answer may have landed: a retry that then loses the race reads the index
-        // again, as any lost compare-and-swap does.
-        self.call(|| self.inner.put_if(key, bytes, condition))
-    }
-
-    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.call(|| self.inner.copy(from, to))
-    }
-
-    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.call(|| self.inner.create_folder(prefix))
-    }
-
-    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.call(|| self.inner.rename(from, to))
-    }
-
-    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.call(|| self.inner.delete_folder(prefix))
-    }
-
-    /// The drive below's own: a folder on disk is removed with `rmdir` only when nothing is in it.
-    /// The trait's default would list and delete the folder's markers - and a folder of a disk is
-    /// no object (X-DELTA-AZDRIVE-FILES-2: every Move out of a local slot ended "failed" with its
-    /// emptied folder left behind). Removing an empty folder twice is no harm: a retry is safe.
-    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
-        self.call(|| self.inner.remove_empty_folder(prefix))
-    }
-
-    fn local_path(&self, key: &str) -> Option<std::path::PathBuf> {
-        self.inner.local_path(key)
-    }
-
-    /// Where the drive below is ([`Drive::site`]): this wrapper adds retries, not a place. The
-    /// default would name the wrapper (an address), so two slots over one tree would be two
-    /// unknown places and nothing would refuse a folder moved into itself.
-    fn site(&self) -> azul_storage::xfer::Site {
-        self.inner.site()
-    }
-
-    fn resume_folder(&self) -> Option<std::path::PathBuf> {
-        self.inner.resume_folder()
-    }
-
-    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        self.call(|| self.inner.metadata(key))
     }
 
     fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
@@ -534,10 +475,6 @@ impl Drive for RetryingDrive {
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
         self.once(|| self.inner.put_from_if(key, body, condition))
-    }
-
-    fn conditional_writes(&self) -> bool {
-        self.inner.conditional_writes()
     }
 
     fn put_file_if(
@@ -582,6 +519,8 @@ impl Drive for RetryingDrive {
         }
     }
 }
+
+azul_storage::delegate_drive!(RetryingDrive);
 
 /// When the next pass may run, after the last ones failed: kept in the state folder so a
 /// `Retry-After` outlives the process.

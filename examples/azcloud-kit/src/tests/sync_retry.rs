@@ -358,6 +358,28 @@ fn x_delta_azdrive_files_2_a_retrying_drive_over_a_folder_is_that_folder_and_rem
     assert_eq!(drive.get("keep/a.txt").unwrap(), b"a");
 }
 
+/// ARCH29 C6e. `RetryingDrive`'s `impl Drive` is made by `delegate_drive!` from its
+/// `DriveDelegate`: what it does not write is forwarded to the drive below, the questions about the
+/// drive included. Over a folder the file of a key is the folder's file (the trait's default is
+/// `None`, and every Open of a local file would be a copy). Green on the old code too: it pins what
+/// the conversion must not change.
+#[test]
+fn c6e_a_retrying_drive_over_a_folder_forwards_the_path_of_a_key_as_the_folder_names_it() {
+    use azul_storage::{Drive, LocalDrive};
+    let dir = azul_storage::testing::TempDir::new("c6e-retry-forwards");
+    let inner = std::sync::Arc::new(LocalDrive::new(dir.path().to_path_buf()));
+    let drive = crate::sync::retry::RetryingDrive::new(inner.clone());
+    drive.put("docs/a.txt", b"a").unwrap();
+    let path = drive.local_path("docs/a.txt");
+    assert_eq!(path, inner.local_path("docs/a.txt"));
+    assert!(
+        path.as_deref().is_some_and(std::path::Path::is_file),
+        "the file of a key of a folder: {path:?}"
+    );
+    assert_eq!(drive.resume_folder(), inner.resume_folder());
+    assert_eq!(drive.conditional_writes(), inner.conditional_writes());
+}
+
 /// X-DELTA-AZDRIVE-FILES-2, the cache below an encrypted Azlin drive: it keeps ciphertext copies
 /// and adds no place; a batch of small files goes to the drive below as a batch, and a copy it
 /// holds of a key is dropped as `put` and `put_if` drop it.

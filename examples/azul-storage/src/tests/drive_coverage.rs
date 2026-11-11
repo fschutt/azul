@@ -348,14 +348,17 @@ fn c6e_a_macro_made_wrapper_sends_its_requests_through_send_and_passes_the_rest_
 
 // ==== Every wrapper of a drive (X-DELTA-AZDRIVE-FILES-2) ====
 
-/// The drives that sit on top of another drive: `(type, file below examples/, the impl's header)`.
-/// Each defines every method of the trait or has an `// inherits:` comment for it.
+/// The drives that sit on top of another drive and are made with `delegate_drive!` (ARCH29 C6e):
+/// `(type, file below examples/)`. The macro forwards every method of THE list (`drive_methods!`,
+/// kept equal to the trait by the first test of this file) through the wrapper's `DriveDelegate`,
+/// which writes only what differs: nothing here needs an `// inherits:` comment.
+const DELEGATING: &[(&str, &str)] = &[("RetryingDrive", "azcloud-kit/src/sync/retry.rs")];
+
+/// The drives that sit on top of another drive and write every method themselves, on purpose (a
+/// call forwarded as it is would be the bug: the encryption's `Op`, the grant's key rewrite, the
+/// credentials): `(type, file below examples/, the impl's header)`. Each defines every method of the
+/// trait or has an `// inherits:` comment for it.
 const WRAPPERS: &[(&str, &str, &str)] = &[
-    (
-        "RetryingDrive",
-        "azcloud-kit/src/sync/retry.rs",
-        "impl Drive for RetryingDrive {",
-    ),
     (
         "ObjectCache",
         "azcloud-kit/src/sync/objects.rs",
@@ -508,6 +511,44 @@ fn x_delta_azdrive_files_2_a_wrapper_defines_every_drive_method_or_says_why_it_i
     }
 }
 
+/// ARCH29 C6e. A wrapper made with `delegate_drive!` calls the macro, has no `impl Drive` of its own
+/// (that would not compile twice; the text check says why), and writes in its `DriveDelegate` only
+/// `below`, `send` and methods of THE list: what it does not write is forwarded, whatever the trait
+/// gets next.
+#[test]
+fn c6e_a_delegating_wrapper_calls_the_macro_and_writes_only_below_send_and_methods_of_the_list() {
+    let lib = include_str!("../lib.rs");
+    let listed: Vec<String> = list_entries(lib).into_iter().map(|e| e.name).collect();
+    assert!(listed.len() >= 27, "the list was parsed: {listed:?}");
+    for (name, file) in DELEGATING {
+        let path = examples_dir().join(file);
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{name}: {} cannot be read ({e})", path.display()));
+        assert!(
+            source.contains(&format!("azul_storage::delegate_drive!({name});")),
+            "{name} ({file}) is listed in DELEGATING and does not call delegate_drive!({name}): its \
+             impl Drive is not made"
+        );
+        assert!(
+            !source.contains(&format!("impl Drive for {name} {{")),
+            "{name} ({file}) is made with delegate_drive! and writes an impl Drive of its own"
+        );
+        let header = format!("impl azul_storage::DriveDelegate for {name} {{");
+        let written = methods_of(&source, &header);
+        assert!(
+            written.iter().any(|m| m == "below"),
+            "{name} ({file}) does not say which drive is below"
+        );
+        for method in &written {
+            assert!(
+                method == "below" || method == "send" || listed.contains(method),
+                "{name} ({file}): `{method}` is no method of DriveDelegate (drive_methods! lists \
+                 {listed:?})"
+            );
+        }
+    }
+}
+
 /// Every `impl Drive for X` of the shipped code (a column-0 impl in a file that is no test's) is
 /// a wrapper of the table or one of the others: a new drive is a decision, not a surprise.
 #[test]
@@ -556,6 +597,24 @@ fn x_delta_azdrive_files_2_every_shipped_impl_of_drive_is_classified() {
                         found.push((name, path.clone()));
                     }
                 }
+                // `azul_storage::delegate_drive!(X);`: the impl is made by the macro (a comment or
+                // a doc line that shows it starts with `//` and is none).
+                for line in text.lines() {
+                    let line = line.trim_start();
+                    let Some(at) = line.find("delegate_drive!(") else {
+                        continue;
+                    };
+                    if line.starts_with("//") || line[..at].contains(' ') {
+                        continue;
+                    }
+                    let name: String = line[at + "delegate_drive!(".len()..]
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .collect();
+                    if !name.is_empty() {
+                        found.push((name, path.clone()));
+                    }
+                }
             }
         }
     }
@@ -570,12 +629,13 @@ fn x_delta_azdrive_files_2_every_shipped_impl_of_drive_is_classified() {
     let known: Vec<&str> = WRAPPERS
         .iter()
         .map(|(name, _, _)| *name)
+        .chain(DELEGATING.iter().map(|(name, _)| *name))
         .chain(OTHERS.iter().map(|(name, _)| *name))
         .collect();
     for (name, path) in &found {
         assert!(
             known.contains(&name.as_str()),
-            "`impl Drive for {name}` in {} is in neither WRAPPERS nor OTHERS of drive_coverage.rs: \
+            "`impl Drive for {name}` in {} is in none of WRAPPERS, DELEGATING and OTHERS of drive_coverage.rs: \
              a drive that sits on another one forwards every call or says why not",
             path.display()
         );
