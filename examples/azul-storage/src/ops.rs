@@ -5,9 +5,12 @@
 //! Many files go in batches: copies several at once, deletes in one
 //! [`Drive::delete_many`] (a bucket's DeleteObjects).
 
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Mutex, PoisonError,
+use std::{
+    collections::HashSet,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex, PoisonError,
+    },
 };
 
 use crate::{
@@ -47,15 +50,14 @@ fn list_from<D: Drive + ?Sized>(
     mut request: ListRequest,
 ) -> Result<Vec<ObjectInfo>, DriveError> {
     let mut out = Vec::new();
-    let mut pages = 0;
+    let mut pages = Pages::new();
     loop {
         let page = drive.list(&request)?;
-        pages += 1;
         out.extend(page.objects);
         match page.next {
             // The pages after the first come from the copy the first one polled.
             Some(token) => {
-                request = continue_listing(request, token, pages)?;
+                request = pages.next(request, token, out.len())?;
                 request.refresh = false;
             }
             None => break,
@@ -64,29 +66,71 @@ fn list_from<D: Drive + ?Sized>(
     Ok(out)
 }
 
-/// The request for the page after `pages` pages that named `token`, or why the listing cannot go
-/// on: a token the request already carried is a listing that does not advance, and one that is
-/// not over after [`named::LISTING_PAGES`] pages does not end. A bucket that answers either way
-/// (a hostile or a broken one) would keep the caller reading and growing for ever
-/// (X-DELTA-AZDRIVE-KEYS-22).
-pub(crate) fn continue_listing(
-    request: ListRequest,
-    token: String,
+/// The pages of ONE listing being read: which tokens it was sent on and how much it kept, so that a
+/// bucket that answers "there is more" for ever - a hostile one, a broken one - is refused instead of
+/// keeping the caller reading and growing (X-DELTA-AZDRIVE-KEYS-22, X-DELTA-KEYS2-6). Four ways it
+/// does not end: it names the page it was just asked for, it names a page it sent before (two tokens
+/// that alternate pass the first check), it is not over after [`named::LISTING_PAGES`] pages, or it
+/// holds more than [`named::LISTING_ENTRIES`] entries (a thousand to a page for a hundred thousand
+/// pages is a hundred million entries long before the page cap).
+pub(crate) struct Pages {
     pages: usize,
-) -> Result<ListRequest, DriveError> {
-    if request.continuation.as_deref() == Some(token.as_str()) {
-        return Err(DriveError::Protocol(format!(
-            "the listing of \"{}\" names the page it was just asked for as its next one",
-            request.prefix
-        )));
+    seen: HashSet<String>,
+    max_pages: usize,
+    max_entries: usize,
+}
+
+impl Pages {
+    /// A listing that has read no page, bounded by the named limits.
+    pub(crate) fn new() -> Pages {
+        Pages::with(named::LISTING_PAGES, named::LISTING_ENTRIES)
     }
-    if pages >= named::LISTING_PAGES {
-        return Err(DriveError::Protocol(format!(
-            "the listing of \"{}\" does not end after {pages} pages",
-            request.prefix
-        )));
+
+    /// [`Pages::new`] with other limits (a test of the guard asks for small ones).
+    pub(crate) fn with(max_pages: usize, max_entries: usize) -> Pages {
+        Pages {
+            pages: 0,
+            seen: HashSet::new(),
+            max_pages,
+            max_entries,
+        }
     }
-    Ok(request.with_continuation(token))
+
+    /// The request for the page after the one just read - the page that named `token` and left the
+    /// caller with `kept` entries in all - or why the listing cannot go on.
+    pub(crate) fn next(
+        &mut self,
+        request: ListRequest,
+        token: String,
+        kept: usize,
+    ) -> Result<ListRequest, DriveError> {
+        self.pages += 1;
+        if request.continuation.as_deref() == Some(token.as_str()) {
+            return Err(DriveError::Protocol(format!(
+                "the listing of \"{}\" names the page it was just asked for as its next one",
+                request.prefix
+            )));
+        }
+        if !self.seen.insert(token.clone()) {
+            return Err(DriveError::Protocol(format!(
+                "the listing of \"{}\" names a page it has sent before as its next one",
+                request.prefix
+            )));
+        }
+        if self.pages >= self.max_pages {
+            return Err(DriveError::Protocol(format!(
+                "the listing of \"{}\" does not end after {} pages",
+                request.prefix, self.pages
+            )));
+        }
+        if kept > self.max_entries {
+            return Err(DriveError::Protocol(format!(
+                "the listing of \"{}\" holds more than {} entries and is not over",
+                request.prefix, self.max_entries
+            )));
+        }
+        Ok(request.with_continuation(token))
+    }
 }
 
 /// One folder level - the folders and the objects directly in `prefix` - across all
@@ -95,14 +139,15 @@ pub(crate) fn continue_listing(
 pub fn list_folder_all<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<ListPage, DriveError> {
     let mut out = ListPage::default();
     let mut request = ListRequest::folder(prefix);
-    let mut pages = 0;
+    let mut pages = Pages::new();
     loop {
         let page = drive.list(&request)?;
-        pages += 1;
         out.folders.extend(page.folders);
         out.objects.extend(page.objects);
         match page.next {
-            Some(token) => request = continue_listing(request, token, pages)?,
+            Some(token) => {
+                request = pages.next(request, token, out.folders.len() + out.objects.len())?;
+            }
             None => break,
         }
     }

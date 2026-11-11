@@ -501,6 +501,8 @@ pub(crate) struct Endless {
     prefix: &'static str,
     key_of: fn(u32) -> String,
     repeat: bool,
+    /// Two tokens in turn ("a", "b", "a", ...): never the page just asked for, never a new one.
+    alternate: bool,
     asked: AtomicU32,
 }
 
@@ -510,7 +512,16 @@ impl Endless {
             prefix,
             key_of,
             repeat,
+            alternate: false,
             asked: AtomicU32::new(0),
+        }
+    }
+
+    /// A listing that sends the client round in a circle of two pages.
+    pub(crate) fn alternating(prefix: &'static str, key_of: fn(u32) -> String) -> Endless {
+        Endless {
+            alternate: true,
+            ..Endless::new(prefix, key_of, false)
         }
     }
 
@@ -539,7 +550,9 @@ impl Drive for Endless {
                 modified: Some(1),
                 etag: None,
             }],
-            next: Some(if self.repeat {
+            next: Some(if self.alternate {
+                String::from(if n % 2 == 1 { "a" } else { "b" })
+            } else if self.repeat {
                 String::from("same")
             } else {
                 format!("page-{n}")
@@ -617,4 +630,62 @@ fn x_delta_azdrive_keys_22_a_listing_that_names_the_page_it_was_asked_for_is_ref
     let folder = Endless::new("", |n| format!("o{n}"), true);
     assert!(list_folder_all(&folder, "").is_err());
     assert_eq!(folder.asked(), 2);
+}
+
+/// X-DELTA-KEYS2-6 (the twin of KEYS-22 the review found open): two tokens that alternate are never
+/// "the page just asked for", so a listing that goes round in a circle passed the check against the
+/// previous token and was followed for a hundred thousand pages, growing. It is refused at the third
+/// page: a token that was sent before. Through `list_all`, `list_all_fresh` and `list_folder_all`.
+#[test]
+fn x_delta_azdrive_keys_22_a_listing_that_goes_round_in_a_circle_is_refused_at_its_third_page() {
+    let asks: [fn(&Endless) -> Result<(), DriveError>; 3] = [
+        |b| list_all(b, "").map(|_| ()),
+        |b| list_all_fresh(b, "").map(|_| ()),
+        |b| list_folder_all(b, "").map(|_| ()),
+    ];
+    for ask in asks {
+        let bucket = Endless::alternating("", |n| format!("o{n}"));
+        let refused = ask(&bucket).unwrap_err();
+        assert!(
+            matches!(&refused, DriveError::Protocol(why) if why.contains("sent before")),
+            "{refused:?}"
+        );
+        assert_eq!(bucket.asked(), 3, "a, b, then a again");
+    }
+}
+
+/// X-DELTA-KEYS2-6: the entries a listing keeps are capped too: a bucket that sends a thousand
+/// entries a page and a new token every time is a hundred million entries long before the page cap.
+/// The guard is asked with small limits; the production limits are the named ones.
+#[test]
+fn x_delta_azdrive_keys_22_a_listing_that_keeps_more_than_its_entry_cap_is_refused() {
+    use crate::ops::Pages;
+    let mut pages = Pages::with(100, 2_500);
+    let mut request = ListRequest::recursive("");
+    let mut kept = 0;
+    let mut stopped_at = None;
+    for n in 1..=100 {
+        kept += 1_000;
+        match pages.next(request, format!("t{n}"), kept) {
+            Ok(next) => request = next,
+            Err(e) => {
+                stopped_at = Some((n, e));
+                break;
+            }
+        }
+    }
+    let (n, refused) = stopped_at.expect("refused");
+    assert_eq!(n, 3, "3,000 entries kept of 2,500 allowed");
+    assert!(
+        matches!(&refused, DriveError::Protocol(why) if why.contains("more than 2500 entries")),
+        "{refused:?}"
+    );
+    assert!(
+        named::LISTING_ENTRIES >= 6_000_000,
+        "the drive an index describes lists whole"
+    );
+    assert!(
+        named::LISTING_ENTRIES < named::LISTING_PAGES * 1_000,
+        "and the cap bites before the page cap"
+    );
 }

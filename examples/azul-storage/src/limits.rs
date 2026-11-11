@@ -339,6 +339,11 @@ pub mod named {
     /// listing (a hostile one, a broken one) must not keep a caller reading and growing for ever
     /// (X-DELTA-AZDRIVE-KEYS-22).
     pub const LISTING_PAGES: usize = 100_000;
+    /// The most entries one listing keeps before it is refused: more than the drive the index
+    /// describes (a pack index holds about 6 million), and a thousand-entry page for the page cap
+    /// would be a hundred million of them - gigabytes - before [`LISTING_PAGES`] stopped it
+    /// (X-DELTA-AZDRIVE-KEYS-22).
+    pub const LISTING_ENTRIES: usize = 10_000_000;
     /// The pages of the root-level listing that decides whether a bucket holds a file of the drive
     /// at all, 8 entries a page: 128 entries at the root are many times the bookkeeping of a new
     /// drive. A listing that is not over by then says nothing of an empty bucket.

@@ -689,10 +689,9 @@ impl<D: Drive> Bucket for DriveBucket<D> {
     fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
         let mut out = Vec::new();
         let mut request = ListRequest::recursive(prefix);
-        let mut pages = 0;
+        let mut pages = crate::ops::Pages::new();
         loop {
             let page = self.drive.list(&request)?;
-            pages += 1;
             out.extend(page.objects.into_iter().map(|o| Listed {
                 key: o.key,
                 modified: o.modified,
@@ -700,7 +699,8 @@ impl<D: Drive> Bucket for DriveBucket<D> {
             match page.next {
                 // Bounded: a bucket whose listing never ends is refused (X-DELTA-AZDRIVE-KEYS-22).
                 Some(token) => {
-                    request = crate::ops::continue_listing(request, token, pages)
+                    request = pages
+                        .next(request, token, out.len())
                         .map_err(MetaError::Drive)?;
                 }
                 None => break,
