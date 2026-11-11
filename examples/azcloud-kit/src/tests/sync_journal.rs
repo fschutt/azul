@@ -129,6 +129,44 @@ fn recovery_never_acts_through_a_folder_that_became_a_link() {
     assert_eq!(recovery.left.len(), 1, "{recovery:?}");
 }
 
+/// ARCH29 C6c, sync/journal.rs. Recovery walks the names of a journalled step as `OnDisk` keys: to what
+/// is there, never making a folder. A step whose name the full rows refuse - a conflict copy or a case
+/// rename's target in a protected spelling (a journal is this device's own, but a line can be cut,
+/// damaged or written by an older build) - finds no folder, is left as it is and says so; no folder
+/// of a protected name appears and the file stays where it was.
+#[test]
+fn c6c_recovery_of_a_step_with_a_protected_name_makes_no_folder_and_moves_nothing() {
+    let root = TempDir::new("journal-c6c-root");
+    let state = TempDir::new("journal-c6c-state");
+    fs::write(root.path().join("n.md"), b"mine").unwrap();
+    fs::write(root.path().join(".azsync-case-1"), b"case").unwrap();
+    let journal = Journal::new(state.path());
+    journal
+        .begin(Intent::Conflict {
+            key: String::from("n.md"),
+            copy: String::from(".GIT/hooks/n (conflict a 2026-10-24).md"),
+            hash: hash_bytes(b"mine"),
+        })
+        .unwrap();
+    journal
+        .begin(Intent::CaseRename {
+            from: String::from("Case.txt"),
+            via: String::from(".azsync-case-1"),
+            to: String::from("GIT~1/case.txt"),
+        })
+        .unwrap();
+    let recovery = journal.recover(root.path()).unwrap();
+    assert!(recovery.finished.is_empty(), "{recovery:?}");
+    for made in [".GIT", "GIT~1"] {
+        assert!(!root.path().join(made).exists(), "{made} was made");
+    }
+    assert_eq!(fs::read(root.path().join("n.md")).unwrap(), b"mine");
+    assert_eq!(
+        fs::read(root.path().join(".azsync-case-1")).unwrap(),
+        b"case"
+    );
+}
+
 #[test]
 fn a_case_rename_cut_off_half_way_is_finished() {
     let root = TempDir::new("journal-root");

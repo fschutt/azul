@@ -219,9 +219,11 @@ fn read_lines(path: &Path) -> Vec<Line> {
 }
 
 /// The folder of `key` and its name in it, reached from the root one folder at a time without
-/// a link; `None` when a folder on the way is a link, another disk, or gone.
+/// a link; `None` when a folder on the way is a link, another disk, or gone. The key is a record
+/// this device wrote (a line of the journal): walked to, never made - recovery finishes or rolls
+/// back a step on what is there and makes no folder for a name (ARCH29 C6c).
 fn inside(tree: &Root, key: &str) -> Option<(Dir, String)> {
-    azul_storage::names::walk_local(tree, key, false).ok()
+    super::names::walk_record(tree, key).ok()
 }
 
 /// Whether `name` is a temp file azul-storage's local writes leave beside `target_name`.

@@ -345,9 +345,10 @@ const ALLOWED: &[Allow] = &[
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/journal.rs",
-        WALK_LOCAL,
+        WALK_EXISTING,
         1,
-        "one look at the disk: to move to OnDisk (ARCH29 C6c)",
+        "inside: the journal's names (records of this device) walked to for a recovery, never made \
+         (ARCH29 C6c)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/verify.rs",
