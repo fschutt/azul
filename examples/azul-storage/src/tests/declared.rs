@@ -81,41 +81,59 @@ mod key_files {
             load_key_chain, load_member_wrap, load_recovery_wrap, MemberSecret, CHAIN_KEY_FILE,
             RECOVERY_KEY_FILE,
         },
-        limits::named,
+        limits::{named, Limit},
         rotation::{pending, JOURNAL_FILE},
         DriveError,
     };
 
+    /// `result` is the refusal of `file`, found over `limit`: `Corrupt`, naming the file, with the
+    /// limit's words and the size that was one byte too many.
+    fn is_refused_by(result: Result<(), DriveError>, file: &str, limit: Limit) {
+        match result {
+            Err(DriveError::Corrupt { key, reason }) => {
+                assert_eq!(key, file, "the refusal names the file");
+                assert_eq!(
+                    reason,
+                    format!(
+                        "{} may be at most {} bytes, this one is {}",
+                        limit.name,
+                        limit.max,
+                        limit.max + 1
+                    ),
+                    "the limit and the size are said"
+                );
+            }
+            other => panic!("{file}: {other:?}"),
+        }
+    }
+
     /// X-AR5b-5: the key files, the key chain and the rotation journal are read through
-    /// `get_limited`: a bucket that answers a bigger file than any of them is (it can stream until the
-    /// transport's timeout) is refused with the limit named, before the bytes are parsed.
+    /// `get_limited`: a bucket that answers a bigger file than any of them is (it can stream until
+    /// the transport's timeout) is refused with the limit named, before the bytes are parsed. The
+    /// refusal is `Corrupt` - a file nobody who holds the key wrote, the same kind as one that does
+    /// not parse (`Limit::read_from`: a drive that checks after the read says `Protocol`, a
+    /// transport that refuses the answer on its way says its own error, and the HEAD that follows
+    /// says the size as a number) - and it names the FILE and says the limit and the size.
     #[test]
     fn x_ar5b_5_a_key_file_over_its_limit_is_refused_naming_the_limit() {
         let bucket = MemBucket::new();
-        let is_refused_by = |result: Result<(), DriveError>, name: &str| match result {
-            Err(DriveError::Protocol(why)) => {
-                assert!(why.contains(name), "{why}");
-            }
-            other => panic!("{name}: {other:?}"),
-        };
-
         bucket.set(
             RECOVERY_KEY_FILE,
             vec![b'x'; (named::KEY_FILE.max + 1) as usize],
         );
         is_refused_by(
             load_recovery_wrap(&bucket).map(drop),
-            "a key file may be at most",
+            RECOVERY_KEY_FILE,
+            named::KEY_FILE,
         );
 
         let member = MemberSecret::generate().unwrap().public().id();
-        bucket.set(
-            &crate::crypto::keys::member_key_file(&member).unwrap(),
-            vec![b'x'; (named::KEY_FILE.max + 1) as usize],
-        );
+        let member_file = crate::crypto::keys::member_key_file(&member).unwrap();
+        bucket.set(&member_file, vec![b'x'; (named::KEY_FILE.max + 1) as usize]);
         is_refused_by(
             load_member_wrap(&bucket, &member).map(drop),
-            "a key file may be at most",
+            &member_file,
+            named::KEY_FILE,
         );
 
         bucket.set(
@@ -124,17 +142,22 @@ mod key_files {
         );
         is_refused_by(
             load_key_chain(&bucket).map(drop),
-            "a key chain file may be at most",
+            CHAIN_KEY_FILE,
+            named::KEY_CHAIN,
         );
 
         bucket.set(JOURNAL_FILE, vec![b'x'; (named::JOURNAL.max + 1) as usize]);
-        is_refused_by(
-            pending(&bucket).map(drop),
-            "a rotation journal may be at most",
-        );
+        is_refused_by(pending(&bucket).map(drop), JOURNAL_FILE, named::JOURNAL);
 
-        // A file within the limit that is none of them is the format's complaint, not the limit's.
+        // A file within the limit that is none of them is the format's complaint, not the limit's:
+        // the same kind, and no word of a limit.
         bucket.set(JOURNAL_FILE, b"{}".to_vec());
-        assert!(matches!(pending(&bucket), Err(DriveError::Corrupt { .. })));
+        match pending(&bucket) {
+            Err(DriveError::Corrupt { key, reason }) => {
+                assert_eq!(key, JOURNAL_FILE);
+                assert!(!reason.contains("may be at most"), "{reason}");
+            }
+            other => panic!("a journal that is none: {other:?}"),
+        }
     }
 }
