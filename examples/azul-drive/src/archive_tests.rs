@@ -16,8 +16,8 @@ use azul_storage::{
 use azul_appkit::phrase::{Arg, Phrase};
 
 use crate::archive::{
-    folder_name_among, keep_due, months_needed, rescue_due, rescue_phrase, run_rescue, stage_of,
-    stage_phrase, target_of, target_of_on, Rescue, Stage,
+    flush_due, folder_name_among, keep_due, landed_dir, months_needed, rescue_due, rescue_phrase,
+    run_rescue, stage_of, stage_phrase, target_of, target_of_on, Rescue, Stage, KEEP_EVERY,
 };
 
 /// A disk whose free space the test's system cannot tell.
@@ -1179,6 +1179,157 @@ fn x_delta_azdrive_files_34_a_state_that_does_not_read_is_set_aside_not_replaced
         "the unreadable record stayed whole"
     );
     // The new state reads.
+    let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    assert_eq!(kept.copied, 1);
+}
+
+/// X-DELTA-SYNC2-10. The rescue copy wrote its ledger whole every max(25, ledger/8) files: a kill (or a
+/// power cut) after file 12,000 of a 100,000-file drive lost the entries of up to 12,500 files that
+/// had landed, and the next run found each present, took it for the copy's own ("same size") or the
+/// user's, and never refreshed it while the bar said done - a later change on the drive did not reach
+/// those copies. Each landed file is written down at once now (one small file beside the ledger): a
+/// kill loses the file in flight, and the next run knows the version of the rest. The run is cut at
+/// the 26th file, one past the ledger's first whole write; the drive's 26th file is written again
+/// with the length it had while the app is down. RED on the old code: the next run takes the 26th
+/// file for the one it has (the size is all there is) and its bytes stay the old ones.
+#[test]
+fn x_delta_sync2_10_a_run_cut_between_two_ledger_writes_loses_one_file_not_everything_since() {
+    let tmp = TempDir::new("dsync2-10-cut");
+    let names: Vec<String> = (0..60).map(|i| format!("f{i:02}.txt")).collect();
+    let files: Vec<(&str, &[u8])> = names.iter().map(|n| (n.as_str(), &b"abc"[..])).collect();
+    let drive = Tagged::with(&files);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    let cut = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut heard = 0;
+        run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {
+            heard += 1;
+            // The second report comes at the 26th file: the power goes out there.
+            assert!(heard < 2, "the power went out");
+        })
+    }));
+    assert!(cut.is_err(), "the run was cut off");
+    let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    assert_eq!(
+        kept.written.len(),
+        25,
+        "the ledger holds the files of its one whole write: {:?}",
+        kept.written.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        folder.join("f25.txt").is_file() && !kept.written.contains_key("f25.txt"),
+        "the 26th file landed, and the ledger does not know it"
+    );
+    // The drive's 26th file is written again, to the same length, while nothing runs.
+    drive.set("f25.txt", b"xyz");
+    let end = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert_eq!((end.copied, end.total), (60, 60), "{end:?}");
+    assert!(end.missing.is_empty() && end.kept.is_empty(), "{end:?}");
+    assert_eq!(
+        std::fs::read(folder.join("f25.txt")).unwrap(),
+        b"xyz",
+        "the file that landed before the cut had its version written down: it is copied again"
+    );
+    assert!(
+        end.notes.iter().all(|note| !note.contains("no record")),
+        "every file was recorded: {:?}",
+        end.notes
+    );
+}
+
+/// X-DELTA-SYNC2-10: what landed is folded into the ledger and leaves no file behind: after a run
+/// that ends, the ledger holds every file and the landed files are gone.
+#[test]
+fn x_delta_sync2_10_the_landed_files_are_folded_into_the_ledger_and_leave_nothing_behind() {
+    let tmp = TempDir::new("dsync2-10-fold");
+    let names: Vec<String> = (0..30).map(|i| format!("f{i:02}.txt")).collect();
+    let files: Vec<(&str, &[u8])> = names.iter().map(|n| (n.as_str(), &b"abc"[..])).collect();
+    let drive = Tagged::with(&files);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    let end = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert_eq!((end.copied, end.total), (30, 30), "{end:?}");
+    let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
+    assert_eq!(kept.written.len(), 30);
+    let left: Vec<_> = std::fs::read_dir(landed_dir(&state))
+        .map(|entries| entries.filter_map(Result::ok).collect())
+        .unwrap_or_default();
+    assert!(
+        left.is_empty(),
+        "the ledger holds them: {:?}",
+        left.iter().map(|e| e.path()).collect::<Vec<_>>()
+    );
+}
+
+/// X-DELTA-SYNC2-10: a copy whose ledger is gone finds files in its folder that no record says it
+/// wrote: it keeps them as they are and says so, instead of calling them "the copy's own" in silence.
+#[test]
+fn x_delta_sync2_10_files_with_no_record_are_kept_and_said_not_taken_for_the_copys_own() {
+    let tmp = TempDir::new("dsync2-10-norecord");
+    let drive = Tagged::with(&[("a.txt", b"abc"), ("b.txt", b"def")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    std::fs::remove_file(&state).unwrap();
+    let _ = std::fs::remove_dir_all(landed_dir(&state));
+    let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert!(
+        again
+            .notes
+            .iter()
+            .any(|note| note.contains("2 files") && note.contains("no record")),
+        "{:?}",
+        again.notes
+    );
+}
+
+/// X-DELTA-SYNC2-10: the ledger is also folded by time - the landed files are one small file each, and
+/// a long copy must not leave thousands of them - and not when nothing landed.
+#[test]
+fn x_delta_sync2_10_the_ledger_is_folded_by_count_and_by_time() {
+    assert!(!flush_due(1, 1_000, std::time::Duration::from_secs(1)));
+    assert!(flush_due(1, 1_000, KEEP_EVERY), "a minute went by");
+    assert!(
+        !flush_due(0, 1_000, KEEP_EVERY * 10),
+        "nothing landed since: nothing to fold"
+    );
+    assert!(
+        flush_due(25, 100, std::time::Duration::ZERO),
+        "the count still counts"
+    );
+    assert!(keep_due(25, 100), "and is the same count as before");
+}
+
+/// X-DELTA-AZDRIVE-FILES-34: a rescue state that is there and is not text (a failing disk, a tool's
+/// binary) was read as "no state" (`read_to_string(..).ok()?`) and the next whole write of the ledger
+/// replaced it: the only record of what the copy wrote was gone. It is set aside whole now, as one
+/// that does not parse always was.
+#[test]
+fn x_delta_azdrive_files_34_a_state_that_is_not_text_is_set_aside_not_replaced() {
+    let tmp = TempDir::new("dfiles-34-binary");
+    let drive = Tagged::with(&[("a.txt", b"abc")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("d_x.rescue.json");
+    let bytes: &[u8] = &[0xff, 0xfe, 0x00, 0x80, b'{'];
+    std::fs::write(&state, bytes).unwrap();
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    let aside: Vec<std::path::PathBuf> = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("d_x.rescue.json.damaged-"))
+        })
+        .collect();
+    assert_eq!(aside.len(), 1, "{aside:?}");
+    assert_eq!(
+        std::fs::read(&aside[0]).unwrap(),
+        bytes,
+        "the bytes are kept"
+    );
+    // The new state is the run's own.
     let kept: Rescue = serde_json::from_str(&std::fs::read_to_string(&state).unwrap()).unwrap();
     assert_eq!(kept.copied, 1);
 }

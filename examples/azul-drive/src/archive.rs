@@ -854,6 +854,83 @@ impl Written {
     }
 }
 
+/// One file the copy landed, written down at once in a file of its own beside the ledger
+/// ([`note_landed`]): a kill or a power cut loses the file in flight, not the up to 12,500 the ledger's
+/// whole writes were spread over - and the next run took those copies for files nobody recorded
+/// ("Have" by size, or "the user's own") and never refreshed them while the bar said done
+/// (X-DELTA-SYNC2-10).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Landed {
+    key: String,
+    written: Written,
+}
+
+/// The folder the landed files are written down in: beside the ledger `state`.
+pub(crate) fn landed_dir(state: &Path) -> PathBuf {
+    let mut name = state.as_os_str().to_os_string();
+    name.push(".landed");
+    PathBuf::from(name)
+}
+
+/// The landed files of `state`'s folder, in the order they landed (their names are their numbers).
+fn landed_names(state: &Path) -> Vec<(u64, PathBuf)> {
+    let Ok(entries) = std::fs::read_dir(landed_dir(state)) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(u64, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            let number = path.file_stem()?.to_str()?.parse::<u64>().ok()?;
+            (path.extension()? == "json").then_some((number, path))
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// Writes the file `key` down as landed, as the `number`th of the folder: one small file of its own,
+/// put in place whole ([`durable::replace`]), so that what a kill leaves is every file but the one in
+/// flight. `Err` says it could not be written: the file is then known only by the next whole write of
+/// the ledger, as before.
+fn note_landed(state: &Path, number: u64, key: &str, written: &Written) -> std::io::Result<()> {
+    let landed = Landed {
+        key: key.to_string(),
+        written: written.clone(),
+    };
+    let text = serde_json::to_string(&landed).map_err(std::io::Error::other)?;
+    durable::replace(
+        &landed_dir(state).join(format!("{number:012}.json")),
+        text.as_bytes(),
+        durable::Mode::Private,
+    )
+}
+
+/// What the landed files say, oldest first: a key that landed twice is as its last file says.
+fn read_landed(state: &Path) -> Vec<Landed> {
+    landed_names(state)
+        .into_iter()
+        // collapse-ok: a landed file that does not read (cut in two by the same crash) is a file
+        // the next run looks at again, which is what a file nobody wrote down is.
+        .filter_map(|(_, path)| serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok())
+        .collect()
+}
+
+/// The landed files go once the ledger holds them: after a whole write of it that took, and in
+/// the order they landed, so that a failure in between leaves the later ones.
+fn forget_landed(state: &Path) {
+    for (_, path) in landed_names(state) {
+        // collapse-ok: a landed file that stays is read again by the next run, and says what the
+        // ledger says.
+        if std::fs::remove_file(path).is_err() {
+            break;
+        }
+    }
+}
+
+/// How long a copy goes between two whole writes of its ledger at most, whatever the count says.
+pub(crate) const KEEP_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// A drive's name as a folder name (no separators, never empty).
 fn copy_name(name: &str) -> String {
     crate::ban::copy_prefix(name)
@@ -938,21 +1015,43 @@ pub(crate) fn rescue_file_of(drives_file: &Path, azlin_id: &str) -> Option<PathB
     Some(beside.join("rescue").join(format!("{file}.rescue.json")))
 }
 
+/// Sets the copy's state `path`, which is there and could not be read, aside whole.
+fn set_aside_unread(path: &Path) -> Option<Rescue> {
+    // collapse-ok: a state that cannot even be moved is overwritten by the next run, as it was before;
+    // the copy never overwrites a file it did not write.
+    let _aside = durable::set_aside(path, &now_secs().to_string());
+    None
+}
+
 /// The copy's state the last run left (none before a first copy). A state that is there and does
 /// not read is no state - but it is not lost: it is set aside whole (`<name>.damaged-<time>`), so
 /// the next run's state does not replace the only record of what the copy wrote
 /// (X-DELTA-AZDRIVE-FILES-34).
 fn rescue_read(path: &Path) -> Option<Rescue> {
-    let text = std::fs::read_to_string(path).ok()?;
-    match serde_json::from_str(&text) {
-        Ok(rescue) => Some(rescue),
-        Err(_) => {
-            // collapse-ok: a state that cannot even be moved is overwritten by the next run, as it
-            // was before; the copy never overwrites a file it did not write.
-            let _aside = durable::set_aside(path, &now_secs().to_string());
-            None
-        }
+    let ledger = match std::fs::read_to_string(path) {
+        Ok(text) => match serde_json::from_str::<Rescue>(&text) {
+            Ok(rescue) => Some(rescue),
+            Err(_) => set_aside_unread(path),
+        },
+        // No state before a first copy.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        // A state that is there and cannot be read - not UTF-8, a failing read, no permission - is no
+        // "no state" either: the next whole write of the ledger would replace the only record of what
+        // the copy wrote (X-DELTA-AZDRIVE-FILES-34).
+        Err(_) => set_aside_unread(path),
+    };
+    // The files that landed after the ledger's last whole write: what a run that was cut off had
+    // written down one by one (X-DELTA-SYNC2-10). A cut-off run before its first whole write has
+    // only these.
+    let landed = read_landed(path);
+    if landed.is_empty() {
+        return ledger;
     }
+    let mut rescue = ledger.unwrap_or_default();
+    for file in landed {
+        rescue.written.insert(file.key, file.written);
+    }
+    Some(rescue)
 }
 
 /// After a look: every read-only drive whose copy is not running and is due (none yet, files
@@ -1376,10 +1475,21 @@ pub(crate) fn run_rescue(
     }
     let target_drive = LocalDrive::without_manifest(folder);
     let mut since_kept = 0usize;
+    let mut last_kept = std::time::Instant::now();
+    // The next landed file's number: after the ones an earlier cut-off run left, which are replayed
+    // into the ledger (`rescue_read`) and go with its next whole write.
+    let mut landed_number = state
+        .and_then(|state| landed_names(state).last().map(|(number, _)| number + 1))
+        .unwrap_or(1);
+    // Files that were in the folder with no record of the copy having written them: taken as they are.
+    let mut unrecorded = 0usize;
     for (n, ((o, target), step)) in files.iter().zip(&targets).zip(steps).enumerate() {
         match step {
             Step::Have => {
                 report.copied += 1;
+                if !report.written.contains_key(&o.key) {
+                    unrecorded += 1;
+                }
                 // A file of the copy that is as the copy wrote it: what an older ledger did not
                 // record of it (the drive's version, its name here) is recorded now, from the file
                 // that was just looked at.
@@ -1396,6 +1506,9 @@ pub(crate) fn run_rescue(
             }
             Step::Kept => {
                 report.copied += 1;
+                if !report.written.contains_key(&o.key) {
+                    unrecorded += 1;
+                }
                 report.kept.push(o.key.clone());
             }
             Step::Missing => report.missing.push(o.key.clone()),
@@ -1418,18 +1531,23 @@ pub(crate) fn run_rescue(
                     (Some(Ok(len)), Some((path, name))) => {
                         report.copied += 1;
                         let mtime = std::fs::metadata(path).map_or(0, |meta| mtime_ns(&meta));
-                        report.written.insert(
-                            o.key.clone(),
-                            Written {
-                                len,
-                                mtime_ns: mtime,
-                                // The version the listing named: a file that changed on the drive
-                                // since is another version, and is copied again at the next run.
-                                etag: o.etag.clone(),
-                                modified: o.modified,
-                                target: name,
-                            },
-                        );
+                        let written = Written {
+                            len,
+                            mtime_ns: mtime,
+                            // The version the listing named: a file that changed on the drive
+                            // since is another version, and is copied again at the next run.
+                            etag: o.etag.clone(),
+                            modified: o.modified,
+                            target: name,
+                        };
+                        // Written down at once, before the next file: a kill loses this one file
+                        // at most, not everything since the ledger's last whole write.
+                        if let Some(state) = state {
+                            if note_landed(state, landed_number, &o.key, &written).is_ok() {
+                                landed_number += 1;
+                            }
+                        }
+                        report.written.insert(o.key.clone(), written);
                     }
                     // Something appeared at the name since the look, or the file there changed:
                     // it is the user's and stays.
@@ -1448,12 +1566,27 @@ pub(crate) fn run_rescue(
         // whole ledger is rewritten (and synced) each time, so the writes are spread by the
         // ledger's size, not by a fixed number of files.
         since_kept += 1;
-        if keep_due(since_kept, report.written.len()) {
+        // By count, as the ledger's size allows, and by time: the landed files are one small file
+        // each, and a long copy folds them into the ledger at least every KEEP_EVERY.
+        if flush_due(since_kept, report.written.len(), last_kept.elapsed()) {
             since_kept = 0;
+            last_kept = std::time::Instant::now();
             keep_report_partly(&report, state);
         }
     }
+    if unrecorded > 0 {
+        report.notes.push(format!(
+            "{unrecorded} files were in the folder with no record that this copy wrote them: they are \
+             kept as they are, and a change on the drive does not reach them"
+        ));
+    }
     keep_report(report, state)
+}
+
+/// Whether a copy folds what it landed into the ledger now: [`keep_due`], or [`KEEP_EVERY`] since
+/// the last time (and something landed since).
+pub(crate) fn flush_due(files_since: usize, ledger: usize, waited: std::time::Duration) -> bool {
+    keep_due(files_since, ledger) || (files_since > 0 && waited >= KEEP_EVERY)
 }
 
 /// How many files a run copies between two writes of its record: 25 at least, and an eighth of the
@@ -1478,6 +1611,9 @@ fn keep_report_partly(report: &Rescue, state: Option<&Path>) {
         return;
     };
     if let Ok(text) = serde_json::to_string(report) {
-        let _kept = durable::replace(state, text.as_bytes(), durable::Mode::Private);
+        // The landed files go with a whole write that took: the ledger holds them now.
+        if durable::replace(state, text.as_bytes(), durable::Mode::Private).is_ok() {
+            forget_landed(state);
+        }
     }
 }

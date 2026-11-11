@@ -18,9 +18,11 @@
 //!   [`SEEN_STEP_DAYS`] a pass): a pass that finds it behind judges nothing.
 //!
 //! What it cannot read is kept: a stamp that is no stamp, a folder the file system cannot date.
-//! The marks are a cache (`<cache>/trash/<drive>.json`): losing them delays a purge by a
-//! week, it never brings one forward. The value that removes a delete is [`Expired`], made by
-//! [`plan`] and nowhere else.
+//! The marks are a cache (`<cache>/trash/<drive>.json`): losing them delays a purge by a week -
+//! every delete is first seen again - and loses `seen` with them, so a delete stamped by a clock that
+//! was set BACK is judged by its stamp alone and goes a week after it is first seen again: the one
+//! thing the loss of the marks can bring forward, accepted (X-DELTA-AZDRIVE-FILES-34). The value
+//! that removes a delete is [`Expired`], made by [`plan`] and nowhere else.
 
 use std::{
     collections::BTreeMap,
