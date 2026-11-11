@@ -182,7 +182,10 @@ fn x_ar5a_21_a_released_set_adds_up_and_says_when_it_is_empty() {
 
 #[test]
 fn x_ar5a_21_the_spans_a_drive_keeps_things_have_one_owner() {
-    assert_eq!(RETENTION.trash, Duration::from_secs(14 * 86_400));
+    // The owner's decision Q18: one trash span of 30 days for the sync's trash and AzDrive's, the
+    // plain drive's node window (14 days) a field of its own, the versions 90.
+    assert_eq!(RETENTION.trash, Duration::from_secs(30 * 86_400));
+    assert_eq!(RETENTION.node, Duration::from_secs(14 * 86_400));
     assert_eq!(RETENTION.versions, Duration::from_secs(90 * 86_400));
     assert_eq!(
         (
