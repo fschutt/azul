@@ -13,6 +13,10 @@
 //! | a move into the trash                 | nothing: the rename happened whole or not at all  |
 //! | a case-only rename through a third    | the second rename is finished                     |
 //! | name                                  |                                                   |
+//! | the read-back's replace of a damaged  | an empty name gets the new version (whole, beside)|
+//! | copy: the old file to the trash, the  | or, when that is gone, the old file back from the |
+//! | new version into the name (two renames| trash; a name that is held is left as it is       |
+//! | where the volume has no hard links)   |                                                   |
 //!
 //! The journal is `journal.jsonl` in the pairing's state folder (0600), one JSON line per
 //! begin and per done, each flushed to the disk before the step goes on. Recovery empties it.
@@ -59,6 +63,16 @@ pub enum Intent {
         via: String,
         to: String,
     },
+    /// The read-back puts the whole new version `staged` over `key` and the file that is there
+    /// goes to `slot` (the trash). Where the volume makes no hard links that is two renames
+    /// ([`azul_storage::durable::replace_keeping`]), and between them the name is EMPTY - which a
+    /// pass reads as the user's delete and takes to the drive (X-DELTA-SYNC2-6). `staged` and
+    /// `slot` are paths from the folder's root.
+    Replace {
+        key: String,
+        staged: String,
+        slot: String,
+    },
 }
 
 impl Intent {
@@ -68,7 +82,8 @@ impl Intent {
         match self {
             Intent::Download { key, .. }
             | Intent::Conflict { key, .. }
-            | Intent::Trash { key, .. } => key,
+            | Intent::Trash { key, .. }
+            | Intent::Replace { key, .. } => key,
             Intent::CaseRename { from, .. } => from,
         }
     }
@@ -287,6 +302,7 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
             }
         }
         Intent::Trash { .. } => {}
+        Intent::Replace { key, staged, slot } => recover_replace(tree, key, staged, slot, out),
         Intent::CaseRename { from, via, to } => {
             let (Some((via_dir, via_name)), Some((to_dir, to_name))) =
                 (inside(tree, via), inside(tree, to))
@@ -305,4 +321,60 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
             }
         }
     }
+}
+
+/// A replace cut between its two renames (X-DELTA-SYNC2-6): the name is empty, the old file is in
+/// the slot and the new version, whole and synced, is beside. The name is the thing a pass must
+/// never find empty (gone here, unchanged on the drive: a delete), so the replace is finished - the
+/// new version takes the name - or, when the new version is gone, rolled back: the old file comes
+/// back from the slot. A name that is held is nothing to finish: the old file is still there (the
+/// replace was cut before it moved anything) or the new one already is.
+fn recover_replace(tree: &Root, key: &str, staged: &str, slot: &str, out: &mut Recovery) {
+    let Some((dir, name)) = inside(tree, key) else {
+        out.left
+            .push(format!("{key}: its folder is a link or gone"));
+        return;
+    };
+    match dir.lstat(&name) {
+        Ok(_) => return,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            out.left.push(format!("{key}: {e}"));
+            return;
+        }
+    }
+    if let Some((from_dir, from)) = inside(tree, staged) {
+        if from_dir.lstat(&from).is_ok_and(|st| st.kind == Kind::File) {
+            match from_dir.rename_noreplace(&from, &dir, &name) {
+                Ok(()) => {
+                    dir.sync();
+                    from_dir.sync();
+                    out.finished
+                        .push(format!("{key}: the new version was put in its place"));
+                }
+                Err(e) => out.left.push(format!("{key}: {e}")),
+            }
+            return;
+        }
+    }
+    if let Some((slot_dir, slot_name)) = inside(tree, slot) {
+        if slot_dir
+            .lstat(&slot_name)
+            .is_ok_and(|st| st.kind == Kind::File)
+        {
+            match slot_dir.rename_noreplace(&slot_name, &dir, &name) {
+                Ok(()) => {
+                    dir.sync();
+                    out.rolled_back
+                        .push(format!("{key}: the old file was put back from the trash"));
+                }
+                Err(e) => out.left.push(format!("{key}: {e}")),
+            }
+            return;
+        }
+    }
+    out.left.push(format!(
+        "{key}: cut while it was replaced; neither the new version nor the old file is where the \
+         journal says"
+    ));
 }

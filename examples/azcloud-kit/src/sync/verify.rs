@@ -30,7 +30,9 @@ use azul_storage::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    hash_here, load_cache,
+    hash_here,
+    journal::{Intent, Journal},
+    load_cache,
     local::{entry_now, path_of, stat_now},
     named, names,
     oplog::{Op, OpKind, OpLog},
@@ -108,12 +110,35 @@ pub fn verify(
     index_path: &Path,
     opts: &SyncOptions,
 ) -> CloudResult<VerifyReport> {
+    verify_with(target, root, index_path, opts, &|_| {})
+}
+
+/// [`verify`] that tells `point` where it stands (`before-replace`: a damaged copy's replace is
+/// written down in the journal and has moved nothing yet; [`super::faults::POINTS`], heard
+/// through `SyncSession::with_points`).
+///
+/// # Errors
+///
+/// As [`verify`].
+pub(crate) fn verify_with(
+    target: Target<'_>,
+    root: &LocalRoot,
+    index_path: &Path,
+    opts: &SyncOptions,
+    point: &dyn Fn(&str),
+) -> CloudResult<VerifyReport> {
     match target {
-        Target::Index(store) => run(&BlobIndex::new(store, &opts.prefix), root, index_path),
+        Target::Index(store) => run(
+            &BlobIndex::new(store, &opts.prefix),
+            root,
+            index_path,
+            point,
+        ),
         Target::Named(drive) => run(
             &named::NamedFiles::new(drive, &opts.prefix, index_path),
             root,
             index_path,
+            point,
         ),
     }
 }
@@ -132,6 +157,7 @@ fn run<R: SyncRemote + ?Sized>(
     remote_side: &R,
     root: &LocalRoot,
     index_path: &Path,
+    point: &dyn Fn(&str),
 ) -> CloudResult<VerifyReport> {
     let mut index = synced_index(root, index_path)?;
     let cached = load_cache(index_path, &index);
@@ -209,7 +235,9 @@ fn run<R: SyncRemote + ?Sized>(
     // This device's copies: the ones a pass would trust by their size and time.
     let tree = beneath::Root::open(&root.path)?;
     let stamp = root::trash_stamp(crate::now());
-    let log = OpLog::new(index_path.parent().unwrap_or_else(|| Path::new(".")));
+    let state_dir = index_path.parent().unwrap_or_else(|| Path::new("."));
+    let log = OpLog::new(state_dir);
+    let journal = Journal::new(state_dir);
     let synced: Vec<(String, super::BaseEntry)> = index
         .files
         .iter()
@@ -237,20 +265,19 @@ fn run<R: SyncRemote + ?Sized>(
         report.rotted.push(key.clone());
         let there = drive.files.get(&key).filter(|f| f.hash == entry.hash);
         let restored = match there {
-            Some(file) if whole.contains(key.as_str()) => {
-                restore(
-                    remote_side,
-                    &root.path,
-                    &tree,
-                    &log,
-                    &stamp,
-                    &key,
-                    &hash,
-                    Fingerprint::of(&st),
-                    file,
-                )
-                .is_ok()
-            }
+            Some(file) if whole.contains(key.as_str()) => restore(
+                remote_side,
+                &root.path,
+                &tree,
+                (&log, &journal),
+                &stamp,
+                &key,
+                &hash,
+                Fingerprint::of(&st),
+                file,
+                point,
+            )
+            .is_ok(),
             _ => false,
         };
         if restored {
@@ -340,17 +367,23 @@ enum Replacement {
 /// never empty while the replacement is written - a pass that met a gap read "gone here, unchanged
 /// on the drive" as a delete, wrote a tombstone and trashed the good copy on every device - and a
 /// damaged file that was written to since it was hashed (`seen` no longer matches) is left as it is.
+///
+/// The replace is two renames where the volume makes no hard links (FAT, exFAT, some shares, FUSE),
+/// and the name is empty between them: a pass that found it so would read a delete. It is written
+/// down in the journal BEFORE the first rename, so that the next pass's recovery finishes it - the
+/// new version takes the name - or puts the old file back (X-DELTA-SYNC2-6).
 #[allow(clippy::too_many_arguments)]
 fn restore<R: SyncRemote + ?Sized>(
     remote_side: &R,
     folder: &Path,
     tree: &beneath::Root,
-    log: &OpLog,
+    (log, journal): (&OpLog, &Journal),
     stamp: &str,
     key: &str,
     damaged: &str,
     seen: Fingerprint,
     file: &RemoteFile,
+    point: &dyn Fn(&str),
 ) -> CloudResult<()> {
     // The base's key of a damaged copy: a record of this device's, walked to and never made.
     let (dir, name) = names::walk_record(tree, key)?;
@@ -387,7 +420,22 @@ fn restore<R: SyncRemote + ?Sized>(
         dir: &trash,
         name: &target,
     };
-    match durable::replace_keeping(&dir, name, staged, &slot, Expect::Is(seen)) {
+    // Nothing moves before this is on the disk: a journal that cannot be written stops the replace.
+    let ticket = journal.begin(Intent::Replace {
+        key: key.to_string(),
+        staged: staged.rel(),
+        slot: rel.clone(),
+    })?;
+    point("before-replace");
+    let replaced = durable::replace_keeping(&dir, name, staged, &slot, Expect::Is(seen));
+    // Done once the name is held again by a file the replace left whole: it went in, or it never moved
+    // anything. Any other end stays open, and the next recovery looks at the name.
+    if matches!(replaced, Ok(_) | Err(PublishError::Changed)) {
+        // collapse-ok: a step left open that has its new version in place is a no-op for recovery
+        // (the name is held), as the journal's `done` says of itself.
+        let _ = journal.done(ticket);
+    }
+    match replaced {
         Ok(_) => {
             let _ = log.record(&Op {
                 t: crate::now() as f64,

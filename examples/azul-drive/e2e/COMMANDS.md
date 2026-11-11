@@ -75,7 +75,9 @@ the sandboxes' parent folder; `AZDRIVE_E2E_KEEP=1` keeps them.
   `after-commit`, `download-start`, `before-rename`, `after-rename`, `before-trash`,
   `conflict-start`, `conflict-renamed`, `before-base-save`; and, in "Free up space" (a step of its
   own, not of a pass), `before-evict-unlink` (the base says "in the cloud only", the file is still
-  here) and `after-evict-unlink` (the file has left). An E2E device's sessions hear them
+  here) and `after-evict-unlink` (the file has left); and, in the read-back's repair of a
+  damaged copy, `before-replace` (the replace is in the journal, nothing has moved). An E2E
+  device's sessions hear them
   through `SyncSession::with_points`; the commands arm them in `azcloud_kit::sync::faults`. A
   crash stops the pass thread there by unwinding it: nothing after the point runs, no error handler
   runs, only destructors (so a temp file a guard owns is removed, unlike after `kill -9`; the

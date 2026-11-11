@@ -358,6 +358,16 @@ impl Staged<'_> {
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    /// The file's path from the root its folder was reached under: what a journal writes down
+    /// before the staged file goes over a name, so that a restart finds it again.
+    #[must_use]
+    pub fn rel(&self) -> String {
+        match self.dir.rel() {
+            "" => self.name.clone(),
+            folder => format!("{folder}/{}", self.name),
+        }
+    }
 }
 
 impl Drop for Staged<'_> {

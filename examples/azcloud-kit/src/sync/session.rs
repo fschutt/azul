@@ -1636,11 +1636,12 @@ impl SyncSession {
         // The read-back replaces files and rewrites the base: beside a pass it could resurrect a
         // delete or add conflict copies, so it takes the pass's turn.
         let _single_flight = self.pass_lock("this check waits for the next time")?;
-        let report = super::verify::verify(
+        let report = super::verify::verify_with(
             self.target(),
             &self.root(),
             &self.index_path(),
             &self.options()?,
+            &|name| self.point(name),
         )?;
         write_json(&self.dir.join(super::verify::VERIFY_FILE), &report, true)?;
         for problem in &report.problems {

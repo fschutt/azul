@@ -46,6 +46,8 @@ pub const POINTS: &[&str] = &[
     // says the file is kept in the cloud only and before the file leaves, and once it has left.
     "before-evict-unlink",
     "after-evict-unlink",
+    // The read-back's replace of a damaged copy: written down in the journal, nothing moved yet.
+    "before-replace",
 ];
 
 /// The payload a crashed pass unwinds with. Whoever runs passes on a thread catches it

@@ -2295,3 +2295,162 @@ fn x_delta_azdrive_sync_16_free_up_frees_a_file_whose_times_moved_but_whose_byte
     assert_eq!(freed.freed, vec![String::from("keep.txt")], "{freed:?}");
     assert!(a.read("keep.txt").is_none(), "its bytes left this device");
 }
+
+// ==== The read-back's replace is written down first (X-DELTA-SYNC2-6) ====
+
+/// A pairing like [`paired`] whose session hears the fault seam under its folder.
+fn faulted_pair(name: &str, store: &Arc<S3Bucket>) -> Paired {
+    let folder = TempDir::new(&format!("azcloud-session-{name}"));
+    let state = TempDir::new(&format!("azcloud-session-state-{name}"));
+    let remote: Arc<dyn RemoteStore> = store.clone();
+    let root = folder.path().to_path_buf();
+    let session = SyncSession::plain(setup_of(&folder), state.path().to_path_buf(), name, remote)
+        .with_points(Arc::new(move |point: &str| {
+            crate::sync::faults::point(&root, point);
+        }));
+    Paired {
+        folder,
+        state,
+        session,
+    }
+}
+
+/// X-DELTA-SYNC2-6, the write side. Where a volume has no hard links the replace of a rotted file
+/// is two renames and the name is empty between them; the journal now names the replace BEFORE the
+/// first rename (the point `before-replace` stands there). A process cut there leaves the journal
+/// line open and the rotted file at its name; the next pass's recovery finds the name held and
+/// leaves it; the next read-back puts the drive's version back and closes the step. RED on the old
+/// code: no journal line is written (and the point does not exist), so the first assertion fails.
+#[test]
+fn x_delta_sync2_6_the_read_back_writes_its_replace_down_before_it_moves_anything() {
+    use crate::sync::{
+        faults,
+        journal::{Intent, Journal},
+    };
+    let store = Arc::new(S3Bucket::new());
+    let a = faulted_pair("verify-s26-order", &store);
+    aged(&a, "docs/b.bin", b"archive b");
+    a.pass();
+    rot(&a, "docs/b.bin", b"archive X");
+    faults::arm_crash(a.folder.path(), "before-replace");
+    let cut = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        a.session.verify().map(|_| ())
+    }))
+    .expect_err("the read-back is cut after it wrote the replace down");
+    assert_eq!(
+        faults::crashed_at(cut.as_ref()).as_deref(),
+        Some("before-replace")
+    );
+    let open = Journal::new(a.state.path()).open_steps();
+    assert_eq!(open.len(), 1, "one replace is open: {open:?}");
+    let Intent::Replace { key, slot, .. } = &open[0].1 else {
+        panic!("a replace, not {:?}", open[0].1)
+    };
+    assert_eq!(key, "docs/b.bin");
+    assert!(
+        slot.starts_with(".azlin/sync/trash/") && slot.ends_with("docs/b.bin"),
+        "the slot is in the trash: {slot}"
+    );
+    assert_eq!(
+        a.read("docs/b.bin").as_deref(),
+        Some(&b"archive X"[..]),
+        "nothing had moved: the rotted file is at its name"
+    );
+
+    // The next pass recovers the journal (the name is held: nothing to finish) and syncs as always.
+    a.pass();
+    assert!(
+        Journal::new(a.state.path()).open_steps().is_empty(),
+        "recovery closed it"
+    );
+    assert!(lists(&index_of(&store), "docs/b.bin"));
+    // And the read-back runs through: it puts the drive's version back, and the step is done.
+    let report = a.session.verify().unwrap();
+    assert_eq!(
+        report.restored,
+        vec![String::from("docs/b.bin")],
+        "{report:?}"
+    );
+    assert_eq!(a.read("docs/b.bin").as_deref(), Some(&b"archive b"[..]));
+    let journal = Journal::new(a.state.path());
+    assert!(
+        journal.open_steps().is_empty(),
+        "the replace is marked done"
+    );
+    let text = fs::read_to_string(a.state.path().join(crate::sync::journal::JOURNAL_FILE)).unwrap();
+    assert!(
+        text.contains("\"op\":\"replace\"") && text.contains("\"done\":true"),
+        "the replace was begun and done: {text}"
+    );
+    faults::clear(a.folder.path());
+}
+
+/// What a volume without hard links leaves when the process dies between the two renames of the
+/// read-back's replace of `key` (a big file: the whole new version waits in the folder's spool): the
+/// rotted file in the trash slot and the EMPTY name. Returns the journal's line for it. (A staged file
+/// beside the name is held for a while by the pass's own `keep_saves`, which sees an app saving; the
+/// spool is out of its sight.)
+fn cut_between_the_renames(a: &Paired, key: &str, new: &[u8]) -> crate::sync::journal::Intent {
+    let slot = format!(".azlin/sync/trash/20261111-101500-a1b2c3/{key}");
+    let staged = format!("{}/b.bin.staged", crate::sync::root::SPOOL_DIR);
+    let slot_path = a.folder.path().join(&slot);
+    fs::create_dir_all(slot_path.parent().unwrap()).unwrap();
+    fs::rename(path_of(a.folder.path(), key), &slot_path).unwrap();
+    fs::create_dir_all(a.folder.path().join(&staged).parent().unwrap()).unwrap();
+    fs::write(a.folder.path().join(&staged), new).unwrap();
+    assert!(a.read(key).is_none(), "the name is empty");
+    crate::sync::journal::Intent::Replace {
+        key: key.to_string(),
+        staged,
+        slot,
+    }
+}
+
+/// X-DELTA-SYNC2-6, the read side, through a pass: the disk the cut leaves is the same with or
+/// without the journal's line, and only the line decides what the next pass does. With it, the
+/// recovery that starts the pass puts the new version in the name and the drive keeps the file.
+/// (RED on the old code: nothing wrote the line, which is the control below.)
+#[test]
+fn x_delta_sync2_6_a_pass_after_a_replace_cut_between_its_renames_keeps_the_file_on_the_drive() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("verify-s26-pass", &store, |_| {});
+    aged(&a, "docs/b.bin", b"archive b");
+    a.pass();
+    rot(&a, "docs/b.bin", b"archive X");
+    let intent = cut_between_the_renames(&a, "docs/b.bin", b"archive b");
+    crate::sync::journal::Journal::new(a.state.path())
+        .begin(intent)
+        .unwrap();
+    a.pass();
+    assert!(
+        lists(&index_of(&store), "docs/b.bin"),
+        "the drive still holds the file"
+    );
+    assert!(
+        index_of(&store)["deleted"].get("docs/b.bin").is_none(),
+        "no tombstone: {}",
+        index_of(&store)["deleted"]
+    );
+    assert_eq!(
+        a.read("docs/b.bin").as_deref(),
+        Some(&b"archive b"[..]),
+        "the new version is in the name"
+    );
+}
+
+/// The control of the test above: the same disk and no journal line - what the old code left - is
+/// read by the pass as the user's delete: the file goes from the drive.
+#[test]
+fn x_delta_sync2_6_without_the_journal_line_the_same_disk_is_read_as_a_delete() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("verify-s26-control", &store, |_| {});
+    aged(&a, "docs/b.bin", b"archive b");
+    a.pass();
+    rot(&a, "docs/b.bin", b"archive X");
+    cut_between_the_renames(&a, "docs/b.bin", b"archive b");
+    a.pass();
+    assert!(
+        !lists(&index_of(&store), "docs/b.bin"),
+        "an empty name with no journal is a delete: the file left the drive"
+    );
+}

@@ -190,3 +190,125 @@ fn the_temp_names_are_azul_storages() {
     assert!(!is_download_temp(".a.txt.azul-storage-12-3.tmp", "b.txt"));
     assert!(!is_download_temp("a.txt", "a.txt"));
 }
+
+/// The disk after the first of a replace's two renames, where the volume makes no hard links: the
+/// old file is in the trash slot, the name is EMPTY, and the whole new version waits beside it.
+/// Returns the journal's intent for it.
+fn cut_between_the_two_renames(root: &std::path::Path, old: &[u8], new: &[u8]) -> Intent {
+    let slot = ".azlin/sync/trash/20261111-101500-a1b2c3/docs/a.txt";
+    let staged = "docs/.a.txt.azul-storage-77-1.tmp";
+    fs::create_dir_all(root.join("docs")).unwrap();
+    fs::create_dir_all(root.join(slot).parent().unwrap()).unwrap();
+    fs::write(root.join(slot), old).unwrap();
+    fs::write(root.join(staged), new).unwrap();
+    Intent::Replace {
+        key: String::from("docs/a.txt"),
+        staged: String::from(staged),
+        slot: String::from(slot),
+    }
+}
+
+/// X-DELTA-SYNC2-6. `replace_keeping` is two renames on a volume without hard links, and a process
+/// cut between them left the name empty - which the next pass reads as the user's delete. The
+/// replace is in the journal now, and recovery finishes it: the whole new version takes the name,
+/// the old file stays in the trash, nothing is left beside.
+#[test]
+fn x_delta_sync2_6_a_replace_cut_between_its_renames_gets_the_new_version_in_its_name() {
+    let root = TempDir::new("journal-replace-root");
+    let state = TempDir::new("journal-replace-state");
+    let intent = cut_between_the_two_renames(root.path(), b"rotted", b"the new version");
+    let journal = Journal::new(state.path());
+    journal.begin(intent.clone()).unwrap();
+    // A new process: the journal is read from the disk.
+    let recovery = Journal::new(state.path()).recover(root.path()).unwrap();
+    assert_eq!(recovery.finished.len(), 1, "{recovery:?}");
+    assert!(
+        recovery.finished[0].starts_with("docs/a.txt"),
+        "{recovery:?}"
+    );
+    assert_eq!(
+        fs::read(root.path().join("docs/a.txt")).unwrap(),
+        b"the new version",
+        "the name holds the new version"
+    );
+    let Intent::Replace { slot, .. } = &intent else {
+        unreachable!()
+    };
+    assert_eq!(
+        fs::read(root.path().join(slot)).unwrap(),
+        b"rotted",
+        "the old file stays in the trash"
+    );
+    let left: Vec<String> = fs::read_dir(root.path().join("docs"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, vec![String::from("a.txt")], "no staged file is left");
+}
+
+/// X-DELTA-SYNC2-6: the new version is gone too (a spool swept, a disk that lost it): the old file
+/// comes back from the trash, so the name is never empty for a pass.
+#[test]
+fn x_delta_sync2_6_a_replace_cut_with_its_new_version_gone_gets_the_old_file_back() {
+    let root = TempDir::new("journal-replace-back-root");
+    let state = TempDir::new("journal-replace-back-state");
+    let intent = cut_between_the_two_renames(root.path(), b"rotted", b"the new version");
+    let Intent::Replace { staged, .. } = &intent else {
+        unreachable!()
+    };
+    fs::remove_file(root.path().join(staged)).unwrap();
+    Journal::new(state.path()).begin(intent).unwrap();
+    let recovery = Journal::new(state.path()).recover(root.path()).unwrap();
+    assert_eq!(recovery.rolled_back.len(), 1, "{recovery:?}");
+    assert_eq!(fs::read(root.path().join("docs/a.txt")).unwrap(), b"rotted");
+}
+
+/// X-DELTA-SYNC2-6: a name that is held is nothing to finish - the old file is still there (the
+/// replace was cut before it moved anything) or somebody has made a new file since. Recovery puts
+/// nothing over it and takes nothing away.
+#[test]
+fn x_delta_sync2_6_a_replace_whose_name_is_held_is_left_as_it_is() {
+    let root = TempDir::new("journal-replace-held-root");
+    let state = TempDir::new("journal-replace-held-state");
+    let intent = cut_between_the_two_renames(root.path(), b"rotted", b"the new version");
+    // Cut before the first rename: the old file is at its name (and in the slot's second name).
+    fs::write(root.path().join("docs/a.txt"), b"saved by the user since").unwrap();
+    Journal::new(state.path()).begin(intent.clone()).unwrap();
+    let recovery = Journal::new(state.path()).recover(root.path()).unwrap();
+    assert!(
+        recovery.finished.is_empty() && recovery.rolled_back.is_empty(),
+        "{recovery:?}"
+    );
+    assert_eq!(
+        fs::read(root.path().join("docs/a.txt")).unwrap(),
+        b"saved by the user since"
+    );
+    let Intent::Replace { staged, slot, .. } = &intent else {
+        unreachable!()
+    };
+    assert_eq!(
+        fs::read(root.path().join(staged)).unwrap(),
+        b"the new version",
+        "the staged file is not touched"
+    );
+    assert_eq!(fs::read(root.path().join(slot)).unwrap(), b"rotted");
+}
+
+/// X-DELTA-SYNC2-6: neither the new version nor the old file is where the journal says: nothing is
+/// invented, and the step is reported as left.
+#[test]
+fn x_delta_sync2_6_a_replace_that_finds_neither_file_says_so() {
+    let root = TempDir::new("journal-replace-none-root");
+    let state = TempDir::new("journal-replace-none-state");
+    let intent = cut_between_the_two_renames(root.path(), b"rotted", b"the new version");
+    let Intent::Replace { staged, slot, .. } = &intent else {
+        unreachable!()
+    };
+    fs::remove_file(root.path().join(staged)).unwrap();
+    fs::remove_file(root.path().join(slot)).unwrap();
+    Journal::new(state.path()).begin(intent).unwrap();
+    let recovery = Journal::new(state.path()).recover(root.path()).unwrap();
+    assert_eq!(recovery.left.len(), 1, "{recovery:?}");
+    assert!(!root.path().join("docs/a.txt").exists());
+}
