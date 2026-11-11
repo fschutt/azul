@@ -841,7 +841,24 @@ pub struct MetaIndexProvider {
     /// cannot keep the ledger (a refused write, an unreadable object) - without it such a drive
     /// would be read whole at every maintenance round again.
     rounds_at: Mutex<BTreeMap<String, u64>>,
+    /// What the last judged round of each drive decided ([`go`]; the key of a round with no drive
+    /// id is empty): the proof the drives' pack upkeep deletes by - the evidence gate stops every
+    /// deleter, not only the reclaimer's own round (X-DELTA-SYNC2-2).
+    verdicts: Arc<Mutex<BTreeMap<String, Verdict>>>,
 }
+
+/// What [`go`] decided at the last judged round of a drive, and when (seconds since 1970).
+#[derive(Clone, Copy, Debug)]
+struct Verdict {
+    at: u64,
+    /// The evidence was there: the round was run in [`ReclaimMode::Delete`] and deleted.
+    delete: bool,
+}
+
+/// How long a round's verdict that the evidence is there lets the pack upkeep delete (seconds):
+/// rounds are a day apart ([`super::shadow::EVERY_SECS`]), and a process that has not judged the
+/// drive for two days has no proof - the upkeep then reports and deletes nothing.
+pub(crate) const VERDICT_FRESH_SECS: u64 = 2 * super::shadow::EVERY_SECS;
 
 impl MetaIndexProvider {
     /// The provider `profile` describes: the one way to make one (the old `new(name)` and its five
@@ -857,7 +874,19 @@ impl MetaIndexProvider {
             reclaim: profile.reclaim,
             last_reclaim: Mutex::new(None),
             rounds_at: Mutex::new(BTreeMap::new()),
+            verdicts: Arc::new(Mutex::new(BTreeMap::new())),
         }
+    }
+
+    /// Notes what the round of `drive` decided at `now`.
+    pub(crate) fn note_verdict(&self, drive: Option<&str>, now: u64, delete: bool) {
+        self.verdicts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(
+                drive.unwrap_or_default().to_string(),
+                Verdict { at: now, delete },
+            );
     }
 
     /// What the reclaimer round at the end of the last [`MetaIndexProvider::maintain`] came to:
@@ -1035,6 +1064,7 @@ impl MetaIndexProvider {
             );
             report.evidence = Some(evidence);
             report.held = (mode == ReclaimMode::Delete).then_some(Hold::TooBig);
+            self.note_verdict(drive, now, false);
             return Ok(report);
         }
         drop(sized);
@@ -1096,7 +1126,9 @@ impl MetaIndexProvider {
                         ),
                     );
                     report.evidence = Some(evidence);
-                    match go(mode, &evidence) {
+                    let decided = go(mode, &evidence);
+                    self.note_verdict(drive, now, decided == Go::Delete);
+                    match decided {
                         Go::Delete => ReclaimMode::Delete,
                         Go::Off => ReclaimMode::Off,
                         Go::Shadow(hold) => {
@@ -1108,6 +1140,8 @@ impl MetaIndexProvider {
             })
             .map_err(to_drive)?;
         if !judged {
+            // Nothing was proven: the pack upkeep waits for a round that is.
+            self.note_verdict(drive, now, false);
             // The run stopped before there was anything to judge: a tree or a pointer that does not
             // read is a round that was not clean, and counts against the streak; a drive with no
             // commit yet has nothing to record.
@@ -1351,6 +1385,21 @@ fn unclean_why(rederived: Option<bool>) -> String {
 impl IndexProvider for MetaIndexProvider {
     fn reclaim_mode(&self, _drive: &str) -> ReclaimMode {
         self.reclaim.mode
+    }
+
+    /// The pack upkeep of `drive` deletes while the last round this provider judged for it said the
+    /// evidence was there ([`go`]) and not longer ago than [`VERDICT_FRESH_SECS`]: no round, a round
+    /// that held back, or an old verdict, and the upkeep reports (X-DELTA-SYNC2-2).
+    fn reclaim_proof(&self, drive: &str) -> Option<crate::encrypted::ReclaimProof> {
+        let verdicts = Arc::clone(&self.verdicts);
+        let drive = drive.to_string();
+        Some(Arc::new(move |now| {
+            verdicts
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&drive)
+                .is_some_and(|v| v.delete && v.at <= now && now - v.at <= VERDICT_FRESH_SECS)
+        }))
     }
 
     fn packing(&self, drive: &str) -> Option<crate::packing::PackOptions> {

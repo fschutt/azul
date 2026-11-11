@@ -1210,6 +1210,13 @@ fn x_ar5a_14_re_encrypting_the_packs_of_a_drive_that_keeps_its_history_deletes_n
     );
 }
 
+/// The proof of a drive whose shadow rounds showed everything the switch to deleting asks for: what
+/// the provider's own answer ([`crate::meta::MetaIndexProvider`]: its last judged round's verdict)
+/// is, stood in for. A drive configured to delete deletes only with one (X-DELTA-SYNC2-2).
+fn proven() -> crate::encrypted::ReclaimProof {
+    Arc::new(|_| true)
+}
+
 /// A drive that packs, deletes by its upkeep, and has retired the pack of two small files that were
 /// deleted: the pack is named by the first commit only (and the grace of a retired pack is
 /// `grace`).
@@ -1222,6 +1229,7 @@ fn lab_with_a_retired_pack(grace: u64) -> (Lab, String) {
         drive
             .with_packing(options)
             .with_reclaim(ReclaimMode::Delete)
+            .with_reclaim_proof(proven())
     });
     let small: [(&str, &[u8]); 2] = [
         ("p1.txt", b"first small file"),
@@ -1281,6 +1289,7 @@ fn x_delta_azdrive_sync_7_the_first_pack_due_does_not_take_the_list_of_the_later
         drive
             .with_packing(options)
             .with_reclaim(ReclaimMode::Delete)
+            .with_reclaim_proof(proven())
     });
     let put_pair = |a: (&str, &[u8]), b: (&str, &[u8])| {
         let items = [BatchPut::new(a.0, a.1), BatchPut::new(b.0, b.1)];
@@ -1388,7 +1397,11 @@ fn x_ar5a_14_a_drive_in_shadow_mode_keeps_what_its_upkeep_would_delete() {
 fn az_m10_an_object_whose_change_may_have_landed_is_cleared_up_from_the_drive_not_from_a_copy() {
     // The change fails with an error that says nothing about whether it landed: the object stays
     // and is written down.
-    let lab = Lab::with(|drive| drive.with_reclaim(ReclaimMode::Delete));
+    let lab = Lab::with(|drive| {
+        drive
+            .with_reclaim(ReclaimMode::Delete)
+            .with_reclaim_proof(proven())
+    });
     lab.bucket.fail_next_write(
         keys::MANIFEST,
         MetaError::Drive(crate::DriveError::Transport(String::from("reset"))),
@@ -1416,7 +1429,11 @@ fn az_m10_an_object_whose_change_may_have_landed_is_cleared_up_from_the_drive_no
 #[test]
 fn az_m10_an_object_the_drive_names_after_all_is_never_deleted_by_the_upkeep() {
     // Another device's index change landed with its answer lost: the drive names the object.
-    let lab = Lab::with(|drive| drive.with_reclaim(ReclaimMode::Delete));
+    let lab = Lab::with(|drive| {
+        drive
+            .with_reclaim(ReclaimMode::Delete)
+            .with_reclaim_proof(proven())
+    });
     lab.drive.put("a.txt", b"the file").unwrap();
     let object = lab.drive.entry("a.txt").unwrap().object.unwrap().id;
     // The journal has it as in flight (this is what a write that could not tell leaves).
@@ -1663,4 +1680,213 @@ fn e8_history_size_for_reclaim() {
         analysis.live.len() >= files,
         "every file of the head is live"
     );
+}
+
+// ==== X-DELTA-SYNC2-2 (a): the evidence gate stops every deleter, not only the reclaimer's own round ====
+
+/// A drive opened the way an app opens one - `open_encrypted` with a provider configured to delete,
+/// packing small files or not. Returns the provider (its proof is what the drive asks), the drive and
+/// the bucket.
+fn configured_to_delete(
+    name: &str,
+    packing: bool,
+) -> (
+    MetaIndexProvider,
+    EncryptedDrive<Arc<dyn Drive>>,
+    Arc<MemoryBucket>,
+) {
+    use crate::{
+        crypto::{device::setup_new_drive, keys::RecoveryKdf},
+        encrypted::open_encrypted,
+        keyring::MemoryKeyring,
+    };
+    let bucket = Arc::new(MemoryBucket::new());
+    let keyring = MemoryKeyring::new();
+    setup_new_drive(
+        bucket.as_ref(),
+        &keyring,
+        name,
+        RecoveryKdf::with_cost(64, 1, 1).unwrap(),
+    )
+    .unwrap();
+    let provider = MetaIndexProvider::new(IndexProfile {
+        packing,
+        reclaim: ReclaimOptions {
+            mode: ReclaimMode::Delete,
+            ..ReclaimOptions::shadow()
+        },
+        ..IndexProfile::in_memory("Laptop")
+    });
+    let plain: Arc<dyn Drive> = bucket.clone();
+    let drive = open_encrypted(plain, &keyring, name, &provider).unwrap();
+    (provider, drive, bucket)
+}
+
+/// The data objects the bucket holds.
+fn data_objects_of(bucket: &MemoryBucket) -> Vec<String> {
+    bucket
+        .objects()
+        .into_iter()
+        .map(|(key, _)| key)
+        .filter(|key| key.starts_with("data/"))
+        .collect()
+}
+
+/// X-DELTA-SYNC2-2 (a). `go()` gated only the reclaimer's own round: the pack upkeep
+/// (`collect_retired`, `recover_packs`) deleted in the mode the provider was CONFIGURED with, so a
+/// provider switched to deleting made every drive delete its retired packs at the next maintenance
+/// round with none of the rounds, days, devices or footing the gate promises. A drive configured to
+/// delete deletes now only while the provider's proof - the verdict of its last judged round - says
+/// the evidence is there. RED on the old code: the retired pack is deleted by `collect_retired`.
+#[test]
+fn x_delta_sync2_2_a_provider_configured_to_delete_keeps_every_due_pack_without_the_evidence() {
+    let (provider, drive, bucket) = configured_to_delete("d_sync2_2", true);
+    // Two small files in one pack, both deleted: the emptied pack is retired.
+    let items = [
+        BatchPut::new("p1.txt", b"first small file"),
+        BatchPut::new("p2.txt", b"second small file"),
+    ];
+    for result in drive.put_many(&items) {
+        result.unwrap();
+    }
+    drive.delete("p1.txt").unwrap();
+    drive.delete("p2.txt").unwrap();
+    drive.repack(crate::time::now_unix()).unwrap();
+    let retired = drive.retired_packs();
+    assert_eq!(retired.len(), 1, "the emptied pack is retired");
+    let pack = retired[0].0.bucket_key();
+    let far = crate::time::now_unix() + 200 * DAY;
+    assert!(
+        !provider
+            .reclaim_proof("d_sync2_2")
+            .expect("the provider offers a proof")(far),
+        "no round has judged the drive: no proof"
+    );
+    assert_eq!(
+        drive.collect_retired(far).unwrap(),
+        0,
+        "the pack is due and no state names it, but nothing was proven: it stays"
+    );
+    assert_eq!(drive.retired_packs().len(), 1, "and it stays retired");
+    assert!(bucket.head(&pack).is_ok(), "in the bucket");
+}
+
+/// The other deleter of the upkeep: an object whose writer stopped between the upload and the
+/// journal's end, named by nothing, is cleared up from the bucket only with the same proof.
+#[test]
+fn x_delta_sync2_2_a_provider_configured_to_delete_clears_no_object_in_flight_without_the_evidence()
+{
+    let (_provider, drive, bucket) = configured_to_delete("d_sync2_2b", false);
+    // The change that names the file fails with an answer that says nothing of whether it landed:
+    // the object stays in the bucket, written down as in flight, named by nothing.
+    bucket.fail_next_write(
+        keys::MANIFEST,
+        MetaError::Drive(DriveError::Transport(String::from("reset"))),
+    );
+    let put = drive.put("a.txt", b"the file");
+    assert!(matches!(put, Err(DriveError::Transport(_))), "{put:?}");
+    assert_eq!(data_objects_of(&bucket).len(), 1, "the object stays");
+    // Stale, and the drive read whole names nothing of it: garbage - but no round proved the
+    // history that could still name it, so it stays in the bucket and in the journal.
+    let far = crate::time::now_unix() + 3_600;
+    assert_eq!(drive.recover_packs(far).unwrap(), 0, "nothing was proven");
+    assert_eq!(
+        data_objects_of(&bucket).len(),
+        1,
+        "the object is still in the bucket"
+    );
+}
+
+/// X-DELTA-SYNC2-2 (a). The proof is the verdict of the provider's last judged round: a round that
+/// held back, no round, another drive's round and a verdict older than the rounds' schedule allows
+/// prove nothing; one that said Delete proves it for [`VERDICT_FRESH_SECS`].
+#[test]
+fn x_delta_sync2_2_the_providers_proof_is_its_last_judged_rounds_verdict_and_it_goes_stale() {
+    use crate::meta::index::VERDICT_FRESH_SECS;
+    let provider = MetaIndexProvider::new(IndexProfile {
+        reclaim: ReclaimOptions {
+            mode: ReclaimMode::Delete,
+            ..ReclaimOptions::shadow()
+        },
+        ..IndexProfile::in_memory("Laptop")
+    });
+    let proof = |drive: &str, now: u64| provider.reclaim_proof(drive).expect("a proof")(now);
+    let at = T0;
+    assert!(!proof("d_a", at), "no round yet");
+    provider.note_verdict(Some("d_a"), at, true);
+    assert!(proof("d_a", at));
+    assert!(proof("d_a", at + VERDICT_FRESH_SECS));
+    assert!(
+        !proof("d_a", at + VERDICT_FRESH_SECS + 1),
+        "a drive nobody judged for two days has no proof"
+    );
+    assert!(
+        !proof("d_a", at - 1),
+        "a verdict stamped in the future is stale, not fresh"
+    );
+    assert!(
+        !proof("d_b", at),
+        "another drive's round proves nothing here"
+    );
+    assert!(
+        !provider.reclaim_proof("").expect("a proof")(at),
+        "the round of no drive proves no drive"
+    );
+    // The next round held back: the proof is gone at once.
+    provider.note_verdict(Some("d_a"), at + 100, false);
+    assert!(!proof("d_a", at + 100));
+}
+
+/// The drive configured to delete AND given the proof deletes (the pack lifecycle the other tests
+/// rely on), and one whose proof stops saying yes keeps the pack again.
+#[test]
+fn x_delta_sync2_2_a_drive_deletes_while_its_proof_says_so_and_not_after() {
+    let options = PackOptions {
+        retired_grace_secs: 0,
+        ..PackOptions::default()
+    };
+    let (open_until, calls) = {
+        let calls = Arc::new(AtomicU64::new(0));
+        let seen = Arc::clone(&calls);
+        let until = Arc::new(AtomicU64::new(u64::MAX));
+        let limit = Arc::clone(&until);
+        (
+            until,
+            (calls, move |now: u64| {
+                seen.fetch_add(1, Ordering::SeqCst);
+                now <= limit.load(Ordering::SeqCst)
+            }),
+        )
+    };
+    let (calls, proof) = calls;
+    let lab = Lab::with(|drive| {
+        drive
+            .with_packing(options)
+            .with_reclaim(ReclaimMode::Delete)
+            .with_reclaim_proof(Arc::new(proof))
+    });
+    let items = [
+        BatchPut::new("p1.txt", b"first small file"),
+        BatchPut::new("p2.txt", b"second small file"),
+    ];
+    for result in lab.drive.put_many(&items) {
+        result.unwrap();
+    }
+    let pack = pack_of(&lab, "p1.txt");
+    lab.at(T0 + DAY);
+    lab.drive.delete("p1.txt").unwrap();
+    lab.drive.delete("p2.txt").unwrap();
+    lab.drive.repack(T0 + 2 * DAY).unwrap();
+    // The proof is withdrawn: the pack, due and named by no state in the window, stays.
+    open_until.store(0, Ordering::SeqCst);
+    assert_eq!(lab.drive.collect_retired(T0 + 200 * DAY).unwrap(), 0);
+    assert!(lab.data_objects().contains(&pack));
+    assert!(
+        calls.load(Ordering::SeqCst) >= 1,
+        "the drive asked its proof"
+    );
+    // Given again, it goes.
+    open_until.store(u64::MAX, Ordering::SeqCst);
+    assert_eq!(lab.drive.collect_retired(T0 + 200 * DAY).unwrap(), 1);
+    assert!(!lab.data_objects().contains(&pack));
 }

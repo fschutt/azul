@@ -1546,11 +1546,12 @@ impl<D: Drive> EncryptedDrive<D> {
     /// that keeps history answers from the drive itself, read fresh and whole - the head and every
     /// state inside the retention window, never a copy that answered because the drive could not
     /// be reached - and the drive's [`ReclaimMode`] decides whether an object nothing names is
-    /// deleted or only reported. An index without history has its head and nothing else: what the
+    /// deleted or only reported: a drive configured to delete deletes only while the evidence of
+    /// its shadow rounds is there ([`EncryptedDrive::upkeep_mode`]). An index without history has its head and nothing else: what the
     /// head does not name is named by nobody, and goes (as it always did).
     fn live_objects(&self, now: u64) -> Result<(LiveObjects, ReclaimMode, bool), DriveError> {
         match self.index.live_objects(now)? {
-            Some(live) => Ok((live, self.reclaim, true)),
+            Some(live) => Ok((live, self.upkeep_mode(now), true)),
             None => Ok((
                 LiveObjects::of(self.named_objects()?, now),
                 ReclaimMode::Delete,

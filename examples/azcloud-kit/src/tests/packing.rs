@@ -143,8 +143,10 @@ fn packing_drive(
         .unwrap()
         .with_packing(options.with_journal(cache.join("packs")))
         // The drive's upkeep deletes the packs it retired (a drive ships in shadow mode: it only
-        // reports; the test is about the pack lifecycle itself).
+        // reports; the test is about the pack lifecycle itself): configured to delete, with the
+        // evidence of its shadow rounds given (X-DELTA-SYNC2-2: a drive deletes only with it).
         .with_reclaim(ReclaimMode::Delete)
+        .with_reclaim_proof(Arc::new(|_| true))
 }
 
 #[test]

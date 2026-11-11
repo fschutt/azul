@@ -299,7 +299,23 @@ pub trait IndexProvider: Send + Sync {
         let _ = drive;
         DEFAULT_MODE
     }
+
+    /// Whether the evidence of the drive `drive`'s shadow rounds lets its upkeep delete at the time
+    /// it is asked ([`ReclaimProof`]): a drive configured to delete ([`IndexProvider::reclaim_mode`])
+    /// deletes only while this says yes. By default there is none, and such a drive deletes nothing
+    /// (X-DELTA-SYNC2-2: the upkeep deleted in the configured mode with no evidence at all).
+    fn reclaim_proof(&self, drive: &str) -> Option<ReclaimProof> {
+        let _ = drive;
+        None
+    }
 }
+
+/// Whether the shadow rounds of a drive show, at the time given (seconds since 1970), that what its
+/// history alone still names may be deleted: the one question the upkeep asks before it deletes in
+/// [`ReclaimMode::Delete`] ([`EncryptedDrive::with_reclaim_proof`]). The provider that runs the
+/// rounds answers it from the rounds' own verdict ([`crate::meta::reclaim::go`]), never a second
+/// judgement.
+pub type ReclaimProof = Arc<dyn Fn(u64) -> bool + Send + Sync>;
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
 /// its member wrap in the bucket, [`crate::crypto::device::unlock`]), the index from
@@ -342,6 +358,10 @@ pub fn open_encrypted(
     let opened = opened.with_key_chain(drive)?;
     let opened = opened.counting_pack_reads_as(drive);
     let opened = opened.with_reclaim(provider.reclaim_mode(drive));
+    let opened = match provider.reclaim_proof(drive) {
+        Some(proof) => opened.with_reclaim_proof(proof),
+        None => opened,
+    };
     Ok(match provider.packing(drive) {
         Some(options) => opened.with_packing(options),
         None => opened,
@@ -1665,6 +1685,9 @@ pub struct EncryptedDrive<D: Drive> {
     /// What the upkeep does with an object only the drive's history can still name: with an index
     /// that keeps history, [`ReclaimMode::Shadow`] reports and deletes nothing.
     pub(crate) reclaim: ReclaimMode,
+    /// Whether the evidence of the drive's shadow rounds lets the upkeep delete now: a drive
+    /// configured for [`ReclaimMode::Delete`] without one deletes nothing ([`EncryptedDrive::upkeep_mode`]).
+    reclaim_proof: Option<ReclaimProof>,
 }
 
 impl<D: Drive> fmt::Debug for EncryptedDrive<D> {
@@ -1689,15 +1712,41 @@ impl<D: Drive> EncryptedDrive<D> {
             packs: PackState::new(None),
             undeleted: Mutex::new(BTreeSet::new()),
             reclaim: DEFAULT_MODE,
+            reclaim_proof: None,
         }
     }
 
-    /// The upkeep of this drive deletes by `mode` the objects only its history can still name
-    /// ([`IndexProvider::reclaim_mode`]); a drive whose index keeps no history is not affected.
+    /// The upkeep of this drive is configured by `mode` for the objects only its history can still
+    /// name ([`IndexProvider::reclaim_mode`]); a drive whose index keeps no history is not affected.
+    /// [`ReclaimMode::Delete`] is a configuration, not a licence: the upkeep deletes only while the
+    /// drive's proof ([`EncryptedDrive::with_reclaim_proof`]) says the evidence is there.
     #[must_use]
     pub fn with_reclaim(mut self, mode: ReclaimMode) -> EncryptedDrive<D> {
         self.reclaim = mode;
         self
+    }
+
+    /// The upkeep of this drive may delete, in [`ReclaimMode::Delete`], while `proof` says the
+    /// evidence of the drive's shadow rounds is there at the time it asks ([`ReclaimProof`]).
+    #[must_use]
+    pub fn with_reclaim_proof(mut self, proof: ReclaimProof) -> EncryptedDrive<D> {
+        self.reclaim_proof = Some(proof);
+        self
+    }
+
+    /// What the upkeep does with an object only the drive's history names at `now`: the configured
+    /// mode, but a drive configured to delete deletes only while its proof says the evidence of its
+    /// shadow rounds is there - else it reports (X-DELTA-SYNC2-2). The one way the upkeep gets to
+    /// [`ReclaimMode::Delete`] for a drive that keeps history.
+    #[must_use]
+    pub(crate) fn upkeep_mode(&self, now: u64) -> ReclaimMode {
+        match self.reclaim {
+            ReclaimMode::Delete => match &self.reclaim_proof {
+                Some(proof) if proof(now) => ReclaimMode::Delete,
+                _ => ReclaimMode::Shadow,
+            },
+            other => other,
+        }
     }
 
     /// Writes with these options (segment size, compression) from now on.
