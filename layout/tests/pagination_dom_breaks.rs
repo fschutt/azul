@@ -42,6 +42,22 @@ pub(crate) fn paginate(
     azul_core::styled_dom::StyledDom,
     azul_layout::PaginationInfo,
 ) {
+    paginate_with_config(html, w, h, FakePageConfig::new())
+}
+
+/// [`paginate`] with the given page setup: a PDF's pages are cut with widows,
+/// orphans and atomic lines honoured, and a footer takes room from all of them
+/// but the first.
+pub(crate) fn paginate_with_config(
+    html: &str,
+    w: f32,
+    h: f32,
+    page_config: FakePageConfig,
+) -> (
+    Solver3LayoutCache,
+    azul_core::styled_dom::StyledDom,
+    azul_layout::PaginationInfo,
+) {
     let styled_dom = Dom::from_xml_string(html);
     let fc_cache = build_font_cache();
     let mut font_manager = FontManager::new(fc_cache).expect("FontManager");
@@ -90,7 +106,7 @@ pub(crate) fn paginate(
         azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
         font_loader,
-        FakePageConfig::new(),
+        page_config,
         &azul_core::resources::ImageCache::default(),
         azul_core::task::GetSystemTimeCallback {
             cb: azul_core::task::get_system_time_libstd,

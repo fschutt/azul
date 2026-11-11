@@ -366,20 +366,32 @@ pub struct ColumnFlow {
     /// ascending: `[2, 7]` keeps lines 0-1 in the first column, 2-6 in
     /// the second, the rest in the third.
     pub breaks: Vec<usize>,
-    /// The inline distance from one column to the next: the column width
-    /// plus the gap, negative when the columns run right to left.
-    pub advance: f32,
-    /// Where the first line box of every further column starts on the block
-    /// axis, relative to this context's content-box top - minus how far
-    /// below the top of its first column the context starts.
-    pub column_top: f32,
+    /// Where every further column starts, relative to this context's
+    /// content box: `places[0]` is the second column's.
+    pub places: Vec<ColumnPlace>,
+}
+
+/// Where a further column of a [`ColumnFlow`] starts.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ColumnPlace {
+    /// The inline distance from the context's first column: the column
+    /// widths and gaps between, negative when the columns run right to left.
+    pub dx: f32,
+    /// Where the first line box of the column starts on the block axis,
+    /// relative to this context's content-box top - minus how far below the
+    /// top of its first column the context starts.
+    pub top: f32,
 }
 
 impl PartialEq for ColumnFlow {
     fn eq(&self, other: &Self) -> bool {
         self.breaks == other.breaks
-            && round_eq(self.advance, other.advance)
-            && round_eq(self.column_top, other.column_top)
+            && self.places.len() == other.places.len()
+            && self
+                .places
+                .iter()
+                .zip(&other.places)
+                .all(|(a, b)| round_eq(a.dx, b.dx) && round_eq(a.top, b.top))
     }
 }
 
@@ -389,8 +401,10 @@ impl Hash for ColumnFlow {
     #[allow(clippy::cast_possible_truncation)] // the rounded-pixel key `round_eq` compares
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.breaks.hash(state);
-        (self.advance.round() as isize).hash(state);
-        (self.column_top.round() as isize).hash(state);
+        for place in &self.places {
+            (place.dx.round() as isize).hash(state);
+            (place.top.round() as isize).hash(state);
+        }
     }
 }
 

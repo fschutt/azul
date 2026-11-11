@@ -72,21 +72,30 @@ impl PageConstraints {
     /// `skip_first_page` is set.
     #[must_use]
     pub fn from_slicer_config(cfg: &SlicerConfig) -> Self {
-        let base_header_space = if cfg.header_footer.show_header {
-            cfg.header_footer.header_height
+        Self::new(cfg.page_content_height, &cfg.header_footer)
+    }
+
+    /// The page heights of pages `page_content_height` tall that carry
+    /// `header_footer`.
+    #[must_use]
+    pub fn new(
+        page_content_height: f32,
+        header_footer: &crate::solver3::pagination::HeaderFooterConfig,
+    ) -> Self {
+        let base_header_space = if header_footer.show_header {
+            header_footer.header_height
         } else {
             0.0
         };
-        let base_footer_space = if cfg.header_footer.show_footer {
-            cfg.header_footer.footer_height
+        let base_footer_space = if header_footer.show_footer {
+            header_footer.footer_height
         } else {
             0.0
         };
-        let normal_page_content_height =
-            cfg.page_content_height - base_header_space - base_footer_space;
-        let first_page_content_height = if cfg.header_footer.skip_first_page {
+        let normal_page_content_height = page_content_height - base_header_space - base_footer_space;
+        let first_page_content_height = if header_footer.skip_first_page {
             // First page has full height when skipping headers/footers
-            cfg.page_content_height
+            page_content_height
         } else {
             normal_page_content_height
         };

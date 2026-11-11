@@ -314,9 +314,30 @@ pub struct ColumnPlan {
     pub height: f32,
     /// Where each [`FlowBox`] goes, in the order given.
     pub boxes: Vec<BoxPlacement>,
+    /// Paged media ([`plan_paged_columns`]): how many columns stand side by
+    /// side before the next one starts a new ROW, a page further down. `None`
+    /// = one row, the columns beyond the count running on to the side.
+    pub lanes: Option<usize>,
+    /// The top of every row, from the container's content-box top: `[0]`
+    /// for the one row of [`plan_columns`].
+    pub row_tops: Vec<f32>,
 }
 
 impl ColumnPlan {
+    /// The place across the container column `k` takes: its own index, or
+    /// on paged media its place in its row.
+    #[must_use]
+    pub fn lane(&self, k: usize) -> usize {
+        self.lanes.map_or(k, |lanes| k % lanes)
+    }
+
+    /// Where the row of column `k` starts on the block axis.
+    #[must_use]
+    pub fn row_top(&self, k: usize) -> f32 {
+        let row = self.lanes.map_or(0, |lanes| k / lanes);
+        self.row_tops.get(row).copied().unwrap_or(0.0)
+    }
+
     /// The column holding flow offset `y`: the last one starting at or
     /// before it.
     #[must_use]
@@ -415,17 +436,17 @@ fn column_start(atoms: &[Atom], a: usize) -> f32 {
     }
 }
 
-/// Fills columns `height` tall in order: each takes atoms until the next
-/// would end below it, and breaks before that one at the last break
-/// opportunity whose preceding content fits. A column that cannot fit even
-/// its first piece takes it anyway and breaks at the first opportunity
-/// after it (a monolith overflows, never loops). Returns the first atom of
-/// every column.
-fn fill_columns(atoms: &[Atom], height: f32) -> Vec<usize> {
-    let mut firsts = vec![0usize];
-    let mut a = 0usize;
+/// Fills columns in order, from atom `from` on: the `k`-th column (from 0)
+/// is `height_of(k)` tall. Each takes atoms until the next would end below
+/// it, and breaks before that one at the last break opportunity whose
+/// preceding content fits. A column that cannot fit even its first piece
+/// takes it anyway and breaks at the first opportunity after it (a
+/// monolith overflows, never loops). Returns the first atom of every column.
+fn fill_columns(atoms: &[Atom], from: usize, height_of: impl Fn(usize) -> f32) -> Vec<usize> {
+    let mut firsts = vec![from];
+    let mut a = from;
     while a < atoms.len() {
-        let limit = column_start(atoms, a) + height + FIT_EPS;
+        let limit = column_start(atoms, a) + height_of(firsts.len() - 1) + FIT_EPS;
         let mut content_bottom = atoms[a].bottom;
         let mut fitting_break = None;
         let mut first_break = None;
@@ -458,73 +479,49 @@ fn fill_columns(atoms: &[Atom], height: f32) -> Vec<usize> {
     firsts
 }
 
-/// CSS Multicol 1 §7 (`column-fill`) and §8 (overflow): cuts a
-/// multi-column container's single-column flow into `count` columns.
-///
-/// `balance` (the initial value, and always when the container's height is
-/// not definite): the shortest column height whose in-order fill needs no
-/// more than `count` columns - capped by a definite `height`. `auto` with a
-/// definite height: columns of that height, filled in turn. Content a
-/// capped column height cannot fit in `count` columns runs on in further
-/// (overflow) columns in the inline direction.
-#[must_use]
+/// The shortest column height whose in-order fill, from atom `from`, needs
+/// no more than `count` columns - capped by `cap`. A greedy fill never
+/// needs MORE columns for a taller height, so it bisects between the even
+/// share and the whole flow.
 #[allow(clippy::cast_precision_loss)] // a column count
-pub fn plan_columns(
-    boxes: &[FlowBox],
-    count: u32,
-    height: Option<f32>,
-    fill: ColumnFill,
-) -> ColumnPlan {
-    let atoms = atoms_of(boxes);
-    if atoms.is_empty() {
-        return ColumnPlan {
-            starts: vec![0.0],
-            height: 0.0,
-            boxes: Vec::new(),
-        };
-    }
-    let count = count.max(1) as usize;
-    let cap = height.filter(|h| h.is_finite() && *h > 0.0);
-    let total = atoms.iter().map(|a| a.bottom).fold(0.0_f32, f32::max);
-
-    let column_height = if let (ColumnFill::Auto, Some(cap)) = (fill, cap) { cap } else {
-        // The smallest height that needs at most `count` columns: a
-        // greedy fill never needs MORE columns for a taller height, so
-        // bisect between the even share and the whole flow.
-        let needs = |h: f32| fill_columns(&atoms, h).len();
-        let mut lo = total / count as f32;
-        let hi = if needs(lo) <= count {
-            lo
-        } else {
-            let mut hi = total;
-            for _ in 0..48 {
-                if hi - lo <= FIT_EPS {
-                    break;
-                }
-                let mid = f32::midpoint(lo, hi);
-                if needs(mid) <= count {
-                    hi = mid;
-                } else {
-                    lo = mid;
-                }
+fn balanced_height(atoms: &[Atom], from: usize, count: usize, cap: Option<f32>) -> f32 {
+    let start = column_start(atoms, from);
+    let total = atoms[from..]
+        .iter()
+        .map(|a| a.bottom)
+        .fold(start, f32::max)
+        - start;
+    let needs = |h: f32| fill_columns(atoms, from, |_| h).len();
+    let mut lo = total / count as f32;
+    let hi = if needs(lo) <= count {
+        lo
+    } else {
+        let mut hi = total;
+        for _ in 0..48 {
+            if hi - lo <= FIT_EPS {
+                break;
             }
-            hi
-        };
-        cap.map_or(hi, |cap| hi.min(cap))
+            let mid = f32::midpoint(lo, hi);
+            if needs(mid) <= count {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        hi
     };
+    cap.map_or(hi, |cap| hi.min(cap))
+}
 
-    let firsts = fill_columns(&atoms, column_height);
-    let starts: Vec<f32> = firsts.iter().map(|&a| column_start(&atoms, a)).collect();
-    let mut tallest = 0.0_f32;
-    for (k, &first) in firsts.iter().enumerate() {
-        let end = firsts.get(k + 1).copied().unwrap_or(atoms.len());
-        let bottom = atoms[first..end]
-            .iter()
-            .map(|a| a.bottom)
-            .fold(starts[k], f32::max);
-        tallest = tallest.max(bottom - starts[k]);
-    }
-
+/// The columns that start with the atoms `firsts`, on `lanes` / `row_tops`.
+fn plan_from(
+    boxes: &[FlowBox],
+    atoms: &[Atom],
+    firsts: &[usize],
+    lanes: Option<usize>,
+    row_tops: Vec<f32>,
+) -> ColumnPlan {
+    let starts: Vec<f32> = firsts.iter().map(|&a| column_start(atoms, a)).collect();
     let mut placements: Vec<BoxPlacement> = boxes
         .iter()
         .map(|_| BoxPlacement {
@@ -544,12 +541,300 @@ pub fn plan_columns(
             Some(_) => {}
         }
     }
-
-    ColumnPlan {
+    let mut plan = ColumnPlan {
         starts,
-        height: tallest,
+        height: 0.0,
         boxes: placements,
+        lanes,
+        row_tops,
+    };
+    for (k, &first) in firsts.iter().enumerate() {
+        let end = firsts.get(k + 1).copied().unwrap_or(atoms.len());
+        let bottom = atoms[first..end]
+            .iter()
+            .map(|a| a.bottom)
+            .fold(plan.starts[k], f32::max);
+        plan.height = plan.height.max(plan.row_top(k) + bottom - plan.starts[k]);
     }
+    plan
+}
+
+fn empty_plan() -> ColumnPlan {
+    ColumnPlan {
+        starts: vec![0.0],
+        height: 0.0,
+        boxes: Vec::new(),
+        lanes: None,
+        row_tops: vec![0.0],
+    }
+}
+
+/// CSS Multicol 1 §7 (`column-fill`) and §8 (overflow): cuts a
+/// multi-column container's single-column flow into `count` columns.
+///
+/// `balance` (the initial value, and always when the container's height is
+/// not definite): the shortest column height whose in-order fill needs no
+/// more than `count` columns - capped by a definite `height`. `auto` with a
+/// definite height: columns of that height, filled in turn. Content a
+/// capped column height cannot fit in `count` columns runs on in further
+/// (overflow) columns in the inline direction.
+#[must_use]
+pub fn plan_columns(
+    boxes: &[FlowBox],
+    count: u32,
+    height: Option<f32>,
+    fill: ColumnFill,
+) -> ColumnPlan {
+    let atoms = atoms_of(boxes);
+    if atoms.is_empty() {
+        return empty_plan();
+    }
+    let count = count.max(1) as usize;
+    let cap = height.filter(|h| h.is_finite() && *h > 0.0);
+    let column_height = match (fill, cap) {
+        (ColumnFill::Auto, Some(cap)) => cap,
+        _ => balanced_height(&atoms, 0, count, cap),
+    };
+    let firsts = fill_columns(&atoms, 0, |_| column_height);
+    plan_from(boxes, &atoms, &firsts, None, vec![0.0])
+}
+
+/// The room paged media leaves a multi-column container's columns.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageRoom {
+    /// The block-axis room left on the page the container's content starts
+    /// on, from where it starts to the page's bottom.
+    pub first: f32,
+    /// The room of every page after it: the page's height.
+    pub rest: f32,
+}
+
+/// CSS Multicol 1 §7 and CSS Fragmentation 3 on paged media: the columns
+/// are as tall as the page has room for. They are filled in order - the
+/// first column down to the bottom of the page before the second starts -
+/// and the content that does not fit goes on in the columns of the next
+/// page, from its top: the columns wrap into ROWS, one per page
+/// ([`ColumnPlan::lanes`], [`ColumnPlan::row_tops`]). Only the last row is
+/// balanced. A container whose first piece does not fit the room of its
+/// first page starts on the next one.
+#[must_use]
+pub fn plan_paged_columns(boxes: &[FlowBox], count: u32, room: PageRoom) -> ColumnPlan {
+    let atoms = atoms_of(boxes);
+    if atoms.is_empty() {
+        return empty_plan();
+    }
+    let count = count.max(1) as usize;
+    let (first_room, lead) = if atoms[0].bottom > room.first + FIT_EPS && room.first < room.rest {
+        (room.rest, room.first)
+    } else {
+        (room.first, 0.0)
+    };
+    let greedy = fill_columns(&atoms, 0, |k| if k < count { first_room } else { room.rest });
+    let last_row = (greedy.len() - 1) / count;
+    let mut firsts: Vec<usize>;
+    if last_row == 0 {
+        let h = balanced_height(&atoms, 0, count, Some(first_room));
+        firsts = fill_columns(&atoms, 0, |_| h);
+    } else {
+        let row_first = greedy[last_row * count];
+        firsts = greedy[..last_row * count].to_vec();
+        let h = balanced_height(&atoms, row_first, count, Some(room.rest));
+        firsts.extend(fill_columns(&atoms, row_first, |_| h));
+    }
+    let rows = (firsts.len() - 1) / count + 1;
+    let row_tops = (0..rows)
+        .map(|r| match r {
+            0 => lead,
+            r => lead + first_room + (r - 1) as f32 * room.rest,
+        })
+        .collect();
+    plan_from(boxes, &atoms, &firsts, Some(count), row_tops)
+}
+
+// ---------------------------------------------------------------------------
+// Where on its page a multi-column container starts
+// ---------------------------------------------------------------------------
+
+/// A multi-column block container's flow, kept from the layout pass that
+/// made it: what [`plan_page_rooms`] needs to tell how tall the container
+/// is wherever it stands.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnFlowRecord {
+    /// The in-flow children in the single column.
+    pub boxes: Vec<FlowBox>,
+    /// The column count.
+    pub count: u32,
+    /// The height the container's content got in that pass.
+    pub height: f32,
+    /// Where its rows start, from its content-box top ([`ColumnPlan::row_tops`]).
+    pub row_tops: Vec<f32>,
+}
+
+/// What the multi-column layout of one pass leaves for the next.
+///
+/// A container on paged media is as tall as its columns - and how tall that
+/// is depends on how much of its first page is left where it starts, which
+/// no box knows while it is laid out: the pass lays every container out
+/// unpaged (`rooms` empty), then [`plan_page_rooms`] tells from the
+/// positions it ended with, and the pass is repeated with the rooms.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ColumnPages {
+    /// The room of the first page of every container that does not fit
+    /// the one it starts on: those lay their columns out page by page.
+    pub rooms: std::collections::BTreeMap<NodeId, f32>,
+    /// The flow of every multi-column block container of the last pass.
+    pub flows: std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
+    /// The heights of the pages the layout is cut into; `None` = continuous
+    /// media (or a caller that does not know them): the columns stay one row.
+    pub pages: Option<crate::solver3::page_breaks::PageConstraints>,
+    /// How much earlier than [`plan_page_rooms`] counts on the break analysis
+    /// ends the first page of a container: a break it pushed up (widows,
+    /// orphans, atomic lines) moved the page's end - and the pages after it.
+    pub slack: std::collections::BTreeMap<NodeId, f32>,
+    /// How often the pages were laid out again for what the break analysis
+    /// made of them.
+    pub retries: usize,
+}
+
+/// One thing on the canvas that decides where the pages break, in the
+/// order of the canvas.
+#[derive(Debug, Clone, Copy)]
+pub enum PageEvent {
+    /// A forced break (`break-before: page`, ...) at `y`.
+    ForcedBreak { y: f32 },
+    /// A multi-column container whose content starts at `y`.
+    Container { node: NodeId, y: f32 },
+}
+
+impl PageEvent {
+    const fn y(&self) -> f32 {
+        match *self {
+            Self::ForcedBreak { y } | Self::Container { y, .. } => y,
+        }
+    }
+}
+
+/// The room each multi-column container that does not fit its first page
+/// has on it, given the canvas of the last pass: `events` as that pass
+/// positioned them, `flows` as it kept them, the first page `first` tall and
+/// every other `rest` (a footer takes room from all but the first), pages
+/// breaking at their heights and at each forced break, the first page of a
+/// container `slack` shorter where the break analysis pushed its end up.
+///
+/// A container that is laid out over several pages is taller or shorter
+/// than it was, and everything below it moves; the events below it are
+/// seen where they will be. The pages are the same: a forced break below
+/// restarts them.
+#[must_use]
+pub fn plan_page_rooms(
+    first: f32,
+    rest: f32,
+    events: &[PageEvent],
+    flows: &std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
+    slack: &std::collections::BTreeMap<NodeId, f32>,
+) -> std::collections::BTreeMap<NodeId, f32> {
+    let mut rooms = std::collections::BTreeMap::new();
+    if !(first.is_finite() && first > 0.0 && rest.is_finite() && rest > 0.0) {
+        return rooms;
+    }
+    let mut events: Vec<&PageEvent> = events.iter().collect();
+    events.sort_by(|a, b| a.y().total_cmp(&b.y()));
+
+    let mut shift = 0.0_f32;
+    // The page being filled: where it starts and how tall it is.
+    let mut page_top = 0.0_f32;
+    let mut page_height = first;
+    // Moves to the page `y` is on; an end (`starts_here` false) on a
+    // boundary is still on the page before it.
+    let advance = |page_top: &mut f32, page_height: &mut f32, y: f32, starts_here: bool| {
+        while (starts_here && *page_top + *page_height <= y + FIT_EPS)
+            || (!starts_here && *page_top + *page_height < y - FIT_EPS)
+        {
+            *page_top += *page_height;
+            *page_height = rest;
+        }
+    };
+    for event in events {
+        match *event {
+            PageEvent::ForcedBreak { y } => {
+                let y = y + shift;
+                advance(&mut page_top, &mut page_height, y, true);
+                if y > page_top + FIT_EPS {
+                    page_top = y;
+                    page_height = rest;
+                }
+            }
+            PageEvent::Container { node, y } => {
+                let Some(flow) = flows.get(&node) else {
+                    continue;
+                };
+                let y = y + shift;
+                advance(&mut page_top, &mut page_height, y, true);
+                let room = (page_top + page_height - y - slack.get(&node).copied().unwrap_or(0.0))
+                    .max(0.0);
+                let unpaged = plan_columns(&flow.boxes, flow.count, None, ColumnFill::Balance);
+                let height = if unpaged.height <= room + FIT_EPS {
+                    unpaged.height
+                } else {
+                    rooms.insert(node, room);
+                    let plan =
+                        plan_paged_columns(&flow.boxes, flow.count, PageRoom { first: room, rest });
+                    // Its rows start pages (forced breaks): the pages after it go on from
+                    // its last row, not from the grid it started on.
+                    if let Some(&last_row) = plan.row_tops.last() {
+                        page_top = y + last_row;
+                        page_height = rest;
+                    }
+                    plan.height
+                };
+                shift += height - flow.height;
+                advance(&mut page_top, &mut page_height, y + height, false);
+            }
+        }
+    }
+    rooms
+}
+
+/// The first container, in the order of the canvas, whose first page the
+/// break analysis cut earlier than its layout counted on - its columns end
+/// at `counted_on`, and a break fell before - and by how much. `breaks` are
+/// the pages' ends as the analysis made them for THIS layout.
+#[must_use]
+pub fn early_page_end(
+    events: &[PageEvent],
+    flows: &std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
+    breaks: &[f32],
+) -> Option<(NodeId, f32)> {
+    let mut containers: Vec<(NodeId, f32)> = events
+        .iter()
+        .filter_map(|event| match *event {
+            PageEvent::Container { node, y } => Some((node, y)),
+            PageEvent::ForcedBreak { .. } => None,
+        })
+        .collect();
+    containers.sort_by(|a, b| a.1.total_cmp(&b.1));
+    for (node, y) in containers {
+        let Some(flow) = flows.get(&node) else {
+            continue;
+        };
+        // Where its first page ends: the second row's top (or the start of
+        // a container that moved to the next page), else the container's end.
+        let counted_on = y + flow
+            .row_tops
+            .iter()
+            .copied()
+            .find(|top| *top > 0.0)
+            .unwrap_or(flow.height);
+        let first_break = breaks
+            .iter()
+            .copied()
+            .filter(|b| *b > y + 1.0)
+            .fold(f32::MAX, f32::min);
+        if first_break < counted_on - 1.0 {
+            return Some((node, counted_on - first_break));
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -760,5 +1045,214 @@ mod tests {
         assert_eq!(plan.column_at(79.0), 0);
         assert_eq!(plan.column_at(80.0), 1);
         assert_eq!(plan.column_at(150.0), 1);
+    }
+    // ---- paged media ----
+
+    /// `n` 40px boxes in a row.
+    fn boxes_of(n: usize) -> Vec<FlowBox> {
+        #[allow(clippy::cast_precision_loss)] // a box index
+        (0..n)
+            .map(|i| block(40.0 * i as f32, 40.0 * (i + 1) as f32))
+            .collect()
+    }
+
+    #[test]
+    fn paged_columns_fill_a_page_before_the_next_row_starts() {
+        // 12 boxes, 140px left on the first page, 200px pages: three boxes a
+        // column on the first page, the rest balanced on the second.
+        let plan = plan_paged_columns(
+            &boxes_of(12),
+            2,
+            PageRoom {
+                first: 140.0,
+                rest: 200.0,
+            },
+        );
+        assert_eq!(columns_of(&plan), [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]);
+        assert_eq!(plan.row_tops, [0.0, 140.0]);
+        assert_eq!((plan.lane(1), plan.lane(2), plan.lane(3)), (1, 0, 1));
+        assert_eq!((plan.row_top(1), plan.row_top(2)), (0.0, 140.0));
+        // The second row starts a page down and holds three boxes.
+        assert!(near(plan.height, 140.0 + 120.0), "{}", plan.height);
+    }
+
+    #[test]
+    fn paged_columns_that_fit_the_first_page_are_balanced_on_it() {
+        let plan = plan_paged_columns(
+            &boxes_of(4),
+            2,
+            PageRoom {
+                first: 140.0,
+                rest: 200.0,
+            },
+        );
+        assert_eq!(columns_of(&plan), [0, 0, 1, 1]);
+        assert_eq!(plan.row_tops, [0.0]);
+        assert!(near(plan.height, 80.0));
+    }
+
+    #[test]
+    fn a_container_whose_first_piece_does_not_fit_starts_on_the_next_page() {
+        let plan = plan_paged_columns(
+            &boxes_of(4),
+            2,
+            PageRoom {
+                first: 30.0,
+                rest: 200.0,
+            },
+        );
+        assert_eq!(plan.row_tops, [30.0]);
+        assert!(near(plan.height, 30.0 + 80.0), "{}", plan.height);
+    }
+
+    #[test]
+    fn page_rooms_follow_the_containers_above_them() {
+        use std::collections::BTreeMap;
+        let flows: BTreeMap<NodeId, ColumnFlowRecord> = [1, 2]
+            .iter()
+            .map(|&n| {
+                (
+                    NodeId::new(n),
+                    ColumnFlowRecord {
+                        boxes: boxes_of(12),
+                        count: 2,
+                        height: 240.0, // balanced: six boxes a column
+                        row_tops: vec![0.0],
+                    },
+                )
+            })
+            .collect();
+        // 200px pages. The first container starts at 60 and does not fit the
+        // 140px there; laid out page by page it ends at 200 + 120 = 320,
+        // where it stood to end at 300. The second, that stood at 300, now
+        // starts at 320 with 80px left on its page.
+        let events = [
+            PageEvent::Container {
+                node: NodeId::new(1),
+                y: 60.0,
+            },
+            PageEvent::Container {
+                node: NodeId::new(2),
+                y: 300.0,
+            },
+        ];
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default());
+        assert_eq!(rooms.len(), 2, "{rooms:?}");
+        assert!(near(rooms[&NodeId::new(1)], 140.0), "{rooms:?}");
+        assert!(near(rooms[&NodeId::new(2)], 80.0), "{rooms:?}");
+    }
+
+    #[test]
+    fn a_forced_break_restarts_the_pages_for_the_room() {
+        use std::collections::BTreeMap;
+        let flows: BTreeMap<NodeId, ColumnFlowRecord> = [(
+            NodeId::new(1),
+            ColumnFlowRecord {
+                boxes: boxes_of(12),
+                count: 2,
+                height: 240.0,
+                row_tops: vec![0.0],
+            },
+        )]
+        .into_iter()
+        .collect();
+        // A page break at 50 makes 250 the next boundary: a container at 70
+        // has 180px, not 130.
+        let events = [
+            PageEvent::ForcedBreak { y: 50.0 },
+            PageEvent::Container {
+                node: NodeId::new(1),
+                y: 70.0,
+            },
+        ];
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default());
+        assert!(near(rooms[&NodeId::new(1)], 180.0), "{rooms:?}");
+    }
+
+    #[test]
+    fn a_container_that_fits_its_page_needs_no_room() {
+        use std::collections::BTreeMap;
+        let flows: BTreeMap<NodeId, ColumnFlowRecord> = [(
+            NodeId::new(1),
+            ColumnFlowRecord {
+                boxes: boxes_of(4),
+                count: 2,
+                height: 80.0,
+                row_tops: vec![0.0],
+            },
+        )]
+        .into_iter()
+        .collect();
+        let events = [PageEvent::Container {
+            node: NodeId::new(1),
+            y: 100.0,
+        }];
+        assert!(plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default()).is_empty());
+    }
+    #[test]
+    fn a_break_pushed_up_before_the_end_of_the_first_page_is_its_slack() {
+        use std::collections::BTreeMap;
+        let flows: BTreeMap<NodeId, ColumnFlowRecord> = [(
+            NodeId::new(1),
+            ColumnFlowRecord {
+                boxes: boxes_of(12),
+                count: 2,
+                height: 260.0,
+                row_tops: vec![0.0, 140.0],
+            },
+        )]
+        .into_iter()
+        .collect();
+        let events = [PageEvent::Container {
+            node: NodeId::new(1),
+            y: 60.0,
+        }];
+        // the rows end at 200; the analysis cut the page at 188 instead
+        let early = early_page_end(&events, &flows, &[188.0, 388.0]);
+        assert_eq!(early.map(|(n, e)| (n, e.round())), Some((NodeId::new(1), 12.0)));
+        // a break where the rows end, or none before it, is no slack
+        assert!(early_page_end(&events, &flows, &[200.0, 400.0]).is_none());
+        // and the room takes the slack off
+        let slack: BTreeMap<NodeId, f32> = [(NodeId::new(1), 12.0)].into_iter().collect();
+        let boxes12 = ColumnFlowRecord {
+            boxes: boxes_of(12),
+            count: 2,
+            height: 240.0,
+            row_tops: vec![0.0],
+        };
+        let flows12: BTreeMap<NodeId, ColumnFlowRecord> = [(NodeId::new(1), boxes12)].into_iter().collect();
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows12, &slack);
+        assert!(near(rooms[&NodeId::new(1)], 128.0), "{rooms:?}");
+    }
+    #[test]
+    fn the_pages_after_a_paged_container_go_on_from_its_last_row() {
+        use std::collections::BTreeMap;
+        let record = |height: f32| ColumnFlowRecord {
+            boxes: boxes_of(12),
+            count: 2,
+            height,
+            row_tops: vec![0.0],
+        };
+        let flows: BTreeMap<NodeId, ColumnFlowRecord> =
+            [(NodeId::new(1), record(240.0)), (NodeId::new(2), record(240.0))].into_iter().collect();
+        // 200px pages; the break analysis cut the first container's first page 30px early,
+        // so its rows start pages at 60 + 110 and 60 + 310. The second container, below it,
+        // stands where the first container's new height puts it, on the page that begins
+        // with the first one's last row.
+        let events = [
+            PageEvent::Container { node: NodeId::new(1), y: 60.0 },
+            PageEvent::Container { node: NodeId::new(2), y: 300.0 },
+        ];
+        let slack: BTreeMap<NodeId, f32> = [(NodeId::new(1), 30.0)].into_iter().collect();
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &slack);
+        let first = rooms[&NodeId::new(1)];
+        assert!(near(first, 110.0), "{rooms:?}");
+        // the first container's rows: [0, 110, 310]: the last row starts at 60 + 310 = 370;
+        // the second container, 40px taller below it than it stood (shift), is on that page
+        let plan = plan_paged_columns(&boxes_of(12), 2, PageRoom { first, rest: 200.0 });
+        let last_row_top = 60.0 + plan.row_tops.last().copied().unwrap();
+        let second_y = 300.0 + (plan.height - 240.0);
+        let expected = last_row_top + 200.0 - second_y;
+        assert!(near(rooms[&NodeId::new(2)], expected), "{rooms:?} expected {expected}");
     }
 }

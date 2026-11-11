@@ -21,15 +21,15 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 # Core crates - only needed for build-dll and link-static, NOT for link-dynamic
-azul-core = { path = "../core", version = "0.0.16", default-features = false, optional = true }
-azul-css = { path = "../css", version = "0.0.16", default-features = false, optional = true }
+azul-core = { path = "../core", version = "0.0.17", default-features = false, optional = true }
+azul-css = { path = "../css", version = "0.0.17", default-features = false, optional = true }
 # The dll uses azul_layout::widgets (43 sites) and azul_layout::desktop
 # (dialogs), so those features must be DECLARED here. They used to arrive
 # by accident: webrender took azul-layout with default features and cargo
 # feature unification handed the full default set to every crate in the
 # graph. Scoping webrender (2026-08-05) exposed the under-declaration -
 # the dll stopped compiling until this line named what it actually uses.
-azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater", "auth_session"], optional = true }
+azul-layout = { path = "../layout", version = "0.0.17", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater", "auth_session"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }
@@ -667,7 +667,7 @@ objc2-core-video = { version = "0.3.0", default-features = false, optional = tru
 # The tests of what the iroh relays and a database's backup sync trust: throwaway roots and a
 # loopback TLS server (azul-layout's `tls-testing`), TESTS ONLY.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["tls-testing"] }
+azul-layout = { path = "../layout", version = "0.0.17", default-features = false, features = ["tls-testing"] }
 
 [build-dependencies]
 brotli = "8"

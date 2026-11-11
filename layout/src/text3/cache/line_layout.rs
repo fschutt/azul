@@ -638,12 +638,18 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
             )));
         }
         let column_start_x = match column_flow {
-            Some(flow) => flow.advance * current_column as f32,
+            Some(flow) => current_column
+                .checked_sub(1)
+                .and_then(|k| flow.places.get(k as usize))
+                .map_or(0.0, |place| place.dx),
             None => (column_width + fragment_constraints.column_gap) * current_column as f32,
         };
         let mut line_top_y = match column_flow {
-            Some(flow) if current_column > 0 => flow.column_top,
-            _ => 0.0,
+            Some(flow) => current_column
+                .checked_sub(1)
+                .and_then(|k| flow.places.get(k as usize))
+                .map_or(0.0, |place| place.top),
+            None => 0.0,
         };
         // The room of this column's lines: the column's width, and the shapes
         // and exclusions, which stand in the context's own space, seen from
