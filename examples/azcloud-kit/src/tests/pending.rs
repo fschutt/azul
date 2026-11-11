@@ -89,6 +89,8 @@ fn token_of(text: &str) -> String {
 
 #[test]
 fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_losing_any() {
+    // What each of the two windows adds.
+    const EACH: usize = 3;
     let dir = TempDir::new("azcloud-pending");
     let (shared, keyring) = shared(&dir);
     assert!(pending::list(&shared).unwrap().is_empty());
@@ -100,10 +102,12 @@ fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_los
                 KeyringNamespace::azlin_shared(),
                 &dir.path().join("locks"),
             );
-            // Four each: eight checkouts fit in one entry (MAX_PENDING_BYTES) with room left
-            // for each one's issue key after its claim.
+            // Three each: six checkouts fit in one entry (MAX_PENDING_BYTES) with room left for
+            // each one's issue key after its claim (PERIOD_ROOM: 192 bytes since the wait of a
+            // paid claim for the drive's vault is kept with it - the list held seven at 128, and
+            // `the_unfinished_checkouts_stay_within..` adds until the list says it has no room).
             std::thread::spawn(move || {
-                for i in 0..4 {
+                for i in 0..EACH {
                     let claim = ClaimKey::generate().unwrap();
                     pending::add(&shared, &checkout(&format!("ck_{window}_{i}"), &claim))
                         .unwrap();
@@ -114,18 +118,19 @@ fn the_unfinished_checkouts_are_one_keyring_entry_two_windows_change_without_los
     for window in windows {
         window.join().unwrap();
     }
-    assert_eq!(pending::list(&shared).unwrap().len(), 8, "none lost");
+    assert_eq!(pending::list(&shared).unwrap().len(), 2 * EACH, "none lost");
     let text = keyring.get(pending::PENDING_KEY).unwrap().unwrap();
-    assert!(text.contains("ck_0_3") && text.contains("ck_1_0"));
+    let last = format!("ck_0_{}", EACH - 1);
+    assert!(text.contains(&last) && text.contains("ck_1_0"));
     let ended = Settled::expired_for_tests;
-    assert!(pending::settle(&shared, "ck_0_3", ended()).unwrap());
-    assert!(!pending::settle(&shared, "ck_0_3", ended()).unwrap(), "removed once");
-    assert_eq!(pending::list(&shared).unwrap().len(), 7);
+    assert!(pending::settle(&shared, &last, ended()).unwrap());
+    assert!(!pending::settle(&shared, &last, ended()).unwrap(), "removed once");
+    assert_eq!(pending::list(&shared).unwrap().len(), 2 * EACH - 1);
     // One entry per checkout: adding one again replaces it.
     let claim = ClaimKey::generate().unwrap();
     pending::add(&shared, &checkout("ck_1_1", &claim)).unwrap();
     let listed = pending::list(&shared).unwrap();
-    assert_eq!(listed.len(), 7);
+    assert_eq!(listed.len(), 2 * EACH - 1);
     let again = listed.iter().find(|c| c.checkout_id == "ck_1_1").unwrap();
     assert_eq!(again.claim_secret, claim.to_base64());
 }
