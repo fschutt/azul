@@ -15,8 +15,9 @@ use crate::{
         merge::keep_both,
         pointer,
         reclaim::{analyse, reclaim},
-        Caps, Change, Maintenance, MemoryBucket, MetaError, MetaIndex, MetaIndexProvider, MetaRepo,
-        NotYet, ReclaimMode, ReclaimOptions, RepoOptions, ServerClock, RETENTION,
+        Caps, Change, IndexProfile, Maintenance, MemoryBucket, MetaError, MetaIndex,
+        MetaIndexProvider, MetaRepo, NotYet, ReclaimMode, ReclaimOptions, RepoOptions, ServerClock,
+        RETENTION,
     },
     packing::PackOptions,
     BatchPut, Drive,
@@ -525,7 +526,7 @@ fn az_m2_the_analysis_reads_a_synthetic_history_and_agrees_with_the_run() {
 fn az_m2_the_providers_maintenance_round_ends_with_a_shadow_round_and_tells_what_it_found() {
     let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
     let key = DriveKey::generate().unwrap();
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     assert!(provider.last_reclaim().is_none(), "no round yet");
     let index = provider
         .open_index("drive-1", Arc::clone(&bucket), &key)
@@ -550,9 +551,12 @@ fn az_m2_the_providers_maintenance_round_ends_with_a_shadow_round_and_tells_what
     assert_eq!(drive.get("a.txt").unwrap(), b"version two");
 
     // The kill switch: no round at all.
-    let off = MetaIndexProvider::new("Laptop").with_reclaim(ReclaimOptions {
-        mode: ReclaimMode::Off,
-        ..ReclaimOptions::shadow()
+    let off = MetaIndexProvider::new(IndexProfile {
+        reclaim: ReclaimOptions {
+            mode: ReclaimMode::Off,
+            ..ReclaimOptions::shadow()
+        },
+        ..IndexProfile::in_memory("Laptop")
     });
     off.maintain(Arc::clone(&bucket), &key, &Maintenance::default())
         .unwrap();
@@ -752,7 +756,7 @@ fn az_m2_re_encrypting_a_drive_with_history_keeps_its_old_versions_until_the_use
     let bucket = Arc::new(MemoryBucket::new());
     bucket.set_server_clock(crate::time::now_unix);
     let key = DriveKey::generate().unwrap();
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     let raw: Arc<dyn Drive> = bucket.clone();
     let index = provider
         .open_index("drive-1", Arc::clone(&raw), &key)

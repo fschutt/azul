@@ -288,7 +288,9 @@ mod after_a_key_rotation {
         },
         encrypted::open_encrypted,
         keyring::MemoryKeyring,
-        meta::{merge::keep_both, DriveBucket, MemoryBucket, MetaIndexProvider, MetaRepo},
+        meta::{
+            merge::keep_both, DriveBucket, IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo,
+        },
         rotation::rotate,
         Drive,
     };
@@ -310,7 +312,7 @@ mod after_a_key_rotation {
         let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
         let plain: Arc<dyn Drive> = bucket.clone();
         setup_new_drive(plain.as_ref(), &keyring, DRIVE, kdf.clone()).unwrap();
-        let provider = MetaIndexProvider::new("Laptop");
+        let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
         let drive = open_encrypted(plain, &keyring, DRIVE, &provider).unwrap();
         drive
             .put("notes/plan.txt", b"the plan, version one")

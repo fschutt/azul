@@ -66,8 +66,8 @@ fn index_provider(restore: RestoreSource) -> Option<Arc<dyn IndexProvider>> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone()
         .unwrap_or_else(|| DEFAULT_DEVICE_NAME.to_string());
-    Some(Arc::new(
-        azul_storage::meta::MetaIndexProvider::from_profile(azul_storage::meta::IndexProfile {
+    Some(Arc::new(azul_storage::meta::MetaIndexProvider::new(
+        azul_storage::meta::IndexProfile {
             device_name: name,
             cache_root: root,
             lazy: false,

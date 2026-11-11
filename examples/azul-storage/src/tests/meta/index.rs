@@ -254,7 +254,10 @@ fn an_encrypted_drive_opens_over_a_bucket_with_or_without_an_index() {
 #[test]
 fn the_provider_opens_a_drives_index_and_keeps_this_devices_copy_and_id() {
     let dir = TempDir::new("meta-provider");
-    let provider = MetaIndexProvider::new("Laptop").with_cache_root(Some(dir.path().to_path_buf()));
+    let provider = MetaIndexProvider::new(IndexProfile {
+        cache_root: Some(dir.path().to_path_buf()),
+        ..IndexProfile::in_memory("Laptop")
+    });
     let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
     let key = DriveKey::generate().unwrap();
     let index = provider
@@ -284,7 +287,7 @@ fn the_provider_opens_a_drives_index_and_keeps_this_devices_copy_and_id() {
 fn the_provider_maintains_a_drives_index_while_a_copy_of_it_is_open() {
     let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
     let key = DriveKey::generate().unwrap();
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     let rules = Maintenance {
         compact_at_packs: 2,
         ..Maintenance::default()
@@ -328,7 +331,10 @@ fn az_m4_a_maintenance_round_of_a_drive_refuses_a_manifest_older_than_its_copy_h
     let raw = MemoryBucket::new();
     let bucket: Arc<dyn Drive> = Arc::new(raw.clone());
     let key = DriveKey::generate().unwrap();
-    let provider = MetaIndexProvider::new("Laptop").with_cache_root(Some(dir.path().to_path_buf()));
+    let provider = MetaIndexProvider::new(IndexProfile {
+        cache_root: Some(dir.path().to_path_buf()),
+        ..IndexProfile::in_memory("Laptop")
+    });
     let index = provider
         .open_index("drive-1", Arc::clone(&bucket), &key)
         .unwrap();
@@ -403,7 +409,7 @@ fn az_m11_a_drive_that_cannot_be_listed_is_not_called_empty() {
     let key = DriveKey::generate().unwrap();
     let raw = MemoryBucket::new();
     let shared: Arc<dyn Drive> = Arc::new(Unlistable(raw.clone()));
-    let provider = MetaIndexProvider::new("Phone");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Phone"));
     let opened = provider.open_index("d_1", shared, &key);
     assert!(
         matches!(opened, Err(DriveError::Transport(_))),
@@ -444,7 +450,10 @@ impl Drive for OutOfReach {
 #[test]
 fn a_copy_sealed_before_a_rotation_opens_offline_in_the_rotation_window_only() {
     let dir = TempDir::new("meta-window");
-    let provider = MetaIndexProvider::new("Phone").with_cache_root(Some(dir.path().to_path_buf()));
+    let provider = MetaIndexProvider::new(IndexProfile {
+        cache_root: Some(dir.path().to_path_buf()),
+        ..IndexProfile::in_memory("Phone")
+    });
     let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
     let old = DriveKey::generate().unwrap();
     let new = DriveKey::generate().unwrap();
@@ -579,7 +588,7 @@ fn az_m11_an_index_that_lost_only_its_manifest_is_not_replaced_by_an_empty_one()
     let before = bucket.objects().len();
     bucket.remove(keys::MANIFEST).unwrap();
 
-    let provider = MetaIndexProvider::new("Phone");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Phone"));
     let shared: Arc<dyn Drive> = Arc::new(bucket.clone());
     let opened = provider.open_index("d_1", Arc::clone(&shared), &key);
     assert!(
@@ -607,7 +616,7 @@ fn az_m11_a_drive_with_data_objects_and_no_index_at_all_is_not_a_new_drive() {
         .put("data/ab/0123456789abcdef0123456789abcdef", b"sealed bytes")
         .unwrap();
     let shared: Arc<dyn Drive> = Arc::new(bucket.clone());
-    let provider = MetaIndexProvider::new("Phone");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Phone"));
     assert!(matches!(
         provider.open_index("d_1", Arc::clone(&shared), &key),
         Err(DriveError::Corrupt { .. })
@@ -651,7 +660,7 @@ fn x_delta_azdrive_sync_3_a_provider_with_a_restore_source_takes_an_announced_re
         ..IndexProfile::in_memory("Laptop")
     };
 
-    let provider = MetaIndexProvider::from_profile(profile(source.clone()));
+    let provider = MetaIndexProvider::new(profile(source.clone()));
     let index = provider
         .open_index("drive-1", Arc::clone(&bucket), &key)
         .unwrap();
@@ -664,7 +673,7 @@ fn x_delta_azdrive_sync_3_a_provider_with_a_restore_source_takes_an_announced_re
     raw.overwrite(keys::MANIFEST, &older);
 
     // A provider that was given no source: refused, and the copy is as it was.
-    let without = MetaIndexProvider::from_profile(profile(RestoreSource::none(
+    let without = MetaIndexProvider::new(profile(RestoreSource::none(
         "this test's app has no token server",
     )));
     let refused = without
@@ -681,7 +690,7 @@ fn x_delta_azdrive_sync_3_a_provider_with_a_restore_source_takes_an_announced_re
         epoch: 1,
         ..RestoreNotice::default()
     });
-    let with = MetaIndexProvider::from_profile(profile(source.clone()));
+    let with = MetaIndexProvider::new(profile(source.clone()));
     let index = with
         .open_index("drive-1", Arc::clone(&bucket), &key)
         .unwrap();
@@ -700,7 +709,7 @@ fn x_delta_azdrive_sync_3_a_provider_with_a_restore_source_takes_an_announced_re
     );
     // The same announcement again excuses nothing: the epoch this copy took is remembered.
     drop(drive);
-    let again = MetaIndexProvider::from_profile(profile(source));
+    let again = MetaIndexProvider::new(profile(source));
     assert!(again
         .open_index("drive-1", Arc::clone(&bucket), &key)
         .is_ok());

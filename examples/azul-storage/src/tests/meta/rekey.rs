@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::{
     crypto::DriveKey,
     encrypted::{EncryptedDrive, IndexProvider},
-    meta::{keys, MemoryBucket, MetaError, MetaIndexProvider, MetaRepo},
+    meta::{keys, IndexProfile, MemoryBucket, MetaError, MetaIndexProvider, MetaRepo},
     Drive, DriveError,
 };
 
@@ -56,7 +56,7 @@ fn opens_with(bucket: &Arc<MemoryBucket>, key: &DriveKey) -> bool {
 fn a_rekeyed_index_is_sealed_with_the_new_key_only_and_keeps_its_entries_and_history() {
     let (old, new) = (DriveKey::generate().unwrap(), DriveKey::generate().unwrap());
     let bucket = Arc::new(MemoryBucket::new());
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     drive_with_files(&bucket, &provider, &old);
     assert!(all_sealed_by(&bucket, &old));
 
@@ -82,7 +82,7 @@ fn a_rekeyed_index_is_sealed_with_the_new_key_only_and_keeps_its_entries_and_his
 fn a_rekey_stopped_before_its_switch_leaves_the_index_on_the_old_key_and_finishes_when_run_again() {
     let (old, new) = (DriveKey::generate().unwrap(), DriveKey::generate().unwrap());
     let bucket = Arc::new(MemoryBucket::new());
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     drive_with_files(&bucket, &provider, &old);
 
     bucket.fail_next_write(
@@ -104,7 +104,7 @@ fn a_rekey_stopped_before_its_switch_leaves_the_index_on_the_old_key_and_finishe
 fn a_rekey_stopped_after_its_switch_opens_with_the_new_key_and_finishes_when_run_again() {
     let (old, new) = (DriveKey::generate().unwrap(), DriveKey::generate().unwrap());
     let bucket = Arc::new(MemoryBucket::new());
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     drive_with_files(&bucket, &provider, &old);
     let old_pack = {
         let repo = MetaRepo::open(bucket.clone(), old.clone(), "checker", "Checker").unwrap();
@@ -130,7 +130,7 @@ fn a_rekey_stopped_after_its_switch_opens_with_the_new_key_and_finishes_when_run
 fn a_drive_without_an_index_yet_rekeys_as_nothing_to_do() {
     let (old, new) = (DriveKey::generate().unwrap(), DriveKey::generate().unwrap());
     let bucket = Arc::new(MemoryBucket::new());
-    MetaIndexProvider::new("Laptop")
+    MetaIndexProvider::new(IndexProfile::in_memory("Laptop"))
         .rekey(DRIVE, bucket.clone(), &old, &new)
         .unwrap();
     assert!(repository(&bucket).is_empty());
@@ -158,7 +158,7 @@ fn live_packs(bucket: &Arc<MemoryBucket>, key: &DriveKey) -> Vec<(String, u64)> 
 fn x_delta_azdrive_keys_13_a_rekey_keeps_the_packs_apart_and_none_grows() {
     let (old, new) = (DriveKey::generate().unwrap(), DriveKey::generate().unwrap());
     let bucket = Arc::new(MemoryBucket::new());
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     drive_with_files(&bucket, &provider, &old);
     let before = live_packs(&bucket, &old);
     assert!(

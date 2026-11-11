@@ -744,7 +744,7 @@ pub fn open_encrypted_drive<D: Drive + 'static>(
 
 /// How an app's device keeps the drives' indexes: ONE value with no `Default`, so that every field
 /// is said where a provider is made (ARCH29 C6b, X-DELTA-AZDRIVE-SYNC-3). The provider used to be
-/// `new(name)` and five optional builders, and the app that left `with_restore` out kept a
+/// `new(name)` and five optional builders (now gone), and the app that left `with_restore` out kept a
 /// persistent copy and refused a restored drive for good (AzMail, the bridge and the command line
 /// did; AzDrive alone was wired). A struct literal cannot leave `restore` or `reclaim` out.
 #[derive(Clone, Debug)]
@@ -782,6 +782,7 @@ impl IndexProfile {
             cache_root: None,
             lazy: false,
             packing: false,
+            // gate:restore-none allow: a test's provider has no token server to ask [X-DELTA-AZDRIVE-SYNC-3]
             restore: RestoreSource::none("a test's provider has no token server to ask"),
             reclaim: ReclaimOptions::shadow(),
         }
@@ -807,10 +808,10 @@ pub struct MetaIndexProvider {
 }
 
 impl MetaIndexProvider {
-    /// The provider `profile` describes. There is no other way to make one (the old `new(name)`
-    /// and its builders are being removed): see [`IndexProfile`].
+    /// The provider `profile` describes: the one way to make one (the old `new(name)` and its five
+    /// optional builders are gone; see [`IndexProfile`]).
     #[must_use]
-    pub fn from_profile(profile: IndexProfile) -> Self {
+    pub fn new(profile: IndexProfile) -> Self {
         MetaIndexProvider {
             device_name: profile.device_name,
             cache_root: profile.cache_root,
@@ -820,54 +821,6 @@ impl MetaIndexProvider {
             reclaim: profile.reclaim,
             last_reclaim: Mutex::new(None),
         }
-    }
-
-    /// `device_name` names this device in conflict copies ("report (conflict,
-    /// <device>).docx") and commits.
-    #[must_use]
-    pub fn new(device_name: &str) -> Self {
-        MetaIndexProvider {
-            device_name: device_name.to_string(),
-            cache_root: None,
-            lazy: false,
-            packing: false,
-            restore: RestoreSource::default(),
-            reclaim: ReclaimOptions::shadow(),
-            last_reclaim: Mutex::new(None),
-        }
-    }
-
-    /// Keeps the drives' copies under `root` between runs (`None`: in memory).
-    #[must_use]
-    pub fn with_cache_root(mut self, root: Option<PathBuf>) -> Self {
-        self.cache_root = root;
-        self
-    }
-
-    /// Reads the drives' packs lazily (C6).
-    #[must_use]
-    pub fn with_lazy(mut self, lazy: bool) -> Self {
-        self.lazy = lazy;
-        self
-    }
-
-    /// Where a restore of the drive is announced: the token server's announcement as the app last
-    /// read it ([`RestoreSource`]). A provider is made for one drive in the apps; one that opens
-    /// several asks the same source for each. Without a source a restored drive that serves an
-    /// older state than this device saw is a rollback, for good.
-    #[must_use]
-    pub fn with_restore(mut self, source: RestoreSource) -> Self {
-        self.restore = source;
-        self
-    }
-
-    /// How the reclaimer of the drives it maintains runs ([`ReclaimOptions`]): the first release
-    /// ships it in shadow mode - it reports what it would delete and deletes nothing -, and
-    /// `ReclaimMode::Off` is the kill switch.
-    #[must_use]
-    pub fn with_reclaim(mut self, options: ReclaimOptions) -> Self {
-        self.reclaim = options;
-        self
     }
 
     /// What the reclaimer round at the end of the last [`MetaIndexProvider::maintain`] came to:
@@ -937,15 +890,6 @@ impl MetaIndexProvider {
             Err(e) => return Err(to_drive(e)),
         };
         reclaim(&mut repo, options).map_err(to_drive)
-    }
-
-    /// The drives it opens pack small files together ([`crate::packing`]): the sync client's
-    /// choice for Azlin drives. Their journal lives in `<drive cache>/packs`; without a cache
-    /// root it is kept in memory.
-    #[must_use]
-    pub fn with_packing(mut self, packing: bool) -> Self {
-        self.packing = packing;
-        self
     }
 
     /// How this device keeps its copy of the drive `drive`.

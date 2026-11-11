@@ -695,7 +695,11 @@ fn a_key_rotation_rewraps_packed_files_and_the_reencryption_repacks_them() {
 
 #[test]
 fn the_drive_index_provider_packs_when_asked_and_keeps_its_journal_in_the_drive_cache() {
-    use crate::{encrypted::open_encrypted, keyring::MemoryKeyring, meta::MetaIndexProvider};
+    use crate::{
+        encrypted::open_encrypted,
+        keyring::MemoryKeyring,
+        meta::{IndexProfile, MetaIndexProvider},
+    };
     let dir = TempDir::new("pack-provider");
     let bucket: Arc<dyn Drive> = Arc::new(crate::meta::MemoryBucket::new());
     let keyring = MemoryKeyring::new();
@@ -706,9 +710,11 @@ fn the_drive_index_provider_packs_when_asked_and_keeps_its_journal_in_the_drive_
         crate::crypto::keys::RecoveryKdf::with_cost(64, 1, 1).unwrap(),
     )
     .unwrap();
-    let provider = MetaIndexProvider::new("Laptop")
-        .with_cache_root(Some(dir.path().to_path_buf()))
-        .with_packing(true);
+    let provider = MetaIndexProvider::new(IndexProfile {
+        cache_root: Some(dir.path().to_path_buf()),
+        packing: true,
+        ..IndexProfile::in_memory("Laptop")
+    });
     let drive = open_encrypted(Arc::clone(&bucket), &keyring, "d_pack", &provider).unwrap();
     let journal = provider.drive_cache_dir("d_pack").unwrap().join("packs");
     assert_eq!(drive.packing().unwrap().journal.as_deref(), Some(journal.as_path()));
@@ -724,7 +730,7 @@ fn the_drive_index_provider_packs_when_asked_and_keeps_its_journal_in_the_drive_
         assert_eq!(&drive.get(path).unwrap(), bytes);
     }
     // Without the switch, a drive writes one object per file as before.
-    let plain = MetaIndexProvider::new("Laptop");
+    let plain = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     let unpacked = open_encrypted(Arc::clone(&bucket), &keyring, "d_pack", &plain).unwrap();
     assert!(unpacked.packing().is_none());
     assert_eq!(&unpacked.get("notes/0003.txt").unwrap(), &files[3].1, "packed files read anyway");

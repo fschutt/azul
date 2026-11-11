@@ -721,7 +721,9 @@ fn git_reads_the_drive_index_in_the_accounts_bucket_through_the_remote_helper() 
     let a = signed_up(&transports, &dir);
     let keys = MemoryKeyring::new();
     a.setup_encryption(&keys, cheap()).unwrap();
-    let provider = azul_storage::meta::MetaIndexProvider::new("Laptop");
+    let provider = azul_storage::meta::MetaIndexProvider::new(
+        azul_storage::meta::IndexProfile::in_memory("Laptop"),
+    );
     let drive = a.open_encrypted(&keys, &provider).unwrap();
     drive.put("notes/plan.txt", b"the plan").unwrap();
 

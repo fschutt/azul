@@ -371,7 +371,7 @@ pub(crate) mod encrypted {
         let bucket: Arc<dyn Drive> = Arc::new(Direct {
             remote: remote.clone(),
         });
-        let provider = MetaIndexProvider::from_profile(IndexProfile {
+        let provider = MetaIndexProvider::new(IndexProfile {
             device_name: String::from("e2e-tamper"),
             cache_root: None,
             lazy: false,

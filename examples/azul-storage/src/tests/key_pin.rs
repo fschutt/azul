@@ -18,7 +18,7 @@ use crate::{
     },
     encrypted::open_encrypted,
     keyring::{KeyringStore, MemoryKeyring},
-    meta::{keys, MemoryBucket, MetaIndexProvider},
+    meta::{keys, IndexProfile, MemoryBucket, MetaIndexProvider},
     rotation::rotate,
     Drive, DriveError,
 };
@@ -41,7 +41,13 @@ fn empty_drive() -> (Arc<MemoryBucket>, MemoryKeyring, DriveKey, crate::crypto::
 fn drive_with_files() -> (Arc<MemoryBucket>, MemoryKeyring, DriveKey) {
     let (bucket, laptop, key, _) = empty_drive();
     let plain: Arc<dyn Drive> = bucket.clone();
-    let drive = open_encrypted(plain, &laptop, DRIVE, &MetaIndexProvider::new("Laptop")).unwrap();
+    let drive = open_encrypted(
+        plain,
+        &laptop,
+        DRIVE,
+        &MetaIndexProvider::new(IndexProfile::in_memory("Laptop")),
+    )
+    .unwrap();
     drive.put("notes/plan.txt", b"the plan").unwrap();
     (bucket, laptop, key)
 }
@@ -113,7 +119,12 @@ fn a_pinned_device_refuses_a_substituted_wrap_on_a_drive_with_files_too() {
     substitute_wrap(&bucket, &laptop);
     assert!(is_refused(&unlock(bucket.as_ref(), &device, DRIVE)));
     let plain: Arc<dyn Drive> = bucket.clone();
-    let opened = open_encrypted(plain, &device, DRIVE, &MetaIndexProvider::new("Phone"));
+    let opened = open_encrypted(
+        plain,
+        &device,
+        DRIVE,
+        &MetaIndexProvider::new(IndexProfile::in_memory("Phone")),
+    );
     assert!(matches!(opened, Err(DriveError::KeyRefused { .. })));
     assert_eq!(pinned_drive_key(&device, DRIVE).unwrap(), Some(key.id()));
 }
@@ -137,7 +148,12 @@ fn a_device_that_kept_the_drive_key_does_not_catch_up_to_a_substituted_wrap() {
     // drive says, not the index's error.
     Drive::put(bucket.as_ref(), keys::MANIFEST, b"not the drive's manifest").unwrap();
     let plain: Arc<dyn Drive> = bucket.clone();
-    let opened = open_encrypted(plain, &laptop, DRIVE, &MetaIndexProvider::new("Laptop"));
+    let opened = open_encrypted(
+        plain,
+        &laptop,
+        DRIVE,
+        &MetaIndexProvider::new(IndexProfile::in_memory("Laptop")),
+    );
     assert!(matches!(opened, Err(DriveError::KeyRefused { .. })));
     assert_eq!(load_drive_key(&laptop, DRIVE).unwrap(), Some(key));
 }
@@ -153,7 +169,12 @@ fn an_unpinned_device_on_an_empty_drive_asks_instead_of_trusting_the_wrap() {
     assert_eq!(load_drive_key(&device, DRIVE).unwrap(), None);
     assert_eq!(pinned_drive_key(&device, DRIVE).unwrap(), None);
     let plain: Arc<dyn Drive> = bucket.clone();
-    let opened = open_encrypted(plain, &device, DRIVE, &MetaIndexProvider::new("Phone"));
+    let opened = open_encrypted(
+        plain,
+        &device,
+        DRIVE,
+        &MetaIndexProvider::new(IndexProfile::in_memory("Phone")),
+    );
     assert!(matches!(opened, Err(DriveError::Locked { .. })), "it asks");
 
     // The recovery code answers: the real key, pinned, its wrap sealed again.
@@ -285,7 +306,14 @@ fn a_planned_drive_key_is_the_one_its_drive_is_set_up_with() {
 fn a_rotation_pins_the_new_key_on_the_rotating_device() {
     let (bucket, laptop, old) = drive_with_files();
     let plain: Arc<dyn Drive> = bucket.clone();
-    let rotated = rotate(plain, &laptop, DRIVE, &MetaIndexProvider::new("Laptop"), cheap()).unwrap();
+    let rotated = rotate(
+        plain,
+        &laptop,
+        DRIVE,
+        &MetaIndexProvider::new(IndexProfile::in_memory("Laptop")),
+        cheap(),
+    )
+    .unwrap();
     assert_ne!(rotated.drive_key, old.id());
     assert_eq!(pinned_drive_key(&laptop, DRIVE).unwrap(), Some(rotated.drive_key));
     // Its own new wrap opens for it.

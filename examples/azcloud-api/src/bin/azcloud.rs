@@ -992,7 +992,7 @@ fn index_provider(
     device: &str,
     restore: azul_storage::meta::RestoreSource,
 ) -> Box<dyn azcloud_kit::encryption::IndexProvider> {
-    Box::new(azul_storage::meta::MetaIndexProvider::from_profile(
+    Box::new(azul_storage::meta::MetaIndexProvider::new(
         azul_storage::meta::IndexProfile {
             device_name: device.to_string(),
             cache_root: Some(state.path().join("drive-index")),

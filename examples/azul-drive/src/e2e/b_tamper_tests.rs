@@ -111,7 +111,7 @@ mod encrypted {
         crypto::{device, keys},
         encrypted::{open_encrypted, EncryptedDrive},
         keyring::KeyringStore,
-        meta::MetaIndexProvider,
+        meta::{IndexProfile, MetaIndexProvider},
         testing::TempDir,
         Drive,
     };
@@ -141,8 +141,13 @@ mod encrypted {
             remote: r.clone(),
             device: name.to_string(),
         });
-        open_encrypted(bucket, r.keyring.as_ref(), &r.drive_name, &MetaIndexProvider::new(name))
-            .expect("the encrypted drive")
+        open_encrypted(
+            bucket,
+            r.keyring.as_ref(),
+            &r.drive_name,
+            &MetaIndexProvider::new(IndexProfile::in_memory(name)),
+        )
+        .expect("the encrypted drive")
     }
 
     fn bytes(len: usize, seed: u8) -> Vec<u8> {

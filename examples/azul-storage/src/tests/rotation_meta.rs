@@ -12,7 +12,7 @@ use crate::{
     },
     encrypted::open_encrypted,
     keyring::MemoryKeyring,
-    meta::{keys, MemoryBucket, MetaIndexProvider, MetaRepo},
+    meta::{keys, IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo},
     rotation::{lockdown_needed, pending, resumable, rotate, JOURNAL_FILE},
     Drive, DriveError,
 };
@@ -41,7 +41,7 @@ fn a_rotation_through_the_drive_index_seals_the_index_with_the_new_key() {
     let bucket = Arc::new(MemoryBucket::new());
     let keyring = MemoryKeyring::new();
     let (old_key, _code) = setup_new_drive(bucket.as_ref(), &keyring, DRIVE, cheap()).unwrap();
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     let plain: Arc<dyn Drive> = bucket.clone();
     let drive = open_encrypted(plain.clone(), &keyring, DRIVE, &provider).unwrap();
     drive.put("notes/plan.txt", b"the plan").unwrap();
@@ -81,7 +81,7 @@ fn world() -> World {
     let (old_key, _code) = setup_new_drive(mem.as_ref(), &keyring, DRIVE, cheap()).unwrap();
     let faulty = Arc::new(Faulty::new(mem.clone()));
     let plain: Arc<dyn Drive> = faulty.clone();
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     let drive = open_encrypted(plain.clone(), &keyring, DRIVE, &provider).unwrap();
     drive.put("notes/plan.txt", b"the plan").unwrap();
     drive.put("photos/a.jpg", b"a photo").unwrap();

@@ -17,7 +17,7 @@ use crate::{
     meta::{
         keys,
         policy::{MemberChange, MemberRecord},
-        MemoryBucket, MetaIndexProvider, MetaRepo,
+        IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo,
     },
     rotation::rotate,
     Drive, DriveError,
@@ -55,7 +55,13 @@ fn drive_with_index() -> (Arc<MemoryBucket>, MemoryKeyring, DriveKey) {
     let laptop = MemoryKeyring::new();
     let (key, _) = setup_new_drive(bucket.as_ref(), &laptop, DRIVE, cheap()).unwrap();
     let plain: Arc<dyn Drive> = bucket.clone();
-    let drive = open_encrypted(plain, &laptop, DRIVE, &MetaIndexProvider::new("Laptop")).unwrap();
+    let drive = open_encrypted(
+        plain,
+        &laptop,
+        DRIVE,
+        &MetaIndexProvider::new(IndexProfile::in_memory("Laptop")),
+    )
+    .unwrap();
     drive.put("notes/plan.txt", b"the plan").unwrap();
     (bucket, laptop, key)
 }
@@ -89,7 +95,13 @@ fn the_first_key_write_moves_a_drives_members_into_its_policy() {
 
     // The drive's files are where they were.
     let plain: Arc<dyn Drive> = bucket.clone();
-    let drive = open_encrypted(plain, &laptop, DRIVE, &MetaIndexProvider::new("Laptop")).unwrap();
+    let drive = open_encrypted(
+        plain,
+        &laptop,
+        DRIVE,
+        &MetaIndexProvider::new(IndexProfile::in_memory("Laptop")),
+    )
+    .unwrap();
     assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
 }
 
@@ -140,12 +152,12 @@ fn a_member_that_missed_a_rotation_takes_the_new_key_from_a_join_code_not_from_t
     let (bucket, laptop, old) = drive_with_index();
     let phone = join(&bucket, &old);
     let plain: Arc<dyn Drive> = bucket.clone();
-    let phone_index = MetaIndexProvider::new("Phone");
+    let phone_index = MetaIndexProvider::new(IndexProfile::in_memory("Phone"));
     let drive = open_encrypted(Arc::clone(&plain), &phone, DRIVE, &phone_index).unwrap();
     assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
 
     // The laptop rotates while the phone is away; the phone keeps the old key.
-    let laptop_index = MetaIndexProvider::new("Laptop");
+    let laptop_index = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     rotate(Arc::clone(&plain), &laptop, DRIVE, &laptop_index, cheap()).unwrap();
     assert!(
         open_encrypted(Arc::clone(&plain), &phone, DRIVE, &phone_index).is_err(),
@@ -199,7 +211,7 @@ fn a_rotation_removes_every_member_the_policy_names_but_this_device() {
     repo.set_member_wrap(&tablet_id, Some(&wrap.to_bytes())).unwrap();
 
     let plain: Arc<dyn Drive> = bucket.clone();
-    let provider = MetaIndexProvider::new("Laptop");
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     let rotated = rotate(plain, &laptop, DRIVE, &provider, cheap()).unwrap();
     assert_eq!(
         rotated.members_removed, 3,

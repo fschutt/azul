@@ -129,7 +129,7 @@ pub(crate) fn index_profile(cache_root: Option<PathBuf>, restore: RestoreSource)
 /// What opens an index goes through [`restoring_provider`] or the slot's provider
 /// (`AutoEncrypted::provider`).
 pub(crate) fn meta_provider(cache_root: Option<PathBuf>) -> MetaIndexProvider {
-    MetaIndexProvider::from_profile(index_profile(
+    MetaIndexProvider::new(index_profile(
         cache_root,
         // gate:restore-none allow: a maintenance round opens no copy of an index, and the slot's provider takes the announcement [X-DELTA-AZDRIVE-SYNC-3]
         RestoreSource::none("a maintenance round opens no copy of an index"),
@@ -144,9 +144,7 @@ pub(crate) fn restoring_provider(
     cache_root: Option<PathBuf>,
     restore: RestoreSource,
 ) -> Arc<dyn IndexProvider> {
-    Arc::new(MetaIndexProvider::from_profile(index_profile(
-        cache_root, restore,
-    )))
+    Arc::new(MetaIndexProvider::new(index_profile(cache_root, restore)))
 }
 
 /// The run's cache folder (`--cache-dir`, else `<cache>/AzDrive`; `None` in a `--shot` run
