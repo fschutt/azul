@@ -698,15 +698,32 @@ fn x_delta_azdrive_sync_5_a_maintenance_round_runs_the_reclaimer_once_a_day_per_
         round.at -= 2 * DAY;
     }
     assert!(old.write(&dbucket, &key, version.as_deref()).unwrap());
-    provider
+    // Another run of the app: a provider that has run no round. This process's own memory of its
+    // last round is a second limit beside the ledger, for a bucket that cannot keep one.
+    let later = MetaIndexProvider::new(IndexProfile::in_memory("Phone"));
+    later
+        .maintain(Arc::clone(&bucket), &key, &rules)
+        .unwrap()
+        .expect("no other device holds the lease");
+    assert!(later.last_reclaim().is_some(), "a day on, a round is due");
+    assert_eq!(ledger().rounds.len(), 2);
+
+    // The same process asked again at once runs none, even when the ledger says a round is due.
+    let (mut old, version) = Ledger::read(&dbucket, &key).unwrap();
+    for round in &mut old.rounds {
+        round.at -= 2 * DAY;
+    }
+    assert!(old.write(&dbucket, &key, version.as_deref()).unwrap());
+    later
         .maintain(Arc::clone(&bucket), &key, &rules)
         .unwrap()
         .expect("no other device holds the lease");
     assert!(
-        provider.last_reclaim().is_some(),
-        "a day on, a round is due"
+        later.last_reclaim().is_none(),
+        "this process ran a round of the drive a moment ago: a ledger that is old (or that the \
+         bucket cannot keep) does not make it read the history at every maintenance round"
     );
-    assert_eq!(ledger().rounds.len(), 2);
+    assert_eq!(ledger().rounds.len(), 2, "and wrote none");
 }
 
 /// X-DELTA-AZDRIVE-SYNC-5. A drive whose index is over the budget of a run is "too big to judge": the

@@ -836,6 +836,11 @@ pub struct MetaIndexProvider {
     reclaim: ReclaimOptions,
     /// What the reclaimer round at the end of the last [`MetaIndexProvider::maintain`] came to.
     last_reclaim: Mutex<Option<Result<ReclaimReport, String>>>,
+    /// When this process last ran a reclaimer round of each drive (seconds since 1970; the key of
+    /// a round with no drive id is empty): a second limit beside the ledger's, for a bucket that
+    /// cannot keep the ledger (a refused write, an unreadable object) - without it such a drive
+    /// would be read whole at every maintenance round again.
+    rounds_at: Mutex<BTreeMap<String, u64>>,
 }
 
 impl MetaIndexProvider {
@@ -851,6 +856,7 @@ impl MetaIndexProvider {
             restore: profile.restore,
             reclaim: profile.reclaim,
             last_reclaim: Mutex::new(None),
+            rounds_at: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -926,11 +932,27 @@ impl MetaIndexProvider {
         bucket: &Arc<dyn Drive>,
         drive_key: &DriveKey,
     ) -> Result<Option<ReclaimReport>, DriveError> {
-        let (ledger, _) =
-            Ledger::read(&DriveBucket::new(Arc::clone(bucket)), drive_key).map_err(to_drive)?;
-        if !ledger.due(crate::time::now_unix()) {
+        let now = crate::time::now_unix();
+        let id = drive.unwrap_or_default().to_string();
+        let ran = self
+            .rounds_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&id)
+            .copied();
+        // This process ran one lately (a stamp ahead of the clock is stale, not fresh).
+        if ran.is_some_and(|at| at <= now && now - at < super::shadow::EVERY_SECS) {
             return Ok(None);
         }
+        let (ledger, _) =
+            Ledger::read(&DriveBucket::new(Arc::clone(bucket)), drive_key).map_err(to_drive)?;
+        if !ledger.due(now) {
+            return Ok(None);
+        }
+        self.rounds_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id, now);
         self.judged_round(drive, Arc::clone(bucket), drive_key)
             .map(Some)
     }
@@ -987,6 +1009,10 @@ impl MetaIndexProvider {
             .manifest()
             .map_or(0, |manifest| manifest_pack_bytes(&manifest.packs));
         if bytes > caps.pack_bytes {
+            let why = NotYet::TooBig {
+                bytes,
+                budget: caps.pack_bytes,
+            };
             let mut report = ReclaimReport::too_big(mode, bytes, caps.pack_bytes);
             let round = Round {
                 at: now,
@@ -997,11 +1023,7 @@ impl MetaIndexProvider {
                 candidate_bytes: 0,
                 live: 0,
                 clean: false,
-                unclean: report
-                    .stopped
-                    .as_ref()
-                    .map(ToString::to_string)
-                    .unwrap_or_default(),
+                unclean: why.to_string(),
             };
             let evidence = self.record_round(
                 &dbucket,
