@@ -365,9 +365,9 @@ const ALLOWED: &[Allow] = &[
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/guard.rs",
-        WALK_LOCAL,
+        WALK_EXISTING,
         1,
-        "one look at the disk: to move to OnDisk (ARCH29 C6c)",
+        "sample: a key of the scan or of an action of the pass, looked at for its first bytes, never made (ARCH29 C6c)",
     ),
     Allow::exactly(
         "examples/azul-drive/src/e2e/",

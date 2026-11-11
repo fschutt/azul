@@ -217,6 +217,43 @@ fn new_or_rewritten_photos_do_not_pause() {
     assert_eq!(report.files_up, 40);
 }
 
+/// ARCH29 C6c, sync/guard.rs. The guard samples the first bytes of a file by an `OnDisk` key (a key of the
+/// scan or of an action of the pass): it looks at what is there and makes nothing. An action that names
+/// a file under a spelling the full rows refuse - a protected folder, an NTFS short name - samples
+/// nothing, forgets the file and leaves no folder behind. Green on the old code too (the walk never
+/// created): it pins what the type now holds.
+#[test]
+fn c6c_the_guard_samples_what_is_there_and_makes_no_folder_for_a_protected_name() {
+    use crate::sync::local::Scan;
+    let root = azul_storage::testing::TempDir::new("guard-c6c");
+    let mut guard = Guard {
+        classified: true,
+        ..Guard::default()
+    };
+    let keys = [".GIT/hooks/post-commit", "GIT~1/config", "proj/.hg./x"];
+    for key in keys {
+        guard.low_entropy.insert(key.to_string());
+    }
+    let actions: Vec<Action> = keys
+        .iter()
+        .map(|key| Action::Upload {
+            key: (*key).to_string(),
+        })
+        .collect();
+    crate::sync::guard::learn(&mut guard, &actions, root.path(), &Scan::default());
+    for key in keys {
+        assert!(
+            !guard.low_entropy.contains(key),
+            "{key:?}: nothing could be sampled, so it is no low-entropy file"
+        );
+    }
+    assert_eq!(
+        std::fs::read_dir(root.path()).unwrap().count(),
+        0,
+        "a folder was made for a look"
+    );
+}
+
 /// AZ-S8. An answer is for the question it was given to: the same keys in any order, no others;
 /// and "delete them too" is not "these changes are mine".
 #[test]

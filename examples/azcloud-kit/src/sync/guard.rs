@@ -255,7 +255,9 @@ fn is_low(root: &Path, key: &str) -> bool {
 fn sample(root: &Path, key: &str) -> Option<Vec<u8>> {
     // Opened from the folder's root without a link, and never a FIFO: reading it cannot block.
     let tree = azul_storage::beneath::Root::open(root).ok()?;
-    let (dir, name) = azul_storage::names::walk_local(&tree, key, false).ok()?;
+    // A key of the scan or of an action of this pass (a file here, or one that was just written):
+    // looked at, never made.
+    let (dir, name) = super::names::walk_record(&tree, key).ok()?;
     let (file, _) = dir.open_read(&name).ok()?;
     let mut bytes = Vec::with_capacity(SAMPLE_BYTES);
     file.take(SAMPLE_BYTES as u64)
