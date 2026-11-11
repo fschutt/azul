@@ -707,9 +707,13 @@ mod open_copy {
         beneath::Dir,
         ctl::Quiet,
         durable::{self, Expect, Mode, Publish},
-        scratch::{CopyOf, MadeState, OPEN_COPY_KEPT},
+        scratch::{CopyOf, MadeState},
         DriveError,
     };
+    // Read only by the sweep test, which is Unix-only: an import no Windows test reads is an error
+    // there (X-COORD-12).
+    #[cfg(unix)]
+    use crate::scratch::OPEN_COPY_KEPT;
 
     const BYTES: &[u8] = b"cloud bytes";
 
