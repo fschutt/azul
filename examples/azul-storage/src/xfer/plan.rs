@@ -295,9 +295,20 @@ fn add_file(
         target_key = targets.free_key(wanted)?;
     } else if targets.is_there(wanted)? {
         conflict = true;
-        if let Ok(info) = targets.drive.head(wanted) {
-            target_etag = info.etag;
-            target_size = Some(info.size);
+        match targets.drive.head(wanted) {
+            Ok(info) => {
+                target_etag = info.etag;
+                target_size = Some(info.size);
+            }
+            // Gone since it was listed: the name is free, and the write asks for exactly that.
+            Err(DriveError::NotFound { .. }) => conflict = false,
+            // A target that cannot look at a file at all tells no versions: what the user is asked
+            // about is replaced as it stands ([`PlannedFile::target_etag`]).
+            Err(DriveError::Unsupported(_)) => {}
+            // A look that FAILED is no "no version": a Replace of a name whose version the plan
+            // never saw is an unconditional write over whatever another device saved there since
+            // (X-DELTA-SYNC2-8). The plan fails, and nothing is moved on a name it could not vouch for.
+            Err(e) => return Err(e),
         }
     }
     targets.set.reserve(&target_key);

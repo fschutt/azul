@@ -896,3 +896,99 @@ fn x_delta_sync2_7_a_move_off_a_tagless_source_looks_and_deletes_in_groups() {
         "each group is deleted before the next one is looked at: {retire:?}"
     );
 }
+
+// ==== X-DELTA-SYNC2-8: a look at the target that failed is no "no version" ====
+
+/// A target in front of a folder on disk whose look at ONE name answers `look` (a drive that lists
+/// the file and then cannot say what it is: a timeout, a refusal, a server that has no HEAD).
+struct BadLook<'a> {
+    inner: &'a LocalDrive,
+    key: &'static str,
+    look: fn() -> DriveError,
+}
+
+impl Drive for BadLook<'_> {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        if key == self.key {
+            return Err((self.look)());
+        }
+        self.inner.head(key)
+    }
+}
+
+/// `docs/a.txt` is in both drives, so copying the folder `docs/` meets a conflict at the target.
+fn docs_in_both(name: &str) -> (TempDir, LocalDrive, LocalDrive) {
+    let (tmp, home, other) = two_disks(name);
+    home.put("docs/a.txt", b"the new text").unwrap();
+    other.put("docs/a.txt", b"what is there").unwrap();
+    (tmp, home, other)
+}
+
+/// X-DELTA-SYNC2-8. The plan lists the target's folder (the name is known to be there) and looks at
+/// the name for its version; when that look FAILED the plan went on with no version and no size, and
+/// the user's Replace became an unconditional write over whatever another device had saved there
+/// since. The plan fails now, with the drive's own error, and nothing is written. RED on the old
+/// code: `plan` answers Ok and `unwrap_err` panics.
+#[test]
+fn x_delta_sync2_8_a_failed_look_at_a_taken_name_fails_the_plan() {
+    let (_tmp, home, other) = docs_in_both("dx-sync2-8-failed");
+    let target = BadLook {
+        inner: &other,
+        key: "docs/a.txt",
+        look: || DriveError::Transport(String::from("the connection timed out")),
+    };
+    let failed = make_plan(&home, &[folder("docs/")], &target, "", false, "Copy")
+        .expect_err("a plan that could not look at a name it must not overwrite fails");
+    assert!(
+        matches!(failed, DriveError::Transport(_)),
+        "the drive's own error: {failed:?}"
+    );
+    assert_eq!(other.get("docs/a.txt").unwrap(), b"what is there");
+}
+
+/// The documented exception: a target that cannot look at a file at all (no HEAD) tells no versions,
+/// and what the user is asked about is replaced as it stands.
+#[test]
+fn x_delta_sync2_8_a_target_with_no_look_tells_no_versions_and_the_plan_goes_on() {
+    let (_tmp, home, other) = docs_in_both("dx-sync2-8-unsupported");
+    let target = BadLook {
+        inner: &other,
+        key: "docs/a.txt",
+        look: || DriveError::Unsupported(String::from("this drive cannot look at a file")),
+    };
+    let plan = make_plan(&home, &[folder("docs/")], &target, "", false, "Copy").unwrap();
+    assert_eq!(plan.conflicts().len(), 1, "{plan:?}");
+    assert_eq!(plan.files[0].target_etag, None);
+}
+
+/// A name that was listed and is gone when it is looked at is free: no conflict to ask about, and
+/// the write that creates it asks for exactly that.
+#[test]
+fn x_delta_sync2_8_a_name_that_is_gone_when_it_is_looked_at_is_no_conflict() {
+    let (_tmp, home, other) = docs_in_both("dx-sync2-8-gone");
+    let target = BadLook {
+        inner: &other,
+        key: "docs/a.txt",
+        look: || DriveError::NotFound {
+            key: String::from("docs/a.txt"),
+        },
+    };
+    let plan = make_plan(&home, &[folder("docs/")], &target, "", false, "Copy").unwrap();
+    assert!(plan.conflicts().is_empty(), "{plan:?}");
+    assert_eq!(plan.files.len(), 1);
+}
