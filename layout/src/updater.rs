@@ -2339,6 +2339,18 @@ pub fn parse_signing_key_statement(statement: &str) -> Result<SigningKeyStatemen
 
 /// A parsed release statement (see [`ReleaseInfo::release_statement`]): what the SIGNING key says
 /// about one artifact.
+///
+/// What it does NOT say (X-DELTA-AZDRIVE-KEYS-33, open): the CHANNEL the release is for, its
+/// ROLLOUT (`slow`, the date the ladder starts from) and how FRESH it is. Those are words of the
+/// manifest, so whoever writes the manifest can offer a client a signed release of another channel,
+/// end a staged rollout early or keep a signed fix back. What bounds that today: a client takes no
+/// release that was not signed for its app and platform, none older than the version it has
+/// verified (`UpdateState::highest_seen`), a first install none that is not newer than the compiled
+/// floor of its app (azul-appkit `anchors::RELEASE_FLOORS`), and a key statement lives for its
+/// `expires`. Closing the rest needs a decision of the owner: a statement with a channel and a
+/// rollout (a new statement version: the signer, this parser, `Expect` and the C API move
+/// together), and the vendor's re-signing cadence for a freshness date. The guide says it too
+/// (`doc/guide/en/deploying/signing-updates.md`, "What the signature does not cover").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseStatement {
     /// The app the artifact is for (`azwriter`).

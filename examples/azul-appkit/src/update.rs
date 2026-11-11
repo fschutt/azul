@@ -100,7 +100,13 @@ impl AppPaths {
         self.registry.join(REQUEST_FILE)
     }
 
-    /// The engine's state for `channel`.
+    /// The engine's state for `channel`: the rollback marks (the highest version verified, the
+    /// signing-key generation accepted, the clock floor) live there, so they are kept per app AND
+    /// channel - the first check of a channel never used starts from none, and a retired signing
+    /// key whose statement has not expired is accepted again until a release of that channel has
+    /// verified (X-DELTA-AZDRIVE-KEYS-33, open: the key generation and the clock floor should be
+    /// the app's and only the version the channel's; keeping them so needs the engine to take a
+    /// second folder, which is a change of its C API).
     #[must_use]
     pub fn state(&self, channel: Channel) -> PathBuf {
         self.registry.join("state").join(channel.name())
