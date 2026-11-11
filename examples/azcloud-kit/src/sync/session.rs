@@ -70,6 +70,11 @@ pub const INDEX_FILE: &str = "index.json";
 pub const PASS_LOCK: &str = "sync-pass";
 /// How long a pass waits for the pass that is running on the same pairing before it is told so.
 const PASS_LOCK_WAIT: Duration = Duration::from_secs(2);
+/// How long an edit of the pairing's base from the app - a delete, a rename, "Free up space", "Keep",
+/// "send it again", a conflict's answer - waits for the pass that is running. A pass saves the base
+/// it loaded when it began, so an edit made beside it is lost (AZ-S16, X-DELTA-AZDRIVE-SYNC-9); the
+/// edits run on the app's worker thread, so they wait for a good while before they say so.
+const EDIT_LOCK_WAIT: Duration = Duration::from_secs(60);
 
 const MB: u64 = 1024 * 1024;
 const GB: u64 = 1024 * MB;
@@ -843,6 +848,8 @@ pub struct SyncSession {
     points: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     /// The engine's clock is this many seconds off the system's ([`SyncSession::with_clock`]).
     clock_offset: f64,
+    /// How long an edit of the base waits for a running pass ([`SyncSession::with_edit_wait`]).
+    edit_wait: Duration,
 }
 
 impl SyncSession {
@@ -893,7 +900,16 @@ impl SyncSession {
             own_devices: vec![device.to_string()],
             points: None,
             clock_offset: 0.0,
+            edit_wait: EDIT_LOCK_WAIT,
         }
+    }
+
+    /// An edit of the base from the app (a delete, a rename, "Free up space", "Keep", ...) waits
+    /// `wait` for a running pass, not a minute: tests and a command line that would rather be told.
+    #[must_use]
+    pub fn with_edit_wait(mut self, wait: Duration) -> SyncSession {
+        self.edit_wait = wait;
+        self
     }
 
     /// The session's passes call `points` at every named point (an app's end-to-end tests).
@@ -1128,6 +1144,23 @@ impl SyncSession {
                     CloudError::failed(format!(
                         "another window or command is syncing this folder just now; {waits}"
                     ))
+                } else {
+                    CloudError::from(e)
+                }
+            })
+    }
+
+    /// The pass's lock for an edit of the base from the app: the same lock, a longer wait
+    /// ([`SyncSession::with_edit_wait`]), and a word that says what to do - the edit changed
+    /// nothing, try again when the pass is over.
+    fn edit_lock(&self) -> CloudResult<azul_storage::lock::HeldLock> {
+        LockDir::new(self.dir.join("locks"))
+            .lock(PASS_LOCK, self.edit_wait)
+            .map_err(|e| {
+                if e.is_busy() {
+                    CloudError::failed(
+                        "a pass is syncing this folder just now, and the change would be lost in                          it: nothing was changed; try again when the pass is over",
+                    )
                 } else {
                     CloudError::from(e)
                 }
@@ -1521,6 +1554,9 @@ impl SyncSession {
     ///
     /// When the states cannot be kept.
     pub fn free_up(&self, keys: &[String]) -> CloudResult<Freed> {
+        // Beside a pass the base this edits (a freed file is a placeholder in it) is the one the
+        // pass saves over.
+        let _single_flight = self.edit_lock()?;
         // Freeing a pinned file or folder unpins it: the choice is kept at once.
         let (mut states, ()) = self.change(|states| {
             for key in keys {
@@ -1663,6 +1699,8 @@ impl SyncSession {
                 return Ok(targets);
             }
         }
+        // The base below is edited: the pass's turn first.
+        let _single_flight = self.edit_lock()?;
         let index_path = self.index_path();
         let mut index = LocalIndex::load(&index_path)?;
         // Each file is reached from the folder's root without a link: a delete never removes
@@ -1705,6 +1743,7 @@ impl SyncSession {
     ///
     /// When the base cannot be read or kept.
     pub fn send_kept(&self, keys: &[String]) -> CloudResult<()> {
+        let _single_flight = self.edit_lock()?;
         let path = self.index_path();
         let Some(mut index) = LocalIndex::load(&path)? else {
             return Ok(());
@@ -1740,15 +1779,47 @@ impl SyncSession {
 
     /// Answers the mass delete waiting: `delete_too` deletes them with the next pass (on the
     /// drive, or here); else they are kept - a file gone from here stays on the drive (in the
-    /// cloud only here), one the drive deleted goes back up from here.
+    /// cloud only here), one the drive deleted goes back up from here. Answers whatever question
+    /// waits: an app that showed the user a question answers it by
+    /// [`SyncSession::answer_mass_delete_shown`].
     ///
     /// # Errors
     ///
-    /// When the base or the states cannot be kept.
+    /// When the base or the states cannot be kept, or a pass is running and the base would be
+    /// saved over by it ("keep" edits the base: [`SyncSession::with_edit_wait`]).
     pub fn answer_mass_delete(&self, delete_too: bool) -> CloudResult<()> {
+        self.answer_mass_delete_for(delete_too, None)
+    }
+
+    /// [`SyncSession::answer_mass_delete`] for the question a dialog showed: `shown` is its
+    /// [`super::MassDelete::identity`]. A pass that finished between the click and this call may
+    /// have replaced the question with a larger set; "delete them too" would then consent to files
+    /// the user never saw. The answer is refused then, and changes nothing (X-DELTA-AZDRIVE-SYNC-14).
+    ///
+    /// # Errors
+    ///
+    /// As [`SyncSession::answer_mass_delete`]; and when the question waiting is another one.
+    pub fn answer_mass_delete_shown(&self, delete_too: bool, shown: &str) -> CloudResult<()> {
+        self.answer_mass_delete_for(delete_too, Some(shown))
+    }
+
+    fn answer_mass_delete_for(&self, delete_too: bool, shown: Option<&str>) -> CloudResult<()> {
+        // "Keep" edits the base a running pass would save over; "delete them too" only the states
+        // (a document with its own lock), and does not wait for a pass.
+        let _single_flight = if delete_too {
+            None
+        } else {
+            Some(self.edit_lock()?)
+        };
         let Some(asked) = self.states().mass_delete else {
             return Ok(());
         };
+        if shown.is_some_and(|shown| asked.identity() != shown) {
+            fail!(
+                "the question changed since it was shown: it names other files now; look at it \
+                 again"
+            );
+        }
         if !delete_too {
             let path = self.index_path();
             if let Some(mut index) = LocalIndex::load(&path)? {
@@ -1756,17 +1827,25 @@ impl SyncSession {
                     let Some(entry) = index.files.get_mut(key) else {
                         continue;
                     };
-                    // A time no file has: the next scan reads the file again.
-                    entry.mtime_ns = 0;
                     // One question can hold both directions (S9): each file is kept the way it
                     // is. A copy still here is what the drive deleted elsewhere - not what the
                     // drive deleted: it is a change, and goes up; a file gone from here is kept
-                    // on the drive, in the cloud only here.
-                    if matches!(local::stat_now(&self.setup.folder, key), Ok(Some(_))) {
-                        entry.hash = String::from("kept");
-                        entry.cloud_only = false;
-                    } else {
-                        entry.cloud_only = true;
+                    // on the drive, in the cloud only here. A file that cannot be looked at (a
+                    // permission, a disk that does not answer) is neither: it is left as it is
+                    // (X-DELTA-AZDRIVE-SYNC-15) - the merge treats such a name as unknown, and the
+                    // base does not say it is gone.
+                    match local::stat_now(&self.setup.folder, key) {
+                        Ok(Some(_)) => {
+                            // A time no file has: the next scan reads the file again.
+                            entry.mtime_ns = 0;
+                            entry.hash = String::from("kept");
+                            entry.cloud_only = false;
+                        }
+                        Ok(None) => {
+                            entry.mtime_ns = 0;
+                            entry.cloud_only = true;
+                        }
+                        Err(_) => {}
                     }
                 }
                 index.save(&path)?;
@@ -1809,6 +1888,9 @@ impl SyncSession {
                 fail!("an encrypted drive's files are renamed in its own listing");
             }
         }
+        // The files come down and the folder moves: a pass that began before would save the base
+        // with the old names over it.
+        let _single_flight = self.edit_lock()?;
         let cloud: Vec<String> = {
             let states = self.states();
             states
@@ -1851,6 +1933,7 @@ impl SyncSession {
     ///
     /// When `key` has no conflict, or the base cannot be changed.
     pub fn resolve(&self, key: &str, choice: Resolution) -> CloudResult<()> {
+        let _single_flight = self.edit_lock()?;
         let Some(held) = self
             .states()
             .files

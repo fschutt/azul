@@ -832,6 +832,19 @@ pub struct MassDelete {
     pub keys: Vec<String>,
 }
 
+impl MassDelete {
+    /// What the user answers when they answer this question: its kind and the files it names
+    /// ([`consent::keys_hash`]). A question that names other files is another question, whatever
+    /// the dialog showed (X-DELTA-AZDRIVE-SYNC-14): an answer that carries the identity it was given
+    /// for is refused when the one waiting differs
+    /// ([`session::SyncSession::answer_mass_delete_shown`]).
+    #[must_use]
+    pub fn identity(&self) -> String {
+        let keys: Vec<&str> = self.keys.iter().map(String::as_str).collect();
+        consent::keys_hash(consent::ConsentKind::MassDelete, &keys)
+    }
+}
+
 /// The mass delete a plan would make, if it would (D1): more than [`MASS_DELETE_MIN`] deletes
 /// and more than half of the folder's files at its last sync, or every one of them (at least
 /// two) - a folder of four tax files emptied is as suspect as one of four thousand - or every

@@ -2045,3 +2045,127 @@ fn az_s9_keep_on_a_mixed_direction_mass_delete_keeps_the_minority_files_too() {
         .unwrap_or(0);
     assert_eq!(trashed, 0, "nothing was trashed");
 }
+
+/// X-DELTA-AZDRIVE-SYNC-15 (AZ-S9). "Keep" decides per file from the disk: a copy still here is a
+/// change and goes up, a file gone from here is kept on the drive (in the cloud only here). A
+/// stat that FAILED - a folder that cannot be looked into - took the arm of "gone" and recorded the
+/// file as kept in the cloud only. A file it could not look at is left as it is now, and the base
+/// is not edited for a question the user did not answer: "Keep" also waits for a pass that is
+/// running (X-DELTA-AZDRIVE-SYNC-9). RED not run: the old code marks the unlooked-at files
+/// `cloud_only` (the assertion on `locked/` fails) and answers beside the pass.
+#[cfg(unix)]
+#[test]
+fn x_delta_azdrive_sync_15_keep_leaves_a_file_it_could_not_look_at_as_it_is() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = Arc::new(S3Bucket::new());
+    let mut a = paired("dev-a", &store, |_| {});
+    a.session = a
+        .session
+        .with_edit_wait(std::time::Duration::from_millis(200));
+    for i in 0..12 {
+        a.write(&format!("open/{i}.txt"), format!("open {i}").as_bytes());
+        a.write(&format!("locked/{i}.txt"), format!("locked {i}").as_bytes());
+    }
+    a.pass();
+    for i in 0..12 {
+        fs::remove_file(path_of(a.folder.path(), &format!("open/{i}.txt"))).unwrap();
+        fs::remove_file(path_of(a.folder.path(), &format!("locked/{i}.txt"))).unwrap();
+    }
+    let (states, _) = a.pass();
+    let asked = states
+        .mass_delete
+        .clone()
+        .expect("24 files gone from here: asked");
+    assert_eq!(asked.keys.len(), 24);
+
+    // A pass is running: the answer waits for it, says so, and changes nothing.
+    let other = azul_storage::lock::LockDir::new(a.state.path().join("locks"))
+        .lock(
+            crate::sync::session::PASS_LOCK,
+            std::time::Duration::from_secs(1),
+        )
+        .expect("a pass holds the pairing");
+    let told = a
+        .session
+        .answer_mass_delete(false)
+        .expect_err("the answer ran beside a pass")
+        .to_string();
+    assert!(told.contains("pass"), "{told}");
+    assert!(a.session.states().mass_delete.is_some(), "still asked");
+    drop(other);
+
+    // The folder cannot be looked into when the answer comes.
+    let locked = a.folder.path().join("locked");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let answered = a.session.answer_mass_delete(false);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    answered.unwrap();
+    let index = crate::sync::local::LocalIndex::load(
+        &a.state.path().join(crate::sync::session::INDEX_FILE),
+    )
+    .unwrap()
+    .expect("a base");
+    for i in 0..12 {
+        assert!(
+            index.files[&format!("open/{i}.txt")].cloud_only,
+            "a file gone from a folder that can be read is kept on the drive"
+        );
+        assert!(
+            !index.files[&format!("locked/{i}.txt")].cloud_only,
+            "a file whose folder could not be looked into is not recorded as gone from here"
+        );
+    }
+}
+
+/// X-DELTA-AZDRIVE-SYNC-14 (AZ-S8). The dialog showed 14 files; a pass that finished between the
+/// click and the worker's `answer_mass_delete` replaced the question with a larger one, and "delete
+/// them too" consented to the new set. The answer now names the question it was given for
+/// (`MassDelete::identity`): another one waiting is refused and nothing is consented to; the answer
+/// to the question that IS waiting goes through. RED not run: the old call has no such argument
+/// and consents to whatever waits.
+#[test]
+fn x_delta_azdrive_sync_14_an_answer_is_for_the_question_the_dialog_showed() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    for i in 0..14 {
+        a.write(&format!("keep/{i}.txt"), format!("keep {i}").as_bytes());
+    }
+    for i in 0..4 {
+        a.write(&format!("more/{i}.txt"), format!("more {i}").as_bytes());
+    }
+    a.pass();
+    for i in 0..14 {
+        fs::remove_file(path_of(a.folder.path(), &format!("keep/{i}.txt"))).unwrap();
+    }
+    let (states, _) = a.pass();
+    let shown = states.mass_delete.clone().expect("asked").identity();
+
+    // Before the answer reaches the worker more files go and a pass asks again: a larger set.
+    for i in 0..4 {
+        fs::remove_file(path_of(a.folder.path(), &format!("more/{i}.txt"))).unwrap();
+    }
+    let (states, _) = a.pass();
+    let waiting = states.mass_delete.clone().expect("asked again");
+    assert_eq!(waiting.keys.len(), 18);
+    assert_ne!(waiting.identity(), shown, "another question");
+
+    let refused = a
+        .session
+        .answer_mass_delete_shown(true, &shown)
+        .expect_err("the question changed since it was shown")
+        .to_string();
+    assert!(refused.contains("changed"), "{refused}");
+    let (states, _) = a.pass();
+    assert!(states.mass_delete.is_some(), "nothing was consented to");
+    assert!(
+        lists(&index_of(&store), "more/0.txt"),
+        "nothing was deleted on the drive"
+    );
+
+    a.session
+        .answer_mass_delete_shown(true, &waiting.identity())
+        .expect("the question that is waiting is answered");
+    let (states, _) = a.pass();
+    assert!(states.mass_delete.is_none());
+    assert!(!lists(&index_of(&store), "more/0.txt"), "now they go");
+}

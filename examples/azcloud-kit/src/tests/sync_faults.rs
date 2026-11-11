@@ -315,6 +315,67 @@ fn x_delta_azdrive_files_26_the_read_back_waits_for_the_pass_that_holds_the_pair
     faults::clear(folder.path());
 }
 
+/// X-DELTA-AZDRIVE-SYNC-9 (AZ-S16). A pass and the read-back hold the pairing's lock, but the app's
+/// own edits of the base - a delete, a rename, "Free up space", "send it again", a conflict's answer
+/// - took none: a pass that began earlier saved the base it had loaded over the edit (the answer
+/// "Keep" was lost and the question came back, a file the user deleted came back as a
+/// placeholder). Each now takes the pass's turn, waits for it (`with_edit_wait`; a minute by
+/// default, on the app's worker thread) and says so when the pass is still running; nothing is
+/// changed then. RED not run: the old code edits beside the pass and `unwrap_err` panics.
+#[test]
+fn x_delta_azdrive_sync_9_the_apps_edits_of_the_base_take_the_passs_turn_and_change_nothing_beside_it(
+) {
+    let store = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-faults-s9");
+    let state = TempDir::new("azcloud-faults-s9-state");
+    fs::write(folder.path().join("a.txt"), "one").unwrap();
+    fs::write(folder.path().join("b.txt"), "two").unwrap();
+    let session =
+        faulted(folder.path(), state.path(), &store).with_edit_wait(Duration::from_millis(200));
+    pass(&session).expect("the folder is synced once");
+    let before = fs::read(state.path().join(crate::sync::session::INDEX_FILE)).unwrap();
+
+    let other = LockDir::new(state.path().join("locks"))
+        .lock(PASS_LOCK, Duration::from_secs(1))
+        .expect("a pass holds the pairing");
+    let told = |what: &str, answer: Result<(), crate::error::CloudError>| {
+        let text = answer
+            .expect_err(&format!("{what} ran beside a pass"))
+            .to_string();
+        assert!(text.contains("pass"), "{what}: {text}");
+    };
+    told(
+        "delete",
+        session.delete(&[String::from("a.txt")]).map(|_| ()),
+    );
+    told("rename", session.rename("a.txt", "c.txt"));
+    told(
+        "free up",
+        session.free_up(&[String::from("b.txt")]).map(|_| ()),
+    );
+    told("send again", session.send_kept(&[String::from("a.txt")]));
+    told("resolve", session.resolve("a.txt", Resolution::KeepMine));
+    assert_eq!(
+        fs::read_to_string(folder.path().join("a.txt")).unwrap(),
+        "one",
+        "nothing was deleted or renamed beside the pass"
+    );
+    assert!(!folder.path().join("c.txt").exists());
+    assert_eq!(
+        fs::read(state.path().join(crate::sync::session::INDEX_FILE)).unwrap(),
+        before,
+        "the base is as the pass left it"
+    );
+
+    drop(other);
+    let taken = session
+        .delete(&[String::from("a.txt")])
+        .expect("once the pass is over, the delete runs");
+    assert_eq!(taken, vec![String::from("a.txt")]);
+    assert!(!folder.path().join("a.txt").exists());
+    faults::clear(folder.path());
+}
+
 /// X-AR5a-22. The states mixed the user's answers (a pin, a "keep both", an answer to a question)
 /// with the pass's results, and the pass saved the copy it read when it began: a pin made while it
 /// ran was gone when it ended. The pass's results are merged into the file as it is then; the pin

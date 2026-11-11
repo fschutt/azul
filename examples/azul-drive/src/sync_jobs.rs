@@ -293,7 +293,13 @@ pub(crate) enum SyncJob {
     /// The burst guard's question answered: "these changes are mine".
     AnswerBurst { work: SyncWork },
     /// The mass delete's question answered: delete them too, or keep them.
-    AnswerMassDelete { work: SyncWork, delete_too: bool },
+    /// `shown`: the identity of the question the dialog showed (`MassDelete::identity`), `None`
+    /// when it showed none: the answer is for that question and no other (X-DELTA-AZDRIVE-SYNC-14).
+    AnswerMassDelete {
+        work: SyncWork,
+        delete_too: bool,
+        shown: Option<String>,
+    },
     /// "Send them again": files kept after the drive deleted them elsewhere go up next pass.
     SendKept { work: SyncWork, keys: Vec<String> },
     /// The read-back of both sides (azcloud-kit's `sync::verify`): damaged copies healed from
@@ -705,10 +711,17 @@ pub(crate) fn run(job: SyncJob, emit: &mut dyn FnMut(Outcome)) -> Outcome {
                 states: session.states(),
             }
         }
-        SyncJob::AnswerMassDelete { work, delete_too } => {
+        SyncJob::AnswerMassDelete {
+            work,
+            delete_too,
+            shown,
+        } => {
             let session = work.session();
-            let result = session
-                .answer_mass_delete(delete_too)
+            let answered = match &shown {
+                Some(shown) => session.answer_mass_delete_shown(delete_too, shown),
+                None => session.answer_mass_delete(delete_too),
+            };
+            let result = answered
                 .map(|()| {
                     Text::plain(if delete_too {
                         "mass-delete delete"
@@ -1475,12 +1488,25 @@ pub(crate) fn answer_mass_delete(
     drive_id: &str,
     delete_too: bool,
 ) {
+    // The question the dialog showed, as the store held it at the click: the answer is for it, not
+    // for whatever a pass has asked by the time the worker runs.
+    let shown = s
+        .sync_view
+        .store
+        .states(drive_id)
+        .mass_delete
+        .as_ref()
+        .map(azcloud_kit::sync::MassDelete::identity);
     if let Some(work) = work_of(info, s, drive_id) {
         spawn(
             info,
             app,
             s,
-            Job::Sync(SyncJob::AnswerMassDelete { work, delete_too }),
+            Job::Sync(SyncJob::AnswerMassDelete {
+                work,
+                delete_too,
+                shown,
+            }),
         );
     }
 }
