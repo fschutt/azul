@@ -1061,8 +1061,9 @@ pub fn compare(site: &'static str, op: Op, e: &Evidence<'_>, guard: Guard) -> Co
     })
 }
 
-/// The most distinct disagreements kept (a loop that disagrees a million times says it once).
-const KEPT: usize = 64;
+/// The most distinct disagreements kept (a loop that disagrees a million times says it once): far more
+/// than the places that ask (about twenty sites, a handful of states each).
+const KEPT: usize = 256;
 
 /// The disagreements of this process since the last [`take_disagreements`], each once.
 static SEEN: Mutex<Vec<Disagreement>> = Mutex::new(Vec::new());
