@@ -370,6 +370,13 @@ impl MailApp {
         mail_drive::set_index_cache_root(
             user_cache_dir().map(|dir| dir.join("AzMail").join("drive-index")),
         );
+        // The poison pill of the analysis of a file and of the decode of a stored transform: a
+        // crafted stream that ended the program three times is stored as it is from then on
+        // (X-DELTA-AZDRIVE-KEYS-44; AzDrive names its folder the same way).
+        #[cfg(feature = "encryption")]
+        azul_storage::crypto::codec::set_analysis_marker_dir(
+            user_cache_dir().map(|dir| dir.join("AzMail").join("analysis")),
+        );
         // The account sessions' locks are the keyring's: every AzMail and Azlin app of this
         // user that reaches the same entries takes turns there.
         let shared_keyring = azcloud_kit::SharedKeyring::new(

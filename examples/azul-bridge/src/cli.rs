@@ -637,6 +637,11 @@ fn serve(
         (Some(id), Some(restore)) => {
             azmail_core::mail_drive::set_device_name("Azlin Bridge");
             azmail_core::mail_drive::set_index_cache_root(Some(state.join(config::INDEX_CACHE_DIR)));
+            // The poison pill of the analysis of a file and of the decode of a stored transform:
+            // the bridge serves the JPEGs, PDFs and archives any member of the drive wrote over
+            // WebDAV, and a crafted stream that ended it three times is stored as it is from then
+            // on (X-DELTA-AZDRIVE-KEYS-44; AzDrive names its folder the same way).
+            azul_storage::crypto::codec::set_analysis_marker_dir(Some(state.join("analysis")));
             let auto = azmail_core::mail_drive::wrap_auto(drive, id, secrets.clone(), restore);
             let incoming = crate::store::drops_incoming(Arc::clone(&auto), secrets.clone());
             (auto as Arc<dyn Drive>, Some(incoming))
