@@ -440,3 +440,134 @@ fn x_delta_azdrive_files_32_a_repositorys_own_configuration_is_warned_of() {
         assert_eq!(vcs_metadata_note(key), None, "{key:?}");
     }
 }
+
+/// ARCH29 C6c. An `OnDisk` key is a name that is on this disk already or in a record this device
+/// wrote: it has the shape rows (what `Purpose::Local` checked) and nothing is made from it. The
+/// walk finds what is there; for a folder that is not, it fails and leaves the disk as it was - the
+/// spellings of a protected name included (the disk has them already; a key that only reads makes no
+/// folder of one).
+#[test]
+fn c6c_an_on_disk_key_walks_to_what_is_there_and_never_makes_a_folder() {
+    use crate::{beneath::Root, names::OnDisk};
+    let tmp = TempDir::new("c6c-on-disk");
+    let tree = Root::open(tmp.path()).unwrap();
+    std::fs::create_dir_all(tmp.path().join("docs/2026")).unwrap();
+    std::fs::write(tmp.path().join("docs/2026/a.txt"), b"a").unwrap();
+    // A file that is there: its folder and its name, from an entry and from a record alike.
+    for on_disk in [
+        OnDisk::of_entry("docs/2026/a.txt").unwrap(),
+        OnDisk::of_record("docs/2026/a.txt").unwrap(),
+    ] {
+        let (dir, name) = tree.parent_of_existing(&on_disk).unwrap();
+        assert_eq!(name, "a.txt");
+        assert!(dir.lstat(name).is_ok());
+    }
+    // A folder that is not there stays not there.
+    let missing = [
+        "missing/b/c.txt",
+        "docs/2027/x.txt",
+        "GIT~1/config",
+        ".hg/hooks/x",
+        ".azlin/sync/x",
+    ];
+    for key in missing {
+        let on_disk = OnDisk::of_record(key).unwrap();
+        let failed = tree.parent_of_existing(&on_disk).err();
+        assert!(
+            matches!(&failed, Some(e) if e.is_not_found()),
+            "{key:?}: {failed:?}"
+        );
+    }
+    for made in ["missing", "docs/2027", "GIT~1", ".hg", ".azlin"] {
+        assert!(!tmp.path().join(made).exists(), "{made} was made");
+    }
+    // Shapes that leave the folder are no key of what is on a disk, as they were none for Local.
+    for key in [
+        "", "/etc/x", "a//b", "a/./b", "a/../b", "a\\b", "x\0y", "a/",
+    ] {
+        assert!(OnDisk::of_entry(key).is_err(), "{key:?}");
+        assert!(OnDisk::of_record(key).is_err(), "{key:?}");
+    }
+    let refused = OnDisk::of_entry("a/../b").unwrap_err();
+    assert_eq!(refused.key, "a/../b");
+}
+
+/// ARCH29 C6c. A name is made here only from an `Admitted` key, and every name the full rows refuse
+/// - a protected folder in any spelling (`.git`, `.hg`, `.svn`, `.azlin`, `GIT~1`, `.GIT.`), a
+/// reserved Windows name - is never one, whoever renamed the folder: `Policy::admitted` refuses it
+/// and `Root::parent_of_new` takes nothing else, so the walk that made a drive-renamed `.git`
+/// folder on the victim's disk (X-DELTA-AZDRIVE-FILES-1) has no argument to be given. What is on
+/// the disk already (`Purpose::Local`) never becomes one, and a plain key is made with its folders.
+#[test]
+fn c6c_a_name_is_made_only_from_an_admitted_key_and_the_full_rows_refuse_what_a_drive_renamed() {
+    use crate::beneath::Root;
+    let tmp = TempDir::new("c6c-new");
+    let tree = Root::open(tmp.path()).unwrap();
+    // The sync: a version-control name in any position and spelling, the bookkeeping first.
+    for name in GIT.iter().chain(HG).chain(SVN) {
+        for key in [
+            format!("proj/{name}/hooks/post-commit"),
+            format!("{name}/x"),
+            format!("proj/{name}"),
+        ] {
+            for policy in policies() {
+                assert!(
+                    policy.admitted(&key, Purpose::Sync).is_err(),
+                    "{key:?} on {:?}",
+                    policy.system
+                );
+            }
+        }
+    }
+    for name in AZLIN {
+        for policy in policies() {
+            let key = format!("{name}/sync/x");
+            assert!(policy.admitted(&key, Purpose::Sync).is_err(), "{key:?}");
+        }
+    }
+    // The other purposes about a drive's names refuse a spelling that only a disk reads as a
+    // protected name (a copy of a repository keeps its own `.git`).
+    for purpose in [
+        Purpose::Download,
+        Purpose::Open,
+        Purpose::Rescue,
+        Purpose::Copy,
+    ] {
+        for name in [".GIT", "GIT~1", ".git.", ".HG", ".AZLIN"] {
+            let key = format!("proj/{name}/x");
+            let here = Policy::here(Volume::default());
+            assert!(here.admitted(&key, purpose).is_err(), "{key:?} {purpose:?}");
+        }
+    }
+    // A reserved Windows name, whichever computer asks.
+    let windows = Policy {
+        system: System::Windows,
+        volume: Volume::default(),
+    };
+    for bad in ["CON", "a/NUL.txt", "dir/aux", "COM1", "a.txt:s", "end."] {
+        assert!(
+            windows.admitted(bad, Purpose::Sync).is_err(),
+            "{bad:?} is admitted for the sync on Windows"
+        );
+    }
+    // What is on the disk already makes no new name, whatever its spelling.
+    let here = Policy::here(Volume::default());
+    for key in ["docs/a.txt", "proj/.git/config", ".azlin/sync/x"] {
+        assert!(here.admitted(key, Purpose::Local).is_err(), "{key:?}");
+    }
+    // Nothing was made for any of it.
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    // A plain key is admitted, and made with its folders; a repository's own `.git` is a copy's.
+    let admitted = here.admitted("docs/2026/a.txt", Purpose::Sync).unwrap();
+    assert_eq!(admitted.as_str(), "docs/2026/a.txt");
+    let (dir, name) = tree.parent_of_new(&admitted).unwrap();
+    assert_eq!(name, "a.txt");
+    assert!(dir.path().ends_with("docs/2026"), "{:?}", dir.path());
+    assert!(tmp.path().join("docs/2026").is_dir());
+    let copy = here.admitted("proj/.git/config", Purpose::Copy).unwrap();
+    assert!(tree.parent_of_new(&copy).is_ok());
+    assert!(tmp.path().join("proj/.git").is_dir());
+    // A name the user typed is held to the shape, as it was.
+    assert!(here.admitted("proj/.GIT/x", Purpose::UserTyped).is_ok());
+    assert!(here.admitted("a/../b", Purpose::UserTyped).is_err());
+}

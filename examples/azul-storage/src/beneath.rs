@@ -29,7 +29,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{cap::Cap, names::LocalKey};
+use crate::{
+    cap::Cap,
+    names::{Admitted, LocalKey, OnDisk},
+};
 
 /// Why a path under the root cannot be walked.
 #[derive(Debug)]
@@ -570,6 +573,35 @@ impl Root {
         let (folder, name) = split_key(key.as_str());
         check_name(name)?;
         Ok((self.dir(folder, create)?, name))
+    }
+
+    /// The folder of a name that is on this disk already and the key's last name:
+    /// `a/b/c.txt` -> (the folder `a/b`, `c.txt`). The key is an [`OnDisk`] one - a directory
+    /// entry or a record this device wrote - and the walk NEVER makes a folder: a missing one is
+    /// a not-found error and the disk is as it was (ARCH29 C6c).
+    ///
+    /// # Errors
+    ///
+    /// As [`Root::dir`] without `create`, and [`BeneathError::BadName`] for a key without a name.
+    pub fn parent_of_existing<'k>(&self, key: &'k OnDisk) -> Result<(Dir, &'k str), BeneathError> {
+        let (folder, name) = split_key(key.as_str());
+        check_name(name)?;
+        Ok((self.dir(folder, false)?, name))
+    }
+
+    /// The folder of a name that is to be made here, made where it is missing, and the key's last
+    /// name. The key is an [`Admitted`] one - it passed the rows of its purpose, the protected
+    /// names in every spelling among them - so a name from a drive that the full rows refuse never
+    /// reaches a folder made here (ARCH29 C6c; X-DELTA-AZDRIVE-FILES-1). It takes no `&str` and no
+    /// flag.
+    ///
+    /// # Errors
+    ///
+    /// As [`Root::dir`] with `create`, and [`BeneathError::BadName`] for a key without a name.
+    pub fn parent_of_new<'k>(&self, key: &'k Admitted) -> Result<(Dir, &'k str), BeneathError> {
+        let (folder, name) = split_key(key.as_str());
+        check_name(name)?;
+        Ok((self.dir(folder, true)?, name))
     }
 
     /// Whether the folder `rel` is a mount point the device numbers do not show (Linux bind

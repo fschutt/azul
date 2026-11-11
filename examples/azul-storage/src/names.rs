@@ -509,7 +509,11 @@ pub enum Purpose {
     /// A key of a synced drive that becomes a file in the synced folder: every row, the protected
     /// names in any spelling included.
     Sync,
-    /// A file of a drive downloaded to a folder the user chose.
+    /// A file of a drive downloaded to a folder the user chose. No production caller says it: the
+    /// one place a drive's names reach a folder of this computer is the transfer plan
+    /// ([`crate::xfer::plan`]), which cannot tell a Download from a Paste and admits every such name
+    /// as [`Purpose::Copy`] - the same rows (X-DELTA-AZDRIVE-FILES-32). The two stay until the
+    /// purposes are merged with [`Purpose::Local`]'s deletion (ARCH29 C6c).
     Download,
     /// The rescue copy of a drive.
     Rescue,
@@ -520,7 +524,10 @@ pub enum Purpose {
     /// A copy between drives or into a folder.
     Copy,
     /// A key already on this disk or in this device's own records (a base entry, a trash
-    /// operation): only what makes it unsafe as a path argument.
+    /// operation): only what makes it unsafe as a path argument. It is the one purpose with no
+    /// protected-name row, which is how a name from a DRIVE could be walked with it and made
+    /// (X-DELTA-AZDRIVE-FILES-1); [`OnDisk`] is its key now - it can only be walked to what is
+    /// there - and the callers move to it one file at a time (ARCH29 C6c). Deleted with the last.
     Local,
 }
 
@@ -593,6 +600,112 @@ impl LocalKey {
     }
 }
 
+/// A key of a name that is on this disk already, or in a record this device wrote about its own
+/// folder: an entry a scan or a listing of the trash read, a base entry, a line of the oplog or the
+/// journal (ARCH29 C6c). It passed the shape of a path and this system's rows - what
+/// [`Purpose::Local`] checked - and never the protected names' spelling rows: the disk has the file
+/// already. What it can do is walk to a file that is there: [`Root::parent_of_existing`] never makes
+/// a folder. A name that comes from a DRIVE, a device or a person and is to be MADE here is an
+/// [`Admitted`] key, which carries the rows of its purpose; the two types do not convert into each
+/// other, so a create cannot be given a key of the first kind (X-DELTA-AZDRIVE-FILES-1: a folder the
+/// drive renamed to `.git` was made on the victim's disk by a walk that took any `&str` and a flag).
+///
+/// Made only by [`OnDisk::of_entry`] and [`OnDisk::of_record`]: the name says where the key came
+/// from, and `names_gate` counts the callers of both per file.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct OnDisk(String);
+
+impl Deref for OnDisk {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for OnDisk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl OnDisk {
+    /// The key of a directory entry this device read: what a scan found, what a listing of the
+    /// trash's folder named.
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal`] for a key that is no path of plain names (it leaves its folder, has a separator
+    /// or a character this system refuses).
+    pub fn of_entry(key: &str) -> Result<OnDisk, Refusal> {
+        OnDisk::checked(key)
+    }
+
+    /// The key of a record this device wrote about its own folder: a base entry, a line of the
+    /// oplog or of the journal.
+    ///
+    /// # Errors
+    ///
+    /// As [`OnDisk::of_entry`].
+    pub fn of_record(key: &str) -> Result<OnDisk, Refusal> {
+        OnDisk::checked(key)
+    }
+
+    fn checked(key: &str) -> Result<OnDisk, Refusal> {
+        match Policy::here(Volume::default()).path_problem(key) {
+            Some(why) => Err(Refusal {
+                key: key.to_string(),
+                why,
+            }),
+            None => Ok(OnDisk(key.to_string())),
+        }
+    }
+
+    /// The key as written.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A key of a name from a drive, a device, a user or a listing that passed [`Policy::admitted`]: the
+/// rows of the purpose it is for, the protected names in every spelling among them. The only key
+/// that makes a name here: [`Root::parent_of_new`] takes nothing else (ARCH29 C6c), and
+/// [`Policy::admitted`] mints none for [`Purpose::Local`], so an [`OnDisk`] key - what is on the
+/// disk already - cannot be turned into one. It cannot be made any other way, copied from a file or
+/// defaulted. (The type the key of [`Policy::admit`] becomes when [`Purpose::Local`] is gone: the
+/// renamed [`LocalKey`].)
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Admitted(LocalKey);
+
+impl Deref for Admitted {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl fmt::Display for Admitted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl Admitted {
+    /// The key as written.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    /// The file under `root`: every name of the key pushed on it, none of which can leave it.
+    #[must_use]
+    pub fn under(&self, root: &std::path::Path) -> std::path::PathBuf {
+        self.0.under(root)
+    }
+}
+
 /// What a name may be on this system and this disk: the one gate a name from a drive, a device,
 /// a user or a listing passes before it is a path.
 #[derive(Clone, Copy, Debug)]
@@ -641,6 +754,25 @@ impl Policy {
             Some(why) => Err(refuse(why)),
             None => Ok(LocalKey(key.to_string())),
         }
+    }
+
+    /// The key as an [`Admitted`] one for `purpose` (a name to be made on this disk), or why not:
+    /// [`Policy::admit`]'s rows for the six purposes that are about a name from outside, and never
+    /// for [`Purpose::Local`] - what is on the disk already makes no new name.
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal`], the first row the key breaks for `purpose`; for [`Purpose::Local`] always.
+    pub fn admitted(&self, key: &str, purpose: Purpose) -> Result<Admitted, Refusal> {
+        if purpose == Purpose::Local {
+            return Err(Refusal {
+                key: key.to_string(),
+                why: String::from(
+                    "a key of what is on this disk already makes no new name (it is an OnDisk key)",
+                ),
+            });
+        }
+        self.admit(key, purpose).map(Admitted)
     }
 
     /// The folder of `key` under `root` and the key's last name, reached without a link: the key
