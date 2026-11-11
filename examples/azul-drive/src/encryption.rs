@@ -3631,11 +3631,9 @@ fn rotate_job(
     })();
     rotated.map_err(|why| RotationStopped {
         why,
-        // A keyring that cannot be read says "begun": the check stays forgotten.
-        begun: match rotation::begun(keyring, auto.drive()) {
-            Ok(begun) => begun,
-            Err(_) => true,
-        },
+        // collapse-ok: a keyring that cannot be read says "begun" - the conservative answer, the
+        // check stays forgotten.
+        begun: rotation::begun(keyring, auto.drive()).unwrap_or(true),
         checked_before,
     })
 }

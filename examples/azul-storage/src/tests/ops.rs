@@ -638,7 +638,8 @@ fn x_delta_azdrive_keys_22_a_listing_that_names_the_page_it_was_asked_for_is_ref
 /// page: a token that was sent before. Through `list_all`, `list_all_fresh` and `list_folder_all`.
 #[test]
 fn x_delta_azdrive_keys_22_a_listing_that_goes_round_in_a_circle_is_refused_at_its_third_page() {
-    let asks: [fn(&Endless) -> Result<(), DriveError>; 3] = [
+    type Ask = fn(&Endless) -> Result<(), DriveError>;
+    let asks: [Ask; 3] = [
         |b| list_all(b, "").map(|_| ()),
         |b| list_all_fresh(b, "").map(|_| ()),
         |b| list_folder_all(b, "").map(|_| ()),
@@ -680,12 +681,7 @@ fn x_delta_azdrive_keys_22_a_listing_that_keeps_more_than_its_entry_cap_is_refus
         matches!(&refused, DriveError::Protocol(why) if why.contains("more than 2500 entries")),
         "{refused:?}"
     );
-    assert!(
-        named::LISTING_ENTRIES >= 6_000_000,
-        "the drive an index describes lists whole"
-    );
-    assert!(
-        named::LISTING_ENTRIES < named::LISTING_PAGES * 1_000,
-        "and the cap bites before the page cap"
-    );
+    // The drive an index describes lists whole, and the cap bites before the page cap does.
+    const _: () = assert!(named::LISTING_ENTRIES >= 6_000_000);
+    const _: () = assert!(named::LISTING_ENTRIES < named::LISTING_PAGES * 1_000);
 }

@@ -153,11 +153,12 @@ impl TestHooks {
     }
 }
 
-/// The words a libazul built with the cargo feature `test-hooks` carries in its binary (a `#[used]`
-/// static that [`test_hooks`] reads): such a build takes its keyring, its sign-in, `Url::open`, its
-/// biometric prompt, its sensors and its launch from environment variables, so nothing signed and
-/// shipped may be one - and cargo unifies features across a workspace build, so a binary can be one
-/// by accident. The prefix is the one `scripts/sign-release.sh release` refuses and
+/// The words a libazul built with the cargo feature `test-hooks` carries in its binary.
+///
+/// A `#[used]` static that [`test_hooks`] reads holds them: such a build takes its keyring, its
+/// sign-in, `Url::open`, its biometric prompt, its sensors and its launch from environment variables,
+/// so nothing signed and shipped may be one - and cargo unifies features across a workspace build, so
+/// a binary can be one by accident. The prefix is the one `scripts/sign-release.sh release` refuses and
 /// `scripts/check_no_test_hooks.py` looks for (azul-appkit's `anchors::TEST_HOOKS_MARKER` carries it
 /// for its own `test-hooks`); `scripts/azlin_e2e.py` builds libazul with the feature on purpose
 /// (X-DELTA-AZDRIVE-KEYS-37). A shipped build never refers to the constant, so its binary does not
