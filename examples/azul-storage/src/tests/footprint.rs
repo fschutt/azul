@@ -143,11 +143,12 @@ fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof(
     let done = store.forget(DRIVE, Some(&proof)).unwrap();
     assert!(done.kept.is_empty(), "{done:?}");
     assert!(store.residue(DRIVE).unwrap().is_empty());
-    assert_eq!(
-        store.residue("d_other").unwrap().len(),
-        8,
-        "another drive's entries stay"
-    );
+    // Every entry of the other drive is still there, its credentials too: nothing of it was asked.
+    let mut other: Vec<String> = KeyEntry::ALL.iter().map(|e| e.name("d_other")).collect();
+    other.sort();
+    let mut left = store.residue("d_other").unwrap();
+    left.sort();
+    assert_eq!(left, other, "another drive's entries stay");
     // Nothing there: nothing to refuse.
     store.forget(DRIVE, Some(&proof)).unwrap();
 }
@@ -180,9 +181,16 @@ fn x_delta_azdrive_keys_32_the_device_key_is_an_entry_of_the_drive_and_goes_with
         .unwrap();
     let store = KeyringFootprint::new(&keyring);
 
-    // without the proof: the session goes, the device key stays and is said to
+    // without the proof: the credentials go (the session's entry and the drive token's, said
+    // whether or not they were there: `Forgotten::removed`), the device key stays and is said to
     let done = store.forget(DRIVE, None).unwrap();
-    assert_eq!(done.removed, [KeyEntry::Session.name(DRIVE)]);
+    assert_eq!(
+        done.removed,
+        [
+            KeyEntry::Session.name(DRIVE),
+            KeyEntry::AzlinToken.name(DRIVE)
+        ]
+    );
     let kept: Vec<&str> = done.kept.iter().map(|k| k.what.as_str()).collect();
     assert_eq!(kept, [device.as_str()], "{done:?}");
     assert_eq!(store.residue(DRIVE).unwrap(), [device.clone()]);
@@ -397,8 +405,28 @@ fn lane_az_2_a_proof_for_another_drive_is_no_proof() {
     let other = RemovalProof::from_checked_code("d_other");
     let report = forget_drive(&[&store], DRIVE, Some(&other));
     assert!(report.complete(), "{report:?}");
-    assert_eq!(report.kept().len(), 6, "the keys stay: {report:?}");
-    assert_eq!(store.residue(DRIVE).unwrap().len(), 6);
+    // What stays is every entry that goes only with a proof - the keys, the vault's key (KEYS-8)
+    // and the device key (KEYS-32) - and what goes is the two credentials, by name.
+    let mut stays: Vec<String> = [
+        KeyEntry::DriveKey,
+        KeyEntry::RotationPrevious,
+        KeyEntry::RotationNext,
+        KeyEntry::PlannedKey,
+        KeyEntry::MemberKey,
+        KeyEntry::RequestKey,
+        KeyEntry::VaultKey,
+        KeyEntry::DeviceKey,
+    ]
+    .iter()
+    .map(|e| e.name(DRIVE))
+    .collect();
+    stays.sort();
+    let mut kept: Vec<String> = report.kept().iter().map(|k| k.what.clone()).collect();
+    kept.sort();
+    assert_eq!(kept, stays, "the keys stay: {report:?}");
+    let mut residue = store.residue(DRIVE).unwrap();
+    residue.sort();
+    assert_eq!(residue, stays, "and nothing else of the drive is left");
 }
 
 /// LANE-AZ-2 / K6: the removal tries EVERY store whatever one of them did, and takes the drive off
