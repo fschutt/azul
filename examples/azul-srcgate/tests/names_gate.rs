@@ -15,11 +15,10 @@
 //!   a drive is compared with them through `Protected::is_vcs` (every spelling a disk reads as
 //!   theirs), and the literals stand in `names.rs`, in the scan's exclusion rules and where AzDrive
 //!   reads a repository's own folders.
-//! - **`parent-of-call`**: a call of `Root::parent_of` is one of two kinds - `Policy::walk`
-//!   (names.rs), and the contained `LocalDrive`'s walks, which hold a `LocalKey` of their own
-//!   (local.rs). Its argument is a `LocalKey`, so the compiler already refuses a `&str`; this rule
-//!   keeps the list of callers short, so a new entry point is a new line here and a decision about
-//!   its `Purpose`.
+//! - **`parent-of-call`**: a call of `Root::parent_of` is `Policy::walk` (names.rs) and nothing
+//!   else since the contained `LocalDrive` walks by `OnDisk` and `Admitted` keys (ARCH29 C6c). Its
+//!   argument is a `LocalKey`, so the compiler already refuses a `&str`; this rule keeps the list of
+//!   callers short, so a new entry point is a new line here and a decision about its `Purpose`.
 //!
 //! - **`walk-local-call`** (ARCH29 C6c): `names::walk_local(root, key, create)` takes any `&str` and
 //!   a flag, and walked a name from a DRIVE with only the shape rows (X-DELTA-AZDRIVE-FILES-1: a
@@ -220,10 +219,26 @@ const ALLOWED: &[Allow] = &[
     ),
     Allow::exactly(
         "examples/azul-storage/src/local.rs",
-        PARENT_OF,
-        4,
-        "the contained LocalDrive's walks (read, rename, make and remove a folder): each holds a \
-         LocalKey of its own, made from a key its call checked already",
+        ON_DISK_KEY,
+        1,
+        "existing_key: the contained LocalDrive's key of a walk to what is there (a read, a delete, \
+         the source of a rename, a folder removed), made from a key its call checked already \
+         (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/local.rs",
+        PARENT_OF_EXISTING,
+        3,
+        "the contained LocalDrive's walks to what is there: contained_parent_existing, \
+         contained_remove_folder, parent_dir (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/local.rs",
+        PARENT_OF_NEW,
+        3,
+        "the contained LocalDrive's walks that make a folder, each after Policy::admitted for a name \
+         a person chose (new_key): contained_parent_new, contained_make_folder, parent_dir (ARCH29 \
+         C6c)",
     ),
     Allow::exactly(
         "examples/azul-storage/src/migrate.rs",

@@ -16,7 +16,7 @@ use crate::{
     durable::{self, Expect, Landed, Mode, Publish},
     key::{check_path_key, check_path_prefix, folder_of},
     manifest::{self, is_reserved_key, Changes, Manifest, ManifestEntry, Record, MANIFEST_DIR},
-    names::{self, LocalKey},
+    names::{self, Admitted, OnDisk, Policy, Purpose, Volume},
     ops::check_folder,
     same_etag,
     sigv4::{sha256_hex, sha256_hex_of},
@@ -336,10 +336,22 @@ fn reserved(key: &str) -> DriveError {
     }
 }
 
-/// The key of a contained walk as a path argument: its shape was checked by `path_of` (or
-/// `any_path`) of the call already, so this is the typed form of that check, not a second one.
-fn walk_key(key: &str) -> Result<LocalKey, DriveError> {
-    names::local_key(key).map_err(DriveError::from)
+/// The key of a contained walk to a file or folder that is there (a read, a delete, the source of a
+/// rename) as a path argument: an [`OnDisk`] key, which can only be walked to what exists and never
+/// makes a folder. Its shape was checked by `path_of` (or `any_path`) of the call already, so this is
+/// the typed form of that check, not a second one.
+fn existing_key(key: &str) -> Result<OnDisk, DriveError> {
+    OnDisk::of_entry(key).map_err(DriveError::from)
+}
+
+/// The key of a contained walk that makes the folders of a name (a write, a folder, the target of a
+/// rename): an [`Admitted`] key. The folder is the user's own, so the rows are those of a name a person
+/// chose - the shape and this system's ([`Purpose::UserTyped`]); what a name from ANOTHER drive passes
+/// before it reaches this one is the transfer plan's check ([`Purpose::Copy`]).
+fn new_key(key: &str) -> Result<Admitted, DriveError> {
+    Policy::here(Volume::default())
+        .admitted(key, Purpose::UserTyped)
+        .map_err(DriveError::from)
 }
 
 fn not_found_or_io(key: &str, e: std::io::Error) -> DriveError {
@@ -426,24 +438,33 @@ impl LocalDrive {
         });
     }
 
-    /// The folder of a (checked) key, walked from the root without a link, and the key's name.
-    fn contained_parent(
-        &self,
-        key: &str,
-        create: bool,
-    ) -> Result<(beneath::Dir, String), DriveError> {
+    /// The folder of a (checked) key that is there, walked from the root without a link, and the key's
+    /// name: no folder is made.
+    fn contained_parent_existing(&self, key: &str) -> Result<(beneath::Dir, String), DriveError> {
         self.path_of(key)?;
-        let walked = walk_key(key)?;
+        let walked = existing_key(key)?;
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
         let (dir, name) = root
-            .parent_of(&walked, create)
+            .parent_of_existing(&walked)
+            .map_err(|e| beneath_error(key, e))?;
+        Ok((dir, name.to_string()))
+    }
+
+    /// The folder of a (checked) key to be written, made where it is missing, walked from the root
+    /// without a link, and the key's name.
+    fn contained_parent_new(&self, key: &str) -> Result<(beneath::Dir, String), DriveError> {
+        self.path_of(key)?;
+        let walked = new_key(key)?;
+        let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
+        let (dir, name) = root
+            .parent_of_new(&walked)
             .map_err(|e| beneath_error(key, e))?;
         Ok((dir, name.to_string()))
     }
 
     /// A contained drive's file of `key`, opened for reading.
     fn contained_open(&self, key: &str) -> Result<File, DriveError> {
-        let (dir, name) = self.contained_parent(key, false)?;
+        let (dir, name) = self.contained_parent_existing(key)?;
         match dir.open_read(&name) {
             Ok((file, _)) => Ok(file),
             // A folder (or a link) of this name is no object of the drive.
@@ -464,7 +485,7 @@ impl LocalDrive {
         mtime: Option<SystemTime>,
         condition: Option<&Precondition>,
     ) -> Result<Landed, DriveError> {
-        let (dir, name) = self.contained_parent(key, true)?;
+        let (dir, name) = self.contained_parent_new(key)?;
         self.write_into(key, &dir, &name, body, mode, mtime, condition)
     }
 
@@ -517,10 +538,10 @@ impl LocalDrive {
     /// A contained drive's folder `prefix` (`a/b/`), walked from the root without a link and
     /// made where it is missing.
     fn contained_make_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        let walked = walk_key(prefix.trim_end_matches('/'))?;
+        let walked = new_key(prefix.trim_end_matches('/'))?;
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(prefix, e))?;
         let (parent, name) = root
-            .parent_of(&walked, true)
+            .parent_of_new(&walked)
             .map_err(|e| beneath_error(prefix, e))?;
         if parent.lstat(name).is_ok_and(|st| st.kind == Kind::File) {
             return Err(DriveError::InvalidKey {
@@ -538,9 +559,9 @@ impl LocalDrive {
     /// the root without a link. A link inside it goes as a link; what it points at stays.
     /// `false` when there is no such folder.
     fn contained_remove_folder(&self, prefix: &str) -> Result<bool, DriveError> {
-        let walked = walk_key(prefix.trim_end_matches('/'))?;
+        let walked = existing_key(prefix.trim_end_matches('/'))?;
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(prefix, e))?;
-        let (parent, name) = match root.parent_of(&walked, false) {
+        let (parent, name) = match root.parent_of_existing(&walked) {
             Ok(found) => found,
             Err(e) if e.is_not_found() => return Ok(false),
             Err(e) => return Err(beneath_error(prefix, e)),
@@ -603,12 +624,20 @@ impl LocalDrive {
     /// contained follows the links of the user's own folders, a contained one walks without any.
     fn parent_dir(&self, key: &str, create: bool) -> Result<(Dir, String), DriveError> {
         if self.contained {
-            let walked = walk_key(key.trim_end_matches('/'))?;
+            let trimmed = key.trim_end_matches('/');
             let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
-            let (dir, name) = root
-                .parent_of(&walked, create)
-                .map_err(|e| beneath_error(key, e))?;
-            return Ok((dir, name.to_string()));
+            // A key that is there is an `OnDisk` one and makes no folder; one that is to be made is
+            // an `Admitted` one (ARCH29 C6c).
+            let walked = if create {
+                let walked = new_key(trimmed)?;
+                root.parent_of_new(&walked)
+                    .map(|(dir, name)| (dir, name.to_string()))
+            } else {
+                let walked = existing_key(trimmed)?;
+                root.parent_of_existing(&walked)
+                    .map(|(dir, name)| (dir, name.to_string()))
+            };
+            return walked.map_err(|e| beneath_error(key, e));
         }
         let path = self.any_path(key)?;
         let parent = path.parent().unwrap_or(&self.root);
@@ -1170,7 +1199,7 @@ impl Drive for LocalDrive {
     fn delete(&self, key: &str) -> Result<(), DriveError> {
         let path = self.path_of(key)?;
         if self.contained {
-            let (dir, name) = match self.contained_parent(key, false) {
+            let (dir, name) = match self.contained_parent_existing(key) {
                 Ok(found) => found,
                 // No folder of it: nothing to delete.
                 Err(DriveError::NotFound { .. }) => return Ok(()),

@@ -108,3 +108,54 @@ fn a_contained_drive_makes_and_removes_its_own_folders_as_any_drive_does() {
     drive.delete_folder("w/").unwrap();
     assert!(!names(root.path()).contains(&String::from("w")));
 }
+
+/// ARCH29 C6c, local.rs. A contained drive walks by `OnDisk` and `Admitted` keys. A read, a delete, a
+/// folder removed and the source of a rename walk to what is there and make NO folder - whatever the
+/// spelling of the name, a protected one included (the disk has the name already: nothing is made for a
+/// look). A write, a folder made and the target of a rename make the folders of a name that passed the
+/// rows of a name a person chose (the shape and this system's: the user's own folder keeps its `.git`),
+/// and a key that leaves the folder is refused before anything is made. Green on the old code too: it pins
+/// what the two key types now hold.
+#[test]
+fn c6c_a_contained_drive_makes_no_folder_for_what_only_looks_and_makes_them_for_what_writes() {
+    let root = TempDir::new("contained-c6c");
+    let drive = LocalDrive::without_manifest(root.path()).contained();
+    for key in ["missing/a.txt", ".GIT/hooks/x", "GIT~1/config", "x/.hg/y"] {
+        assert!(
+            matches!(drive.get(key), Err(crate::DriveError::NotFound { .. })),
+            "{key:?}"
+        );
+        assert_eq!(drive.delete(key), Ok(()), "{key:?}");
+        assert!(drive.head(key).is_err(), "{key:?}");
+        let folder = format!(
+            "{}/",
+            key.rsplit_once('/').map_or(key, |(folder, _)| folder)
+        );
+        assert_eq!(drive.remove_empty_folder(&folder), Ok(true), "{folder:?}");
+        assert!(drive.rename(key, "elsewhere/b.txt").is_err(), "{key:?}");
+    }
+    assert!(
+        names(root.path()).is_empty(),
+        "a folder was made for a look: {:?}",
+        names(root.path())
+    );
+    // A write makes its folders; a folder is made; a rename makes the target's.
+    drive.put("docs/2026/a.txt", b"a").unwrap();
+    drive.create_folder("projects/new/").unwrap();
+    drive
+        .rename("docs/2026/a.txt", "archive/2026/a.txt")
+        .unwrap();
+    assert_eq!(drive.get("archive/2026/a.txt").unwrap(), b"a");
+    assert!(root.path().join("projects/new").is_dir());
+    // The user's own folder keeps its repository: a name a person chose is held to the shape.
+    drive.put("proj/.git/config", b"c").unwrap();
+    assert_eq!(drive.get("proj/.git/config").unwrap(), b"c");
+    // A key that leaves the folder makes nothing.
+    for key in ["../escape.txt", "a/../../b.txt"] {
+        assert!(drive.put(key, b"x").is_err(), "{key:?}");
+    }
+    assert!(
+        !root.path().join("a").exists(),
+        "a folder was made for a key that leaves it"
+    );
+}
