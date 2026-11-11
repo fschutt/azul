@@ -37,6 +37,7 @@ use azul_storage::{
         device::{self, Adopted},
         drops::{self, DropPublic},
         keys::{RecoveryCode, RecoveryKdf},
+        keystate::{Evidence, Guard, Journal, Keeps, KeyringFacts, Op, Read, Way},
         DriveKey, KeyId,
     },
     encrypted::{EncryptedDrive, Recorded},
@@ -52,6 +53,134 @@ use crate::{
     error::{fail, CloudResult},
     failover::{Failover, Node},
 };
+
+// ==== The key permit's shadow (ARCH29 C7 step 2): the judge beside the guards of this file ====
+//
+// Each helper asks `azul_storage::crypto::keystate` the question the guard just answered, on the
+// facts the guard had and the keyring's entries read once more (local reads, a rare operation), and
+// logs a disagreement; in this crate's test build it fails the test. The guards decide; nothing here
+// changes what they did.
+
+/// The sign-up's one guard (`check_keeps_keys`): a drive that does not exist yet has no key, none
+/// planned and no key files, so the state is `Fresh` and the keyring must take the key that is made.
+fn shadow_sign_up(keyring: &dyn KeyringStore, kept: bool) {
+    let mut evidence = Evidence::new("(a new drive)", azul_storage::time::now_unix());
+    evidence.keyring = KeyringFacts {
+        drive_key: Read::Absent,
+        next_key: Read::Absent,
+        planned_key: Read::Absent,
+        keeps_keys: device::keeps_keys_fact(keyring),
+    };
+    evidence.bucket.encrypted = Read::Found(false);
+    let guard = if kept {
+        Guard::PermitsAs(Way::New)
+    } else {
+        Guard::Refuses
+    };
+    azul_storage::key_shadow!(
+        "azcloud_kit::encryption::signup",
+        Op::Setup,
+        evidence,
+        guard
+    );
+}
+
+/// The join's guard before the code's one-time token is spent (`check_join_key_can_be_kept`): the
+/// keyring must take the key the code carries. The drive is encrypted (the code carries its key).
+fn shadow_join(keyring: &dyn KeyringStore, drive: &str, kept: bool) {
+    let mut evidence = Evidence::new(drive, azul_storage::time::now_unix());
+    evidence.keyring = device::key_facts(keyring, drive);
+    evidence.keyring.keeps_keys = device::keeps_keys_fact(keyring);
+    evidence.bucket.encrypted = Read::Found(true);
+    let guard = if kept { Guard::Permits } else { Guard::Refuses };
+    azul_storage::key_shadow!(
+        "azcloud_kit::encryption::check_join_key_can_be_kept",
+        Op::Recover,
+        evidence,
+        guard,
+        known = [
+            (
+                "planned",
+                "a join onto a device whose own setup did not finish: no guard before the token is spent"
+            ),
+            (
+                "rotating",
+                "a join onto a device that keeps the new key of an unfinished rotation (harmless for the \
+                 old key's invite, but the table says finish the change first)"
+            ),
+            (
+                "unknown",
+                "the guard asks the keyring's protection only: a keyring that cannot be read fails at \
+                 the first key written"
+            ),
+        ]
+    );
+}
+
+/// The two guards before "I was hacked" runs - the keyring must take the new key
+/// (`check_keeps_keys`) and the rotation must be able to finish (`lockdown_needed`), whose answer
+/// `lockdown` is: true when the lockdown is to run (no rotation of this device under way: a journal
+/// that is not its own, or none), false when this device's own rotation resumes. Both permits are
+/// asked: the lockdown, and the rotation that follows.
+fn shadow_rotation(keyring: &dyn KeyringStore, drive: &str, lockdown: bool) {
+    let mut evidence = Evidence::new(drive, azul_storage::time::now_unix());
+    evidence.keyring = device::key_facts(keyring, drive);
+    // The guard above passed: the keyring keeps key material.
+    evidence.keyring.keeps_keys = Read::Found(Keeps::Yes);
+    // What `lockdown_needed` answered says what it found: a resume is a journal of this device's own,
+    // and every other way on was decided with the drive's index opening with a key this device holds.
+    evidence.bucket.journal = Read::Found(if lockdown {
+        Journal::NotOwn
+    } else {
+        Journal::Own
+    });
+    evidence.bucket.index_opens = Read::Found(true);
+    const REREAD: &str = "the keyring failed on a re-read after the guard had read it";
+    azul_storage::key_shadow!(
+        "azcloud_kit::encryption::rotate_drive_key",
+        Op::Lockdown,
+        evidence,
+        if lockdown {
+            Guard::Permits
+        } else {
+            Guard::Refuses
+        },
+        known = [("unknown", REREAD)]
+    );
+    azul_storage::key_shadow!(
+        "azcloud_kit::encryption::rotate_drive_key",
+        Op::Rotate,
+        evidence,
+        Guard::Permits,
+        known = [("unknown", REREAD)]
+    );
+}
+
+/// "Re-encrypt everything" has one guard here: the drive opens, so this device holds a key that opens
+/// its index. Nothing asks whether a key change is unfinished.
+fn shadow_reencrypt(keyring: &dyn KeyringStore, drive: &str) {
+    let mut evidence = Evidence::new(drive, azul_storage::time::now_unix());
+    evidence.keyring = device::key_facts(keyring, drive);
+    evidence.bucket.encrypted = Read::Found(true);
+    evidence.bucket.index_opens = Read::Found(true);
+    azul_storage::key_shadow!(
+        "azcloud_kit::encryption::reencrypt",
+        Op::Reencrypt,
+        evidence,
+        Guard::Permits,
+        known = [
+            (
+                "rotating",
+                "no guard refuses a re-encryption while a key change is unfinished: the files would be \
+                 written under the old key the rotation is replacing"
+            ),
+            (
+                "unknown",
+                "the keyring failed on a re-read after the drive had opened"
+            ),
+        ]
+    );
+}
 
 /// Where a new drive's keys go as it is made ([`Account::signup`]).
 pub struct NewKeys<'k> {
@@ -87,7 +216,9 @@ impl Account {
     ) -> CloudResult<(Account, RecoveryCode)> {
         // Before the drive is made: a keyring that keeps no key would refuse the first key written,
         // after the sign-up, and leave a drive that takes no file (X-DELTA-AZDRIVE-KEYS-25).
-        device::check_keeps_keys(keys.keyring, "the new drive's key")?;
+        let kept = device::check_keeps_keys(keys.keyring, "the new drive's key");
+        shadow_sign_up(keys.keyring, kept.is_ok());
+        kept?;
         let account = Account::sign_up_at_token_server(state, token_url, transports, tier, name)?
             .with_s3_endpoint(keys.s3_endpoint);
         let code = account.setup_encryption(keys.keyring, keys.kdf)?;
@@ -182,10 +313,9 @@ impl Account {
         if code.key_seal.is_none() {
             return Ok(());
         }
-        Ok(device::check_keeps_keys(
-            keyring,
-            "the drive key this join code carries",
-        )?)
+        let kept = device::check_keeps_keys(keyring, "the drive key this join code carries");
+        shadow_join(keyring, &code.drive_id, kept.is_ok());
+        Ok(kept?)
     }
 
     /// After [`Account::join`] with `code`: the drive key its seal opens, kept in `keyring` with
@@ -370,7 +500,10 @@ impl Account {
         // in the bucket is no such rotation: it must not skip the lockdown. A rotation that
         // cannot be finished (no key here, an index that opens with neither key this device
         // holds) is refused here, BEFORE the lockdown locks the other devices out.
-        if rotation::lockdown_needed(&self.bucket_drive()?, keyring, &self.record().id)? {
+        let lockdown =
+            rotation::lockdown_needed(&self.bucket_drive()?, keyring, &self.record().id)?;
+        shadow_rotation(keyring, &self.record().id, lockdown);
+        if lockdown {
             self.lockdown()?;
         }
         // The lockdown's new credentials.
@@ -400,6 +533,7 @@ impl Account {
         stop: &dyn Fn() -> bool,
     ) -> CloudResult<bool> {
         let drive = self.open_encrypted(keyring, provider)?;
+        shadow_reencrypt(keyring, &self.record().id);
         Ok(rotation::reencrypt_pass(&drive, state, save, stop)?)
     }
 
