@@ -49,10 +49,11 @@ use crate::{
 /// S3's longest key, in bytes.
 const MAX_KEY_BYTES: usize = 1024;
 
-/// How many versioned deletes ([`BatchDelete::of_version`]) are looked at (one HEAD each) before the
-/// group is deleted in one request: the window between a file's look and its delete is this many
-/// looks, not the whole batch's.
-const VERSIONED_GROUP: usize = 16;
+/// How many versioned deletes ([`BatchDelete::of_version`]) are looked at (one HEAD each) before
+/// the group is deleted in one request: the window between a file's look and its delete is this
+/// many looks, not the whole batch's (X-DELTA-AZDRIVE-FILES-24). So `n` versioned deletes cost
+/// `n.div_ceil(VERSIONED_GROUP)` DeleteObjects requests, and a test that counts them says it so.
+pub const VERSIONED_GROUP: usize = 16;
 /// Bytes of one part of a multipart upload, and the most [`Drive::put_from`] sends in one
 /// PUT (S3 takes parts of 5 MiB to 5 GiB, all but the last at least 5 MiB).
 pub const PART_SIZE: usize = 16 * 1024 * 1024;

@@ -61,17 +61,35 @@ fn many_deletes_of_a_plain_bucket_go_in_one_request_and_an_edit_beats_a_delete()
     assert!(again[0].is_ok());
 }
 
+/// A folder renamed in a plain bucket is copied on the service and the copies' sources are deleted
+/// by the VERSION that was copied (AZ-M12), so a file written to meanwhile stays. A version is
+/// looked at before it is deleted, in groups of `VERSIONED_GROUP` (X-DELTA-AZDRIVE-FILES-24: the
+/// window between a file's look and its delete is that many looks, not the whole batch's), and each
+/// group is one DeleteObjects: fifty files are `50.div_ceil(VERSIONED_GROUP)` requests - neither
+/// one for all of them (a window of fifty looks) nor one per file.
 #[test]
-fn renaming_a_folder_of_a_plain_bucket_copies_on_the_service_and_deletes_in_one_batch() {
+fn renaming_a_folder_of_a_plain_bucket_copies_on_the_service_and_deletes_the_copied_versions_in_groups(
+) {
+    use azul_storage::s3::VERSIONED_GROUP;
+    const FILES: usize = 50;
+    assert!(
+        VERSIONED_GROUP > 1 && FILES > VERSIONED_GROUP,
+        "a group is more than a file, and the files make more than one group: else this count \
+         cannot tell a request per file or a request for all of them from the grouping"
+    );
     let s3 = FakeS3::new();
-    let keys = fill(&s3, "a/", 50);
+    let keys = fill(&s3, "a/", FILES);
     let drive = s3_drive(&s3);
     s3.clear_log();
     drive.rename("a/", "b/").unwrap();
-    assert_eq!(s3.count("COPY"), 50, "every file copied on the service");
+    assert_eq!(s3.count("COPY"), FILES, "every file copied on the service");
     assert_eq!(s3.count("GET"), 0, "nothing downloaded");
     assert_eq!(s3.count("PUT"), 0, "nothing uploaded");
-    assert_eq!(s3.count("DELETEOBJECTS"), 1);
+    assert_eq!(
+        s3.count("DELETEOBJECTS"),
+        FILES.div_ceil(VERSIONED_GROUP),
+        "one DeleteObjects per group of versioned deletes"
+    );
     assert_eq!(s3.count("DELETE"), 0);
     for (i, key) in keys.iter().enumerate() {
         assert!(s3.read(key).is_none(), "{key} moved");
