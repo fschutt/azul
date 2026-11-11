@@ -15,7 +15,9 @@ use crate::{
     meta::{
         keys, wal::narrow_writable_max, IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo,
     },
-    rotation::{lockdown_needed, pending, resumable, rewrap_batch, rotate, Phase, JOURNAL_FILE},
+    rotation::{
+        begun, lockdown_needed, pending, resumable, rewrap_batch, rotate, Phase, JOURNAL_FILE,
+    },
     Drive, DriveError, ListRequest,
 };
 
@@ -508,4 +510,31 @@ fn x_delta_keys2_2_a_pack_the_writer_refuses_is_refused_before_the_lockdown() {
     );
     drop(cap);
     w.files_read();
+}
+
+/// X-DELTA-KEYS2-1: whether a rotation of this device got as far as its keyring (the previous or the
+/// next key is there). AzDrive asks it of a rotation that failed: before it, nothing of the drive
+/// changed and the code typed back right stays checked; from it on the wrap may have changed.
+#[test]
+fn x_delta_keys2_1_a_rotation_has_begun_once_its_keys_are_in_the_keyring() {
+    let w = world();
+    assert!(!begun(&w.keyring, DRIVE).unwrap(), "no rotation yet");
+    // A refusal before anything was written: the key permit says no (a keyring with no key).
+    let empty = MemoryKeyring::new();
+    assert!(rotate(w.plain.clone(), &empty, DRIVE, &w.provider, cheap()).is_err());
+    assert!(
+        !begun(&empty, DRIVE).unwrap(),
+        "refused before its first write"
+    );
+
+    w.stopped_after_the_switch();
+    assert!(
+        begun(&w.keyring, DRIVE).unwrap(),
+        "the keys of the try are there"
+    );
+    rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap()).unwrap();
+    assert!(
+        !begun(&w.keyring, DRIVE).unwrap(),
+        "a finished rotation took them away"
+    );
 }

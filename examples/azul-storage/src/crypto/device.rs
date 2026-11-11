@@ -684,12 +684,52 @@ fn put_new(bucket: &dyn Drive, key: &str, bytes: &[u8]) -> Result<(), DriveError
 /// again with the same call: the planned key is found, the recovery wrap of the earlier try (its
 /// code was never shown) is replaced by a new one, and the device is enrolled. A bucket whose
 /// recovery wrap holds another key is another device's drive (`KeyRefused`).
+///
+/// The last step that can fail is [`enroll`]: from the drive key in the keyring on, the recovery
+/// wrap in the bucket is sealed to it and the code must reach the user, so nothing after it returns
+/// an error. What the planted key's removal could not do is [`NewDrive::left_over`] of
+/// [`setup_new_drive_reporting`], which this function leaves out; an app that shows the sheet
+/// calls that one (X-DELTA-KEYS2-3).
 pub fn setup_new_drive(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
     drive: &str,
     kdf: RecoveryKdf,
 ) -> Result<(DriveKey, RecoveryCode), DriveError> {
+    let made = setup_new_drive_reporting(bucket, keyring, drive, kdf)?;
+    Ok((made.drive_key, made.code))
+}
+
+/// What [`setup_new_drive_reporting`] made.
+pub struct NewDrive {
+    /// The drive key, which this device holds.
+    pub drive_key: DriveKey,
+    /// The recovery code for the recovery sheet: stored nowhere.
+    pub code: RecoveryCode,
+    /// What the last step could not take away, each a sentence naming the keyring entry (never a
+    /// key): the drive is set up and the code is its recovery code, so this is a leftover to clear
+    /// and no failure - the planted key stays beside the drive key it is a copy of. Empty: nothing
+    /// is left.
+    pub left_over: Vec<String>,
+}
+
+impl std::fmt::Debug for NewDrive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NewDrive")
+            .field("drive_key", &self.drive_key.id())
+            .field("left_over", &self.left_over)
+            .finish_non_exhaustive()
+    }
+}
+
+/// [`setup_new_drive`] that says what its last step left behind ([`NewDrive::left_over`]) instead
+/// of dropping it.
+pub fn setup_new_drive_reporting(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    kdf: RecoveryKdf,
+) -> Result<NewDrive, DriveError> {
     let planned_entry = planned_key_entry(drive);
     // A key kept before this call: a checkout's, or the one an earlier try of this setup made.
     let planned = load_key_at(keyring, &planned_entry)?;
@@ -813,8 +853,20 @@ pub fn setup_new_drive(
         }
     }
     enroll(bucket, keyring, drive, &drive_key)?;
-    delete_key_at(keyring, &planned_entry)?;
-    Ok((drive_key, code))
+    // The drive key is the keyring's and the recovery wrap is in the bucket: the code is the
+    // drive's now and must reach the user, so nothing from here on returns an error. The planted
+    // key is a copy of the drive key; a keyring that refuses to delete it (a prompt answered No)
+    // leaves a copy of what it keeps anyway, and is said (X-DELTA-KEYS2-3: the `?` here ended the
+    // setup with an error after the wrap and the key existed, and the code was dropped).
+    let mut left_over = Vec::new();
+    if let Err(e) = delete_key_at(keyring, &planned_entry) {
+        left_over.push(format!("{planned_entry}: {e}"));
+    }
+    Ok(NewDrive {
+        drive_key,
+        code,
+        left_over,
+    })
 }
 
 /// Whether this device has a setup of the drive under way: [`setup_new_drive`] kept the drive's key

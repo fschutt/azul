@@ -303,6 +303,23 @@ pub fn unfinished(keyring: &dyn KeyringStore, drive: &str) -> Result<bool, Drive
     Ok(device::load_drive_key(keyring, drive)?.as_ref() != Some(&next))
 }
 
+/// Whether a rotation of this device got as far as the keyring: `drive-key-previous` or
+/// `drive-key-next` is there (R1 and R2 write them first, R17 deletes them). From then on the drive's
+/// index, its keys and its recovery wrap may have changed, and a recovery code typed back right
+/// before is no witness for what the wrap holds now. A call of [`rotate`] that failed before - the
+/// key permit, the account's lockdown, the first keyring write - changed nothing of the drive. A
+/// keyring that cannot be read is an error: the caller takes it as "begun"
+/// (X-DELTA-KEYS2-1).
+pub fn begun(keyring: &dyn KeyringStore, drive: &str) -> Result<bool, DriveError> {
+    let (previous_entry, next_entry) = device::rotation_key_entries(drive);
+    for entry in [&previous_entry, &next_entry] {
+        if device::load_key_at(keyring, entry)?.is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// How a call of [`rotate`] starts, decided from the keyring and the bucket alone: nothing is
 /// written for it.
 pub enum Start {

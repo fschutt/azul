@@ -1681,10 +1681,55 @@ fn new_code_asked() -> std::sync::MutexGuard<'static, Vec<String>> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// What opening a drive whose setup never passed its sheet does ([`guard_unfinished_setup`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UnfinishedSetup {
+    /// Nothing: the setup is finished, or this computer is known to hold no key of the drive to seal
+    /// a new code to (the drive is not encrypted here: its setup resumes by itself).
+    Nothing,
+    /// A NEW recovery code is made (its wrap in the old one's place) and its sheet shows. Only for
+    /// a code the token server holds no key of: its registration is unsigned, which the server takes
+    /// for a drive's first key only.
+    NewCode,
+    /// The drill: the drive's code is registered at the token server, so a new code's unsigned
+    /// registration would be refused (403 `recovery_key_required`: a drive that has a key takes a
+    /// replacement only signed by it) and the wrap would hold a code the server cannot name - no
+    /// kit, red health, a blank computer that cannot find the drive. The typed code is compared with
+    /// the wrap in the bucket ([`rotation_stopped`] forgets the stored key a replaced wrap made
+    /// stale), and it is the code that signs a replacement (X-DELTA-KEYS2-1).
+    Drill,
+}
+
+/// Whether the drive is KNOWN to hold no key on this computer (a setup waiting to be finished, a drive
+/// that is not encrypted): there is no key to seal a new code to. A drive no call decided yet
+/// ([`EncState::Undecided`]: the first folder of a run) is not known, and is treated as it was.
+fn known_without_key(state: EncState) -> bool {
+    match state {
+        EncState::SetupPending | EncState::Unencrypted(_) => true,
+        EncState::Undecided | EncState::Encrypted { .. } => false,
+    }
+}
+
+/// What opening a folder of a drive whose recovery record is `state` does; `without_key`: the drive
+/// is known to hold no key on this computer ([`known_without_key`]). A pure decision, so that the
+/// tests ask what `guard_unfinished_setup` asks.
+pub(crate) fn unfinished_setup(
+    state: Option<&crate::recovery_health::RecoveryState>,
+    without_key: bool,
+) -> UnfinishedSetup {
+    if !setup_unfinished(state) || without_key {
+        return UnfinishedSetup::Nothing;
+    }
+    match state.map(|state| &state.registration) {
+        Some(Registration::Registered) => UnfinishedSetup::Drill,
+        _ => UnfinishedSetup::NewCode,
+    }
+}
+
 /// Opening a drive whose setup never passed its sheet ([`setup_unfinished`]: AzDrive closed on
 /// it; the code was stored nowhere and nobody confirmed it): the drive is not used yet - a NEW
 /// recovery code is made (its wrap in the old one's place) and its sheet shows, as at the
-/// drive's making.
+/// drive's making; or, for a code the token server holds, the drill ([`UnfinishedSetup`]).
 pub(crate) fn guard_unfinished_setup(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -1713,6 +1758,22 @@ pub(crate) fn guard_unfinished_setup(
     let Some(auto) = auto_of(s, &drive) else {
         return;
     };
+    match unfinished_setup(
+        state_of(&s.settings.recovery.drives, &drive),
+        known_without_key(auto.state()),
+    ) {
+        UnfinishedSetup::Nothing => return,
+        UnfinishedSetup::Drill => {
+            // Not while another dialog shows: asked again at the next folder.
+            if s.popup.is_none() {
+                println!("AZDRIVE_RECOVERY_SETUP_UNFINISHED_DRILL {drive}");
+                new_code_asked().push(drive.clone());
+                crate::recovery::open_drill(s, &drive);
+            }
+            return;
+        }
+        UnfinishedSetup::NewCode => {}
+    }
     println!("AZDRIVE_RECOVERY_SETUP_UNFINISHED {drive}");
     new_code_asked().push(drive.clone());
     if s.popup.is_none() {
@@ -1812,6 +1873,9 @@ fn begin_new_drive_setup(
             text: t("azdrive-enc-setting-up"),
         }));
     }
+    // The marker is saved by the job before it makes the key: a setup that stops after its recovery
+    // wrap comes back to the sheet (X-DELTA-KEYS2-3).
+    let before = setup_marked_first(s, drive_id, false);
     spawn(
         info,
         app,
@@ -1820,7 +1884,7 @@ fn begin_new_drive_setup(
             drive_id: drive_id.to_string(),
             auto,
             new_drive: true,
-            before: None,
+            before,
         }),
     );
 }
@@ -2107,10 +2171,21 @@ fn move_is_due(marked: bool, journal: Option<&MigrationState>) -> bool {
     marked || journal.is_some_and(|state| !state.done)
 }
 
+/// Whether the plaintext files of a drive may move into its encryption: its recovery code was made
+/// on this computer and typed back right ([`setup_unfinished`] says no code was shown yet). The move
+/// deletes every original once its copy is verified: a drive whose sheet was never passed - or never
+/// made, a setup that stopped after its recovery wrap - would hold its files only under a code
+/// nobody saw. No record of a code made here says no too (X-DELTA-KEYS2-3). The drive's sheet comes
+/// first ([`guard_unfinished_setup`]); the move goes on after it, from the sheet's end.
+fn may_move_files(state: Option<&crate::recovery_health::RecoveryState>) -> bool {
+    state.is_some_and(|state| state.code_made.is_some()) && !setup_unfinished(state)
+}
+
 /// An encryption that was stopped goes on (AZ-K9): a drive open encrypted on this computer whose
-/// plaintext files were not all moved in - a kill during the sheet or the move - starts its move
-/// again, once per run and drive, when no dialog shows. The move continues from its journal; it
-/// deletes an original only after the encrypted copy is verified. Whether a move started.
+/// plaintext files were not all moved in - a kill during the move - starts its move again, once per
+/// run and drive, when no dialog shows; not while its recovery sheet was not passed
+/// ([`may_move_files`]). The move continues from its journal; it deletes an original only after the
+/// encrypted copy is verified. Whether a move started.
 fn resume_migration(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) -> bool {
     if s.popup.is_some() {
         return false;
@@ -2127,6 +2202,10 @@ fn resume_migration(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) -
         .collect();
     for drive_id in candidates {
         if migrating().contains(&drive_id) {
+            continue;
+        }
+        // Looked at again at every minute until the sheet was passed.
+        if !may_move_files(state_of(&s.settings.recovery.drives, &drive_id)) {
             continue;
         }
         {
@@ -2266,8 +2345,10 @@ pub(crate) fn rotate_confirmed(info: &mut CallbackInfo, app: &RefAny, s: &mut Dr
     }));
     // The rotation replaces the recovery wrap before the new code is shown: the code typed back
     // right until now is no witness from here on, whatever becomes of the job (it may stop with
-    // the wrap replaced and the new code never seen). Saved before the job starts.
-    state_mut(&mut s.settings.recovery.drives, &drive_id).wrap_may_change();
+    // the wrap replaced and the new code never seen). Saved before the job starts; what was
+    // checked is handed to the job, which gives it back to the outcome when it stopped before it
+    // changed anything ([`rotation_stopped`]).
+    let checked_before = rotation_begins(state_mut(&mut s.settings.recovery.drives, &drive_id));
     crate::save_settings(info, app, s);
     spawn(
         info,
@@ -2281,8 +2362,32 @@ pub(crate) fn rotate_confirmed(info: &mut CallbackInfo, app: &RefAny, s: &mut Dr
             auto,
             azlin,
             current,
+            checked_before,
         }),
     );
+}
+
+/// A rotation is about to start: the code typed back right until now is no witness from here on
+/// (`wrap_may_change`), and what was checked is handed back for [`rotation_stopped`].
+fn rotation_begins(state: &mut crate::recovery_health::RecoveryState) -> Option<u64> {
+    let checked = state.code_checked;
+    state.wrap_may_change();
+    checked
+}
+
+/// A rotation ended in an error. Before it changed anything ([`RotationStopped::begun`] false: the
+/// account's lockdown went wrong, the key permit refused) the wrap is the one that was checked and
+/// the check is put back: left forgotten, the drive read as a setup whose sheet was never passed and
+/// the next folder made a NEW code, which the token server - holding the old one's key - refused to
+/// register unsigned (X-DELTA-KEYS2-1). After it the wrap may be another's, and so may the public
+/// key stored for the code: the check stays forgotten and so does the key, so that a drill asks the
+/// bucket's wrap what it holds.
+fn rotation_stopped(state: &mut crate::recovery_health::RecoveryState, stopped: &RotationStopped) {
+    if stopped.begun {
+        state.recovery_key = None;
+    } else if state.code_checked.is_none() {
+        state.code_checked = stopped.checked_before;
+    }
 }
 
 extern "C" fn on_reencrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -2408,16 +2513,9 @@ extern "C" fn on_encrypt(mut data: RefAny, mut info: CallbackInfo) -> Update {
             title: t("azdrive-enc-encrypting-title"),
             text: t("azdrive-enc-encrypting"),
         }));
-        // A drive that holds files: the mark that they still have to move is saved by the job
-        // itself before it makes the key.
-        let before = s.settings_drive.clone().map(|drive| {
-            mark_files_will_move_first(
-                drive,
-                s.settings_base.clone(),
-                s.settings.clone(),
-                &drive_id,
-            )
-        });
+        // The marker ([`setup_marker`]: a code is owed, the files still have to move) is saved by
+        // the job itself before it makes the key.
+        let before = setup_marked_first(s, &drive_id, true);
         spawn(
             info,
             app,
@@ -2595,21 +2693,111 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// (X-DELTA-AZDRIVE-KEYS-20). An error stops the job with nothing done.
 pub(crate) type Before = Box<dyn FnOnce() -> Result<(), String> + Send>;
 
-/// The write that puts the mark "this drive's plaintext files still have to move into the
-/// encryption" on disk: `mine` (the window's settings) with the mark set, saved by a merge
-/// against `start` as every save of the settings is. The mark used to be set by the outcome
-/// handler of the setup, after the key was made: a kill in between left an encrypted drive with no
-/// mark, no journal and its plaintext files in the bucket, invisible in the encrypted view. A
-/// mark that turns out stale is harmless: the resume looks at encrypted drives only and the
-/// move's end clears it.
-fn mark_files_will_move_first(
+/// What a setup writes into the drive's recovery record before it makes the key: a code is owed
+/// (made `now`, no check yet - [`setup_unfinished`] reads that as a setup whose sheet was not
+/// passed), and, for a drive that held files, the mark that they still have to move. A setup that
+/// stops after its recovery wrap - a keyring that refuses a step, a kill before the outcome reached
+/// the window - leaves exactly this behind, so the next start makes a code and shows its sheet and
+/// the move waits for it ([`may_move_files`]): the mark alone used to say "a setup may run", which
+/// the resume read as "a code was made", and moved every file under a code nobody saw
+/// (X-DELTA-KEYS2-3). A failed setup takes it back ([`setup_marker_undone`]).
+fn setup_marker(state: &mut crate::recovery_health::RecoveryState, moves_files: bool, now: u64) {
+    state.code_made(now, None);
+    if moves_files {
+        state.files_will_move();
+    }
+}
+
+/// The write that puts that marker ([`setup_marker`]) on disk: `mine` (the window's settings)
+/// with the marker set, saved by a merge against `start` as every save of the settings is. The
+/// mark used to be set by the outcome handler of the setup, after the key was made: a kill in
+/// between left an encrypted drive with no mark, no journal and its plaintext files in the
+/// bucket, invisible in the encrypted view (X-DELTA-AZDRIVE-KEYS-20).
+fn mark_setup_first(
     drive: LocalDrive,
     start: crate::model::Settings,
     mut mine: crate::model::Settings,
     drive_id: &str,
+    moves_files: bool,
+    now: u64,
 ) -> Before {
-    state_mut(&mut mine.recovery.drives, drive_id).files_will_move();
+    setup_marker(
+        state_mut(&mut mine.recovery.drives, drive_id),
+        moves_files,
+        now,
+    );
     Box::new(move || crate::save_settings_merged(&drive, &start, &mine).map_err(|e| e.to_string()))
+}
+
+/// The first step of a setup on the window's side: the job's [`Before`] (the marker on disk before
+/// the key exists) and the same marker in the window's settings, so that the outcome handler can
+/// take it back ([`setup_marker_undone`]). `None` without a settings drive: nothing is marked.
+fn setup_marked_first(s: &mut DriveState, drive_id: &str, moves_files: bool) -> Option<Before> {
+    let now = now_unix();
+    let drive = s.settings_drive.clone()?;
+    let before = mark_setup_first(
+        drive,
+        s.settings_base.clone(),
+        s.settings.clone(),
+        drive_id,
+        moves_files,
+        now,
+    );
+    setup_marker(
+        state_mut(&mut s.settings.recovery.drives, drive_id),
+        moves_files,
+        now,
+    );
+    Some(before)
+}
+
+/// A setup that ended in an error: the marker its first step left is taken back for a drive that
+/// holds no key on this computer - nothing was made, and a record of a drive with no code is a
+/// "Recovery: red, never checked" line for a drive that is not encrypted. The next try marks it
+/// again. A drive that holds the key keeps it: its sheet is owed.
+fn setup_marker_undone(
+    states: &mut Vec<crate::recovery_health::RecoveryState>,
+    drive_id: &str,
+    encrypted_here: bool,
+) -> bool {
+    if encrypted_here {
+        return false;
+    }
+    let Some(index) = states.iter().position(|state| state.drive_id == drive_id) else {
+        return false;
+    };
+    let state = &mut states[index];
+    if state.code_checked.is_some() {
+        return false;
+    }
+    state.code_made = None;
+    state.files_moved();
+    if *state == crate::recovery_health::RecoveryState::new(drive_id) {
+        states.remove(index);
+    }
+    true
+}
+
+/// A recovery or a join took the drive's key on this computer. When it is another key than the one
+/// this computer held (`key_changed`: the drive's keys were changed on another computer) the recovery
+/// record of the old key is stale and says so no more ([`RecoveryState::drive_key_changed`]): it
+/// would pass the old paper in the drill and refuse the new code. A computer with no record has
+/// nothing to clear. Whether the record changed (the caller saves the settings).
+fn recovered_with(
+    states: &mut [crate::recovery_health::RecoveryState],
+    drive_id: &str,
+    key_changed: bool,
+) -> bool {
+    if !key_changed {
+        return false;
+    }
+    match states.iter_mut().find(|state| state.drive_id == drive_id) {
+        Some(state) => {
+            state.drive_key_changed();
+            true
+        }
+        None => false,
+    }
 }
 
 /// One blocking encryption task.
@@ -2653,6 +2841,9 @@ pub(crate) enum EncryptionJob {
         /// has its cursor and its cut-off time there, and a new rotation makes both wrong
         /// (X-DELTA-AZDRIVE-KEYS-29). `None`: no state folder.
         reencrypt_state: Option<PathBuf>,
+        /// The settings' `code_checked` before the job started ([`rotation_begins`]): put back
+        /// when the job stops before it changed anything ([`rotation_stopped`]).
+        checked_before: Option<u64>,
     },
     /// A new recovery code for a drive whose setup never passed its sheet.
     NewCode {
@@ -2774,6 +2965,20 @@ pub(crate) struct RotationDone {
     pub left_over: Vec<String>,
 }
 
+/// What a rotation that ended in an error says of how far it got.
+pub(crate) struct RotationStopped {
+    /// What the dialog says.
+    pub why: String,
+    /// Whether the drive's keys, its index or its recovery wrap may have changed
+    /// ([`rotation::begun`]; a keyring that cannot be read says yes): from then on the code typed
+    /// back right before the job is no witness. Before it - the key permit, the account's
+    /// lockdown, the first keyring write - nothing of the drive changed.
+    pub begun: bool,
+    /// The settings' `code_checked` as the job started ([`rotation_begins`]), put back by
+    /// [`rotation_stopped`] when the job stopped before it changed anything.
+    pub checked_before: Option<u64>,
+}
+
 /// What an encryption task found.
 pub(crate) enum EncryptionOutcome {
     /// The recovery code to show (`Err`: why there is none).
@@ -2782,16 +2987,19 @@ pub(crate) enum EncryptionOutcome {
         new_drive: bool,
         result: Result<Zeroizing<String>, String>,
     },
+    /// The code opened the drive's key on this computer (`Ok(true)`: it is not the key this
+    /// computer held before - the drive's keys were changed on another computer).
     Recovered {
         drive_id: String,
-        result: Result<(), String>,
+        result: Result<bool, String>,
     },
     /// A joined drive's key from its join code's seal ([`EncryptionJob::AdoptJoinKey`]): the
-    /// answer of an unlock, and - when this device has the key - whether the code's one-time key
-    /// file is still in the drive (`invite_left`: why it could not be deleted).
+    /// answer of an unlock (`Ok(true)` as for [`EncryptionOutcome::Recovered`]), and - when this
+    /// device has the key - whether the code's one-time key file is still in the drive
+    /// (`invite_left`: why it could not be deleted).
     JoinKeyAdopted {
         drive_id: String,
-        result: Result<(), String>,
+        result: Result<bool, String>,
         invite_left: Option<String>,
     },
     Migrated {
@@ -2805,7 +3013,7 @@ pub(crate) enum EncryptionOutcome {
     },
     Rotated {
         drive_id: String,
-        result: Result<RotationDone, String>,
+        result: Result<RotationDone, RotationStopped>,
     },
     Reencrypted {
         drive_id: String,
@@ -2885,33 +3093,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             new_drive,
             before,
         } => {
-            let result = (|| -> Result<Zeroizing<String>, String> {
-                if auto.provider().is_none() {
-                    return Err(String::from("azdrive-enc-err-no-index"));
-                }
-                // A drive that arrived with key files was set up by the computer it was
-                // bought on: this one joins it (an invite, the recovery code), it does not
-                // make new keys.
-                // (A setup of this computer that stopped halfway has the key files of its try in
-                // the bucket and its key in the keyring: it is finished, not refused.)
-                if new_drive
-                    && device::is_encrypted(auto.bucket().as_ref()).map_err(|e| e.to_string())?
-                    && !device::setup_pending(&keyring, auto.drive()).map_err(|e| e.to_string())?
-                {
-                    return Err(String::from(ENCRYPTED_ELSEWHERE));
-                }
-                // Recorded before it is done: the mark that the files still have to move is on
-                // disk before the key exists (X-DELTA-AZDRIVE-KEYS-20).
-                if let Some(before) = before {
-                    before()?;
-                }
-                let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
-                let (_, code) =
-                    device::setup_new_drive(auto.bucket().as_ref(), &keyring, auto.drive(), kdf)
-                        .map_err(|e| e.to_string())?;
-                auto.reopen();
-                Ok(code.to_text())
-            })();
+            let result = set_up_job(&auto, &keyring, new_drive, before);
             EncryptionOutcome::SetUp {
                 drive_id,
                 new_drive,
@@ -2923,9 +3105,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             auto,
             code,
         } => {
-            let result = device::recover(auto.bucket().as_ref(), &keyring, auto.drive(), &code)
-                .map(|_| auto.reopen())
-                .map_err(|e| e.to_string());
+            let result = recover_job(&keyring, &auto, &code);
             EncryptionOutcome::Recovered { drive_id, result }
         }
         EncryptionJob::Migrate {
@@ -2997,53 +3177,16 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             azlin,
             current,
             reencrypt_state,
+            checked_before,
         } => {
-            let result = (|| -> Result<RotationDone, String> {
-                let provider = auto
-                    .provider()
-                    .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
-                // The rotation of THIS device that stopped has had its lockdown. A journal anyone
-                // planted in the bucket is none: it must not skip the lockdown. A rotation that
-                // cannot be finished is refused here, before the lockdown.
-                let lockdown =
-                    rotation::lockdown_needed(auto.bucket().as_ref(), &keyring, auto.drive())
-                        .map_err(|e| e.to_string())?;
-                shadow_rotation(&keyring, auto.drive(), lockdown);
-                if lockdown {
-                    azlin.lockdown().map_err(|e| e.to_string())?;
-                }
-                let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
-                let rotated = rotation::rotate(
-                    Arc::clone(auto.bucket()),
-                    &keyring,
-                    auto.drive(),
-                    provider.as_ref(),
-                    kdf,
-                )
-                .map_err(|e| e.to_string())?;
-                auto.reopen();
-                // The keys changed: a "re-encrypt everything" pass that stopped under the keys
-                // before has its cursor and its cut-off in a file that is wrong now, and a new pass
-                // loaded it, skipped the files at or before the cursor and ended at once
-                // (X-DELTA-AZDRIVE-KEYS-29). The pass asks for its own age as well
-                // ([`current_pass`]), for a file that could not be removed here.
-                if let Some(file) = &reencrypt_state {
-                    if let Err(e) = std::fs::remove_file(file) {
-                        if e.kind() != std::io::ErrorKind::NotFound {
-                            eprintln!("AZDRIVE_REENCRYPT_STATE_KEPT {}: {e}", file.display());
-                        }
-                    }
-                }
-                Ok(RotationDone {
-                    code: rotated.recovery_code.to_text(),
-                    previous_code: current,
-                    drop_key: rotated.drop_key.map(|key| key.to_hex()),
-                    members_removed: rotated.members_removed,
-                    codes_removed: rotated.codes_removed,
-                    shares_revoked: rotated.shares_revoked,
-                    left_over: rotated.left_over,
-                })
-            })();
+            let result = rotate_job(
+                &auto,
+                &keyring,
+                &|| azlin.lockdown().map_err(|e| e.to_string()),
+                current,
+                reencrypt_state.as_deref(),
+                checked_before,
+            );
             EncryptionOutcome::Rotated { drive_id, result }
         }
         EncryptionJob::NewCode { drive_id, auto } => {
@@ -3284,7 +3427,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             key_id,
         } => {
             let (result, invite_left) =
-                adopt_join_key_with(&keyring, &auto, &seal, key_id.as_deref());
+                adopt_join_key_noting(&keyring, &auto, &seal, key_id.as_deref());
             EncryptionOutcome::JoinKeyAdopted {
                 drive_id,
                 result,
@@ -3292,6 +3435,181 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             }
         }
     }
+}
+
+/// The setup of a drive's encryption as the job runs it: the checks, the marker ([`Before`]), the
+/// drive's keys, the recovery code for the sheet. The keyring is a parameter so that the tests ask it
+/// of a keyring that refuses a step. What the setup's last step could not take away is said in the
+/// log, not raised: from the drive key in the keyring on, the recovery wrap is sealed to it and the
+/// code is the drive's recovery code, so the job succeeds and the sheet shows (X-DELTA-KEYS2-3: the
+/// job used to fail after the wrap and the key existed, dropping the code of a drive that was
+/// encrypted).
+fn set_up_job(
+    auto: &AutoEncrypted,
+    keyring: &dyn KeyringStore,
+    new_drive: bool,
+    before: Option<Before>,
+) -> Result<Zeroizing<String>, String> {
+    if auto.provider().is_none() {
+        return Err(String::from("azdrive-enc-err-no-index"));
+    }
+    // A drive that arrived with key files was set up by the computer it was bought on: this one
+    // joins it (an invite, the recovery code), it does not make new keys.
+    // (A setup of this computer that stopped halfway has the key files of its try in the bucket and
+    // its key in the keyring: it is finished, not refused.)
+    if new_drive
+        && device::is_encrypted(auto.bucket().as_ref()).map_err(|e| e.to_string())?
+        && !device::setup_pending(keyring, auto.drive()).map_err(|e| e.to_string())?
+    {
+        return Err(String::from(ENCRYPTED_ELSEWHERE));
+    }
+    // Recorded before it is done: the marker that a code is owed and that the files still have to
+    // move is on disk before the key exists (X-DELTA-AZDRIVE-KEYS-20, X-DELTA-KEYS2-3).
+    if let Some(before) = before {
+        before()?;
+    }
+    let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
+    let made =
+        device::setup_new_drive_reporting(auto.bucket().as_ref(), keyring, auto.drive(), kdf)
+            .map_err(|e| e.to_string())?;
+    if !made.left_over.is_empty() {
+        eprintln!(
+            "AZDRIVE_SETUP_LEFT_OVER {}: {}",
+            auto.drive(),
+            made.left_over.join("; ")
+        );
+    }
+    auto.reopen();
+    Ok(made.code.to_text())
+}
+
+/// What a drive key this computer held before a recovery or a join was.
+enum HeldKey {
+    /// None: this computer had no key of the drive.
+    Nothing,
+    Key(KeyId),
+    /// The keyring could not be read.
+    Unreadable,
+}
+
+fn held_key(keyring: &dyn KeyringStore, drive: &str) -> HeldKey {
+    match device::load_drive_key(keyring, drive) {
+        Ok(Some(key)) => HeldKey::Key(key.id()),
+        Ok(None) => HeldKey::Nothing,
+        Err(_) => HeldKey::Unreadable,
+    }
+}
+
+/// Whether the key this computer holds now is another than the one it held before
+/// ([`held_key`]): the drive's keys were changed on another computer. A keyring that could not be
+/// read before, or cannot be read now, says yes - the record is asked again, which only costs a
+/// drill; no is said only for a key that was read.
+fn key_changed_since(before: HeldKey, keyring: &dyn KeyringStore, drive: &str) -> bool {
+    match (before, held_key(keyring, drive)) {
+        (HeldKey::Nothing, _) => false,
+        (HeldKey::Key(was), HeldKey::Key(is)) => was != is,
+        (HeldKey::Key(_), HeldKey::Nothing | HeldKey::Unreadable) | (HeldKey::Unreadable, _) => {
+            true
+        }
+    }
+}
+
+/// The recovery job: the code opens the drive's key on this computer. `Ok(true)`: it is not the key
+/// this computer held - the drive's keys were changed on another computer - and the recovery record
+/// of the old key is stale ([`RecoveryState::drive_key_changed`]).
+fn recover_job(
+    keyring: &dyn KeyringStore,
+    auto: &AutoEncrypted,
+    code: &RecoveryCode,
+) -> Result<bool, String> {
+    let before = held_key(keyring, auto.drive());
+    device::recover(auto.bucket().as_ref(), keyring, auto.drive(), code)
+        .map_err(|e| e.to_string())?;
+    auto.reopen();
+    Ok(key_changed_since(before, keyring, auto.drive()))
+}
+
+/// [`adopt_join_key_with`] that also says whether the key taken is another than the one this
+/// computer held (`Ok(true)`, see [`recover_job`]).
+fn adopt_join_key_noting(
+    keyring: &dyn KeyringStore,
+    auto: &AutoEncrypted,
+    seal: &str,
+    key_id: Option<&str>,
+) -> (Result<bool, String>, Option<String>) {
+    let before = held_key(keyring, auto.drive());
+    let (result, invite_left) = adopt_join_key_with(keyring, auto, seal, key_id);
+    (
+        result.map(|()| key_changed_since(before, keyring, auto.drive())),
+        invite_left,
+    )
+}
+
+/// "I was hacked" as the job runs it: the lockdown when it is needed (`lockdown`: the account's call,
+/// a parameter so that a test lets it fail), then the key rotation or the rest of one that stopped.
+/// An error says how far the rotation got ([`RotationStopped::begun`]).
+fn rotate_job(
+    auto: &AutoEncrypted,
+    keyring: &dyn KeyringStore,
+    lockdown: &dyn Fn() -> Result<(), String>,
+    current: Option<Zeroizing<String>>,
+    reencrypt_state: Option<&Path>,
+    checked_before: Option<u64>,
+) -> Result<RotationDone, RotationStopped> {
+    let rotated = (|| -> Result<RotationDone, String> {
+        let provider = auto
+            .provider()
+            .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
+        // The rotation of THIS device that stopped has had its lockdown. A journal anyone planted
+        // in the bucket is none: it must not skip the lockdown. A rotation that cannot be finished
+        // is refused here, before the lockdown.
+        let needed = rotation::lockdown_needed(auto.bucket().as_ref(), keyring, auto.drive())
+            .map_err(|e| e.to_string())?;
+        shadow_rotation(keyring, auto.drive(), needed);
+        if needed {
+            lockdown()?;
+        }
+        let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
+        let rotated = rotation::rotate(
+            Arc::clone(auto.bucket()),
+            keyring,
+            auto.drive(),
+            provider.as_ref(),
+            kdf,
+        )
+        .map_err(|e| e.to_string())?;
+        auto.reopen();
+        // The keys changed: a "re-encrypt everything" pass that stopped under the keys before has
+        // its cursor and its cut-off in a file that is wrong now, and a new pass loaded it, skipped
+        // the files at or before the cursor and ended at once (X-DELTA-AZDRIVE-KEYS-29). The pass
+        // asks for its own age as well ([`current_pass`]), for a file that could not be removed
+        // here.
+        if let Some(file) = reencrypt_state {
+            if let Err(e) = std::fs::remove_file(file) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("AZDRIVE_REENCRYPT_STATE_KEPT {}: {e}", file.display());
+                }
+            }
+        }
+        Ok(RotationDone {
+            code: rotated.recovery_code.to_text(),
+            previous_code: current,
+            drop_key: rotated.drop_key.map(|key| key.to_hex()),
+            members_removed: rotated.members_removed,
+            codes_removed: rotated.codes_removed,
+            shares_revoked: rotated.shares_revoked,
+            left_over: rotated.left_over,
+        })
+    })();
+    rotated.map_err(|why| RotationStopped {
+        why,
+        // A keyring that cannot be read says "begun": the check stays forgotten.
+        begun: match rotation::begun(keyring, auto.drive()) {
+            Ok(begun) => begun,
+            Err(_) => true,
+        },
+        checked_before,
+    })
 }
 
 /// How big a join code's QR code draws its modules (it holds more than a recovery code).
@@ -3883,7 +4201,19 @@ pub(crate) fn on_outcome(
                 s.popup.open_when_free(Popup::Encryption(Dialog::Sheet(sheet)));
             }
             Err(why) => {
-                if matches!(s.popup.as_ref(), Some(Popup::Encryption(Dialog::Busy { .. }))) {
+                // The marker the job's first step left ([`setup_marker`]) goes again for a drive
+                // that holds no key here: nothing was made.
+                let encrypted_here = s
+                    .slot_index(&drive_id)
+                    .and_then(|index| s.slots[index].auto.as_ref())
+                    .is_some_and(|auto| auto.state().has_drive_index());
+                if setup_marker_undone(&mut s.settings.recovery.drives, &drive_id, encrypted_here) {
+                    crate::save_settings(info, app, s);
+                }
+                if matches!(
+                    s.popup.as_ref(),
+                    Some(Popup::Encryption(Dialog::Busy { .. }))
+                ) {
                     s.popup.close();
                 }
                 if why == ENCRYPTED_ELSEWHERE {
@@ -3910,8 +4240,14 @@ pub(crate) fn on_outcome(
             }
         },
         EncryptionOutcome::Recovered { drive_id, result } => match result {
-            Ok(()) => {
-                if matches!(s.popup.as_ref(), Some(Popup::Encryption(Dialog::Busy { .. }))) {
+            Ok(key_changed) => {
+                if recovered_with(&mut s.settings.recovery.drives, &drive_id, key_changed) {
+                    crate::save_settings(info, app, s);
+                }
+                if matches!(
+                    s.popup.as_ref(),
+                    Some(Popup::Encryption(Dialog::Busy { .. }))
+                ) {
                     s.popup.close();
                 }
                 // The drive was unlocked to be opened (its menu offers it wherever the window is):
@@ -4045,12 +4381,17 @@ pub(crate) fn on_outcome(
                 )));
                 crate::refresh(info, app, s);
             }
-            Err(why) => {
+            Err(stopped) => {
+                rotation_stopped(
+                    state_mut(&mut s.settings.recovery.drives, &drive_id),
+                    &stopped,
+                );
+                crate::save_settings(info, app, s);
                 s.popup.open(Popup::Encryption(Dialog::Message {
                     title: t("azdrive-enc-not-rotated"),
                     text: t_args(
                         "azdrive-enc-not-rotated-why",
-                        &[("why", Arg::from(t_label(&why)))],
+                        &[("why", Arg::from(t_label(&stopped.why)))],
                     ),
                 }));
             }
@@ -5939,7 +6280,7 @@ mod tests {
         let dir = TempDir::new("mark-first");
         let drive = LocalDrive::new(dir.path().to_path_buf());
         let start = crate::model::Settings::default();
-        let before = mark_files_will_move_first(drive, start.clone(), start, "d_1");
+        let before = mark_setup_first(drive, start.clone(), start, "d_1", true, 1_000);
         before().unwrap();
         let text = std::fs::read_to_string(dir.path().join(crate::SETTINGS_KEY)).unwrap();
         let saved = crate::model::Settings::parse(&text).expect("a settings file");
@@ -5948,6 +6289,14 @@ mod tests {
         assert!(
             move_is_due(marked, None),
             "and the resume finds the files due to move"
+        );
+        // X-DELTA-KEYS2-3: with a code owed beside it - which the move waits for.
+        let state = state_of(&saved.recovery.drives, "d_1");
+        assert_eq!(state.and_then(|state| state.code_made), Some(1_000));
+        assert!(setup_unfinished(state), "the sheet is owed");
+        assert!(
+            !may_move_files(state),
+            "so no file moves before it was passed"
         );
     }
 
@@ -6075,5 +6424,502 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["join-code.txt"], "no temporary file is left");
+    }
+
+    // ==== X-DELTA-KEYS2-1: a failed rotation does not make a new code the token server refuses ====
+
+    /// A keyring that refuses one thing: the delete of an entry, or the write of one (a prompt
+    /// answered "No").
+    struct Stubborn {
+        inner: azul_storage::keyring::MemoryKeyring,
+        no_delete: Option<String>,
+        no_set: Option<String>,
+    }
+
+    impl Stubborn {
+        fn new() -> Stubborn {
+            Stubborn {
+                inner: azul_storage::keyring::MemoryKeyring::new(),
+                no_delete: None,
+                no_set: None,
+            }
+        }
+    }
+
+    impl KeyringStore for Stubborn {
+        fn get(&self, key: &str) -> Result<Option<String>, azul_storage::keyring::KeyringError> {
+            self.inner.get(key)
+        }
+        fn set(&self, key: &str, secret: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            if self.no_set.as_deref() == Some(key) {
+                return Err(azul_storage::keyring::KeyringError::Denied);
+            }
+            self.inner.set(key, secret)
+        }
+        fn delete(&self, key: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            if self.no_delete.as_deref() == Some(key) {
+                return Err(azul_storage::keyring::KeyringError::Denied);
+            }
+            self.inner.delete(key)
+        }
+    }
+
+    /// A drive with its keys made, over a bucket and the keyring `keyring` (the drive id `drive`):
+    /// the drive as `AutoEncrypted` sees it, and the recovery code.
+    fn drive_with_keys(
+        drive: &str,
+        keyring: Arc<dyn KeyringStore>,
+    ) -> (Arc<AutoEncrypted>, RecoveryCode) {
+        use azul_storage::meta::MemoryBucket;
+        let bucket = Arc::new(MemoryBucket::new());
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let (_, code) =
+            device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), drive, kdf).unwrap();
+        let auto = wrap_with(
+            keyring,
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            bucket,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        (auto, code)
+    }
+
+    /// A drive whose code was made, typed back right and registered at the token server.
+    fn checked_and_registered(
+        drive: &str,
+        code: &RecoveryCode,
+    ) -> crate::recovery_health::RecoveryState {
+        let mut state = crate::recovery_health::RecoveryState::new(drive);
+        state.code_made(100, Some(recovery_key_of(code, drive).public_base64()));
+        state.setup_verified(200);
+        state.registration = Registration::Registered;
+        state
+    }
+
+    /// X-DELTA-KEYS2-1: "I was hacked" with no network cleared the check of the code (the wrap may
+    /// change), the job failed at the lockdown, and the next folder open read the drive as a setup
+    /// whose sheet was never passed: a NEW code was made - the old code no longer opened the wrap -
+    /// and registered at the token server without the old code's signature, which the server (a
+    /// drive that has a key takes a replacement only signed by it) refused. The same steps as the
+    /// production path takes them - `rotate_confirmed`'s `rotation_begins`, the job (`rotate_job`,
+    /// the lockdown failing), `on_outcome`'s `rotation_stopped`, `go()`'s `unfinished_setup` - end
+    /// with the check back and no new code.
+    #[test]
+    fn x_delta_keys2_1_a_rotation_that_fails_at_the_lockdown_makes_no_new_code() {
+        let drive = "d_k21a";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (auto, code) = drive_with_keys(drive, Arc::clone(&keyring));
+        let mut state = checked_and_registered(drive, &code);
+
+        let checked_before = rotation_begins(&mut state);
+        assert_eq!(checked_before, Some(200));
+        assert_eq!(
+            unfinished_setup(Some(&state), false),
+            UnfinishedSetup::Drill,
+            "forgotten and registered: what the old code did here was a NewCode; it is the drill"
+        );
+
+        let stopped = rotate_job(
+            &auto,
+            keyring.as_ref(),
+            &|| Err(String::from("the network went")),
+            None,
+            None,
+            checked_before,
+        )
+        .err()
+        .expect("the lockdown failed: so did the job");
+        assert_eq!(stopped.why, "the network went");
+        assert!(
+            !stopped.begun,
+            "no key of the rotation was made: nothing of the drive changed"
+        );
+        rotation_stopped(&mut state, &stopped);
+
+        assert_eq!(state.code_checked, Some(200), "the check is back");
+        assert!(
+            !setup_unfinished(Some(&state)),
+            "the drive is no setup whose sheet is owed"
+        );
+        assert_eq!(
+            unfinished_setup(Some(&state), false),
+            UnfinishedSetup::Nothing,
+            "opening a folder starts no new code"
+        );
+        assert!(
+            state.removal_proof(300).is_some(),
+            "and the proof of the checked code is back"
+        );
+    }
+
+    /// X-DELTA-KEYS2-1: a rotation that got as far as its keys (the journal and the keys of the
+    /// try are on this computer) may have replaced the wrap: the check stays forgotten, and so
+    /// does the public key stored for the code, so that a drill asks the bucket's wrap and the paper
+    /// of the replaced code does not pass it. A drive whose code is registered at the token server
+    /// does not get a NEW code either: the drill opens, and its answer signs the replacement.
+    #[test]
+    fn x_delta_keys2_1_a_rotation_that_began_keeps_the_check_forgotten_and_asks_the_bucket() {
+        let drive = "d_k21b";
+        let next = device::rotation_key_entries(drive).1;
+        let mut stubborn = Stubborn::new();
+        stubborn.no_set = Some(next);
+        let keyring: Arc<dyn KeyringStore> = Arc::new(stubborn);
+        let (auto, code) = drive_with_keys(drive, Arc::clone(&keyring));
+        let mut state = checked_and_registered(drive, &code);
+
+        let checked_before = rotation_begins(&mut state);
+        let stopped = rotate_job(
+            &auto,
+            keyring.as_ref(),
+            &|| Ok(()),
+            None,
+            None,
+            checked_before,
+        )
+        .err()
+        .expect("the keyring refused the new key");
+        assert!(
+            stopped.begun,
+            "the old key was put away before the new one failed: it began"
+        );
+        rotation_stopped(&mut state, &stopped);
+        assert_eq!(state.code_checked, None, "the check stays forgotten");
+        assert_eq!(
+            state.recovery_key, None,
+            "and the key the old paper was compared with"
+        );
+        assert_eq!(
+            unfinished_setup(Some(&state), false),
+            UnfinishedSetup::Drill
+        );
+        assert!(
+            matches!(
+                crate::recovery::drill_answer(
+                    state.recovery_key.as_deref(),
+                    drive,
+                    &code.to_text()
+                ),
+                crate::recovery::DrillAnswer::AskTheBucket(_)
+            ),
+            "the drill compares the typed code with the wrap, not with a key that may be stale"
+        );
+    }
+
+    /// X-DELTA-KEYS2-1: what `guard_unfinished_setup` does for each record. A code the token server
+    /// has no key of is the case the NEW code's unsigned registration is right for (the first key of
+    /// a drive); a code it has is the drill; a drive this computer holds no key of has nothing to
+    /// seal a new code to.
+    #[test]
+    fn x_delta_keys2_1_a_registered_code_is_never_replaced_by_a_new_one_the_server_cannot_name() {
+        use crate::recovery_health::PendingRegistration;
+        let mut owed = crate::recovery_health::RecoveryState::new("d_1");
+        owed.code_made(100, Some(String::from("key")));
+        assert!(setup_unfinished(Some(&owed)));
+        for (registration, without_key, wanted) in [
+            (Registration::Registered, false, UnfinishedSetup::Drill),
+            (Registration::Unknown, false, UnfinishedSetup::NewCode),
+            (Registration::Missing, false, UnfinishedSetup::NewCode),
+            (
+                Registration::Pending(PendingRegistration::default()),
+                false,
+                UnfinishedSetup::NewCode,
+            ),
+            (Registration::Registered, true, UnfinishedSetup::Nothing),
+            (Registration::Unknown, true, UnfinishedSetup::Nothing),
+        ] {
+            owed.registration = registration.clone();
+            assert_eq!(
+                unfinished_setup(Some(&owed), without_key),
+                wanted,
+                "{registration:?}, without a key: {without_key}"
+            );
+        }
+        owed.setup_verified(200);
+        assert_eq!(
+            unfinished_setup(Some(&owed), false),
+            UnfinishedSetup::Nothing,
+            "checked"
+        );
+        assert_eq!(
+            unfinished_setup(None, false),
+            UnfinishedSetup::Nothing,
+            "no record"
+        );
+        // What the guard asks of the drive's state: only a drive known to hold no key is skipped.
+        assert!(known_without_key(EncState::SetupPending));
+        assert!(
+            !known_without_key(EncState::Undecided),
+            "the first folder of a run: not known"
+        );
+    }
+
+    // ==== X-DELTA-KEYS2-3: a setup that stops after its wrap moves no file ====
+
+    /// X-DELTA-KEYS2-3: "Encrypt this drive" on a drive with files: the marker is on disk before the
+    /// key, the setup makes its wrap and its key, and the keyring refuses to delete the planted key.
+    /// The job used to END IN AN ERROR there - after the wrap and the key existed - dropping the code
+    /// and leaving a drive that was encrypted and "not encrypted yet" in its dialog; the next start
+    /// found the mark and moved every file into the encryption under a code nobody saw. Now the job
+    /// succeeds (the sheet shows), and when the outcome never reaches the window (the kill of the
+    /// same gap) the next start has a sheet owed and a move that waits for it.
+    #[test]
+    fn x_delta_keys2_3_a_setup_that_ends_after_its_wrap_leaves_a_sheet_owed_and_no_move() {
+        use azul_storage::testing::TempDir;
+        let drive = "d_k23";
+        let bucket = Arc::new(azul_storage::meta::MemoryBucket::new());
+        let mut stubborn = Stubborn::new();
+        stubborn.no_delete = Some(device::planned_key_entry(drive));
+        let keyring: Arc<dyn KeyringStore> = Arc::new(stubborn);
+        let auto = wrap_with(
+            Arc::clone(&keyring),
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            bucket,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        let dir = TempDir::new("setup-after-the-wrap");
+        let settings = crate::model::Settings::default();
+        let before = mark_setup_first(
+            LocalDrive::new(dir.path().to_path_buf()),
+            settings.clone(),
+            settings,
+            drive,
+            true,
+            5_000,
+        );
+
+        let code = set_up_job(&auto, keyring.as_ref(), false, Some(before))
+            .expect("a leftover of the last step is no failure: the code is the drive's");
+        assert!(code.len() >= 26, "the code for the sheet");
+        assert!(
+            auto.decide().expect("decided").has_drive_index(),
+            "the drive is encrypted on this computer"
+        );
+
+        // The outcome never reached the window: the next start reads what the first step wrote.
+        let text = std::fs::read_to_string(dir.path().join(crate::SETTINGS_KEY)).unwrap();
+        let saved = crate::model::Settings::parse(&text).expect("a settings file");
+        let state = state_of(&saved.recovery.drives, drive);
+        assert!(setup_unfinished(state), "a code was made and never shown");
+        assert!(!may_move_files(state), "so no file moves under it");
+        assert!(
+            state.is_some_and(|state| state.moves_files),
+            "the files still have to move: after the sheet"
+        );
+        assert_eq!(
+        unfinished_setup(state, known_without_key(auto.state())),
+        UnfinishedSetup::NewCode,
+        "the next folder makes a code and shows its sheet (the server holds no key of a new drive)"
+    );
+    }
+
+    /// X-DELTA-KEYS2-3: the move starts only for a code that was seen: made here and typed back.
+    #[test]
+    fn x_delta_keys2_3_the_files_move_only_under_a_code_that_was_seen() {
+        let mut state = crate::recovery_health::RecoveryState::new("d_1");
+        assert!(!may_move_files(None), "no record of a code made here");
+        assert!(!may_move_files(Some(&state)), "no code made");
+        state.code_made(100, None);
+        assert!(
+            !may_move_files(Some(&state)),
+            "a code made, never typed back"
+        );
+        state.setup_verified(200);
+        assert!(may_move_files(Some(&state)));
+    }
+
+    /// X-DELTA-KEYS2-3: a setup that failed before it made anything takes its marker back (it
+    /// would show a recovery section "red, never checked" for a drive that is not encrypted); a
+    /// drive that holds the key keeps it, its sheet is owed.
+    #[test]
+    fn x_delta_keys2_3_a_failed_setup_takes_its_marker_back_unless_the_drive_is_encrypted() {
+        let mut states = Vec::new();
+        setup_marker(state_mut(&mut states, "d_1"), true, 100);
+        assert!(setup_unfinished(state_of(&states, "d_1")));
+        assert!(
+            !setup_marker_undone(&mut states, "d_1", true),
+            "encrypted: kept"
+        );
+        assert!(setup_unfinished(state_of(&states, "d_1")));
+        assert!(setup_marker_undone(&mut states, "d_1", false));
+        assert!(
+            states.is_empty(),
+            "no record of a drive with no key: {states:?}"
+        );
+        assert!(
+            !setup_marker_undone(&mut states, "d_1", false),
+            "nothing to take back"
+        );
+        // A checked code is never taken back.
+        let mut checked = vec![crate::recovery_health::RecoveryState::new("d_2")];
+        checked[0].code_made(100, None);
+        checked[0].setup_verified(200);
+        assert!(!setup_marker_undone(&mut checked, "d_2", false));
+        assert_eq!(checked[0].code_checked, Some(200));
+    }
+
+    // ==== X-DELTA-KEYS2-5: a key change made elsewhere ====
+
+    /// Computer A made the drive and rotated it; computer B (the keyring `b`) holds the key from
+    /// before. Returns the new code, the drive over B's keyring, and B's record as it was made for
+    /// the old code.
+    fn rotated_elsewhere(
+        drive: &str,
+        b: Arc<dyn KeyringStore>,
+    ) -> (
+        RecoveryCode,
+        Arc<AutoEncrypted>,
+        azul_storage::crypto::DriveKey,
+        Arc<azul_storage::meta::MemoryBucket>,
+        crate::recovery_health::RecoveryState,
+    ) {
+        use azul_storage::{crypto::DriveKey, meta::MemoryBucket};
+        let bucket = Arc::new(MemoryBucket::new());
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let a = azul_storage::keyring::MemoryKeyring::new();
+        let (old_key, old_code) =
+            device::setup_new_drive(bucket.as_ref(), &a, drive, kdf.clone()).unwrap();
+        // B joins with the old key and keeps a record that its code was checked.
+        device::enroll(bucket.as_ref(), b.as_ref(), drive, &old_key).unwrap();
+        let record = checked_and_registered(drive, &old_code);
+        // A's rotation, as far as the recovery wrap and the member wraps go: a new key, its wrap
+        // under a new code in the old one's place.
+        let new_key = DriveKey::generate().unwrap();
+        let new_code = RecoveryCode::generate().unwrap();
+        let wrap = RecoveryWrap::seal(&new_key, drive, &new_code, kdf).unwrap();
+        let entry = device::planned_key_entry(drive);
+        let stashed = device::stash(&a, &entry, &new_key).unwrap();
+        device::publish_recovery_wrap(
+            bucket.as_ref(),
+            &stashed,
+            &wrap,
+            device::Publish::FirstReplace,
+        )
+        .unwrap();
+        let auto = wrap_with(
+            b,
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            bucket.clone(),
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        (new_code, auto, new_key, bucket, record)
+    }
+
+    /// X-DELTA-KEYS2-5: computer B takes the key of a rotation made on computer A with A's new code.
+    /// Its record still held the OLD code's public key and the check: the drill passed the dead
+    /// paper offline and rejected the live code ("not this drive's code"), and the health stayed
+    /// green. Through the Recover job's own flag and the outcome handler's `recovered_with`, the record
+    /// forgets what belongs to the key before, and the drill asks the bucket.
+    #[test]
+    fn x_delta_keys2_5_a_recovery_with_a_key_changed_elsewhere_clears_the_record_of_the_old_code() {
+        let drive = "d_k25a";
+        let b: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (new_code, auto, new_key, _bucket, record) = rotated_elsewhere(drive, Arc::clone(&b));
+        let mut states = vec![record];
+        assert!(
+            matches!(
+                crate::recovery::drill_answer(
+                    states[0].recovery_key.as_deref(),
+                    drive,
+                    &new_code.to_text()
+                ),
+                crate::recovery::DrillAnswer::NotTheCode
+            ),
+            "the live code is rejected by the stale record (the old behaviour)"
+        );
+
+        let key_changed =
+            recover_job(b.as_ref(), &auto, &new_code).expect("the new code opens the new key");
+        assert!(key_changed, "B held the old key");
+        assert_eq!(
+            device::load_drive_key(b.as_ref(), drive)
+                .unwrap()
+                .map(|key| key.id()),
+            Some(new_key.id())
+        );
+        assert!(recovered_with(&mut states, drive, key_changed));
+
+        let state = &states[0];
+        assert_eq!(state.recovery_key, None);
+        assert_eq!(state.code_checked, None);
+        assert_eq!(
+            state.code_made, None,
+            "no sheet is owed: this computer made no code of the new key"
+        );
+        assert_eq!(state.registration, Registration::Unknown);
+        assert!(
+            !setup_unfinished(Some(state)),
+            "no NewCode for a code made elsewhere"
+        );
+        assert!(
+            state.removal_proof(300).is_none(),
+            "the old check is no proof"
+        );
+        assert!(
+            matches!(
+                crate::recovery::drill_answer(
+                    state.recovery_key.as_deref(),
+                    drive,
+                    &new_code.to_text()
+                ),
+                crate::recovery::DrillAnswer::AskTheBucket(_)
+            ),
+            "the drill asks the bucket's wrap"
+        );
+    }
+
+    /// X-DELTA-KEYS2-5: a recovery with the key this computer holds already changes nothing, a
+    /// computer with no record has nothing to clear, and a keyring that could not be read says
+    /// "changed" (the record is asked again: it costs a drill).
+    #[test]
+    fn x_delta_keys2_5_the_same_key_leaves_the_record_and_an_unreadable_keyring_clears_it() {
+        let drive = "d_k25b";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (auto, code) = drive_with_keys(drive, Arc::clone(&keyring));
+        let mut states = vec![checked_and_registered(drive, &code)];
+        let before = states.clone();
+        let key_changed =
+            recover_job(keyring.as_ref(), &auto, &code).expect("the code opens the key");
+        assert!(!key_changed, "the key this computer held");
+        assert!(!recovered_with(&mut states, drive, key_changed));
+        assert_eq!(states, before);
+        assert!(
+            !recovered_with(&mut Vec::new(), drive, true),
+            "no record, nothing to clear"
+        );
+
+        assert!(key_changed_since(
+            HeldKey::Unreadable,
+            keyring.as_ref(),
+            drive
+        ));
+        assert!(!key_changed_since(
+            HeldKey::Nothing,
+            keyring.as_ref(),
+            drive
+        ));
+    }
+
+    /// X-DELTA-KEYS2-5: the join with a code from the computer that rotated, the other way into
+    /// the same outcome (`JoinKeyAdopted` becomes `Recovered`).
+    #[test]
+    fn x_delta_keys2_5_a_join_with_a_key_changed_elsewhere_says_so() {
+        let drive = "d_k25c";
+        let b: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (_code, auto, new_key, bucket, _record) = rotated_elsewhere(drive, Arc::clone(&b));
+        let invite = device::seal_invite(bucket.as_ref(), drive, &new_key).unwrap();
+        let seal = device::invite_text(&invite).to_string();
+        let (result, left) =
+            adopt_join_key_noting(b.as_ref(), &auto, &seal, Some(&new_key.id().to_hex()));
+        assert_eq!(left, None);
+        assert_eq!(result, Ok(true), "the key is another than the one B held");
     }
 }

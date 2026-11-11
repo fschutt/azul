@@ -17,8 +17,8 @@ use crate::{
             add_recovery_code, adopt_invite, adopt_invite_reporting, drive_key_entry, enroll,
             forget_keys, invite_from_text, invite_text, is_encrypted, key_entries, load_drive_key,
             load_key_at, load_member_secret, member_key_entry, plan_drive_key, planned_key_entry,
-            recover, request_key, rotation_key_entries, seal_invite, setup_new_drive, unlock,
-            withdraw_invite,
+            recover, request_key, rotation_key_entries, seal_invite, setup_new_drive,
+            setup_new_drive_reporting, setup_pending, unlock, withdraw_invite,
         },
         keys::{RecoveryCode, RecoveryKdf, RECOVERY_KEY_FILE},
         to_hex,
@@ -997,4 +997,99 @@ fn x_delta_azdrive_keys_22_the_other_devices_of_a_listing_that_never_ends_are_no
         endless.asked() as usize,
         crate::limits::named::LISTING_PAGES
     );
+}
+
+// ==== X-DELTA-KEYS2-3: nothing after the enrolment of a new drive is an error ====
+
+/// A keyring that refuses to delete one entry (a prompt answered No).
+struct RefusesToDelete {
+    inner: MemoryKeyring,
+    entry: String,
+}
+
+impl KeyringStore for RefusesToDelete {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        self.inner.get(key)
+    }
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        self.inner.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        if key == self.entry {
+            return Err(KeyringError::Denied);
+        }
+        self.inner.delete(key)
+    }
+}
+
+/// X-DELTA-KEYS2-3: `setup_new_drive` ended with an error when the keyring refused to delete the
+/// planted key - AFTER the recovery wrap was in the bucket and the drive key in the keyring - and
+/// the code was dropped: the drive was encrypted, its only recovery wrap opened with a code nobody
+/// saw. Now the code comes back and the entry is named in `left_over`.
+#[test]
+fn x_delta_keys2_3_a_keyring_that_refuses_the_planted_keys_delete_still_returns_the_code() {
+    let bucket = MemBucket::with_conditional_writes();
+    let planned = planned_key_entry(DRIVE);
+    let keyring = RefusesToDelete {
+        inner: MemoryKeyring::new(),
+        entry: planned.clone(),
+    };
+    let made = setup_new_drive_reporting(&bucket, &keyring, DRIVE, cheap())
+        .expect("the drive is set up and its code is its recovery code: it comes back");
+    assert!(
+        made.left_over.iter().any(|left| left.contains(&planned)),
+        "the entry that stays is named: {:?}",
+        made.left_over
+    );
+    assert!(
+        !format!("{made:?}").contains(made.code.to_text().as_str()),
+        "the code is not in Debug"
+    );
+
+    // The state the old code ended its error in is a drive that works: the drive key is the
+    // keyring's, the code opens the wrap, and the planted copy of the key is what is left.
+    assert_eq!(
+        load_drive_key(&keyring, DRIVE).unwrap(),
+        Some(made.drive_key.clone())
+    );
+    let other = MemoryKeyring::new();
+    let recovered = recover(&bucket, &other, DRIVE, &made.code).expect("the code opens the drive");
+    assert_eq!(recovered.id(), made.drive_key.id());
+    assert_eq!(
+        load_key_at(&keyring, &planned).unwrap().map(|k| k.id()),
+        Some(made.drive_key.id()),
+        "the planted copy stays: it is a copy of the drive key"
+    );
+    assert!(
+        setup_pending(&keyring, DRIVE).unwrap(),
+        "and says a setup left it"
+    );
+}
+
+/// X-DELTA-KEYS2-3: the same through the call every other app makes.
+#[test]
+fn x_delta_keys2_3_setup_new_drive_is_not_an_error_after_the_enrolment() {
+    let bucket = MemBucket::with_conditional_writes();
+    let keyring = RefusesToDelete {
+        inner: MemoryKeyring::new(),
+        entry: planned_key_entry(DRIVE),
+    };
+    let (drive_key, code) = setup_new_drive(&bucket, &keyring, DRIVE, cheap())
+        .expect("an error after the enrolment would drop the code");
+    assert_eq!(
+        recover(&bucket, &MemoryKeyring::new(), DRIVE, &code)
+            .unwrap()
+            .id(),
+        drive_key.id()
+    );
+}
+
+/// X-DELTA-KEYS2-3: a keyring that takes everything leaves nothing.
+#[test]
+fn x_delta_keys2_3_a_setup_that_ends_cleanly_reports_nothing_left() {
+    let bucket = MemBucket::with_conditional_writes();
+    let keyring = MemoryKeyring::new();
+    let made = setup_new_drive_reporting(&bucket, &keyring, DRIVE, cheap()).unwrap();
+    assert!(made.left_over.is_empty(), "{:?}", made.left_over);
+    assert!(!setup_pending(&keyring, DRIVE).unwrap());
 }

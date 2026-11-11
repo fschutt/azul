@@ -336,6 +336,33 @@ impl RecoveryState {
         self.other_devices = 0;
     }
 
+    /// The drive's keys were changed on another computer and this one took the new key (a recovery
+    /// with a code from there, a join): everything this record holds of the code of the key before
+    /// is that key's - the code's public key, when it was made and checked (a drill compared a typed
+    /// code with the old key: it passed the dead paper and refused the live code), its
+    /// registration, the findable key and what the token server listed of it, the kits' wraps, the
+    /// shares the trusted contacts hold, the other computers counted. What is gone is asked again -
+    /// a drill with no known key asks the bucket's wrap ([`crate::recovery::DrillAnswer`]) - and no
+    /// code is owed: `code_made` goes too, so that the record is not read as a setup whose sheet was
+    /// never passed ([`crate::encryption::setup_unfinished`]), which would make a new code for the
+    /// drive (X-DELTA-KEYS2-5).
+    pub fn drive_key_changed(&mut self) {
+        self.code_made = None;
+        self.code_checked = None;
+        self.drills_done = 0;
+        self.postponed_until = None;
+        self.recovery_key = None;
+        self.contacts_set = None;
+        self.contacts.clear();
+        self.drills_off = false;
+        self.extra_codes.clear();
+        self.findable_key = None;
+        self.server_keys.clear();
+        self.keys_checked = None;
+        self.registration = Registration::Unknown;
+        self.keys_changed();
+    }
+
     /// One other computer was removed from the drive: it no longer counts as a way back in. (The
     /// count can only be too low, which shows less coverage than there is, and "Count again" sets
     /// it right.)
