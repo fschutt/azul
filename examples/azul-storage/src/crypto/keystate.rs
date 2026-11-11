@@ -1431,6 +1431,7 @@ pub const RECOVERY_WRAP: Consumer = Consumer {
     functions: &[
         "examples/azul-storage/src/crypto/device.rs#setup_new_drive",
         "examples/azul-storage/src/rotation.rs#rotate",
+        "examples/azul-storage/src/crypto/keystate.rs#reseal_recovery_wrap",
         "examples/azul-drive/src/encryption.rs#run",
     ],
 };
