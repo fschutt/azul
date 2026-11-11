@@ -666,6 +666,17 @@ impl OnDisk {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The path of the file under `root` (every name of the key pushed on it, none of which can
+    /// leave it): a path to SAY - for a message to the user - nothing is opened or made by it.
+    #[must_use]
+    pub fn under(&self, root: &std::path::Path) -> std::path::PathBuf {
+        let mut path = root.to_path_buf();
+        for name in self.0.split('/') {
+            path.push(name);
+        }
+        path
+    }
 }
 
 /// A key of a name from a drive, a device, a user or a listing that passed [`Policy::admitted`]: the

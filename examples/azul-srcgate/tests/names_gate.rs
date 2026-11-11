@@ -226,6 +226,13 @@ const ALLOWED: &[Allow] = &[
          (ARCH29 C6c)",
     ),
     Allow::exactly(
+        "examples/azul-appkit/src/data.rs",
+        ON_DISK_KEY,
+        1,
+        "local_path: the path of a key for a message to the user - a file that is on the disk, an \
+         entry; nothing is opened or made by it (ARCH29 C6c)",
+    ),
+    Allow::exactly(
         "examples/azul-storage/src/local.rs",
         PARENT_OF_EXISTING,
         3,
