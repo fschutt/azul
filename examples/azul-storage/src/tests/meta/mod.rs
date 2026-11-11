@@ -35,6 +35,9 @@ mod repo;
 mod restore_epoch;
 mod scale;
 mod seal;
+/// The switch to deleting and the record of the shadow rounds (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod shadow;
 mod shard;
 mod sweep;
 mod tree;
