@@ -352,7 +352,8 @@ fn restore<R: SyncRemote + ?Sized>(
     seen: Fingerprint,
     file: &RemoteFile,
 ) -> CloudResult<()> {
-    let (dir, name) = names::walk_local(tree, key, false)?;
+    // The base's key of a damaged copy: a record of this device's, walked to and never made.
+    let (dir, name) = names::walk_record(tree, key)?;
     let name = name.as_str();
     let replacement = if file.size > BIG_BLOB {
         let blob = TempBlob::for_download(folder, key, &file.hash)?;

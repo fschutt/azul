@@ -1122,6 +1122,36 @@ fn code_of(report: &VerifyReport, key: &str) -> Vec<Code> {
         .collect()
 }
 
+/// ARCH29 C6c, sync/verify.rs. The read-back restores a damaged copy of this device through an `OnDisk`
+/// key of the base's (a record of the device's): it walks to a file that is there and makes no folder. A
+/// base that names files under spellings the full rows refuse - a protected folder, an NTFS short name;
+/// whatever wrote it, an older build or a damaged file - has nothing there to restore: the read-back
+/// finds no copy, restores nothing and leaves no folder of those names. Green on the old code too (the
+/// walk never created): it pins what the type now holds.
+#[test]
+fn c6c_a_read_back_over_a_base_that_names_protected_spellings_makes_no_folder() {
+    use crate::sync::{local::BaseEntry, LocalIndex};
+    let (_s3, probe, a) = synced_pair("dev-c6c-verify");
+    let mut index = LocalIndex::load(&a.index()).unwrap().unwrap();
+    for key in [".GIT/hooks/post-commit", "GIT~1/config"] {
+        index.files.insert(
+            key.to_string(),
+            BaseEntry {
+                hash: hash_bytes(b"x"),
+                size: 1,
+                ..BaseEntry::default()
+            },
+        );
+    }
+    index.save(&a.index()).unwrap();
+    let report = read_back_of(&probe, &a);
+    assert!(report.restored.is_empty(), "{report:?}");
+    for made in [".GIT", "GIT~1"] {
+        assert!(!a.folder.path().join(made).exists(), "{made} was made");
+    }
+    assert_eq!(a.read("plan.md").as_deref(), Some(&b"plan one"[..]));
+}
+
 /// X-DELTA-AZDRIVE-SYNC-4, the scenario of the finding. The check lists the drive, device B saves
 /// `plan.md` meanwhile, and the check reads B's bytes: they are not the version it listed. The old
 /// read-back took that for damage, found its own copy to be the listed version and wrote it over

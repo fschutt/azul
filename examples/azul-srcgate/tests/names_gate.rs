@@ -352,9 +352,9 @@ const ALLOWED: &[Allow] = &[
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/verify.rs",
-        WALK_LOCAL,
+        WALK_EXISTING,
         1,
-        "one look at the disk: to move to OnDisk (ARCH29 C6c)",
+        "restore: the base's key of a damaged copy (a record of this device's) walked to for the replacement, never made (ARCH29 C6c)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/trash.rs",
