@@ -360,6 +360,39 @@ fn az_s23_take_theirs_keeps_this_computers_version_in_the_trash() {
     assert_eq!(b.read("note.md").as_deref(), Some(&b"a's edit"[..]));
 }
 
+/// ARCH29 C6c, sync/session.rs. The copy "Take theirs" keeps in the trash reads this computer's file
+/// by an `OnDisk` key (the conflict's, the engine's own record) and cannot make a folder of it. A name
+/// a drive could send that the full rows refuse - a repository's folder in any spelling, its NTFS short
+/// name, the engine's own folder - has no conflict to answer, and answering it reads nothing and makes
+/// no folder here. Green on the old code too (create = false was never made): it pins what the type
+/// now holds, beside `az_s23_...`, which enters the same function with a real conflict.
+#[test]
+fn c6c_an_answer_for_a_name_the_full_rows_refuse_is_no_conflict_and_makes_no_folder() {
+    let store = Arc::new(S3Bucket::new());
+    let b = paired("dev-b", &store, |_| {});
+    for key in [
+        ".GIT/hooks/post-commit",
+        "GIT~1/config",
+        "proj/.hg./x",
+        ".azlin/sync/trash/x",
+    ] {
+        for choice in [
+            Resolution::KeepMine,
+            Resolution::TakeTheirs,
+            Resolution::KeepBoth,
+        ] {
+            assert!(b.session.resolve(key, choice).is_err(), "{key:?}");
+        }
+    }
+    let made: Vec<String> = fs::read_dir(b.folder.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        // The sync's own bookkeeping (the folder's marker) is no file of the user.
+        .filter(|name| name != ".azlin")
+        .collect();
+    assert!(made.is_empty(), "a folder was made: {made:?}");
+}
+
 /// AZ-S15. "Stop syncing" keeps the pairing's state folder, so the pairing made afterwards loaded
 /// the old base: a file deleted while the pairing was off was deleted on the drive and on every
 /// other device when it came on again, and a drive that had been rolled back (or replaced)

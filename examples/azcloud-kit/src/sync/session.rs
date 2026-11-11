@@ -2009,8 +2009,12 @@ impl SyncSession {
         let tree = Root::open(&self.setup.folder)
             .map_err(BeneathError::from)
             .map_err(blame)?;
-        let (dir, name) = super::names::walk_local(&tree, key, false).map_err(blame)?;
-        let (mut file, st) = dir.open_read(&name).map_err(blame)?;
+        // The conflict's key is the engine's own record of a file here: walked to, never made.
+        let on_disk = super::names::OnDisk::of_record(key)
+            .map_err(BeneathError::from)
+            .map_err(blame)?;
+        let (dir, name) = tree.parent_of_existing(&on_disk).map_err(blame)?;
+        let (mut file, st) = dir.open_read(name).map_err(blame)?;
         let (trash, target, rel) =
             super::root::trash_target(&tree, key, &super::root::trash_stamp(crate::now()))
                 .map_err(blame)?;

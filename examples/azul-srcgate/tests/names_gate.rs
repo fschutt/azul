@@ -263,9 +263,16 @@ const ALLOWED: &[Allow] = &[
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/session.rs",
-        WALK_LOCAL,
+        ON_DISK_KEY,
         1,
-        "one look at the disk: to move to OnDisk (ARCH29 C6c)",
+        "keep_in_trash: the conflict's key is the engine's own record of a file here, read for the \
+         copy the trash keeps (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/session.rs",
+        PARENT_OF_EXISTING,
+        1,
+        "keep_in_trash's walk to the file: no folder made (ARCH29 C6c)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/mod.rs",
