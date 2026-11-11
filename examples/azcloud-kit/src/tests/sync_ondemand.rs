@@ -388,3 +388,107 @@ fn a_file_changed_since_its_last_sync_is_not_freed() {
     a.write("new.txt", b"never synced");
     assert!(evict_file(&a.root(), &a.index(), "new.txt").is_err());
 }
+
+/// The folder `path` as the sync reaches it: a descriptor, never a path that a link could bend.
+fn top_of(path: &std::path::Path) -> azul_storage::beneath::Dir {
+    azul_storage::beneath::Root::open(path)
+        .expect("the folder opens")
+        .top()
+        .expect("its top")
+}
+
+/// The names in `path` that are not the file `name`: what a removal left behind.
+fn beside(path: &std::path::Path, name: &str) -> Vec<String> {
+    fs::read_dir(path)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n != name && n != ".azlin")
+        .collect()
+}
+
+/// X-DELTA-SYNC2-1 / X-DELTA-AZDRIVE-SYNC-16 (b): the file that was looked at is removed - once it
+/// has been taken aside and looked at again - and leaves no name behind.
+#[test]
+fn x_delta_sync2_1_take_away_removes_the_file_that_was_looked_at() {
+    use crate::sync::{take_away, TakenAway};
+    let folder = TempDir::new("azcloud-ondemand-take-same");
+    fs::write(folder.path().join("a.txt"), b"the bytes").unwrap();
+    let dir = top_of(folder.path());
+    let seen = dir.lstat("a.txt").unwrap();
+    assert_eq!(take_away(&dir, "a.txt", &seen).unwrap(), TakenAway::Gone);
+    assert!(!folder.path().join("a.txt").exists());
+    assert!(beside(folder.path(), "a.txt").is_empty(), "no name is left");
+}
+
+/// X-DELTA-SYNC2-1: a name the user removed meanwhile is gone: nothing to take, nothing to fail.
+#[test]
+fn x_delta_sync2_1_take_away_of_a_file_the_user_removed_is_done() {
+    use crate::sync::{take_away, TakenAway};
+    let folder = TempDir::new("azcloud-ondemand-take-gone");
+    fs::write(folder.path().join("a.txt"), b"the bytes").unwrap();
+    let dir = top_of(folder.path());
+    let seen = dir.lstat("a.txt").unwrap();
+    fs::remove_file(folder.path().join("a.txt")).unwrap();
+    assert_eq!(take_away(&dir, "a.txt", &seen).unwrap(), TakenAway::Gone);
+    assert!(beside(folder.path(), "a.txt").is_empty());
+}
+
+/// X-DELTA-SYNC2-1 / SYNC-16 (b): an editor's save by rename after the look is another file under the
+/// name: it is put back untouched, never removed. (An unlink by name removes it: RED on the old code.)
+#[test]
+fn x_delta_azdrive_sync_16_take_away_puts_back_the_file_an_editor_saved_after_the_look() {
+    use crate::sync::{take_away, TakenAway};
+    let folder = TempDir::new("azcloud-ondemand-take-saved");
+    fs::write(
+        folder.path().join("a.txt"),
+        b"the version that was looked at",
+    )
+    .unwrap();
+    let dir = top_of(folder.path());
+    let seen = dir.lstat("a.txt").unwrap();
+    fs::write(
+        folder.path().join(".a.txt.editor"),
+        b"the user's new version",
+    )
+    .unwrap();
+    fs::rename(
+        folder.path().join(".a.txt.editor"),
+        folder.path().join("a.txt"),
+    )
+    .unwrap();
+    assert_eq!(
+        take_away(&dir, "a.txt", &seen).unwrap(),
+        TakenAway::Replaced
+    );
+    assert_eq!(
+        fs::read(folder.path().join("a.txt")).unwrap(),
+        b"the user's new version"
+    );
+    assert!(beside(folder.path(), "a.txt").is_empty(), "no name is left");
+}
+
+/// X-DELTA-SYNC2-1: a write into the file itself after the look (another size) is another version:
+/// back where it was.
+#[test]
+fn x_delta_sync2_1_take_away_puts_back_a_file_written_in_place_after_the_look() {
+    use crate::sync::{take_away, TakenAway};
+    let folder = TempDir::new("azcloud-ondemand-take-written");
+    fs::write(folder.path().join("a.txt"), b"short").unwrap();
+    let dir = top_of(folder.path());
+    let seen = dir.lstat("a.txt").unwrap();
+    fs::write(
+        folder.path().join("a.txt"),
+        b"longer than it was when it was looked at",
+    )
+    .unwrap();
+    assert_eq!(
+        take_away(&dir, "a.txt", &seen).unwrap(),
+        TakenAway::Replaced
+    );
+    assert_eq!(
+        fs::read(folder.path().join("a.txt")).unwrap(),
+        b"longer than it was when it was looked at"
+    );
+    assert!(beside(folder.path(), "a.txt").is_empty());
+}

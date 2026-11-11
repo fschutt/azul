@@ -421,3 +421,287 @@ fn x_ar5a_22_a_pin_made_while_a_pass_runs_is_not_lost_when_the_pass_ends() {
     }
     faults::clear(folder.path());
 }
+
+/// A pairing synced once with one file `key` of `bytes` in it, and its session.
+fn synced_with(
+    name: &str,
+    store: &Arc<S3Bucket>,
+    key: &str,
+    bytes: &str,
+) -> (TempDir, TempDir, SyncSession) {
+    let folder = TempDir::new(&format!("azcloud-faults-{name}"));
+    let state = TempDir::new(&format!("azcloud-faults-{name}-state"));
+    fs::write(folder.path().join(key), bytes).unwrap();
+    let session = faulted(folder.path(), state.path(), store);
+    pass(&session).expect("the folder is synced once");
+    (folder, state, session)
+}
+
+/// The drive's index as the bucket holds it.
+fn drive_index(store: &S3Bucket) -> RemoteIndex {
+    RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap()
+}
+
+/// The pairing's base as the state folder holds it.
+fn base_of(state: &Path) -> crate::sync::LocalIndex {
+    crate::sync::LocalIndex::load(&state.join(crate::sync::session::INDEX_FILE))
+        .expect("the base reads")
+        .expect("the folder was synced")
+}
+
+/// X-DELTA-SYNC2-1. "Free up space" unlinked the file and only THEN wrote its base entry as "in the
+/// cloud only": a process cut between the two (a quit, a laptop that sleeps, a power cut) left a base
+/// that still said "synced here" beside an empty name, and the next pass read the empty name as the
+/// user's own delete - a tombstone, the file gone from the drive and from every device. The record
+/// comes first now. RED on the old order (the point `after-evict-unlink` stood between the unlink and
+/// the record): the next pass commits the tombstone and `index.files` no longer lists the file.
+#[test]
+fn x_delta_sync2_1_a_free_up_cut_after_the_unlink_leaves_the_copy_on_the_drive_alone() {
+    let store = Arc::new(S3Bucket::new());
+    let (folder, state, session) = synced_with(
+        "s2-1-after",
+        &store,
+        "big.txt",
+        "the bytes of the version on the drive",
+    );
+    faults::arm_crash(folder.path(), "after-evict-unlink");
+    let payload = catch_unwind(AssertUnwindSafe(|| {
+        session.free_up(&[String::from("big.txt")]).map(|_| ())
+    }))
+    .expect_err("the process is cut when the file has left");
+    assert_eq!(
+        faults::crashed_at(payload.as_ref()).as_deref(),
+        Some("after-evict-unlink")
+    );
+    assert!(
+        !folder.path().join("big.txt").exists(),
+        "the file had left this device"
+    );
+    drop(session);
+
+    // A new process: the folder, the state folder and the drive are all it has.
+    let session = faulted(folder.path(), state.path(), &store);
+    pass(&session).expect("the next pass runs through");
+    let index = drive_index(&store);
+    assert!(
+        index.files.contains_key("big.txt"),
+        "the drive still holds the file it was told to keep: {:?}",
+        index.files.keys()
+    );
+    assert!(
+        index.deleted.is_empty(),
+        "nothing was deleted on the drive: {:?}",
+        index.deleted.keys()
+    );
+    assert!(
+        base_of(state.path()).files["big.txt"].cloud_only,
+        "and the base still says it is in the cloud only"
+    );
+    let opened = session
+        .open("big.txt")
+        .expect("it opens: it comes down from the drive");
+    assert_eq!(
+        fs::read_to_string(opened).unwrap(),
+        "the bytes of the version on the drive"
+    );
+    faults::clear(folder.path());
+}
+
+/// X-DELTA-SYNC2-1, the other cut: after the base says "in the cloud only" and before the file leaves
+/// (the point is new with the new order). The file is here beside a cloud-only entry: the next pass
+/// reads it (it is the drive's version), keeps it, deletes nothing on the drive, and the entry is a
+/// whole one again.
+#[test]
+fn x_delta_sync2_1_a_free_up_cut_after_the_record_and_before_the_unlink_keeps_the_file_and_the_drive(
+) {
+    let store = Arc::new(S3Bucket::new());
+    let (folder, state, session) = synced_with(
+        "s2-1-before",
+        &store,
+        "big.txt",
+        "the bytes of the version on the drive",
+    );
+    faults::arm_crash(folder.path(), "before-evict-unlink");
+    let payload = catch_unwind(AssertUnwindSafe(|| {
+        session.free_up(&[String::from("big.txt")]).map(|_| ())
+    }))
+    .expect_err("the process is cut before the file leaves");
+    assert_eq!(
+        faults::crashed_at(payload.as_ref()).as_deref(),
+        Some("before-evict-unlink")
+    );
+    assert!(
+        base_of(state.path()).files["big.txt"].cloud_only,
+        "the base was written first"
+    );
+    assert_eq!(
+        fs::read_to_string(folder.path().join("big.txt")).unwrap(),
+        "the bytes of the version on the drive",
+        "the file is where it was"
+    );
+    drop(session);
+
+    let session = faulted(folder.path(), state.path(), &store);
+    pass(&session).expect("the next pass runs through");
+    let index = drive_index(&store);
+    assert!(
+        index.files.contains_key("big.txt"),
+        "{:?}",
+        index.files.keys()
+    );
+    assert!(index.deleted.is_empty(), "{:?}", index.deleted.keys());
+    assert_eq!(
+        fs::read_to_string(folder.path().join("big.txt")).unwrap(),
+        "the bytes of the version on the drive",
+        "the pass left the file alone"
+    );
+    assert!(
+        !base_of(state.path()).files["big.txt"].cloud_only,
+        "the entry is a whole one again: the file is here"
+    );
+    faults::clear(folder.path());
+}
+
+/// X-DELTA-SYNC2-1, a base that cannot be written ("no space left" on the very disk being freed, a
+/// state folder that is read-only): the old order had unlinked the file by then, so the free-up
+/// answered "kept" for a file that was gone and the next pass deleted it on the drive. The record
+/// is the first step now: nothing has happened to the file when it fails. RED on the old order: the
+/// file is freed (no record was asked for, the unlink did not care) and `freed.freed` lists it.
+#[test]
+fn x_delta_sync2_1_a_base_that_cannot_be_written_keeps_the_file_here_and_the_drive_as_it_is() {
+    let store = Arc::new(S3Bucket::new());
+    let (folder, state, session) = synced_with(
+        "s2-1-full",
+        &store,
+        "big.txt",
+        "the bytes of the version on the drive",
+    );
+    faults::set_disk_full(folder.path(), true);
+    let freed = session.free_up(&[String::from("big.txt")]);
+    faults::set_disk_full(folder.path(), false);
+    let freed = freed.expect("free_up answers");
+    assert!(
+        freed.freed.is_empty(),
+        "a file whose record cannot be written is not freed: {freed:?}"
+    );
+    assert_eq!(freed.kept.len(), 1, "{freed:?}");
+    assert_eq!(
+        fs::read_to_string(folder.path().join("big.txt")).unwrap(),
+        "the bytes of the version on the drive"
+    );
+    assert!(!base_of(state.path()).files["big.txt"].cloud_only);
+    pass(&session).expect("the next pass runs through");
+    let index = drive_index(&store);
+    assert!(index.files.contains_key("big.txt"));
+    assert!(index.deleted.is_empty(), "{:?}", index.deleted.keys());
+    faults::clear(folder.path());
+}
+
+/// X-DELTA-AZDRIVE-SYNC-16 (b), the window the first fix left: the file is looked at (and, when its
+/// times moved, hashed) and only then removed, BY NAME - an editor that saves by rename in between
+/// makes a NEW file under the name, which the unlink took and which exists nowhere else. The file is
+/// taken aside in one step now and looked at there: the new file is put back where it was. The
+/// pause stands where the old code was about to unlink. RED on the old code: the new file is gone
+/// and the free-up says it freed the file.
+#[test]
+fn x_delta_azdrive_sync_16_an_editors_save_between_the_look_and_the_removal_is_never_removed() {
+    let store = Arc::new(S3Bucket::new());
+    let (folder, state, session) =
+        synced_with("s16-window", &store, "doc.txt", "the version on the drive");
+    let session = Arc::new(session);
+    faults::arm_pause(folder.path(), "before-evict-unlink");
+    let freeing = {
+        let session = Arc::clone(&session);
+        std::thread::spawn(move || session.free_up(&[String::from("doc.txt")]))
+    };
+    assert_eq!(
+        faults::wait_paused(folder.path(), Duration::from_secs(30)).as_deref(),
+        Some("before-evict-unlink"),
+        "the free-up reached the step before the removal"
+    );
+    // The editor saves by rename: a new file, another inode, under the name.
+    fs::write(
+        folder.path().join(".doc.txt.editor"),
+        "the user's new version",
+    )
+    .unwrap();
+    fs::rename(
+        folder.path().join(".doc.txt.editor"),
+        folder.path().join("doc.txt"),
+    )
+    .unwrap();
+    faults::release(folder.path());
+    let freed = freeing
+        .join()
+        .expect("the free-up ends")
+        .expect("the free-up answers");
+    assert!(
+        freed.freed.is_empty(),
+        "the file that was looked at is not the one that is there: {freed:?}"
+    );
+    assert_eq!(freed.kept.len(), 1, "{freed:?}");
+    assert_eq!(
+        fs::read_to_string(folder.path().join("doc.txt")).unwrap(),
+        "the user's new version",
+        "the new file is where the editor put it"
+    );
+    let left: Vec<String> = fs::read_dir(folder.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n != ".azlin" && n != "doc.txt")
+        .collect();
+    assert!(left.is_empty(), "nothing is left beside it: {left:?}");
+    assert!(
+        !base_of(state.path()).files["doc.txt"].cloud_only,
+        "the base is as it was: the file is here"
+    );
+    // The next pass sees an edit and sends it.
+    pass(&session).expect("the next pass runs through");
+    assert_eq!(
+        drive_index(&store).files["doc.txt"].hash,
+        crate::sync::local::hash_bytes(b"the user's new version"),
+        "the new version went to the drive as an edit"
+    );
+    faults::clear(folder.path());
+}
+
+/// X-DELTA-SYNC2-1: a file that cannot be taken away (the folder is read-only) is kept, and the base
+/// entry that was written first is put back whole - a cloud-only entry beside a file that is here
+/// would be read once and repaired, but the base says what is true.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync2_1_a_file_that_cannot_be_taken_away_keeps_its_whole_base_entry() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = Arc::new(S3Bucket::new());
+    let (folder, state, session) = synced_with(
+        "s2-1-ro",
+        &store,
+        "a.txt",
+        "the bytes of the version on the drive",
+    );
+    let before = base_of(state.path()).files["a.txt"].clone();
+    let own = |mode: u32| fs::set_permissions(folder.path(), fs::Permissions::from_mode(mode));
+    own(0o555).unwrap();
+    // A user who may write to a read-only folder (root) cannot play this.
+    let probe = folder.path().join(".probe");
+    if fs::write(&probe, b"x").is_ok() {
+        fs::remove_file(&probe).unwrap();
+        own(0o755).unwrap();
+        return;
+    }
+    let freed = session.free_up(&[String::from("a.txt")]);
+    own(0o755).unwrap();
+    let freed = freed.expect("free_up answers");
+    assert!(freed.freed.is_empty(), "{freed:?}");
+    assert_eq!(freed.kept.len(), 1, "{freed:?}");
+    assert!(folder.path().join("a.txt").exists(), "the file stays");
+    assert_eq!(
+        base_of(state.path()).files["a.txt"],
+        before,
+        "the entry is put back whole, with the identity it had"
+    );
+    pass(&session).expect("the next pass runs through");
+    assert!(drive_index(&store).deleted.is_empty());
+    faults::clear(folder.path());
+}

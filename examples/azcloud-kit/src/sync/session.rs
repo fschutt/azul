@@ -919,6 +919,14 @@ impl SyncSession {
         self
     }
 
+    /// Tells the harness's points hook ([`SyncSession::with_points`]) that the session stands at the
+    /// point `name` (a step outside a pass: "Free up space").
+    fn point(&self, name: &str) {
+        if let Some(points) = &self.points {
+            points(name);
+        }
+    }
+
     /// The session's engine reads a clock `offset` seconds off the system's: a test harness's
     /// device whose clock is wrong (the command line's `AZSYNC_CLOCK_OFFSET`).
     #[must_use]
@@ -1453,6 +1461,7 @@ impl SyncSession {
             &self.index_path(),
             &self.options()?,
             key,
+            &|name| self.point(name),
         )?;
         if let Some(record) = states.files.get_mut(key) {
             record.cloud_only = true;

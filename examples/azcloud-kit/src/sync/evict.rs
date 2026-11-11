@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use super::{
-    evict_file, load_cache, named,
+    evict_file_with, load_cache, named,
     problems::{Problem, ProblemList},
     synced_index, BlobIndex, LocalRoot, SyncOptions, SyncRemote, Target, TempBlob,
 };
@@ -16,8 +16,9 @@ use crate::{
     store::BIG_BLOB,
 };
 
-/// Frees the bytes of the synced file `key` here ([`evict_file`]) once the drive behind
-/// `target` holds its version whole.
+/// Frees the bytes of the synced file `key` here ([`super::evict_file`]) once the drive behind
+/// `target` holds its version whole. `point` hears where the freeing stands
+/// ([`super::faults::POINTS`]: `before-evict-unlink`, `after-evict-unlink`).
 ///
 /// # Errors
 ///
@@ -29,14 +30,22 @@ pub fn evict_checked(
     index_path: &Path,
     opts: &SyncOptions,
     key: &str,
+    point: &dyn Fn(&str),
 ) -> CloudResult<()> {
     match target {
-        Target::Index(store) => checked(&BlobIndex::new(store, &opts.prefix), root, index_path, key),
+        Target::Index(store) => checked(
+            &BlobIndex::new(store, &opts.prefix),
+            root,
+            index_path,
+            key,
+            point,
+        ),
         Target::Named(drive) => checked(
             &named::NamedFiles::new(drive, &opts.prefix, index_path),
             root,
             index_path,
             key,
+            point,
         ),
     }
 }
@@ -46,6 +55,7 @@ fn checked<R: SyncRemote + ?Sized>(
     root: &LocalRoot,
     index_path: &Path,
     key: &str,
+    point: &dyn Fn(&str),
 ) -> CloudResult<()> {
     let index = synced_index(root, index_path)?;
     let Some(entry) = index.files.get(key) else {
@@ -73,7 +83,7 @@ fn checked<R: SyncRemote + ?Sized>(
     } else {
         remote_side.fetch(key, &file.hash, file.size)?;
     }
-    evict_file(root, index_path, key)
+    evict_file_with(root, index_path, key, point)
 }
 
 /// Adds `problem` to the pairing's problem list in `state_dir` now (a check outside a pass

@@ -42,6 +42,10 @@ pub const POINTS: &[&str] = &[
     "conflict-start",
     "conflict-renamed",
     "before-base-save",
+    // "Free up space" (`SyncSession::free_up`, and the size cap after a pass): after the base
+    // says the file is kept in the cloud only and before the file leaves, and once it has left.
+    "before-evict-unlink",
+    "after-evict-unlink",
 ];
 
 /// The payload a crashed pass unwinds with. Whoever runs passes on a thread catches it

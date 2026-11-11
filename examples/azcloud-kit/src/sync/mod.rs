@@ -4798,6 +4798,25 @@ fn fetch_one<R: SyncRemote + ?Sized>(
 /// When the folder was never synced, the file is not synced yet (new, or changed since its
 /// last sync), or it cannot be removed.
 pub fn evict_file(root: &LocalRoot, index_path: &Path, key: &str) -> CloudResult<()> {
+    evict_file_with(root, index_path, key, &|_| {})
+}
+
+/// [`evict_file`] that tells `point` where it stands (`before-evict-unlink`, `after-evict-unlink`:
+/// [`faults`], heard through `SyncSession::with_points`).
+///
+/// The order is the one that keeps the file whatever stops it (X-DELTA-SYNC2-1): the base says
+/// "in the cloud only" FIRST, the file leaves after. Once the name is empty a base that still says
+/// "synced here" reads the empty name as the user's delete - the next pass would delete the file
+/// ON THE DRIVE and on every device, after a "Free up space" that was meant to keep it there. Cut
+/// between the two steps (a quit, a power cut, a disk that fills) the file is here beside a
+/// cloud-only entry, which the merge reads as present and unchanged: it is hashed, equals the
+/// drive's, and the entry is a whole one again.
+pub(crate) fn evict_file_with(
+    root: &LocalRoot,
+    index_path: &Path,
+    key: &str,
+    point: &dyn Fn(&str),
+) -> CloudResult<()> {
     let mut index = synced_index(root, index_path)?;
     let Some(entry) = index.files.get(key).cloned() else {
         fail!("{key} is not synced yet: its only copy is on this device");
@@ -4823,17 +4842,16 @@ pub fn evict_file(root: &LocalRoot, index_path: &Path, key: &str) -> CloudResult
             );
         }
         // The hash took as long as the file is big. An editor that saved by rename meanwhile left
-        // the old file to the hasher - whose bytes are the base's - and the unlink below would take
-        // the NEW file, which exists nowhere else (X-DELTA-AZDRIVE-SYNC-16). Looked at again it is
-        // the file that was hashed, or it stays.
+        // the old file to the hasher - whose bytes are the base's - and the NEW file, which exists
+        // nowhere else, must not be the one removed below (X-DELTA-AZDRIVE-SYNC-16). Looked at
+        // again it is the file that was hashed, or it stays.
         let again = dir.lstat(name).with_context(|| format!("{key}"))?;
         if !st.unchanged(&again) {
             fail!("{key} was changed while it was read: it stays on this device");
         }
     }
-    dir.unlink(name)?;
-    dir.sync();
-    root.drive().note_deleted(key);
+    // The record first. A base that cannot be written changes nothing here: the file stays.
+    faults::check_write(&root.path)?;
     index.files.insert(
         key.to_string(),
         BaseEntry {
@@ -4842,10 +4860,135 @@ pub fn evict_file(root: &LocalRoot, index_path: &Path, key: &str) -> CloudResult
             ino: 0,
             dev: 0,
             cloud_only: true,
-            ..entry
+            ..entry.clone()
         },
     );
-    index.save(index_path)
+    index.save(index_path)?;
+    point("before-evict-unlink");
+    // Whatever keeps the file here, the base is put back as it was: a whole entry beside a file.
+    let put_back_base = |index: &mut LocalIndex, why: String| -> CloudError {
+        index.files.insert(key.to_string(), entry.clone());
+        match index.save(index_path) {
+            Ok(()) => CloudError::failed(why),
+            // The cloud-only entry stays beside the file that is here: the next pass reads the
+            // file, finds it the drive's (or an edit, and sends it), and writes the whole entry.
+            Err(e) => CloudError::failed(format!(
+                "{why} (and the base could not be put back: {e}; the next sync does)"
+            )),
+        }
+    };
+    match take_away(&dir, name, &st) {
+        Ok(TakenAway::Gone) => {
+            dir.sync();
+            root.drive().note_deleted(key);
+            point("after-evict-unlink");
+            Ok(())
+        }
+        Ok(TakenAway::Replaced) => Err(put_back_base(
+            &mut index,
+            format!("{key} was changed while it was freed: it stays on this device"),
+        )),
+        Ok(TakenAway::Kept(aside)) => Err(put_back_base(
+            &mut index,
+            format!(
+                "{key} stays on this device as {aside}: a newer file took its name while it was \
+                 freed"
+            ),
+        )),
+        Err(e) => Err(put_back_base(&mut index, e.to_string())),
+    }
+}
+
+/// What [`take_away`] did with a file.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum TakenAway {
+    /// It was the file looked at (or the user had removed it already), and it is gone.
+    Gone,
+    /// It was another file - an editor saved a new one under the name meanwhile - and it is back
+    /// where it was, untouched.
+    Replaced,
+    /// Another file, and its name was taken again before it could go back: it stays beside, under
+    /// this name.
+    Kept(String),
+}
+
+/// Removes the file `name` of `dir` only when it is still the file `seen` was the `lstat` of.
+/// An unlink by name would take whatever has the name by then - an editor that saves by rename
+/// makes a NEW file there, which exists nowhere else (X-DELTA-AZDRIVE-SYNC-16). So the file is
+/// first renamed to a name of its own, in the one step no editor can come between; what was taken
+/// is looked at (the same file, size and modification time: a rename moves the status-change
+/// time) and only then removed - or put back, where it was.
+///
+/// # Errors
+///
+/// When the file cannot be taken aside, or taken aside and neither removed nor put back (it is
+/// said where it is).
+pub(crate) fn take_away(dir: &beneath::Dir, name: &str, seen: &Stat) -> CloudResult<TakenAway> {
+    use std::sync::atomic::AtomicU32;
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    // A hidden name of its own, short whatever the file's name (a name is at most 255 bytes).
+    let aside = format!(
+        ".azul-freeing-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::SeqCst)
+    );
+    match dir.rename_noreplace(name, dir, &aside) {
+        Ok(()) => {}
+        // Removed by the user meanwhile: nothing is left to take, and the cloud keeps it.
+        Err(e) if e.is_not_found() => return Ok(TakenAway::Gone),
+        Err(e) => return Err(e.into()),
+    }
+    let put_back = || -> CloudResult<TakenAway> {
+        match dir.rename_noreplace(&aside, dir, name) {
+            Ok(()) => Ok(TakenAway::Replaced),
+            Err(e) if e.is_already_exists() => {
+                // The name is a newer file's again: this one is kept beside it, visibly.
+                for n in 1..=9 {
+                    let kept = if n == 1 {
+                        format!("{name} (kept)")
+                    } else {
+                        format!("{name} (kept {n})")
+                    };
+                    if beneath::check_file_name(&kept).is_ok()
+                        && dir.rename_noreplace(&aside, dir, &kept).is_ok()
+                    {
+                        return Ok(TakenAway::Kept(kept));
+                    }
+                }
+                Err(CloudError::failed(format!(
+                    "{name} was changed while it was freed and is kept as {aside}"
+                )))
+            }
+            Err(e) => Err(CloudError::failed(format!(
+                "{name} was taken aside as {aside} and could not be put back: {e}"
+            ))),
+        }
+    };
+    // Back where it was, and the word for why it was not removed. A file left under the name of
+    // its own is the one thing this must not do.
+    let stays = |why: &str| -> CloudResult<TakenAway> {
+        match put_back()? {
+            TakenAway::Replaced => Err(CloudError::failed(format!("{name} stays: {why}"))),
+            kept => Ok(kept),
+        }
+    };
+    let taken = match dir.lstat(&aside) {
+        Ok(taken) => taken,
+        // Not looked at, not removed: it goes back.
+        Err(e) => return stays(&format!("it could not be looked at once taken aside ({e})")),
+    };
+    // The one question "is it that file, untouched" (`Fingerprint::matches`), without the
+    // status-change time (0 is not compared): the rename itself moved it.
+    let mut look = seen.fingerprint();
+    look.ctime_ns = 0;
+    if taken.kind != Kind::File || !look.matches(&taken).is_same() {
+        // Another file (an editor's save), whole and untouched: where it was.
+        return put_back();
+    }
+    match dir.unlink(&aside) {
+        Ok(()) => Ok(TakenAway::Gone),
+        Err(e) => stays(&format!("it could not be removed ({e})")),
+    }
 }
 
 /// What a garbage collection found and did.
