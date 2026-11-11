@@ -154,7 +154,7 @@ Answers:
 
 ```
 AZPICK {"v":1,"status":"selected","items":[{"path":"/Users/me/Pictures/a.png"}]}
-AZPICK {"v":1,"status":"selected","items":[{"path":"<cache>/AzDrive/picked/photos/2026/beach.jpg",
+AZPICK {"v":1,"status":"selected","items":[{"path":"<scratch>/open/<drive>/k-<hash>/beach.jpg",
         "cloud":{"drive_id":"photos","drive_name":"Photos (S3)","key":"2026/beach.jpg",
                  "size":182733,"etag":"\"9b2c\"","modified":1759800000,"link":null}}]}
 AZPICK {"v":1,"status":"cancelled"}
@@ -209,15 +209,19 @@ the window opens - no callback waits); `ui_ribbon` and `ui_view` read it; the an
 
 - `cloud: handle` answers at once (no download): the `CloudFileRef` from the listing (key,
   size, ETag, modified).
-- `cloud: copy` downloads the object into `<cache dir>/AzDrive/picked/<drive id>/<key>` through
-  the transfer queue (the progress dialog for a long one; Cancel answers `cancelled`), then
-  answers the path and the ref. A cached copy whose ETag matches is not fetched again.
+- `cloud: copy` downloads the object through the transfer queue (the progress dialog for a long
+  one; Cancel answers `cancelled`) into a staging folder of scratch, then hands it to the app as
+  an open copy - the one kind of copy every program of AzDrive is handed (`Scratch::open_copy`: a
+  folder of its own per file and version under the drive's open copies, read-only, noted as made)
+  - and answers that path and the ref. The same version picked again is the same copy.
 - OpenDirectory on a cloud folder answers the ref of the folder (its `path` is unset unless
   `copy`, which is refused for folders over a size limit).
 
 ### 5.3 What a cached copy is
 
-A SNAPSHOT: an app that writes it changes the cache, not the bucket. A later phase may offer
+A SNAPSHOT: an app that writes it changes the copy, not the bucket - and what it saves over the
+read-only copy or beside it is its user's work: no sweep takes it, and the next pick of the same
+file puts it aside (`name (edited).ext`) instead of writing over it (X-DELTA-SYNC2-4). A later phase may offer
 "keep in sync" (AzDrive watches the copy while it runs and uploads a change, OneDrive's "always
 keep on this device"); until then a cloud-aware app saves back with `pick(Save)` +
 `commit_save`, or through `azul-storage`.
