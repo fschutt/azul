@@ -1092,17 +1092,24 @@ fn a_keyring_that_cannot_be_read_never_turns_a_drive_plain() {
     }
 }
 
-/// The same, then the keyring answers: the next call decides.
+/// The same, then the keyring answers: the next call decides. Only a DECLINED prompt is remembered
+/// for a while (X-AR6-26802cb54-3, `only_a_declined_prompt_is_remembered`: a listing refresh, a
+/// sync attempt and a thumbnail must not each ask the user again): a keyring that is not there or
+/// failed is asked again by the next call, and a declined prompt after its back-off - nothing here,
+/// so that this test is about the keyring coming back and not about how long a decline is
+/// remembered (the back-off itself is pinned by the test of that name: within it the same answer
+/// comes back).
 #[test]
 fn a_keyring_that_answers_later_decides_then() {
     struct Flaky {
         inner: MemoryKeyring,
-        down: std::sync::atomic::AtomicBool,
+        /// What every read answers while the keyring is down.
+        down: Mutex<Option<KeyringError>>,
     }
     impl KeyringStore for Flaky {
         fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
-            if self.down.load(std::sync::atomic::Ordering::SeqCst) {
-                return Err(KeyringError::Denied);
+            if let Some(failure) = self.down.lock().unwrap().clone() {
+                return Err(failure);
             }
             self.inner.get(key)
         }
@@ -1113,37 +1120,45 @@ fn a_keyring_that_answers_later_decides_then() {
             self.inner.delete(key)
         }
     }
-    let mem = Arc::new(MemBucket::new());
-    let keyring = Arc::new(Flaky {
-        inner: MemoryKeyring::new(),
-        down: std::sync::atomic::AtomicBool::new(false),
-    });
-    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
-    setup_new_drive(mem.as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
-    keyring
-        .down
-        .store(true, std::sync::atomic::Ordering::SeqCst);
-    // Even though the bucket shows no key files, as a hostile one would.
-    let drive = AutoEncrypted::new(
-        Arc::new(HidesKeyFiles(mem.clone())),
-        "d_1",
-        keyring.clone(),
-        provider(),
-    );
-    assert!(matches!(
-        drive.put("a.txt", b"x"),
-        Err(DriveError::Denied { .. })
-    ));
-    assert_eq!(kind(&drive), None);
-    keyring
-        .down
-        .store(false, std::sync::atomic::Ordering::SeqCst);
-    drive.put("a.txt", b"sealed").unwrap();
-    assert_eq!(kind(&drive), Some(true));
-    assert!(
-        mem.object("a.txt").is_none(),
-        "no plaintext name in the bucket"
-    );
+    for (failure, backoff) in [
+        (KeyringError::Unavailable, Duration::from_secs(30)),
+        (
+            KeyringError::Failed(String::from("the keychain is locked")),
+            Duration::from_secs(30),
+        ),
+        (KeyringError::Denied, Duration::ZERO),
+    ] {
+        let mem = Arc::new(MemBucket::new());
+        let keyring = Arc::new(Flaky {
+            inner: MemoryKeyring::new(),
+            down: Mutex::new(None),
+        });
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        setup_new_drive(mem.as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
+        *keyring.down.lock().unwrap() = Some(failure.clone());
+        // Even though the bucket shows no key files, as a hostile one would.
+        let drive = AutoEncrypted::new(
+            Arc::new(HidesKeyFiles(mem.clone())),
+            "d_1",
+            keyring.clone(),
+            provider(),
+        )
+        .with_denied_backoff(backoff);
+        let refused = drive.put("a.txt", b"x");
+        assert!(refused.is_err(), "{failure:?}: {refused:?}");
+        assert_eq!(kind(&drive), None, "{failure:?}: nothing was decided");
+        *keyring.down.lock().unwrap() = None;
+        drive.put("a.txt", b"sealed").unwrap();
+        assert_eq!(
+            kind(&drive),
+            Some(true),
+            "{failure:?}: the next call decided"
+        );
+        assert!(
+            mem.object("a.txt").is_none(),
+            "{failure:?}: no plaintext name in the bucket"
+        );
+    }
 }
 
 /// C1: a device that has no key for the drive (a new computer, a reinstall) meets a bucket that
@@ -1234,8 +1249,10 @@ impl Drive for HeldBucket {
 /// decision: waiting is a deadlock.
 #[test]
 fn whether_a_drive_is_encrypted_is_answered_while_its_first_call_decides_it() {
+    // An empty bucket: a new drive, which the first call decides is not encrypted yet. (A bucket
+    // that holds files and shows no key file is not read at all by a computer that knows nothing of
+    // it - X-DELTA-AZDRIVE-KEYS-19 - and its first call would end in that refusal, not in a drive.)
     let mem = Arc::new(MemBucket::new());
-    mem.set("a.txt", b"plain".to_vec());
     let (entered_tx, entered) = mpsc::channel();
     let (release, release_rx) = mpsc::channel();
     let bucket = Arc::new(HeldBucket {
@@ -1276,8 +1293,9 @@ fn whether_a_drive_is_encrypted_is_answered_while_its_first_call_decides_it() {
 /// question that took it would fail here every time, not only when it happens to race.
 #[test]
 fn the_ui_thread_asks_whether_a_drive_is_encrypted_without_taking_its_lock() {
+    // An empty bucket: a new drive (see the test above: a bucket with files and no key file is
+    // refused by a computer that knows nothing of it, and would not make this drive).
     let mem = Arc::new(MemBucket::new());
-    mem.set("a.txt", b"plain".to_vec());
     let (entered_tx, entered) = mpsc::channel();
     let (release, release_rx) = mpsc::channel();
     let bucket = Arc::new(HeldBucket {
