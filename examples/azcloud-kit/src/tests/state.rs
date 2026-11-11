@@ -5,7 +5,7 @@ use std::{fs, time::Duration};
 
 use azul_storage::testing::TempDir;
 
-use crate::state::{clean_device_name, write_atomic, StateDir};
+use crate::state::{clean_device_name, write_atomic, OutFile, StateDir};
 
 #[test]
 fn a_device_is_minted_once_and_its_name_is_safe_in_a_file_name() {
@@ -190,4 +190,65 @@ fn x_delta_azdrive_files_28_a_new_append_only_file_is_private_in_a_folder_that_w
     assert_eq!(fs::read_to_string(&path).unwrap(), "one\ntwo\n");
     // A name that cannot be made is an error, not a file somewhere else.
     assert!(open_private_append(&state.join("missing").join("journal.jsonl")).is_err());
+}
+
+/// X-DELTA-KEYS2-4: the file a new recovery code is to go into is made first, empty and readable by
+/// this user only, so that a path that cannot be written is found out before the first call of the
+/// token server or the bucket; it goes again when the command ends with it still empty; a file that
+/// was there is proven writable and stays as it is; the code goes in through the atomic private
+/// write.
+#[test]
+fn x_delta_keys2_4_an_out_file_is_made_first_and_goes_again_when_nothing_was_written() {
+    let dir = TempDir::new("azcloud-out");
+    // Below a file: no folder can be made for it.
+    let file = dir.path().join("a-file");
+    fs::write(&file, "x").unwrap();
+    assert!(
+        OutFile::prepare(&file.join("code.txt")).is_err(),
+        "refused at once"
+    );
+
+    let path = dir.path().join("code.txt");
+    let out = OutFile::prepare(&path).unwrap();
+    assert_eq!(out.path(), path);
+    assert_eq!(fs::metadata(&path).unwrap().len(), 0, "empty");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "this user's only: {mode:o}");
+    }
+    drop(out);
+    assert!(!path.exists(), "nothing was written into it: it goes again");
+
+    let out = OutFile::prepare(&path).unwrap();
+    out.write(b"the code\n").unwrap();
+    drop(out);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "the code\n",
+        "a file with the secret stays"
+    );
+
+    // An existing file is not touched by the preparation or by the end of a command that wrote
+    // nothing into it.
+    let again = OutFile::prepare(&path).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "the code\n");
+    drop(again);
+    assert!(path.exists());
+}
+
+/// X-DELTA-KEYS2-4: a path that was proven writable and is not any more - a folder stands in its
+/// place - answers the write with an error (the caller shows the secret instead) and leaves no
+/// empty file behind for a path that is a folder.
+#[test]
+fn x_delta_keys2_4_an_out_file_that_cannot_be_written_any_more_says_so() {
+    let dir = TempDir::new("azcloud-out-gone");
+    let path = dir.path().join("code.txt");
+    let out = OutFile::prepare(&path).unwrap();
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    assert!(out.write(b"the code\n").is_err());
+    drop(out);
+    assert!(path.is_dir(), "a folder that is not the file it made stays");
 }

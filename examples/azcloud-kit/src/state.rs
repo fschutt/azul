@@ -306,6 +306,72 @@ pub fn write_atomic(path: &Path, bytes: &[u8], private: bool) -> std::io::Result
     azul_storage::durable::replace(path, bytes, mode)
 }
 
+/// The file a user named for a secret that is made LATER and exists in memory only until it is
+/// written: a new recovery code (`azcloud --out`, `azul-bridge signup --recovery-out`). The code is
+/// made after the drive's keys are in the bucket - a rotation after the old wrap is gone - so a path
+/// that cannot be written must be found out BEFORE the first call of the token server or the bucket:
+/// [`OutFile::prepare`] makes the file (empty, readable by this user only), or proves an existing one
+/// writable and leaves what is in it. It goes again when the command ends with it still empty - no
+/// secret was made, or none could be written (X-DELTA-KEYS2-4).
+#[derive(Debug)]
+pub struct OutFile {
+    path: PathBuf,
+    /// Made by [`OutFile::prepare`], not there before.
+    made: bool,
+}
+
+impl OutFile {
+    /// Makes the file at `path` (and the folders on the way, private), or opens an existing one to see
+    /// that it can be written, without changing it.
+    ///
+    /// # Errors
+    ///
+    /// The I/O error that says the path cannot be written; nothing was made then.
+    pub fn prepare(path: &Path) -> std::io::Result<OutFile> {
+        let made = match fs::metadata(path) {
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                write_atomic(path, b"", true)?;
+                true
+            }
+            Err(e) => return Err(e),
+            Ok(_) => {
+                // What is there stays; the open proves that the secret can go in.
+                fs::OpenOptions::new().write(true).open(path)?;
+                false
+            }
+        };
+        Ok(OutFile {
+            path: path.to_path_buf(),
+            made,
+        })
+    }
+
+    /// The file's path.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Puts `bytes` into the file ([`write_atomic`], private).
+    ///
+    /// # Errors
+    ///
+    /// The I/O error that stopped the write (the file stays as it was).
+    pub fn write(&self, bytes: &[u8]) -> std::io::Result<()> {
+        write_atomic(&self.path, bytes, true)
+    }
+}
+
+impl Drop for OutFile {
+    fn drop(&mut self) {
+        if self.made && fs::metadata(&self.path).is_ok_and(|meta| meta.is_file() && meta.len() == 0)
+        {
+            // collapse-ok: an empty file that stays is no harm; it is what `prepare` made.
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Reads the JSON file at `path`; `None` when there is none.
 ///
 /// # Errors

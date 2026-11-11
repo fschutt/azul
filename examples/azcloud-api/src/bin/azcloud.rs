@@ -23,6 +23,8 @@ use std::path::Path;
 use anyhow::{anyhow, bail, Context, Result};
 use azcloud_api::{https::HttpsTransport, os_dirs, HTTPS_TIMEOUT};
 #[cfg(feature = "encryption")]
+use azcloud_kit::state::OutFile;
+#[cfg(feature = "encryption")]
 use azcloud_kit::sync::local::hash_file;
 use azcloud_kit::{
     account::{Account, AccountFile, JoinCode},
@@ -377,40 +379,65 @@ fn cmd_config(settings: &Settings) -> Result<Output> {
     Ok((value, text))
 }
 
+/// Makes the file the new recovery code is to go into ([`OutFile`]) before anything else of the
+/// command happens: `None` without a path; an error when the path cannot be written - with nothing
+/// done yet (X-DELTA-KEYS2-4).
+#[cfg(feature = "encryption")]
+fn prepare_code_file(path: Option<PathBuf>) -> Result<Option<OutFile>> {
+    path.map(|path| OutFile::prepare(&path).with_context(|| format!("{}", path.display())))
+        .transpose()
+}
+
 /// A new recovery code for the user, shown once: into the file `out` (readable by the user
-/// only) when there is one, else into the JSON and the text.
+/// only) when there is one, else into the JSON and the text. A file that cannot be written does not
+/// lose the code - it exists nowhere else, and the old one is dead: it is shown in the JSON and
+/// the text as without a file, with the file's error as the warning beside it.
 #[cfg(feature = "encryption")]
 fn give_recovery_code(
     code: &azul_storage::crypto::keys::RecoveryCode,
-    out: Option<PathBuf>,
+    out: Option<&OutFile>,
     value: &mut Value,
     text: &mut String,
-) -> Result<()> {
+) {
     let code = code.to_text();
+    let show = |value: &mut Value, text: &mut String| {
+        value["recovery_code"] = json!(code.as_str());
+        text.push_str(&format!(
+            "RECOVERY CODE (shown once, stored nowhere: write it down and keep it apart from \
+             this computer; Azlin cannot reset it):\n\n    {}\n\n",
+            code.as_str()
+        ));
+    };
     match out {
-        Some(path) => {
-            write_atomic(&path, format!("{}\n", code.as_str()).as_bytes(), true)
-                .with_context(|| format!("{}", path.display()))?;
-            value["recovery_code_file"] = json!(path.display().to_string());
-            text.push_str(&format!(
-                "Its RECOVERY CODE is in {} (readable by you only): print it or write it down, \
-                 keep it apart from this computer, then delete the file. Azlin cannot reset it.\n",
-                path.display()
-            ));
-        }
-        None => {
-            value["recovery_code"] = json!(code.as_str());
-            text.push_str(&format!(
-                "RECOVERY CODE (shown once, stored nowhere: write it down and keep it apart from \
-                 this computer; Azlin cannot reset it):\n\n    {}\n\n",
-                code.as_str()
-            ));
-        }
+        Some(file) => match file.write(format!("{}\n", code.as_str()).as_bytes()) {
+            Ok(()) => {
+                value["recovery_code_file"] = json!(file.path().display().to_string());
+                text.push_str(&format!(
+                    "Its RECOVERY CODE is in {} (readable by you only): print it or write it down, \
+                     keep it apart from this computer, then delete the file. Azlin cannot reset it.\n",
+                    file.path().display()
+                ));
+            }
+            Err(e) => {
+                value["recovery_code_file_error"] =
+                    json!(format!("{}: {e}", file.path().display()));
+                text.push_str(&format!(
+                    "warning: the recovery code could not be written to {}: {e}. It is shown here \
+                     instead.\n",
+                    file.path().display()
+                ));
+                show(value, text);
+            }
+        },
+        None => show(value, text),
     }
-    Ok(())
 }
 
 fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    // Before the first call of the token server (X-DELTA-KEYS2-4): a path that cannot be written
+    // stops the command while no drive was made.
+    #[cfg(feature = "encryption")]
+    let code_file = prepare_code_file(args.path("--recovery-out"))?;
     let state = open_state(settings, args)?;
     let device = state.device(args.value("--device-name"))?;
     let tier = args.value("--tier").unwrap_or("100GB");
@@ -457,7 +484,7 @@ fn cmd_signup(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     {
         value["encrypted"] = json!(true);
         text.push_str("The drive is encrypted on this device.\n");
-        give_recovery_code(&recovery, args.path("--recovery-out"), &mut value, &mut text)?;
+        give_recovery_code(&recovery, code_file.as_ref(), &mut value, &mut text);
     }
     Ok((value, text))
 }
@@ -1140,13 +1167,15 @@ fn cmd_encrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
              (AzDrive's \"Encrypt this drive\" moves them)"
         );
     }
+    // Before the first call of the token server or the bucket (X-DELTA-KEYS2-4).
+    let code_file = prepare_code_file(args.path("--out"))?;
     let account = encrypted_account(settings, net, args)?;
     let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()?;
     let code = account.setup_encryption(&account.state().secrets(), kdf)?;
     let id = account.record().id.clone();
     let mut value = json!({"ok": true, "drive": id, "encrypted": true});
     let mut text = format!("drive {id} is encrypted from this device.\n");
-    give_recovery_code(&code, args.path("--out"), &mut value, &mut text)?;
+    give_recovery_code(&code, code_file.as_ref(), &mut value, &mut text);
     Ok((value, text))
 }
 
@@ -1205,6 +1234,9 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
              a new drive key and a new RECOVERY CODE, shown once. Then run azcloud reencrypt"
         );
     }
+    // Before the lockdown and the first write of the bucket (X-DELTA-KEYS2-4): the old code is dead
+    // once the new wrap is in, and a path that cannot be written must not find that out then.
+    let code_file = prepare_code_file(args.path("--out"))?;
     let mut account = encrypted_account(settings, net, args)?;
     let device = account.state().device(args.value("--device-name"))?;
     let provider = index_provider(account.state(), &device.name, announced_restore(account.record().restore.clone()));
@@ -1234,7 +1266,7 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
             rotated.left_over.join("; ")
         ));
     }
-    give_recovery_code(&rotated.recovery_code, args.path("--out"), &mut value, &mut text)?;
+    give_recovery_code(&rotated.recovery_code, code_file.as_ref(), &mut value, &mut text);
     if let Some(drop) = drop {
         text.push_str(&format!(
             "Incoming mail has a new drop key: azcloud mail-drop sets it on your mail Worker \
@@ -1759,5 +1791,104 @@ mod tests {
             "a file the drive does not have"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// X-DELTA-KEYS2-4: `azcloud rotate --yes --out F` locked the drive down and replaced its recovery
+    /// wrap, then wrote the code to F - and a path that could not be written ended the command with
+    /// the old code dead and the new one never seen. The file is made first, before the first call of
+    /// the token server or the bucket: a path that cannot be written is refused with nothing done, an
+    /// empty file made for a command that made no code goes again, and a file that was there stays as
+    /// it is.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys2_4_an_unwritable_out_path_stops_the_command_before_its_first_call() {
+        use azul_storage::testing::TempDir;
+        let dir = TempDir::new("code-out");
+        // Below a file: no folder can be made for it.
+        let file = dir.path().join("a-file");
+        std::fs::write(&file, "x").unwrap();
+        assert!(
+            prepare_code_file(Some(file.join("code.txt"))).is_err(),
+            "refused at once"
+        );
+        assert!(
+            prepare_code_file(None).unwrap().is_none(),
+            "no path, no file"
+        );
+
+        let path = dir.path().join("code.txt");
+        let made = prepare_code_file(Some(path.clone()))
+            .unwrap()
+            .expect("a file");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 0, "empty");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "this user's only: {mode:o}");
+        }
+        drop(made);
+        assert!(
+            !path.exists(),
+            "the command made no code: the file goes again"
+        );
+
+        std::fs::write(&path, "older").unwrap();
+        drop(prepare_code_file(Some(path.clone())).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "older",
+            "what was there stays"
+        );
+    }
+
+    /// X-DELTA-KEYS2-4: the code made after the wrap is shown even when its file cannot be written
+    /// any more: in the JSON and the text, with the file's error as the warning beside it - the code
+    /// exists nowhere else.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys2_4_a_code_that_cannot_be_written_to_its_file_is_shown_instead() {
+        use azul_storage::{crypto::keys::RecoveryCode, testing::TempDir};
+        let dir = TempDir::new("code-shown");
+        let path = dir.path().join("code.txt");
+        let file = prepare_code_file(Some(path.clone()))
+            .unwrap()
+            .expect("a file");
+        // The file is not writable by the time the code is there: a folder stands in its place.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        let code = RecoveryCode::generate().unwrap();
+        let (mut value, mut text) = (json!({"ok": true}), String::new());
+        give_recovery_code(&code, Some(&file), &mut value, &mut text);
+        assert_eq!(value["recovery_code"], json!(code.to_text().as_str()));
+        assert!(value["recovery_code_file_error"].is_string(), "{value}");
+        assert!(value.get("recovery_code_file").is_none(), "{value}");
+        assert!(
+            text.contains("warning: the recovery code could not be written"),
+            "{text}"
+        );
+        assert!(
+            text.contains(code.to_text().as_str()),
+            "the code is on the screen: {text}"
+        );
+
+        // The file that takes it: the code is in it and not on the screen.
+        let good = dir.path().join("good.txt");
+        let file = prepare_code_file(Some(good.clone()))
+            .unwrap()
+            .expect("a file");
+        let (mut value, mut text) = (json!({"ok": true}), String::new());
+        give_recovery_code(&code, Some(&file), &mut value, &mut text);
+        assert_eq!(
+            std::fs::read_to_string(&good).unwrap(),
+            format!("{}\n", code.to_text().as_str())
+        );
+        assert_eq!(
+            value["recovery_code_file"],
+            json!(good.display().to_string())
+        );
+        assert!(value.get("recovery_code").is_none() && !text.contains(code.to_text().as_str()));
+        drop(file);
+        assert!(good.exists(), "a file with the code in it stays");
     }
 }

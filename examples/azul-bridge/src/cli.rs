@@ -8,10 +8,12 @@
 //!        The settings (bridge.json) and, the first time, the bridge's password - printed once
 //!        (`AZUL_BRIDGE_PASSWORD <password>`), then kept in the secret store.
 //!   password   A new password, printed once; the old one stops working.
-//!   signup [--name NAME] [--tier TIER]
+//!   signup [--name NAME] [--tier TIER] [--recovery-out FILE]
 //!        A development drive of the bridge's own (development token servers only), encrypted as
 //!        it is made: its recovery code is printed once (`AZUL_BRIDGE_RECOVERY_CODE <code>`), the
-//!        keys kept in the secret store.
+//!        keys kept in the secret store. `--recovery-out` makes FILE (readable by you only) before
+//!        the drive is made and puts the code into it instead (`AZUL_BRIDGE_RECOVERY_CODE_FILE
+//!        <path>`); a file that cannot be written then does not lose the code: it is printed.
 //!   join --code-file FILE
 //!        Joins a drive with a code from `azcloud invite` (a token family of the bridge's own).
 //!   serve [--imap-port N] [--smtp-port N] [--dav-port N] [--pim-port N] [--folder DIR | --memory]
@@ -80,6 +82,8 @@ pub struct Options {
     pub aliases: Vec<String>,
     pub sending: Option<PathBuf>,
     pub code_file: Option<PathBuf>,
+    /// Where `signup` puts the new recovery code (made before the drive is).
+    pub recovery_out: Option<PathBuf>,
     pub name: Option<String>,
     pub tier: Option<String>,
     pub imap_port: Option<u16>,
@@ -104,7 +108,8 @@ pub struct Options {
 /// The usage text.
 pub const USAGE: &str = "usage: azul-bridge [--state-dir DIR] [--token-url URL] [--s3-url URL] [--keyring os|file] \
      [--allow-plain-secrets] <init --address ADDR [--account ID] [--alias ADDR]... [--sending FILE] [--imap-port N] \
-     [--smtp-port N] [--dav-port N] [--pim-port N] | password | signup [--name NAME] [--tier TIER] | \
+     [--smtp-port N] [--dav-port N] [--pim-port N] | password | signup [--name NAME] [--tier TIER] \
+     [--recovery-out FILE] | \
      join --code-file FILE | autostart enable|disable|status | serve [--imap-port N] [--smtp-port N] [--dav-port N] \
      [--pim-port N] [--folder DIR | --memory] [--calendar-folder DIR] [--idle-poll SECS] | status>";
 
@@ -137,6 +142,7 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             "--alias" => options.aliases.push(value(&mut i, arg)?),
             "--sending" => options.sending = Some(PathBuf::from(value(&mut i, arg)?)),
             "--code-file" => options.code_file = Some(PathBuf::from(value(&mut i, arg)?)),
+            "--recovery-out" => options.recovery_out = Some(PathBuf::from(value(&mut i, arg)?)),
             "--name" => options.name = Some(value(&mut i, arg)?),
             "--tier" => options.tier = Some(value(&mut i, arg)?),
             "--imap-port" => options.imap_port = Some(port(value(&mut i, arg)?, arg)?),
@@ -277,6 +283,33 @@ fn iroh_dialer() -> Option<Arc<dyn azcloud_kit::IrohDialer>> {
     dialer
 }
 
+/// The new recovery code to the user, once: into the file `--recovery-out` named (made before the drive
+/// was) or, without one - or when it cannot be written, which does not lose the code: it exists
+/// nowhere else - as the line `AZUL_BRIDGE_RECOVERY_CODE <code>`.
+#[cfg(feature = "encryption")]
+fn give_recovery_code(
+    code: &azul_storage::crypto::keys::RecoveryCode,
+    out: Option<&azcloud_kit::state::OutFile>,
+) {
+    let text = code.to_text();
+    if let Some(file) = out {
+        match file.write(format!("{}\n", text.as_str()).as_bytes()) {
+            Ok(()) => {
+                say(&format!(
+                    "AZUL_BRIDGE_RECOVERY_CODE_FILE {}",
+                    file.path().display()
+                ));
+                return;
+            }
+            Err(e) => say(&format!(
+                "AZUL_BRIDGE_RECOVERY_CODE_FILE_FAILED {}: {e}",
+                file.path().display()
+            )),
+        }
+    }
+    say(&format!("AZUL_BRIDGE_RECOVERY_CODE {}", text.as_str()));
+}
+
 fn say(line: &str) {
     let mut out = std::io::stdout();
     let _ = writeln!(out, "{line}");
@@ -369,6 +402,16 @@ pub fn run(options: &Options) -> Result<(), String> {
             // encryption makes no drive (the kit refuses, saying why).
             #[cfg(feature = "encryption")]
             {
+                // Before the first call of the token server (X-DELTA-KEYS2-4): a path that cannot
+                // be written stops the command while no drive was made.
+                let out_file = options
+                    .recovery_out
+                    .as_deref()
+                    .map(|path| {
+                        azcloud_kit::state::OutFile::prepare(path)
+                            .map_err(|e| format!("{}: {e}", path.display()))
+                    })
+                    .transpose()?;
                 let s3_url = endpoints(options).1;
                 let keys = azcloud_kit::encryption::NewKeys {
                     keyring: &*secrets,
@@ -380,7 +423,7 @@ pub fn run(options: &Options) -> Result<(), String> {
                     Account::signup(&state_dir, &token_url, transports, &tier, &name, keys)
                         .map_err(|e| e.to_string())?;
                 say(&format!("AZUL_BRIDGE_DRIVE {}", account.record().id));
-                say(&format!("AZUL_BRIDGE_RECOVERY_CODE {}", code.to_text().as_str()));
+                give_recovery_code(&code, out_file.as_ref());
             }
             #[cfg(not(feature = "encryption"))]
             {
@@ -767,6 +810,22 @@ mod tests {
 
     /// Every drive is encrypted as it is made: the bridge's own development drive too, and a
     /// plaintext one is refused with why.
+    /// X-DELTA-KEYS2-4: `signup --recovery-out F` names the file the code goes into; the file is made
+    /// before the drive is (see azcloud-kit's `OutFile`).
+    #[test]
+    fn x_delta_keys2_4_signup_takes_a_file_for_the_recovery_code() {
+        let options = parse_args(&args("signup --recovery-out /tmp/code.txt")).unwrap();
+        assert_eq!(
+            options.recovery_out.as_deref(),
+            Some(Path::new("/tmp/code.txt"))
+        );
+        assert!(
+            parse_args(&args("signup --recovery-out")).is_err(),
+            "a value is missing"
+        );
+        assert_eq!(parse_args(&args("signup")).unwrap().recovery_out, None);
+    }
+
     #[test]
     fn a_signup_makes_an_encrypted_drive_and_refuses_a_plaintext_one() {
         assert_eq!(parse_args(&args("signup --name Bridge")).unwrap().command, "signup");
