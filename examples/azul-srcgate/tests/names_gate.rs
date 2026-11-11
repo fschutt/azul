@@ -20,13 +20,15 @@
 //!   argument is a `LocalKey`, so the compiler already refuses a `&str`; this rule keeps the list of
 //!   callers short, so a new entry point is a new line here and a decision about its `Purpose`.
 //!
-//! - **`walk-local-call`** (ARCH29 C6c): `names::walk_local(root, key, create)` takes any `&str` and
-//!   a flag, and walked a name from a DRIVE with only the shape rows (X-DELTA-AZDRIVE-FILES-1: a
-//!   folder the drive renamed to `.git` was made on the victim's disk). Its callers move, one file
-//!   at a time, to `OnDisk` (a name that is on the disk or in a record this device wrote:
-//!   `Root::parent_of_existing`, never makes a folder) and `Admitted` (a name to be made:
-//!   `Root::parent_of_new`). The count of this rule per file only goes down; the deleting step is
-//!   after the recorded baseline.
+//! - **`walk-local-call`**, **`local-key-call`** and **`purpose-local`** (ARCH29 C6c):
+//!   `names::walk_local(root, key, create)` takes any `&str` and a flag, and walked a name from a
+//!   DRIVE with only the shape rows (X-DELTA-AZDRIVE-FILES-1: a folder the drive renamed to `.git`
+//!   was made on the victim's disk); `names::local_key` and `Purpose::Local` are the key and the
+//!   purpose of those rows. Their callers moved, one file at a time, to `OnDisk` (a name that is on
+//!   the disk or in a record this device wrote: `Root::parent_of_existing`, never makes a folder)
+//!   and `Admitted` (a name to be made: `Root::parent_of_new`). No shipped code outside `names.rs`
+//!   uses the old three now: these rules hold at ZERO, so a new use is a finding and the deleting
+//!   commit after the recorded baseline has no caller to move.
 //! - **`walk-existing-call`** and **`make-parent-of-call`**: the sync's own walks (`sync/names.rs`):
 //!   `names::walk_entry` and `names::walk_record` walk to a name that is on the disk (an entry of a
 //!   scan, a record this device wrote) and cannot make a folder; `names::make_parent_of` is the one
@@ -50,6 +52,8 @@ const BOOKKEEPING_NAME: &str = "bookkeeping-name";
 const VCS_NAME: &str = "vcs-name";
 const PARENT_OF: &str = "parent-of-call";
 const WALK_LOCAL: &str = "walk-local-call";
+const LOCAL_KEY: &str = "local-key-call";
+const PURPOSE_LOCAL: &str = "purpose-local";
 const WALK_EXISTING: &str = "walk-existing-call";
 const MAKE_PARENT_OF: &str = "make-parent-of-call";
 const ON_DISK_KEY: &str = "on-disk-key";
@@ -142,6 +146,36 @@ fn rules() -> Vec<Rule> {
                 "let (dir, name) = walk(&tree, key);",
                 "let x = walk_local_total(1);",
                 "pub fn walk_local(root: &Root, key: &str, create: bool) {}",
+            ],
+        ),
+        Rule::new(
+            LOCAL_KEY,
+            |t| calls(t, "names::local_key"),
+            &["let key = names::local_key(key)?;"],
+            &[
+                "let key = local_key(key);",
+                "pub fn local_key(key: &str) {}",
+                "let x = names::local_key_total(1);",
+            ],
+        ),
+        Rule::new(
+            PURPOSE_LOCAL,
+            |t| {
+                t.windows(4)
+                    .filter(|w| {
+                        w[0].tok.is_ident("Purpose")
+                            && w[1].tok.is_punct(':')
+                            && w[2].tok.is_punct(':')
+                            && w[3].tok.is_ident("Local")
+                    })
+                    .map(|w| w[0].line)
+                    .collect()
+            },
+            &["let rows = policy.admit(key, Purpose::Local);"],
+            &[
+                "let rows = policy.admit(key, Purpose::Sync);",
+                "let x = Source::Local;",
+                "let y = Purpose::LocalCopy;",
             ],
         ),
         Rule::new(
