@@ -254,7 +254,11 @@ fn az_k10_a_key_file_over_the_limit_is_left_out_not_the_end_of_the_recovery() {
 /// key; the file reads back and goes back byte for byte when a removal is refused.
 #[test]
 fn x_delta_azdrive_keys_28_a_kit_named_by_its_key_is_found_from_another_computer_and_goes_back() {
-    let bucket = MemBucket::new();
+    // A bucket that writes conditionally, as every real one does (S3's `If-None-Match`, a folder's
+    // rename): the put-back asks for a free name. Where a bucket answers `Unsupported`, `put_new`
+    // writes the key file without the question (it is "conditional where the bucket can"), so the
+    // refusal below is a bucket's to give.
+    let bucket = MemBucket::with_conditional_writes();
     let owner = MemoryKeyring::new();
     let (drive_key, _) = setup_new_drive(&bucket, &owner, "d_1", cheap()).unwrap();
     let (file, kit) =
