@@ -30,8 +30,10 @@ use super::{
 pub use azul_storage::names::{SPOOL_DIR, SYNC_DIR, TRASH_DIR};
 /// The marker's file in the bookkeeping folder ([`SYNC_DIR`]).
 pub const MARKER_FILE: &str = "root-id";
-/// How long a file stays in the trash here; the drive keeps its versions for longer.
-pub const TRASH_DAYS: i64 = 30;
+/// How long a file stays in the trash here; the drive keeps its versions for longer. The span of
+/// [`azul_storage::meta::RETENTION`] (X-DELTA-AZDRIVE-SYNC-12: it was a literal here, another in
+/// AzDrive's own trash and a third, fourteen, in the retention).
+pub const TRASH_DAYS: i64 = azul_storage::meta::RETENTION.trash_days() as i64;
 
 /// The marker in a paired folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

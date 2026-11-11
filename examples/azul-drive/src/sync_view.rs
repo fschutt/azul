@@ -30,8 +30,9 @@
 //! travel in the pass's `SyncStates` (written by azcloud-kit's `session::record` /
 //! `after_failure`, as `read_only` and `last_error` are), show in [`status_text`] and
 //! [`sidebar_state`] next to "Read-only" ("Paused: <why>"), and ask with a [`SyncDialog`] next
-//! to `Conflict` - "Resume" (the guard allowed once: `SyncOptions::allow_mass_delete` for one
-//! pass) and "Show the changes" (the files the pass would delete or change, from its plan).
+//! to `Conflict` - "Resume" (the guard allowed once: a `Consent` for the files the question named,
+//! used up by the pass that returned) and "Show the changes" (the files the pass would delete or
+//! change, from its plan).
 //! Until then a tripped guard is the pass's error: "Not synced: <why>".
 //!
 //! - On a METERED or low-data network (azul's `NetworkState`, read by the poll timer: a phone's

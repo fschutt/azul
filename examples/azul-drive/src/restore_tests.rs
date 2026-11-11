@@ -244,7 +244,7 @@ fn x_ar5a_21_the_restore_window_is_the_retention_of_the_kind_of_drive() {
     #[cfg(feature = "encryption")]
     assert_eq!(RESTORE_DAYS, retention.versions_days());
     #[cfg(not(feature = "encryption"))]
-    assert_eq!(RESTORE_DAYS, retention.trash_days());
+    assert_eq!(RESTORE_DAYS, retention.node_days());
     let inside = NOW - (RESTORE_DAYS - 1) * 86_400;
     assert_eq!(parse_as_of(&iso8601(inside), NOW), Ok(inside));
 }

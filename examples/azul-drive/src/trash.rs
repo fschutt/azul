@@ -37,8 +37,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{fileops::TRASH_FOLDER, jobs::Job, DriveState};
 
-/// How long a delete stays in the trash.
-pub(crate) const KEPT_DAYS: u64 = 30;
+/// How long a delete stays in the trash: the span of [`azul_storage::meta::RETENTION`], the one the
+/// sync's trash keeps too (X-DELTA-AZDRIVE-SYNC-12).
+pub(crate) const KEPT_DAYS: u64 = azul_storage::meta::RETENTION.trash_days();
 
 /// How long after a pass found a delete expired another pass may remove it.
 pub(crate) const GRACE_DAYS: u64 = 7;
@@ -620,5 +621,19 @@ mod tests {
         assert!(refused.is_err(), "{refused:?}");
         assert!(folder.exists());
         assert_eq!(std::fs::read_to_string(&marks_file).unwrap(), "[1, 2, 3]");
+    }
+
+    /// X-DELTA-AZDRIVE-SYNC-12 (X-AR5a-21). The three trashes kept their span by three literals
+    /// (30, 30 and a retention that said 14): AzDrive's own trash reads the one `Retention`, the same
+    /// span the sync's trash reads (the owner's Q18: 30 days).
+    #[test]
+    fn x_delta_azdrive_sync_12_the_trash_keeps_what_the_retention_says() {
+        assert_eq!(KEPT_DAYS, azul_storage::meta::RETENTION.trash_days());
+        assert_eq!(KEPT_DAYS, 30);
+        assert_eq!(
+            KEPT_DAYS,
+            u64::try_from(azcloud_kit::sync::root::TRASH_DAYS).unwrap(),
+            "the sync's trash and AzDrive's keep a delete for the same span"
+        );
     }
 }

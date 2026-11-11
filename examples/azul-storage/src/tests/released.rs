@@ -185,8 +185,12 @@ fn x_ar5a_21_the_spans_a_drive_keeps_things_have_one_owner() {
     assert_eq!(RETENTION.trash, Duration::from_secs(14 * 86_400));
     assert_eq!(RETENTION.versions, Duration::from_secs(90 * 86_400));
     assert_eq!(
-        (RETENTION.trash_days(), RETENTION.versions_days()),
-        (14, 90)
+        (
+            RETENTION.trash_days(),
+            RETENTION.node_days(),
+            RETENTION.versions_days()
+        ),
+        (30, 14, 90)
     );
     // The grace of a retired pack is the versions' span, not a span of its own (it was thirty
     // days, shorter than the ninety a version can be restored from).

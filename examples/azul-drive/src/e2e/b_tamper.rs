@@ -719,7 +719,8 @@ pub(crate) fn restore_of(drive_id: &str) -> Option<RestoreNotice> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("")
             .to_string(),
-        // The kind and the moment the sync's judge also reads (RF45) are not played here.
+        // The judge (`restore::judge`) reads the epoch and the prefix, and neither the kind nor the
+        // moment of an announcement: the stand-in's has no more to say than that.
         ..RestoreNotice::default()
     })
 }

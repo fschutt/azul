@@ -459,6 +459,7 @@ pub fn purge_options(_confirmation: &PurgeConfirmation) -> ReclaimOptions {
         },
         retention: Retention {
             trash: std::time::Duration::ZERO,
+            node: std::time::Duration::ZERO,
             versions: std::time::Duration::ZERO,
         },
         server_clock: ServerClock::Required,

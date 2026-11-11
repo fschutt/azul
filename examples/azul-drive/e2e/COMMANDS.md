@@ -114,8 +114,9 @@ The key lives in a keyring in memory that every device of this remote shares (th
 `drive_pair` is AzDrive's own pairing (Share > Sync with a folder): it creates the folder and
 starts the first pass (wait for it with `drive_wait_idle`). A folder inside another pairing's
 folder fails, as in the window, and so does a drive whose source cannot write conditionally (an
-OpenDAL source, a database: `azdrive-sync-why-no-conditional-writes`). `drive_restart` drops the device's in-memory sync state and
-reads it again from its state folder, like quitting and starting AzDrive.
+OpenDAL source, a database: `azdrive-sync-why-no-conditional-writes`). A folder paired again after "Stop syncing" starts from a new base (the old one is forgotten, so the
+pass pairs by content and deletes nothing). `drive_restart` drops the device's in-memory sync state
+and reads it again from its state folder, like quitting and starting AzDrive.
 
 ## Passes
 
@@ -555,8 +556,8 @@ A setting's `name` is the settings file's: `auto_download` (`"everything"`, `{"n
 drive and folders are no setting. `drive_cancel` is Cancel while a pass runs: it stops before
 its next file and commits nothing half done (a pass held at a pause point is let go so it can
 stop). `drive_ops` is the operations log with each step's `reason`. `drive_untrash` puts back
-the newest trashed version of each file (found through the log), never over a file that is
-there; the next pass sends it up again. `drive_network` is the network as AzDrive reads it from
+the newest trashed version of each file (found through the trash folders, the log only names
+them), never over a file that is there; the next pass sends it up again. `drive_network` is the network as AzDrive reads it from
 the system: on a metered or low-data one, files over the auto-download size wait (both ways)
 while small ones go on, and the status line says `azdrive-sync-status-metered`. `drive_wake` is
 the system waking up: every synced drive that is not paused gets a full pass now.

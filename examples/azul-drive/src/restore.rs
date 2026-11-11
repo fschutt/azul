@@ -45,7 +45,7 @@ use crate::{
 pub(crate) const RESTORE_DAYS: u64 = if cfg!(feature = "encryption") {
     azul_storage::meta::RETENTION.versions_days()
 } else {
-    azul_storage::meta::RETENTION.trash_days()
+    azul_storage::meta::RETENTION.node_days()
 };
 /// How long the job waits for the drive's node, and how often it asks.
 const WAIT: Duration = Duration::from_secs(120);
