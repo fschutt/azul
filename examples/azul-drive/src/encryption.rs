@@ -76,6 +76,7 @@ use azul_storage::{
     crypto::{
         device,
         keys::{load_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap},
+        keystate::{Evidence, Guard, Journal, Op, Read},
         random_bytes, CryptoError, KeyId, Zeroizing,
     },
     config::EncryptionRecord,
@@ -392,6 +393,14 @@ pub(crate) fn forget_job(
     proof: Option<azul_storage::footprint::RemovalProof>,
     paid_months_elsewhere: Option<Result<bool, String>>,
 ) -> azul_storage::footprint::ForgetReport {
+    // What the key permit's judge is told of the removal (C7 step 2): the settings' proof stands for
+    // a recovery code that was checked and is registered; the months are the vault's answer.
+    let had_proof = proof.is_some();
+    let months = match &paid_months_elsewhere {
+        None => Read::Absent,
+        Some(Ok(elsewhere)) => Read::Found(*elsewhere),
+        Some(Err(why)) => Read::Failed(why.clone()),
+    };
     let (proof, taken) = proof_for_removal(
         proof,
         rotation::unfinished(keyring, drive_id).map_err(|e| e.to_string()),
@@ -400,12 +409,182 @@ pub(crate) fn forget_job(
     if let Some(taken) = taken {
         println!("AZDRIVE_FORGET_PROOF_TAKEN {drive_id}: {taken:?}");
     }
+    if uses_keyring {
+        shadow_removal(keyring, drive_id, had_proof, months, proof.is_some());
+    }
     crate::footprint::forget(
         drive_id,
         places,
         uses_keyring.then_some(keyring),
         proof.as_ref(),
     )
+}
+
+// ==== The key permit's shadow (ARCH29 C7 step 2): the judge beside the guards of this file ====
+//
+// Each helper asks `azul_storage::crypto::keystate` the question the guard just answered, on the
+// keyring's entries read once more from the keyring the guard itself reads (no prompt it did not
+// raise) and the facts the guard had, and logs a disagreement; in this crate's test build it fails the
+// test. The guards decide; nothing here changes what they did.
+
+/// The evidence of a job of this file: the drive's key entries read from `keyring`, by this
+/// computer's clock.
+fn shadow_evidence<'a>(drive: &'a str, keyring: &dyn KeyringStore) -> Evidence<'a> {
+    let mut evidence = Evidence::new(drive, now_unix());
+    evidence.keyring = device::key_facts(keyring, drive);
+    evidence
+}
+
+/// "Remove drive" ([`proof_for_removal`] is the guard): the keys go when the proof survived the
+/// keyring's and the vault's questions (`kept`). The judge is told what the proof stands for (a
+/// recovery code that was checked and is registered, when the settings made one) and what the
+/// vault said of the months. The bucket is not read: whether the drive is encrypted is not asked, so
+/// a computer with no key is not judged.
+fn shadow_removal(
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    had_proof: bool,
+    months: Read<bool>,
+    kept: bool,
+) {
+    let mut evidence = shadow_evidence(drive, keyring);
+    evidence.token.code_checked = if had_proof {
+        Read::Found(evidence.now)
+    } else {
+        Read::Absent
+    };
+    evidence.token.code_registered = Read::Found(had_proof);
+    evidence.vault.months_elsewhere = months;
+    azul_storage::key_shadow!(
+        "azul_drive::encryption::forget_job",
+        Op::Remove,
+        evidence,
+        if kept { Guard::Permits } else { Guard::Refuses },
+        known = [
+            (
+                "planned",
+                "X-DELTA-AZDRIVE-KEYS-3: the guard asks whether a key change is unfinished and never \
+                 whether a setup is: with a proof the removal erases the planned key, which may be the \
+                 only copy; the table refuses"
+            ),
+            (
+                "unknown",
+                "the keyring failed on an entry the guard does not read (the planned key)"
+            ),
+        ]
+    );
+}
+
+/// "I was hacked" as the job runs it: `lockdown` is what `rotation::lockdown_needed` answered after
+/// it passed (the shadows inside azul-storage compare its reads; this one asks both permits at the
+/// place the job acts on them): true when the lockdown is to run, false for a rotation of this
+/// device that resumes.
+fn shadow_rotation(keyring: &dyn KeyringStore, drive: &str, lockdown: bool) {
+    let mut evidence = shadow_evidence(drive, keyring);
+    evidence.bucket.journal = Read::Found(if lockdown {
+        Journal::NotOwn
+    } else {
+        Journal::Own
+    });
+    evidence.bucket.index_opens = Read::Found(true);
+    const REREAD: &str = "the keyring failed on a re-read after the guard had read it";
+    azul_storage::key_shadow!(
+        "azul_drive::encryption::rotate_job",
+        Op::Lockdown,
+        evidence,
+        if lockdown {
+            Guard::Permits
+        } else {
+            Guard::Refuses
+        },
+        known = [("unknown", REREAD)]
+    );
+    azul_storage::key_shadow!(
+        "azul_drive::encryption::rotate_job",
+        Op::Rotate,
+        evidence,
+        Guard::Permits,
+        known = [("unknown", REREAD)]
+    );
+}
+
+/// A new recovery code for the drive (the job replaces the first code's wrap: the table has no
+/// operation of its own for it, the nearest is `AddCode`, a code made and its wrap published): the
+/// guard is that this computer holds the key. Nothing asks whether a key change is unfinished.
+fn shadow_new_code(keyring: &dyn KeyringStore, drive: &str) {
+    let mut evidence = shadow_evidence(drive, keyring);
+    evidence.bucket.encrypted = Read::Found(true);
+    azul_storage::key_shadow!(
+        "azul_drive::encryption::new_code_job",
+        Op::AddCode,
+        evidence,
+        Guard::Permits,
+        known = [
+            (
+                "rotating",
+                "X-DELTA-AZDRIVE-KEYS-7: no guard refuses a new code while a rotation is unfinished: \
+                 the rotation's last step replaces the recovery wrap again, and this code opens \
+                 nothing once it is done (the settings forget the code's check, which is all)"
+            ),
+            (
+                "unknown",
+                "the keyring failed on an entry the job does not read (the new key or the planned key)"
+            ),
+        ]
+    );
+}
+
+/// "Re-encrypt everything": the drive opened, so a key opens its index; nothing asks whether a key
+/// change is unfinished.
+fn shadow_reencrypt(keyring: &dyn KeyringStore, drive: &str) {
+    let mut evidence = shadow_evidence(drive, keyring);
+    evidence.bucket.encrypted = Read::Found(true);
+    evidence.bucket.index_opens = Read::Found(true);
+    azul_storage::key_shadow!(
+        "azul_drive::encryption::reencrypt_job",
+        Op::Reencrypt,
+        evidence,
+        Guard::Permits,
+        known = [
+            (
+                "rotating",
+                "no guard refuses a re-encryption while a key change is unfinished: the files would be \
+                 written under the old key the rotation is replacing"
+            ),
+            ("unknown", "the keyring failed on a re-read after the drive had opened"),
+        ]
+    );
+}
+
+/// "Restore as of..." and a file's restored version: the guard is the state's own policy
+/// (`EncState::restore_kind`: the files for an encrypted drive, "open it first" for one nobody
+/// decided, "encrypt it first" for one that is not). `files` is its answer.
+fn shadow_restore(keyring: &dyn KeyringStore, drive: &str, state: EncState, files: bool) {
+    let mut evidence = shadow_evidence(drive, keyring);
+    evidence.bucket.encrypted = Read::Found(matches!(state, EncState::Encrypted { .. }));
+    azul_storage::key_shadow!(
+        "azul_drive::encryption::restore",
+        Op::RestoreAsOf,
+        evidence,
+        if files { Guard::Permits } else { Guard::Refuses },
+        known = [
+            (
+                "rotating",
+                "no guard refuses a restore while a key change is unfinished: the repository is opened \
+                 with the old key, which may not open it"
+            ),
+            (
+                "locked",
+                "the drive was decided encrypted from another word than this keyring's (the record, \
+                 the bucket's key files, or another keyring) and this keyring holds no key: the \
+                 restore's own unlock refuses next"
+            ),
+            (
+                "unknown",
+                "the keyring failed on a read the state's decision did not make again"
+            ),
+        ]
+    );
 }
 
 /// The proof a removal runs with: the one made from the settings (`proof`), kept only while the
@@ -1750,6 +1929,12 @@ pub(crate) fn restore_with(auto: Arc<AutoEncrypted>) -> crate::restore::Encrypte
 /// (X-AR5b-2).
 fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Result<usize, String> {
     let state = auto.decide().map_err(|e| e.to_string())?;
+    shadow_restore(
+        &azlin_keyring(Asking::User),
+        auto.drive(),
+        state,
+        state.restore_kind() == RestoreKind::Files,
+    );
     match state.restore_kind() {
         RestoreKind::Files => {}
         RestoreKind::OpenFirst => return Err(String::from("azdrive-restore-open-first")),
@@ -1812,6 +1997,13 @@ pub(crate) fn restore_file_version(
     id: azul_storage::meta::ObjectId,
 ) -> Result<(), String> {
     let bucket = versioned_bucket(auto)?;
+    // The drive has an index of its own, so it is decided encrypted (`versioned_bucket`).
+    shadow_restore(
+        keyring,
+        auto.drive(),
+        auto.state(),
+        auto.state().has_drive_index(),
+    );
     let drive_key = device::unlock(bucket.as_ref(), keyring, auto.drive())
         .map_err(|e| e.to_string())?
         .ok_or_else(|| String::from("azdrive-enc-err-device-no-key"))?;
@@ -2818,9 +3010,11 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                 // The rotation of THIS device that stopped has had its lockdown. A journal anyone
                 // planted in the bucket is none: it must not skip the lockdown. A rotation that
                 // cannot be finished is refused here, before the lockdown.
-                if rotation::lockdown_needed(auto.bucket().as_ref(), &keyring, auto.drive())
-                    .map_err(|e| e.to_string())?
-                {
+                let lockdown =
+                    rotation::lockdown_needed(auto.bucket().as_ref(), &keyring, auto.drive())
+                        .map_err(|e| e.to_string())?;
+                shadow_rotation(&keyring, auto.drive(), lockdown);
+                if lockdown {
                     azlin.lockdown().map_err(|e| e.to_string())?;
                 }
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
@@ -2869,6 +3063,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     device::held(&keyring, &device::drive_key_entry(auto.drive()))
                         .map_err(|e| e.to_string())?
                         .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
+                shadow_new_code(&keyring, auto.drive());
                 let code = RecoveryCode::generate().map_err(|e| e.to_string())?;
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 let wrap = RecoveryWrap::seal(&key, auto.drive(), &code, kdf)
@@ -2928,6 +3123,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     provider.as_ref(),
                 )
                 .map_err(|e| e.to_string())?;
+                shadow_reencrypt(&keyring, auto.drive());
                 let mut save =
                     |state: &ReencryptState| save_state(&state_file, &state.to_json());
                 reencrypt_pass(&drive, &mut state, &mut save, &|| false)
