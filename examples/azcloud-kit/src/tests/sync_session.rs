@@ -2169,3 +2169,62 @@ fn x_delta_azdrive_sync_14_an_answer_is_for_the_question_the_dialog_showed() {
     assert!(states.mass_delete.is_none());
     assert!(!lists(&index_of(&store), "more/0.txt"), "now they go");
 }
+
+/// X-DELTA-AZDRIVE-SYNC-16 (a). "Delete from the drive" on a folder unlinked its files and left the
+/// folder: the next pass read a folder that stays with every synced file taken out of it - the
+/// delete the user had just confirmed - as an emptied folder (SYNC-F2) and held with a question. The
+/// folder goes with its files, as a folder, and the pass asks nothing and deletes them on the
+/// drive. RED not run: the old code leaves `docs/` and the pass asks.
+#[test]
+fn x_delta_azdrive_sync_16_a_folder_the_user_deleted_through_the_app_goes_as_a_folder() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    for i in 0..25 {
+        a.write(&format!("other/{i}.txt"), format!("other {i}").as_bytes());
+    }
+    for i in 0..3 {
+        a.write(&format!("docs/{i}.txt"), format!("doc {i}").as_bytes());
+    }
+    a.pass();
+    let taken = a.session.delete(&[String::from("docs/")]).unwrap();
+    assert_eq!(taken.len(), 3, "{taken:?}");
+    assert!(
+        !a.folder.path().join("docs").exists(),
+        "the folder went with its files"
+    );
+    let (states, _) = a.pass();
+    assert!(
+        states.mass_delete.is_none(),
+        "the user had just confirmed this delete: {:?}",
+        states.mass_delete
+    );
+    assert!(
+        !lists(&index_of(&store), "docs/0.txt"),
+        "the files went from the drive"
+    );
+    assert!(lists(&index_of(&store), "other/0.txt"), "and only those");
+}
+
+/// X-DELTA-AZDRIVE-SYNC-16 (b). "Free up space" hashes a file whose times moved and frees it when it
+/// is the file it hashed; the check after the hash (the file as it was looked at before is the file
+/// that is there) must not refuse an untouched file. (The race itself - an editor saving by rename
+/// during the hash, the unlink then taking the new file - has no seam to be played at: RED not run.)
+#[test]
+fn x_delta_azdrive_sync_16_free_up_frees_a_file_whose_times_moved_but_whose_bytes_did_not() {
+    let store = Arc::new(S3Bucket::new());
+    let a = paired("dev-a", &store, |_| {});
+    a.write("keep.txt", b"the bytes of the version on the drive");
+    a.pass();
+    // The modification time moves, the bytes do not: the file is hashed before it is unlinked.
+    let path = path_of(a.folder.path(), "keep.txt");
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(120);
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    let freed = a.session.free_up(&[String::from("keep.txt")]).unwrap();
+    assert_eq!(freed.freed, vec![String::from("keep.txt")], "{freed:?}");
+    assert!(a.read("keep.txt").is_none(), "its bytes left this device");
+}

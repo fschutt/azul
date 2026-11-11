@@ -4745,8 +4745,20 @@ pub fn evict_file(root: &LocalRoot, index_path: &Path, key: &str) -> CloudResult
     // Unread only when the file is, for certain, the one that was hashed (AZ-S13: size and
     // modification time also pass an edit that kept both); else its bytes are read first.
     let unmoved = entry.holds(&st, index.scanned_at_ns);
-    if !unmoved && hash_here(&root.path, key).as_deref() != Some(entry.hash.as_str()) {
-        fail!("{key} changed since its last sync and is not synced yet: it stays on this device");
+    if !unmoved {
+        if hash_here(&root.path, key).as_deref() != Some(entry.hash.as_str()) {
+            fail!(
+                "{key} changed since its last sync and is not synced yet: it stays on this device"
+            );
+        }
+        // The hash took as long as the file is big. An editor that saved by rename meanwhile left
+        // the old file to the hasher - whose bytes are the base's - and the unlink below would take
+        // the NEW file, which exists nowhere else (X-DELTA-AZDRIVE-SYNC-16). Looked at again it is
+        // the file that was hashed, or it stays.
+        let again = dir.lstat(name).with_context(|| format!("{key}"))?;
+        if !st.unchanged(&again) {
+            fail!("{key} was changed while it was read: it stays on this device");
+        }
     }
     dir.unlink(name)?;
     dir.sync();

@@ -1718,6 +1718,16 @@ impl SyncSession {
             // A file that is not there is no error.
             here.delete(key)?;
         }
+        // A folder the user deleted goes as a folder. Left empty it stays a folder with every
+        // synced file taken out of it, which the next pass reads as an emptied folder (SYNC-F2)
+        // and holds with a question about a delete the user has just confirmed
+        // (X-DELTA-AZDRIVE-SYNC-16). Only a folder with nothing else in it goes (a file the user
+        // made meanwhile, or one this delete did not name, keeps it).
+        for folder in keys.iter().filter(|key| key.ends_with('/')) {
+            // collapse-ok: a folder that cannot be removed stays; the files the user chose are gone
+            // either way, and the next pass says what it finds.
+            let _ = here.remove_empty_folder(folder);
+        }
         if let Some(index) = &index {
             index.save(&index_path)?;
         }
