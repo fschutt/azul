@@ -84,11 +84,25 @@ fn a_scope_streams_and_writes_conditionally_under_its_prefix_and_a_read_only_one
         std::fs::read(tmp.path().join("users/ann/docs/c.txt")).unwrap(),
         b"streamed"
     );
-    // The scope answers what its drive answers: a folder on disk keeps no versions.
+    // The scope answers what its drive answers: a folder on disk writes conditionally (the rename
+    // that puts the file in place asks), under the scope's prefix, and a name that is taken is a
+    // `Conflict` that leaves its file as it was.
+    assert!(writable
+        .put_if("docs/d.txt", b"x", &Precondition::Absent)
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        std::fs::read(tmp.path().join("users/ann/docs/d.txt")).unwrap(),
+        b"x"
+    );
     assert!(matches!(
-        writable.put_if("docs/d.txt", b"x", &Precondition::Absent),
-        Err(DriveError::Unsupported(_))
+        writable.put_if("docs/d.txt", b"y", &Precondition::Absent),
+        Err(DriveError::Conflict { .. })
     ));
+    assert_eq!(
+        std::fs::read(tmp.path().join("users/ann/docs/d.txt")).unwrap(),
+        b"x"
+    );
 
     let read_only = ScopedDrive::new(LocalDrive::new(tmp.path()), "users/ann/", false).unwrap();
     assert!(matches!(

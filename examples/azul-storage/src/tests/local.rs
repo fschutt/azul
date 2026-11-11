@@ -276,13 +276,39 @@ fn a_put_from_whose_reader_breaks_leaves_the_old_file_and_no_temporary_one() {
     assert_eq!(names_in(&tmp.path().join("docs")), vec!["a.txt"]);
 }
 
+/// A folder on disk writes conditionally (RF43 step 3, d9c7df163: it was `Unsupported` before, and
+/// this test said so): the file is put in place by the rename that asks the condition, a name that
+/// is taken is a `Conflict` and the file that was there is left as it was, and the answer is the
+/// new file's tag. The versions of a file are `xfer_local.rs`'s; what is still not there is the
+/// upload of a file with a condition (`put_file_if`): the folder does not say it asks at the step
+/// that makes the file visible (`conditional_writes`), and a copy into it is guarded by the
+/// rename's own `Expect` instead.
 #[test]
-fn a_folder_on_disk_cannot_write_conditionally() {
+fn a_folder_on_disk_writes_conditionally_and_leaves_a_file_that_is_there_as_it_was() {
     let tmp = TempDir::new("local-put-if");
     let drive = LocalDrive::new(tmp.path());
+    let made = drive.put_if("a.txt", b"x", &Precondition::Absent).unwrap();
+    assert!(made.is_some(), "the new file's tag comes back");
+    assert_eq!(made, drive.head("a.txt").unwrap().etag);
+    assert_eq!(std::fs::read(tmp.path().join("a.txt")).unwrap(), b"x");
     assert!(matches!(
-        drive.put_if("a.txt", b"x", &Precondition::Absent),
+        drive.put_if("a.txt", b"y", &Precondition::Absent),
+        Err(DriveError::Conflict { .. })
+    ));
+    assert_eq!(
+        std::fs::read(tmp.path().join("a.txt")).unwrap(),
+        b"x",
+        "the refused write left the file alone"
+    );
+    assert!(!drive.conditional_writes());
+    assert!(matches!(
+        drive.put_file_if(
+            "b.txt",
+            &tmp.path().join("a.txt"),
+            &Precondition::Absent,
+            &crate::ctl::Quiet
+        ),
         Err(DriveError::Unsupported(_))
     ));
-    assert!(!tmp.path().join("a.txt").exists());
+    assert!(!tmp.path().join("b.txt").exists());
 }
