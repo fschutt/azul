@@ -226,6 +226,27 @@ const ALLOWED: &[Allow] = &[
          (ARCH29 C6c)",
     ),
     Allow::exactly(
+        "examples/azcloud-kit/src/sync/movein.rs",
+        ON_DISK_KEY,
+        1,
+        "move_in's look at the destination the user typed: is it taken? (a look, no folder made) \
+         (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/movein.rs",
+        PARENT_OF_EXISTING,
+        1,
+        "move_in's look at the destination: walked to, never made (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/movein.rs",
+        PARENT_OF_NEW,
+        1,
+        "copy_one: the folders of each copy, made after Policy::admitted for a name a person chose \
+         (Purpose::UserTyped: the user's own folder moves in with its names, a repository with its \
+         .git) (ARCH29 C6c)",
+    ),
+    Allow::exactly(
         "examples/azul-appkit/src/data.rs",
         ON_DISK_KEY,
         1,

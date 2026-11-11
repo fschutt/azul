@@ -13,7 +13,7 @@ use azul_storage::{
     beneath::{BeneathError, Root},
     ctl::Quiet,
     durable::{self, Expect, Mode, Publish},
-    names::{Policy, Purpose, Volume},
+    names::{OnDisk, Policy, Purpose, Volume},
 };
 use serde::{Deserialize, Serialize};
 
@@ -74,8 +74,15 @@ pub fn move_in(root: &Path, state_dir: &Path, from: &Path, key: &str) -> CloudRe
     // Every name is reached from the folder's root without a link: nothing lands in a folder
     // that a link below the synced folder points at.
     let tree = Root::open(root).with_context(|| root.display())?;
-    match Policy::here(Volume::default()).walk(&tree, key, Purpose::UserTyped, false) {
-        Ok((dir, name)) if dir.lstat(&name).is_ok() => fail!("{key} is there already"),
+    // A look at the name the user typed: the shape rows, no folder made for it (ARCH29 C6c).
+    let taken = OnDisk::of_entry(key)
+        .map_err(BeneathError::from)
+        .and_then(|on_disk| {
+            tree.parent_of_existing(&on_disk)
+                .map(|(dir, name)| dir.lstat(name).is_ok())
+        });
+    match taken {
+        Ok(true) => fail!("{key} is there already"),
         Err(e) if !e.is_not_found() => return Err(CloudError::from(e).context(key)),
         _ => {}
     }
@@ -120,12 +127,16 @@ fn copy_one(
     };
     #[cfg(not(unix))]
     let mode = 0o644;
-    let (dir, name) = Policy::here(Volume::default())
-        .walk(tree, key, Purpose::UserTyped, true)
+    // The user's own folder moves in with its own names (a repository keeps its `.git`: the scan's
+    // rules leave it out later): the rows of a name a person chose, then the folders are made.
+    let admitted = Policy::here(Volume::default())
+        .admitted(key, Purpose::UserTyped)
+        .map_err(BeneathError::from)
         .context(key)?;
+    let (dir, name) = tree.parent_of_new(&admitted).context(key)?;
     durable::publish(
         &dir,
-        &name,
+        name,
         &mut source,
         Publish::new(Expect::Any, Mode::FromSource(mode), &Quiet),
     )
@@ -273,5 +284,40 @@ mod tests {
         assert!(removed.is_empty());
         assert!(victim.join("sub/b.txt").exists(), "the user's own change stays");
         assert!(move_in(root.path(), state.path(), &root.path().join("moved"), "x").is_err());
+    }
+
+    /// ARCH29 C6c. A move-in looks at the name the user typed as an `OnDisk` key (no folder made for a
+    /// look: a name that leaves the folder is refused before anything is copied) and makes the folders of
+    /// each copy for a name a person chose (`Admitted`, the shape and this system's rows): the user's own
+    /// repository moves in with its `.git`. Green on the old code too (`Policy::walk` with the same
+    /// purpose): it pins what the types now hold.
+    #[test]
+    fn c6c_a_move_in_looks_without_making_and_makes_folders_for_the_users_own_names() {
+        let root = TempDir::new("azcloud-movein-c6c-root");
+        let state = TempDir::new("azcloud-movein-c6c-state");
+        let outside = TempDir::new("azcloud-movein-c6c-outside");
+        let source = outside.path().join("proj");
+        fs::create_dir_all(source.join(".git")).unwrap();
+        fs::write(source.join("a.txt"), b"a").unwrap();
+        fs::write(source.join(".git/config"), b"c").unwrap();
+        for key in ["../escape", "a/../../b", "x\0y"] {
+            assert!(
+                move_in(root.path(), state.path(), &source, key).is_err(),
+                "{key:?}"
+            );
+        }
+        assert_eq!(
+            fs::read_dir(root.path()).unwrap().count(),
+            0,
+            "a folder was made"
+        );
+        let copied = move_in(root.path(), state.path(), &source, "proj").unwrap();
+        assert_eq!(copied, vec!["proj/.git/config", "proj/a.txt"]);
+        assert_eq!(
+            fs::read(root.path().join("proj/.git/config")).unwrap(),
+            b"c"
+        );
+        // The name is taken now: said, nothing copied over it.
+        assert!(move_in(root.path(), state.path(), &source, "proj").is_err());
     }
 }
