@@ -4778,6 +4778,55 @@ mod tests {
         assert_eq!(stopped, "AZDRIVE_RECLAIM_STOPPED d1: no answer");
     }
 
+    /// X-DELTA-AZDRIVE-SYNC-5 / -6. The owner reads the log to decide whether the reclaimer may be
+    /// switched on: a drive over the budget says "too big to judge" and how big it is; a run that
+    /// was configured to delete says what held it back; a round carries the digest of its
+    /// candidates, whether the head listed again agrees, and the clean rounds so far.
+    #[test]
+    fn x_delta_azdrive_sync_5_the_log_line_says_too_big_to_judge_and_what_holds_the_switch_back() {
+        use azul_storage::meta::{GoEvidence, Hold, NotYet, ReclaimMode, ReclaimReport};
+
+        let mut big = ReclaimReport::too_big(ReclaimMode::Shadow, 700 << 20, 256 << 20);
+        let line = reclaim_marker("d1", Some(Ok(big.clone()))).unwrap();
+        assert!(
+            line.starts_with("AZDRIVE_RECLAIM d1 reclaim (shadow)"),
+            "{line}"
+        );
+        assert!(
+            line.contains("700 MiB")
+                && line.contains("256 MiB")
+                && line.contains("too big to judge"),
+            "{line}"
+        );
+        assert_eq!(
+            big.stopped,
+            Some(NotYet::TooBig {
+                bytes: 700 << 20,
+                budget: 256 << 20
+            })
+        );
+
+        big.digest = String::from("0123456789abcdef0123456789abcdef");
+        big.rederived = Some(true);
+        big.evidence = Some(GoEvidence {
+            clean_rounds: 3,
+            days: 2,
+            devices: 1,
+            drive_devices: 2,
+            ..GoEvidence::default()
+        });
+        big.held = Some(Hold::Rounds { have: 3, need: 7 });
+        let line = reclaim_marker("d1", Some(Ok(big))).unwrap();
+        for part in [
+            "digest 0123456789abcdef",
+            "agrees",
+            "clean rounds 3 over 2 days by 1 of 2 devices",
+            "held back: 3 clean rounds in a row, 7 wanted",
+        ] {
+            assert!(line.contains(part), "{part}: {line}");
+        }
+    }
+
     #[test]
     fn a_drive_index_is_maintained_once_every_six_hours_and_one_round_at_a_time() {
         let now = 1_760_000_000;
