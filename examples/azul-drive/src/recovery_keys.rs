@@ -57,6 +57,7 @@ use azul_storage::{
     crypto::{
         device,
         keys::{RecoveryCode, RecoveryKdf},
+        keystate::{Evidence, Guard, Op, Read},
         Zeroizing,
     },
     encrypted::AutoEncrypted,
@@ -1079,6 +1080,41 @@ fn left_after(
     Left { first_code, copies }
 }
 
+/// The key permit's shadow of a kit's wrap leaving the drive's storage (ARCH29 C7 step 2): the job has
+/// no guard of its own about the state of the drive's keys - the drive is open, so the wrap can be
+/// reached, and the token server refuses the last key afterwards. The keyring is read with one that
+/// never asks the user: the shadow must not be the reason a dialog appears.
+fn shadow_remove_code(drive: &str) {
+    let mut evidence = Evidence::new(drive, now_unix());
+    evidence.keyring =
+        device::key_facts(&azlin_keyring(azul_storage::keyring::Asking::Never), drive);
+    evidence.bucket.encrypted = Read::Found(true);
+    azul_storage::key_shadow!(
+        "azul_drive::recovery_keys::remove_job",
+        Op::RemoveCode,
+        evidence,
+        Guard::Permits,
+        known = [
+            (
+                "rotating",
+                "X-DELTA-AZDRIVE-KEYS-7: a kit's wrap is taken out while a rotation is unfinished: the \
+                 rotation's last step replaces the recovery wrap, and which kit still opens the new \
+                 key is not what the list says; the table refuses"
+            ),
+            (
+                "locked",
+                "the drive is open on this computer, so its key was read by the keyring the drive was \
+                 opened with; the keyring that never asks holds none (a stand-in keyring of a test, or \
+                 a read that would have needed the user)"
+            ),
+            (
+                "unknown",
+                "the keyring that never asks answered Denied where it would have had to ask the user"
+            ),
+        ]
+    );
+}
+
 /// Removes a recovery key: its wrap in the drive's storage first (`delete_wrap`: what lets its
 /// code open the drive key - a kit that was lost must not keep doing that; it hands back the bytes
 /// it took out), then its key at the token server (`remove_at_server`, which checks the signature
@@ -1295,6 +1331,7 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                 || match (&extra_file, &auto) {
                     (Some(file), Some(auto)) => {
                         let bucket = auto.bucket().as_ref();
+                        shadow_remove_code(auto.drive());
                         let taken =
                             device::read_recovery_code(bucket, file).map_err(|e| e.to_string())?;
                         device::remove_recovery_code(bucket, file).map_err(|e| e.to_string())?;
