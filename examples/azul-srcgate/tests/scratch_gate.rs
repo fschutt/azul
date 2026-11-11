@@ -204,9 +204,10 @@ const ALLOWED: &[Allow] = &[
         "examples/azul-drive/src/picker.rs",
         COPY_PIECE,
         1,
-        "copy_root: the picker's folder of picked copies of one drive (`picked`, one kept folder a \
-         drive), filled by the picker's own transfer queue and handed to the app that asked for a \
-         copy; not an Open copy (no version, no read-only mark: the app may save to it)",
+        "copy_root: the picker's STAGING folder of one drive (`picked`, one kept folder a drive): \
+         the transfer queue fetches the picked objects into it and `hand_out` moves each into an \
+         open copy (`Scratch::open_copy`: a folder per file and version, read-only, noted as made) \
+         before the app is given anything; nothing is handed out from it (X-DELTA-SYNC2-4)",
     ),
     Allow::exactly(
         "examples/azul-drive/src/e2e/",

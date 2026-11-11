@@ -267,3 +267,164 @@ fn x_delta_azdrive_files_29_the_pickers_copies_wait_in_scratch_with_or_without_a
     assert_ne!(root, copy_root("d_pick29b").unwrap());
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// `path` (a file, or a folder) made `days` old.
+#[cfg(unix)]
+fn aged_by(path: &Path, days: u32) {
+    let when =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(u64::from(days) * 86_400);
+    std::fs::File::open(path)
+        .unwrap()
+        .set_modified(when)
+        .unwrap();
+}
+
+/// `path` and everything below it made `days` old: a kept folder is as old as the newest thing in it.
+#[cfg(unix)]
+fn aged_tree(path: &Path, days: u32) {
+    if path.is_dir() && !path.is_symlink() {
+        for entry in std::fs::read_dir(path).unwrap() {
+            aged_tree(&entry.unwrap().path(), days);
+        }
+    }
+    if !path.is_symlink() {
+        aged_by(path, days);
+    }
+}
+
+/// A copy of a cloud object as the picker's fetch leaves it: the key's file, in a staging folder.
+#[cfg(unix)]
+fn fetched(staging: &Path, name: &str) -> PathBuf {
+    std::fs::create_dir_all(staging).unwrap();
+    let path = staging.join(name);
+    std::fs::write(&path, b"the drive's bytes").unwrap();
+    path
+}
+
+/// The handle of the picked object `key` of the drive `d_pick24`.
+#[cfg(unix)]
+fn cloud_ref(key: &str) -> CloudRef {
+    CloudRef {
+        drive_id: String::from("d_pick24"),
+        drive_name: String::from("Docs"),
+        key: key.to_string(),
+        size: Some(17),
+        etag: Some(String::from("\"e1\"")),
+        modified: Some(5),
+        link: None,
+    }
+}
+
+/// X-DELTA-SYNC2-4. The picker's copies were one kept folder per drive of scratch with no record and
+/// no read-only mark: a host program that opened a picked copy and saved into it lost the edit at the
+/// next start - the sweep takes a folder a day after its newest entry, and a folder with no record
+/// "holds nobody's work". A picked copy is an open copy now ([`hand_out`]): a folder of its own, read
+/// only, noted as made - an edit saved over it survives the sweep four days on, and an untouched copy
+/// of that age is still swept (the negative control: the record is what keeps the edit). RED on the
+/// old code: its folder holds no record, so the sweep removes the edit with the folder.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync2_4_a_picked_copy_is_an_open_copy_and_an_edit_saved_over_it_survives_the_sweep() {
+    use azul_storage::scratch::{MadeState, OPEN_COPY_KEPT};
+    use std::os::unix::fs::PermissionsExt;
+
+    let base = azul_storage::testing::TempDir::new("picker-sync2-4");
+    let copies = Scratch::under(base.path(), "open");
+    let staging = base.path().join("staging");
+    let a_staged = fetched(&staging, "a.docx");
+    let b_staged = fetched(&staging, "b.docx");
+
+    let a = hand_out(&copies, &cloud_ref("docs/a.docx"), &a_staged).unwrap();
+    let b = hand_out(&copies, &cloud_ref("docs/b.docx"), &b_staged).unwrap();
+    assert!(a.starts_with(copies.dir()), "{a:?}");
+    assert_eq!(std::fs::read(&a).unwrap(), b"the drive's bytes");
+    assert_eq!(
+        std::fs::metadata(&a).unwrap().permissions().mode() & 0o222,
+        0,
+        "read-only: a save in place fails loudly"
+    );
+    assert!(!a_staged.exists(), "the fetched file moved into its copy");
+    assert_ne!(
+        a.parent(),
+        b.parent(),
+        "a folder per file: one copy never holds another's"
+    );
+    assert_eq!(
+        Scratch::made_state(a.parent().unwrap(), "a.docx"),
+        MadeState::Untouched
+    );
+
+    // The host program saves its edit over the copy: an editor renames a new file over it.
+    let saving = a.parent().unwrap().join(".a.docx.saving");
+    std::fs::write(&saving, b"the user's edit").unwrap();
+    std::fs::rename(&saving, &a).unwrap();
+
+    // Four days go by. The untouched copy b is the file that was written, four days on (noted after
+    // it was aged, its record and folder aged last); a's folder holds the edit.
+    aged_tree(copies.dir(), 4);
+    let b_folder = b.parent().unwrap();
+    Scratch::note_made(b_folder, "b.docx").unwrap();
+    aged_by(&b_folder.join(".made.json"), 4);
+    aged_by(b_folder, 4);
+    assert_eq!(
+        Scratch::made_state(b_folder, "b.docx"),
+        MadeState::Untouched
+    );
+
+    assert_eq!(
+        copies.sweep(OPEN_COPY_KEPT),
+        1,
+        "one folder went: the untouched copy's"
+    );
+    assert_eq!(
+        std::fs::read(&a).unwrap(),
+        b"the user's edit",
+        "the edit saved over a picked copy is there"
+    );
+    assert!(!b.exists(), "an untouched copy that old is swept");
+}
+
+/// X-DELTA-SYNC2-4: the same version picked again is the same copy and needs no second fetch; another
+/// version is another folder and the first stays as it was.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync2_4_the_same_version_picked_again_is_one_copy_and_another_version_another() {
+    let base = azul_storage::testing::TempDir::new("picker-sync2-4-version");
+    let copies = Scratch::under(base.path(), "open");
+    let staging = base.path().join("staging");
+    let first = hand_out(
+        &copies,
+        &cloud_ref("docs/a.docx"),
+        &fetched(&staging, "a.docx"),
+    )
+    .unwrap();
+    // Picked again: the copy is there and is what was written - handed out as it is.
+    let again_staged = fetched(&staging, "a.docx");
+    let again = hand_out(&copies, &cloud_ref("docs/a.docx"), &again_staged).unwrap();
+    assert_eq!(first, again);
+    assert!(
+        again_staged.exists(),
+        "nothing was moved: the copy needed no fetch"
+    );
+    // The drive's file changed (another tag): another copy, and the first is untouched.
+    let mut newer = cloud_ref("docs/a.docx");
+    newer.etag = Some(String::from("\"e2\""));
+    let second = hand_out(&copies, &newer, &fetched(&staging, "a.docx")).unwrap();
+    assert_ne!(first.parent(), second.parent());
+    assert!(first.exists() && second.exists());
+}
+
+/// X-DELTA-SYNC2-4: a key with no usable file name is refused, and the fetched file stays where it is.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync2_4_an_object_with_no_file_name_is_not_handed_out() {
+    let base = azul_storage::testing::TempDir::new("picker-sync2-4-name");
+    let copies = Scratch::under(base.path(), "open");
+    let staged = fetched(&base.path().join("staging"), "x");
+    let refused = hand_out(&copies, &cloud_ref("docs/.."), &staged).unwrap_err();
+    assert!(
+        matches!(refused, DriveError::InvalidKey { .. }),
+        "{refused:?}"
+    );
+    assert!(staged.exists());
+}

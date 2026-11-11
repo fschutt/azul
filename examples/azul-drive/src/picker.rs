@@ -7,7 +7,9 @@
 //! ([`PickAnswer`]) before its window closes and the process ends. A file of this computer is
 //! answered by its path; an object of a cloud drive by its handle (drive, key, size, ETag),
 //! or with `cloud: copy` fetched first through the transfer queue into a private folder of
-//! scratch (swept when it has not been used for a day) and answered with that copy's path as well.
+//! scratch and then handed over as every program is handed a copy of a cloud file
+//! ([`hand_out`]: `Scratch::open_copy` - a folder per file and version, read-only, noted as made, so
+//! that an edit saved over it is never swept) and answered with that copy's path as well.
 //!
 //! Every normal start writes the registration other apps find the picker by
 //! ([`registration`], `file-picker.json` beside the drives file).
@@ -31,7 +33,13 @@ use azul::{
     },
 };
 use azul_appkit::l10n::{label, t, Phrase};
-use azul_storage::{scratch::Scratch, Drive, LocalDrive};
+use azul_storage::{
+    beneath::Dir,
+    ctl::Quiet,
+    durable::{self, Blob, Expect, Mode, Publish},
+    scratch::{CopyOf, Scratch},
+    Drive, DriveError, LocalDrive,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -611,15 +619,95 @@ pub(crate) fn picked_dir(cache: &Path, drive_id: &str) -> PathBuf {
     cache.join("picked").join(drive_id)
 }
 
-/// The scratch the copies wait in when there is no cache folder: a kept folder of it a drive
-/// ([`Scratch::keep`] makes it, [`Scratch::kept`] names it).
+/// The scratch the picker's STAGING waits in: a kept folder of it a drive ([`Scratch::keep`] makes it,
+/// [`Scratch::kept`] names it). The transfer queue fetches the picked objects into it and
+/// [`hand_out`] moves each into a copy of its own before anything is handed to the app: nothing is
+/// handed out from here, so a sweep of this folder takes only what nobody was given.
 pub(crate) fn picked_scratch() -> Scratch {
     Scratch::new("picked")
 }
 
-/// The folder the picker's copies of the drive `drive_id` wait in: its kept folder of scratch.
+/// The folder the picker's fetched objects of the drive `drive_id` land in before they are handed
+/// out: its kept folder of scratch.
 pub(crate) fn copy_root(drive_id: &str) -> std::io::Result<PathBuf> {
     picked_scratch().keep(drive_id)
+}
+
+/// The copy of the cloud object `r` the picker hands to the app that asked for it, made from the
+/// object the transfer queue fetched to `staged`. It is a copy of the one kind every program is
+/// handed ([`Scratch::open_copy`]): a folder of its own per file AND version, read-only, marked as
+/// downloaded, and noted as made - so that what the app saves over it or beside it is the user's
+/// work, which no sweep takes and the next pick puts aside, never over (X-DELTA-SYNC2-4: the
+/// picker's copies were one folder per drive with no record, writable, and swept a day after the
+/// newest of them - an edit saved into a picked copy was deleted at the next start, silently).
+/// The version is the one [`crate::jobs`] gives an Open copy of the same file, so the two are one
+/// copy.
+///
+/// # Errors
+///
+/// [`DriveError::InvalidKey`] for a key with no usable file name; the folder, the move or the note
+/// that failed - the copy is not handed out then, an edit of it could not be told from scratch.
+pub(crate) fn hand_out(
+    copies: &Scratch,
+    r: &CloudRef,
+    staged: &Path,
+) -> Result<PathBuf, DriveError> {
+    let name = azul_storage::key::safe_file_name(&r.key).ok_or_else(|| DriveError::InvalidKey {
+        key: r.key.clone(),
+        reason: "it has no usable file name",
+    })?;
+    // A drive that reports neither a tag nor a date cannot tell one version from the next: its
+    // copy is never reused.
+    let version = match (&r.etag, r.modified) {
+        (None, None) => format!("unversioned-{:x}", azul_storage::ids::random_seed()),
+        (etag, modified) => format!("{}-{modified:?}", etag.as_deref().unwrap_or("")),
+    };
+    let opened = copies.open_copy(
+        CopyOf {
+            key: &r.key,
+            name: &name,
+            version: &version,
+            size: r.size,
+        },
+        &mut |dest, expect| adopt(&r.key, staged, dest, expect),
+    )?;
+    if let Some(kept) = &opened.kept_edit {
+        eprintln!(
+            "[azdrive] an edit saved over an earlier pick of {} is kept as {}",
+            r.key,
+            kept.display()
+        );
+    }
+    Ok(opened.path)
+}
+
+/// Moves the fetched file `staged` into the copy's place `dest`, only into a free place (`expect`):
+/// one rename on the one disk the two folders of scratch lie on.
+fn adopt(key: &str, staged: &Path, dest: &Path, expect: Expect) -> Result<(), DriveError> {
+    let folder_of = |path: &Path| -> Result<(Dir, String), DriveError> {
+        let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
+            DriveError::Io(format!("{key}: {} has no usable name", path.display()))
+        })?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| DriveError::Io(format!("{key}: {} has no folder", path.display())))?;
+        let dir = Dir::open_following(parent)
+            .map_err(|e| DriveError::Io(format!("{key}: {}: {e}", parent.display())))?;
+        Ok((dir, name.to_string()))
+    };
+    let (from_dir, from_name) = folder_of(staged)?;
+    let (to_dir, to_name) = folder_of(dest)?;
+    durable::publish_staged(
+        &to_dir,
+        &to_name,
+        Blob {
+            dir: &from_dir,
+            name: &from_name,
+        },
+        Publish::new(expect, Mode::Shared, &Quiet),
+    )
+    .map(|_| ())
+    .map_err(|e| e.into_drive(key))
 }
 
 /// Fetches the objects of `refs` into the drive's kept folder of scratch through the transfer
@@ -641,10 +729,10 @@ fn start_copy(
         return;
     };
     // In scratch (under the cache folder when there is one): a private folder of its own per
-    // drive, swept when it has not been used for a day. A folder of the cache itself was swept by
-    // nothing, and the plaintext of an encrypted drive piled up in it (X-DELTA-AZDRIVE-FILES-29);
-    // the shared temp folder, under a name every user can guess, is no place for it either
-    // (X-AR5a-23).
+    // drive, where the queue fetches the objects before `hand_out` gives each its own copy. A
+    // folder of the cache itself was swept by nothing, and the plaintext of an encrypted drive
+    // piled up in it (X-DELTA-AZDRIVE-FILES-29); the shared temp folder, under a name every user can
+    // guess, is no place for it either (X-AR5a-23).
     let root = match copy_root(drive_id) {
         Ok(folder) => folder,
         Err(e) => {
@@ -704,14 +792,27 @@ pub(crate) fn copy_finished(info: &mut CallbackInfo, s: &mut DriveState, done: b
         answer(info, s, &PickAnswer::error(t("azdrive-pick-fetch-failed")));
         return;
     }
-    let items = copy
-        .refs
-        .into_iter()
-        .map(|r| PickedItem {
-            path: Some(crate::jobs::path_in(&copy.root, &r.key).to_string_lossy().into_owned()),
-            cloud: Some(r),
-        })
-        .collect();
+    // Each fetched object is handed to the app as a copy of the kind every program is handed
+    // ([`hand_out`]), not as the file the queue left in the staging folder.
+    let mut items = Vec::new();
+    for r in copy.refs {
+        let staged = crate::jobs::path_in(&copy.root, &r.key);
+        let copies = crate::footprint::open_copies_of(&r.drive_id);
+        match hand_out(&copies, &r, &staged) {
+            Ok(path) => items.push(PickedItem {
+                path: Some(path.to_string_lossy().into_owned()),
+                cloud: Some(r),
+            }),
+            Err(e) => {
+                eprintln!(
+                    "[azdrive] the picked copy of {} cannot be handed out: {e}",
+                    r.key
+                );
+                answer(info, s, &PickAnswer::error(t("azdrive-pick-fetch-failed")));
+                return;
+            }
+        }
+    }
     answer(info, s, &PickAnswer::selected(items));
 }
 
