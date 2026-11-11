@@ -368,6 +368,11 @@ pub struct UpdateState {
 /// The file of [`UpdateState`] in a state folder.
 const STATE_FILE: &str = "update-state.json";
 
+/// The most bytes of `update-state.json` that are read: the file holds a few hundred bytes of marks,
+/// and a sparse file of gigabytes (or one that never ends) must not be read whole into memory by every
+/// check of the app before it is called damaged (X-DELTA-AZDRIVE-KEYS-35).
+const STATE_FILE_MAX: u64 = 64 * 1024;
+
 impl UpdateState {
     /// Reads `dir/update-state.json`. A file that is not there is a first run (`Ok(default)`); a
     /// file that is there and cannot be read or parsed - or has a field of another type than it is
@@ -381,8 +386,17 @@ impl UpdateState {
     /// Why the file could not be read or understood.
     pub fn read(dir: &Path) -> Result<Self, String> {
         let path = dir.join(STATE_FILE);
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
+        let bytes = match std::fs::File::open(&path) {
+            Ok(file) => {
+                // One byte more than the cap: a file over it is told apart from one at it.
+                let mut bytes = Vec::new();
+                std::io::Read::read_to_end(
+                    &mut std::io::Read::take(file, STATE_FILE_MAX + 1),
+                    &mut bytes,
+                )
+                .map_err(|e| format!("update state {}: {e}", path.display()))?;
+                bytes
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(format!("update state {}: {e}", path.display())),
         };
@@ -394,6 +408,10 @@ impl UpdateState {
                 path.display()
             )
         };
+        if bytes.len() as u64 > STATE_FILE_MAX {
+            return Err(damaged("far bigger than the marks it holds"));
+        }
+        let text = String::from_utf8(bytes).map_err(|_| damaged("not text"))?;
         let v = serde_json::from_str::<serde_json::Value>(&text)
             .map_err(|e| damaged(&e.to_string()))?;
         if !v.is_object() {
@@ -5598,6 +5616,45 @@ mod tests {
         assert!(UpdateState::read(&dir).is_err());
         std::fs::remove_file(&file).unwrap();
         assert_eq!(UpdateState::read(&dir), Ok(UpdateState::default()));
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-35 (b): `UpdateState::read` read `update-state.json` with
+    /// `read_to_string`, whole, at every check: a sparse file of gigabytes was allocated before it was
+    /// called damaged. A file over the cap is damaged without being read past it - and a valid JSON
+    /// object of 70 KiB, which the old code parsed and took, is refused too (the marks are a few
+    /// hundred bytes).
+    #[test]
+    fn x_delta_azdrive_keys_35_a_state_file_over_its_cap_is_damaged_and_not_read_whole() {
+        let dir = scratch_dir("keys35-cap");
+        let file = dir.join("update-state.json");
+        let padding = "x".repeat(70 * 1024);
+        std::fs::write(
+            &file,
+            format!("{{\"highest_seen\": \"4.0.0\", \"pad\": \"{padding}\"}}"),
+        )
+        .unwrap();
+        let err = UpdateState::read(&dir).expect_err("70 KiB of marks is no state file");
+        assert!(
+            err.contains("damaged")
+                && err.contains("far bigger")
+                && err.contains("delete the file"),
+            "{err}"
+        );
+
+        // At the cap's order of size the file still reads: a state with every mark set is small.
+        let small = UpdateState {
+            highest_seen: "4.0.0".into(),
+            ..UpdateState::default()
+        };
+        std::fs::remove_file(&file).unwrap();
+        small.try_save(&dir).unwrap();
+        assert_eq!(UpdateState::read(&dir).unwrap().highest_seen, "4.0.0");
+
+        // Bytes that are not text are damaged, not an I/O error with no way out.
+        std::fs::write(&file, [0xff, 0xfe, 0x00]).unwrap();
+        let err = UpdateState::read(&dir).expect_err("not text");
+        assert!(err.contains("damaged") && err.contains("not text"), "{err}");
         drop(std::fs::remove_dir_all(&dir));
     }
 
