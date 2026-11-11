@@ -1014,6 +1014,20 @@ fn every_keyring_entry_of_a_drive_has_one_owner_and_the_consumers_hold_exactly_t
     );
 }
 
+/// footprint.rs is the second list of what a drive leaves in the keyring: the entries that go only
+/// with a proof. They are the registry's own list less the credentials (a session and a drive token
+/// stay or go without one): two lists that cannot drift apart unseen.
+#[test]
+fn the_entries_that_go_with_a_proof_are_the_ones_the_registry_does_not_call_credentials() {
+    for entry in KeyEntry::ALL {
+        assert_eq!(
+            entry.goes_with_proof(),
+            owner(entry) != Owner::Credential,
+            "{entry:?}"
+        );
+    }
+}
+
 #[test]
 fn a_consumers_functions_are_files_and_names_listed_once_and_a_reseal_within_names_a_consumer() {
     let mut seen = BTreeSet::new();
