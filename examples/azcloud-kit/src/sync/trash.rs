@@ -196,7 +196,7 @@ fn candidates(tree: &Root, state_dir: &Path) -> Vec<Item> {
 
 /// Whether the file at the item's key is its bytes already: there is nothing to put back.
 fn already_back(root: &Path, tree: &Root, item: &Item) -> bool {
-    let Ok((dir, name)) = names::walk_local(tree, &item.key, false) else {
+    let Ok((dir, name)) = names::walk_record(tree, &item.key) else {
         return false;
     };
     let Ok(now) = dir.lstat(&name) else {
@@ -277,15 +277,20 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
     // Both names are reached from the folder's root without a link: a file never goes back
     // into a folder that a link below the synced folder points at.
     let tree = Root::open(root).with_context(|| root.display())?;
+    // The name a file goes back to passes the rows of a synced name first (this system's; the disk's
+    // folding does not matter for a file that was here): a protected name makes no folder, whoever
+    // put the file into the trash (ARCH29 C6c).
+    let policy = names::Policy::here(names::Volume::default());
     for item in candidates(&tree, state_dir) {
         if !under(&item.key) || already_back(root, &tree, &item) {
             continue;
         }
-        let Ok((source, from)) = names::walk_local(&tree, &item.path, false) else {
+        // The file in the trash is an entry of the trash's folders: walked to, never made.
+        let Ok((source, from)) = names::walk_entry(&tree, &item.path) else {
             continue;
         };
         let (target, to) =
-            names::walk_local(&tree, &item.key, true).with_context(|| item.key.clone())?;
+            names::make_parent_of(&tree, &policy, &item.key).with_context(|| item.key.clone())?;
         let (name, restored) = if target.lstat(&to).is_err() {
             (to, item.key.clone())
         } else {
@@ -316,6 +321,35 @@ mod tests {
     use super::*;
     use crate::sync::{local::path_of, oplog::Op};
     use azul_storage::testing::TempDir;
+
+    /// ARCH29 C6c. A restore makes the folders of the name a file goes back to through the one create of
+    /// the sync, after the rows of a synced name: a file in the trash under a protected spelling (the
+    /// trash's folders are on the disk; a log line, a copied folder or an older build can put one there)
+    /// is not put back and makes no folder of that name, and it stays in the trash; an ordinary file is
+    /// restored with its folders. On the old code the restore made `GIT~1/hooks` and moved the file into it
+    /// (the shape rows of Local only): RED by reasoning, not run.
+    #[test]
+    fn c6c_a_restore_makes_no_folder_for_a_protected_name_and_keeps_the_file_in_the_trash() {
+        let root = TempDir::new("azcloud-untrash-c6c");
+        let state = TempDir::new("azcloud-untrash-c6c-state");
+        let put = |key: &str, text: &str| {
+            let to = format!(".azlin/sync/trash/20261024-110000-aaaaaa/{key}");
+            let path = path_of(root.path(), &to);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, text).unwrap();
+            path
+        };
+        let poisoned = put("GIT~1/hooks/post-commit", "x");
+        let plain = put("docs/2026/a.txt", "a");
+        let refused = untrash(root.path(), state.path(), "GIT~1/hooks/post-commit");
+        assert!(refused.is_err(), "{refused:?}");
+        assert!(!root.path().join("GIT~1").exists(), "a folder was made");
+        assert_eq!(fs::read(&poisoned).unwrap(), b"x", "it stays in the trash");
+        let back = untrash(root.path(), state.path(), "docs/2026/a.txt").unwrap();
+        assert_eq!(back, vec![String::from("docs/2026/a.txt")]);
+        assert_eq!(fs::read(root.path().join("docs/2026/a.txt")).unwrap(), b"a");
+        assert!(!plain.exists(), "the file moved out of the trash");
+    }
 
     #[test]
     fn a_trashed_folder_comes_back_newest_version_first_never_over_a_file() {

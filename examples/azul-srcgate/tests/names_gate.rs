@@ -358,10 +358,17 @@ const ALLOWED: &[Allow] = &[
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/trash.rs",
-        WALK_LOCAL,
-        3,
-        "two looks at the disk (OnDisk) and the restore's target, which makes a name (Admitted) \
-         (ARCH29 C6c)",
+        WALK_EXISTING,
+        2,
+        "already_back (the oplog's key of a trashed file, a record) and untrash's source (an entry of \
+         the trash's folders): walked to, never made (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/trash.rs",
+        MAKE_PARENT_OF,
+        1,
+        "untrash's target: the folders of the name a file goes back to, made after the rows of a \
+         synced name (ARCH29 C6c)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/guard.rs",
