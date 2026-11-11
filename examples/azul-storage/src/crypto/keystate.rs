@@ -1395,7 +1395,8 @@ fn forget_device_key(permit: &Permit, e: &Erase<'_>) -> Result<Done, DriveError>
     forget_entry(permit, e, KeyEntry::DeviceKey)
 }
 
-/// The drive's index: sealed under keys derived from the drive key, and every entry holds a file
+/// The drive's index: sealed under keys derived from the drive key (the sealing key and the names
+/// key: `seal`, `open` and `name_hash` of the drive key's `Sealer`), and every entry holds a file
 /// key the drive key wraps.
 pub const INDEX: Consumer = Consumer {
     name: "INDEX",
@@ -1409,6 +1410,7 @@ pub const INDEX: Consumer = Consumer {
         "examples/azul-storage/src/rotation.rs#rewrap_index_with",
         "examples/azul-storage/src/meta/seal.rs#seal",
         "examples/azul-storage/src/meta/seal.rs#open",
+        "examples/azul-storage/src/meta/seal.rs#name_hash",
     ],
 };
 
