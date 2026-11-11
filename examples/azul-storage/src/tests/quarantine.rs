@@ -44,9 +44,15 @@ fn file(key: &str) -> Item {
     }
 }
 
-/// AZ-W20: through `xfer::run`, the function a Download / Copy / Paste calls.
+/// AZ-W20: through `xfer::run`, the function a Download / Copy / Paste calls. A file that comes
+/// from a drive is marked; a copy from one folder of this disk to another adds no mark - it is no
+/// download - and keeps the one the file had (X-DELTA-AZDRIVE-FILES-16 carries a file's extended
+/// attributes to its copy, the quarantine mark among them, as the system's own copy does): a copy
+/// that dropped the mark would be a way round the system's second look at what came from elsewhere
+/// (asserted on macOS, where the mark is an attribute the copy carries).
 #[test]
-fn az_w20_a_file_a_transfer_brings_from_a_drive_is_marked_and_a_copy_on_this_disk_is_not() {
+fn az_w20_a_file_a_transfer_brings_from_a_drive_is_marked_and_a_copy_on_this_disk_adds_no_mark_and_keeps_the_one_it_had(
+) {
     let tmp = TempDir::new("quarantine-transfer");
     let cloud = Remote(LocalDrive::without_manifest(tmp.path().join("cloud")));
     cloud
@@ -68,14 +74,37 @@ fn az_w20_a_file_a_transfer_brings_from_a_drive_is_marked_and_a_copy_on_this_dis
     assert!(landed.is_file(), "{landed:?}");
     assert_eq!(quarantine::is_marked(&landed), quarantine::supported());
 
-    // From one folder of this disk to another: nobody downloaded it.
+    // From one folder of this disk to another: nobody downloaded it, so a file that was never
+    // marked has a copy that is not marked either.
+    std::fs::write(tmp.path().join("home").join("notes.txt"), b"mine").unwrap();
+    assert!(!quarantine::is_marked(
+        &tmp.path().join("home").join("notes.txt")
+    ));
+    let item = [file("notes.txt")];
+    let copied = plan(&home, &item, &copy, "", false, "Copy").unwrap();
+    let report = run(&copied, &home, &copy, false, &Quiet, &mut |_| {});
+    assert!(report.failed.is_empty(), "{:?}", report.failed);
+    let unmarked = tmp.path().join("copy").join("notes.txt");
+    assert!(unmarked.is_file(), "{unmarked:?}");
+    assert!(!quarantine::is_marked(&unmarked), "the copy added no mark");
+
+    // The file that WAS marked keeps its mark in the copy: where it came from does not change
+    // with the folder it is copied into.
     let item = [file("setup.command")];
     let copied = plan(&home, &item, &copy, "", false, "Copy").unwrap();
     let report = run(&copied, &home, &copy, false, &Quiet, &mut |_| {});
     assert!(report.failed.is_empty(), "{:?}", report.failed);
     let second = tmp.path().join("copy").join("setup.command");
     assert!(second.is_file(), "{second:?}");
-    assert!(!quarantine::is_marked(&second));
+    // On macOS the mark is an extended attribute, which `xattrs::carry` puts on the copy. Windows'
+    // stream is not one of the attributes it carries (xattrs.rs says so), and what the copy keeps
+    // there is not asserted here.
+    if cfg!(target_os = "macos") {
+        assert!(
+            quarantine::is_marked(&second),
+            "the copy of a marked file is marked"
+        );
+    }
 }
 
 /// The mark is the same value the sync sets, and `mark_downloaded` swallows what a disk without
