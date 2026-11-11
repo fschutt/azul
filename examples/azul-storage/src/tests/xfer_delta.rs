@@ -1006,6 +1006,8 @@ struct Swapping {
     then: Mutex<Option<(String, Vec<u8>)>>,
     /// A look at an object fails once a range was read (a connection that drops at the end).
     head_fails_after_a_range: std::sync::atomic::AtomicBool,
+    /// A look at an object says it is empty (a drive that does not tell its sizes).
+    head_says_empty: std::sync::atomic::AtomicBool,
     ranged: AtomicU32,
     /// The streams that were read to their end and stored.
     completed: AtomicU32,
@@ -1087,11 +1089,18 @@ impl Drive for Swapping {
                 "the connection dropped",
             )));
         }
+        let empty = self.head_says_empty.load(Ordering::SeqCst);
         self.files
             .lock()
             .unwrap()
             .get(key)
-            .map(|(bytes, version)| Self::info(key, bytes, *version))
+            .map(|(bytes, version)| {
+                let mut info = Self::info(key, bytes, *version);
+                if empty {
+                    info.size = 0;
+                }
+                info
+            })
             .ok_or_else(|| DriveError::NotFound { key: key.into() })
     }
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
@@ -1336,4 +1345,29 @@ fn x_delta_sync2_9_a_small_replace_and_a_big_copy_to_a_free_name_keep_the_bucket
     );
     assert_eq!(bucket.get("out/small.txt").unwrap(), b"small");
     assert_eq!(bucket.get("out/big.bin").unwrap(), big);
+}
+
+/// X-DELTA-SYNC2-3: a drive whose look says "empty" of an object it listed as big - one that does not
+/// tell its sizes says 0 - must not make an empty file the finished copy: the ranges were taken by the
+/// size of the look, and a size of nothing is a copy of nothing.
+#[test]
+fn x_delta_sync2_3_a_look_that_says_empty_of_a_big_object_is_not_a_copy_of_nothing() {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    // The plan was made while the drive still told its size; the run's look says 0.
+    source.head_says_empty.store(true, Ordering::SeqCst);
+    let report = go(&plan, &source, &target, true);
+    assert_eq!(report.done, 0, "{report:?}");
+    assert_eq!(report.failed.len(), 1, "{report:?}");
+    assert!(
+        matches!(report.failed[0].1, DriveError::Protocol(_)),
+        "{report:?}"
+    );
+    assert!(
+        target.get("big.bin").is_err(),
+        "no empty file at the target"
+    );
+    assert_eq!(source.get("big.bin").unwrap(), v1, "the source stays");
 }

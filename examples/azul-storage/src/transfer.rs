@@ -887,6 +887,15 @@ pub fn copy_object_when(
             // The version the ranges must all be of: one look now, the same look when the last range
             // is in (X-DELTA-SYNC2-3). The size is the object's as it is now, not as it was listed.
             let before = info_of(source, key)?;
+            // A look that says "empty" of an object that was listed (or looked at) as big is a look
+            // nothing vouches for - a drive that does not tell its sizes says 0 - and an empty file
+            // under the target's name would be a finished copy of nothing: it is not copied.
+            if before.size == 0 {
+                return Err(DriveError::Protocol(format!(
+                    "\"{key}\": the drive says it is empty, and it was {size} bytes a moment ago: it \
+                     is not copied"
+                )));
+            }
             let size = before.size;
             let mut ranges = RangeReader::new(source, key, before, CHUNK);
             let copied = {
