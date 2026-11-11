@@ -9,9 +9,13 @@
 //! 2. The index is sealed under K2 ([`IndexProvider::rekey`]) - first, so that an index that
 //!    cannot be rekeyed stops the rotation before anything changed (the journal and K2 go
 //!    again, the drive stays as it was).
-//! 3. Every index entry's file key is re-wrapped from K1 to K2 in ONE index change, each
-//!    expecting its object unchanged (a file written meanwhile is caught and the pass runs
-//!    again). The objects stay: their header wraps keep K1, which only a recovery from the
+//! 3. Every index entry's file key is re-wrapped from K1 to K2, in batches of the entries one pack
+//!    of the writer's cap holds ([`rewrap_batch`]: one index change each, and so one pack each -
+//!    the writer refuses a pack over an index object's limit, which one change of a drive of some
+//!    600,000 files was), each entry expecting its object unchanged (a file written meanwhile is
+//!    caught and the pass runs again; a stop between two batches leaves a half re-wrapped index,
+//!    which opens through the key chain, and every repeat skips the entries already wrapped with
+//!    K2). The objects stay: their header wraps keep K1, which only a recovery from the
 //!    headers would read - the index is the authority. "Re-encrypt everything"
 //!    ([`reencrypt_pass`]) writes every file into a new object with a new file key, so no
 //!    current file opens with K1 any more - on a drive that keeps its history the old versions
@@ -94,7 +98,10 @@ use crate::{
     },
     encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex, Rewrite},
     keyring::KeyringStore,
-    meta::policy::{KeyCheck, MemberChange, MemberRecord},
+    meta::{
+        policy::{KeyCheck, MemberChange, MemberRecord},
+        wal,
+    },
     ops::list_all,
     sharing::revoke_all_shares,
     Drive, DriveError, ListRequest,
@@ -370,7 +377,34 @@ pub fn start(
     };
     let evidence = shadow_evidence(drive, keyring, seen);
     crate::key_shadow!("rotation::start", Op::Rotate, evidence, guard);
+    // After the shadow: the key permit's judge knows nothing of the writer's cap.
+    if let Ok(Start::Fresh { old }) = &started {
+        index_is_resealable(bucket, old)?;
+    }
     started
+}
+
+/// The pre-flight of a rotation that starts (X-DELTA-KEYS2-2): R4 seals every pack of the index
+/// again as one pack of its own, and the writer refuses a pack over [`wal::writable_max`]
+/// ([`wal::check_writable`]). A drive written before the writer had a cap can hold such a pack (some
+/// 600,000 files in one change): its R4 would stop with `Unsupported` after the account's lockdown
+/// had locked the other devices out of a drive whose key is not replaced. It is refused here instead,
+/// before the lockdown and before R1, in words, and nothing is changed. The re-wrap (R7) needs no
+/// such check: it goes in batches ([`rewrap_batch`]) however many files the drive holds. A drive
+/// without an index has no pack to seal again.
+fn index_is_resealable(bucket: &dyn Drive, key: &DriveKey) -> Result<(), DriveError> {
+    let KeyCheck::Opens(record) = MemberRecord::check(bucket, key)? else {
+        return Ok(());
+    };
+    let (biggest, max) = (record.biggest_object(), wal::writable_max());
+    if biggest > max {
+        return Err(DriveError::Unsupported(format!(
+            "the drive's index holds an object of {biggest} bytes, more than an index object may be \
+             ({max} bytes), and a new drive key would have to write it again: the keys of this drive \
+             cannot be changed here yet. Nothing was changed"
+        )));
+    }
+    Ok(())
 }
 
 /// What `start` and `lockdown_needed` decide on, and what they read of the bucket on the way.
@@ -454,7 +488,13 @@ pub fn lockdown_needed(
              replaced - so the combined flow asks judge for Lockdown AND Rotate before the lockdown"
         )]
     );
-    Ok(!matches!(started?, Start::Resume(_)))
+    let started = started?;
+    // After the shadow, as in `start`: before the lockdown, so that a drive whose index the rotation
+    // cannot seal again is refused while the other devices still have their access.
+    if let Start::Fresh { old } = &started {
+        index_is_resealable(bucket, old)?;
+    }
+    Ok(!matches!(started, Start::Resume(_)))
 }
 
 fn save(
@@ -522,8 +562,22 @@ fn all_entries(index: &dyn NameIndex) -> Result<Vec<(String, IndexEntry)>, Drive
     }
 }
 
-/// Step 2: every entry's file key from `old` to `new`, in one index change; again while files
-/// change under it. Returns how many entries were re-wrapped.
+/// How many entries one batch of the re-wrap changes (R7): the pack a batch writes is a quarter of
+/// the smaller of the writer's cap ([`wal::writable_max`]) and a compaction's biggest pack
+/// ([`wal::COMPACT_PACK_MAX`], so that a frozen drive's node still takes it) at the most when
+/// each entry weighs [`wal::ENTRY_PACK_BYTES`]; the rest is for the trees of the folders the batch
+/// writes again. Never fewer than one. The re-wrap used to be ONE change of every entry: for a
+/// drive of some 600,000 files its pack was over the cap, `put_sealed_pack` refused it after the
+/// index was sealed under K2, and every retry stopped there (X-DELTA-KEYS2-2).
+pub(crate) fn rewrap_batch() -> usize {
+    let pack = wal::writable_max().min(wal::COMPACT_PACK_MAX);
+    usize::try_from(pack / 4 / wal::ENTRY_PACK_BYTES)
+        .unwrap_or(usize::MAX)
+        .max(1)
+}
+
+/// Step 2: every entry's file key from `old` to `new`, in batches ([`rewrap_batch`]); again while
+/// files change under it. Returns how many entries were re-wrapped.
 pub fn rewrap_index(index: &dyn NameIndex, old: &DriveKey, new: &DriveKey) -> Result<usize, DriveError> {
     rewrap_index_with(index, old, &[], new)
 }
@@ -585,11 +639,20 @@ pub fn rewrap_index_with(
         if changes.is_empty() {
             return Ok(total);
         }
-        let count = changes.len();
-        match index.apply(changes) {
-            Ok(_) => total += count,
-            Err(DriveError::Conflict { .. }) => {}
-            Err(e) => return Err(e),
+        // One change (one pack) per batch: a batch that lands is final, a batch whose entry changed
+        // under it (`Conflict`: nothing of it changed) is seen again by the next pass, and a stop
+        // in between leaves a half re-wrapped index that the next call goes on with.
+        let batch = rewrap_batch();
+        let mut rest = changes;
+        while !rest.is_empty() {
+            let later = rest.split_off(batch.min(rest.len()));
+            let now = std::mem::replace(&mut rest, later);
+            let count = now.len();
+            match index.apply(now) {
+                Ok(_) => total += count,
+                Err(DriveError::Conflict { .. }) => {}
+                Err(e) => return Err(e),
+            }
         }
     }
     Err(DriveError::Conflict {

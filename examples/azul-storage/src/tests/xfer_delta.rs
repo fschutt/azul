@@ -437,6 +437,8 @@ struct NoTags {
     edit_after_read: Mutex<Option<String>>,
     /// A look at a file fails (a connection that dropped for a moment).
     head_fails: std::sync::atomic::AtomicBool,
+    /// The calls made on it, in order: `get:<key>`, `head:<key>`, `delete:<key>`.
+    log: Mutex<Vec<String>>,
 }
 
 impl NoTags {
@@ -447,6 +449,7 @@ impl NoTags {
             dates,
             edit_after_read: Mutex::new(None),
             head_fails: std::sync::atomic::AtomicBool::new(false),
+            log: Mutex::new(Vec::new()),
         };
         for (key, bytes) in files {
             drive.write(key, bytes);
@@ -484,6 +487,7 @@ impl Drive for NoTags {
         Ok(page)
     }
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.log.lock().unwrap().push(format!("get:{key}"));
         let bytes = self
             .files
             .lock()
@@ -505,10 +509,12 @@ impl Drive for NoTags {
         Ok(())
     }
     fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.log.lock().unwrap().push(format!("delete:{key}"));
         self.files.lock().unwrap().remove(key);
         Ok(())
     }
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.log.lock().unwrap().push(format!("head:{key}"));
         if self.head_fails.load(Ordering::SeqCst) {
             return Err(DriveError::Transport(String::from(
                 "the connection dropped",
@@ -819,4 +825,74 @@ fn x_delta_azdrive_files_32_only_the_names_below_the_target_folder_are_checked()
     let plan = make_plan(&source, &[file("a.txt")], &target, ".GIT/", false, "Copy").unwrap();
     assert!(plan.refused.is_empty(), "{plan:?}");
     assert_eq!(plan.files.len(), 1);
+}
+
+/// X-DELTA-SYNC2-7. `retire_sources` looked at EVERY source of a Move off a drive with no tags first
+/// and deleted afterwards: ten thousand files at 50 ms a look were eight minutes between the first
+/// file's look and its delete, and an edit saved in them was deleted with the source. It looks and
+/// deletes in groups of `VERSIONED_GROUP` now, as a bucket's versioned delete does: the first
+/// delete comes after at most one group's looks, and a later group is looked at after the earlier
+/// one was deleted. RED on the old code: forty looks stand before the first delete.
+#[test]
+fn x_delta_sync2_7_a_move_off_a_tagless_source_looks_and_deletes_in_groups() {
+    use crate::s3::VERSIONED_GROUP;
+    const FILES: usize = 40;
+    assert!(FILES > 2 * VERSIONED_GROUP, "the move spans three groups");
+    let tmp = TempDir::new("dx-sync2-7");
+    let target = LocalDrive::without_manifest(tmp.path().join("other"));
+    let names: Vec<String> = (0..FILES).map(|i| format!("f{i:02}.txt")).collect();
+    let files: Vec<(&str, &[u8])> = names
+        .iter()
+        .map(|name| (name.as_str(), &b"the same text"[..]))
+        .collect();
+    let source = NoTags::with(&files, true);
+    let items: Vec<Item> = names
+        .iter()
+        .map(|name| Item {
+            key: name.clone(),
+            is_folder: false,
+            size: Some(13),
+        })
+        .collect();
+    let plan = make_plan(&source, &items, &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, true);
+    // What the run asked of the source, before this test asks anything of it.
+    let log = source.log.lock().unwrap().clone();
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(report.done, FILES);
+    for name in &names {
+        assert!(source.get(name).is_err(), "{name} was retired");
+        assert_eq!(target.get(name).unwrap(), b"the same text");
+    }
+    // The retire phase: what the source was asked after its last read.
+    let retire: Vec<&String> = log
+        .iter()
+        .skip(
+            log.iter()
+                .rposition(|call| call.starts_with("get:"))
+                .unwrap()
+                + 1,
+        )
+        .filter(|call| !call.starts_with("get:"))
+        .collect();
+    let looks_before_first_delete = retire
+        .iter()
+        .take_while(|call| call.starts_with("head:"))
+        .count();
+    assert!(
+        looks_before_first_delete <= VERSIONED_GROUP,
+        "{looks_before_first_delete} looks stood between the first look and the first delete \
+         (more than one group of {VERSIONED_GROUP}): {retire:?}"
+    );
+    // And the later groups are looked at after the earlier ones were deleted: the log has
+    // delete..., head... more than once.
+    let switches = retire
+        .windows(2)
+        .filter(|pair| pair[0].starts_with("delete:") && pair[1].starts_with("head:"))
+        .count();
+    assert_eq!(
+        switches,
+        FILES.div_ceil(VERSIONED_GROUP) - 1,
+        "each group is deleted before the next one is looked at: {retire:?}"
+    );
 }

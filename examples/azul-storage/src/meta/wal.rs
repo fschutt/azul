@@ -373,16 +373,62 @@ pub(super) fn open_json<T: DeserializeOwned, S: Sealer + ?Sized>(
     serde_json::from_slice(&plain).map_err(|e| corrupt(key, e.to_string()))
 }
 
+#[cfg(test)]
+thread_local! {
+    /// A test's narrower writer cap ([`narrow_writable_max`]), for this thread only: no switch of
+    /// a shipped build, so nothing outside `cfg(test)` can lower what the writer takes.
+    static NARROWED_MAX: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The most bytes a pack or an index object may weigh when the writer puts it: what every reader
+/// takes ([`crate::limits::named::INDEX_OBJECT`]). A test narrows it ([`narrow_writable_max`]), so
+/// that a drive of a few hundred files stands for one of 600,000 (X-DELTA-KEYS2-2).
+pub(crate) fn writable_max() -> u64 {
+    #[cfg(test)]
+    {
+        if let Some(max) = NARROWED_MAX.with(std::cell::Cell::get) {
+            return max;
+        }
+    }
+    crate::limits::named::INDEX_OBJECT.max
+}
+
+/// What [`narrow_writable_max`] gives back when it drops.
+#[cfg(test)]
+pub(crate) struct Narrowed(Option<u64>);
+
+#[cfg(test)]
+impl Drop for Narrowed {
+    fn drop(&mut self) {
+        NARROWED_MAX.with(|cap| cap.set(self.0));
+    }
+}
+
+/// A test: the writer's cap is `max` bytes on this thread until the guard drops.
+#[cfg(test)]
+pub(crate) fn narrow_writable_max(max: u64) -> Narrowed {
+    Narrowed(NARROWED_MAX.with(|cap| cap.replace(Some(max))))
+}
+
+/// What one file of the index adds to the pack that writes it again, at the most (bytes): its
+/// pointer (370-476), its entry in its folder's tree (60) and its record in the pack's index (5),
+/// rounded up. The one figure a batch of entries is sized by (the commit of X-DELTA-AZDRIVE-KEYS-13
+/// counted a drive of some 600,000 files by it). A change of any file of a folder writes the whole
+/// tree of the folder again - of its shard, for a folder in shards ([`super::shard`]) - so a batch
+/// is sized to a quarter of what a pack may weigh and the rest is left for the trees.
+pub(crate) const ENTRY_PACK_BYTES: u64 = 540;
+
 /// Whether a sealed pack of `pack` bytes with an index of `idx` bytes is one a reader takes: neither
 /// is more than an index object may weigh ([`crate::limits::named::INDEX_OBJECT`]).
 pub(crate) fn check_writable(pack: usize, idx: usize) -> Result<(), MetaError> {
     let limit = crate::limits::named::INDEX_OBJECT;
+    let max = writable_max();
     for (what, len) in [("pack", pack), ("index", idx)] {
-        if len as u64 > limit.max {
+        if len as u64 > max {
             return Err(MetaError::Unsupported(format!(
-                "a {what} of the drive index of {len} bytes is more than {} may be ({} bytes): the \
+                "a {what} of the drive index of {len} bytes is more than {} may be ({max} bytes): the \
                  change names too many files at once",
-                limit.name, limit.max
+                limit.name
             )));
         }
     }

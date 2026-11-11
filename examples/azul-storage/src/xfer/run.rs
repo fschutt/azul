@@ -15,8 +15,8 @@ use super::{
     site::{overlap, Overlap},
 };
 use crate::{
-    ctl::Ctl, durable::Expect, local, ops, same_etag, transfer, BatchDelete, BatchMove, BatchPut,
-    Drive, DriveError, ObjectInfo, Precondition,
+    ctl::Ctl, durable::Expect, local, ops, s3::VERSIONED_GROUP, same_etag, transfer, BatchDelete,
+    BatchMove, BatchPut, Drive, DriveError, ObjectInfo, Precondition,
 };
 
 /// Where a running transfer is.
@@ -125,38 +125,46 @@ pub struct Retire<'a> {
 /// Deletes the sources whose copies landed - the version that was copied, no other: one that
 /// changed since is [`DriveError::Conflict`] and stays. A tagged source goes by its tag; a
 /// source that has only a size and a date is looked at again first, and kept when either differs.
+/// The looks and the deletes go in groups of [`VERSIONED_GROUP`] - each group is looked at and
+/// deleted before the next one is looked at, as a bucket's versioned delete does: with ten thousand
+/// files on a server at 50 ms a look, the first file's look had been eight minutes old when the
+/// first delete came, and an edit saved in them was deleted with it (X-DELTA-SYNC2-7).
 /// The only delete of a source in a transfer. One result per item, in order.
 #[must_use]
 pub fn retire_sources(source: &dyn Drive, items: &[Retire<'_>]) -> Vec<Result<(), DriveError>> {
     let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
-    let mut batch: Vec<BatchDelete<'_>> = Vec::new();
-    let mut at: Vec<usize> = Vec::new();
-    for (i, item) in items.iter().enumerate() {
-        match item.seen {
-            SourceVersion::Tag(tag) => {
-                batch.push(BatchDelete::new(item.key).of_version(tag));
-                at.push(i);
-            }
-            SourceVersion::Stamp { .. } => match source.head(item.key) {
-                Ok(info) if SourceVersion::of(&info).as_ref() == Some(item.seen) => {
-                    batch.push(BatchDelete::new(item.key));
+    for (group, chunk) in items.chunks(VERSIONED_GROUP).enumerate() {
+        let first = group * VERSIONED_GROUP;
+        let mut batch: Vec<BatchDelete<'_>> = Vec::new();
+        let mut at: Vec<usize> = Vec::new();
+        for (j, item) in chunk.iter().enumerate() {
+            let i = first + j;
+            match item.seen {
+                SourceVersion::Tag(tag) => {
+                    batch.push(BatchDelete::new(item.key).of_version(tag));
                     at.push(i);
                 }
-                // Another size or date: an edit saved while the file was copied. It stays.
-                Ok(_) => {
-                    results[i] = Some(Err(DriveError::Conflict {
-                        key: item.key.to_string(),
-                    }));
-                }
-                // Gone already: nothing is left to retire.
-                Err(DriveError::NotFound { .. }) => results[i] = Some(Ok(())),
-                Err(e) => results[i] = Some(Err(e)),
-            },
+                SourceVersion::Stamp { .. } => match source.head(item.key) {
+                    Ok(info) if SourceVersion::of(&info).as_ref() == Some(item.seen) => {
+                        batch.push(BatchDelete::new(item.key));
+                        at.push(i);
+                    }
+                    // Another size or date: an edit saved while the file was copied. It stays.
+                    Ok(_) => {
+                        results[i] = Some(Err(DriveError::Conflict {
+                            key: item.key.to_string(),
+                        }));
+                    }
+                    // Gone already: nothing is left to retire.
+                    Err(DriveError::NotFound { .. }) => results[i] = Some(Ok(())),
+                    Err(e) => results[i] = Some(Err(e)),
+                },
+            }
         }
-    }
-    if !batch.is_empty() {
-        for (i, answer) in at.into_iter().zip(source.delete_many(&batch)) {
-            results[i] = Some(answer);
+        if !batch.is_empty() {
+            for (i, answer) in at.into_iter().zip(source.delete_many(&batch)) {
+                results[i] = Some(answer);
+            }
         }
     }
     results

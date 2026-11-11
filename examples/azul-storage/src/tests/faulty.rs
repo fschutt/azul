@@ -28,11 +28,23 @@ struct Fault {
     times: u32,
 }
 
+/// A fault of the n-th write of a key that ends in `suffix`: `skip` writes still go through.
+#[derive(Debug)]
+struct NthFault {
+    suffix: String,
+    how: Fail,
+    skip: u32,
+    fired: bool,
+}
+
 /// `inner`, with faults.
 pub(crate) struct Faulty {
     inner: Arc<dyn Drive>,
     /// Faults of a write (plain or conditional) of a key, in the order they were asked for.
     writes: Mutex<Vec<Fault>>,
+    /// Faults of the n-th write of a key that ends in a suffix (the packs of the drive index have
+    /// names nobody knows beforehand).
+    nth_writes: Mutex<Vec<NthFault>>,
     /// Keys whose delete fails (`Transport`), with how many times.
     deletes: Mutex<Vec<(String, u32)>>,
     /// Keys whose GET (and ranged GET) fails (`Transport`), with how many times.
@@ -44,6 +56,7 @@ impl Faulty {
         Faulty {
             inner,
             writes: Mutex::new(Vec::new()),
+            nth_writes: Mutex::new(Vec::new()),
             deletes: Mutex::new(Vec::new()),
             reads: Mutex::new(Vec::new()),
         }
@@ -58,6 +71,20 @@ impl Faulty {
                 key: key.to_string(),
                 how,
                 times,
+            });
+    }
+
+    /// The `nth` (1 = the next) write from now on of a key that ends in `suffix` goes wrong as
+    /// `how`, once; the writes before it go through.
+    pub(crate) fn fail_nth_write_ending(&self, suffix: &str, nth: u32, how: Fail) {
+        self.nth_writes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(NthFault {
+                suffix: suffix.to_string(),
+                how,
+                skip: nth.saturating_sub(1),
+                fired: false,
             });
     }
 
@@ -79,10 +106,26 @@ impl Faulty {
 
     fn write_fault(&self, key: &str) -> Option<Fail> {
         let mut faults = self.writes.lock().unwrap_or_else(PoisonError::into_inner);
-        let fault = faults
+        if let Some(fault) = faults
             .iter_mut()
-            .find(|fault| fault.key == key && fault.times > 0)?;
-        fault.times -= 1;
+            .find(|fault| fault.key == key && fault.times > 0)
+        {
+            fault.times -= 1;
+            return Some(fault.how);
+        }
+        drop(faults);
+        let mut nth = self
+            .nth_writes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let fault = nth
+            .iter_mut()
+            .find(|fault| !fault.fired && key.ends_with(fault.suffix.as_str()))?;
+        if fault.skip > 0 {
+            fault.skip -= 1;
+            return None;
+        }
+        fault.fired = true;
         Some(fault.how)
     }
 

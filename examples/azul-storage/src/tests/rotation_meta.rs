@@ -10,11 +10,13 @@ use crate::{
         keys::{RecoveryKdf, CHAIN_KEY_FILE},
         DriveKey,
     },
-    encrypted::open_encrypted,
+    encrypted::{open_encrypted, IndexEntry, IndexProvider, NameIndex},
     keyring::MemoryKeyring,
-    meta::{keys, IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo},
-    rotation::{lockdown_needed, pending, resumable, rotate, JOURNAL_FILE},
-    Drive, DriveError,
+    meta::{
+        keys, wal::narrow_writable_max, IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo,
+    },
+    rotation::{lockdown_needed, pending, resumable, rewrap_batch, rotate, Phase, JOURNAL_FILE},
+    Drive, DriveError, ListRequest,
 };
 
 const DRIVE: &str = "d_rot_meta";
@@ -230,4 +232,280 @@ fn x_delta_azdrive_keys_1_a_device_whose_key_opens_no_index_is_refused_before_th
         pending(w.plain.as_ref()).unwrap().is_none(),
         "no journal was written"
     );
+}
+
+// ==== X-DELTA-KEYS2-2: the re-wrap of a drive over the writer's cap goes in batches ====
+
+/// The writer's cap of these tests (bytes): a drive of 600 files weighs about 270 KB as one change
+/// (a pointer is 370 bytes, a folder's tree 60 a file), so its one-commit re-wrap is far over it,
+/// and a batch ([`rewrap_batch`]: 45 entries at this cap) is a quarter of it. It stands for the
+/// 256 MiB of a drive of some 600,000 files.
+const NARROW_CAP: u64 = 96 << 10;
+
+/// Every entry of `index` that holds a file, with its path.
+fn files_of(index: &dyn NameIndex) -> Vec<(String, IndexEntry)> {
+    let mut found = Vec::new();
+    let mut request = ListRequest::recursive("");
+    loop {
+        let page = index.list(&request).unwrap();
+        found.extend(page.entries.into_iter().filter(|(_, e)| e.object.is_some()));
+        match page.next {
+            Some(token) => request = request.with_continuation(token),
+            None => return found,
+        }
+    }
+}
+
+/// How many files of the drive's index (opened with `key`) have their file key wrapped by `wrapper`.
+fn wrapped_by(w: &World, key: &DriveKey, wrapper: &DriveKey) -> (usize, usize) {
+    let index = w.provider.open_index(DRIVE, w.plain.clone(), key).unwrap();
+    let files = files_of(index.as_ref());
+    let by = files
+        .iter()
+        .filter(|(_, e)| {
+            e.object
+                .as_ref()
+                .is_some_and(|o| o.wrapped_key.key_id == wrapper.id())
+        })
+        .count();
+    (by, files.len())
+}
+
+impl World {
+    /// `folders` folders of `per` files each, on top of the two files of the world: every file is
+    /// a put through the encrypted drive (a change of the index of its own).
+    fn fill(&self, folders: usize, per: usize) {
+        let drive = open_encrypted(self.plain.clone(), &self.keyring, DRIVE, &self.provider)
+            .expect("the drive opens");
+        for f in 0..folders {
+            for n in 0..per {
+                drive
+                    .put(
+                        &format!("f{f:02}/file{n}.txt"),
+                        format!("file {f} {n}").as_bytes(),
+                    )
+                    .unwrap();
+            }
+        }
+    }
+
+    /// What the one-commit re-wrap of the drive's files would weigh at the least: the pointers.
+    fn pointer_bytes(&self, key: &DriveKey) -> usize {
+        let index = self
+            .provider
+            .open_index(DRIVE, self.plain.clone(), key)
+            .unwrap();
+        files_of(index.as_ref())
+            .iter()
+            .map(|(_, e)| crate::meta::pointer::encode(e).len())
+            .sum()
+    }
+
+    fn all_read(&self, folders: usize, per: usize) {
+        let drive = open_encrypted(self.plain.clone(), &self.keyring, DRIVE, &self.provider)
+            .expect("the drive opens");
+        assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
+        for f in (0..folders).step_by(7) {
+            for n in (0..per).step_by(3) {
+                assert_eq!(
+                    drive.get(&format!("f{f:02}/file{n}.txt")).unwrap(),
+                    format!("file {f} {n}").as_bytes()
+                );
+            }
+        }
+    }
+}
+
+/// X-DELTA-KEYS2-2 (the batch is sized by the writer's cap, never by the drive): one batch weighs
+/// a quarter of the smaller of the cap and a compaction's biggest pack at the most, however many
+/// files there are; never none.
+#[test]
+fn x_delta_keys2_2_a_batch_of_the_rewrap_is_sized_by_the_writers_cap() {
+    use crate::meta::wal::{COMPACT_PACK_MAX, ENTRY_PACK_BYTES};
+    let shipped = rewrap_batch();
+    assert!(
+        shipped > 1000,
+        "a batch of the shipped cap is thousands of files: {shipped}"
+    );
+    assert!(
+        shipped as u64 * ENTRY_PACK_BYTES <= COMPACT_PACK_MAX / 4,
+        "a batch's pack is a quarter of a compaction's biggest at the most"
+    );
+    {
+        let _cap = narrow_writable_max(NARROW_CAP);
+        assert_eq!(rewrap_batch(), 45, "96 KiB / 4 / 540 bytes");
+    }
+    {
+        let _cap = narrow_writable_max(1);
+        assert_eq!(rewrap_batch(), 1, "never none");
+    }
+    assert_eq!(rewrap_batch(), shipped, "the guard gave the cap back");
+}
+
+/// X-DELTA-KEYS2-2: a rotation of a drive whose one-commit re-wrap is over the writer's cap. The
+/// old code applied every entry in ONE index change: `put_sealed_pack` refused that pack AFTER the
+/// index was sealed under K2 (`rotate` returned "the change names too many files at once") and
+/// every retry stopped there. In batches it goes through, and no pack is over the cap.
+#[test]
+fn x_delta_keys2_2_a_rotation_of_a_drive_over_the_writers_cap_goes_through_in_batches() {
+    let w = world();
+    w.fill(60, 10);
+    let pointers = w.pointer_bytes(&w.old_key);
+    assert!(
+        pointers as u64 > NARROW_CAP * 2,
+        "premise: the pointers alone ({pointers} bytes) are over the cap, so one change of every file is"
+    );
+
+    let rotated = {
+        let _cap = narrow_writable_max(NARROW_CAP);
+        rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap())
+            .expect("batches of the cap's size go through")
+    };
+    assert_eq!(rotated.rewrapped, 602, "every file of the drive");
+    let new_key = load_drive_key(&w.keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(new_key.id(), rotated.drive_key);
+    assert!(repository_sealed_by(&w.mem, &new_key));
+    assert_eq!(
+        wrapped_by(&w, &new_key, &new_key),
+        (602, 602),
+        "nothing is left on K1"
+    );
+    let repo = MetaRepo::open(w.mem.clone(), new_key.clone(), "checker", "Checker").unwrap();
+    let biggest = repo
+        .store()
+        .state()
+        .packs
+        .iter()
+        .map(|pack| pack.pack_size.max(pack.idx_size))
+        .max()
+        .unwrap();
+    assert!(biggest <= NARROW_CAP, "no pack is over the cap: {biggest}");
+    w.all_read(60, 10);
+}
+
+/// X-DELTA-KEYS2-2: the network goes between two batches. The index is sealed under K2 and half of
+/// its entries are wrapped with K2 (it reads through the key chain); the same call goes on and
+/// wraps only what is left.
+#[test]
+fn x_delta_keys2_2_a_rotation_stopped_between_two_batches_goes_on_with_the_rest() {
+    let w = world();
+    w.fill(60, 10);
+    let k2 = w.stopped_after_the_switch();
+    let _cap = narrow_writable_max(NARROW_CAP);
+
+    // The third batch's pack is refused: two batches (90 files) landed.
+    w.faulty.fail_nth_write_ending(".pack", 3, Fail::Refused);
+    let stopped = rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap());
+    assert!(stopped.is_err(), "the third batch failed: {stopped:?}");
+    let (done, total) = wrapped_by(&w, &k2, &k2);
+    assert_eq!(total, 602);
+    assert_eq!(done, 90, "the two batches that landed stay");
+    assert_eq!(
+        pending(w.plain.as_ref()).unwrap().unwrap().phase,
+        Phase::Rekeyed
+    );
+    assert!(
+        !lockdown_needed(w.plain.as_ref(), &w.keyring, DRIVE).unwrap(),
+        "a rotation of this device that stopped has had its lockdown"
+    );
+
+    let rotated = rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap())
+        .expect("goes on where it stopped");
+    assert_eq!(rotated.rewrapped, 602 - done, "only what was left");
+    assert_eq!(wrapped_by(&w, &k2, &k2), (602, 602));
+    assert_eq!(load_drive_key(&w.keyring, DRIVE).unwrap(), Some(k2.clone()));
+    assert!(
+        pending(w.plain.as_ref()).unwrap().is_none(),
+        "the journal is gone"
+    );
+    w.all_read(60, 10);
+}
+
+/// X-DELTA-KEYS2-2: the state the old code left a drive in at the cap - journal `Rekeyed`, the
+/// index sealed under K2, `drive-key` = `drive-key-previous` = K1, `drive-key-next` = K2, not one
+/// file re-wrapped - and the drive opened on no device. A build that batches resumes it.
+#[test]
+fn x_delta_keys2_2_a_drive_stuck_at_the_rewrap_is_resumed_with_batches() {
+    let w = world();
+    w.fill(60, 10);
+    let k2 = w.stopped_after_the_switch();
+    let _cap = narrow_writable_max(NARROW_CAP);
+    w.faulty.fail_nth_write_ending(".pack", 1, Fail::Refused);
+    assert!(rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap()).is_err());
+
+    // The stuck state, as the review wrote it down.
+    let (previous, next) = rotation_key_entries(DRIVE);
+    assert_eq!(
+        pending(w.plain.as_ref()).unwrap().unwrap().phase,
+        Phase::Rekeyed
+    );
+    assert!(repository_sealed_by(&w.mem, &k2), "IDX(K2)");
+    assert_eq!(
+        load_drive_key(&w.keyring, DRIVE).unwrap(),
+        Some(w.old_key.clone()),
+        "DK = K1"
+    );
+    assert_eq!(
+        load_key_at(&w.keyring, &previous).unwrap(),
+        Some(w.old_key.clone()),
+        "P = K1"
+    );
+    assert_eq!(
+        load_key_at(&w.keyring, &next).unwrap(),
+        Some(k2.clone()),
+        "N = K2"
+    );
+    assert_eq!(wrapped_by(&w, &k2, &k2).0, 0, "no file re-wrapped");
+    assert!(
+        MetaRepo::open(w.mem.clone(), w.old_key.clone(), "checker", "Checker").is_err(),
+        "the index opens with the key this device holds for the drive: on no device"
+    );
+
+    let rotated = rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap())
+        .expect("resumes with the batched re-wrap");
+    assert_eq!(rotated.rewrapped, 602);
+    assert_eq!(load_drive_key(&w.keyring, DRIVE).unwrap(), Some(k2));
+    w.all_read(60, 10);
+}
+
+/// X-DELTA-KEYS2-2 (the pre-flight): a drive whose index holds a pack the writer would refuse to
+/// seal again (written before the writer had a cap) is refused BEFORE the lockdown, in words, with
+/// nothing changed. The old code said yes to the lockdown and stopped at R4, after the other
+/// devices were locked out of a drive whose key was not replaced.
+#[test]
+fn x_delta_keys2_2_a_pack_the_writer_refuses_is_refused_before_the_lockdown() {
+    let w = world();
+    assert!(
+        lockdown_needed(w.plain.as_ref(), &w.keyring, DRIVE).unwrap(),
+        "control: at the shipped cap the drive rotates"
+    );
+    let cap = narrow_writable_max(64);
+    let refused = lockdown_needed(w.plain.as_ref(), &w.keyring, DRIVE);
+    let Err(DriveError::Unsupported(why)) = &refused else {
+        panic!("refused before the lockdown: {refused:?}");
+    };
+    assert!(why.contains("Nothing was changed"), "{why}");
+    assert!(
+        why.contains("more than an index object may be (64 bytes)"),
+        "{why}"
+    );
+    let again = rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap());
+    assert!(
+        matches!(again, Err(DriveError::Unsupported(_))),
+        "{again:?}"
+    );
+
+    let (previous, next) = rotation_key_entries(DRIVE);
+    assert!(
+        load_key_at(&w.keyring, &next).unwrap().is_none(),
+        "no K2 was made"
+    );
+    assert!(load_key_at(&w.keyring, &previous).unwrap().is_none());
+    assert!(pending(w.plain.as_ref()).unwrap().is_none(), "no journal");
+    assert!(
+        repository_sealed_by(&w.mem, &w.old_key),
+        "the index is as it was"
+    );
+    drop(cap);
+    w.files_read();
 }

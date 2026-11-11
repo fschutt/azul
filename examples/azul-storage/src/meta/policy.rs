@@ -605,6 +605,21 @@ impl<'a> MemberRecord<'a> {
         }
     }
 
+    /// The bytes of the biggest pack or pack index the repository's manifest names (its word:
+    /// nothing is fetched). A key rotation re-seals every pack as one pack of its own, so a pack
+    /// the writer would refuse ([`super::wal::check_writable`]) is one it cannot re-seal.
+    #[must_use]
+    pub fn biggest_object(&self) -> u64 {
+        self.repo
+            .store()
+            .state()
+            .packs
+            .iter()
+            .map(|pack| pack.pack_size.max(pack.idx_size))
+            .max()
+            .unwrap_or(0)
+    }
+
     fn open_repo(
         bucket: &'a dyn Drive,
         drive_key: &DriveKey,
