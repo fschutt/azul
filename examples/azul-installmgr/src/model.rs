@@ -1031,6 +1031,23 @@ fn rollback_marks(paths: &AppPaths) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
 pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
     let paths = places.app(entry.key);
     let marks = rollback_marks(&paths)?;
+    let removed = remove_app(places, entry, &paths);
+    // The marks go back whether or not every removal succeeded: a `remove_dir_all` of the shared
+    // install and registry folder that failed half way took them with it, and a retry would find
+    // none (X-DELTA-AZDRIVE-KEYS-11).
+    let restored = put_back_marks(marks);
+    match (removed, restored) {
+        (Ok(()), restored) => restored,
+        (Err(removed), Ok(())) => Err(removed),
+        (Err(removed), Err(restored)) => Err(format!(
+            "{removed}; and the rollback marks could not be put back: {restored}"
+        )),
+    }
+}
+
+/// The removals of [`uninstall`]: the shortcuts, the folders the manager made, the install folder
+/// and the registry folder.
+fn remove_app(places: &Places, entry: &AppEntry, paths: &AppPaths) -> Result<(), String> {
     let program = paths.current().join(entry.file_name(places.os));
     for shortcut in shortcuts(places, entry, &program) {
         shortcut.remove();
@@ -1038,7 +1055,7 @@ pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
     // The folders the manager made go, and the app's folder with them when nothing else is in it.
     // The folder can be one the user already had (`~/Documents/aznotes` chosen as the install
     // folder's place): what is not the manager's stays (X-DELTA-AZDRIVE-KEYS-35).
-    for folder in made_folders(&paths) {
+    for folder in made_folders(paths) {
         if folder.exists() {
             std::fs::remove_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
         }
@@ -1054,6 +1071,11 @@ pub fn uninstall(places: &Places, entry: &AppEntry) -> Result<(), String> {
         std::fs::remove_dir_all(&paths.registry)
             .map_err(|e| format!("{}: {e}", paths.registry.display()))?;
     }
+    Ok(())
+}
+
+/// The rollback marks written back where [`rollback_marks`] read them.
+fn put_back_marks(marks: Vec<(PathBuf, Vec<u8>)>) -> Result<(), String> {
     for (file, bytes) in marks {
         if let Some(dir) = file.parent() {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -3378,6 +3400,60 @@ mod model_tests {
                 "custom: {custom}"
             );
         }
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-11 (the part the second review found open): the marks were put back only
+    /// after EVERY removal succeeded. A `remove_dir_all` of the shared install and registry folder that
+    /// fails half way - here its last step, the folder itself, in a parent that cannot be written - had
+    /// taken the marks with it and returned before the put-back; a retry found no marks. They go back
+    /// whether or not a removal failed, and the failure is still the answer.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_azdrive_keys_11_the_marks_come_back_when_a_removal_fails_half_way() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("installmgr-marks-half-way");
+        let engine = FakeEngine {
+            releases: vec![("azwriter", "2.0.0", false)],
+            ..FakeEngine::default()
+        };
+        let f = fetching(dir.path());
+        install_new(&engine, &f, writer(), Channel::Stable, 1).unwrap();
+        let paths = f.places.app("azwriter");
+        assert_eq!(
+            paths.install, paths.registry,
+            "the default layout: one folder"
+        );
+        let marks = paths.state(Channel::Stable).join("update-state.json");
+        std::fs::create_dir_all(marks.parent().unwrap()).unwrap();
+        let text = r#"{"highest_seen":"2.0.0","key_generation":4}"#;
+        std::fs::write(&marks, text).unwrap();
+
+        // The folder that holds the app's folder cannot be written: every file in the app's folder
+        // can be removed, the app's folder itself cannot.
+        let parent = paths.registry.parent().unwrap().to_path_buf();
+        let open = std::fs::metadata(&parent).unwrap().permissions();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable_anyway = std::fs::File::create(parent.join("probe")).is_ok();
+        let result = if writable_anyway {
+            None
+        } else {
+            Some(uninstall(&f.places, writer()))
+        };
+        std::fs::set_permissions(&parent, open).unwrap();
+        let Some(result) = result else {
+            drop(std::fs::remove_file(parent.join("probe")));
+            return; // a user who ignores permissions (root): nothing to refuse with
+        };
+
+        assert!(
+            result.is_err(),
+            "the removal that failed is the answer: {result:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&marks).unwrap(),
+            text,
+            "the marks are back for the retry: a reinstall must not begin at generation 0"
+        );
     }
 
     /// X-DELTA-AZDRIVE-KEYS-35 (cebf4282d): "Update now" was spent before it was tried, and needed the
