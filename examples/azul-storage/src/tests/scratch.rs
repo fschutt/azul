@@ -41,6 +41,24 @@ fn age_tree(path: &Path, days: u32) {
     }
 }
 
+/// Notes the copy `name` of the kept `folder` as made, AFTER `days` went by. A record names the
+/// time of the file it describes, so a file aged after it was noted is "another file" to it
+/// ([`crate::scratch::MadeState::Changed`]) and the folder is the user's work - which is what a
+/// sweep must see only of a file somebody really wrote -, and writing the record changes the
+/// folder, which makes it young again: the record and the folder are aged last. What a copy that
+/// was made `days` ago and has not been touched since looks like: [`age_tree`] first, then this.
+#[cfg(unix)]
+fn note_made_long_ago(folder: &Path, name: &str, days: u32) {
+    Scratch::note_made(folder, name).unwrap();
+    age(&folder.join(".made.json"), days);
+    age(folder, days);
+    assert_eq!(
+        Scratch::made_state(folder, name),
+        crate::scratch::MadeState::Untouched,
+        "the copy is the file that was written, three or four days on"
+    );
+}
+
 #[cfg(unix)]
 fn mode_of(path: &Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
@@ -467,22 +485,33 @@ fn x_delta_azdrive_files_7_the_sweep_leaves_a_kept_folder_that_holds_the_users_w
     let make = |tag: &str, name: &str| {
         let folder = scratch.keep(tag).unwrap();
         fs::write(folder.join(name), b"cloud bytes").unwrap();
-        Scratch::note_made(&folder, name).unwrap();
         folder
     };
     let plain = make("plain", "a.txt");
     let beside = make("beside", "b.txt");
     fs::write(beside.join("b - my version.txt"), b"my version").unwrap();
     let over = make("over", "c.txt");
+    // Noted as the cloud's file, and then saved over by an editor (another inode).
+    Scratch::note_made(&over, "c.txt").unwrap();
     let temp = over.join("~tmp");
     fs::write(&temp, b"saved by an editor").unwrap();
     fs::rename(&temp, over.join("c.txt")).unwrap();
     // A folder no record names (made by another purpose's code).
     let unrecorded = scratch.keep("unrecorded").unwrap();
     fs::write(unrecorded.join("d.txt"), b"x").unwrap();
+    // Three days go by. The two copies nobody has touched are noted as they are then: ageing a
+    // file after it was noted changes the time its record names, and the sweep would take it for a
+    // file somebody wrote (`note_made_long_ago`).
     for folder in [&plain, &beside, &over, &unrecorded] {
         age_tree(folder, 3);
     }
+    note_made_long_ago(&plain, "a.txt", 3);
+    note_made_long_ago(&beside, "b.txt", 3);
+    assert_eq!(
+        Scratch::made_state(&over, "c.txt"),
+        crate::scratch::MadeState::Changed,
+        "the saved-over file is not the cloud's"
+    );
     let removed = scratch.sweep(DAY);
     assert_eq!(
         removed, 2,
@@ -879,15 +908,26 @@ mod open_copy {
         let mine_folder = mine.path.parent().unwrap().to_path_buf();
         fs::write(mine_folder.join("report - my version.docx"), b"my version").unwrap();
         let mut fetch = |dest: &Path, expect: Expect| put(dest, expect, BYTES);
+        // Another FILE of the drive: a copy's folder is named by the file and its version, so a
+        // copy of the same key would be put in the folder that holds the user's work.
         let other = copies
-            .open_copy(of("other.docx", "v1"), &mut fetch)
+            .open_copy(
+                CopyOf {
+                    key: "docs/other.docx",
+                    ..of("other.docx", "v1")
+                },
+                &mut fetch,
+            )
             .unwrap();
         let other_folder = other.path.parent().unwrap().to_path_buf();
+        assert_ne!(other_folder, mine_folder, "two files, two folders");
         // Both folders are four days old. Ageing a file changes the time its record names, so the
-        // copies are noted again: what is left to tell them from the user's work is what they are.
+        // copies are noted again - and the record and the folder aged after that, for writing the
+        // record made the folder young: what is left to tell the copies from the user's work is
+        // what they are.
         for (folder, name) in [(&mine_folder, "report.docx"), (&other_folder, "other.docx")] {
             age_tree(folder, 4);
-            Scratch::note_made(folder, name).unwrap();
+            note_made_long_ago(folder, name, 4);
         }
         let removed = copies.sweep(OPEN_COPY_KEPT);
         assert_eq!(removed, 1, "only the untouched copy's folder went");
