@@ -488,8 +488,8 @@ fn forgetting_a_drives_keys_leaves_no_entry_of_it_and_none_of_another_drives() {
         .unwrap();
     keyring.set(&next, "another").unwrap();
     request_key(&keyring, DRIVE).unwrap();
-    // The session, the drive token and the key of the period vault (RF53 / AZ-K13: a drive has
-    // nine kinds of entry, not six).
+    // The session, the drive token, the key of the period vault (RF53 / AZ-K13) and this computer's
+    // device key (X-DELTA-AZDRIVE-KEYS-32): a drive has ten kinds of entry, not six.
     keyring
         .set(&crate::footprint::KeyEntry::Session.name(DRIVE), "a session")
         .unwrap();
@@ -499,7 +499,13 @@ fn forgetting_a_drives_keys_leaves_no_entry_of_it_and_none_of_another_drives() {
     keyring
         .set(&crate::footprint::KeyEntry::VaultKey.name(DRIVE), "a vault key")
         .unwrap();
-    assert_eq!(key_entries(DRIVE).len(), 9);
+    keyring
+        .set(
+            &crate::footprint::KeyEntry::DeviceKey.name(DRIVE),
+            "a device key",
+        )
+        .unwrap();
+    assert_eq!(key_entries(DRIVE).len(), 10);
     for entry in key_entries(DRIVE) {
         assert!(
             keyring.get(&entry).unwrap().is_some(),
