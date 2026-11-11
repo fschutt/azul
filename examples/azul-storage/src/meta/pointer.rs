@@ -128,6 +128,18 @@ fn pack_of(value: &str) -> Result<PackRef, String> {
 /// The entry of a pointer blob [`encode`] wrote. Lines it does not know are
 /// skipped (a later version may add some).
 pub fn decode(bytes: &[u8]) -> Result<IndexEntry, String> {
+    decode_with(bytes, false)
+}
+
+/// [`decode`] for the one reader that decides a deletion from what a pointer names: a line it
+/// does not know is an error, not something to skip. A later format may add a line that names
+/// another object, and a reader that skips it would call that object unnamed (X-DELTA-AZDRIVE-
+/// SYNC-6).
+pub fn decode_strict(bytes: &[u8]) -> Result<IndexEntry, String> {
+    decode_with(bytes, true)
+}
+
+fn decode_with(bytes: &[u8], strict: bool) -> Result<IndexEntry, String> {
     let text = std::str::from_utf8(bytes).map_err(|_| "a pointer that is not UTF-8")?;
     let mut lines = text.lines();
     let packed_format = match lines.next() {
@@ -175,6 +187,11 @@ pub fn decode(bytes: &[u8]) -> Result<IndexEntry, String> {
                     .and_then(|(o, l)| Some((o.parse::<u64>().ok()?, l.parse::<u64>().ok()?)))
                     .ok_or("a pointer's place in its pack is damaged")?;
                 at = Some((offset, length));
+            }
+            _ if strict => {
+                return Err(format!(
+                    "a pointer with a line this reader does not know (\"{field}\")"
+                ));
             }
             _ => {}
         }

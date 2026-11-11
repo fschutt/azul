@@ -23,7 +23,7 @@
 
 use std::{
     cmp::Reverse,
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
@@ -39,6 +39,7 @@ use super::{
     },
     retention::RETENTION,
     seal::{KeyWindow, Sealer},
+    shadow::{Footing, Ledger, Round},
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
     wal::{reseal, Maintained, Maintenance, MetaStore, Packs, Publish, RefUpdate},
@@ -49,7 +50,8 @@ use crate::{
     encrypted::{EncryptedDrive, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex},
     key::folder_of,
     meta::reclaim::{
-        analyse, purge_options, reclaim, Caps, LiveObjects, PurgeConfirmation, ReclaimMode,
+        analyse, go, manifest_pack_bytes, pack_bytes_of, purge_options, reclaim, reclaim_judged,
+        Analysis, Caps, Go, GoEvidence, Hold, LiveObjects, NotYet, PurgeConfirmation, ReclaimMode,
         ReclaimOptions, ReclaimReport, Released,
     },
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
@@ -354,6 +356,11 @@ struct Listing {
 pub struct MetaIndex<B: Bucket, S: Sealer> {
     inner: Mutex<Inner<B, S>>,
     poll_every: u64,
+    /// What [`NameIndex::live_objects`] may read: `Some(budget)` the whole history of the drive,
+    /// when its packs are at most `budget` bytes (the pack upkeep of a drive whose reclaimer may
+    /// delete asks it); `None` the head alone (a drive whose reclaimer deletes nothing: the upkeep
+    /// then never deletes either, and what the history names is not its business).
+    history_budget: Option<u64>,
 }
 
 impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
@@ -367,7 +374,16 @@ impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
                 listed: None,
             }),
             poll_every: DEFAULT_POLL_SECS,
+            history_budget: Some(Caps::default().pack_bytes),
         }
+    }
+
+    /// What the upkeep may ask of the history ([`MetaIndex::history_budget`]): `None` the head
+    /// alone, `Some(bytes)` the whole history of a drive whose packs are at most that big.
+    #[must_use]
+    pub fn with_history_budget(mut self, budget: Option<u64>) -> Self {
+        self.history_budget = budget;
+        self
     }
 
     /// Reads poll the bucket at most every `secs` seconds (0: before every read).
@@ -438,10 +454,25 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
     /// The head and the window, read from the drive now: the copy is polled (an error when the
     /// drive cannot be reached) and read whole, then every state inside the retention is walked.
     /// Holds this device's copy for the walk: a call for the rare round of upkeep, not for a
-    /// listing.
+    /// listing - and only for a drive whose index is within the budget of a run
+    /// ([`Caps::pack_bytes`]; a bigger one is "too big to judge", an error, and nothing is
+    /// deleted). A drive whose reclaimer deletes nothing ([`MetaIndex::with_history_budget`] of
+    /// `None`) answers with the head alone, from the copy's own listing: the upkeep deletes nothing
+    /// there, so it needs only what IS named, and the history is not read (it was read whole, into
+    /// the app's live copy, at every maintenance round that found a pack due - in shadow mode
+    /// forever, since nothing it found due could be deleted).
     fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        let Some(budget) = self.history_budget else {
+            return Ok(Some(LiveObjects::of(listed_objects(self)?.0, now)));
+        };
         let mut inner = self.lock();
         inner.repo.pull().map_err(to_drive)?;
+        let bytes = pack_bytes_of(&inner.repo);
+        if bytes > budget {
+            return Err(DriveError::Protocol(
+                NotYet::TooBig { bytes, budget }.to_string(),
+            ));
+        }
         inner.repo.fetch_all().map_err(to_drive)?;
         let Some(head) = inner.repo.head() else {
             return Ok(Some(LiveObjects::empty(now)));
@@ -834,8 +865,9 @@ impl MetaIndexProvider {
             .clone()
     }
 
-    /// One reclaimer round on the drive in `bucket` ([`reclaim`]), on a copy of the repository
-    /// of its own - read whole, like the maintenance round's, so the device's open copies stay as
+    /// One reclaimer round on the drive in `bucket` now, whatever the schedule
+    /// ([`MetaIndexProvider::judged_round`]): on a copy of the repository of its own, read whole
+    /// within the budget of a run ([`Caps::pack_bytes`]), so the device's open copies stay as
     /// they are. In shadow mode it deletes nothing; `Ok` with the report even when the round
     /// stopped on a decision (`stopped`), an error only when the drive could not be read.
     ///
@@ -850,15 +882,16 @@ impl MetaIndexProvider {
         if self.reclaim.mode == ReclaimMode::Off {
             return Ok(ReclaimReport::none(ReclaimMode::Off));
         }
-        self.run_reclaim(bucket, drive_key, &self.reclaim)
+        self.judged_round(None, bucket, drive_key)
     }
 
     /// Erases every old version of every file of the drive in `bucket`: each data object the
     /// head does not name is deleted, whatever its age - the history before this moment cannot be
     /// restored afterwards. What the user asked for after changing the drive's keys (the old
     /// objects are the ones the old key still opens); it needs their confirmation
-    /// ([`PurgeConfirmation`]) and is not switched off by the reclaimer's mode: the user said so.
-    /// The bucket's clock must still agree with this device's.
+    /// ([`PurgeConfirmation`]) and is not switched off by the reclaimer's mode, nor held back by
+    /// the evidence of the shadow rounds ([`go`]): the user said so. The bucket's clock must still
+    /// agree with this device's.
     ///
     /// # Errors
     ///
@@ -869,15 +902,7 @@ impl MetaIndexProvider {
         drive_key: &DriveKey,
         confirmation: &PurgeConfirmation,
     ) -> Result<ReclaimReport, DriveError> {
-        self.run_reclaim(bucket, drive_key, &purge_options(confirmation))
-    }
-
-    fn run_reclaim(
-        &self,
-        bucket: Arc<dyn Drive>,
-        drive_key: &DriveKey,
-        options: &ReclaimOptions,
-    ) -> Result<ReclaimReport, DriveError> {
+        let options = purge_options(confirmation);
         let mut repo = match MetaRepo::open_with(
             DriveBucket::new(bucket),
             drive_key.clone(),
@@ -889,7 +914,244 @@ impl MetaIndexProvider {
             Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(options.mode)),
             Err(e) => return Err(to_drive(e)),
         };
-        reclaim(&mut repo, options).map_err(to_drive)
+        reclaim(&mut repo, &options).map_err(to_drive)
+    }
+
+    /// The automatic round after a maintenance round of the drive `drive`: when one is due - the
+    /// ledger of the drive's shadow rounds ([`Ledger`]) shows none in the last day, from any
+    /// device - [`MetaIndexProvider::judged_round`]; `None` when it is not.
+    fn due_round(
+        &self,
+        drive: Option<&str>,
+        bucket: &Arc<dyn Drive>,
+        drive_key: &DriveKey,
+    ) -> Result<Option<ReclaimReport>, DriveError> {
+        let (ledger, _) =
+            Ledger::read(&DriveBucket::new(Arc::clone(bucket)), drive_key).map_err(to_drive)?;
+        if !ledger.due(crate::time::now_unix()) {
+            return Ok(None);
+        }
+        self.judged_round(drive, Arc::clone(bucket), drive_key)
+            .map(Some)
+    }
+
+    /// One round of the reclaimer over the drive `drive` (none: no copy of this device's is known):
+    ///
+    /// 1. the size first: the manifest says the packs' bytes before one is fetched, and a drive over
+    ///    the budget is "too big to judge" - recorded as a round that was not clean, nothing read
+    ///    (the maintenance round used to read the whole history of every drive into memory on every
+    ///    computer every six hours); the floor of this device's copy refuses a rolled-back bucket
+    ///    here as it does for the maintenance round before;
+    /// 2. the copy of its own, with this device's cache for it (only what is new is fetched next
+    ///    time) and the app's restore source;
+    /// 3. the head listed by the app's own listing, an independent derivation of what it names;
+    /// 4. the analysis ([`reclaim_judged`]), and the round written into the ledger with the digest of
+    ///    its candidates and whether the live set agreed with the listing;
+    /// 5. what the ledger then shows decides the mode ([`go`]): a run configured to delete deletes
+    ///    only when the evidence is there.
+    fn judged_round(
+        &self,
+        drive: Option<&str>,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+    ) -> Result<ReclaimReport, DriveError> {
+        let mode = self.reclaim.mode;
+        let caps = self.reclaim.caps;
+        let device = self.device_id();
+        let now = crate::time::now_unix();
+        let dbucket = DriveBucket::new(Arc::clone(&bucket));
+        let (before, _) = Ledger::read(&dbucket, drive_key).map_err(to_drive)?;
+        let cache = drive.and_then(|drive| self.drive_cache_dir(drive));
+        let floor = cache
+            .as_deref()
+            .map_or(0, |dir| super::repo::cached_floor(dir, drive_key));
+        let footing = |drive_devices: u32, rederived: Option<bool>, byte_budget_ok: bool| Footing {
+            drive_devices,
+            rederived_live_equal: rederived,
+            byte_budget_ok,
+            floor_known: floor > 0,
+            restore_source: self.restore.is_set(),
+        };
+
+        let sized = match MetaStore::open_above(
+            DriveBucket::new(Arc::clone(&bucket)),
+            drive_key.clone(),
+            &device,
+            floor,
+        ) {
+            Ok(store) => store,
+            Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(mode)),
+            Err(e) => return Err(to_drive(e)),
+        };
+        let bytes = sized
+            .manifest()
+            .map_or(0, |manifest| manifest_pack_bytes(&manifest.packs));
+        if bytes > caps.pack_bytes {
+            let mut report = ReclaimReport::too_big(mode, bytes, caps.pack_bytes);
+            let round = Round {
+                at: now,
+                device,
+                revision: sized.state().revision,
+                digest: String::new(),
+                candidates: 0,
+                candidate_bytes: 0,
+                live: 0,
+                clean: false,
+                unclean: report
+                    .stopped
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            };
+            let evidence = self.record_round(
+                &dbucket,
+                drive_key,
+                &before,
+                round,
+                now,
+                &footing(1, None, false),
+            );
+            report.evidence = Some(evidence);
+            report.held = (mode == ReclaimMode::Delete).then_some(Hold::TooBig);
+            return Ok(report);
+        }
+        drop(sized);
+
+        let options = RepoOptions {
+            cache_dir: cache.map(|dir| dir.join(RECLAIM_COPY)),
+            lazy: false,
+            restore: self.restore.clone(),
+        };
+        let repo = match MetaRepo::open_with(
+            DriveBucket::new(Arc::clone(&bucket)),
+            drive_key.clone(),
+            &device,
+            "Maintenance",
+            &options,
+        ) {
+            Ok(repo) => repo,
+            Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(mode)),
+            Err(e) => return Err(to_drive(e)),
+        };
+        let index = MetaIndex::new(repo).with_poll_every(u64::MAX);
+        // collapse-ok: a head that cannot be listed is a round that was not checked against it, and
+        // such a round is not clean (`rederived` is `None`): the failure holds the switch back.
+        let listed = listed_objects(&index).ok();
+
+        let mut judged = false;
+        let mut report = index
+            .with_repo(|repo| {
+                reclaim_judged(repo, &self.reclaim, &mut |analysis, report| {
+                    judged = true;
+                    let rederived = rederive(listed.as_ref(), analysis);
+                    report.rederived = rederived;
+                    let clean = rederived == Some(true);
+                    let round = Round {
+                        at: now,
+                        device: device.clone(),
+                        revision: analysis.revision,
+                        digest: report.digest.clone(),
+                        candidates: u64::try_from(report.candidates).unwrap_or(u64::MAX),
+                        candidate_bytes: report.candidate_bytes,
+                        live: u64::try_from(report.live_objects).unwrap_or(u64::MAX),
+                        clean,
+                        unclean: if clean {
+                            String::new()
+                        } else {
+                            unclean_why(rederived)
+                        },
+                    };
+                    let evidence = self.record_round(
+                        &dbucket,
+                        drive_key,
+                        &before,
+                        round,
+                        now,
+                        &footing(
+                            u32::try_from(analysis.devices).unwrap_or(u32::MAX),
+                            rederived,
+                            true,
+                        ),
+                    );
+                    report.evidence = Some(evidence);
+                    match go(mode, &evidence) {
+                        Go::Delete => ReclaimMode::Delete,
+                        Go::Off => ReclaimMode::Off,
+                        Go::Shadow(hold) => {
+                            report.held = (mode == ReclaimMode::Delete).then_some(hold);
+                            ReclaimMode::Shadow
+                        }
+                    }
+                })
+            })
+            .map_err(to_drive)?;
+        if !judged {
+            // The run stopped before there was anything to judge: a tree or a pointer that does not
+            // read is a round that was not clean, and counts against the streak; a drive with no
+            // commit yet has nothing to record.
+            if let Some(why) = report.stopped.as_ref().map(ToString::to_string) {
+                let round = Round {
+                    at: now,
+                    device,
+                    revision: 0,
+                    digest: String::new(),
+                    candidates: 0,
+                    candidate_bytes: 0,
+                    live: 0,
+                    clean: false,
+                    unclean: why,
+                };
+                let evidence = self.record_round(
+                    &dbucket,
+                    drive_key,
+                    &before,
+                    round,
+                    now,
+                    &footing(1, None, true),
+                );
+                report.evidence = Some(evidence);
+                report.held = (mode == ReclaimMode::Delete).then(|| match go(mode, &evidence) {
+                    Go::Shadow(hold) => hold,
+                    Go::Delete | Go::Off => Hold::NotRederived,
+                });
+            }
+        }
+        Ok(report)
+    }
+
+    /// Writes `round` into the drive's ledger and returns what the record shows with it. A round
+    /// that could not be recorded - the bucket did not answer, another device wrote three times
+    /// first - counts as one that was not clean, so the evidence of a run never rests on what is not
+    /// written down.
+    fn record_round(
+        &self,
+        bucket: &DriveBucket<Arc<dyn Drive>>,
+        drive_key: &DriveKey,
+        before: &Ledger,
+        mut round: Round,
+        now: u64,
+        footing: &Footing,
+    ) -> GoEvidence {
+        let ledger = match Ledger::append(bucket, drive_key, &round) {
+            Ok(Some(ledger)) => ledger,
+            Ok(None) | Err(_) => {
+                round.clean = false;
+                round.unclean = String::from("it could not be recorded");
+                let mut ledger = before.clone();
+                ledger.record(round);
+                ledger
+            }
+        };
+        ledger.evidence(now, footing)
+    }
+
+    /// The index over `repo`, with what the upkeep of the drive may ask of its history: the whole of
+    /// it within the budget of a run when the provider's reclaimer may delete, the head alone when
+    /// it deletes nothing (shadow mode, the first release's).
+    fn index_of<B: Bucket, S: Sealer>(&self, repo: MetaRepo<B, S>) -> MetaIndex<B, S> {
+        MetaIndex::new(repo).with_history_budget(
+            (self.reclaim.mode == ReclaimMode::Delete).then_some(self.reclaim.caps.pack_bytes),
+        )
     }
 
     /// How this device keeps its copy of the drive `drive`.
@@ -949,7 +1211,7 @@ impl MetaIndexProvider {
         drive_key: &DriveKey,
         rules: &Maintenance,
     ) -> Result<Option<Maintained>, DriveError> {
-        self.maintain_above(0, bucket, drive_key, rules)
+        self.maintain_above(None, 0, bucket, drive_key, rules)
     }
 
     /// [`MetaIndexProvider::maintain`] for the drive `drive`: the round refuses a manifest older
@@ -968,11 +1230,12 @@ impl MetaIndexProvider {
         let floor = self
             .drive_cache_dir(drive)
             .map_or(0, |dir| super::repo::cached_floor(&dir, drive_key));
-        self.maintain_above(floor, bucket, drive_key, rules)
+        self.maintain_above(Some(drive), floor, bucket, drive_key, rules)
     }
 
     fn maintain_above(
         &self,
+        drive: Option<&str>,
         floor: u64,
         bucket: Arc<dyn Drive>,
         drive_key: &DriveKey,
@@ -988,16 +1251,78 @@ impl MetaIndexProvider {
             };
         let done = store.maintain(rules).map_err(to_drive)?;
         // After the round the index is in its smallest shape: the reclaimer looks at the data
-        // objects its history released. A round that cannot read the drive does not fail the
-        // maintenance, and is told in `last_reclaim`.
-        if done.is_some() && self.reclaim.mode != ReclaimMode::Off {
-            let outcome = self.reclaim(raw, drive_key).map_err(|e| e.to_string());
-            *self
-                .last_reclaim
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some(outcome);
-        }
+        // objects its history released - when a round is due (one a day per drive, not one per
+        // maintenance round of every device), within the budget of a run. A round that cannot read
+        // the drive does not fail the maintenance, and is told in `last_reclaim`; one that was not
+        // due leaves nothing there.
+        let outcome = if done.is_some() && self.reclaim.mode != ReclaimMode::Off {
+            self.due_round(drive, &raw, drive_key)
+                .map_err(|e| e.to_string())
+                .transpose()
+        } else {
+            None
+        };
+        *self
+            .last_reclaim
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = outcome;
         Ok(done)
+    }
+}
+
+/// The folder of the reclaimer's copy of a drive's index below the drive's cache folder: a copy of
+/// its own, so the open copy of the app is never made a full one for the reclaimer's sake.
+const RECLAIM_COPY: &str = "reclaim";
+
+/// What the app's own listing says the head of `index` names, and the revision of the manifest it
+/// read it at: the derivation the reclaimer's walk is checked against (it is the code every read
+/// of the drive goes through every day, not the reclaimer's).
+pub(crate) fn listed_objects<B: Bucket, S: Sealer>(
+    index: &MetaIndex<B, S>,
+) -> Result<(HashSet<DataId>, u64), DriveError> {
+    let mut named = HashSet::new();
+    let mut request = ListRequest::recursive("");
+    loop {
+        let page = index.list(&request)?;
+        for (_, entry) in &page.entries {
+            if let Some(object) = entry.bucket_object() {
+                named.insert(object);
+            }
+        }
+        match page.next {
+            Some(token) => request = request.with_continuation(token),
+            None => break,
+        }
+    }
+    let revision = index.with_repo(|repo| repo.store().state().revision);
+    Ok((named, revision))
+}
+
+/// Whether the live set of `analysis` holds every object the listing named: `Some(true)` it does,
+/// `Some(false)` an object the head names is missing from it (deleting by this analysis would lose
+/// a file), `None` there was no listing, or it was made at another revision than the analysis. The
+/// live set may hold more (the window, the drive's own bookkeeping): that is only more care.
+pub(crate) fn rederive(
+    listed: Option<&(HashSet<DataId>, u64)>,
+    analysis: &Analysis,
+) -> Option<bool> {
+    let (named, revision) = listed?;
+    if *revision != analysis.revision {
+        return None;
+    }
+    Some(named.iter().all(|id| analysis.live.contains_key(id)))
+}
+
+/// Why a round whose re-derivation was `rederived` was not clean.
+fn unclean_why(rederived: Option<bool>) -> String {
+    match rederived {
+        Some(true) => String::new(),
+        Some(false) => NotYet::Unreadable {
+            what: String::from("the live set"),
+            reason: String::from("the head's listing names an object it lacks"),
+        }
+        .to_string(),
+        None => String::from("the head was not listed at the revision the analysis read"),
     }
 }
 
@@ -1024,8 +1349,14 @@ impl IndexProvider for MetaIndexProvider {
         drive_key: &DriveKey,
     ) -> Result<Arc<dyn NameIndex>, DriveError> {
         let options = self.options(drive);
-        let repo = open_or_create(&bucket, drive_key, &self.device_id(), &self.device_name, &options)?;
-        Ok(Arc::new(MetaIndex::new(repo)))
+        let repo = open_or_create(
+            &bucket,
+            drive_key,
+            &self.device_id(),
+            &self.device_name,
+            &options,
+        )?;
+        Ok(Arc::new(self.index_of(repo)))
     }
 
     /// This device's copy, sealed before the rotation under `previous`, opens through the
@@ -1041,8 +1372,14 @@ impl IndexProvider for MetaIndexProvider {
     ) -> Result<Arc<dyn NameIndex>, DriveError> {
         let window = KeyWindow::new(drive_key.clone(), Some(previous.clone()));
         let options = self.options(drive);
-        let repo = open_or_create(&bucket, &window, &self.device_id(), &self.device_name, &options)?;
-        Ok(Arc::new(MetaIndex::new(repo)))
+        let repo = open_or_create(
+            &bucket,
+            &window,
+            &self.device_id(),
+            &self.device_name,
+            &options,
+        )?;
+        Ok(Arc::new(self.index_of(repo)))
     }
 
     /// The repository re-sealed under `new` ([`reseal`]: crash-safe, run again after a stop

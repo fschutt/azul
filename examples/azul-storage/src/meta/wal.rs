@@ -350,7 +350,7 @@ fn corrupt(key: &str, reason: impl Into<String>) -> MetaError {
 }
 
 /// `value` as JSON, sealed by `sealer` with the bucket key `key` as context.
-fn seal_json<T: Serialize, S: Sealer + ?Sized>(
+pub(super) fn seal_json<T: Serialize, S: Sealer + ?Sized>(
     sealer: &S,
     key: &str,
     value: &T,
@@ -362,7 +362,7 @@ fn seal_json<T: Serialize, S: Sealer + ?Sized>(
 }
 
 /// The JSON value `sealed` holds, opened by `sealer` with the bucket key `key`.
-fn open_json<T: DeserializeOwned, S: Sealer + ?Sized>(
+pub(super) fn open_json<T: DeserializeOwned, S: Sealer + ?Sized>(
     sealer: &S,
     key: &str,
     sealed: &[u8],

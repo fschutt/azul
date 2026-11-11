@@ -35,8 +35,11 @@
 //! `MetaIndexProvider::maintain_drive`). The round runs under the bucket's lease, so only one
 //! computer runs it at a time. It folds the index's packs (into packs of at most 48 MiB, which a
 //! drive the owner has not paid still takes), writes a checkpoint and deletes what was retired a
-//! day ago; the log then says what the reclaimer would delete of the drive's data objects
-//! (`AZDRIVE_RECLAIM`). One thing runs at a time: the round or the pass.
+//! day ago; once a day per drive - from whichever computer is first - the log then says what the
+//! reclaimer would delete of the drive's data objects (`AZDRIVE_RECLAIM`: the digest of the set, the
+//! commits that released it, whether the head listed again agrees, the clean rounds so far and what
+//! holds the switch to deleting back; a drive too big to judge says so). One thing runs at a time:
+//! the round or the pass.
 
 use std::{
     collections::BTreeMap,

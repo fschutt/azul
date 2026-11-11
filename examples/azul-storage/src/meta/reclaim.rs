@@ -18,9 +18,12 @@ use std::{
     fmt,
 };
 
+use sha2::{Digest, Sha256};
+
 use super::{
     bucket::Bucket,
     certainty::Certainty,
+    hex,
     objects::{Mode, ObjectId as GitId, Objects, TreeEntry},
     pointer,
     repo::MetaRepo,
@@ -161,6 +164,13 @@ pub(crate) fn delete_released<D: Drive + ?Sized>(
 // can ask for it any more, and the object only costs quota: it is reclaimable. The reclaimer
 // derives this from the commits themselves; it records nothing a lost write could falsify, and
 // nothing an older client does can make it delete more.
+//
+// Two leaks, never deletions (they keep an object, they do not lose one): a commit that arrives after
+// the mark has passed its time - a device that was offline and publishes an old state - is older than
+// the mark and is never read as releasing anything, so what it released stays; and a commit stamped in
+// the future keeps itself and its descendants inside the window until the real time has passed it and
+// the retention (the cap is against the clock of the run, so it never ages). The docs of the retention
+// promise "ninety days"; for these two the objects stay longer.
 
 /// Whether and how the reclaimer runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,16 +195,33 @@ pub struct Caps {
     pub commits: usize,
     /// The objects a run decides on.
     pub objects: usize,
+    /// The bytes of the objects a run decides on: the first round that deletes takes at most this
+    /// much off a drive, whatever the count (the scan ends at the commit that passes it).
+    pub candidate_bytes: u64,
     /// The objects deleted between two fences.
     pub batch: usize,
+    /// The bytes of the repository's packs a run reads, as the manifest says them before anything
+    /// is fetched. A run holds every object it reads in memory, so a drive whose index is bigger
+    /// than this is too big to judge ([`NotYet::TooBig`]): it is not read, and nothing is decided
+    /// from it (X-DELTA-AZDRIVE-SYNC-5).
+    pub pack_bytes: u64,
 }
+
+/// The packs' bytes a reclaimer run reads at most ([`Caps::pack_bytes`]): the objects of a pack are
+/// held inflated in memory, a few times its size, and the machines this runs on have 8 GiB.
+pub const DEFAULT_PACK_BYTES: u64 = 256 * 1024 * 1024;
+
+/// The bytes of objects a reclaimer run decides on at most ([`Caps::candidate_bytes`]).
+pub const DEFAULT_CANDIDATE_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 
 impl Default for Caps {
     fn default() -> Self {
         Caps {
             commits: 250_000,
             objects: 50_000,
+            candidate_bytes: DEFAULT_CANDIDATE_BYTES,
             batch: 1_000,
+            pack_bytes: DEFAULT_PACK_BYTES,
         }
     }
 }
@@ -248,6 +275,150 @@ impl ReclaimOptions {
     }
 }
 
+// ==== The switch to deleting ====
+//
+// What the first release ships is the reclaimer in shadow mode: it reports what it would delete and
+// deletes nothing. The release after it does not flip a constant: a run that is configured to delete
+// deletes only when [`go`] says so, from what the shadow rounds of THIS drive recorded - rounds
+// that ran to their end, whose live set an independent listing of the head agreed with, over days and
+// on several devices (ARCH29 C8, X-DELTA-AZDRIVE-SYNC-6). A drive nobody has watched is not deleted
+// from, whatever the mode says.
+
+/// How many shadow rounds in a row (any device) have to be clean before a run may delete.
+pub const GO_CLEAN_ROUNDS: u32 = 7;
+
+/// How many days the clean rounds have to span.
+pub const GO_DAYS: u32 = 14;
+
+/// How many devices have to have shown it - fewer when the drive has fewer devices.
+pub const GO_DEVICES: u32 = 3;
+
+/// What the shadow rounds of a drive have shown, and what this run knows about its own footing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GoEvidence {
+    /// The clean shadow rounds in a row at the end of the record (any device).
+    pub clean_rounds: u32,
+    /// Whole days from the first of them to the last.
+    pub days: u32,
+    /// The devices that ran at least one of them.
+    pub devices: u32,
+    /// The devices that committed to the drive inside the retention window (at least one).
+    pub drive_devices: u32,
+    /// What the independent listing of the head said of this round's live set: `Some(true)` it
+    /// names nothing the live set lacks, `Some(false)` it does, `None` it was not made (or was made
+    /// at another revision than the analysis).
+    pub rederived_live_equal: Option<bool>,
+    /// The drive's index fits the budget of a run ([`Caps::pack_bytes`]).
+    pub byte_budget_ok: bool,
+    /// This device's copy of the drive knows the highest revision it has seen: a rolled-back
+    /// bucket is refused, not read as the drive.
+    pub floor_known: bool,
+    /// The app knows where a restore of the drive is announced.
+    pub restore_source: bool,
+}
+
+/// Why a run that is configured to delete only reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hold {
+    /// The run is configured as a shadow run.
+    Configured,
+    /// Fewer clean rounds in a row than [`GO_CLEAN_ROUNDS`].
+    Rounds { have: u32, need: u32 },
+    /// The clean rounds span fewer days than [`GO_DAYS`].
+    Days { have: u32, need: u32 },
+    /// Fewer devices showed it than the drive's devices allow ([`GO_DEVICES`] at most).
+    Devices { have: u32, need: u32 },
+    /// The independent listing of the head was not made.
+    NotRederived,
+    /// The independent listing of the head names an object the live set lacks.
+    Differs,
+    /// The drive's index is over the budget of a run.
+    TooBig,
+    /// This device's copy knows no revision to refuse a rollback by.
+    NoFloor,
+    /// The app knows no restore source.
+    NoRestoreSource,
+}
+
+impl fmt::Display for Hold {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Hold::Configured => f.write_str("configured as a shadow run"),
+            Hold::Rounds { have, need } => {
+                write!(f, "{have} clean rounds in a row, {need} wanted")
+            }
+            Hold::Days { have, need } => write!(f, "clean for {have} days, {need} wanted"),
+            Hold::Devices { have, need } => write!(f, "shown by {have} devices, {need} wanted"),
+            Hold::NotRederived => {
+                f.write_str("the head was not listed again to check the live set")
+            }
+            Hold::Differs => f.write_str("the listing of the head names what the live set lacks"),
+            Hold::TooBig => f.write_str("the drive's index is over the budget of a run"),
+            Hold::NoFloor => f.write_str("this device's copy has seen no revision of the drive"),
+            Hold::NoRestoreSource => f.write_str("the app knows no restore announcement"),
+        }
+    }
+}
+
+/// What a run configured as `mode` does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Go {
+    /// Deletes what it proved.
+    Delete,
+    /// Reports what it would delete, and why it does not.
+    Shadow(Hold),
+    /// Does not run.
+    Off,
+}
+
+/// Whether a run configured as `mode` deletes, from the evidence `e`: pure and total. `Delete` is
+/// reachable only here: the kill switch is `Off`, a shadow run is a shadow run, and a run configured
+/// to delete is held back by the first thing the evidence lacks, in the order of the table in the
+/// tests.
+#[must_use]
+pub fn go(mode: ReclaimMode, e: &GoEvidence) -> Go {
+    match mode {
+        ReclaimMode::Off => Go::Off,
+        ReclaimMode::Shadow => Go::Shadow(Hold::Configured),
+        ReclaimMode::Delete => {
+            if !e.restore_source {
+                return Go::Shadow(Hold::NoRestoreSource);
+            }
+            if !e.floor_known {
+                return Go::Shadow(Hold::NoFloor);
+            }
+            if !e.byte_budget_ok {
+                return Go::Shadow(Hold::TooBig);
+            }
+            match e.rederived_live_equal {
+                Some(true) => {}
+                Some(false) => return Go::Shadow(Hold::Differs),
+                None => return Go::Shadow(Hold::NotRederived),
+            }
+            if e.clean_rounds < GO_CLEAN_ROUNDS {
+                return Go::Shadow(Hold::Rounds {
+                    have: e.clean_rounds,
+                    need: GO_CLEAN_ROUNDS,
+                });
+            }
+            if e.days < GO_DAYS {
+                return Go::Shadow(Hold::Days {
+                    have: e.days,
+                    need: GO_DAYS,
+                });
+            }
+            let need = GO_DEVICES.min(e.drive_devices.max(1));
+            if e.devices < need {
+                return Go::Shadow(Hold::Devices {
+                    have: e.devices,
+                    need,
+                });
+            }
+            Go::Delete
+        }
+    }
+}
+
 /// What the user confirmed when they asked for the old versions of a drive to be erased: after a
 /// key was changed ("I was hacked": re-encrypting every file leaves the old objects, which the old
 /// key still opens, in the history) the history is restorable until the retention is over -
@@ -281,7 +452,10 @@ pub fn purge_options(_confirmation: &PurgeConfirmation) -> ReclaimOptions {
         caps: Caps {
             commits: usize::MAX,
             objects: usize::MAX,
+            candidate_bytes: u64::MAX,
             batch: Caps::default().batch,
+            // The user asked for the whole history to be read.
+            pack_bytes: u64::MAX,
         },
         retention: Retention {
             trash: std::time::Duration::ZERO,
@@ -320,6 +494,8 @@ pub enum NotYet {
     Clock { device: u64, server: Option<u64> },
     /// Another device holds the maintenance lease, or this one lost it.
     Lease,
+    /// The drive's index is bigger than a run reads ([`Caps::pack_bytes`]): nothing was fetched.
+    TooBig { bytes: u64, budget: u64 },
 }
 
 impl fmt::Display for NotYet {
@@ -347,6 +523,12 @@ impl fmt::Display for NotYet {
                 ),
             },
             NotYet::Lease => f.write_str("another device is tidying the drive"),
+            NotYet::TooBig { bytes, budget } => write!(
+                f,
+                "the drive's index is {} MiB and a run judges up to {} MiB: too big to judge",
+                bytes / (1024 * 1024),
+                budget / (1024 * 1024)
+            ),
         }
     }
 }
@@ -452,6 +634,8 @@ pub(crate) struct Candidate {
     pub(crate) bytes: u64,
     /// The first old commit that released it.
     pub(crate) by: GitId,
+    /// That commit's effective time.
+    pub(crate) at: u64,
 }
 
 /// What the history says of the data objects of one drive at one moment.
@@ -480,6 +664,8 @@ pub(crate) struct Analysis {
     pub(crate) cursor: Option<Mark>,
     /// A cap ended the scan before the old commits did.
     pub(crate) stopped_by_cap: bool,
+    /// The devices that committed inside the window (distinct committers).
+    pub(crate) devices: usize,
 }
 
 /// One commit of the graph.
@@ -489,6 +675,8 @@ struct Node {
     /// The effective time: never earlier than a parent's, never further ahead than the device's
     /// clock by more than [`AHEAD_SECS`].
     eff: u64,
+    /// The committer, as the number the graph gave its name.
+    device: usize,
 }
 
 /// The commits reachable from `head`, parents before children, with their effective times.
@@ -500,8 +688,10 @@ fn load_graph(
     let ceiling = now.saturating_add(AHEAD_SECS);
     let mut nodes: HashMap<GitId, Node> = HashMap::new();
     let mut order: Vec<GitId> = Vec::new();
-    // The commits read and waiting for their parents: (tree, parents, own time).
-    let mut pending: HashMap<GitId, (GitId, Vec<GitId>, u64)> = HashMap::new();
+    // The committers, each named by the number it was given when it first appeared.
+    let mut devices: HashMap<String, usize> = HashMap::new();
+    // The commits read and waiting for their parents: (tree, parents, own time, committer).
+    let mut pending: HashMap<GitId, (GitId, Vec<GitId>, u64, usize)> = HashMap::new();
     let mut stack: Vec<(GitId, bool)> = vec![(*head, false)];
     while let Some((id, expanded)) = stack.pop() {
         if nodes.contains_key(&id) {
@@ -523,10 +713,12 @@ fn load_graph(
                     stack.push((*parent, false));
                 }
             }
-            pending.insert(id, (commit.tree, commit.parents, own));
+            let known = devices.len();
+            let device = *devices.entry(commit.committer.email).or_insert(known);
+            pending.insert(id, (commit.tree, commit.parents, own, device));
             continue;
         }
-        let Some((tree, parents, own)) = pending.remove(&id) else {
+        let Some((tree, parents, own, device)) = pending.remove(&id) else {
             continue;
         };
         let mut eff = own;
@@ -541,7 +733,15 @@ fn load_graph(
             };
             eff = eff.max(done.eff);
         }
-        nodes.insert(id, Node { tree, parents, eff });
+        nodes.insert(
+            id,
+            Node {
+                tree,
+                parents,
+                eff,
+                device,
+            },
+        );
         order.push(id);
     }
     Ok((nodes, order))
@@ -708,7 +908,10 @@ impl<'a> Walk<'a> {
             .objects
             .blob(blob)
             .map_err(|e| NotYet::unreadable(name, e))?;
-        let entry = pointer::decode(bytes).map_err(|reason| NotYet::unreadable(name, reason))?;
+        // Strict: a line this reader does not know may name an object it cannot see, and an object
+        // nothing is seen to name is deleted (X-DELTA-AZDRIVE-SYNC-6).
+        let entry =
+            pointer::decode_strict(bytes).map_err(|reason| NotYet::unreadable(name, reason))?;
         if let Some(object) = entry.object {
             let stored = object
                 .packed
@@ -782,6 +985,11 @@ pub(crate) fn analyse(
         scanned: 0,
         cursor: after.copied(),
         stopped_by_cap: false,
+        devices: window
+            .iter()
+            .filter_map(|id| nodes.get(id).map(|node| node.device))
+            .collect::<HashSet<usize>>()
+            .len(),
     };
     if live_only {
         return Ok(analysis);
@@ -799,8 +1007,12 @@ pub(crate) fn analyse(
         .filter(|mark| after.is_none_or(|done| mark > done))
         .collect();
     todo.sort();
+    let mut candidate_bytes = 0u64;
     for mark in todo {
-        if analysis.scanned >= caps.commits || analysis.candidates.len() >= caps.objects {
+        if analysis.scanned >= caps.commits
+            || analysis.candidates.len() >= caps.objects
+            || candidate_bytes >= caps.candidate_bytes
+        {
             analysis.stopped_by_cap = true;
             break;
         }
@@ -815,11 +1027,17 @@ pub(crate) fn analyse(
             }
         }
         for (id, bytes) in named {
-            if !analysis.live.contains_key(&id) {
-                analysis
-                    .candidates
-                    .entry(id)
-                    .or_insert(Candidate { bytes, by: mark.id });
+            if analysis.live.contains_key(&id) {
+                continue;
+            }
+            if let std::collections::btree_map::Entry::Vacant(slot) = analysis.candidates.entry(id)
+            {
+                candidate_bytes = candidate_bytes.saturating_add(bytes);
+                slot.insert(Candidate {
+                    bytes,
+                    by: mark.id,
+                    at: mark.time,
+                });
             }
         }
         analysis.scanned += 1;
@@ -985,6 +1203,22 @@ pub struct ReclaimReport {
     pub capped: bool,
     /// Why the run did not go through, if it did not.
     pub stopped: Option<NotYet>,
+    /// SHA-256 (hex) over the candidates' ids in order: two runs over one history that say the
+    /// same say the same digest, and a run whose candidates changed says another (empty: no
+    /// analysis).
+    pub digest: String,
+    /// The effective times of the oldest and of the newest commit that released a candidate.
+    pub releasing: Option<(u64, u64)>,
+    /// The bytes of the packs the run read (what the manifest said before it fetched them).
+    pub pack_bytes: u64,
+    /// What an independent listing of the head said of the live set ([`GoEvidence::rederived_live_equal`]).
+    pub rederived: Option<bool>,
+    /// The devices that committed inside the window.
+    pub devices: u32,
+    /// What the shadow rounds recorded, when the run asked ([`go`]).
+    pub evidence: Option<GoEvidence>,
+    /// Why a run configured to delete only reported.
+    pub held: Option<Hold>,
 }
 
 impl ReclaimReport {
@@ -1009,7 +1243,23 @@ impl ReclaimReport {
             failed: 0,
             capped: false,
             stopped: None,
+            digest: String::new(),
+            releasing: None,
+            pack_bytes: 0,
+            rederived: None,
+            devices: 0,
+            evidence: None,
+            held: None,
         }
+    }
+
+    /// The report of a run that did not read the drive because its index is over the budget.
+    #[must_use]
+    pub fn too_big(mode: ReclaimMode, bytes: u64, budget: u64) -> ReclaimReport {
+        let mut report = ReclaimReport::new(mode);
+        report.pack_bytes = bytes;
+        report.stopped = Some(NotYet::TooBig { bytes, budget });
+        report
     }
 
     fn take(&mut self, analysis: &Analysis) {
@@ -1021,6 +1271,16 @@ impl ReclaimReport {
         self.candidates = analysis.candidates.len();
         self.candidate_bytes = analysis.candidates.values().map(|c| c.bytes).sum();
         self.capped = analysis.stopped_by_cap;
+        self.digest = digest_of(analysis.candidates.keys());
+        self.releasing = analysis
+            .candidates
+            .values()
+            .map(|c| c.at)
+            .fold(None, |range, at| match range {
+                None => Some((at, at)),
+                Some((lo, hi)) => Some((lo.min(at), hi.max(at))),
+            });
+        self.devices = u32::try_from(analysis.devices).unwrap_or(u32::MAX);
     }
 
     /// The report as one line: what the log says.
@@ -1047,11 +1307,45 @@ impl ReclaimReport {
         if self.capped {
             line.push_str(", stopped at a cap");
         }
+        if !self.digest.is_empty() {
+            line.push_str(&format!(
+                ", digest {}",
+                &self.digest[..self.digest.len().min(16)]
+            ));
+        }
+        if let Some((oldest, newest)) = self.releasing {
+            line.push_str(&format!(", released by commits of {oldest}..{newest}"));
+        }
+        match self.rederived {
+            Some(true) => line.push_str(", the head listed again: agrees"),
+            Some(false) => line.push_str(", the head listed again: DISAGREES"),
+            None => {}
+        }
+        if let Some(e) = &self.evidence {
+            line.push_str(&format!(
+                ", clean rounds {} over {} days by {} of {} devices",
+                e.clean_rounds, e.days, e.devices, e.drive_devices
+            ));
+        }
+        if let Some(why) = &self.held {
+            line.push_str(&format!(", held back: {why}"));
+        }
         if let Some(why) = &self.stopped {
             line.push_str(&format!(", stopped: {why}"));
         }
         line
     }
+}
+
+/// SHA-256 (hex) of the ids `ids` in the order given: the BTreeMap's, so the same candidates say the
+/// same digest on every device.
+fn digest_of<'a>(ids: impl Iterator<Item = &'a ObjectId>) -> String {
+    let mut hasher = Sha256::new();
+    for id in ids {
+        hasher.update(id.bucket_key().as_bytes());
+        hasher.update([0]);
+    }
+    hex(&hasher.finalize())
 }
 
 /// One run of the reclaimer over `repo`'s drive. The copy is read fresh and whole first. In
@@ -1069,6 +1363,22 @@ impl ReclaimReport {
 pub fn reclaim<B: Bucket, S: Sealer>(
     repo: &mut MetaRepo<B, S>,
     options: &ReclaimOptions,
+) -> Result<ReclaimReport, MetaError> {
+    reclaim_judged(repo, options, &mut |_, _| options.mode)
+}
+
+/// What a run asks after its analysis: in which mode does it go on? It sees the analysis (and may
+/// write what it found into the report) and answers [`ReclaimMode::Delete`] only from [`go`]; the
+/// answer is the mode the report carries.
+pub(crate) type Judge<'a> = dyn FnMut(&Analysis, &mut ReclaimReport) -> ReclaimMode + 'a;
+
+/// [`reclaim`], with `judge` deciding the mode after the analysis: how the automatic round of a
+/// provider asks the evidence of the drive's shadow rounds ([`go`]) before it deletes anything. A
+/// purge and the tests give the mode as it is.
+pub(crate) fn reclaim_judged<B: Bucket, S: Sealer>(
+    repo: &mut MetaRepo<B, S>,
+    options: &ReclaimOptions,
+    judge: &mut Judge<'_>,
 ) -> Result<ReclaimReport, MetaError> {
     let mut report = ReclaimReport::new(options.mode);
     if options.mode == ReclaimMode::Off {
@@ -1105,7 +1415,10 @@ pub fn reclaim<B: Bucket, S: Sealer>(
     };
     analysis.revision = revision;
     report.take(&analysis);
-    if options.mode == ReclaimMode::Shadow {
+    report.pack_bytes = pack_bytes_of(repo);
+    let mode = judge(&analysis, &mut report);
+    report.mode = mode;
+    if mode != ReclaimMode::Delete {
         return Ok(report);
     }
     let mut guard = match repo.store_mut().acquire_lease(MAINTENANCE, LEASE_SECS) {
@@ -1130,6 +1443,24 @@ pub fn reclaim<B: Bucket, S: Sealer>(
     Ok(report)
 }
 
+/// The bytes of the live packs the manifest of `repo` names (packs and their indexes).
+#[must_use]
+pub(crate) fn pack_bytes_of<B: Bucket, S: Sealer>(repo: &MetaRepo<B, S>) -> u64 {
+    repo.store()
+        .manifest()
+        .map_or(0, |manifest| manifest_pack_bytes(&manifest.packs))
+}
+
+/// The bytes of `packs` (the pack and the index of each).
+#[must_use]
+pub(crate) fn manifest_pack_bytes(packs: &[super::wal::PackRef]) -> u64 {
+    packs.iter().fold(0u64, |total, pack| {
+        total
+            .saturating_add(pack.pack_size)
+            .saturating_add(pack.idx_size)
+    })
+}
+
 /// The deleting half of [`reclaim`], under the lease.
 fn delete_under<B: Bucket, S: Sealer>(
     repo: &mut MetaRepo<B, S>,
@@ -1139,7 +1470,11 @@ fn delete_under<B: Bucket, S: Sealer>(
     options: &ReclaimOptions,
     report: &mut ReclaimReport,
 ) -> Result<(), MetaError> {
-    if let Err(why) = check_clock(repo, guard, analysis.now, options.server_clock) {
+    // The clock NOW: the analysis took the time it took (a big drive's takes minutes), and the lease
+    // this run wrote just now is compared with the device's clock of this moment, not with the one
+    // the analysis began at (which no analysis longer than the skew could ever pass).
+    let now = repo.store().now();
+    if let Err(why) = check_clock(repo, guard, now, options.server_clock) {
         report.stopped = Some(why);
         return Ok(());
     }

@@ -10,17 +10,20 @@ use std::sync::{
 use crate::{
     crypto::DriveKey,
     encrypted::{EncryptedDrive, IndexEntry, IndexProvider, NameIndex},
+    limits::Limit,
     meta::{
+        index::{listed_objects, rederive},
         keys,
         merge::keep_both,
         pointer,
-        reclaim::{analyse, reclaim},
-        Caps, Change, IndexProfile, Maintenance, MemoryBucket, MetaError, MetaIndex,
-        MetaIndexProvider, MetaRepo, NotYet, ReclaimMode, ReclaimOptions, RepoOptions, ServerClock,
-        RETENTION,
+        reclaim::{analyse, reclaim, reclaim_judged},
+        shadow::Ledger,
+        Caps, Change, DriveBucket, Hold, IndexProfile, Maintenance, MemoryBucket, MetaError,
+        MetaIndex, MetaIndexProvider, MetaRepo, NotYet, ReclaimMode, ReclaimOptions, RepoOptions,
+        ServerClock, RETENTION,
     },
     packing::PackOptions,
-    BatchPut, Drive,
+    BatchPut, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
 };
 
 const T0: u64 = 1_800_000_000;
@@ -51,7 +54,15 @@ impl Lab {
     fn with(
         shape: impl FnOnce(EncryptedDrive<MemoryBucket>) -> EncryptedDrive<MemoryBucket>,
     ) -> Lab {
-        let clock = Arc::new(AtomicU64::new(T0));
+        Lab::starting_at(T0, shape)
+    }
+
+    /// [`Lab::with`] whose clock starts at `base`.
+    fn starting_at(
+        base: u64,
+        shape: impl FnOnce(EncryptedDrive<MemoryBucket>) -> EncryptedDrive<MemoryBucket>,
+    ) -> Lab {
+        let clock = Arc::new(AtomicU64::new(base));
         let key = DriveKey::generate().unwrap();
         let bucket = MemoryBucket::new();
         let repo = Repo::create_with(
@@ -563,6 +574,586 @@ fn az_m2_the_providers_maintenance_round_ends_with_a_shadow_round_and_tells_what
     assert!(off.last_reclaim().is_none());
 }
 
+/// A drive that keeps the key of every read of it.
+struct GetLog {
+    inner: MemoryBucket,
+    gets: std::sync::Mutex<Vec<String>>,
+}
+
+impl GetLog {
+    fn over(inner: MemoryBucket) -> Arc<GetLog> {
+        Arc::new(GetLog {
+            inner,
+            gets: std::sync::Mutex::new(Vec::new()),
+        })
+    }
+
+    fn note(&self, key: &str) {
+        self.gets.lock().unwrap().push(key.to_string());
+    }
+
+    fn forget(&self) {
+        self.gets.lock().unwrap().clear();
+    }
+
+    fn gets(&self) -> Vec<String> {
+        self.gets.lock().unwrap().clone()
+    }
+}
+
+impl Drive for GetLog {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.note(key);
+        Drive::get(&self.inner, key)
+    }
+
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.note(key);
+        Drive::get_range(&self.inner, key, range)
+    }
+
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.note(key);
+        Drive::get_limited(&self.inner, key, limit)
+    }
+
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        Drive::put(&self.inner, key, bytes)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        Drive::delete(&self.inner, key)
+    }
+
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        Drive::head(&self.inner, key)
+    }
+
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        Drive::put_if(&self.inner, key, bytes, condition)
+    }
+}
+
+/// X-DELTA-AZDRIVE-SYNC-5. The maintenance round of every device ran a reclaimer round that read the
+/// whole history of the drive, every six hours, on every computer. Now one round per drive per day,
+/// from whichever device is first: the second maintenance round reads none of it; a day on, the
+/// ledger says a round is due again. The first round is on the ledger as clean: the head listed by
+/// the app's own listing agreed with the live set.
+#[test]
+fn x_delta_azdrive_sync_5_a_maintenance_round_runs_the_reclaimer_once_a_day_per_drive() {
+    let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    let key = DriveKey::generate().unwrap();
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
+    let index = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
+    drive.put("a.txt", b"version one").unwrap();
+    drive.put("a.txt", b"version two").unwrap();
+    let dbucket = DriveBucket::new(Arc::clone(&bucket));
+    let ledger = || Ledger::read(&dbucket, &key).unwrap().0;
+    let rules = Maintenance::default();
+
+    provider
+        .maintain(Arc::clone(&bucket), &key, &rules)
+        .unwrap()
+        .expect("no other device holds the lease");
+    let report = provider
+        .last_reclaim()
+        .expect("the first round is due")
+        .expect("it read the drive");
+    assert_eq!(
+        report.rederived,
+        Some(true),
+        "the head listed again agrees with the live set: {}",
+        report.line()
+    );
+    assert!(report.line().contains("agrees"), "{}", report.line());
+    assert_eq!(ledger().rounds.len(), 1, "and the round is written down");
+    assert!(ledger().rounds[0].clean, "{:?}", ledger().rounds[0]);
+
+    // Minutes later: the next maintenance round - of this device or another - runs none.
+    provider
+        .maintain(Arc::clone(&bucket), &key, &rules)
+        .unwrap()
+        .expect("no other device holds the lease");
+    assert!(
+        provider.last_reclaim().is_none(),
+        "no round was due: it used to read the whole history again at every maintenance round"
+    );
+    assert_eq!(ledger().rounds.len(), 1);
+
+    // The ledger says the round was two days ago: due again.
+    let (mut old, version) = Ledger::read(&dbucket, &key).unwrap();
+    for round in &mut old.rounds {
+        round.at -= 2 * DAY;
+    }
+    assert!(old.write(&dbucket, &key, version.as_deref()).unwrap());
+    provider
+        .maintain(Arc::clone(&bucket), &key, &rules)
+        .unwrap()
+        .expect("no other device holds the lease");
+    assert!(
+        provider.last_reclaim().is_some(),
+        "a day on, a round is due"
+    );
+    assert_eq!(ledger().rounds.len(), 2);
+}
+
+/// X-DELTA-AZDRIVE-SYNC-5. A drive whose index is over the budget of a run is "too big to judge": the
+/// manifest says the packs' bytes, the round reads none of them (no pack of the repository was
+/// asked for), nothing is decided, a run configured to delete says why it did not, and the round is
+/// on the ledger as one that was not clean.
+#[test]
+fn x_delta_azdrive_sync_5_a_drive_over_the_budget_is_too_big_to_judge_and_no_pack_is_fetched() {
+    let lab = Lab::with(|drive| drive.with_packing(PackOptions::default()));
+    for i in 0..4 {
+        lab.drive
+            .put(&format!("f{i}.txt"), format!("file {i}").as_bytes())
+            .unwrap();
+    }
+    let spy = GetLog::over(lab.bucket.clone());
+    let bucket: Arc<dyn Drive> = spy.clone();
+    for mode in [ReclaimMode::Shadow, ReclaimMode::Delete] {
+        let provider = MetaIndexProvider::new(IndexProfile {
+            reclaim: ReclaimOptions {
+                mode,
+                caps: Caps {
+                    pack_bytes: 1,
+                    ..Caps::default()
+                },
+                ..ReclaimOptions::shadow()
+            },
+            ..IndexProfile::in_memory("Laptop")
+        });
+        spy.forget();
+        let report = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+        assert!(
+            matches!(report.stopped, Some(NotYet::TooBig { .. })),
+            "{}",
+            report.line()
+        );
+        assert!(
+            report.line().contains("too big to judge"),
+            "{}",
+            report.line()
+        );
+        assert_eq!(
+            (report.commits, report.candidates, report.deleted),
+            (0, 0, 0),
+            "nothing was read, nothing decided"
+        );
+        let packs: Vec<String> = spy
+            .gets()
+            .into_iter()
+            .filter(|key| key.starts_with(keys::WAL_DIR))
+            .collect();
+        assert!(packs.is_empty(), "no pack was fetched: {packs:?}");
+        assert_eq!(
+            report.held,
+            (mode == ReclaimMode::Delete).then_some(Hold::TooBig),
+            "a run configured to delete says why it did not"
+        );
+    }
+    let (ledger, _) = Ledger::read(&DriveBucket::new(Arc::clone(&bucket)), &lab.key).unwrap();
+    assert_eq!(ledger.rounds.len(), 2);
+    assert!(
+        ledger
+            .rounds
+            .iter()
+            .all(|round| !round.clean && round.unclean.contains("too big to judge")),
+        "{:?}",
+        ledger.rounds
+    );
+}
+
+/// X-DELTA-AZDRIVE-SYNC-6. A run configured to delete, on a drive that has history old enough to
+/// reclaim and that no shadow round has watched, deletes nothing and says what it lacks. The old
+/// code deleted at the first round: the mode was the only switch.
+#[test]
+fn x_delta_azdrive_sync_6_a_run_configured_to_delete_waits_for_the_evidence_of_its_shadow_rounds() {
+    let base = crate::time::now_unix() - 200 * DAY;
+    let lab = Lab::starting_at(base, |drive| drive);
+    lab.drive.put("a.txt", b"version one").unwrap();
+    let first = lab.object_of("a.txt");
+    lab.at(base + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+
+    let provider = MetaIndexProvider::new(IndexProfile {
+        reclaim: ReclaimOptions {
+            mode: ReclaimMode::Delete,
+            server_clock: ServerClock::Unchecked,
+            ..ReclaimOptions::shadow()
+        },
+        ..IndexProfile::in_memory("Laptop")
+    });
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    assert_eq!(
+        report.candidates,
+        1,
+        "the first version is older than the window and the head does not name it: {}",
+        report.line()
+    );
+    assert_eq!(report.deleted, 0, "{}", report.line());
+    assert_eq!(
+        report.mode,
+        ReclaimMode::Shadow,
+        "it went on as a shadow run"
+    );
+    assert_eq!(
+        report.held,
+        Some(Hold::NoRestoreSource),
+        "an app with no restore announcement is the first thing lacking: {}",
+        report.line()
+    );
+    assert!(report.line().contains("held back"), "{}", report.line());
+    assert!(
+        lab.data_objects().contains(&first),
+        "the first version's object is still in the bucket"
+    );
+}
+
+/// X-DELTA-AZDRIVE-SYNC-5 (d). The bucket's clock is compared with the device's clock of the moment
+/// the lease was taken, not with the one the analysis began at: a big drive's analysis takes
+/// longer than the skew, and the check could never pass.
+#[test]
+fn x_delta_azdrive_sync_5_the_clock_check_is_made_against_the_clock_of_the_moment_not_of_the_analysis(
+) {
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    lab.at(T0 + 100 * DAY);
+    let server = Arc::clone(&lab.clock);
+    lab.bucket
+        .set_server_clock(move || server.load(Ordering::SeqCst));
+    let options = ReclaimOptions {
+        mode: ReclaimMode::Delete,
+        server_clock: ServerClock::Required,
+        ..ReclaimOptions::shadow()
+    };
+    let slow = Arc::clone(&lab.clock);
+    let report = reclaim_judged(&mut lab.maintainer(), &options, &mut |_, _| {
+        // The analysis took two hours (the bucket's clock and the device's both went on).
+        slow.fetch_add(2 * 3_600, Ordering::SeqCst);
+        ReclaimMode::Delete
+    })
+    .unwrap();
+    assert_eq!(
+        report.stopped,
+        None,
+        "the lease was written just now by both clocks: {}",
+        report.line()
+    );
+    assert_eq!(report.deleted, 1, "{}", report.line());
+}
+
+/// X-DELTA-AZDRIVE-SYNC-6. The reclaimer reads a pointer strictly: a line it does not know could name
+/// another object, and an object nothing is seen to name is deleted. The old reader skipped the line,
+/// found the first version released, and deleted it.
+#[test]
+fn x_delta_azdrive_sync_6_a_pointer_with_a_line_the_reclaimer_does_not_know_stops_the_run() {
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    // A later format of the app adds a line to a pointer that is otherwise this one's.
+    let mut repo = lab.maintainer();
+    let head = repo.head().unwrap();
+    let existing = repo.file_at(&head, "a.txt").unwrap().unwrap();
+    let mut bytes = repo.objects().blob(&existing).unwrap().to_vec();
+    bytes.extend_from_slice(b"also-names 0123456789abcdef\n");
+    let blob = repo.write_blob(&bytes);
+    repo.commit(
+        &[Change::Put {
+            path: String::from("later.txt"),
+            id: blob,
+        }],
+        "a later format of the app",
+        &mut keep_both,
+    )
+    .unwrap();
+    lab.at(T0 + 100 * DAY);
+    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    assert!(
+        matches!(&report.stopped, Some(NotYet::Unreadable { reason, .. }) if reason.contains("does not know")),
+        "{}",
+        report.line()
+    );
+    assert_eq!(report.deleted, 0);
+    assert_eq!(lab.data_objects().len(), 2, "nothing was decided");
+    // The app's own reader still reads the pointer (it skips what it does not know).
+    assert!(pointer::decode(&bytes).is_ok());
+    assert!(pointer::decode_strict(&bytes).is_err());
+}
+
+/// X-DELTA-AZDRIVE-SYNC-6. A report carries what the owner reads: the digest of the candidates (the
+/// same for two runs over one history, another when a candidate is added), the times of the commits
+/// that released them, and the devices that committed inside the window.
+#[test]
+fn x_delta_azdrive_sync_6_a_report_carries_the_digest_the_releasing_commits_and_the_devices() {
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.drive.put("c.txt", b"another file").unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    // A second device commits inside the window (a copy of the pointer of c.txt).
+    lab.at(T0 + 2 * DAY);
+    let mut other = lab.maintainer();
+    let head = other.head().unwrap();
+    let pointer_blob = other.file_at(&head, "c.txt").unwrap().unwrap();
+    other
+        .commit(
+            &[Change::Put {
+                path: String::from("b.txt"),
+                id: pointer_blob,
+            }],
+            "the maintenance device",
+            &mut keep_both,
+        )
+        .unwrap();
+    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    assert_eq!(report.devices, 2, "the laptop and the maintenance device");
+    assert_eq!(report.candidates, 0, "everything is inside the window");
+    assert_eq!(report.releasing, None);
+
+    lab.at(T0 + 100 * DAY);
+    let one = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    let two = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    assert_eq!(one.candidates, 1, "{}", one.line());
+    assert_eq!(
+        one.digest, two.digest,
+        "the same history says the same digest"
+    );
+    assert_eq!(one.digest.len(), 64);
+    assert_eq!(
+        one.releasing,
+        Some((T0 + DAY, T0 + DAY)),
+        "released by the commit of the second version"
+    );
+    assert!(
+        one.line().contains(&one.digest[..16]),
+        "the line carries the digest: {}",
+        one.line()
+    );
+
+    // Another version leaves the window: the candidates are not the same set, and say so.
+    lab.at(T0 + 101 * DAY);
+    lab.drive.put("a.txt", b"version three").unwrap();
+    lab.at(T0 + 300 * DAY);
+    let three = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    assert_eq!(three.candidates, 2, "{}", three.line());
+    assert_ne!(one.digest, three.digest);
+}
+
+/// X-DELTA-AZDRIVE-SYNC-6. The independent listing of the head is the check the shadow rounds are
+/// accepted by: it agrees with the live set the analysis made, and a listing that names an object
+/// the live set lacks - the analysis missed a file the head names - does not, so the round is not
+/// clean. A listing made at another revision than the analysis proves nothing.
+#[test]
+fn x_delta_azdrive_sync_6_the_listing_of_the_head_can_disagree_with_the_live_set() {
+    use std::collections::HashSet;
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    lab.at(T0 + 100 * DAY);
+
+    // The app's own listing of a copy, and the analysis of the same copy at the same revision.
+    let mut repo = lab.maintainer();
+    repo.pull().unwrap();
+    repo.fetch_all().unwrap();
+    let revision = repo.store().state().revision;
+    let head = repo.head().unwrap();
+    let mut analysis = analyse(
+        repo.objects(),
+        &head,
+        T0 + 100 * DAY,
+        &RETENTION,
+        None,
+        &Caps::default(),
+        false,
+    )
+    .unwrap();
+    analysis.revision = revision;
+    let index = MetaIndex::new(repo).with_poll_every(u64::MAX);
+    let listed = listed_objects(&index).unwrap();
+    assert_eq!(listed.1, revision);
+    assert_eq!(listed.0.len(), 1, "the head names one object");
+    assert_eq!(
+        rederive(Some(&listed), &analysis),
+        Some(true),
+        "the two derivations agree"
+    );
+
+    // An object the head names and the live set lacks (here: a name no history knows).
+    let stranger = crate::crypto::ObjectId::from_hex(&"ab".repeat(16)).unwrap();
+    let mut wrong: HashSet<crate::crypto::ObjectId> = listed.0.clone();
+    wrong.insert(stranger);
+    assert_eq!(
+        rederive(Some(&(wrong, revision)), &analysis),
+        Some(false),
+        "the analysis would have deleted a file the head names"
+    );
+    // Another revision, or no listing at all: not shown either way.
+    assert_eq!(
+        rederive(Some(&(listed.0.clone(), revision + 1)), &analysis),
+        None
+    );
+    assert_eq!(rederive(None, &analysis), None);
+}
+
+/// X-DELTA-AZDRIVE-SYNC-6. The first round that deletes took at most 50,000 objects of any size off a
+/// drive. Now the scan also ends at the commit that passes a byte budget, and says it stopped at a
+/// cap.
+#[test]
+fn x_delta_azdrive_sync_6_a_run_stops_at_the_commit_that_passes_its_byte_budget() {
+    let lab = Lab::new();
+    lab.drive.put("a.txt", &vec![1u8; 4_000]).unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", &vec![2u8; 4_000]).unwrap();
+    lab.at(T0 + 2 * DAY);
+    lab.drive.put("a.txt", &vec![3u8; 4_000]).unwrap();
+    lab.at(T0 + 300 * DAY);
+    let whole = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    assert_eq!(
+        (whole.candidates, whole.capped),
+        (2, false),
+        "{}",
+        whole.line()
+    );
+
+    let small = ReclaimOptions {
+        caps: Caps {
+            candidate_bytes: 1,
+            ..Caps::default()
+        },
+        ..options(ReclaimMode::Shadow)
+    };
+    let capped = reclaim(&mut lab.maintainer(), &small).unwrap();
+    assert_eq!(
+        (capped.candidates, capped.capped),
+        (1, true),
+        "the first version's release passed the budget: {}",
+        capped.line()
+    );
+    assert!(capped.line().contains("stopped at a cap"));
+}
+
+/// X-DELTA-AZDRIVE-SYNC-5 (b). In shadow mode the pack upkeep of a drive that keeps its history
+/// deletes nothing, so what it asks the drive is what the head names (the provider hands its index
+/// no history budget in shadow mode): a retired pack stays retired and in the bucket, as before.
+#[test]
+fn x_delta_azdrive_sync_5_the_upkeep_of_a_shadow_drive_asks_for_the_head_and_deletes_nothing() {
+    let options = PackOptions {
+        retired_grace_secs: 0,
+        ..PackOptions::default()
+    };
+    let key = DriveKey::generate().unwrap();
+    let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
+    let index = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index)
+        .with_packing(options)
+        .with_reclaim(ReclaimMode::Shadow);
+    let items = [
+        BatchPut::new("p1.txt", b"first small file"),
+        BatchPut::new("p2.txt", b"second small file"),
+    ];
+    for result in drive.put_many(&items) {
+        result.unwrap();
+    }
+    drive.delete("p1.txt").unwrap();
+    drive.delete("p2.txt").unwrap();
+    let now = crate::time::now_unix();
+    drive.repack(now).unwrap();
+    assert_eq!(
+        drive.retired_packs().len(),
+        1,
+        "the emptied pack is retired"
+    );
+    assert_eq!(
+        drive.collect_retired(now + 1).unwrap(),
+        0,
+        "shadow: nothing goes"
+    );
+    assert_eq!(drive.retired_packs().len(), 1, "and it stays retired");
+}
+
+/// X-DELTA-AZDRIVE-SYNC-5 (b). What the upkeep of a drive asks of the history is bounded and
+/// private to what it needs: a drive whose reclaimer may delete asks for the whole history within the
+/// budget of a run (the old trees come into the copy), one over the budget is an error that says "too
+/// big to judge" (nothing is read), and a drive whose reclaimer deletes nothing asks for the head alone
+/// - the app's lazy copy of it did not become a full copy of the history for it.
+#[test]
+fn x_delta_azdrive_sync_5_the_history_the_upkeep_asks_for_is_read_within_the_budget_or_not_at_all()
+{
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    // The tree of the state before the second version: no longer the head's.
+    let full = lab.maintainer();
+    let history = full.history().unwrap();
+    let old_tree = full.objects().commit(&history[1].0).unwrap().tree;
+    assert_ne!(Some(old_tree), full.root().unwrap(), "an old state");
+
+    let lazy = |budget: Option<u64>| {
+        let repo = Repo::open_with(
+            lab.bucket.clone(),
+            lab.key.clone(),
+            "reader",
+            "Reader",
+            &RepoOptions {
+                lazy: true,
+                ..RepoOptions::default()
+            },
+        )
+        .unwrap()
+        .with_clock(clock_reader(&lab.clock));
+        MetaIndex::new(repo)
+            .with_poll_every(0)
+            .with_history_budget(budget)
+    };
+    let knows = |index: &Index| index.with_repo(|repo| repo.objects().contains(&old_tree));
+
+    // The head alone: the old state is not read into the copy.
+    let head = lazy(None);
+    let live = head.live_objects(T0 + 100 * DAY).unwrap().unwrap();
+    let second = lab.drive.entry("a.txt").unwrap().bucket_object().unwrap();
+    assert!(live.names(&second) && live.names_in_head(&second));
+    assert!(
+        !knows(&head),
+        "the history was not read into the app's lazy copy (it was, whole, for every round)"
+    );
+
+    // Over the budget: refused before the history is read.
+    let tight = lazy(Some(1));
+    let refused = tight.live_objects(T0 + 100 * DAY);
+    assert!(
+        matches!(&refused, Err(DriveError::Protocol(why)) if why.contains("too big to judge")),
+        "{refused:?}"
+    );
+    assert!(!knows(&tight));
+
+    // Within it: the whole history.
+    let whole = lazy(Some(u64::MAX));
+    assert!(whole.live_objects(T0 + 100 * DAY).unwrap().is_some());
+    assert!(knows(&whole), "the old state is in the copy now");
+}
+
 /// The bucket key of the pack that holds a small file.
 fn pack_of(lab: &Lab, path: &str) -> String {
     lab.object_of(path)
@@ -1034,7 +1625,9 @@ fn e8_history_size_for_reclaim() {
         &Caps {
             commits: usize::MAX,
             objects: usize::MAX,
+            candidate_bytes: u64::MAX,
             batch: 1_000,
+            pack_bytes: u64::MAX,
         },
         false,
     )

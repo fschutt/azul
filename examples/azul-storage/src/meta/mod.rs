@@ -116,6 +116,8 @@ pub mod reclaim;
 pub mod repo;
 pub mod retention;
 pub mod seal;
+#[cfg(feature = "encryption")]
+pub mod shadow;
 pub mod shard;
 pub mod tree;
 pub mod wal;
@@ -133,8 +135,8 @@ pub use objects::{Commit, Kind, Mode, ObjectId, Objects, Signature, Tree, TreeEn
 pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use reclaim::{
-    gone_objects, Caps, Deleted, LiveObjects, NotYet, PurgeConfirmation, ReclaimMode,
-    ReclaimOptions, ReclaimReport, Reclaimable, Released, ServerClock,
+    go, gone_objects, Caps, Deleted, Go, GoEvidence, Hold, LiveObjects, NotYet, PurgeConfirmation,
+    ReclaimMode, ReclaimOptions, ReclaimReport, Reclaimable, Released, ServerClock,
 };
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
 pub use retention::{Retention, RETENTION};
@@ -162,6 +164,9 @@ pub mod keys {
     pub const WAL_DIR: &str = ".azlin/meta/wal/";
     pub const CHECKPOINT_DIR: &str = ".azlin/meta/checkpoints/";
     pub const LEASE_DIR: &str = ".azlin/meta/leases/";
+    /// What the reclaimer's shadow rounds recorded ([`super::shadow`]): one sealed object, replaced
+    /// by a compare-and-swap.
+    pub const SHADOW: &str = ".azlin/meta/shadow";
 
     /// The log entry `seq` of one publish attempt (16 hex digits sort as numbers).
     #[must_use]
