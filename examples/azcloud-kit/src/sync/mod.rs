@@ -3217,6 +3217,30 @@ fn move_folders_here(
     moves.len()
 }
 
+/// The folders the drive renamed to a name this computer refuses, as (the name the base has,
+/// the name the drive gives): a folder keeps its identity on the drive through a rename, so the
+/// base's folder of that identity under another name is the one that was renamed. `align_folders`
+/// leaves them alone (a refused name is no rename here), which is right - but the files are listed
+/// under the refused name (frozen) and absent under the old one, and every unchanged copy here
+/// would plan "the drive deleted it" (X-DELTA-AZDRIVE-SYNC-11).
+fn refused_renames(index: &LocalIndex, remote: &RemoteIndex) -> Vec<(String, String)> {
+    remote
+        .folders
+        .iter()
+        .filter(|(key, folder)| {
+            remote::is_folder_id(&folder.id)
+                && (remote::check_key(key).is_err() || names::folder_problem(key).is_some())
+        })
+        .filter_map(|(new, folder)| {
+            index
+                .folders
+                .iter()
+                .find(|(old, base)| base.id == folder.id && *old != new)
+                .map(|(old, _)| (old.clone(), new.clone()))
+        })
+        .collect()
+}
+
 /// The folders renamed since the base, on either side (A3, C1): what the drive renamed is
 /// renamed here now and taken into the scan; a rename both sides have made is taken into the
 /// base; what was renamed here comes back as the moves the drive gets with this run's commit,
@@ -4242,6 +4266,26 @@ fn run<R: SyncRemote + ?Sized>(
         );
         // What the drive says of them cannot be read: unknown, so never a delete here either.
         frozen.extend(unreadable.keys().cloned());
+        // A folder the drive renamed to a name this computer refuses: its files are absent under
+        // the old name and unreadable under the new one. The old names are unknown for this pass -
+        // neither deleted nor overwritten - and the report says a rename is why.
+        for (old, new) in refused_renames(&index, &remote) {
+            report.tell(
+                Code::BadRemoteName,
+                &old,
+                format!(
+                    "the drive renamed this folder to \"{new}\", which this computer refuses: its \
+                     files here are left as they are"
+                ),
+            );
+            let under = format!("{old}/");
+            frozen.extend(
+                base.keys()
+                    .chain(scan.files.keys())
+                    .filter(|key| key.starts_with(&under))
+                    .cloned(),
+            );
+        }
         // D5 keeps a file the drive deleted meanwhile at a fresh pairing (a re-login, a lost
         // base). On a folder paired before, a file made here with the bytes of one deleted
         // earlier is the user's (restored from a trash, made again): it goes up.

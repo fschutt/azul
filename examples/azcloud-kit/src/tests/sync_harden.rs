@@ -1370,6 +1370,49 @@ fn x_delta_azdrive_files_1_a_folder_the_drive_renames_to_a_repository_name_is_no
     }
 }
 
+/// X-DELTA-AZDRIVE-SYNC-11. The drive renames a folder to a name this computer refuses. Its files
+/// are listed under the refused name (a bad name: frozen, never read) and are absent under the old
+/// one, so every unchanged copy here planned "the drive deleted it": the folder vanished from this
+/// computer into the trash, without a question for a folder of four, and nothing said a rename
+/// caused it. The old names are unknown for the pass - neither deleted nor overwritten - and the
+/// report says why. RED not run: the old code trashes the four files (and the test's unheld pass
+/// panics at the question).
+#[test]
+fn x_delta_azdrive_sync_11_a_folder_renamed_to_a_name_this_computer_refuses_keeps_its_files_here() {
+    let store = S3Bucket::new();
+    let a = Device::new("s11-a");
+    let b = Device::new("s11-b");
+    let files = ["docs/HEAD", "docs/config", "docs/a.txt", "docs/b.txt"];
+    for key in files {
+        a.write(key, key.as_bytes());
+    }
+    a.write("other/x.txt", b"untouched");
+    a.sync(&store);
+    b.sync(&store);
+    the_drive_renames_a_folder(&store, "docs", ".git");
+    for pass in 0..2 {
+        let report = b.sync(&store);
+        for key in files {
+            assert_eq!(
+                b.read(key).as_deref(),
+                Some(key.as_bytes()),
+                "pass {pass}: {key} stays here"
+            );
+        }
+        assert!(
+            lists(&report, Code::BadRemoteName, Some("docs")),
+            "pass {pass}: the report says the folder was renamed to a name this computer refuses: {:?}",
+            report.problems
+        );
+        assert_eq!(b.read("other/x.txt").as_deref(), Some(&b"untouched"[..]));
+        let trash = b.path().join(".azlin").join("sync").join("trash");
+        assert!(
+            !trash.exists() || fs::read_dir(&trash).unwrap().next().is_none(),
+            "pass {pass}: nothing went into the trash"
+        );
+    }
+}
+
 /// X-DELTA-AZDRIVE-FILES-9. A FILE named `.git` in any spelling is not an ordinary file: git
 /// follows its `gitdir:` line to a repository another participant syncs in an ordinary hidden
 /// folder (`.e/HEAD`, `.e/config` with a `core.fsmonitor` line). Neither the file nor a link of
