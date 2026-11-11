@@ -1782,14 +1782,16 @@ impl<D: Drive> EncryptedDrive<D> {
         self.packs.journal.retired().unwrap_or_default()
     }
 
-    /// Deletes the retired packs whose grace period ended by `now`; a retired pack the drive
-    /// names again (a restore brought an old version back) is no longer retired. How many left
-    /// the bucket. What names a pack is the drive read fresh and whole - the head and, for an
-    /// index that keeps history, every state inside the retention window - and not a copy that
-    /// answered because the drive could not be reached (the head alone, from a copy, used to decide
-    /// it, and a version restored after a month found a pointer into a deleted pack). On a drive
-    /// that keeps history the packs go only in [`ReclaimMode::Delete`]; in shadow mode they stay
-    /// retired.
+    /// Deletes the retired packs whose grace period ended by `now`; a retired pack the HEAD names
+    /// again (a restore brought an old version back) is no longer retired, and one that only a
+    /// state inside the window names stays on the list until the window has left it (it used to
+    /// be dropped from the list with the first pack that was due, and the reclaimer was the only
+    /// one left that knew it). How many left the bucket. What names a pack is the drive read fresh
+    /// and whole - the head and, for an index that keeps history, every state inside the retention
+    /// window - and not a copy that answered because the drive could not be reached (the head
+    /// alone, from a copy, used to decide it, and a version restored after a month found a
+    /// pointer into a deleted pack). On a drive that keeps history the packs go only in
+    /// [`ReclaimMode::Delete`]; in shadow mode they stay retired.
     pub fn collect_retired(&self, now: u64) -> Result<usize, DriveError> {
         let grace = self.upkeep_options().retired_grace_secs;
         let retired = self.packs.journal.retired()?;
@@ -1800,14 +1802,16 @@ impl<D: Drive> EncryptedDrive<D> {
         let mut keep = Vec::new();
         let mut deleted = Vec::new();
         for (id, at) in retired {
-            if live.names(&id) {
+            if live.names_in_head(&id) {
                 continue;
             }
-            if at.saturating_add(grace) > now {
+            // Not due, or a state inside the window still names it: it stays retired.
+            if at.saturating_add(grace) > now || live.names(&id) {
                 keep.push((id, at));
                 continue;
             }
             let Ok(proof) = live.prove_unnamed(&id) else {
+                keep.push((id, at));
                 continue;
             };
             match delete_reclaimable(&self.inner, mode, proof) {

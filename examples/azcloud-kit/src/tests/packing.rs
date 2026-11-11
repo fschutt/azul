@@ -246,7 +246,10 @@ fn five_thousand_small_files_sync_read_back_half_deleted_repacked_and_all_verifi
     assert!(report.packs_read >= 1, "{report:?}");
     assert_eq!(report.files_moved, FILES / 2, "{report:?}");
     assert!(report.bytes_after < report.bytes_before, "{report:?}");
-    let collected = laptop.collect_retired(now + RETIRED_GRACE_SECS + 1).unwrap();
+    // An hour past the grace: the repack's own commits (stamped when each flush landed, seconds after
+    // `now`) are old by then too, and no state inside the window names the packs it retired - a
+    // second past the grace left the commit before the repack as the state the window began with.
+    let collected = laptop.collect_retired(now + RETIRED_GRACE_SECS + 3_600).unwrap();
     assert!(collected >= report.packs_read, "{collected} collected: {report:?}");
     let left = data_objects(&bucket);
     for pack in &packs {

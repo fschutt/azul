@@ -658,6 +658,104 @@ fn az_m10_a_retired_pack_stays_while_the_history_inside_the_window_names_it() {
     assert!(!lab.data_objects().contains(&pack));
 }
 
+/// X-DELTA-AZDRIVE-SYNC-7. Pack A is retired on day 2 and pack B on day 12, the grace is ninety
+/// days. On day 93 A is due and the window (the last ninety days) does not name it; B is not due
+/// and the window does name it. The collection used to leave B out of the list it writes back
+/// (`continue` without `keep.push`) because "the drive names it": the first pack that was due took
+/// the bookkeeping of every pack the window still names with it.
+#[test]
+fn x_delta_azdrive_sync_7_the_first_pack_due_does_not_take_the_list_of_the_later_ones_with_it() {
+    let options = PackOptions {
+        retired_grace_secs: 90 * DAY,
+        ..PackOptions::default()
+    };
+    let lab = Lab::with(|drive| {
+        drive
+            .with_packing(options)
+            .with_reclaim(ReclaimMode::Delete)
+    });
+    let put_pair = |a: (&str, &[u8]), b: (&str, &[u8])| {
+        let items = [BatchPut::new(a.0, a.1), BatchPut::new(b.0, b.1)];
+        for result in lab.drive.put_many(&items) {
+            result.unwrap();
+        }
+    };
+    put_pair(
+        ("a1.txt", b"first small file of A"),
+        ("a2.txt", b"second small file of A"),
+    );
+    let pack_a = pack_of(&lab, "a1.txt");
+    lab.at(T0 + DAY);
+    lab.drive.delete("a1.txt").unwrap();
+    lab.drive.delete("a2.txt").unwrap();
+    lab.drive.repack(T0 + 2 * DAY).unwrap();
+
+    lab.at(T0 + 10 * DAY);
+    put_pair(
+        ("b1.txt", b"first small file of B"),
+        ("b2.txt", b"second small file of B"),
+    );
+    let pack_b = pack_of(&lab, "b1.txt");
+    lab.at(T0 + 11 * DAY);
+    lab.drive.delete("b1.txt").unwrap();
+    lab.drive.delete("b2.txt").unwrap();
+    lab.drive.repack(T0 + 12 * DAY).unwrap();
+    assert_eq!(lab.drive.retired_packs().len(), 2, "both packs are retired");
+
+    assert_eq!(
+        lab.drive.collect_retired(T0 + 93 * DAY).unwrap(),
+        1,
+        "A's grace is over and no state inside the window names it"
+    );
+    assert!(!lab.data_objects().contains(&pack_a), "A went");
+    assert!(
+        lab.data_objects().contains(&pack_b),
+        "B is not due and the window names it"
+    );
+    assert_eq!(
+        lab.drive
+            .retired_packs()
+            .iter()
+            .map(|(id, _)| id.bucket_key())
+            .collect::<Vec<_>>(),
+        vec![pack_b.clone()],
+        "B is still on the list of the retired packs (it was dropped with the first one due)"
+    );
+    // The window has left it by day 200, and then it goes.
+    assert_eq!(lab.drive.collect_retired(T0 + 200 * DAY).unwrap(), 1);
+    assert!(!lab.data_objects().contains(&pack_b));
+    assert!(lab.drive.retired_packs().is_empty());
+}
+
+/// X-DELTA-AZDRIVE-SYNC-7 (the other meaning of "the drive names it", which the fix keeps). A pack
+/// the HEAD names again - a restore brought one of its files back - is no longer retired and is
+/// not deleted, whatever its grace.
+#[test]
+fn x_delta_azdrive_sync_7_a_retired_pack_the_head_names_again_is_no_longer_retired() {
+    let (lab, pack) = lab_with_a_retired_pack(0);
+    let mut repo = lab.maintainer();
+    let history = repo.history().unwrap();
+    // The oldest state that has the file: its pointer names the pack.
+    let first = history
+        .iter()
+        .rev()
+        .map(|(id, _)| *id)
+        .find(|id| repo.file_at(id, "p1.txt").unwrap().is_some())
+        .expect("a state that has p1.txt");
+    lab.at(T0 + 50 * DAY);
+    repo.restore("p1.txt", &first, &mut keep_both).unwrap();
+
+    assert_eq!(lab.drive.collect_retired(T0 + 200 * DAY).unwrap(), 0);
+    assert!(
+        lab.data_objects().contains(&pack),
+        "the head names it again: it stays"
+    );
+    assert!(
+        lab.drive.retired_packs().is_empty(),
+        "and it is no longer retired"
+    );
+}
+
 #[test]
 fn x_ar5a_14_a_drive_in_shadow_mode_keeps_what_its_upkeep_would_delete() {
     let lab = Lab::with(|drive| drive.with_packing(PackOptions::default()));

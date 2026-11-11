@@ -470,6 +470,8 @@ pub(crate) struct Analysis {
     /// Every data object the head, a commit of the window or the state the window began with
     /// names, with its bytes.
     pub(crate) live: HashMap<ObjectId, u64>,
+    /// The ones the head names alone: what a restore of an old version has already brought back.
+    pub(crate) head: HashSet<ObjectId>,
     /// Objects old commits released and nothing live names.
     pub(crate) candidates: BTreeMap<ObjectId, Candidate>,
     /// The old commits whose trees were read this time.
@@ -761,6 +763,7 @@ pub(crate) fn analyse(
         .get(head)
         .ok_or_else(|| NotYet::unreadable("the head", "it is not in the history"))?;
     walk.refs(&head_node.tree, &mut live)?;
+    let head_names: HashSet<ObjectId> = live.keys().copied().collect();
     for id in window.iter().chain(frontier.iter()) {
         if let Some(node) = nodes.get(id) {
             walk.refs(&node.tree, &mut live)?;
@@ -774,6 +777,7 @@ pub(crate) fn analyse(
         commits: order.len(),
         window_commits: window.len(),
         live,
+        head: head_names,
         candidates: BTreeMap::new(),
         scanned: 0,
         cursor: after.copied(),
@@ -846,6 +850,8 @@ impl Analysis {
 #[derive(Debug)]
 pub struct LiveObjects {
     live: HashSet<ObjectId>,
+    /// The ones the head alone names (all of `live` for an index that keeps no history).
+    head: HashSet<ObjectId>,
     now: u64,
 }
 
@@ -853,13 +859,18 @@ impl LiveObjects {
     /// The objects `named` - a head of an index that keeps no history, which is everything there
     /// is to be named.
     pub(crate) fn of(named: HashSet<ObjectId>, now: u64) -> LiveObjects {
-        LiveObjects { live: named, now }
+        LiveObjects {
+            head: named.clone(),
+            live: named,
+            now,
+        }
     }
 
     /// A drive with no commit yet names nothing.
     pub(crate) fn empty(now: u64) -> LiveObjects {
         LiveObjects {
             live: HashSet::new(),
+            head: HashSet::new(),
             now,
         }
     }
@@ -867,6 +878,7 @@ impl LiveObjects {
     pub(crate) fn from_analysis(analysis: &Analysis) -> LiveObjects {
         LiveObjects {
             live: analysis.live.keys().copied().collect(),
+            head: analysis.head.clone(),
             now: analysis.now,
         }
     }
@@ -881,6 +893,13 @@ impl LiveObjects {
     #[must_use]
     pub fn names(&self, id: &ObjectId) -> bool {
         self.live.contains(id)
+    }
+
+    /// Whether the head itself names `id`: a version a restore brought back. What only the window
+    /// names is held by the history, and is still released as far as the head goes.
+    #[must_use]
+    pub fn names_in_head(&self, id: &ObjectId) -> bool {
+        self.head.contains(id)
     }
 
     /// The proof that `id` - an object the caller knows was uploaded and may be named by nothing
