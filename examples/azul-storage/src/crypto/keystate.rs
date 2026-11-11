@@ -181,6 +181,20 @@ pub enum KeyState {
 }
 
 impl KeyState {
+    /// The state's row of the table: its variant, whatever its payload says.
+    #[must_use]
+    pub fn row(&self) -> &'static str {
+        match self {
+            KeyState::Fresh => "fresh",
+            KeyState::Planned => "planned",
+            KeyState::Active => "active",
+            KeyState::Rotating(_) => "rotating",
+            KeyState::Torn(_) => "torn",
+            KeyState::Locked => "locked",
+            KeyState::Unknown(_) => "unknown",
+        }
+    }
+
     /// The state's word in a log line.
     #[must_use]
     pub fn kind(&self) -> &'static str {
@@ -1085,40 +1099,70 @@ pub fn disagreements_at(site: &str) -> Vec<Disagreement> {
         .collect()
 }
 
+/// A disagreement that the lane that wrote the shadow knows and reports as a finding: when the judge
+/// observes a state of this row ([`KeyState::row`]), the guard and the judge decide differently and
+/// `finding` says why. It is noted and logged and never asserted; any other disagreement at the site
+/// is.
+#[derive(Clone, Copy, Debug)]
+pub struct Known {
+    /// The row of the table the finding is about.
+    pub state: &'static str,
+    /// The finding: the register id where there is one, and what differs.
+    pub finding: &'static str,
+}
+
 /// Compares the guard at `site` with the judge: a disagreement is noted and logged and handed back.
 /// The guard has decided already; nothing here changes what it did. [`key_shadow!`] is the call a
 /// site makes (it asserts in the test build of the crate the site is in).
 pub fn shadow(site: &'static str, op: Op, e: &Evidence<'_>, guard: Guard) -> Option<Disagreement> {
-    match compare(site, op, e, guard) {
-        Compared::Disagree(d) => {
-            record(&d);
-            Some(d)
-        }
-        Compared::Agree | Compared::NotJudgeable(_) => None,
-    }
+    shadow_known(site, op, e, guard, &[])
 }
 
-/// [`shadow`] for a disagreement that is known and reported (`finding` says it): noted and logged,
-/// never asserted.
-pub fn note(site: &'static str, op: Op, e: &Evidence<'_>, guard: Guard, finding: &'static str) {
-    if let Compared::Disagree(mut d) = compare(site, op, e, guard) {
-        d.known = Some(finding);
-        record(&d);
-    }
+/// [`shadow`] for a site with findings of its own: a disagreement in a state that `known` names is
+/// noted and logged with its finding and handed back as no disagreement at all.
+pub fn shadow_known(
+    site: &'static str,
+    op: Op,
+    e: &Evidence<'_>,
+    guard: Guard,
+    known: &[Known],
+) -> Option<Disagreement> {
+    let Compared::Disagree(mut d) = compare(site, op, e, guard) else {
+        return None;
+    };
+    let finding = known
+        .iter()
+        .find(|k| k.state == d.state.row())
+        .map(|k| k.finding);
+    d.known = finding;
+    record(&d);
+    finding.is_none().then_some(d)
 }
 
 /// Asks the judge beside a guard and logs a disagreement; in the test build of the crate that calls
 /// it, a disagreement fails the test. The guard has decided before this runs and is not changed by
-/// it. `known = "<finding>"` marks a disagreement that is reported as a finding: logged, not
-/// asserted.
+/// it. `known = [("<row>", "<finding>"), ..]` names the disagreements that are reported as findings:
+/// in a state of that row they are logged, not asserted.
 ///
 /// ```ignore
 /// azul_storage::key_shadow!("rotation::start", Op::Rotate, evidence, Guard::PermitsAs(Way::Resume));
 /// ```
 #[macro_export]
 macro_rules! key_shadow {
-    ($site:expr, $op:expr, $evidence:expr, $guard:expr) => {{
-        let disagreement = $crate::crypto::keystate::shadow($site, $op, &$evidence, $guard);
+    ($site:expr, $op:expr, $evidence:expr, $guard:expr) => {
+        $crate::key_shadow!($site, $op, $evidence, $guard, known = [])
+    };
+    ($site:expr, $op:expr, $evidence:expr, $guard:expr, known = [$(($state:expr, $finding:expr)),* $(,)?]) => {{
+        let disagreement = $crate::crypto::keystate::shadow_known(
+            $site,
+            $op,
+            &$evidence,
+            $guard,
+            &[$($crate::crypto::keystate::Known {
+                state: $state,
+                finding: $finding,
+            }),*],
+        );
         if cfg!(test) {
             assert!(
                 disagreement.is_none(),
@@ -1126,9 +1170,6 @@ macro_rules! key_shadow {
                 disagreement.map_or_else(String::new, |d| d.to_string())
             );
         }
-    }};
-    ($site:expr, $op:expr, $evidence:expr, $guard:expr, known = $finding:expr) => {{
-        $crate::crypto::keystate::note($site, $op, &$evidence, $guard, $finding);
     }};
 }
 

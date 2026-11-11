@@ -166,19 +166,6 @@ fn spec(state: &KeyState, op: Op) -> Cell {
     }
 }
 
-/// A state's variant (not its payload): the seven rows.
-fn row(state: &KeyState) -> &'static str {
-    match state {
-        KeyState::Fresh => "fresh",
-        KeyState::Planned => "planned",
-        KeyState::Active => "active",
-        KeyState::Rotating(_) => "rotating",
-        KeyState::Torn(_) => "torn",
-        KeyState::Locked => "locked",
-        KeyState::Unknown(_) => "unknown",
-    }
-}
-
 /// One state of every row, and each payload that a cell depends on.
 fn states() -> Vec<KeyState> {
     vec![
@@ -231,7 +218,7 @@ fn the_table_is_the_specification_and_judge_answers_all_seventy_cells_by_it() {
                 }
                 (want, got) => panic!("{state:?} x {op:?}: the table says {want:?}, judge {got:?}"),
             }
-            cells.insert((row(&state), op.name()));
+            cells.insert((state.row(), op.name()));
         }
     }
     assert_eq!(cells.len(), 70, "seven states, ten operations");
@@ -895,7 +882,10 @@ fn a_disagreement_that_is_a_finding_is_logged_and_never_asserted() {
         Op::Rotate,
         e,
         Guard::Refuses,
-        known = "X-TEST-1: the guard is stricter than the table"
+        known = [
+            ("locked", "X-TEST-2: another row"),
+            ("active", "X-TEST-1: the guard is stricter than the table"),
+        ]
     );
     let noted = disagreements_at("tests::macro_known");
     assert_eq!(noted.len(), 1);
@@ -904,6 +894,20 @@ fn a_disagreement_that_is_a_finding_is_logged_and_never_asserted() {
         Some("X-TEST-1: the guard is stricter than the table")
     );
     assert!(noted[0].to_string().contains("[known: X-TEST-1"));
+}
+
+/// A finding is about one row: the same disagreement in another row is a disagreement.
+#[test]
+#[should_panic(expected = "tests::macro_known_elsewhere")]
+fn a_known_finding_excuses_only_the_row_it_names() {
+    let e = keyring(Some(1), None, None);
+    crate::key_shadow!(
+        "tests::macro_known_elsewhere",
+        Op::Rotate,
+        e,
+        Guard::Refuses,
+        known = [("locked", "X-TEST-2: another row")]
+    );
 }
 
 #[test]
