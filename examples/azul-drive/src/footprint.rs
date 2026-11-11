@@ -893,4 +893,50 @@ mod tests {
             }
         }
     }
+    /// ARCH29 C7: the registry of what a drive key touches (azul-storage `keystate::CONSUMERS`) and the
+    /// stores of a removal say the same of this side of the computer. The vault of the paid months
+    /// goes only with a proof - the consumer that owns the key that opens it goes with a proof too -,
+    /// and the index copies and the encryption jobs' states are stores of their own that need none.
+    #[test]
+    fn the_registry_and_the_places_of_a_removal_name_the_same_stores_of_a_drive_key() {
+        use azul_storage::crypto::keystate::{owner, Owner, CONSUMERS};
+
+        let places = sandbox().places(DRIVE);
+        let named: Vec<(&str, bool)> = places
+            .spots
+            .iter()
+            .map(|spot| (spot.store, spot.only_with_proof))
+            .collect();
+        let vault = CONSUMERS
+            .iter()
+            .find(|consumer| consumer.name == "PERIOD_VAULT")
+            .expect("the registry lists the vault");
+        assert!(!vault.entries.is_empty());
+        for entry in vault.entries {
+            assert!(
+                entry.goes_with_proof(),
+                "{entry:?} opens the vault: it goes with a proof"
+            );
+            assert_eq!(owner(*entry), Owner::Consumer("PERIOD_VAULT"));
+        }
+        assert!(
+            named.contains(&("period vault", true)),
+            "the vault's files go with its key, only with a proof: {named:?}"
+        );
+        for (consumer, store) in [
+            ("INDEX", "copies and indexes"),
+            ("REENCRYPT_STATE", "encryption state"),
+        ] {
+            assert!(
+                CONSUMERS.iter().any(|c| c.name == consumer),
+                "{consumer} is in the registry"
+            );
+            assert!(
+                named.contains(&(store, false)),
+                "{consumer}'s files on this computer are the store {store:?}: {named:?}"
+            );
+        }
+        // Every drive of this computer has the open calls guarded like the keys.
+        assert!(named.contains(&("open calls", true)), "{named:?}");
+    }
 }
