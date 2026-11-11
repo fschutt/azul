@@ -141,6 +141,99 @@ fn x_ar5b_2_an_encrypted_restore_that_failed_is_the_end_of_the_job_not_a_bucket_
     );
 }
 
+/// X-DELTA-AZDRIVE-KEYS-40 (d): the test above hands the job a closure made by hand; the job of
+/// "Restore as of..." is given the one `encryption::restore_with` builds from the open drive. Through
+/// THAT closure, a drive the keyring would not open and a drive that is plain end the job with the
+/// words that say what to do first - and no connection is made (the token server is an address
+/// nobody listens at, so the restore of the bucket, which rolls every object back, would have come
+/// back as a connection error and none of the sentences below).
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_azdrive_keys_40_the_restore_the_job_is_given_ends_it_for_a_drive_it_cannot_decide_or_a_plain_one(
+) {
+    use std::sync::Arc;
+
+    use azcloud_kit::SharedKeyring;
+    use azul_storage::{
+        encrypted::AutoEncrypted,
+        keyring::{KeyringError, KeyringNamespace, KeyringStore, MemoryKeyring},
+        local::LocalDrive,
+        testing::TempDir,
+        Drive,
+    };
+
+    /// A keyring whose prompt the user declined.
+    struct Declined;
+
+    impl KeyringStore for Declined {
+        fn get(&self, _key: &str) -> Result<Option<String>, KeyringError> {
+            Err(KeyringError::Denied)
+        }
+        fn set(&self, _key: &str, _secret: &str) -> Result<(), KeyringError> {
+            Err(KeyringError::Denied)
+        }
+        fn delete(&self, _key: &str) -> Result<(), KeyringError> {
+            Err(KeyringError::Denied)
+        }
+    }
+
+    let dir = TempDir::new("restore-job-closure");
+    let bucket_dir = dir.path().join("bucket");
+    std::fs::create_dir_all(&bucket_dir).unwrap();
+    std::fs::write(bucket_dir.join("a.txt"), b"plain").unwrap();
+    let bucket: Arc<dyn Drive> = Arc::new(LocalDrive::new(bucket_dir.clone()));
+    let keyring = SharedKeyring::with_lock_root(
+        Arc::new(MemoryKeyring::new()),
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    );
+    let token_url = "http://127.0.0.1:9";
+
+    let declined = Arc::new(AutoEncrypted::new(
+        Arc::clone(&bucket),
+        "d_1",
+        Arc::new(Declined),
+        None,
+    ));
+    let refused = run(
+        "d_1",
+        NOW,
+        token_url,
+        &keyring,
+        Some(crate::encryption::restore_with(declined)),
+    )
+    .unwrap_err();
+    assert!(
+        refused.to_string().contains("keyring"),
+        "the keyring's refusal is what the job says: {refused}"
+    );
+
+    // A bucket with a file and no key anywhere: not encrypted, so nothing to restore its files from.
+    let plain = Arc::new(AutoEncrypted::new(
+        Arc::clone(&bucket),
+        "d_2",
+        Arc::new(MemoryKeyring::new()),
+        None,
+    ));
+    let refused = run(
+        "d_2",
+        NOW,
+        token_url,
+        &keyring,
+        Some(crate::encryption::restore_with(plain)),
+    )
+    .unwrap_err();
+    assert_eq!(
+        refused.keys(),
+        ["azdrive-restore-encrypt-first"],
+        "{refused}"
+    );
+    assert!(
+        bucket_dir.join("a.txt").exists(),
+        "and nothing of the drive was touched"
+    );
+}
+
 /// X-AR5a-21. The window of "Restore as of..." is the span the drive keeps what it released - the
 /// versions of an encrypted drive's files, ninety days, which the drive's reclaimer honours; the
 /// trash of a bucket the node restores itself, fourteen - read from the one `Retention`, not a

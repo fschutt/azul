@@ -1727,7 +1727,14 @@ pub(crate) fn restore_of(
     drive_id: &str,
 ) -> Option<crate::restore::EncryptedRestore> {
     let auto = auto_of(s, drive_id)?;
-    Some(Box::new(move |as_of| restore_encrypted(&auto, as_of)))
+    Some(restore_with(auto))
+}
+
+/// The closure the restore job is given for the open drive `auto`: the one place it is made, so
+/// that a test of the job ([`crate::restore::run`]) enters with the very closure production
+/// does and not one made by hand (X-DELTA-AZDRIVE-KEYS-40).
+pub(crate) fn restore_with(auto: Arc<AutoEncrypted>) -> crate::restore::EncryptedRestore {
+    Box::new(move |as_of| restore_encrypted(&auto, as_of))
 }
 
 /// An encrypted drive back as its metadata repository had it at `as_of` (seconds since 1970),
