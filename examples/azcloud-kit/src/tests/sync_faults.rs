@@ -705,3 +705,59 @@ fn x_delta_sync2_1_a_file_that_cannot_be_taken_away_keeps_its_whole_base_entry()
     assert!(drive_index(&store).deleted.is_empty());
     faults::clear(folder.path());
 }
+
+/// X-DELTA-SYNC2-1, the other caller of the freeing: the size cap frees files after EVERY pass of a
+/// pairing that has one (`keep_cap`), inside the pass's own lock and with nobody watching. A cap of
+/// nothing frees the file the pass just sent; the process is cut as the file leaves; a new process
+/// runs the next pass: the drive keeps the file (the old order recorded the freeing after the
+/// unlink, and the next pass deleted the file on the drive).
+#[test]
+fn x_delta_sync2_1_a_pass_cut_while_the_size_cap_frees_a_file_leaves_the_drive_alone() {
+    let store = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-faults-s2-1-cap");
+    let state = TempDir::new("azcloud-faults-s2-1-cap-state");
+    fs::write(
+        folder.path().join("big.txt"),
+        "the bytes of the version on the drive",
+    )
+    .unwrap();
+    let capped = || {
+        let remote: Arc<dyn RemoteStore> = store.clone();
+        let root = folder.path().to_path_buf();
+        let mut setup = SyncSetup::new("d_faults", PREFIX, folder.path());
+        // At most 0 GB here: what is left of the folder after the pass is freed.
+        setup.keep_gb = Some(0);
+        SyncSession::plain(setup, state.path().to_path_buf(), "dev", remote)
+            .with_points(Arc::new(move |name: &str| faults::point(&root, name)))
+    };
+    faults::arm_crash(folder.path(), "after-evict-unlink");
+    let payload = pass(&capped()).expect_err("the pass is cut while the cap frees the file");
+    assert_eq!(
+        faults::crashed_at(payload.as_ref()).as_deref(),
+        Some("after-evict-unlink")
+    );
+    assert!(
+        !folder.path().join("big.txt").exists(),
+        "the cap had freed it"
+    );
+    assert!(
+        drive_index(&store).files.contains_key("big.txt"),
+        "the pass had sent it before it was freed"
+    );
+
+    // A new process: the next pass.
+    pass(&capped()).expect("the next pass runs through");
+    let index = drive_index(&store);
+    assert!(
+        index.files.contains_key("big.txt"),
+        "the drive still holds the file: {:?}",
+        index.files.keys()
+    );
+    assert!(
+        index.deleted.is_empty(),
+        "nothing was deleted on the drive: {:?}",
+        index.deleted.keys()
+    );
+    assert!(base_of(state.path()).files["big.txt"].cloud_only);
+    faults::clear(folder.path());
+}
