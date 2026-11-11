@@ -288,7 +288,9 @@ pub enum Start {
 fn opens_nothing() -> DriveError {
     DriveError::Denied {
         message: String::from(
-            "the drive's index opens with none of the drive keys this device holds: its keys were              changed from another device. Nothing was changed here: join the drive again with a              code from that device, or unlock it with its recovery code",
+            "the drive's index opens with none of the drive keys this device holds: its keys were \
+             changed from another device. Nothing was changed here: join the drive again with a \
+             code from that device, or unlock it with its recovery code",
         ),
     }
 }

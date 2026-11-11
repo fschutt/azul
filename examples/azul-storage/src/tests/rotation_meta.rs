@@ -212,6 +212,14 @@ fn x_delta_azdrive_keys_1_a_device_whose_key_opens_no_index_is_refused_before_th
     );
     let again = rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap());
     assert!(matches!(again, Err(DriveError::Denied { .. })), "{again:?}");
+    // The sentence goes to the dialog as it is: one space between its words (it was once written
+    // with a line continuation that left runs of fourteen spaces in it).
+    if let Err(DriveError::Denied { message }) = &again {
+        assert!(
+            !message.contains("  "),
+            "runs of spaces in the refusal: {message:?}"
+        );
+    }
     let (previous, next) = rotation_key_entries(DRIVE);
     assert!(
         load_key_at(&w.keyring, &next).unwrap().is_none(),
