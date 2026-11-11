@@ -1,7 +1,7 @@
 [package]
 readme = "../README.md"
 name = "azul-core"
-version = "0.0.16"
+version = "0.0.17"
 # Lean published package: ship src only, not the test/bench/example/fuzz harnesses.
 exclude = ["tests", "benches", "examples", "fuzz"]
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
@@ -22,7 +22,7 @@ autoexamples = false
 # crate's own `codegen` feature below; `GetHash` comes from the ungated
 # `azul_css::hash` everywhere. Its parser comes with `css_parser`, its std
 # with `std`.
-azul-css                = { version = "0.0.16", path = "../css", default-features = false }
+azul-css                = { version = "0.0.17", path = "../css", default-features = false }
 libm                   = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }
 # The system font cache the callbacks hand out (feature `system_fonts`).
