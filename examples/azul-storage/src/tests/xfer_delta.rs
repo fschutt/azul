@@ -992,3 +992,192 @@ fn x_delta_sync2_8_a_name_that_is_gone_when_it_is_looked_at_is_no_conflict() {
     assert!(plan.conflicts().is_empty(), "{plan:?}");
     assert_eq!(plan.files.len(), 1);
 }
+
+// ==== X-DELTA-SYNC2-3: an object that changes while a copy between two drives streams it ====
+
+/// A drive in memory that plays another device saving an object while a copy streams it: right
+/// after the first ranged read of a key, `then` (another version, the same size) takes its place.
+/// What a drive that has no folder here is to a copy - nothing but `get_range` and `put_from`.
+#[derive(Default)]
+struct Swapping {
+    files: Mutex<BTreeMap<String, (Vec<u8>, u64)>>,
+    clock: AtomicU64,
+    /// `(key, bytes)`: put in place after the first ranged read of the key.
+    then: Mutex<Option<(String, Vec<u8>)>>,
+    /// A look at an object fails once a range was read (a connection that drops at the end).
+    head_fails_after_a_range: std::sync::atomic::AtomicBool,
+    ranged: AtomicU32,
+    /// The streams that were read to their end and stored.
+    completed: AtomicU32,
+}
+
+impl Swapping {
+    fn with(files: &[(&str, &[u8])]) -> Swapping {
+        let drive = Swapping::default();
+        for (key, bytes) in files {
+            drive.write(key, bytes);
+        }
+        drive
+    }
+
+    fn write(&self, key: &str, bytes: &[u8]) {
+        let version = self.clock.fetch_add(1, Ordering::SeqCst) + 1;
+        self.files
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), (bytes.to_vec(), version));
+    }
+
+    fn info(key: &str, bytes: &[u8], version: u64) -> ObjectInfo {
+        ObjectInfo {
+            key: key.to_string(),
+            size: bytes.len() as u64,
+            modified: Some(1),
+            etag: Some(format!("v{version}")),
+        }
+    }
+}
+
+impl Drive for Swapping {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        let files = self.files.lock().unwrap();
+        let mut page = ListPage::default();
+        for (key, (bytes, version)) in files.iter() {
+            if key.starts_with(&request.prefix) {
+                page.objects.push(Self::info(key, bytes, *version));
+            }
+        }
+        Ok(page)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.files
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|(bytes, _)| bytes.clone())
+            .ok_or_else(|| DriveError::NotFound { key: key.into() })
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        let bytes = self.get(key)?;
+        let end = range
+            .end
+            .map_or(bytes.len() - 1, |end| (end as usize).min(bytes.len() - 1));
+        let part = bytes[range.start as usize..=end].to_vec();
+        if self.ranged.fetch_add(1, Ordering::SeqCst) == 0 {
+            let swap = self.then.lock().unwrap().take();
+            if let Some((then_key, then_bytes)) = swap {
+                self.write(&then_key, &then_bytes);
+            }
+        }
+        Ok(part)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.write(key, bytes);
+        Ok(())
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.files.lock().unwrap().remove(key);
+        Ok(())
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        if self.head_fails_after_a_range.load(Ordering::SeqCst)
+            && self.ranged.load(Ordering::SeqCst) > 0
+        {
+            return Err(DriveError::Transport(String::from(
+                "the connection dropped",
+            )));
+        }
+        self.files
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|(bytes, version)| Self::info(key, bytes, *version))
+            .ok_or_else(|| DriveError::NotFound { key: key.into() })
+    }
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        // A stream that fails to its end stores nothing, as every real upload does.
+        let mut bytes = Vec::new();
+        body.read_to_end(&mut bytes)?;
+        self.write(key, &bytes);
+        self.completed.fetch_add(1, Ordering::SeqCst);
+        Ok(bytes.len() as u64)
+    }
+}
+
+/// Two versions of a file one chunk and a little over (two ranged reads), the same size.
+fn two_versions() -> (Vec<u8>, Vec<u8>) {
+    let size = crate::transfer::CHUNK as usize + 4096;
+    (vec![1u8; size], vec![2u8; size])
+}
+
+/// X-DELTA-SYNC2-3. A copy of an object over one chunk between two drives that are no folders streams
+/// ranged GETs - a request each, tied to no version - into one upload that completes when the reader
+/// ends. A file another device saved while it streamed arrived as a SPLICE of two versions under the
+/// final name, a Move kept its source (it differs by tag) but left the torn file at the target, and a
+/// plain copy reported "done". The reader looks at the object when it begins and again at its end; a
+/// different version fails its read, so the upload is aborted before it completes: Conflict, nothing
+/// under the final name, the source (which holds the other device's save) kept. RED on the old code:
+/// the target holds the first chunk of one version and the rest of the other, and the report says done.
+#[test]
+fn x_delta_sync2_3_a_file_replaced_while_it_streams_between_two_remote_drives_is_no_finished_copy()
+{
+    let (v1, v2) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    *source.then.lock().unwrap() = Some((String::from("big.bin"), v2.clone()));
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, true);
+    assert!(conflict(&report, "big.bin"), "{report:?}");
+    assert_eq!(report.done, 0, "{report:?}");
+    assert!(
+        target.get("big.bin").is_err(),
+        "nothing - whole or torn - stands under the final name"
+    );
+    assert_eq!(
+        target.completed.load(Ordering::SeqCst),
+        0,
+        "the upload was not allowed to complete"
+    );
+    assert_eq!(
+        source.get("big.bin").unwrap(),
+        v2,
+        "the Move keeps the source: it holds the other device's save"
+    );
+}
+
+/// The ordinary case: nothing changes, the object arrives whole and the Move retires its source.
+#[test]
+fn x_delta_sync2_3_an_unchanged_big_file_is_copied_whole_and_moved() {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, true);
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(report.done, 1);
+    assert_eq!(target.get("big.bin").unwrap(), v1);
+    assert!(source.get("big.bin").is_err(), "retired");
+}
+
+/// A look at the end that FAILS vouches for nothing: the upload is aborted with the drive's own
+/// error, the target has nothing and the source stays.
+#[test]
+fn x_delta_sync2_3_a_failed_look_at_the_end_of_the_copy_is_no_finished_copy() {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    source
+        .head_fails_after_a_range
+        .store(true, Ordering::SeqCst);
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, true);
+    assert_eq!(report.done, 0, "{report:?}");
+    assert_eq!(report.failed.len(), 1, "{report:?}");
+    assert!(
+        matches!(report.failed[0].1, DriveError::Transport(_)),
+        "the drive's own error: {report:?}"
+    );
+    assert!(target.get("big.bin").is_err());
+    assert_eq!(target.completed.load(Ordering::SeqCst), 0);
+    assert_eq!(source.get("big.bin").unwrap(), v1, "the source stays");
+}

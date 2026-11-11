@@ -178,23 +178,79 @@ fn relay_progress_with<T: Send>(
 }
 
 /// A ranged reader of one object: what a copy between two remote drives streams from.
+///
+/// Every range is a request of its own, and nothing ties two of them to one version: an object
+/// another device saves while the copy streams would arrive as a splice of two versions under the
+/// final name (X-DELTA-SYNC2-3). The reader is of the version `before` - one look when the copy
+/// began - and says it is at its end only when a look then finds the object still that version;
+/// else its read fails, so that the upload that reads it is aborted before it completes.
 struct RangeReader<'a> {
     drive: &'a dyn Drive,
     key: &'a str,
-    size: u64,
+    /// The object as it was when the copy began.
+    before: ObjectInfo,
     chunk: u64,
     offset: u64,
     buffer: Vec<u8>,
     at: usize,
+    /// The look at the end found another version: the copy is not of one.
+    changed: bool,
+    /// The look at the end failed: nothing vouches for the copy.
+    look_failed: Option<DriveError>,
+}
+
+impl<'a> RangeReader<'a> {
+    fn new(drive: &'a dyn Drive, key: &'a str, before: ObjectInfo, chunk: u64) -> RangeReader<'a> {
+        RangeReader {
+            drive,
+            key,
+            before,
+            chunk,
+            offset: 0,
+            buffer: Vec::new(),
+            at: 0,
+            changed: false,
+            look_failed: None,
+        }
+    }
+
+    /// The look at the end: the object is still the version the copy began with. Said again after
+    /// a failure it fails again.
+    fn still_whole(&mut self) -> std::io::Result<()> {
+        let torn =
+            || std::io::Error::other(format!("\"{}\" changed while it was copied", self.key));
+        if self.changed {
+            return Err(torn());
+        }
+        if let Some(e) = &self.look_failed {
+            return Err(std::io::Error::other(e.to_string()));
+        }
+        match info_of(self.drive, self.key) {
+            Ok(now) if same_version(&self.before, &now) => Ok(()),
+            Ok(_) => {
+                self.changed = true;
+                Err(torn())
+            }
+            Err(e) => {
+                let told = std::io::Error::other(e.to_string());
+                self.look_failed = Some(e);
+                Err(told)
+            }
+        }
+    }
 }
 
 impl Read for RangeReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if self.at >= self.buffer.len() {
-            if self.offset >= self.size {
+            if self.offset >= self.before.size {
+                // Asked again after a failure it fails again: the end is never "whole" after a look
+                // that said otherwise.
+                self.still_whole()?;
                 return Ok(0);
             }
-            let end = (self.offset + self.chunk).min(self.size) - 1;
+            let size = self.before.size;
+            let end = (self.offset + self.chunk).min(size) - 1;
             let bytes = self
                 .drive
                 .get_range(self.key, ByteRange::new(self.offset, Some(end)))
@@ -202,7 +258,7 @@ impl Read for RangeReader<'_> {
             if bytes.is_empty() {
                 return Err(std::io::Error::other(format!(
                     "\"{}\" ended at byte {} of {}",
-                    self.key, self.offset, self.size
+                    self.key, self.offset, size
                 )));
             }
             self.offset += bytes.len() as u64;
@@ -318,6 +374,12 @@ fn info_of(drive: &dyn Drive, key: &str) -> Result<ObjectInfo, DriveError> {
     let mut info = drive.head(key)?;
     info.key = key.to_string();
     Ok(info)
+}
+
+/// Whether `now` is the version `before` was: the tag, the size and the date the drive gave - the
+/// one question a ranged download and a ranged copy ask of their object when they end.
+fn same_version(before: &ObjectInfo, now: &ObjectInfo) -> bool {
+    now.etag == before.etag && now.size == before.size && now.modified == before.modified
 }
 
 /// Fetches the ranges of `info`'s object into its hidden file next to `dest` - the ones a
@@ -451,7 +513,7 @@ pub(crate) fn download_ranges_probed(
     stop_if_asked(ctl)?;
     // The ranges must all be of one version.
     let now = info_of(drive, key)?;
-    if now.etag != info.etag || now.size != info.size || now.modified != info.modified {
+    if !same_version(info, &now) {
         let _ = fs::remove_file(&partial);
         let _ = fs::remove_file(&state_path);
         return Err(DriveError::Conflict {
@@ -798,7 +860,6 @@ pub fn copy_object_when(
                 Some(size) => size,
                 None => source.head(key)?.size,
             };
-            let mut size = size;
             if size <= CHUNK {
                 // As a download: the listing's size is not the object's if it grew since; it is
                 // refused at the limit and goes by ranges (X-DELTA-AZDRIVE-FILES-36).
@@ -819,26 +880,32 @@ pub fn copy_object_when(
                         if now <= CHUNK {
                             return Err(DriveError::Protocol(why));
                         }
-                        size = now;
                     }
                     Err(e) => return Err(e),
                 }
             }
-            let mut ranges = RangeReader {
-                drive: source,
-                key,
-                size,
-                chunk: CHUNK,
-                offset: 0,
-                buffer: Vec::new(),
-                at: 0,
+            // The version the ranges must all be of: one look now, the same look when the last range
+            // is in (X-DELTA-SYNC2-3). The size is the object's as it is now, not as it was listed.
+            let before = info_of(source, key)?;
+            let size = before.size;
+            let mut ranges = RangeReader::new(source, key, before, CHUNK);
+            let copied = {
+                let mut reader = ProgressReader::new(&mut ranges, ctl);
+                match condition {
+                    Some(condition) => target
+                        .put_from_if(target_key, &mut reader, condition)
+                        .map(|_| size),
+                    None => target.put_from(target_key, &mut reader),
+                }
             };
-            let mut reader = ProgressReader::new(&mut ranges, ctl);
-            match condition {
-                Some(condition) => target
-                    .put_from_if(target_key, &mut reader, condition)
-                    .map(|_| size),
-                None => target.put_from(target_key, &mut reader),
+            match copied {
+                Ok(len) => Ok(len),
+                // The upload read a torn end and was aborted: another device saved the object
+                // while it was copied. Nothing is made visible under the target's name.
+                Err(_) if ranges.changed => Err(DriveError::Conflict {
+                    key: key.to_string(),
+                }),
+                Err(e) => Err(ranges.look_failed.take().unwrap_or(e)),
             }
         }
     }
