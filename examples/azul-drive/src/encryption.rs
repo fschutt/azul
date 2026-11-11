@@ -92,7 +92,7 @@ use azul_storage::{
     recompress::{run_pass, RecompressPolicy, RecompressState},
     rotation::{self, reencrypt_pass, ReencryptState},
     time::now_unix,
-    trust::{EncState, RestoreKind},
+    trust::{EncState, RestoreKind, Via},
     Drive, LocalDrive,
 };
 
@@ -1701,12 +1701,40 @@ pub(crate) enum UnfinishedSetup {
 }
 
 /// Whether the drive is KNOWN to hold no key on this computer (a setup waiting to be finished, a drive
-/// that is not encrypted): there is no key to seal a new code to. A drive no call decided yet
-/// ([`EncState::Undecided`]: the first folder of a run) is not known, and is treated as it was.
+/// that is not encrypted, an encrypted one this computer found by its record or its key files only -
+/// `Via::KeyInKeyring` is what a key in the keyring is decided as): there is no key to seal a new code
+/// to. A drive no call decided yet ([`EncState::Undecided`]: the first folder of a run) is not known,
+/// and is treated as it was.
 fn known_without_key(state: EncState) -> bool {
     match state {
-        EncState::SetupPending | EncState::Unencrypted(_) => true,
-        EncState::Undecided | EncState::Encrypted { .. } => false,
+        EncState::SetupPending
+        | EncState::Unencrypted(_)
+        | EncState::Encrypted {
+            via: Via::Record | Via::KeyFilesListed,
+            ..
+        } => true,
+        EncState::Undecided
+        | EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        } => false,
+    }
+}
+
+/// Whether the drive is KNOWN to hold its key on this computer (the keyring has it).
+fn known_with_key(state: EncState) -> bool {
+    match state {
+        EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        } => true,
+        EncState::Encrypted {
+            via: Via::Record | Via::KeyFilesListed,
+            ..
+        }
+        | EncState::Undecided
+        | EncState::SetupPending
+        | EncState::Unencrypted(_) => false,
     }
 }
 
@@ -4206,7 +4234,7 @@ pub(crate) fn on_outcome(
                 let encrypted_here = s
                     .slot_index(&drive_id)
                     .and_then(|index| s.slots[index].auto.as_ref())
-                    .is_some_and(|auto| auto.state().has_drive_index());
+                    .is_some_and(|auto| known_with_key(auto.state()));
                 if setup_marker_undone(&mut s.settings.recovery.drives, &drive_id, encrypted_here) {
                     crate::save_settings(info, app, s);
                 }
@@ -6654,6 +6682,20 @@ mod tests {
             !known_without_key(EncState::Undecided),
             "the first folder of a run: not known"
         );
+        // An encrypted drive this computer found by its record or its key files has no key here
+        // (a paid drive picked up on a second computer): no new code for it, and a failed setup
+        // of it takes its marker back.
+        let elsewhere = EncState::Encrypted {
+            key_id: None,
+            via: Via::KeyFilesListed,
+        };
+        let held = EncState::Encrypted {
+            key_id: None,
+            via: Via::KeyInKeyring,
+        };
+        assert!(known_without_key(elsewhere) && !known_with_key(elsewhere));
+        assert!(!known_without_key(held) && known_with_key(held));
+        assert!(!known_with_key(EncState::Undecided));
     }
 
     // ==== X-DELTA-KEYS2-3: a setup that stops after its wrap moves no file ====
