@@ -10,6 +10,13 @@
 //! defines every method of the trait or says, in a `// inherits: a, b - why` comment inside its
 //! impl, which ones it leaves to the default and why that is right; a shipped `impl Drive for`
 //! that this file does not know is a failure until it is classified.
+//!
+//! ARCH29 C6e: a wrapper made with `delegate_drive!` forwards every method of `drive_methods!`
+//! (THE list of the 27) unless it writes the method itself, so a new method of the trait is
+//! forwarded without touching the wrapper - provided the list says the same as the trait, which
+//! the first test below keeps true. The wrappers that must write every method on purpose (the
+//! encryption wrappers, `ScopedDrive`, `AzlinDrive`, the bridge's account drive) stay in
+//! `WRAPPERS` with their per-method census.
 
 /// The methods `LocalDrive` leaves to the trait's default, each with why that is right.
 const LOCAL_DEFAULTS: &[(&str, &str)] = &[
@@ -83,6 +90,260 @@ fn x_ar5a_7_the_pointer_impls_forward_every_drive_method() {
             "Drive::{method} is not forwarded by a Box, an Arc or a reference to a drive"
         );
     }
+}
+
+// ==== THE list of the methods, and the wrappers made from it (ARCH29 C6e) ====
+
+/// The methods of the trait `Drive` in lib.rs, each with whether it has no default body.
+fn trait_methods(lib: &str) -> Vec<(String, bool)> {
+    let header = "pub trait Drive: Send + Sync {";
+    let start = lib
+        .find(header)
+        .unwrap_or_else(|| panic!("{header:?} not found"));
+    let body = &lib[start..];
+    let end = body.find("\n}\n").expect("end of the trait");
+    let lines: Vec<&str> = body[..end].lines().collect();
+    let mut out = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        let Some(rest) = line.strip_prefix("    fn ") else {
+            continue;
+        };
+        let name = rest
+            .split(['(', '<'])
+            .next()
+            .unwrap_or(rest)
+            .trim()
+            .to_string();
+        // The signature ends at the first line that ends with `;` (no default) or `{` (a body).
+        let required = lines[at..]
+            .iter()
+            .map(|l| l.trim_end())
+            .find_map(|l| {
+                if l.ends_with(';') {
+                    Some(true)
+                } else if l.ends_with('{') {
+                    Some(false)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| panic!("the signature of Drive::{name} ends nowhere"));
+        out.push((name, required));
+    }
+    out
+}
+
+/// One entry of `drive_methods!`: `(kind, required|provided) fn name(..) -> ..;`.
+struct Entry {
+    kind: String,
+    required: bool,
+    name: String,
+    /// The entry after `fn `: its name, arguments and return type.
+    signature: String,
+}
+
+/// The entries of `drive_methods!` in lib.rs, one per line that starts with `(kind, flag) fn `.
+fn list_entries(lib: &str) -> Vec<Entry> {
+    let header = "macro_rules! drive_methods {";
+    let start = lib
+        .find(header)
+        .unwrap_or_else(|| panic!("{header:?} not found"));
+    let body = &lib[start..];
+    let end = body.find("\n}\n").expect("end of the list");
+    body[..end]
+        .lines()
+        .filter_map(|line| {
+            let rest = line.trim_start().strip_prefix('(')?;
+            let (flags, after) = rest.split_once(") fn ")?;
+            let (kind, flag) = flags.split_once(", ")?;
+            let required = match flag {
+                "required" => true,
+                "provided" => false,
+                other => panic!("`{other}` is neither `required` nor `provided`: {line}"),
+            };
+            Some(Entry {
+                kind: kind.to_string(),
+                required,
+                name: after.split('(').next()?.trim().to_string(),
+                signature: after.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// ARCH29 C6e. THE list a macro-made wrapper forwards from says what the trait says: the same
+/// methods, the same ones required. A method added to the trait only is not forwarded by a wrapper
+/// made with `delegate_drive!` - the trait's default would answer for it, which is how
+/// `RetryingDrive` lost `site()` (X-DELTA-AZDRIVE-FILES-2); a method added to the list only does not
+/// compile there. Adds nothing to either: it fails when they differ.
+#[test]
+fn c6e_the_list_of_drive_methods_is_the_traits_list_name_for_name_and_required_for_required() {
+    let lib = include_str!("../lib.rs");
+    let in_trait = trait_methods(lib);
+    let in_list = list_entries(lib);
+    assert!(in_trait.len() >= 27, "the trait was parsed: {in_trait:?}");
+    let not_in_list: Vec<&str> = in_trait
+        .iter()
+        .filter(|(name, _)| !in_list.iter().any(|e| &e.name == name))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let not_in_trait: Vec<&str> = in_list
+        .iter()
+        .filter(|e| !in_trait.iter().any(|(name, _)| name == &e.name))
+        .map(|e| e.name.as_str())
+        .collect();
+    assert!(
+        not_in_list.is_empty() && not_in_trait.is_empty(),
+        "drive_methods! (lib.rs) and `pub trait Drive` differ - in the trait only: {not_in_list:?}; \
+         in the list only: {not_in_trait:?}. A wrapper made with delegate_drive! forwards what the \
+         list names; a method missing there is answered by the trait's default"
+    );
+    assert_eq!(
+        in_list.len(),
+        in_trait.len(),
+        "a method is listed twice in drive_methods!"
+    );
+    for entry in &in_list {
+        let in_the_trait = in_trait.iter().find(|(name, _)| name == &entry.name);
+        assert_eq!(
+            in_the_trait.map(|(_, required)| *required),
+            Some(entry.required),
+            "Drive::{} is {} in the trait and {} in drive_methods!",
+            entry.name,
+            if entry.required {
+                "provided"
+            } else {
+                "required"
+            },
+            if entry.required {
+                "required"
+            } else {
+                "provided"
+            },
+        );
+    }
+}
+
+/// ARCH29 C6e. What a wrapper retries or renews is the `send` entries: they must be requests that
+/// can be sent again as they are. A call that carries a body that is read once (`dyn Read`), a stop
+/// handle for a file's upload (`dyn Ctl`) or a batch (`Batch*`) is `pass`, so a wrapper that retries
+/// by default never sends a half-read body twice, and a method that answers no request (`site`,
+/// `local_path`) is never wrapped.
+#[test]
+fn c6e_a_send_method_is_a_request_that_can_be_sent_again_and_every_other_call_is_pass() {
+    let in_list = list_entries(include_str!("../lib.rs"));
+    assert!(in_list.len() >= 27, "the list was parsed");
+    for entry in &in_list {
+        assert!(
+            entry.kind == "send" || entry.kind == "pass",
+            "Drive::{}: the kind `{}` is neither `send` nor `pass`",
+            entry.name,
+            entry.kind
+        );
+        let answers_a_request = entry.signature.contains("-> ::core::result::Result<");
+        let carries_what_cannot_be_sent_twice = entry.signature.contains("::std::io::Read")
+            || entry.signature.contains("$crate::Ctl")
+            || entry.signature.contains("$crate::Batch");
+        if entry.kind == "send" {
+            assert!(
+                answers_a_request && !carries_what_cannot_be_sent_twice,
+                "Drive::{} is `send` and is no request that can be sent again (a body, a stop \
+                 handle, a batch or no Result): {}",
+                entry.name,
+                entry.signature
+            );
+        }
+    }
+    // The two methods RetryingDrive forgot (FILES-2) are forwarded in different ways on purpose:
+    // the place is a question (`pass`), the emptied folder a request that is safe to send again.
+    let kind = |name: &str| {
+        in_list
+            .iter()
+            .find(|e| e.name == name)
+            .map(|e| e.kind.as_str())
+    };
+    assert_eq!(kind("site"), Some("pass"));
+    assert_eq!(kind("remove_empty_folder"), Some("send"));
+    assert_eq!(
+        kind("put_from"),
+        Some("pass"),
+        "a body read once is never sent twice"
+    );
+    assert_eq!(kind("put_file"), Some("pass"));
+    assert_eq!(kind("put_many"), Some("pass"));
+}
+
+/// A wrapper made with the macro, over a folder, that counts the requests it sends: it writes
+/// `below` and `send` and nothing else.
+struct Counting {
+    folder: crate::LocalDrive,
+    sent: std::sync::atomic::AtomicUsize,
+}
+
+impl crate::DriveDelegate for Counting {
+    fn below(&self) -> &dyn crate::Drive {
+        &self.folder
+    }
+
+    fn send<T>(
+        &self,
+        request: impl Fn(&dyn crate::Drive) -> Result<T, crate::DriveError>,
+    ) -> Result<T, crate::DriveError> {
+        self.sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        request(&self.folder)
+    }
+}
+
+crate::delegate_drive!(Counting);
+
+/// ARCH29 C6e, through the entry the production wrappers use (`delegate_drive!`, over a real
+/// folder): a request goes through the wrapper's `send` once, and everything else - the place, the
+/// path, a body that is read once - goes straight to the drive below, answered by the drive below
+/// and not by the trait's defaults (`site()` is the folder's own place, the emptied folder is
+/// removed with `rmdir`, as X-DELTA-AZDRIVE-FILES-2 needs).
+#[test]
+fn c6e_a_macro_made_wrapper_sends_its_requests_through_send_and_passes_the_rest_straight_on() {
+    use crate::{Drive, ListRequest};
+    use std::sync::atomic::Ordering::SeqCst;
+    let dir = crate::testing::TempDir::new("c6e-counting");
+    let drive = Counting {
+        folder: crate::LocalDrive::new(dir.path().to_path_buf()),
+        sent: std::sync::atomic::AtomicUsize::new(0),
+    };
+    let sent = || drive.sent.load(SeqCst);
+    drive.put("a/b.txt", b"hi").unwrap();
+    assert_eq!(drive.get("a/b.txt").unwrap(), b"hi");
+    drive.head("a/b.txt").unwrap();
+    drive.list(&ListRequest::folder("a/")).unwrap();
+    assert_eq!(
+        sent(),
+        4,
+        "put, get, head and list are requests: one send each"
+    );
+    // A question about the drive, and a body that is read once, go straight on.
+    assert_eq!(drive.site(), drive.folder.site());
+    assert!(matches!(drive.site(), crate::xfer::Site::Disk { .. }));
+    assert_eq!(
+        drive.local_path("a/b.txt"),
+        drive.folder.local_path("a/b.txt")
+    );
+    assert_eq!(
+        drive.conditional_writes(),
+        drive.folder.conditional_writes()
+    );
+    let mut body: &[u8] = b"streamed";
+    assert_eq!(drive.put_from("c.txt", &mut body), Ok(8));
+    assert_eq!(drive.get("c.txt").unwrap(), b"streamed");
+    assert_eq!(
+        sent(),
+        5,
+        "the question and the body did not go through send; the get did"
+    );
+    // The emptied folder is the folder's to remove (a request: it is sent), not the default's.
+    drive.create_folder("gone/").unwrap();
+    assert_eq!(drive.remove_empty_folder("gone/"), Ok(true));
+    assert!(!dir.path().join("gone").exists());
+    assert_eq!(sent(), 7);
 }
 
 // ==== Every wrapper of a drive (X-DELTA-AZDRIVE-FILES-2) ====

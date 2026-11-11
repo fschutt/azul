@@ -1085,3 +1085,166 @@ macro_rules! forward_drive {
 }
 
 forward_drive!(Box<D>, std::sync::Arc<D>, &D);
+
+// ==== One list of the methods, and the wrapper that forwards what it does not name ====
+
+/// THE list of the methods of [`Drive`], for every piece of code that has to cover each one of them
+/// (ARCH29 C6e). `drive_methods!(callback; context)` calls `callback! { context ; entries }`, one
+/// entry per method:
+///
+/// ```text
+/// (send|pass, required|provided) fn name(argument: Type, ..) -> Return;
+/// ```
+///
+/// - `required`: the trait has no default for it, an implementation writes it;
+/// - `send`: a request that may be sent again as it is, so a wrapper that retries it (or renews what
+///   it needs first) wraps it: [`DriveDelegate::send`];
+/// - `pass`: forwarded as it is - a question about the drive (`site`, `local_path`) or a call a
+///   wrapper has to decide about for itself: a body that is read once, a file's upload that hears a
+///   stop, a batch. Never retried by default: what cannot be sent twice is not sent twice.
+///
+/// A new method of [`Drive`] is written here AND in the trait; `tests/drive_coverage.rs` fails
+/// until both say the same and every `send` entry is a request that can be replayed. Every wrapper
+/// made with [`delegate_drive!`] then forwards it without being touched (X-DELTA-AZDRIVE-FILES-2:
+/// `RetryingDrive` forwarded neither `site()` nor `remove_empty_folder()`, and the trait's defaults
+/// answered for the wrapper).
+#[macro_export]
+macro_rules! drive_methods {
+    ($callback:path ; $($context:tt)*) => {
+        $callback! {
+            $($context)* ;
+            (send, required) fn list(request: &$crate::ListRequest) -> ::core::result::Result<$crate::ListPage, $crate::DriveError>;
+            (send, required) fn get(key: &str) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::DriveError>;
+            (send, required) fn get_range(key: &str, range: $crate::ByteRange) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::DriveError>;
+            (send, provided) fn get_limited(key: &str, limit: $crate::Limit) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::DriveError>;
+            (send, required) fn put(key: &str, bytes: &[u8]) -> ::core::result::Result<(), $crate::DriveError>;
+            (send, required) fn delete(key: &str) -> ::core::result::Result<(), $crate::DriveError>;
+            (send, required) fn head(key: &str) -> ::core::result::Result<$crate::ObjectInfo, $crate::DriveError>;
+            (pass, provided) fn put_from(key: &str, body: &mut dyn ::std::io::Read) -> ::core::result::Result<u64, $crate::DriveError>;
+            (send, provided) fn put_if(key: &str, bytes: &[u8], condition: &$crate::Precondition) -> ::core::result::Result<::core::option::Option<::std::string::String>, $crate::DriveError>;
+            (send, provided) fn copy(from: &str, to: &str) -> ::core::result::Result<(), $crate::DriveError>;
+            (send, provided) fn create_folder(prefix: &str) -> ::core::result::Result<(), $crate::DriveError>;
+            (send, provided) fn rename(from: &str, to: &str) -> ::core::result::Result<(), $crate::DriveError>;
+            (send, provided) fn delete_folder(prefix: &str) -> ::core::result::Result<(), $crate::DriveError>;
+            (send, provided) fn remove_empty_folder(prefix: &str) -> ::core::result::Result<bool, $crate::DriveError>;
+            (pass, provided) fn local_path(key: &str) -> ::core::option::Option<::std::path::PathBuf>;
+            (pass, provided) fn site() -> $crate::xfer::Site;
+            (pass, provided) fn resume_folder() -> ::core::option::Option<::std::path::PathBuf>;
+            (send, provided) fn metadata(key: &str) -> ::core::result::Result<::std::vec::Vec<(::std::string::String, ::std::string::String)>, $crate::DriveError>;
+            (pass, provided) fn put_file(key: &str, path: &::std::path::Path, ctl: &dyn $crate::Ctl) -> ::core::result::Result<u64, $crate::DriveError>;
+            (pass, provided) fn put_file_checked(key: &str, path: &::std::path::Path, check: &$crate::checked::FileCheck, ctl: &dyn $crate::Ctl) -> ::core::result::Result<$crate::checked::CheckedUpload, $crate::DriveError>;
+            (pass, provided) fn put_from_if(key: &str, body: &mut dyn ::std::io::Read, condition: &$crate::Precondition) -> ::core::result::Result<::core::option::Option<::std::string::String>, $crate::DriveError>;
+            (pass, provided) fn conditional_writes() -> bool;
+            (pass, provided) fn put_file_if(key: &str, path: &::std::path::Path, condition: &$crate::Precondition, ctl: &dyn $crate::Ctl) -> ::core::result::Result<::core::option::Option<::std::string::String>, $crate::DriveError>;
+            (pass, provided) fn put_many(items: &[$crate::BatchPut<'_>]) -> ::std::vec::Vec<::core::result::Result<::core::option::Option<::std::string::String>, $crate::DriveError>>;
+            (pass, provided) fn delete_many(items: &[$crate::BatchDelete<'_>]) -> ::std::vec::Vec<::core::result::Result<(), $crate::DriveError>>;
+            (pass, provided) fn move_many(items: &[$crate::BatchMove<'_>]) -> ::std::vec::Vec<::core::result::Result<(), $crate::DriveError>>;
+            (pass, provided) fn put_from_many(items: &mut [$crate::BatchStream<'_>]) -> ::std::vec::Vec<::core::result::Result<::core::option::Option<::std::string::String>, $crate::DriveError>>;
+        }
+    };
+}
+
+/// One method of [`DriveDelegate`], by its kind in [`drive_methods!`]: a `send` goes through
+/// [`DriveDelegate::send`], a `pass` straight to the drive below.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __drive_delegate_method {
+    (send fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty) => {
+        fn $name(&self $(, $arg: $ty)*) -> $ret {
+            self.send(|drive| drive.$name($($arg),*))
+        }
+    };
+    (pass fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty) => {
+        fn $name(&self $(, $arg: $ty)*) -> $ret {
+            self.below().$name($($arg),*)
+        }
+    };
+}
+
+/// The trait [`DriveDelegate`], its methods written from [`drive_methods!`].
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __drive_delegate_trait {
+    ( ; $( ($kind:ident, $required:ident) fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty ; )* ) => {
+        /// What a wrapper of a drive does with a call, with a default for every method of [`Drive`]
+        /// (ARCH29 C6e): it goes to the drive below ([`DriveDelegate::below`]). A request that may
+        /// be sent again as it is goes through [`DriveDelegate::send`], which sends it as it is
+        /// unless the wrapper says how else; any other call - a body that is read once, a file's
+        /// upload that hears a stop, a batch, a question about the drive - goes straight, unless
+        /// the wrapper writes the method itself. [`drive_methods!`] says which is which.
+        ///
+        /// A wrapper implements this trait BY PATH (`impl azul_storage::DriveDelegate for X`, never
+        /// a `use` of it: it names every method of [`Drive`], and a type that has both traits in
+        /// scope makes `x.get(..)` ambiguous), writes `below`, `send` where it wraps requests and the
+        /// methods it changes, and calls [`delegate_drive!`] for the `impl Drive`. A method it does
+        /// not write is forwarded, and so is a method the trait gets next year: the wrapper that
+        /// forgot one cannot answer it for itself any more (X-DELTA-AZDRIVE-FILES-2).
+        ///
+        /// Not for a wrapper whose forwarding as it is would be WRONG for a method nobody has
+        /// looked at: the encryption wrappers (`AutoEncrypted`, `EncryptedDrive`: each method has
+        /// its own `Op` and a plaintext call below them is the bug), `ScopedDrive` (every key is
+        /// rewritten and every write checked against the grant), `AzlinDrive` and the bridge's
+        /// account drive (no one drive below; the trait's defaults are deliberate). They write
+        /// every method, and `tests/drive_coverage.rs` counts them.
+        pub trait DriveDelegate {
+            /// The drive below.
+            fn below(&self) -> &dyn $crate::Drive;
+
+            /// Sends a request that may be sent again as it is (every `send` method of
+            /// [`drive_methods!`]): `request` is given the drive below. The default sends it once,
+            /// as it is. A wrapper that retries it, waits for a gate or renews credentials first,
+            /// says so here.
+            ///
+            /// # Errors
+            ///
+            /// What `request` answers, or the wrapper's own refusal.
+            fn send<T>(
+                &self,
+                request: impl Fn(&dyn $crate::Drive) -> ::core::result::Result<T, $crate::DriveError>,
+            ) -> ::core::result::Result<T, $crate::DriveError> {
+                request(self.below())
+            }
+
+            $( $crate::__drive_delegate_method! { $kind fn $name ( $($arg : $ty),* ) -> $ret } )*
+        }
+    };
+}
+
+/// `impl Drive for $wrapper`: each method calls the method of the same name of the wrapper's
+/// [`DriveDelegate`].
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __drive_delegate_impl {
+    ( $wrapper:ty ; $( ($kind:ident, $required:ident) fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty ; )* ) => {
+        impl $crate::Drive for $wrapper {
+            $(
+                fn $name(&self $(, $arg: $ty)*) -> $ret {
+                    <$wrapper as $crate::DriveDelegate>::$name(self $(, $arg)*)
+                }
+            )*
+        }
+    };
+}
+
+/// A drive that wraps another: `impl Drive for $wrapper` made from its [`DriveDelegate`], so that
+/// every method of [`Drive`] is forwarded - the ones the wrapper wrote through its own method, the
+/// rest through the default (ARCH29 C6e). The wrapper type has no generics.
+///
+/// ```text
+/// impl azul_storage::DriveDelegate for RetryingDrive {
+///     fn below(&self) -> &dyn Drive { &*self.inner }
+///     fn send<T>(&self, request: impl Fn(&dyn Drive) -> Result<T, DriveError>) -> Result<T, DriveError> {
+///         self.call(|| request(&*self.inner))
+///     }
+///     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> { .. }
+/// }
+/// azul_storage::delegate_drive!(RetryingDrive);
+/// ```
+#[macro_export]
+macro_rules! delegate_drive {
+    ($wrapper:ty) => {
+        $crate::drive_methods!($crate::__drive_delegate_impl; $wrapper);
+    };
+}
+
+drive_methods!(__drive_delegate_trait;);
