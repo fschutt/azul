@@ -87,6 +87,8 @@ pub enum Read<T> {
     Unasked,
 }
 
+// A derive would ask `T: Default` of every fact; "nothing was asked" needs no value.
+#[allow(clippy::derivable_impls)]
 impl<T> Default for Read<T> {
     fn default() -> Read<T> {
         Read::Unasked
