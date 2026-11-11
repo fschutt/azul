@@ -562,7 +562,9 @@ fn shadow_reencrypt(keyring: &dyn KeyringStore, drive: &str) {
 /// lets the restore through, so that a refusal of the policy touches no keyring.
 fn shadow_restore(keyring: &dyn KeyringStore, drive: &str, state: EncState) {
     let mut evidence = shadow_evidence(drive, keyring);
-    evidence.bucket.encrypted = Read::Found(matches!(state, EncState::Encrypted { .. }));
+    // The state's own answer for an encrypted drive (the one that has a drive index), not a test of
+    // the state here: `X-AR5b-3` keeps the state asked through trust.rs's exhaustive functions.
+    evidence.bucket.encrypted = Read::Found(state.has_drive_index());
     azul_storage::key_shadow!(
         "azul_drive::encryption::restore",
         Op::RestoreAsOf,
