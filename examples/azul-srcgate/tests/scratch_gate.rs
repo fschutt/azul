@@ -20,8 +20,12 @@
 //! a free place, a stranger's file put aside, marked as downloaded, read-only, and noted as made so
 //! that a sweep never takes the user's edit. It was written twice and the second copy forgot the
 //! lessons of the first (an edit saved beside the copy was swept after three days). Its pieces
-//! (`Scratch::keep`, `Scratch::note_made`, `make_read_only`) are public; a call of one outside
-//! `scratch.rs` is a procedure composed by hand and is a finding unless it is listed with its reason.
+//! (`Scratch::keep`, `Scratch::note_made`, `make_read_only` and `quarantine::mark_downloaded`) are
+//! public; a call of one outside `scratch.rs` is a procedure composed by hand and is a finding
+//! unless it is listed with its reason. `mark_downloaded` also marks what a download or the sync
+//! writes into a folder of the user's (those are listed: no copy is handed to an app there); a
+//! NEW call is the question "is this a copy for an app?" asked at the line that makes it
+//! (ARCH29 C6a, X-DELTA-AZDRIVE-FILES-19).
 
 use std::path::{Path, PathBuf};
 
@@ -69,9 +73,10 @@ fn temp_dir_reads(t: &[Located]) -> Vec<usize> {
     lines
 }
 
-/// Every call of a piece of the open-copy procedure: `note_made` and `make_read_only` by their
-/// names (a path before them does not matter, a definition `fn note_made(` is none) and `.keep(` in a
-/// file that names `Scratch` (another type's `keep` is none: the file must name the type).
+/// Every call of a piece of the open-copy procedure: `note_made`, `make_read_only` and
+/// `mark_downloaded` by their names (a path before them does not matter, a definition
+/// `fn note_made(` and an import `use ..::mark_downloaded;` are none) and `.keep(` in a file that
+/// names `Scratch` (another type's `keep` is none: the file must name the type).
 fn copy_pieces(t: &[Located]) -> Vec<usize> {
     let names_scratch = t.iter().any(|x| x.tok.is_ident("Scratch"));
     let mut lines = Vec::new();
@@ -84,6 +89,7 @@ fn copy_pieces(t: &[Located]) -> Vec<usize> {
         let method = i >= 1 && t[i - 1].tok.is_punct('.');
         let piece = x.tok.is_ident("note_made")
             || x.tok.is_ident("make_read_only")
+            || x.tok.is_ident("mark_downloaded")
             || (x.tok.is_ident("keep") && method && names_scratch);
         if piece {
             lines.push(x.line);
@@ -104,6 +110,8 @@ fn rules() -> Vec<Rule> {
                 "let folder = Scratch::new(\"open\").keep(&tag).unwrap();",
                 "make_read_only(&dest).ok();",
                 "Scratch::under(&root, \"open\")\n    .keep(&tag)\n    .unwrap();",
+                "quarantine::mark_downloaded(&dest);",
+                "mark_downloaded(&copy);",
             ],
             &[
                 "let kept = rotation.keep();",
@@ -112,7 +120,10 @@ fn rules() -> Vec<Rule> {
                 "let path = scratch.kept(&tag);",
                 "fn note_made(folder: &Path) {}",
                 "fn make_read_only(path: &Path) {}",
+                "fn mark_downloaded(path: &Path) {}",
                 "let note_made = 1;",
+                "let marked = quarantine::is_marked(&dest);",
+                "use crate::quarantine::mark_downloaded;",
             ],
         ),
     ]
@@ -166,9 +177,28 @@ const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azul-storage/src/scratch.rs",
         COPY_PIECE,
-        3,
-        "the one place: `Scratch::open_copy` calls `keep`, `make_read_only` and `note_made` once each, \
-         in that order, so that no copy is handed out without its folder, its mode and its record",
+        4,
+        "the one place: `Scratch::open_copy` calls `keep`, `mark_downloaded`, `make_read_only` and \
+         `note_made` once each, in that order, so that no copy is handed out without its folder, \
+         its mark, its mode and its record",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/transfer.rs",
+        COPY_PIECE,
+        1,
+        "copy_object_when: the destination of a drive-to-disk transfer (a Download, a Paste, the \
+         rescue copy of a read-only drive) carries the system's `downloaded from elsewhere` mark \
+         (AZ-W20); it is the user's file in a folder they chose, no copy handed to an app (that \
+         is Scratch::open_copy)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/mod.rs",
+        COPY_PIECE,
+        1,
+        "fetch_one: a file the sync writes into the synced folder from another person's device \
+         carries the mark (AZ-W20); it is a file of the user's folder, no copy handed to an app \
+         (the decrypted copy of an encrypted pairing is session.rs's `decrypt`, which asks \
+         Scratch::open_copy)",
     ),
     Allow::exactly(
         "examples/azul-drive/src/picker.rs",
@@ -438,12 +468,93 @@ fn a_planted_open_copy_composed_by_hand_is_caught_and_a_listed_one_is_counted() 
     let _ = std::fs::remove_dir_all(base);
 }
 
+const LISTED_MARKS: &[Allow] = &[Allow::exactly(
+    "examples/azul-drive/src/opening.rs",
+    COPY_PIECE,
+    2,
+    "the planted marks",
+)];
+
+/// ARCH29 C6a: the download mark is a piece of the open-copy procedure too. A copy handed to an app
+/// that is marked by hand (`quarantine::mark_downloaded` through its path or imported) outside
+/// `scratch.rs` is a finding with its line; a listed file is counted (a new mark beside the listed
+/// one is seen), and a count that no longer holds (the code asks `Scratch::open_copy`) fails too.
+#[test]
+fn a_planted_mark_downloaded_outside_scratch_rs_is_caught_and_a_listed_one_is_counted() {
+    let planted = [
+        "use azul_storage::quarantine::{self, mark_downloaded};",
+        "pub fn hand_over(copy: &std::path::Path, other: &std::path::Path) {",
+        "    quarantine::mark_downloaded(copy);",
+        "    mark_downloaded(other);",
+        "}",
+        "",
+    ]
+    .join("\n");
+    let base = base_with(
+        "marks",
+        &[
+            ("examples/azul-drive/src/lib.rs", "mod opening;\n"),
+            ("examples/azul-drive/src/opening.rs", planted.as_str()),
+        ],
+    );
+    let wrong = check(&base, &[]).expect_err("an unlisted mark is a finding");
+    assert_eq!(wrong.len(), 2, "{wrong:?}");
+    for line in [3, 4] {
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.starts_with(&format!("examples/azul-drive/src/opening.rs:{line}"))),
+            "line {line} in {wrong:?}"
+        );
+    }
+    // the import on line 1 is no call.
+    assert!(
+        !wrong
+            .iter()
+            .any(|w| w.starts_with("examples/azul-drive/src/opening.rs:1:")),
+        "{wrong:?}"
+    );
+    assert_eq!(check(&base, LISTED_MARKS), Ok(2));
+    // a third mark in the listed file is a new site: the count says so.
+    std::fs::write(
+        base.join("examples/azul-drive/src/opening.rs"),
+        format!("{planted}pub fn more(p: &std::path::Path) {{\n    mark_downloaded(p);\n}}\n"),
+    )
+    .unwrap();
+    let wrong = check(&base, LISTED_MARKS).expect_err("one more mark than the list says");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 3 x copy-piece where its allowance says 2")),
+        "{wrong:?}"
+    );
+    // converted to the one procedure: the list shrinks with the code.
+    let converted = [
+        "use azul_storage::scratch::{CopyOf, Scratch};",
+        "pub fn hand_over(copies: &Scratch, of: CopyOf<'_>) {",
+        "    let _ = copies.open_copy(of, &mut |_, _| Ok(()));",
+        "}",
+        "",
+    ]
+    .join("\n");
+    std::fs::write(base.join("examples/azul-drive/src/opening.rs"), converted).unwrap();
+    let wrong = check(&base, LISTED_MARKS).expect_err("fewer marks than the list says");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 0 x copy-piece where its allowance says 2")),
+        "{wrong:?}"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
 /// Another type's `keep`, a file that does not name `Scratch`, a definition, a comment and a test
 /// are no piece of the procedure.
 #[test]
 fn another_types_keep_a_definition_a_comment_and_a_test_are_no_piece_of_the_procedure() {
     let quiet = [
-        "// Scratch::note_made(&folder, name) and scratch::make_read_only(&path) are scratch's",
+        "// Scratch::note_made(&folder, name), scratch::make_read_only(&path) and",
+        "// quarantine::mark_downloaded(&path) are scratch's",
         "pub fn paid(list: &mut PaidList, record: &PaidRecord) {",
         "    list.keep(record);",
         "    let kept = rotation.keep();",
@@ -451,11 +562,15 @@ fn another_types_keep_a_definition_a_comment_and_a_test_are_no_piece_of_the_proc
         "pub fn note_made(folder: &std::path::Path) -> bool {",
         "    folder.exists()",
         "}",
+        "pub fn mark_downloaded(path: &std::path::Path) -> bool {",
+        "    path.exists()",
+        "}",
         "#[cfg(test)]",
         "mod tests {",
         "    fn t(c: &Scratch) {",
         "        let _ = c.keep(\"tag\");",
         "        let _ = Scratch::note_made(&folder, \"a\");",
+        "        quarantine::mark_downloaded(&folder);",
         "    }",
         "}",
         "",
