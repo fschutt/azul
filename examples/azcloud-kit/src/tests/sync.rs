@@ -565,13 +565,19 @@ fn x_ar5a_16_a_big_json_blob_the_drive_holds_short_is_sent_again() {
     let mut a = Device::new("dev-a-x16");
     a.json_merge = vec![String::from("config.json")];
     a.rules = Rules::azlin_home();
+    // The blob holds the keys that leave the computer (`is_synced`: the look - `currentTheme` and
+    // `mode` - and nothing else: a key a later build adds is this computer's own), so the weight
+    // is in one of them; a `note` of this size would be left out and the blob would be small.
     let big = format!(
-        r#"{{"currentTheme": "flat", "note": "{}"}}"#,
+        r#"{{"currentTheme": "{}", "note": "this computer's own"}}"#,
         "x".repeat(crate::store::BIG_BLOB as usize + 1024)
     );
     a.write("config.json", big.as_bytes());
     let blob = crate::sync::local::json_blob(big.as_bytes()).expect("a JSON object");
-    assert!(blob.len() as u64 > crate::store::BIG_BLOB);
+    assert!(
+        blob.len() as u64 > crate::store::BIG_BLOB,
+        "the blob is big: the streamed upload is what this test is about"
+    );
     let key = blob_key(PREFIX, &hash_bytes(&blob));
     store.write(&key, blob[..blob.len() / 3].to_vec());
     let report = a.sync(&store);
