@@ -849,7 +849,13 @@ fn planned(op: Op, e: &Evidence<'_>) -> Verdict {
 
 fn active(op: Op, e: &Evidence<'_>) -> Verdict {
     match op {
-        Op::Setup => refuse(Refusal::EncryptedAlready, e),
+        // The last step of a setup that stopped between its key and the planned key's deletion: the
+        // same call finishes it (the key was never shown a code). Without a key left behind the
+        // drive is encrypted already.
+        Op::Setup => match &e.keyring.planned_key {
+            Read::Found(_) => permit_keeping(op, e, Way::Finish),
+            Read::Absent | Read::Unasked | Read::Failed(_) => refuse(Refusal::EncryptedAlready, e),
+        },
         Op::Enroll => permit_keeping(op, e, Way::Plain),
         Op::Rotate => permit_keeping(op, e, Way::New),
         Op::Remove => removal(e),

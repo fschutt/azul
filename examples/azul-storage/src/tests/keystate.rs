@@ -7,7 +7,13 @@
 //! finding of the key review (X-DELTA-AZDRIVE-KEYS-1, -2, -3, -6, -7, -8, -18, -32) are named where
 //! they are.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use super::mem_bucket::MemBucket;
 use crate::{
@@ -22,10 +28,12 @@ use crate::{
         },
         DriveKey, KeyId,
     },
-    encrypted::{IndexProvider, MemoryIndex, NameIndex},
+    encrypted::{judge as enc_judge, IndexProvider, MemoryIndex, NameIndex, Recorded},
     footprint::KeyEntry,
-    keyring::{KeyringStore, MemoryKeyring},
-    rotation, Drive, DriveError,
+    keyring::{KeyringError, KeyringStore, MemoryKeyring},
+    rotation::{self, rotate, JOURNAL_FILE},
+    trust::{EncState, Via, Why as Unencrypted},
+    Drive, DriveError,
 };
 
 const DRIVE: &str = "d_ks";
@@ -222,6 +230,24 @@ fn the_table_is_the_specification_and_judge_answers_all_seventy_cells_by_it() {
         }
     }
     assert_eq!(cells.len(), 70, "seven states, ten operations");
+}
+
+/// A setup that stopped between the drive key and the planned key's deletion is finished by the same
+/// call: the planned key left beside the drive key is the one cell of the Active row that depends on
+/// what the keyring says.
+#[test]
+fn a_planned_key_left_beside_the_drive_key_lets_setup_finish_and_nothing_else_changes() {
+    let e = keyring(Some(1), None, Some(1));
+    assert_eq!(observe(&e), KeyState::Active);
+    match judge(&KeyState::Active, Op::Setup, &e) {
+        Verdict::Permit(permit) => assert_eq!(permit.way(), Way::Finish),
+        Verdict::Refuse(reason) => panic!("{reason}"),
+    }
+    let without = keyring(Some(1), None, None);
+    assert!(matches!(
+        judge(&KeyState::Active, Op::Setup, &without),
+        Verdict::Refuse(reason) if reason.kind == Refusal::EncryptedAlready
+    ));
 }
 
 #[test]
@@ -1049,9 +1075,20 @@ fn six_consumers_reseal_here_and_four_forget_a_keyring_entry() {
     );
 }
 
-/// A minimal provider for the adapters: the index in memory, nothing sealed.
+/// A minimal provider for the adapters and the rotations: the index in memory, nothing sealed, and
+/// a rekey that fails as often as a test asks.
 struct Provider {
     index: Arc<MemoryIndex>,
+    rekey_failures: AtomicUsize,
+}
+
+impl Provider {
+    fn new() -> Provider {
+        Provider {
+            index: Arc::new(MemoryIndex::new()),
+            rekey_failures: AtomicUsize::new(0),
+        }
+    }
 }
 
 impl IndexProvider for Provider {
@@ -1071,6 +1108,10 @@ impl IndexProvider for Provider {
         _old: &DriveKey,
         _new: &DriveKey,
     ) -> Result<(), DriveError> {
+        if self.rekey_failures.load(Ordering::SeqCst) > 0 {
+            self.rekey_failures.fetch_sub(1, Ordering::SeqCst);
+            return Err(DriveError::Io(String::from("the network went")));
+        }
         Ok(())
     }
 }
@@ -1141,9 +1182,7 @@ fn the_reseals_run_for_a_rotation_permit_only_and_do_the_existing_steps() {
     let keyring = MemoryKeyring::new();
     let (old, _) = setup_new_drive(bucket.as_ref(), &keyring, DRIVE, cheap()).unwrap();
     let new = DriveKey::generate().unwrap();
-    let provider = Provider {
-        index: Arc::new(MemoryIndex::new()),
-    };
+    let provider = Provider::new();
     let change = Change {
         drive: DRIVE,
         bucket: &bucket,
@@ -1213,5 +1252,196 @@ fn the_reseals_run_for_a_rotation_permit_only_and_do_the_existing_steps() {
     assert!(
         matches!(reseal_wrap(&rotate, &change), Err(DriveError::Io(_))),
         "a recovery wrap is not sealed to a key the keyring does not hold"
+    );
+}
+
+// ==== The local observers over real configurations ====
+
+/// A keyring that cannot be read.
+struct Unreadable;
+
+impl KeyringStore for Unreadable {
+    fn get(&self, _key: &str) -> Result<Option<String>, KeyringError> {
+        Err(KeyringError::Failed(String::from("the keyring went")))
+    }
+    fn set(&self, _key: &str, _secret: &str) -> Result<(), KeyringError> {
+        Err(KeyringError::Failed(String::from("the keyring went")))
+    }
+    fn delete(&self, _key: &str) -> Result<(), KeyringError> {
+        Err(KeyringError::Failed(String::from("the keyring went")))
+    }
+}
+
+/// Everything about a drive that a caller can gather without a rotation's help: the keyring's
+/// entries, whether the bucket lists key files, and the journal as the two observers of the rotation
+/// see it.
+fn gathered(bucket: &MemBucket, keyring: &dyn KeyringStore) -> Evidence<'static> {
+    let mut e = Evidence::new(DRIVE, NOW);
+    e.keyring = device::key_facts(keyring, DRIVE);
+    e.bucket.encrypted = Read::value(device::is_encrypted(bucket));
+    e.bucket.journal = match rotation::resumable(bucket, keyring, DRIVE) {
+        Ok(Some(_)) => Read::Found(Journal::Own),
+        Ok(None) => match rotation::pending(bucket) {
+            Ok(Some(_)) | Err(DriveError::Corrupt { .. }) => Read::Found(Journal::NotOwn),
+            Ok(None) => Read::Absent,
+            Err(error) => Read::Failed(error.to_string()),
+        },
+        Err(error) => Read::Failed(error.to_string()),
+    };
+    e
+}
+
+/// `observe` is the union of the local observers: over seven real configurations of a drive it says
+/// what each of them says (`rotation::unfinished`, `resumable`, `start`, `lockdown_needed`,
+/// `device::setup_pending`, `encrypted::judge`). The calls of `start` and `lockdown_needed` run
+/// their own shadows too, and a disagreement there fails this test (the macro asserts).
+#[test]
+fn observe_says_what_each_local_observer_says_over_real_configurations() {
+    let drive_key_of = |keyring: &dyn KeyringStore| device::load_drive_key(keyring, DRIVE).unwrap();
+
+    // Fresh: nothing anywhere.
+    let bucket = MemBucket::new();
+    let keyring = MemoryKeyring::new();
+    let e = gathered(&bucket, &keyring);
+    assert_eq!(observe(&e), KeyState::Fresh);
+    assert!(!rotation::unfinished(&keyring, DRIVE).unwrap());
+    assert!(!device::setup_pending(&keyring, DRIVE).unwrap());
+    assert_eq!(
+        enc_judge(&bucket, &keyring, DRIVE, Recorded::default()).unwrap(),
+        EncState::Unencrypted(Unencrypted::New)
+    );
+
+    // Planned: a key kept for the setup, and nothing in the bucket yet.
+    let key = DriveKey::generate().unwrap();
+    device::plan_drive_key(&keyring, DRIVE, &key).unwrap();
+    let e = gathered(&bucket, &keyring);
+    assert_eq!(observe(&e), KeyState::Planned);
+    assert!(device::setup_pending(&keyring, DRIVE).unwrap());
+    assert_eq!(
+        enc_judge(&bucket, &keyring, DRIVE, Recorded::default()).unwrap(),
+        EncState::SetupPending
+    );
+
+    // Active: the setup finished.
+    let bucket: Arc<MemBucket> = Arc::new(MemBucket::new());
+    let keyring = MemoryKeyring::new();
+    setup_new_drive(bucket.as_ref(), &keyring, DRIVE, cheap()).unwrap();
+    let e = gathered(&bucket, &keyring);
+    assert_eq!(observe(&e), KeyState::Active);
+    assert!(!rotation::unfinished(&keyring, DRIVE).unwrap());
+    assert!(!device::setup_pending(&keyring, DRIVE).unwrap());
+    assert!(rotation::resumable(bucket.as_ref(), &keyring, DRIVE)
+        .unwrap()
+        .is_none());
+    assert!(matches!(
+        rotation::start(bucket.as_ref(), &keyring, DRIVE),
+        Ok(rotation::Start::Fresh { .. })
+    ));
+    assert!(rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
+    assert!(matches!(
+        enc_judge(bucket.as_ref(), &keyring, DRIVE, Recorded::default()).unwrap(),
+        EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        }
+    ));
+
+    // Locked: the same drive on a device without a key.
+    let stranger = MemoryKeyring::new();
+    let e = gathered(&bucket, &stranger);
+    assert_eq!(observe(&e), KeyState::Locked);
+    assert!(matches!(
+        enc_judge(bucket.as_ref(), &stranger, DRIVE, Recorded::default()).unwrap(),
+        EncState::Encrypted {
+            via: Via::KeyFilesListed,
+            ..
+        }
+    ));
+    assert!(rotation::start(bucket.as_ref(), &stranger, DRIVE).is_err());
+
+    // Rotating (Resume): a rotation of this device that stopped at its first step.
+    let provider = Provider::new();
+    provider.rekey_failures.store(1, Ordering::SeqCst);
+    let arc_bucket: Arc<dyn Drive> = bucket.clone();
+    assert!(rotate(arc_bucket.clone(), &keyring, DRIVE, &provider, cheap()).is_err());
+    let e = gathered(&bucket, &keyring);
+    assert_eq!(observe(&e), KeyState::Rotating(Start::Resume));
+    assert!(rotation::unfinished(&keyring, DRIVE).unwrap());
+    assert!(rotation::resumable(bucket.as_ref(), &keyring, DRIVE)
+        .unwrap()
+        .is_some());
+    assert!(matches!(
+        rotation::start(bucket.as_ref(), &keyring, DRIVE),
+        Ok(rotation::Start::Resume(_))
+    ));
+    assert!(!rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
+    // ... and on the other device, which has no new key, nothing of its own is unfinished
+    assert!(!rotation::unfinished(&stranger, DRIVE).unwrap());
+
+    // Rotating (Adopt): the journal went (deleted, or replaced by a planted one).
+    let journal = bucket.object(JOURNAL_FILE).unwrap();
+    bucket.delete(JOURNAL_FILE).unwrap();
+    let e = gathered(&bucket, &keyring);
+    assert_eq!(observe(&e), KeyState::Rotating(Start::Adopt));
+    assert!(rotation::unfinished(&keyring, DRIVE).unwrap());
+    assert!(rotation::resumable(bucket.as_ref(), &keyring, DRIVE)
+        .unwrap()
+        .is_none());
+    assert!(matches!(
+        rotation::start(bucket.as_ref(), &keyring, DRIVE),
+        Ok(rotation::Start::Adopt { .. })
+    ));
+    assert!(rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
+    bucket.set(JOURNAL_FILE, b"{\"planted\": true}".to_vec());
+    let e = gathered(&bucket, &keyring);
+    assert_eq!(
+        observe(&e),
+        KeyState::Rotating(Start::Adopt),
+        "a planted journal is not this device's"
+    );
+    assert!(rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
+    bucket.set(JOURNAL_FILE, journal);
+
+    // Torn: the new key is kept and the drive key it replaces is gone, and the journal is not ours.
+    let drive_key_entry = device::drive_key_entry(DRIVE);
+    let held = drive_key_of(&keyring).unwrap();
+    bucket.delete(JOURNAL_FILE).unwrap();
+    keyring.delete(&drive_key_entry).unwrap();
+    let e = gathered(&bucket, &keyring);
+    assert_eq!(observe(&e), KeyState::Torn(Why::OldKeyGone));
+    assert!(
+        rotation::unfinished(&keyring, DRIVE).unwrap(),
+        "the drive key is not the new key"
+    );
+    assert!(rotation::start(bucket.as_ref(), &keyring, DRIVE).is_err());
+    assert!(rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).is_err());
+    device::store_drive_key(&keyring, DRIVE, &held).unwrap();
+
+    // Unknown: a keyring that cannot be read says nothing, and the observers fail with it.
+    let e = gathered(&bucket, &Unreadable);
+    assert!(
+        matches!(observe(&e), KeyState::Unknown(Why::Unreadable { .. })),
+        "{:?}",
+        observe(&e)
+    );
+    assert!(rotation::unfinished(&Unreadable, DRIVE).is_err());
+    assert!(device::setup_pending(&Unreadable, DRIVE).is_err());
+    assert!(rotation::start(bucket.as_ref(), &Unreadable, DRIVE).is_err());
+}
+
+/// X-DELTA-AZDRIVE-KEYS-6: the guard of the lockdown stops on a failed read and the table permits the
+/// lockdown there: the shadow notes the difference as the finding it is, and asserts nothing.
+#[test]
+fn x_delta_azdrive_keys_6_lockdown_needed_stops_on_a_failed_read_and_the_shadow_says_so() {
+    let bucket = MemBucket::new();
+    assert!(rotation::lockdown_needed(&bucket, &Unreadable, DRIVE).is_err());
+    let noted = disagreements_at("rotation::lockdown_needed");
+    assert!(
+        noted.iter().any(|d| {
+            d.state.row() == "unknown"
+                && d.guard == Guard::Refuses
+                && d.known.is_some_and(|f| f.contains("KEYS-6"))
+        }),
+        "{noted:?}"
     );
 }
