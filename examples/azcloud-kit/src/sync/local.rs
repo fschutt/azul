@@ -1453,12 +1453,14 @@ fn hash_checked(dir: &beneath::Dir, name: &str, st: &Stat) -> Result<Option<(Str
 /// When a folder of its path is a link or another disk, or cannot be read.
 pub fn stat_now(root: &Path, key: &str) -> Result<Option<Stat>, BeneathError> {
     let tree = beneath::Root::open(root)?;
-    let (dir, name) = match names::walk_local(&tree, key, false) {
+    // A look at a name the engine knows (an entry of a scan, a base entry): nothing is made for it.
+    let on_disk = names::OnDisk::of_record(key)?;
+    let (dir, name) = match tree.parent_of_existing(&on_disk) {
         Ok(found) => found,
         Err(e) if e.is_not_found() => return Ok(None),
         Err(e) => return Err(e),
     };
-    match dir.lstat(&name) {
+    match dir.lstat(name) {
         Ok(st) => Ok(Some(st)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
@@ -1596,11 +1598,16 @@ pub fn prune_empty_parents(root: &Path, key: &str) {
     };
     let mut folder = beneath::split_key(key).0;
     while !folder.is_empty() {
-        let Ok((dir, name)) = names::walk_local(&tree, folder, false) else {
+        // The folders of a file that was here (its key is a record of the engine's): walked to,
+        // never made.
+        let Ok(on_disk) = names::OnDisk::of_record(folder) else {
+            break;
+        };
+        let Ok((dir, name)) = tree.parent_of_existing(&on_disk) else {
             break;
         };
         // rmdir only removes an empty folder; anything in it stops the walk.
-        if dir.rmdir(&name).is_err() {
+        if dir.rmdir(name).is_err() {
             break;
         }
         folder = beneath::split_key(folder).0;

@@ -249,9 +249,17 @@ const ALLOWED: &[Allow] = &[
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/local.rs",
-        WALK_LOCAL,
+        ON_DISK_KEY,
         2,
-        "two looks at the disk: to move to OnDisk (ARCH29 C6c)",
+        "stat_now (the lstat of a key the engine knows: a scan's entry, a base entry) and \
+         prune_empty_parents (the folders of a file that was here): keys of the engine's records, \
+         looked at, never made (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/local.rs",
+        PARENT_OF_EXISTING,
+        2,
+        "the walks of stat_now and prune_empty_parents: to what is there, no folder made (ARCH29 C6c)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/session.rs",

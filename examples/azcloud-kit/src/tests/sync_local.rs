@@ -342,6 +342,40 @@ fn a_delete_prunes_the_folders_it_left_empty_and_nothing_else() {
     assert!(root.exists());
 }
 
+/// ARCH29 C6c, sync/local.rs. `stat_now` and `prune_empty_parents` walk their key as an `OnDisk` one:
+/// they find what is there and make nothing. A name a drive could send that the full rows refuse - a
+/// repository's folder in any spelling, its NTFS short name, the engine's own folder - is only looked
+/// at: no folder appears for it, however it is spelled (the walk that made a drive-renamed `.git` on
+/// the victim's disk, FILES-1, took any name and a flag). Green on the old code too: it pins what the
+/// type now holds.
+#[test]
+fn c6c_a_look_at_a_name_the_full_rows_refuse_makes_no_folder_and_a_prune_makes_none() {
+    let dir = TempDir::new("azcloud-c6c-local");
+    let root = dir.path();
+    for key in [
+        ".GIT/hooks/post-commit",
+        "GIT~1/config",
+        "proj/.hg./x",
+        ".svn/x",
+        ".azlin/sync/x",
+        ".git::$INDEX_ALLOCATION/x",
+    ] {
+        assert!(
+            !matches!(local::stat_now(root, key), Ok(Some(_))),
+            "{key:?}"
+        );
+        prune_empty_parents(root, key);
+    }
+    assert_eq!(
+        fs::read_dir(root).unwrap().count(),
+        0,
+        "a folder was made for a look"
+    );
+    // What is there is still found.
+    write(root, "proj/a.txt", b"a");
+    assert!(local::stat_now(root, "proj/a.txt").unwrap().is_some());
+}
+
 #[test]
 fn the_local_index_lives_in_the_state_folder_one_file_per_folder_bucket_and_prefix() {
     let sync = Path::new("/state/sync");
