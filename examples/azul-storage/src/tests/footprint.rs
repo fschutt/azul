@@ -9,10 +9,9 @@ use crate::{
     config::{DriveEntry, DriveLocation, DrivesFile},
     footprint::{
         contact_key_entry, forget_drive, DrivesListing, Footprint, KeptBecause, KeyEntry,
-        KeyringFootprint, Paths, RemovalProof, ScratchFootprint, StoreOutcome,
+        KeyringFootprint, Paths, RemovalProof, StoreOutcome,
     },
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
-    scratch::Scratch,
 };
 
 const DRIVE: &str = "d_k3f9";
@@ -207,6 +206,10 @@ fn x_delta_azdrive_keys_32_the_device_key_is_an_entry_of_the_drive_and_goes_with
 #[cfg(unix)]
 #[test]
 fn x_delta_azdrive_keys_32_the_copies_of_a_removed_drive_go_and_the_users_own_work_stays() {
+    // Here and not at the top of the file: only this test (unix only) uses them, and an import no
+    // test uses is a warning on Windows, where the CI fails on any warning of the tree.
+    use crate::{footprint::ScratchFootprint, scratch::Scratch};
+
     let dir = TempDir::new("footprint-open-copies");
     let mine = Scratch::tagged_under(dir.path(), "open", "d_1");
     let other = Scratch::tagged_under(dir.path(), "open", "d_2");
