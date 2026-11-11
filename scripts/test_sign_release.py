@@ -423,7 +423,8 @@ class SignReleaseScript(unittest.TestCase):
     def marker(self):
         """The marker azul-appkit's `anchors::TEST_HOOKS_MARKER` puts in a test build, read from its source."""
         source = read(os.path.join(REPO, "examples", "azul-appkit", "src", "anchors.rs"))
-        m = re.search(r'pub const TEST_HOOKS_MARKER: &str = "([^"]+)";', source)
+        # rustfmt may wrap the line after the `=`: whitespace, newlines included, stands between it and the text
+        m = re.search(r'pub const TEST_HOOKS_MARKER: &str =\s*"([^"]+)";', source)
         self.assertIsNotNone(m, "anchors.rs names the marker")
         return m.group(1)
 
