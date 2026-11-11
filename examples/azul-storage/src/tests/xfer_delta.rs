@@ -1181,3 +1181,159 @@ fn x_delta_sync2_3_a_failed_look_at_the_end_of_the_copy_is_no_finished_copy() {
     assert_eq!(target.completed.load(Ordering::SeqCst), 0);
     assert_eq!(source.get("big.bin").unwrap(), v1, "the source stays");
 }
+
+// ==== X-DELTA-SYNC2-9: a big file replaces a name inside its own bucket only through the condition ====
+
+/// One bucket as both sides of a copy inside it: its own copy (CopyObject) writes over the name and
+/// asks no condition - counted - and everything else is [`Racing`], the bucket that asks its
+/// condition when a write completes. Its ranged reads are exact.
+struct SameBucket {
+    inner: Racing,
+    copies: AtomicU32,
+}
+
+impl SameBucket {
+    fn with(files: &[(&str, &[u8])]) -> SameBucket {
+        SameBucket {
+            inner: Racing::with(files),
+            copies: AtomicU32::new(0),
+        }
+    }
+}
+
+impl Drive for SameBucket {
+    fn site(&self) -> crate::xfer::Site {
+        crate::xfer::Site::bucket("https://s3.test", "bucket")
+    }
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        let bytes = self.inner.get(key)?;
+        let end = range
+            .end
+            .map_or(bytes.len() - 1, |end| (end as usize).min(bytes.len() - 1));
+        Ok(bytes[range.start as usize..=end].to_vec())
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.copies.fetch_add(1, Ordering::SeqCst);
+        let bytes = self.inner.get(from)?;
+        self.inner.write(to, &bytes);
+        Ok(())
+    }
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        self.inner.put_from(key, body)
+    }
+    fn conditional_writes(&self) -> bool {
+        true
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.inner.put_if(key, bytes, condition)
+    }
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.inner.put_from_if(key, body, condition)
+    }
+}
+
+fn big_file() -> Vec<u8> {
+    vec![9u8; crate::transfer::CHUNK as usize + 4096]
+}
+
+/// X-DELTA-SYNC2-9. A Replace of a big object inside one bucket was a server-side copy after one
+/// early look: the service's CopyObject asks no condition of the name it writes, and while it copies
+/// (the bigger the object, the longer) another device could save that name and lose its file. A big
+/// file that replaces the version the plan saw goes through the streamed copy now, whose last
+/// request carries the condition: Conflict, the other device's file stays, and the bucket's own copy
+/// is not used. RED on the old code: the copy is made (`copies` is 1) and nothing is refused.
+#[test]
+fn x_delta_sync2_9_a_big_file_replaces_a_name_in_its_own_bucket_only_through_the_condition() {
+    let big = big_file();
+    let bucket = SameBucket::with(&[("in/a.bin", &big), ("out/a.bin", b"the old version")]);
+    let mut plan = make_plan(&bucket, &[file("in/a.bin")], &bucket, "out/", false, "Copy").unwrap();
+    assert!(plan.same_drive, "one bucket: the shortcut is on offer");
+    assert_eq!(plan.conflicts().len(), 1);
+    plan.choose(0, Choice::Replace);
+    bucket
+        .inner
+        .save_meanwhile("out/a.bin", b"saved by another device");
+    let report = go(&plan, &bucket, &bucket, false);
+    assert!(conflict(&report, "in/a.bin"), "{report:?}");
+    assert_eq!(
+        bucket.copies.load(Ordering::SeqCst),
+        0,
+        "the bucket's own copy asks no condition: it is not used for this"
+    );
+    assert_eq!(
+        bucket.get("out/a.bin").unwrap(),
+        b"saved by another device",
+        "the other device's file stays"
+    );
+}
+
+/// The ordinary case of the same replace: nothing was saved meanwhile, the version the plan saw is
+/// replaced - by the streamed copy - and the bytes are the new file's.
+#[test]
+fn x_delta_sync2_9_a_big_replace_of_the_version_the_plan_saw_goes_through() {
+    let big = big_file();
+    let bucket = SameBucket::with(&[("in/a.bin", &big), ("out/a.bin", b"the old version")]);
+    let mut plan = make_plan(&bucket, &[file("in/a.bin")], &bucket, "out/", false, "Copy").unwrap();
+    plan.choose(0, Choice::Replace);
+    let report = go(&plan, &bucket, &bucket, false);
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(report.done, 1);
+    assert_eq!(bucket.get("out/a.bin").unwrap(), big);
+}
+
+/// What keeps the shortcut: a small file that replaces a name (the service copies it in no time) and
+/// a big file to a free name (nothing to replace).
+#[test]
+fn x_delta_sync2_9_a_small_replace_and_a_big_copy_to_a_free_name_keep_the_bucket_copy() {
+    let big = big_file();
+    let bucket = SameBucket::with(&[
+        ("in/small.txt", b"small"),
+        ("out/small.txt", b"the old small"),
+        ("in/big.bin", &big),
+    ]);
+    let mut plan = make_plan(
+        &bucket,
+        &[file("in/small.txt"), file("in/big.bin")],
+        &bucket,
+        "out/",
+        false,
+        "Copy",
+    )
+    .unwrap();
+    assert_eq!(plan.conflicts().len(), 1, "only the small name is taken");
+    plan.choose(plan.conflicts()[0], Choice::Replace);
+    let report = go(&plan, &bucket, &bucket, false);
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(
+        bucket.copies.load(Ordering::SeqCst),
+        2,
+        "both went by the bucket's own copy"
+    );
+    assert_eq!(bucket.get("out/small.txt").unwrap(), b"small");
+    assert_eq!(bucket.get("out/big.bin").unwrap(), big);
+}

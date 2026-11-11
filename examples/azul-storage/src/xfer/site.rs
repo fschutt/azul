@@ -73,6 +73,21 @@ impl Site {
         }
     }
 
+    /// Whether this is a bucket of an S3-compatible service: the one place whose own copy
+    /// (CopyObject) takes the service time in proportion to the object and asks no condition of the
+    /// name it writes. A drive that is only itself ([`Site::other_of`]) - an encrypted drive, whose
+    /// copy is one change of its index - is not.
+    #[must_use]
+    pub fn is_bucket(&self) -> bool {
+        matches!(
+            self,
+            Site::Remote {
+                space: Space::Bucket(_),
+                ..
+            }
+        )
+    }
+
     /// The place of a drive nothing is known of but its identity: only the very same object is
     /// provably the same place ([`Drive::site`]'s default).
     #[must_use]

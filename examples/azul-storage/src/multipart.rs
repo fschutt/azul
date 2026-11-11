@@ -549,10 +549,7 @@ pub(crate) fn upload_stream(
             Ok(done)
         }
         Err(e) => {
-            let aborted = match drive.abort_multipart(key, &upload) {
-                Ok(()) => true,
-                Err(gone) => upload_gone(&gone),
-            };
+            let aborted = abort_noted(drive, key, &upload);
             release_stream(held, aborted);
             Err(e)
         }
@@ -758,7 +755,9 @@ fn upload_file_with(
                 Err(e) => return Err(e),
             }
         } else {
-            let _ = drive.abort_multipart(&old.key, &old.upload_id);
+            // The file changed: the old upload is not resumed. A refusal of its abort is told (its
+            // record is replaced by the new upload's below, so no sweep will find it).
+            abort_noted(drive, &old.key, &old.upload_id);
         }
         if state.is_none() {
             if let Some(file) = &state_file {
@@ -801,11 +800,7 @@ fn upload_file_with(
     // or on this computer; an abort the service did not take stays in the state file, which the
     // next upload of the file resumes and the next sweep aborts when nobody does.
     let give_up = |state_file: &Option<PathBuf>| {
-        let aborted = match drive.abort_multipart(key, &upload_id) {
-            Ok(()) => true,
-            Err(gone) => upload_gone(&gone),
-        };
-        if aborted {
+        if abort_noted(drive, key, &upload_id) {
             forget(state_file);
         }
     };
@@ -858,9 +853,7 @@ fn upload_file_with(
         // With a state file the next upload resumes; without one nothing could. A service
         // that has no room for the upload (AZ-M14) is no use to resume against: its parts
         // count against the quota, and the next try would meet the same refusal.
-        if state_file.is_none() {
-            let _ = drive.abort_multipart(key, &upload_id);
-        } else if out_of_room(&e) {
+        if state_file.is_none() || out_of_room(&e) {
             give_up(&state_file);
         }
         return Err(e);
@@ -880,8 +873,9 @@ fn upload_file_with(
         None => fingerprint(path)?,
     };
     if !named || after != before {
-        let _ = drive.abort_multipart(key, &upload_id);
-        forget(&state_file);
+        // The record goes only with the abort that took: one the service refused stays, and the next
+        // sweep (the file is another now) aborts it.
+        give_up(&state_file);
         return Ok(FileUpload::Changed);
     }
     match drive.complete_multipart(key, &upload_id, &numbered(&state.parts), condition) {
@@ -891,8 +885,10 @@ fn upload_file_with(
         }
         Err(e) => {
             if matches!(e, DriveError::Conflict { .. }) || state_file.is_none() {
-                let _ = drive.abort_multipart(key, &upload_id);
-                forget(&state_file);
+                // A name that no longer holds what the plan saw (a 412) is a lost race, and its parts
+                // are aborted: a refusal of the abort is told and its record kept, never dropped
+                // (X-DELTA-SYNC2-9).
+                give_up(&state_file);
             } else if out_of_room(&e) {
                 give_up(&state_file);
             } else if upload_gone(&e) {
@@ -930,6 +926,24 @@ fn source_of(state: &UploadState) -> Source {
             Source::Different
         }
         Err(_) => Source::Unreadable,
+    }
+}
+
+/// Aborts the unfinished upload `upload` of `key`: whether it is gone now (aborted, or the service
+/// no longer knows it). A refusal is no silence: the parts of an upload nobody aborts stay on the
+/// service, and are billed, until it expires them - the user is told, and the caller keeps whatever
+/// record lets a later sweep abort it (X-DELTA-SYNC2-9).
+fn abort_noted(drive: &S3Drive, key: &str, upload: &str) -> bool {
+    match drive.abort_multipart(key, upload) {
+        Ok(()) => true,
+        Err(gone) if upload_gone(&gone) => true,
+        Err(e) => {
+            crate::cap::note_unchecked(&format!(
+                "the unfinished upload of \"{key}\" could not be aborted ({e}): its parts stay on \
+                 the service until a later sweep aborts them or the service expires them"
+            ));
+            false
+        }
     }
 }
 

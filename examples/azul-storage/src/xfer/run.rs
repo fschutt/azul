@@ -553,7 +553,17 @@ pub fn run(
         } else {
             None
         };
-        let server_side = plan.same_drive && source.local_path(&file.source_key).is_none();
+        // A bucket copies inside itself (CopyObject: no byte passes through here) - but its copy asks
+        // no condition of the name it writes, and a big object takes the service long enough for
+        // another device to save that name meanwhile. A big file that REPLACES the version the plan
+        // saw therefore goes the long way, through the streamed copy whose last request carries the
+        // condition (X-DELTA-SYNC2-9); a small one, a free name and a drive whose own copy is one
+        // change of its index keep the shortcut.
+        let replaces_big = target_site.is_bucket()
+            && matches!(guard, Guard::Version(_))
+            && file.size.is_none_or(|size| size > transfer::CHUNK);
+        let server_side =
+            plan.same_drive && source.local_path(&file.source_key).is_none() && !replaces_big;
         if !server_side {
             if let Some(read) = small_local_file(source, target, file) {
                 match read {

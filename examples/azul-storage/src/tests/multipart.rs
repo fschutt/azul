@@ -653,3 +653,47 @@ fn az_m14_a_sweep_never_aborts_an_upload_this_process_is_sending() {
     assert_eq!(s3.count("DELETE abort"), 0, "{:?}", s3.log());
     assert!(state_files(&resume).is_empty());
 }
+
+/// X-DELTA-SYNC2-9. A conditional upload that lost its race (the request that completes it answered
+/// 412: a name another device made) aborted its parts with `let _ =` and forgot its record at once:
+/// an abort the service refused (credentials that ran out, a network that dropped) left the parts
+/// on the service, billed, until it expired them, and nothing on this computer knew them any more.
+/// The record stays now, so that a sweep aborts them; and the user is told. RED on the old code: no
+/// state file is left, the sweep finds nothing and the upload stays for good.
+#[test]
+fn x_delta_sync2_9_an_abort_the_service_refused_after_a_lost_race_is_not_forgotten() {
+    let s3 = FakeBucket::new();
+    let dir = TempDir::new("dx29-abort");
+    let (path, _) = file_with(&dir, "big.bin", 4, 5);
+    let resume = dir.path().join("resume");
+    let made = std::sync::atomic::AtomicBool::new(false);
+    let ctl = |sent: u64| {
+        // The first part is up: another device saves the name now.
+        if sent > 0 && !made.swap(true, Ordering::SeqCst) {
+            s3.write("taken.bin", b"another device's");
+        }
+    };
+    s3.refuse_aborts(true);
+    let error = drive_on(&s3, Some(&resume), NOW)
+        .put_file_if("taken.bin", &path, &Precondition::Absent, &ctl)
+        .unwrap_err();
+    assert!(matches!(error, DriveError::Conflict { .. }), "{error:?}");
+    assert_eq!(s3.object("taken.bin").unwrap(), b"another device's");
+    assert_eq!(
+        s3.uploads().len(),
+        1,
+        "the refused abort left the parts on the service"
+    );
+    assert_eq!(
+        state_files(&resume).len(),
+        1,
+        "and the record that lets a sweep abort them stays"
+    );
+
+    // The service answers again; once the upload is stale a sweep aborts it.
+    s3.refuse_aborts(false);
+    let later = drive_on(&s3, Some(&resume), NOW + STALE_AFTER_SECS + 1);
+    assert_eq!(later.abort_stale_uploads(), 1, "{:?}", s3.log());
+    assert!(s3.uploads().is_empty(), "{:?}", s3.log());
+    assert!(state_files(&resume).is_empty());
+}
