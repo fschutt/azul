@@ -17,7 +17,7 @@ use std::{
 
 use azul_storage::{
     BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit,
-    ListPage, ListRequest, ObjectInfo, Precondition,
+    Precondition,
 };
 
 use crate::state::write_atomic;
@@ -124,9 +124,18 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) {
     }
 }
 
-impl Drive for ObjectCache {
-    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        self.inner.list(request)
+/// What an `ObjectCache` does with a call, as [`azul_storage::DriveDelegate`] says it (named by path:
+/// its methods carry the names of `Drive`'s): every call that reads or changes an object this cache
+/// may keep is written below - a read is answered from the folder, a write drops the copy first or
+/// after. Everything else is the bucket's own and goes to it as it is (`DriveDelegate`'s default):
+/// a listing, a head, the metadata, the folders (a folder holds no object this cache keeps), the
+/// path and the resume folder, whether it writes conditionally, and WHERE the drive below is - the
+/// cache keeps copies of its objects, it is no other place. `delegate_drive!` writes the
+/// `impl Drive` that calls these (ARCH29 C6e), so a method the trait gets next is forwarded here
+/// without touching this file (X-DELTA-AZDRIVE-FILES-2).
+impl azul_storage::DriveDelegate for ObjectCache {
+    fn below(&self) -> &dyn Drive {
+        &*self.inner
     }
 
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
@@ -249,10 +258,6 @@ impl Drive for ObjectCache {
         results
     }
 
-    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        self.inner.head(key)
-    }
-
     fn put_from(&self, key: &str, body: &mut dyn std::io::Read) -> Result<u64, DriveError> {
         self.evict(key)?;
         self.inner.put_from(key, body)
@@ -274,40 +279,10 @@ impl Drive for ObjectCache {
         self.inner.copy(from, to)
     }
 
-    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.inner.create_folder(prefix)
-    }
-
     fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
         self.evict(from)?;
         self.evict(to)?;
         self.inner.rename(from, to)
-    }
-
-    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.inner.delete_folder(prefix)
-    }
-
-    /// The drive below's own (a folder holds no object this cache keeps).
-    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
-        self.inner.remove_empty_folder(prefix)
-    }
-
-    fn local_path(&self, key: &str) -> Option<PathBuf> {
-        self.inner.local_path(key)
-    }
-
-    /// Where the drive below is: the cache keeps copies of its objects, it is no other place.
-    fn site(&self) -> azul_storage::xfer::Site {
-        self.inner.site()
-    }
-
-    fn resume_folder(&self) -> Option<PathBuf> {
-        self.inner.resume_folder()
-    }
-
-    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        self.inner.metadata(key)
     }
 
     fn put_file(
@@ -344,10 +319,6 @@ impl Drive for ObjectCache {
         Ok(written)
     }
 
-    fn conditional_writes(&self) -> bool {
-        self.inner.conditional_writes()
-    }
-
     /// The drive below's own (a bucket asks its condition when the upload completes); the copy
     /// here is dropped when the write took, as [`ObjectCache::put_if`] drops it.
     fn put_file_if(
@@ -362,3 +333,5 @@ impl Drive for ObjectCache {
         Ok(written)
     }
 }
+
+azul_storage::delegate_drive!(ObjectCache);

@@ -419,6 +419,39 @@ fn x_delta_azdrive_files_2_an_object_cache_is_the_place_of_the_drive_below_and_b
     );
 }
 
+/// ARCH29 C6e. `ObjectCache`'s `impl Drive` is made by `delegate_drive!` from its `DriveDelegate`:
+/// what the cache does not keep goes to the drive below as it is - a listing, a head, the metadata,
+/// the path of a key, whether it writes conditionally - and keeps no copy. Green on the old code too:
+/// it pins what the conversion must not change.
+#[test]
+fn c6e_an_object_cache_forwards_what_it_does_not_keep_to_the_drive_below_as_it_is() {
+    use azul_storage::{Drive, ListRequest, LocalDrive};
+    let below = azul_storage::testing::TempDir::new("c6e-cache-below");
+    let kept = azul_storage::testing::TempDir::new("c6e-cache-kept");
+    let inner = std::sync::Arc::new(LocalDrive::new(below.path().to_path_buf()));
+    let cache = crate::sync::objects::ObjectCache::new(inner.clone(), kept.path().to_path_buf());
+    inner.put("docs/a.txt", b"a").unwrap();
+    let listed = cache.list(&ListRequest::folder("docs/"));
+    assert!(
+        listed.as_ref().is_ok_and(|page| page.objects.len() == 1),
+        "{listed:?}"
+    );
+    assert_eq!(listed, inner.list(&ListRequest::folder("docs/")));
+    assert_eq!(cache.head("docs/a.txt"), inner.head("docs/a.txt"));
+    assert_eq!(cache.metadata("docs/a.txt"), inner.metadata("docs/a.txt"));
+    assert_eq!(
+        cache.local_path("docs/a.txt"),
+        inner.local_path("docs/a.txt")
+    );
+    assert!(cache.local_path("docs/a.txt").is_some());
+    assert_eq!(cache.resume_folder(), inner.resume_folder());
+    assert_eq!(cache.conditional_writes(), inner.conditional_writes());
+    assert!(
+        !cache.has("docs/a.txt"),
+        "a listing and a head keep no copy"
+    );
+}
+
 /// A stop that is pressed from the outside.
 struct Pressed(std::sync::atomic::AtomicBool);
 

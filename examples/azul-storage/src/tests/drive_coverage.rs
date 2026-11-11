@@ -352,18 +352,16 @@ fn c6e_a_macro_made_wrapper_sends_its_requests_through_send_and_passes_the_rest_
 /// `(type, file below examples/)`. The macro forwards every method of THE list (`drive_methods!`,
 /// kept equal to the trait by the first test of this file) through the wrapper's `DriveDelegate`,
 /// which writes only what differs: nothing here needs an `// inherits:` comment.
-const DELEGATING: &[(&str, &str)] = &[("RetryingDrive", "azcloud-kit/src/sync/retry.rs")];
+const DELEGATING: &[(&str, &str)] = &[
+    ("RetryingDrive", "azcloud-kit/src/sync/retry.rs"),
+    ("ObjectCache", "azcloud-kit/src/sync/objects.rs"),
+];
 
 /// The drives that sit on top of another drive and write every method themselves, on purpose (a
 /// call forwarded as it is would be the bug: the encryption's `Op`, the grant's key rewrite, the
 /// credentials): `(type, file below examples/, the impl's header)`. Each defines every method of the
 /// trait or has an `// inherits:` comment for it.
 const WRAPPERS: &[(&str, &str, &str)] = &[
-    (
-        "ObjectCache",
-        "azcloud-kit/src/sync/objects.rs",
-        "impl Drive for ObjectCache {",
-    ),
     (
         "AzlinDrive",
         "azcloud-kit/src/drive.rs",
