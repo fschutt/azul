@@ -2097,6 +2097,11 @@ fn x_delta_azdrive_sync_15_keep_leaves_a_file_it_could_not_look_at_as_it_is() {
     // The folder cannot be looked into when the answer comes.
     let locked = a.folder.path().join("locked");
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&locked).is_ok() {
+        // A user that no permission stops (root): there is no folder that cannot be looked into.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
     let answered = a.session.answer_mass_delete(false);
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
     answered.unwrap();
