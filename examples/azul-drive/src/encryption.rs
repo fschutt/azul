@@ -556,17 +556,18 @@ fn shadow_reencrypt(keyring: &dyn KeyringStore, drive: &str) {
     );
 }
 
-/// "Restore as of..." and a file's restored version: the guard is the state's own policy
-/// (`EncState::restore_kind`: the files for an encrypted drive, "open it first" for one nobody
-/// decided, "encrypt it first" for one that is not). `files` is its answer.
-fn shadow_restore(keyring: &dyn KeyringStore, drive: &str, state: EncState, files: bool) {
+/// "Restore as of..." and a file's restored version, where the restore goes on: the guard is the
+/// state's own policy (`EncState::restore_kind`: the files for an encrypted drive, "open it first"
+/// for one nobody decided, "encrypt it first" for one that is not), asked only for the answer that
+/// lets the restore through, so that a refusal of the policy touches no keyring.
+fn shadow_restore(keyring: &dyn KeyringStore, drive: &str, state: EncState) {
     let mut evidence = shadow_evidence(drive, keyring);
     evidence.bucket.encrypted = Read::Found(matches!(state, EncState::Encrypted { .. }));
     azul_storage::key_shadow!(
         "azul_drive::encryption::restore",
         Op::RestoreAsOf,
         evidence,
-        if files { Guard::Permits } else { Guard::Refuses },
+        Guard::Permits,
         known = [
             (
                 "rotating",
@@ -1929,17 +1930,14 @@ pub(crate) fn restore_with(auto: Arc<AutoEncrypted>) -> crate::restore::Encrypte
 /// (X-AR5b-2).
 fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Result<usize, String> {
     let state = auto.decide().map_err(|e| e.to_string())?;
-    shadow_restore(
-        &azlin_keyring(Asking::User),
-        auto.drive(),
-        state,
-        state.restore_kind() == RestoreKind::Files,
-    );
     match state.restore_kind() {
         RestoreKind::Files => {}
         RestoreKind::OpenFirst => return Err(String::from("azdrive-restore-open-first")),
         RestoreKind::EncryptFirst => return Err(String::from("azdrive-restore-encrypt-first")),
     }
+    // Only where the restore goes on: the keyring is read here and nowhere before (a refusal of the
+    // state's policy touches none), and the next read of it is the restore's own unlock.
+    shadow_restore(&azlin_keyring(Asking::User), auto.drive(), state);
     let bucket = Arc::clone(auto.bucket());
     let restored = (|| -> Result<usize, String> {
         let key = device::unlock(bucket.as_ref(), &azlin_keyring(Asking::User), auto.drive())
@@ -1998,12 +1996,7 @@ pub(crate) fn restore_file_version(
 ) -> Result<(), String> {
     let bucket = versioned_bucket(auto)?;
     // The drive has an index of its own, so it is decided encrypted (`versioned_bucket`).
-    shadow_restore(
-        keyring,
-        auto.drive(),
-        auto.state(),
-        auto.state().has_drive_index(),
-    );
+    shadow_restore(keyring, auto.drive(), auto.state());
     let drive_key = device::unlock(bucket.as_ref(), keyring, auto.drive())
         .map_err(|e| e.to_string())?
         .ok_or_else(|| String::from("azdrive-enc-err-device-no-key"))?;
