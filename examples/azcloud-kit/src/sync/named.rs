@@ -222,7 +222,13 @@ impl<'d> NamedFiles<'d> {
 
     /// The folder record and its entity tag (`None`: the drive has none, or keeps none). The
     /// copy in the memo answers while the tag is the one it was read or written at; a record
-    /// that cannot be read describes nothing, and the next commit writes a new one over it.
+    /// that does not parse is an error, never an empty record: the next commit would write a
+    /// new one over it and forget every delete and every folder's identity (X-DELTA-SYNC2-5).
+    ///
+    /// # Errors
+    ///
+    /// When the drive cannot be asked, or the record's bytes are no record (the pass fails and
+    /// says so; the bytes stay as they are).
     fn read_record(&self, memo: &mut Memo) -> CloudResult<(RemoteIndex, Option<String>)> {
         if memo.no_record {
             return Ok((RemoteIndex::empty(), None));
@@ -259,7 +265,12 @@ impl<'d> NamedFiles<'d> {
             Err(DriveError::NotFound { .. }) => return Ok((RemoteIndex::empty(), None)),
             Err(e) => return Err(e.into()),
         };
-        let found = RemoteIndex::parse(&bytes).unwrap_or_else(|_| RemoteIndex::empty());
+        let found = RemoteIndex::parse(&bytes).map_err(|e| {
+            CloudError::failed(format!(
+                "the folder's record {key} is damaged ({e}): nothing was changed here or on the \
+                 drive, and the record was kept as it is"
+            ))
+        })?;
         memo.record = Some((tag.clone(), found.clone()));
         self.dirty.store(true, Ordering::SeqCst);
         Ok((found, Some(tag)))

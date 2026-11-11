@@ -551,6 +551,70 @@ fn x_delta_azdrive_sync_1_a_writer_named_like_this_device_is_not_believed_on_a_n
     assert_eq!(b.tree().len(), 12, "nothing was trashed");
 }
 
+/// X-DELTA-SYNC2-5. A folder record that does not parse (a storage fault that cut the object, a
+/// writer that is no sync) was read as an EMPTY record and the next commit wrote a new one over it:
+/// every delete older than the pass was forgotten - the protection against a device that still holds
+/// a deleted file - and so was every folder's identity. It is an error now, as the plain index's is:
+/// the pass fails, says so, and the bytes stay. RED on the old code: the pass succeeds and the
+/// record's bytes are replaced (`expect` on the failure panics first).
+#[test]
+fn x_delta_sync2_5_a_folder_record_that_does_not_parse_fails_the_pass_and_is_kept() {
+    const RECORD: &str = "Documents/.azlin/sync/record.json";
+    let s3 = FakeS3::new();
+    let drive = s3_drive(&s3);
+    let a = Device::new("dev-a-badrecord");
+    a.write("a.md", b"alpha");
+    a.write("gone.md", b"to be deleted");
+    a.sync(&*drive);
+    fs::remove_file(path_of(a.folder.path(), "gone.md")).unwrap();
+    a.sync(&*drive);
+    let good = s3.read(RECORD).expect("the folder's record");
+    assert!(
+        String::from_utf8_lossy(&good).contains("gone.md"),
+        "the record carries the delete: {}",
+        String::from_utf8_lossy(&good)
+    );
+
+    // A fault cuts the record; this device has a new file to send.
+    s3.write(RECORD, b"{".to_vec());
+    a.write("b.md", b"beta");
+    let failed = sync_to(
+        Target::Named(&*drive),
+        &a.root(),
+        &a.index(),
+        &a.opts(),
+        &RunHooks::default(),
+    )
+    .err()
+    .expect("a record that does not parse fails the pass");
+    let told = failed.to_string();
+    assert!(
+        told.contains("record") && told.contains("damaged"),
+        "{told}"
+    );
+    assert_eq!(
+        s3.read(RECORD).as_deref(),
+        Some(&b"{"[..]),
+        "the record's bytes are untouched"
+    );
+    assert!(
+        s3.read("Documents/b.md").is_none(),
+        "nothing of the pass reached the drive"
+    );
+
+    // The record read again (repaired by hand, or restored from the drive's versions): the delete
+    // it carried is still there, and the pass goes through.
+    s3.write(RECORD, good.clone());
+    let sent = a.sync(&*drive);
+    assert_eq!(sent.files_up, 1, "{}", sent.summary());
+    let record = s3.read(RECORD).expect("the folder's record");
+    assert!(
+        String::from_utf8_lossy(&record).contains("gone.md"),
+        "the delete is still remembered: {}",
+        String::from_utf8_lossy(&record)
+    );
+}
+
 /// An empty folder travels through a drive synced by name too, and so does its delete.
 #[test]
 fn an_empty_folder_travels_through_a_drive_synced_by_name() {
