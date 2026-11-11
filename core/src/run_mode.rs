@@ -153,12 +153,32 @@ impl TestHooks {
     }
 }
 
+/// The words a libazul built with the cargo feature `test-hooks` carries in its binary (a `#[used]`
+/// static that [`test_hooks`] reads): such a build takes its keyring, its sign-in, `Url::open`, its
+/// biometric prompt, its sensors and its launch from environment variables, so nothing signed and
+/// shipped may be one - and cargo unifies features across a workspace build, so a binary can be one
+/// by accident. The prefix is the one `scripts/sign-release.sh release` refuses and
+/// `scripts/check_no_test_hooks.py` looks for (azul-appkit's `anchors::TEST_HOOKS_MARKER` carries it
+/// for its own `test-hooks`); `scripts/azlin_e2e.py` builds libazul with the feature on purpose
+/// (X-DELTA-AZDRIVE-KEYS-37). A shipped build never refers to the constant, so its binary does not
+/// hold the bytes.
+pub const TEST_HOOKS_MARKER: &str =
+    "AZLIN-BUILD-MARKER:test-hooks:libazul-reads-its-stand-ins-from-the-environment";
+
+/// The marker in a test build's binary.
+#[cfg(feature = "test-hooks")]
+#[used]
+static TEST_HOOKS_IN_THIS_BINARY: &str = TEST_HOOKS_MARKER;
+
 /// The hooks of this process: [`TestHooks::from_env`] of its environment, read at the first call,
 /// in a build with the cargo feature `test-hooks`.
 #[cfg(feature = "test-hooks")]
 #[must_use]
 pub fn test_hooks() -> &'static TestHooks {
     static HOOKS: std::sync::OnceLock<TestHooks> = std::sync::OnceLock::new();
+    // Every binary that asks for a hook keeps the marker (a linker that drops what nothing reads
+    // would drop it otherwise).
+    std::hint::black_box(TEST_HOOKS_IN_THIS_BINARY);
     HOOKS.get_or_init(|| TestHooks::from_env(&|name| std::env::var_os(name)))
 }
 
@@ -186,6 +206,19 @@ mod tests {
 
     fn hooks(pairs: &'static [(&'static str, &'static str)]) -> TestHooks {
         TestHooks::from_env(&env(pairs))
+    }
+
+    /// X-DELTA-AZDRIVE-KEYS-37: libazul's own `test-hooks` carries the marker the release script
+    /// refuses and the CI step looks for, with the prefix the scripts share with azul-appkit's.
+    #[test]
+    fn x_delta_azdrive_keys_37_libazuls_test_hooks_carry_the_marker_the_release_script_refuses() {
+        assert!(TEST_HOOKS_MARKER.starts_with("AZLIN-BUILD-MARKER:test-hooks:"));
+        #[cfg(feature = "test-hooks")]
+        {
+            assert_eq!(TEST_HOOKS_IN_THIS_BINARY, TEST_HOOKS_MARKER);
+            // `test_hooks()` keeps it in every binary that asks for a hook.
+            let _ = test_hooks();
+        }
     }
 
     /// An environment without a test switch asks for no hook at all.
