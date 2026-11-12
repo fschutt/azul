@@ -398,6 +398,21 @@ pub struct IssueRequest {
     /// ([`IssueRequest::may_have_been_counted`], X-DELTA-MONEY5-8). Joined as an OR in every vault.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     unanswered: bool,
+    /// How many sends of THIS request were begun, as the largest count any vault holds: recorded in
+    /// the vaults BEFORE each send goes out ([`begin_send`]) - a request kept for its first send
+    /// counts that send. Every begun send ends with an outcome that is recorded too: a refusal
+    /// counted in [`IssueRequest::refusals`], the mark of a lost answer
+    /// ([`IssueRequest::unanswered`]), or the tokens (the request is done). A send whose outcome was
+    /// never recorded - the process died after the POST, or the write of the mark failed - shows as
+    /// more sends begun than refusals counted, with no mark: the token server may have counted it,
+    /// and the request is marked before it is sent again ([`unaccounted_for`], X-MONEY5A-4). `0`: a
+    /// request an older build kept, judged by the older rule (no refusal counted at all).
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    sends: u32,
+}
+
+fn is_zero_count(n: &u32) -> bool {
+    *n == 0
 }
 
 /// How many identical refusals of one kept issue request - the token server could not take it,
@@ -415,6 +430,7 @@ impl fmt::Debug for IssueRequest {
             .field("key_id", &self.key_id)
             .field("messages", &self.blindings.len())
             .field("refusals", &self.refusals)
+            .field("sends", &self.sends)
             .finish_non_exhaustive()
     }
 }
@@ -444,7 +460,49 @@ impl IssueRequest {
             blindings,
             refusals: BTreeMap::new(),
             unanswered: false,
+            // kept in the vaults before its first send: that send is begun with the keep
+            sends: 1,
         })
+    }
+
+    /// This request with the next send of it begun: one more than the sends whose outcome is on
+    /// record, so the send that goes out now is the one outcome that is missing until it is
+    /// recorded ([`IssueRequest::has_send_without_outcome`]).
+    #[must_use]
+    fn with_send_begun(&self) -> IssueRequest {
+        let mut begun = self.clone();
+        begun.sends = self.sends.max(self.refusals_total()).saturating_add(1);
+        begun
+    }
+
+    /// Whether a send of this request was begun and no outcome of it is on record - more sends
+    /// were begun than refusals counted - and none is marked as lost ([`IssueRequest::unanswered`]
+    /// says so for every send at once): the look that kept it was cut, or the write of the mark
+    /// failed. A request an older build kept has no journal: it is judged by the older rule, no
+    /// refusal counted at all.
+    #[must_use]
+    fn has_send_without_outcome(&self) -> bool {
+        if self.sends == 0 {
+            self.refusals.is_empty()
+        } else {
+            self.sends > self.refusals_total()
+        }
+    }
+
+    /// How often the token server refused it as one it cannot take, with any word: each answered
+    /// send is one of them.
+    #[must_use]
+    fn refusals_total(&self) -> u32 {
+        self.refusals
+            .values()
+            .fold(0_u32, |total, count| total.saturating_add(*count))
+    }
+
+    /// The sends begun, as the vaults hold the count: what a test reads to see the journal.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn sends(&self) -> u32 {
+        self.sends
     }
 
     /// This request, marked: a send of it ended without an answer.
@@ -495,6 +553,7 @@ impl IssueRequest {
             *kept = (*kept).max(*count);
         }
         self.unanswered |= other.unanswered;
+        self.sends = self.sends.max(other.sends);
     }
 
     #[must_use]
@@ -724,6 +783,10 @@ fn send_kept(
     kept: &IssueRequest,
     now: u64,
 ) -> Result<Sent, TokenError> {
+    // The send is recorded BEFORE it goes out: a look cut between the POST and what is recorded of
+    // its answer leaves a begun send with no outcome, which the next look marks - the token server
+    // may have counted it (X-MONEY5A-4). A send that cannot be recorded is not made.
+    let kept = begin_send(tokens, kept)?;
     let answer = match server.issue_period_tokens(
         &grant.checkout_id,
         &grant.issue_key,
@@ -731,9 +794,30 @@ fn send_kept(
         &kept.messages(),
     ) {
         Ok(answer) => answer,
-        Err(e) => return Err(lost_answer(tokens, kept, e)),
+        Err(e) => return Err(lost_answer(tokens, &kept, e)),
     };
-    answered(tokens, grant, kept, answer, now)
+    answered(tokens, grant, &kept, answer, now)
+}
+
+/// The next send of `kept` is begun in every vault before it goes out: the request as the send
+/// counts it. A request that may have been counted already ([`IssueRequest::may_have_been_counted`])
+/// needs no journal - the mark says more than a count can - and is sent as it is.
+///
+/// # Errors
+///
+/// The vaults could not keep the begun send: nothing is sent.
+fn begin_send(tokens: &DriveTokens, kept: &IssueRequest) -> Result<IssueRequest, TokenError> {
+    if kept.may_have_been_counted() {
+        return Ok(kept.clone());
+    }
+    let begun = kept.with_send_begun();
+    tokens
+        .join(&VaultState {
+            issues: vec![begun.clone()],
+            ..VaultState::default()
+        })
+        .map_err(not_kept)?;
+    Ok(begun)
 }
 
 /// Whether a send that ended with `e`, no answer of the token server's, may have reached it and been
@@ -771,12 +855,14 @@ fn lost_answer(tokens: &DriveTokens, request: &IssueRequest, e: TokenError) -> T
     e
 }
 
-/// A request found open at the start of a look with no outcome recorded for any send of it - no
-/// refusal counted, no unanswered send marked - was kept by a look that was cut before its answer
-/// was recorded (or never sent): whether the token server counted it is not known, so it is marked
-/// before it is sent again. The request as the look sends it.
+/// A request found open at the start of a look with a send that has no outcome recorded - more
+/// sends begun than refusals counted, and no unanswered send marked - was cut before the answer of
+/// that send was recorded (or never sent): whether the token server counted it is not known, so it
+/// is marked before it is sent again. That holds for a request refused before too: a re-send of it
+/// that reached the token server and was cut before its mark was recorded is the one
+/// [`IssueRequest::refusals`] alone could not tell (X-MONEY5A-4). The request as the look sends it.
 fn unaccounted_for(tokens: &DriveTokens, kept: &IssueRequest) -> IssueRequest {
-    if kept.refusals() > 0 || kept.may_have_been_counted() {
+    if kept.may_have_been_counted() || !kept.has_send_without_outcome() {
         return kept.clone();
     }
     let marked = kept.with_unanswered_send();

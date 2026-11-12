@@ -2625,3 +2625,253 @@ fn x_delta_money6_1_a_look_asks_a_stopped_mandate_again_and_buys_the_month_after
     assert!(state.tokens.is_empty(), "issued and redeemed");
 }
 
+// ==== X-MONEY5A-4: a send cut between its POST and what was recorded of its answer ====
+
+/// The token server of the scenario: `keys`, and each issue request by its number `n` (0: the first)
+/// - 0, 2, 3: a proxy that empties the body, the server answers `bad_request`; 1: the body arrives
+/// intact, the server signs and COUNTS the request (`counted`, when `count_before_dying`) and the
+/// process dies - the answer closure panics, nothing after the POST runs, as in a power cut; from 4
+/// on the proxy is gone: the request the server counted is answered again with its signatures
+/// (counted once), any request that came first is signed, any other asks for a month that is counted
+/// already (`not_due`). `sent` counts the issue requests.
+fn cut_server(
+    counted: &Arc<std::sync::Mutex<Option<Vec<String>>>>,
+    sent: &Arc<AtomicUsize>,
+    count_before_dying: bool,
+) -> Arc<Fake> {
+    let listed = keys();
+    let (counted, sent) = (counted.clone(), sent.clone());
+    Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        let n = sent.fetch_add(1, Ordering::SeqCst);
+        let messages = blinded_of(call);
+        let once = AtomicU64::new(0);
+        match n {
+            0 | 2 | 3 => Ok(json(
+                400,
+                r#"{"error": "bad_request", "message": "checkout_id required"}"#,
+            )),
+            1 => {
+                if count_before_dying {
+                    *counted.lock().unwrap() = Some(messages);
+                }
+                panic!("the process died after the POST was sent");
+            }
+            _ if counted
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_none_or(|counted| *counted == messages) =>
+            {
+                *counted.lock().unwrap() = Some(messages);
+                Ok(signed(call, N1, D1, "100GB/2026", &once))
+            }
+            _ => Ok(json(
+                409,
+                &serde_json::json!({"error": "not_due", "message": "later",
+                    "schedule": {"months": 3, "issued": 1,
+                        "next_issue_at": rfc3339(APPROVED + MONTH)}})
+                .to_string(),
+            )),
+        }
+    })
+}
+
+/// X-MONEY5A-4, the cell X-DELTA-MONEY5-8 left open: a request the token server refused as
+/// `bad_request` once (a proxy emptied the body) is sent again; this time the body arrives intact,
+/// the server signs and COUNTS it - and the process dies before anything is recorded of the answer
+/// (a power cut: no `lost_answer`, no mark). The old look found a request that had a refusal and
+/// took that for "an outcome is recorded": it did not mark it, the next two emptied bodies gave it
+/// up on the third word, and the month the token server had counted was lost for good. Now every send
+/// is recorded BEFORE it goes out: the next look finds a begun send with no outcome, marks the
+/// request, and the third word parks it - the day the body arrives intact the replay brings the
+/// month. On the old code the assertion after look 4 fails: the request is marked done.
+#[test]
+fn x_money5a_4_a_resend_of_a_refused_request_cut_after_its_post_is_not_given_up_and_its_replay_brings_the_month(
+) {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let counted = Arc::new(std::sync::Mutex::new(None));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let fake = cut_server(&counted, &sent, true);
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+
+    // look 1: the request is kept and sent; the answer is a refusal - an outcome, on record
+    assert!(issue_next(&server, &tokens, "ck_1", NOW + DAY).is_err());
+    let first = {
+        let state = tokens.state().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1);
+        assert!(!open[0].may_have_been_counted(), "a send that was answered");
+        assert_eq!((open[0].refusals(), open[0].sends()), (1, 1));
+        open[0].id()
+    };
+
+    // look 2: the same request again; the body is intact, it is counted, the process dies
+    let died = catch_unwind(AssertUnwindSafe(|| {
+        issue_next(&server, &tokens, "ck_1", NOW + 2 * DAY)
+    }));
+    assert!(died.is_err(), "the look was cut");
+    assert!(
+        counted.lock().unwrap().is_some(),
+        "the token server counted the request"
+    );
+    {
+        let state = tokens.state().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1);
+        assert!(
+            !open[0].may_have_been_counted(),
+            "no mark: the process died before it could write one"
+        );
+        assert_eq!(
+            (open[0].refusals(), open[0].sends()),
+            (1, 2),
+            "but the send that went out was recorded before it did"
+        );
+    }
+
+    // look 3: a request with a begun send and no outcome is marked before it is sent again
+    assert!(issue_next(&server, &tokens, "ck_1", NOW + 3 * DAY).is_err());
+    assert!(
+        tokens.state().unwrap().open_issues("ck_1")[0].may_have_been_counted(),
+        "marked at the look that found the send without an outcome"
+    );
+
+    // look 4: the third `bad_request` would have given it up: it stays, a fresh request beside it
+    match issue_next(&server, &tokens, "ck_1", NOW + 4 * DAY) {
+        Ok(Issued::NotDue { .. }) => {}
+        other => panic!("the fresh request of the month that is counted is not due: {other:?}"),
+    }
+    let state = tokens.state().unwrap();
+    assert!(
+        !state.done.contains(&first),
+        "the request the token server counted is not marked done"
+    );
+    assert!(
+        state.open_issues("ck_1").iter().any(|r| r.id() == first),
+        "and is kept for its replay"
+    );
+
+    // the proxy is gone: the replay brings the month the token server counted
+    match issue_next(&server, &tokens, "ck_1", NOW + 5 * DAY) {
+        Ok(Issued::Tokens(issued)) => assert_eq!(issued.len(), 1),
+        other => panic!("the month the token server counted never came: {other:?}"),
+    }
+    assert!(tokens.state().unwrap().open_issues("ck_1").is_empty());
+}
+
+/// X-MONEY5A-4, the other cell of the same table: the process dies after the begun send was recorded
+/// and BEFORE the request reached the token server (it counted nothing). The journal cannot tell the
+/// two apart - it was not recorded that the send went out, only that it began - so the request is
+/// marked and kept all the same: the cost of the doubt is one parked request, never a lost month.
+#[test]
+fn x_money5a_4_a_send_that_began_and_never_reached_the_token_server_is_kept_all_the_same() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let counted = Arc::new(std::sync::Mutex::new(None));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let transport = Shared(cut_server(&counted, &sent, false));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(issue_next(&server, &tokens, "ck_1", NOW + DAY).is_err());
+    let first = tokens.state().unwrap().open_issues("ck_1")[0].id();
+    let died = catch_unwind(AssertUnwindSafe(|| {
+        issue_next(&server, &tokens, "ck_1", NOW + 2 * DAY)
+    }));
+    assert!(died.is_err());
+    assert!(
+        counted.lock().unwrap().is_none(),
+        "the token server saw nothing"
+    );
+    for look in 3..=4 {
+        let _ = issue_next(&server, &tokens, "ck_1", NOW + look * DAY);
+    }
+    let state = tokens.state().unwrap();
+    assert!(!state.done.contains(&first), "kept, not given up");
+    assert!(state
+        .open_issues("ck_1")
+        .iter()
+        .any(|r| r.id() == first && r.may_have_been_counted()));
+}
+
+/// X-MONEY5A-4, the negative control: a request every send of which was ANSWERED keeps a clean
+/// journal - as many sends begun as refusals counted, never marked - and is given up on the third
+/// word as X-DELTA-MONEY2-10 has it. The journal is no reason to doubt what was answered.
+#[test]
+fn x_money5a_4_a_request_every_send_of_which_was_answered_has_a_clean_journal_and_is_given_up() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let listed = keys();
+    let transport = Shared(Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        Ok(json(
+            400,
+            r#"{"error": "bad_request", "message": "blind sign: no"}"#,
+        ))
+    }));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    for look in 1..=2 {
+        let _ = issue_next(&server, &tokens, "ck_1", NOW + look * DAY);
+        let state = tokens.state().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1);
+        assert_eq!(
+            (
+                open[0].refusals(),
+                open[0].sends(),
+                open[0].may_have_been_counted()
+            ),
+            (look as u32, look as u32, false),
+            "look {look}: as many sends begun as refusals counted"
+        );
+    }
+    let _ = issue_next(&server, &tokens, "ck_1", NOW + 3 * DAY);
+    assert_eq!(
+        tokens.state().unwrap().done.len(),
+        1,
+        "given up on the third word"
+    );
+}
+
+/// Rule 15: the journal is additive in the kept request's JSON and joins as a max in every vault: a
+/// request from before it reads as `0` sends and a copy that began more sends makes the joined request
+/// say so; a vault that lags is healed with the larger count.
+#[test]
+fn x_money5a_4_the_journal_is_additive_and_joins_as_a_max() {
+    let key = crate::period::IssuerKey {
+        tier: String::from("100GB"),
+        year: 2026,
+        key_id: String::from("100GB/2026"),
+        public_key_pem: pem(N1),
+    };
+    let fresh = crate::period::IssueRequest::new(&key, "ck_1", 1).unwrap();
+    let text = serde_json::to_string(&fresh).unwrap();
+    assert!(text.contains(r#""sends":1"#), "{text}");
+    // an older build's request has no journal: it reads as 0 sends
+    let older: crate::period::IssueRequest =
+        serde_json::from_str(&text.replace(r#","sends":1"#, "")).unwrap();
+    assert_eq!(older.sends(), 0);
+    assert!(!serde_json::to_string(&older).unwrap().contains("sends"));
+    // a copy that began more sends: joined either way, the larger count stands
+    let more: crate::period::IssueRequest =
+        serde_json::from_str(&text.replace(r#""sends":1"#, r#""sends":3"#)).unwrap();
+    for (first, second) in [(&fresh, &more), (&more, &fresh), (&older, &more)] {
+        let mut a = VaultState {
+            issues: vec![first.clone()],
+            ..VaultState::default()
+        };
+        a.join(&VaultState {
+            issues: vec![second.clone()],
+            ..VaultState::default()
+        });
+        assert_eq!(a.issues.len(), 1);
+        assert_eq!(a.issues[0].sends(), 3);
+    }
+}
