@@ -442,7 +442,15 @@ fn start_seen(
     seen: &mut BucketFacts,
 ) -> Result<Start, DriveError> {
     if let Some(journal) = resumable_seen(bucket, &entries.next, drive, seen)? {
-        return Ok(Start::Resume(journal));
+        // The journal of a rotation that is over - its new key IS the drive key and the key it replaced is
+        // gone from the keyring - is no rotation to resume: its cleanup took the previous key and stopped
+        // before the journal and the new key's own entry (the bucket refused the journal's delete, the
+        // keyring refused the entry's, a kill between the two). The key permit says `Active` for it, and
+        // so does this: a new rotation starts, and the index is read (X-DELTA-KEYS3-4). Resuming it would
+        // fail at `missing("old")` and `ask` refused for ever in a sentence about an index nobody looked at.
+        if !is_a_finished_rotations_leftover(entries) {
+            return Ok(Start::Resume(journal));
+        }
     }
     let Some(current) = entries.drive.clone()? else {
         return Err(missing("old"));
@@ -467,6 +475,16 @@ fn start_seen(
             Ok(Start::Fresh { old: current })
         }
     }
+}
+
+/// Whether the keyring's entries are what a FINISHED rotation leaves when its cleanup stopped between the
+/// previous key's delete and the new key's own entry: the new key is the drive key and the key it replaced is
+/// gone ([`unfinished_in`] says "finished" for exactly these). A read that failed is no such state.
+fn is_a_finished_rotations_leftover(entries: &device::KeyEntries) -> bool {
+    matches!(
+        (&entries.drive, &entries.next, &entries.previous),
+        (Ok(Some(drive)), Ok(Some(next)), Ok(None)) if drive == next
+    )
 }
 
 /// The evidence a key change hands the key permit's judge: the keyring's entries the guard read

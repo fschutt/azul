@@ -951,19 +951,8 @@ fn x_delta_struct_keystate_9_the_key_permit_and_the_enc_state_gate_agree_on_ever
                 let gate = enc_judge(&bucket, &keyring, DRIVE, Recorded::default()).unwrap();
                 let permit = says(&gathered(&bucket, &keyring));
                 match (holds_key, planned) {
-                    (true, Planned::TheDriveKey) => {
-                        assert!(
-                            matches!(
-                                gate,
-                                EncState::Encrypted {
-                                    via: Via::KeyInKeyring,
-                                    ..
-                                }
-                            ),
-                            "{combination}: {gate:?}"
-                        );
-                        assert_eq!(permit, "finish", "{combination}");
-                    }
+                    // A planned key beside the drive key - the drive key's own copy included - is no setup
+                    // to finish (X-DELTA-KEYS3-3): the permit says what it says of any open drive.
                     (true, _) => {
                         assert!(
                             matches!(

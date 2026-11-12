@@ -467,22 +467,33 @@ fn x_delta_struct_keystate_2_the_keyring_the_index_and_the_count_of_codes_are_fa
     ));
 }
 
-/// A setup that stopped between the drive key and the planned key's deletion is finished by the same
-/// call: the planned key left beside the drive key is the one cell of the Active row that depends on
-/// what the keyring says.
+/// X-DELTA-KEYS3-3: a planned key left beside the drive key - the drive key's own copy, which a setup leaves
+/// when its keyring refused the planned key's deletion AFTER the wrap and the key existed and the setup
+/// returned its code (X-DELTA-KEYS2-3) - finishes nothing: the drive is encrypted already. This cell used to
+/// let the setup "finish" (`Way::Finish`), and a setup run again then replaced the recovery wrap of a sheet
+/// that was shown and typed back with a new code's. A drive key with no planned key beside it says the same.
 #[test]
-fn a_planned_key_left_beside_the_drive_key_lets_setup_finish_and_nothing_else_changes() {
-    let e = keyring(Some(1), None, Some(1));
-    assert_eq!(observe(&e), KeyState::Active);
-    match judge(&KeyState::Active, Op::Setup, &e) {
+fn x_delta_keys3_3_a_planned_copy_of_the_drive_key_beside_it_finishes_no_setup() {
+    for planned in [Some(1), None] {
+        let e = keyring(Some(1), None, planned);
+        assert_eq!(observe(&e), KeyState::Active, "{planned:?}");
+        match judge(&KeyState::Active, Op::Setup, &e) {
+            Verdict::Refuse(reason) => {
+                assert_eq!(reason.kind, Refusal::EncryptedAlready, "{planned:?}")
+            }
+            Verdict::Permit(permit) => {
+                panic!(
+                    "{planned:?}: the setup was let through ({:?})",
+                    permit.way()
+                )
+            }
+        }
+    }
+    // The way that finishes a setup is the Planned row's alone: a planned key and no drive key.
+    match judge(&KeyState::Planned, Op::Setup, &everything_asked()) {
         Verdict::Permit(permit) => assert_eq!(permit.way(), Way::Finish),
         Verdict::Refuse(reason) => panic!("{reason}"),
     }
-    let without = keyring(Some(1), None, None);
-    assert!(matches!(
-        judge(&KeyState::Active, Op::Setup, &without),
-        Verdict::Refuse(reason) if reason.kind == Refusal::EncryptedAlready
-    ));
 }
 
 #[test]
@@ -1255,10 +1266,11 @@ fn x_delta_struct_keystate_1_remove_is_refused_for_a_key_change_past_its_members
     ));
 }
 
-/// A planned key beside the drive key finishes a setup only when it IS the drive key: the setup that
-/// stopped between its key and the planned key's deletion. A planned key of another id (a checkout's,
-/// for a drive whose key this device holds) is no copy of the drive key: "finishing" would put it in the
-/// drive key's place, and everything sealed under the drive key would open with nothing.
+/// A planned key beside the drive key finishes no setup: a planned key of another id (a checkout's, for a
+/// drive whose key this device holds) is no copy of the drive key - "finishing" would put it in the drive
+/// key's place, and everything sealed under the drive key would open with nothing - and the drive key's own
+/// copy is no setup that is not over (X-DELTA-KEYS3-3: it was let finish, X-DELTA-STRUCT-KEYSTATE-5 only
+/// narrowed that to the same id).
 #[test]
 fn x_delta_struct_keystate_5_a_planned_key_of_another_id_beside_the_drive_key_does_not_finish_a_setup(
 ) {
@@ -1268,11 +1280,11 @@ fn x_delta_struct_keystate_5_a_planned_key_of_another_id_beside_the_drive_key_do
         Verdict::Refuse(reason) => assert_eq!(reason.kind, Refusal::EncryptedAlready),
         Verdict::Permit(permit) => panic!("the setup was let finish ({:?})", permit.way()),
     }
-    // the same id: the setup that stopped before the planned key's deletion
+    // the same id: the copy a setup left behind is no setup to finish either (X-DELTA-KEYS3-3)
     let same = keyring(Some(1), None, Some(1));
     assert!(matches!(
         judge(&KeyState::Active, Op::Setup, &same),
-        Verdict::Permit(permit) if permit.way() == Way::Finish
+        Verdict::Refuse(reason) if reason.kind == Refusal::EncryptedAlready
     ));
     // a planned key whose read failed is no key to finish with
     let mut failed = keyring(Some(1), None, Some(1));

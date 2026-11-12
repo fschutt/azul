@@ -1129,6 +1129,83 @@ fn x_delta_azdrive_keys_7_a_keyring_that_refuses_the_last_delete_still_returns_t
     );
 }
 
+/// X-DELTA-KEYS3-4: a rotation that ended with its journal and the new key's own entry left behind (the bucket
+/// refused the journal's delete and the keyring the entry's: `left_over`), and the previous key gone - the keys
+/// are DK = N = K2 and an authentic journal. The key permit said `Active` (a finished rotation), the guard said
+/// `Resume` (an own journal, whatever the keyring holds) and never read the index, so `rotation::ask` refused
+/// every "I was hacked" with "whether the drive's index opens ... was not looked at" - for ever, and a resume
+/// would fail at the key it replaces. The guard and the judge agree: a new rotation starts, the index is read.
+#[test]
+fn x_delta_keys3_4_the_leftover_journal_of_a_finished_rotation_does_not_stop_the_next_one() {
+    use crate::rotation::{ask, start, Start};
+    let s = set_up();
+    let faulty = Arc::new(Faulty::new(s.bucket.clone()));
+    let bucket: Arc<dyn Drive> = faulty.clone();
+    let (_, next) = rotation_key_entries(DRIVE);
+    let keyring = RefusesToDelete {
+        inner: MemoryKeyring::new(),
+        entry: next.clone(),
+    };
+    for entry in [
+        device::drive_key_entry(DRIVE),
+        device::member_key_entry(DRIVE),
+    ] {
+        keyring
+            .inner
+            .set(&entry, &s.keyring.get(&entry).unwrap().unwrap())
+            .unwrap();
+    }
+    faulty.fail_delete(JOURNAL_FILE, 1);
+    let rotated = rotate(bucket.clone(), &keyring, DRIVE, &s.provider, cheap())
+        .expect("the keys are changed: what stays is said");
+    assert!(
+        rotated
+            .left_over
+            .iter()
+            .any(|left| left.contains(JOURNAL_FILE))
+            && rotated.left_over.iter().any(|left| left.contains(&next)),
+        "{:?}",
+        rotated.left_over
+    );
+    let k2 = device::load_drive_key(&keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(
+        device::load_key_at(&keyring, &next).unwrap(),
+        Some(k2.clone())
+    );
+    assert!(
+        !unfinished(&keyring, DRIVE).unwrap(),
+        "the keys say a finished rotation"
+    );
+    assert!(
+        resumable(bucket.as_ref(), &keyring, DRIVE)
+            .unwrap()
+            .is_some(),
+        "premise: the journal that stayed is this device's own (it verifies under K2)"
+    );
+
+    // The guard answers what the judge does: a new rotation, not a resume of a finished one.
+    assert!(
+        matches!(
+            start(bucket.as_ref(), &keyring, DRIVE),
+            Ok(Start::Fresh { .. })
+        ),
+        "a finished rotation's journal is no rotation to resume"
+    );
+    let rotation = ask(bucket.as_ref(), &keyring, DRIVE).expect(
+        "the key change is asked for, not refused in a sentence about a fact nobody looked at",
+    );
+    assert!(
+        rotation.lockdown().is_some(),
+        "a new rotation runs the account's lockdown"
+    );
+    let again = rotate(bucket.clone(), &keyring, DRIVE, &s.provider, cheap()).unwrap();
+    assert_ne!(
+        again.drive_key,
+        k2.id(),
+        "a second new key: the drive's keys changed again"
+    );
+}
+
 /// X-DELTA-AZDRIVE-KEYS-30: the previous drop key was one deep; a second rotation before the
 /// Worker had the key of the first put the first key out, and the mail sealed to it could never
 /// be opened. Now the keys before the current one are a list, newest first.

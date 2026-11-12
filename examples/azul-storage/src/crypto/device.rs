@@ -706,8 +706,9 @@ pub(crate) fn put_new(bucket: &dyn Drive, key: &str, bytes: &[u8]) -> Result<(),
 /// The drive key is read too, and the key permit's `Setup` cell decides ([`keystate::judge`]): a
 /// device that holds the drive key, or whose keyring cannot say, makes no second key - with the key
 /// held and a bucket that lists no key file (a bucket writer deleted them) this flow used to make one
-/// and let [`enroll`] keep it in the first one's place (X-KEYSTATE-1); a planned key of another id than
-/// the drive key is no copy of it (X-DELTA-STRUCT-KEYSTATE-5).
+/// and let [`enroll`] keep it in the first one's place (X-KEYSTATE-1); a planned key beside the drive key - a
+/// checkout's of another id, and the drive key's own copy that an earlier setup left behind - finishes nothing:
+/// the drive is encrypted already (X-DELTA-STRUCT-KEYSTATE-5, X-DELTA-KEYS3-3).
 ///
 /// The last step that can fail is [`enroll`]: from the drive key in the keyring on, the recovery
 /// wrap in the bucket is sealed to it and the code must reach the user, so nothing after it returns

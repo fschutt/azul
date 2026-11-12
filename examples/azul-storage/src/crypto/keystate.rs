@@ -1182,17 +1182,15 @@ fn planned(op: Op, e: &Evidence<'_>) -> Verdict {
 
 fn active(op: Op, e: &Evidence<'_>) -> Verdict {
     match op {
-        // The last step of a setup that stopped between its key and the planned key's deletion: the
-        // same call finishes it (the key was never shown a code) - when the key left behind IS the
-        // drive key. Without one, or with a planned key of another id (a checkout's, for a drive of
-        // another key), the drive is encrypted already: finishing would put a key nothing seals in the
-        // drive key's place (X-DELTA-STRUCT-KEYSTATE-5).
-        Op::Setup => match (&e.keyring.planned_key, &e.keyring.drive_key) {
-            (Read::Found(planned), Read::Found(drive)) if planned == drive => {
-                permit_keeping(op, e, Way::Finish)
-            }
-            _ => refuse(Refusal::EncryptedAlready, e),
-        },
+        // The drive is encrypted and this device holds its key. A planned key beside the drive key - another
+        // key's (a checkout's, for a drive of another key: finishing would put a key nothing seals in the
+        // drive key's place, X-DELTA-STRUCT-KEYSTATE-5) and the drive key's OWN copy alike - finishes nothing:
+        // the copy is what a setup leaves when its keyring refused the planned key's deletion AFTER the
+        // wrap and the key existed, and the setup then returned its code (X-DELTA-KEYS2-3). "Finishing" it
+        // replaced the recovery wrap of a sheet that was shown, and typed back, with a new code's
+        // (X-DELTA-KEYS3-3: this cell premised "the key was never shown a code", which stopped being true
+        // then). The copy is no key a setup can use; a removal takes it with the drive's keys.
+        Op::Setup => refuse(Refusal::EncryptedAlready, e),
         Op::Enroll => permit_keeping(op, e, Way::Plain),
         Op::Rotate => permit_keeping_over_an_index(op, e, Way::New),
         Op::Remove => removal(e),

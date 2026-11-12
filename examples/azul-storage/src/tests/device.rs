@@ -1002,6 +1002,53 @@ fn x_delta_keys2_3_a_setup_that_ends_cleanly_reports_nothing_left() {
     assert!(!setup_pending(&keyring, DRIVE).unwrap());
 }
 
+/// X-DELTA-KEYS3-3, at the flow: a setup whose keyring refused the planted key's delete returned its code
+/// (X-DELTA-KEYS2-3) and left a copy of the drive key beside it. The sheet was shown, the code typed back, and
+/// the setup run AGAIN over the same keyring (a CLI `encrypt --yes`, a caller that reuses the keyring) read
+/// `Active x Setup` as "finish": the planted copy IS the drive key, the wrap in the bucket seals it, so a NEW
+/// code was made and its wrap put over the first code's - the paper in the safe was dead, silently. The drive
+/// is encrypted already: refused, the wrap byte-identical, the first code still opens it.
+#[test]
+fn x_delta_keys3_3_a_setup_run_again_over_the_planted_copy_replaces_no_recovery_wrap() {
+    let bucket = MemBucket::with_conditional_writes();
+    let planned = planned_key_entry(DRIVE);
+    let keyring = RefusesToDelete {
+        inner: MemoryKeyring::new(),
+        entry: planned.clone(),
+    };
+    let made = setup_new_drive_reporting(&bucket, &keyring, DRIVE, cheap()).unwrap();
+    assert!(
+        !made.left_over.is_empty(),
+        "premise: the planted copy stayed"
+    );
+    let wrap = bucket.object(RECOVERY_KEY_FILE).expect("the recovery wrap");
+
+    let again = setup_new_drive_reporting(&bucket, &keyring, DRIVE, cheap());
+    match &again {
+        Err(DriveError::InvalidConfig(said)) => {
+            assert_eq!(said, &Refusal::EncryptedAlready.sentence(DRIVE));
+        }
+        other => panic!("the setup ran again on a drive that is encrypted: {other:?}"),
+    }
+    assert_eq!(
+        bucket.object(RECOVERY_KEY_FILE).unwrap(),
+        wrap,
+        "the first code's wrap is the wrap still"
+    );
+    let elsewhere = MemoryKeyring::new();
+    assert_eq!(
+        recover(&bucket, &elsewhere, DRIVE, &made.code)
+            .unwrap()
+            .id(),
+        made.drive_key.id(),
+        "and the code on the paper in the safe opens it"
+    );
+    assert_eq!(
+        load_drive_key(&keyring, DRIVE).unwrap(),
+        Some(made.drive_key)
+    );
+}
+
 // ==== X-KEYSTATE-1: the setup reads the drive key ====
 
 /// The drive key of a device, and a bucket that lists no key file of it any more (a bucket writer
