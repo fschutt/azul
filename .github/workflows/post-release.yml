@@ -304,7 +304,7 @@ jobs:
             pascal)  choco install freepascal --version 3.2.2 -y --no-progress ;;
             fortran) echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"; C:/msys64/usr/bin/pacman -S --noconfirm mingw-w64-x86_64-gcc-fortran make ;;
           esac
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
         if: matrix.lang == 'rust'
         with:
           toolchain: 1.91.0
@@ -432,7 +432,7 @@ jobs:
       # git first: none of these images ship it and actions/checkout needs it.
       - name: Toolchain (${{ matrix.image }})
         run: ${{ matrix.setup }}
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Fetch the published api.json
         run: |
           curl -fsSL --retry 3 -o /tmp/api.json \
@@ -640,8 +640,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: "1.22"
       - name: Fetch bundle and build
