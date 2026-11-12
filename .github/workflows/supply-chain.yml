@@ -67,6 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           # Fetch full history so the cooldown check can diff Cargo.lock against the base ref.
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
@@ -247,3 +248,24 @@ jobs:
           path: stats/cargo-audit.txt
           if-no-files-found: warn
           retention-days: 30
+
+  # zizmor reads the workflows and composite actions themselves (https://docs.zizmor.sh/, .github/zizmor.yml):
+  # every `uses:` must be a full commit SHA (the actions/* ones too), a pin must be a commit of the action's
+  # own repository (not of a fork) and its version comment must name the tag that points at it (the online
+  # audits), and the usual checks for script injection, token permissions and persisted credentials. The
+  # findings that are left are listed, with the reason, in .github/zizmor.yml. Informational findings are not
+  # reported (min-severity). The action installs zizmor from a wheel verified by hash.
+  zizmor:
+    name: zizmor (pinned actions and workflow hardening)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          version: 1.31.1
+          inputs: .github
+          config: .github/zizmor.yml
+          min-severity: low
+          advanced-security: false

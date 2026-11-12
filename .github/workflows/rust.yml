@@ -1745,6 +1745,7 @@ jobs:
       - name: Checkout azul
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           path: azul
 
       - name: Install Rust (for bootstrap + rustup)
@@ -2567,6 +2568,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
 
       - name: Check build artifact cache
         id: build-cache
@@ -2912,6 +2915,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
 
       - name: Check build artifact cache
         id: build-cache
@@ -3313,6 +3318,8 @@ jobs:
       - name: Checkout repository
         if: steps.gate.outputs.run == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
 
       - name: Install Rust
         if: steps.gate.outputs.run == 'true'
@@ -4744,6 +4751,8 @@ jobs:
       HAVE_APPLE_CERT: ${{ secrets.APPLE_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
       - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
         with:
           toolchain: 1.91.0
@@ -4980,6 +4989,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
 
       - name: Download Linux binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -5399,6 +5410,7 @@ jobs:
       - name: Checkout repository (for fallback assets + the mirror builder)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           sparse-checkout: |
             scripts/build_registry_mirrors.sh
             scripts/verify_install_commands.sh
@@ -6626,6 +6638,7 @@ jobs:
       - name: Checkout the verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           sparse-checkout: |
             scripts/verify_install_commands.sh
             tests/e2e/hello_world_counter.json
@@ -7298,6 +7311,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           submodules: recursive
 
       - name: Install Rust
@@ -7358,6 +7372,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           submodules: recursive
 
       - name: Install Rust
@@ -7466,6 +7481,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           submodules: recursive
 
       - name: Download generated bindings (built once per OS)
@@ -7535,6 +7551,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
 
       - name: Download shared libazul + codegen
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -7568,6 +7586,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           submodules: recursive
 
       - name: Set up Node
@@ -7643,6 +7662,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           submodules: recursive
 
       - name: Set up Ruby
@@ -7722,6 +7742,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           submodules: recursive
 
       - name: Set up .NET
@@ -7791,6 +7812,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           submodules: recursive
 
       - name: Set up JDK
@@ -8025,6 +8047,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
 
       - name: Stamp PKGBUILD version
         run: |
@@ -8079,6 +8103,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           submodules: recursive
 
       - name: Install Rust
