@@ -385,7 +385,7 @@ pub struct IssueRequest {
     /// issue key, no issuer key: it signed and counted nothing - by the word of the refusal. A
     /// word that reaches [`REFUSALS_BEFORE_A_NEW_REQUEST`] ends the request, and the next look
     /// blinds a new one (X-DELTA-MONEY2-10). Kept with the request, in every vault; joined as the
-    /// larger count of each word ([`IssueRequest::join_refusals`]); not part of
+    /// larger count of each word ([`IssueRequest::join_sends`]); not part of
     /// [`IssueRequest::id`].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     refusals: BTreeMap<String, u32>,
