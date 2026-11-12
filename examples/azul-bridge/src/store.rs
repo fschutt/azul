@@ -383,6 +383,14 @@ impl DriveMailStore {
             .cloned())
     }
 
+    /// The mailbox `path` as the drive has it, spelt exactly: what a DELETE or a RENAME names.
+    /// IMAP's mailbox names are case-sensitive (INBOX alone is not), so `work` is not `Work`:
+    /// [`DriveMailStore::existing`] finds the other spelling for a lookup, never for a command that
+    /// removes or moves a mailbox with its mail (X-DELTA-SYNC4-21).
+    fn exactly(&self, path: &str) -> Result<Option<String>, StoreError> {
+        Ok(self.folder_paths()?.into_iter().find(|p| p == path))
+    }
+
     fn role_of(&self, path: &str) -> Result<Role, StoreError> {
         let boxes = self.mailboxes()?;
         Ok(boxes
@@ -610,7 +618,7 @@ impl MailStore for DriveMailStore {
         if self.role_of(path)? == Role::Inbox {
             return Err(StoreError::Invalid(String::from("the inbox cannot be deleted")));
         }
-        let Some(real) = self.existing(path)? else {
+        let Some(real) = self.exactly(path)? else {
             return Err(StoreError::NotFound(format!("the mailbox \"{path}\"")));
         };
         let below = format!("{real}/");
@@ -632,7 +640,7 @@ impl MailStore for DriveMailStore {
         if self.role_of(from)? == Role::Inbox {
             return Err(StoreError::Invalid(String::from("the inbox cannot be renamed")));
         }
-        let Some(real) = self.existing(from)? else {
+        let Some(real) = self.exactly(from)? else {
             return Err(StoreError::NotFound(format!("the mailbox \"{from}\"")));
         };
         if self.existing(to)?.is_some() {
@@ -730,6 +738,22 @@ mod tests {
         );
         store.set_mark("m1", Mark::Flagged, false).unwrap();
         assert_eq!(drive.keys(), vec!["mail/.state/m1/answered"]);
+    }
+
+    /// RED on the code before: `DELETE work` found `Work` in another case and deleted the mailbox
+    /// with all its mail (and RENAME moved it).
+    #[test]
+    fn x_delta_sync4_21_a_mailbox_is_deleted_or_renamed_by_its_exact_name_only() {
+        let (drive, store) = store();
+        let kept = store
+            .append("Work", &mail("kept"), OCT_1, Marks::default())
+            .unwrap();
+        assert!(matches!(store.delete_mailbox("work"), Err(StoreError::NotFound(_))));
+        assert!(matches!(store.rename_mailbox("work", "Play"), Err(StoreError::NotFound(_))));
+        assert_eq!(store.messages("Work").unwrap().len(), 1, "the mail is still there");
+        assert!(drive.keys().iter().any(|k| k.contains(&kept.name)), "{:?}", drive.keys());
+        store.delete_mailbox("Work").unwrap();
+        assert!(!drive.keys().iter().any(|k| k.starts_with("mail/Work/")), "{:?}", drive.keys());
     }
 
     #[test]
