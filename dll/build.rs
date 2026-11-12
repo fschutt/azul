@@ -657,6 +657,12 @@ fn check_generated_files() {
         Ok(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => Path::new(&manifest_dir).join("../target/codegen"),
     };
+    // The `include!`s of the generated sources (lib.rs, material_icons.rs, web/classify.rs,
+    // php_extension.rs) read this, so AZ_CODEGEN_DIR reaches them: they used to hard-code
+    // `CARGO_MANIFEST_DIR/../target/codegen`, which a git dependency cannot write into.
+    // Absolute: `include!` resolves a relative path against the including file.
+    let resolved = std::fs::canonicalize(&codegen_dir).unwrap_or_else(|_| codegen_dir.clone());
+    println!("cargo:rustc-env=AZ_CODEGEN_DIR_RESOLVED={}", resolved.display());
 
     let checks: &[(&str, &str)] = &[
         ("CARGO_FEATURE_CABI_INTERNAL", "dll_api_internal.rs"),
