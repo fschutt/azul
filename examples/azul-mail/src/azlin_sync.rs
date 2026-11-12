@@ -1963,7 +1963,7 @@ mod tests {
     fn x_delta_sync4_20_a_header_only_line_stays_when_the_restored_drive_lacks_it() {
         let f = fixture();
         let mut big = mail(5, "Holiday photos");
-        big.extend(std::iter::repeat(b'x').take(5000));
+        big.extend(std::iter::repeat_n(b'x', 5000));
         let key = deliver(&f, "Inbox", &big, SEP_30);
         let small = AzlinOptions {
             full_fetch_limit: 1000,
