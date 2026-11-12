@@ -580,3 +580,101 @@ fn x_delta_sync4_30_a_backup_sends_the_file_whose_conflict_copy_would_have_no_na
         report.summary()
     );
 }
+
+/// A bucket that shows every time ten days behind this device's clock: a bucket whose clock is
+/// off, or a device whose clock is far ahead.
+struct TenDaysBehind(S3Bucket);
+
+impl crate::store::RemoteStore for TenDaysBehind {
+    fn get_unless(
+        &self,
+        key: &str,
+        etag: Option<&str>,
+    ) -> crate::error::CloudResult<crate::store::Conditional> {
+        self.0.get_unless(key, etag)
+    }
+    fn fetch(&self, key: &str, size: u64) -> crate::error::CloudResult<Option<Vec<u8>>> {
+        self.0.fetch(key, size)
+    }
+    fn put(&self, key: &str, data: &[u8]) -> crate::error::CloudResult<String> {
+        self.0.put(key, data)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        data: &[u8],
+        if_match: Option<&str>,
+    ) -> crate::error::CloudResult<Option<String>> {
+        self.0.put_if(key, data, if_match)
+    }
+    fn head(&self, key: &str) -> crate::error::CloudResult<Option<u64>> {
+        self.0.head(key)
+    }
+    fn delete(&self, key: &str) -> crate::error::CloudResult<()> {
+        self.0.delete(key)
+    }
+    fn list(&self, prefix: &str) -> crate::error::CloudResult<Vec<crate::store::RemoteObject>> {
+        let mut listed = self.0.list(prefix)?;
+        for object in &mut listed {
+            object.modified = object.modified.map(|at| at - 10 * 86_400);
+        }
+        Ok(listed)
+    }
+}
+
+/// X-DELTA-SYNC4-26, the missing index. `collect_garbage` read a drive whose index is not there (a
+/// 404 from a proxy, a restore in progress) as an index that names nothing, and deleted every blob
+/// older than the grace: the whole drive's content. A drive with no index is an error, and nothing is
+/// deleted. RED on the old code: the call answers Ok and both blobs are gone.
+#[test]
+fn x_delta_sync4_26_a_drive_whose_index_is_missing_has_no_blob_collected() {
+    let store = S3Bucket::new();
+    let a = Device::new("relook-gc-missing");
+    a.write("a.md", b"one");
+    a.sync(&store);
+    a.write("a.md", b"two");
+    a.sync(&store);
+    let blobs = |store: &S3Bucket| {
+        store
+            .keys()
+            .into_iter()
+            .filter(|k| k.contains("/blobs/"))
+            .count()
+    };
+    assert_eq!(blobs(&store), 2, "{:?}", store.keys());
+    // The index is not served now.
+    let index_key = crate::sync::remote::index_key(PREFIX_GC);
+    let held = store.read(&index_key).expect("an index");
+    store.remove(&index_key);
+    let refused = crate::sync::collect_garbage(&store, PREFIX_GC, -1, false);
+    assert!(refused.is_err(), "no index, no collection: {refused:?}");
+    assert_eq!(blobs(&store), 2, "nothing was deleted");
+    // It is served again: the collection works as it did.
+    store.write(&index_key, held);
+    let report = crate::sync::collect_garbage(&store, PREFIX_GC, -1, false).unwrap();
+    assert_eq!(report.deleted, 1, "{report:?}");
+}
+
+/// The prefix `Device::opts` syncs under.
+const PREFIX_GC: &str = super::sync::PREFIX;
+
+/// X-DELTA-SYNC4-26, the clock. The age of a blob was this device's `now` minus the bucket's time: a
+/// device whose clock is days ahead of the bucket's (or a bucket whose clock is behind) made a blob
+/// that was uploaded a moment ago and not committed yet look old, and the collection deleted it. The
+/// age is the bucket's own: the newest write the listing shows is its "now". RED on the old code: the
+/// blob a running sync uploaded is deleted.
+#[test]
+fn x_delta_sync4_26_a_blob_uploaded_a_moment_ago_is_young_by_the_buckets_own_clock() {
+    let store = S3Bucket::new();
+    let a = Device::new("relook-gc-clock");
+    a.write("a.md", b"one");
+    a.sync(&store);
+    // A sync of another device uploaded this blob and has not committed it yet.
+    let in_flight =
+        crate::sync::remote::blob_key(PREFIX_GC, &crate::sync::local::hash_bytes(b"in flight"));
+    store.write(&in_flight, b"in flight".to_vec());
+    let behind = TenDaysBehind(store);
+    let report = crate::sync::collect_garbage(&behind, PREFIX_GC, 86_400, false).unwrap();
+    assert_eq!(report.deleted, 0, "{report:?}");
+    assert!(behind.0.read(&in_flight).is_some(), "the blob stays");
+}

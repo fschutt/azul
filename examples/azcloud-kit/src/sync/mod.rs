@@ -5229,9 +5229,15 @@ pub struct GcReport {
 /// tombstone) and that are older than `grace_secs` - a blob a running sync
 /// uploaded but did not commit yet is younger.
 ///
+/// Two things must hold before a blob is deleted (X-DELTA-SYNC4-26): the drive HAS an index - a
+/// missing one has no live set, and "names nothing" would make every blob garbage - and the age is
+/// the bucket's: the newest time any object of the listing (the index among them) says is the
+/// bucket's own "now", so a clock of this device that is days ahead of the bucket's cannot make a
+/// blob that was uploaded a moment ago look old.
+///
 /// # Errors
 ///
-/// When the index or the listing cannot be read, or a delete is refused.
+/// When the index or the listing cannot be read, the drive has no index, or a delete is refused.
 pub fn collect_garbage<S: RemoteStore + ?Sized>(
     store: &S,
     prefix: &str,
@@ -5239,7 +5245,14 @@ pub fn collect_garbage<S: RemoteStore + ?Sized>(
     dry_run: bool,
 ) -> CloudResult<GcReport> {
     let prefix = normalize_prefix(prefix)?;
-    let (index, _) = read_index(store, &remote::index_key(&prefix), None)?;
+    let index_key = remote::index_key(&prefix);
+    let (index, etag) = read_index(store, &index_key, None)?;
+    if etag.is_none() {
+        fail!(
+            "the drive has no sync index at {prefix:?} (it is missing, or the storage does not \
+             serve it now): nothing was collected - with no index every blob would be garbage"
+        );
+    }
     let newer = index.unknown_features();
     if !newer.is_empty() {
         fail!(
@@ -5254,15 +5267,26 @@ pub fn collect_garbage<S: RemoteStore + ?Sized>(
         dry_run,
         ..GcReport::default()
     };
-    let now = crate::now();
-    for blob in store.list(&remote::blobs_prefix(&prefix))? {
+    let blobs = store.list(&remote::blobs_prefix(&prefix))?;
+    // The bucket's own time: the newest write it tells of.
+    let bucket_now = blobs
+        .iter()
+        .chain(&store.list(&index_key)?)
+        .filter_map(|object| object.modified)
+        .max();
+    for blob in blobs {
         report.blobs += 1;
         let hash = blob.key.rsplit('/').next().unwrap_or("");
         if referenced.contains(hash) {
             report.referenced += 1;
             continue;
         }
-        if blob.modified.is_none_or(|at| now - at < grace_secs) {
+        let young = match (bucket_now, blob.modified) {
+            (Some(now), Some(at)) => now.saturating_sub(at) < grace_secs,
+            // A blob with no time, or a bucket that tells none: nothing says it is old.
+            _ => true,
+        };
+        if young {
             report.kept_young += 1;
             continue;
         }
