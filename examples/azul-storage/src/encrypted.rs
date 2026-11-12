@@ -221,9 +221,22 @@ pub trait NameIndex: Send + Sync {
     /// window is judged by. `None` for an index that keeps no history: its head is everything
     /// there is, and what it released it released for good ([`Released::delete_now`]). What a
     /// delete of an object only the history could still name rests on.
+    ///
+    /// There is NO default that says "no history" (X-DELTA-SYNC4-5): an index that forwards its
+    /// calls to another and forgets this one - a caching or counting wrapper - would be taken for one
+    /// with no history, and the pack upkeep would judge by the head alone and delete what only the
+    /// history names, with the licence the gate gives such an index. By default the answer is
+    /// `Unsupported`: the upkeep stops, and nothing is deleted. An index in memory says `Ok(None)`
+    /// itself.
+    ///
+    /// # Errors
+    ///
+    /// The drive cannot be read, or the index does not say what its history names.
     fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
         let _ = now;
-        Ok(None)
+        Err(DriveError::Unsupported(String::from(
+            "this index does not say what its history still names: nothing is deleted on its word",
+        )))
     }
 
     /// One page of the entries under `request.prefix` (S3 ListObjectsV2 semantics).
@@ -1472,6 +1485,11 @@ impl MemoryIndex {
 impl NameIndex for MemoryIndex {
     fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
         Ok(lock(&self.entries).get(path).cloned())
+    }
+
+    /// An index in memory keeps no history: its head is everything there is.
+    fn live_objects(&self, _now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        Ok(None)
     }
 
     fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {

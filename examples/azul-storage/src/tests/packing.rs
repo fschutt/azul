@@ -381,6 +381,14 @@ struct FailingIndex {
 }
 
 impl NameIndex for FailingIndex {
+    /// No history: what the head does not name is named by nobody (the old default of the trait).
+    fn live_objects(
+        &self,
+        _now: u64,
+    ) -> Result<Option<crate::meta::reclaim::LiveObjects>, DriveError> {
+        Ok(None)
+    }
+
     fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
         self.inner.get(path)
     }
@@ -742,6 +750,14 @@ fn the_drive_index_provider_packs_when_asked_and_keeps_its_journal_in_the_drive_
 struct KeepsHistory(MemoryIndex);
 
 impl NameIndex for KeepsHistory {
+    /// No history: what the head does not name is named by nobody (the old default of the trait).
+    fn live_objects(
+        &self,
+        _now: u64,
+    ) -> Result<Option<crate::meta::reclaim::LiveObjects>, DriveError> {
+        Ok(None)
+    }
+
     fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
         self.0.get(path)
     }
@@ -1111,6 +1127,14 @@ impl OwnCommitConflicts {
 }
 
 impl NameIndex for OwnCommitConflicts {
+    /// No history: what the head does not name is named by nobody (the old default of the trait).
+    fn live_objects(
+        &self,
+        _now: u64,
+    ) -> Result<Option<crate::meta::reclaim::LiveObjects>, DriveError> {
+        Ok(None)
+    }
+
     fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
         self.reading()?;
         self.inner.get(path)
@@ -1169,6 +1193,14 @@ struct DuringApply {
 }
 
 impl NameIndex for DuringApply {
+    /// No history: what the head does not name is named by nobody (the old default of the trait).
+    fn live_objects(
+        &self,
+        _now: u64,
+    ) -> Result<Option<crate::meta::reclaim::LiveObjects>, DriveError> {
+        Ok(None)
+    }
+
     fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
         self.inner.get(path)
     }
@@ -1182,6 +1214,58 @@ impl NameIndex for DuringApply {
         }
         self.inner.apply(changes)
     }
+}
+
+/// A wrapper that forwards its calls and forgets `live_objects`: what a caching or counting index does.
+struct SilentIndex {
+    inner: MemoryIndex,
+    fail_next: AtomicBool,
+}
+
+impl NameIndex for SilentIndex {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get(path)
+    }
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            return Err(DriveError::Transport(String::from("the computer went off")));
+        }
+        self.inner.apply(changes)
+    }
+}
+
+/// X-DELTA-SYNC4-5. The trait default of `live_objects` was `Ok(None)` - "this index keeps no history" -
+/// so an index that forwarded get, list and apply and forgot `live_objects` was taken for one with none: the
+/// upkeep judged by the head alone and deleted what only the history could name, with the licence the gate
+/// gives an index without history. Now the default is `Unsupported`: the upkeep stops and the pack stays.
+/// RED on the old code: `recover_packs` answers 1 and the pack has left the bucket.
+#[test]
+fn x_delta_sync4_5_an_index_that_does_not_say_what_its_history_names_gets_no_delete_from_the_upkeep() {
+    let dir = TempDir::new("pack-silent");
+    let bucket = Arc::new(MemBucket::new());
+    let index = Arc::new(SilentIndex {
+        inner: MemoryIndex::new(),
+        fail_next: AtomicBool::new(false),
+    });
+    let key = DriveKey::generate().unwrap();
+    let options = PackOptions::default().with_journal(dir.path().join("packs"));
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key, index.clone()).with_packing(options);
+    // The upload lands, the commit does not: the pack is in the journal, named by nobody.
+    index.fail_next.store(true, Ordering::SeqCst);
+    let lost = small_files(5, 900);
+    let items: Vec<BatchPut<'_>> = lost.iter().map(|(p, b)| BatchPut::new(p, b)).collect();
+    assert!(drive.put_many(&items).iter().all(Result::is_err));
+    assert_eq!(data_objects(&bucket).len(), 1, "the pack went up");
+    let later = now_unix() + JOURNAL_STALE_SECS + 60;
+    let refused = drive.recover_packs(later);
+    assert!(
+        matches!(refused, Err(DriveError::Unsupported(_))),
+        "the upkeep stops on an index that does not say what its history names: {refused:?}"
+    );
+    assert_eq!(data_objects(&bucket).len(), 1, "nothing was deleted");
 }
 
 /// X-DELTA-SYNC4-9, the pack in flight. `recover_packs` took a pack for abandoned when its journal

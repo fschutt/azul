@@ -287,6 +287,14 @@ mod encrypted {
     }
 
     impl NameIndex for Counting {
+        /// No history: what the head does not name is named by nobody (the old default of the trait).
+        fn live_objects(
+            &self,
+            _now: u64,
+        ) -> Result<Option<azul_storage::meta::reclaim::LiveObjects>, DriveError> {
+            Ok(None)
+        }
+
         fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
             self.inner.get(path)
         }

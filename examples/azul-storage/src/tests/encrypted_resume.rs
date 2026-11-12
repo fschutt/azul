@@ -134,6 +134,14 @@ struct FlakyIndex {
 }
 
 impl NameIndex for FlakyIndex {
+    /// No history: what the head does not name is named by nobody (the old default of the trait).
+    fn live_objects(
+        &self,
+        _now: u64,
+    ) -> Result<Option<crate::meta::reclaim::LiveObjects>, DriveError> {
+        Ok(None)
+    }
+
     fn get(&self, path: &str) -> Result<Option<crate::encrypted::IndexEntry>, DriveError> {
         self.inner.get(path)
     }
@@ -353,6 +361,14 @@ struct RacedIndex {
 }
 
 impl NameIndex for RacedIndex {
+    /// No history: what the head does not name is named by nobody (the old default of the trait).
+    fn live_objects(
+        &self,
+        _now: u64,
+    ) -> Result<Option<crate::meta::reclaim::LiveObjects>, DriveError> {
+        Ok(None)
+    }
+
     fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
         self.inner.get(path)
     }
