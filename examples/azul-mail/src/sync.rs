@@ -329,16 +329,21 @@ pub fn sync_folder(
 ) -> Result<FolderReport, SyncError> {
     let key = mailbox.key.as_str();
     let selected = source.select(&mailbox.server_name)?;
-    let old_state = store
-        .get(&store::state_key(key))
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|text| FolderState::from_json(&text));
+    // A state that is not there is a new folder. One that cannot be READ is an error: taken for
+    // "new", the folder would be synced from UID 1 over the lines of another numbering
+    // (X-DELTA-SYNC4-21).
+    let old_state = match store.get(&store::state_key(key)) {
+        Ok(bytes) => String::from_utf8(bytes)
+            .ok()
+            .and_then(|text| FolderState::from_json(&text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(storage(e)),
+    };
     let plan = plan_folder(old_state.as_ref(), &selected);
     // Mail written here (a sent mail SEND filed, a draft) has a LOCAL UID, not one of the
     // server's numbering: it is carried across a renumbering instead of going to stale/.
     let local: Vec<(IndexEntry, Vec<u8>)> = if plan.renumbered.is_some() {
-        read_index(store, key)
+        read_index(store, key)?
             .into_values()
             .filter(|e| e.uid >= crate::send::LOCAL_UID_FLOOR)
             .filter_map(|e| store.get(&e.path).ok().map(|bytes| (e, bytes)))
@@ -354,7 +359,7 @@ pub fn sync_folder(
     let mut index = if plan.renumbered.is_some() {
         BTreeMap::new()
     } else {
-        read_index(store, key)
+        read_index(store, key)?
     };
     // A folder without an index file (new, or renumbered) gets one even when it is empty.
     let mut index_dirty = store.size_of(&store::index_key(key)).is_none();
@@ -491,15 +496,18 @@ fn already_written(store: &MailStore, path: &str, size: Option<u64>) -> bool {
     }
 }
 
-/// The folder's index, by UID; empty when there is none.
-fn read_index(store: &MailStore, folder: &str) -> BTreeMap<u32, IndexEntry> {
-    store
-        .get(&store::index_key(folder))
-        .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|entry| (entry.uid, entry))
-        .collect()
+/// The folder's index, by UID; empty when there is none (a file that is not there). A read that
+/// FAILED is an error, never an empty folder: the index written from the server's mail alone would
+/// drop every line it held (X-DELTA-SYNC4-21).
+fn read_index(store: &MailStore, folder: &str) -> Result<BTreeMap<u32, IndexEntry>, SyncError> {
+    match store.get(&store::index_key(folder)) {
+        Ok(bytes) => Ok(store::index_from_jsonl(&String::from_utf8_lossy(&bytes))
+            .into_iter()
+            .map(|entry| (entry.uid, entry))
+            .collect()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(e) => Err(storage(e)),
+    }
 }
 
 /// Writes the index (when `with_index`) and then the state: the state never names a UID the
@@ -697,6 +705,53 @@ mod tests {
 
     fn index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
         index_from_jsonl(&String::from_utf8(store.get(&index_key(folder)).unwrap()).unwrap())
+    }
+
+    /// X-DELTA-SYNC4-21. RED on the code before: an index that could not be READ was an empty one,
+    /// and the next mail that arrived was written into an index of its own line alone - the lines
+    /// of the mail synced before were gone from the folder.
+    #[test]
+    fn x_delta_sync4_21_an_unreadable_index_ends_the_imap_sync_and_rewrites_nothing() {
+        let dir = TempDir::new("imap-unreadable");
+        let store = MailStore::new(dir.folder());
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2]);
+        run(&mut server, &store).unwrap();
+        // A new message arrives; the index cannot be read.
+        server
+            .folders
+            .get_mut("INBOX")
+            .unwrap()
+            .messages
+            .insert(3, message(3));
+        let file = dir.0.join(index_key("inbox"));
+        let before = std::fs::read(&file).unwrap();
+        if !crate::testutil::make_unreadable(&file) {
+            return;
+        }
+        let failed = run(&mut server, &store);
+        crate::testutil::make_readable(&file);
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        assert_eq!(std::fs::read(&file).unwrap(), before, "the index was not written from nothing");
+        // Readable again: the message comes, the other lines stay.
+        run(&mut server, &store).unwrap();
+        assert_eq!(index(&store, "inbox").len(), 3);
+    }
+
+    #[test]
+    fn x_delta_sync4_21_an_unreadable_state_ends_the_imap_sync_and_rewrites_nothing() {
+        let dir = TempDir::new("imap-unreadable-state");
+        let store = MailStore::new(dir.folder());
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2]);
+        run(&mut server, &store).unwrap();
+        let file = dir.0.join(state_key("inbox"));
+        let before = std::fs::read(&file).unwrap();
+        if !crate::testutil::make_unreadable(&file) {
+            return;
+        }
+        let failed = run(&mut server, &store);
+        crate::testutil::make_readable(&file);
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        assert_eq!(std::fs::read(&file).unwrap(), before, "the state was not started anew");
     }
 
     fn state(store: &MailStore, folder: &str) -> FolderState {

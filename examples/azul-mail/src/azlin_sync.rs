@@ -120,14 +120,18 @@ fn io(e: std::io::Error) -> SyncError {
 
 // ==== The local copy's files ====
 
-fn read_index(store: &MailStore, folder: &str) -> BTreeMap<u32, IndexEntry> {
-    store
-        .get(&store::index_key(folder))
-        .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|entry| (entry.uid, entry))
-        .collect()
+/// The folder's index, by UID: empty when there is none (a file that is not there). A read that
+/// FAILED is an error, never an empty folder: the index written back from nothing would drop every
+/// line it held and number the next message from the start (X-DELTA-SYNC4-21).
+fn read_index(store: &MailStore, folder: &str) -> Result<BTreeMap<u32, IndexEntry>, SyncError> {
+    match store.get(&store::index_key(folder)) {
+        Ok(bytes) => Ok(store::index_from_jsonl(&String::from_utf8_lossy(&bytes))
+            .into_iter()
+            .map(|entry| (entry.uid, entry))
+            .collect()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(e) => Err(io(e)),
+    }
 }
 
 fn write_index(
@@ -142,21 +146,29 @@ fn write_index(
     )
 }
 
-fn read_state(store: &MailStore, folder: &str) -> Option<FolderState> {
-    store
-        .get(&store::state_key(folder))
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|text| FolderState::from_json(&text))
+/// The folder's state: `None` when there is none or it is none of this AzMail's; a read that
+/// FAILED is an error (the last UID would start from 0 and a number once given would be given again).
+fn read_state(store: &MailStore, folder: &str) -> Result<Option<FolderState>, SyncError> {
+    match store.get(&store::state_key(folder)) {
+        Ok(bytes) => Ok(String::from_utf8(bytes)
+            .ok()
+            .and_then(|text| FolderState::from_json(&text))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io(e)),
+    }
 }
 
-fn read_marks(store: &MailStore, folder: &str) -> LocalFlags {
-    store
-        .get(&listing::flags_key(folder))
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|text| LocalFlags::from_json(&text))
-        .unwrap_or_else(LocalFlags::create)
+/// The marks made here and not pushed yet; none when there is no file. A read that FAILED is an
+/// error: the marks written back from nothing would lose them.
+fn read_marks(store: &MailStore, folder: &str) -> Result<LocalFlags, SyncError> {
+    match store.get(&listing::flags_key(folder)) {
+        Ok(bytes) => Ok(String::from_utf8(bytes)
+            .ok()
+            .and_then(|text| LocalFlags::from_json(&text))
+            .unwrap_or_else(LocalFlags::create)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(LocalFlags::create()),
+        Err(e) => Err(io(e)),
+    }
 }
 
 fn write_marks(store: &MailStore, folder: &str, marks: &LocalFlags) -> std::io::Result<()> {
@@ -260,18 +272,23 @@ fn set_flag(flags: &mut Vec<String>, flag: &str, on: bool) {
 }
 
 /// The drive's folder of the local folder `key`: the one its state names (Send/Receive wrote
-/// it), else the well-known folder of its role, else the key itself.
-pub fn remote_path_of(store: &MailStore, key: &str) -> String {
-    read_state(store, key)
+/// it), else the well-known folder of its role, else the key itself. A state that cannot be read
+/// names no folder: an error, not a guess (mail would go into a folder of the wrong name).
+pub fn remote_path_of(store: &MailStore, key: &str) -> Result<String, SyncError> {
+    Ok(read_state(store, key)?
         .map(|state| state.server_name)
         .filter(|name| !name.trim().is_empty())
         .or_else(|| azlin::well_known_name(Role::of_key(key)).map(str::to_string))
-        .unwrap_or_else(|| key.to_string())
+        .unwrap_or_else(|| key.to_string()))
 }
 
-/// The object of the message `uid` of the local folder `folder`, when it is in the drive.
+/// The object of the message `uid` of the local folder `folder`, when it is in the drive. `None`
+/// for an index that cannot be read too: the caller then deletes nothing of the drive (the draft
+/// it replaced stays there as a second one).
 pub fn remote_of(store: &MailStore, folder: &str, uid: u32) -> Option<String> {
+    // collapse-ok: the unknown answer is the safe one here - what is not named is not deleted.
     read_index(store, folder)
+        .ok()?
         .remove(&uid)
         .map(|entry| entry.remote)
         .filter(|remote| !remote.is_empty())
@@ -317,7 +334,7 @@ pub fn sync_account(
         if boxes.iter().any(|mailbox| mailbox.key == key) {
             continue;
         }
-        let Some(state) = read_state(store, &key) else {
+        let Some(state) = read_state(store, &key)? else {
             continue;
         };
         boxes.push(LocalMailbox {
@@ -394,10 +411,10 @@ fn sync_folder(
         .cloned()
         .collect();
     let listed = visible.as_slice();
-    let mut index = read_index(store, key);
+    let mut index = read_index(store, key)?;
     let mut state = FolderState::create(path, &mailbox.display, AZLIN_UIDVALIDITY);
-    state.last_uid = read_state(store, key).map_or(0, |old| old.last_uid);
-    let mut marks = read_marks(store, key);
+    state.last_uid = read_state(store, key)?.map_or(0, |old| old.last_uid);
+    let mut marks = read_marks(store, key)?;
     let marks_before = marks.clone();
     let mut report = FolderReport {
         key: key.to_string(),
@@ -694,11 +711,11 @@ fn push_marks_of(
 /// written as it is (a PUT or DELETE says the same twice), the index takes it as the drive's
 /// flag, and the mark is dropped. Returns how many were written.
 pub fn push_marks(drive: &dyn Drive, store: &MailStore, folder: &str) -> Result<usize, SyncError> {
-    let mut marks = read_marks(store, folder);
+    let mut marks = read_marks(store, folder)?;
     if marks.read.is_empty() && marks.flagged.is_empty() {
         return Ok(0);
     }
-    let mut index = read_index(store, folder);
+    let mut index = read_index(store, folder)?;
     let mut written = 0usize;
     let result = (|| -> Result<(), SyncError> {
         for (flag, imap) in [(azlin::SEEN, "\\Seen"), (azlin::FLAGGED, "\\Flagged")] {
@@ -756,12 +773,12 @@ pub fn move_messages(
     if from == to || uids.is_empty() {
         return Ok(0);
     }
-    let to_path = remote_path_of(store, to);
-    let mut source = read_index(store, from);
-    let mut target = read_index(store, to);
-    let mut source_marks = read_marks(store, from);
-    let mut target_marks = read_marks(store, to);
-    let mut state = read_state(store, to).unwrap_or_else(|| {
+    let to_path = remote_path_of(store, to)?;
+    let mut source = read_index(store, from)?;
+    let mut target = read_index(store, to)?;
+    let mut source_marks = read_marks(store, from)?;
+    let mut target_marks = read_marks(store, to)?;
+    let mut state = read_state(store, to)?.unwrap_or_else(|| {
         FolderState::create(&to_path, &folder_display(to, &to_path), AZLIN_UIDVALIDITY)
     });
     let mut moved = 0usize;
@@ -835,8 +852,8 @@ pub fn delete_messages(
     folder: &str,
     uids: &[u32],
 ) -> Result<usize, SyncError> {
-    let mut index = read_index(store, folder);
-    let mut marks = read_marks(store, folder);
+    let mut index = read_index(store, folder)?;
+    let mut marks = read_marks(store, folder)?;
     let mut deleted = 0usize;
     let result = (|| -> Result<(), SyncError> {
         for uid in uids {
@@ -875,8 +892,8 @@ pub fn upload_message(
     replaces: Option<&str>,
     now: i64,
 ) -> Result<String, SyncError> {
-    let path = remote_path_of(store, folder);
-    let mut index = read_index(store, folder);
+    let path = remote_path_of(store, folder)?;
+    let mut index = read_index(store, folder)?;
     let Some(entry) = index.get_mut(&uid) else {
         return Err(SyncError::Storage(format!(
             "the message {uid} is not in the index of {folder}"
@@ -911,7 +928,7 @@ pub fn fetch_message(
     uid: u32,
     chunk: u64,
 ) -> Result<u64, SyncError> {
-    let index = read_index(store, folder);
+    let index = read_index(store, folder)?;
     let Some(entry) = index.get(&uid) else {
         return Err(SyncError::Storage(format!(
             "the message {uid} is not in the index of {folder}"
@@ -1078,7 +1095,7 @@ mod tests {
     }
 
     fn index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
-        read_index(store, folder).into_values().collect()
+        read_index(store, folder).unwrap().into_values().collect()
     }
 
     fn missing(drive: &dyn Drive, key: &str) -> bool {
@@ -1115,13 +1132,13 @@ mod tests {
                 "trash"
             ]
         );
-        let state = read_state(&f.store, "spam").unwrap();
+        let state = read_state(&f.store, "spam").unwrap().unwrap();
         assert_eq!(
             (state.server_name.as_str(), state.uidvalidity),
             ("Spam", AZLIN_UIDVALIDITY)
         );
         assert_eq!(
-            read_state(&f.store, "Work.Projects").unwrap().display,
+            read_state(&f.store, "Work.Projects").unwrap().unwrap().display,
             "Work/Projects"
         );
     }
@@ -1279,7 +1296,7 @@ mod tests {
             .head(&azlin::marker_key(&id, azlin::FLAGGED))
             .is_ok());
         assert_eq!(
-            read_marks(&f.store, "inbox"),
+            read_marks(&f.store, "inbox").unwrap(),
             LocalFlags::create(),
             "written, so not kept here"
         );
@@ -1310,7 +1327,7 @@ mod tests {
             .head(&azlin::marker_key(&id, azlin::SEEN))
             .is_ok());
         assert_eq!(index(&f.store, "inbox")[0].flags, ["\\Seen"]);
-        assert!(read_marks(&f.store, "inbox").read.is_empty());
+        assert!(read_marks(&f.store, "inbox").unwrap().read.is_empty());
         marks.read.insert(entry.uid, false);
         write_marks(&f.store, "inbox", &marks).unwrap();
         assert_eq!(push_marks(&f.bucket, &f.store, "inbox").unwrap(), 1);
@@ -1470,7 +1487,8 @@ mod tests {
                     std::path::PathBuf::from("/nonexistent")
                 )),
                 "spam"
-            ),
+            )
+            .unwrap(),
             "Spam"
         );
     }
@@ -1534,6 +1552,97 @@ mod tests {
         let closed = azul_appkit::l10n::t_text(&sending_refused(Some(&ban), until + 1).expect("closed"));
         assert!(closed.starts_with("This drive was closed on 2026-10-12"), "{closed}");
         assert_eq!(sending_refused(None, until), None, "a drive in good standing sends");
+    }
+
+    // ==== X-DELTA-SYNC4-21: a read that failed is no empty file ====
+
+    /// The folder's file `key` here as bytes (the oracle: a failed read must not rewrite it).
+    fn bytes_of(f: &Fixture, key: &str) -> Vec<u8> {
+        std::fs::read(f.store.folder().path().join(key)).unwrap()
+    }
+
+    /// RED on the code before: an index that could not be READ was an empty one, the folder was
+    /// synced from the drive's listing alone and the index written back without the lines of the
+    /// mail filed here first.
+    #[test]
+    fn x_delta_sync4_21_an_unreadable_index_ends_the_sync_and_rewrites_nothing() {
+        let f = fixture();
+        deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let flags = [String::from("\\Seen")];
+        crate::send::file_message(f.store.folder(), "sent", &mail(9, "From here"), &flags, SEP_30).unwrap();
+        run(&f);
+        // Another mail filed here first, not in the drive yet: its line exists in the index only.
+        crate::send::file_message(f.store.folder(), "sent", &mail(10, "Second"), &flags, SEP_30 + 5).unwrap();
+        let key = store::index_key("sent");
+        let before = bytes_of(&f, &key);
+        let file = f.store.folder().path().join(&key);
+        if !crate::testutil::make_unreadable(&file) {
+            return;
+        }
+        let failed = sync_account(&f.bucket, &f.store, &options(), &mut |_| true);
+        crate::testutil::make_readable(&file);
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        assert_eq!(bytes_of(&f, &key), before, "the index was not written back from nothing");
+    }
+
+    #[test]
+    fn x_delta_sync4_21_an_unreadable_state_ends_the_sync_and_rewrites_nothing() {
+        let f = fixture();
+        deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        let key = store::state_key("inbox");
+        let before = bytes_of(&f, &key);
+        let file = f.store.folder().path().join(&key);
+        if !crate::testutil::make_unreadable(&file) {
+            return;
+        }
+        let failed = sync_account(&f.bucket, &f.store, &options(), &mut |_| true);
+        crate::testutil::make_readable(&file);
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        assert_eq!(bytes_of(&f, &key), before, "the last UID was not started from 0");
+    }
+
+    /// RED on the code before: the move read the unreadable index as empty, found no message to
+    /// move and wrote the empty index over the folder's.
+    #[test]
+    fn x_delta_sync4_21_a_move_with_an_unreadable_index_does_nothing() {
+        let f = fixture();
+        let key = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        let entry = index(&f.store, "inbox").remove(0);
+        let index_key = store::index_key("inbox");
+        let before = bytes_of(&f, &index_key);
+        let file = f.store.folder().path().join(&index_key);
+        if !crate::testutil::make_unreadable(&file) {
+            return;
+        }
+        let moved = move_messages(&f.bucket, &f.store, "inbox", &[entry.uid], "archive");
+        crate::testutil::make_readable(&file);
+        assert!(matches!(moved, Err(SyncError::Storage(_))), "{moved:?}");
+        assert_eq!(bytes_of(&f, &index_key), before, "the index was not overwritten");
+        assert!(!missing(&f.bucket.inner, &key), "the object stays in the Inbox of the drive");
+    }
+
+    /// The marks made here and not pushed yet are not lost to a read that failed: they stay.
+    #[test]
+    fn x_delta_sync4_21_unreadable_marks_end_the_action_and_stay() {
+        let f = fixture();
+        deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        let entry = index(&f.store, "inbox").remove(0);
+        let mut marks = LocalFlags::create();
+        marks.read.insert(entry.uid, true);
+        write_marks(&f.store, "inbox", &marks).unwrap();
+        let key = listing::flags_key("inbox");
+        let before = bytes_of(&f, &key);
+        let file = f.store.folder().path().join(&key);
+        if !crate::testutil::make_unreadable(&file) {
+            return;
+        }
+        let failed = push_marks(&f.bucket, &f.store, "inbox");
+        crate::testutil::make_readable(&file);
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        assert_eq!(bytes_of(&f, &key), before, "the marks stay as they were");
     }
 
     // ==== X-DELTA-SYNC4-20: a restored drive, a short listing, a failed look ====
