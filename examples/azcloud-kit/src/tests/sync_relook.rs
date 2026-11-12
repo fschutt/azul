@@ -820,3 +820,32 @@ fn x_delta_sync4_22_a_conflict_copy_never_replaces_a_file_that_took_its_name_sin
     );
     faults::clear(b.path());
 }
+
+/// X-DELTA-SYNC4-13. "Free up space" takes the file to `.azul-freeing-<pid>-<n>` and then removes it; a
+/// kill between the two left the bytes of the file under that name, which no rule excluded and which the
+/// next pass UPLOADED as a new file of the user's (one junk hidden file on the drive and on every device,
+/// the freed bytes not freed). The name is excluded like the other temporary files. RED on the old code:
+/// the drive's index names it. (The file itself stays: removing a file of a process that is gone is the
+/// sweep this row leaves open.)
+#[test]
+fn x_delta_sync4_13_a_file_a_kill_left_under_the_freeing_name_is_never_uploaded() {
+    let store = S3Bucket::new();
+    let a = Device::new("relook-freeing-a");
+    a.write("big.txt", b"the file the user freed");
+    a.sync(&store);
+    // The state a kill between the rename and the unlink leaves: the bytes under the hidden name.
+    a.write(".azul-freeing-4711-3", b"the file the user freed");
+    let report = a.sync(&store);
+    let index = index_of(&store);
+    assert!(
+        !index.files.contains_key(".azul-freeing-4711-3"),
+        "{:?}: {}",
+        index.files.keys().collect::<Vec<_>>(),
+        report.summary()
+    );
+    assert!(
+        a.read(".azul-freeing-4711-3").is_some(),
+        "nothing here is deleted"
+    );
+    assert_eq!(report.files_up, 0, "{}", report.summary());
+}
