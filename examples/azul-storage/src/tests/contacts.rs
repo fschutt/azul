@@ -296,3 +296,36 @@ fn az_c14_the_safety_number_has_twenty_digits_that_are_all_in_use() {
         assert_eq!(values.len(), 10, "digit {position} never takes some value in 300 numbers");
     }
 }
+
+/// X-DELTA-EDGE (E8, T33). A re-split of the SAME secret revokes nothing: every share of an older split
+/// still gives the code with another of its own split, whatever splits were made since - so "B or C is
+/// lost: re-split" (the plan's device-keys table) does not lock the lost holder's share out; only a new
+/// code does. A share of the older split and one of the newer do not mix, and the refusal says so: the
+/// two splits have ONE split id (it is the code's), so the refusal cannot tell an older split's share
+/// from a mistyped one and names both - it used to say only "one is mistyped".
+#[test]
+fn a_resplit_of_the_same_secret_leaves_old_shares_valid_and_says_so() {
+    let old = CodeShare::split(&code()).unwrap();
+    let new = CodeShare::split(&code()).unwrap();
+    assert_eq!(old[0].set_hex(), new[0].set_hex(), "one code, one split id");
+    // The old pairs still give the code after the new split exists, and the new pairs do too.
+    for shares in [&old, &new] {
+        for pair in [[0, 1], [0, 2], [1, 2]] {
+            let picked = [shares[pair[0]].clone(), shares[pair[1]].clone()];
+            let back = CodeShare::combine(&picked).unwrap();
+            assert_eq!(back.as_bytes(), code().as_bytes(), "pair {pair:?}");
+        }
+    }
+    // A pair of an older split's share and a newer split's is refused ...
+    let Err(CryptoError::Damaged(text)) = CodeShare::combine(&[old[0].clone(), new[1].clone()])
+    else {
+        panic!("a mixed pair gives no code");
+    };
+    // ... and the sentence says what it can be: two splits of the code, or a typo.
+    assert!(text.contains("two splits of the same code"), "{text}");
+    assert!(text.contains("older split"), "{text}");
+    assert!(
+        text.contains("mistyped"),
+        "a typo is the other way to this: {text}"
+    );
+}

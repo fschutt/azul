@@ -173,8 +173,14 @@ impl CodeShare {
         let code = RecoveryCode::from_bytes(raw);
         raw.zeroize();
         if set_of(&code) != set {
+            // Two splits of one code have one split id (it is the code's), so a share of an older
+            // split and one of a newer split cannot be told from a mistyped share: the sentence
+            // names both. Shares of ONE split give the code whichever split it is - a new split
+            // revokes no old share (EDGE.md E8, X-DELTA-EDGE-9).
             return Err(damaged(
-                "the shares do not give back a code of their split: one is mistyped",
+                "the shares do not give back a code of their split: they are of two splits of the \
+                 same code (an older split's shares give the code together, not mixed with a newer \
+                 split's), or one is mistyped",
             ));
         }
         Ok(code)
