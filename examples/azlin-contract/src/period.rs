@@ -168,8 +168,21 @@ impl IssueRefusal {
         }
     }
 
+    /// Whether the refusal is final but for the token server's restore: the payment was taken
+    /// back (`not_paid`), and a taking back that was wrong - a refund that failed, a dispute the
+    /// merchant won, an operator's `payments restore` - approves the checkout again, after which
+    /// the same request is answered. An app asks such a grant again, now and then, for a while
+    /// ([`IssueRefusal::is_final`] still says it: nothing is issued meanwhile); every other
+    /// final refusal stays final (a stopped mandate, a wrong key, a checkout gone, every month
+    /// issued).
+    #[must_use]
+    pub fn is_revivable(&self) -> bool {
+        matches!(self, IssueRefusal::NotPaid)
+    }
+
     /// Whether asking again can never help: the grant's months that are not issued are lost to
-    /// this checkout (a reversed payment, a wrong key, a checkout gone, every month issued). A
+    /// this checkout (a reversed payment, a wrong key, a checkout gone, every month issued) - a
+    /// reversed payment unless the token server approves it again ([`IssueRefusal::is_revivable`]). A
     /// refusal this build does not know is not final: an update may read it. Nor is one about the
     /// REQUEST ([`IssueRefusal::is_about_the_request`]): it says nothing of the grant.
     #[must_use]

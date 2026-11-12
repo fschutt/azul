@@ -54,9 +54,27 @@ pub struct VaultGrant {
     /// From when the next month may be asked for (seconds since 1970); `None`: ask.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_issue_at: Option<u64>,
-    /// Why the token server issues no more of it (a final refusal), once it said so.
+    /// Why the token server issues no more of it (a final refusal), once it said so - and no look
+    /// found the checkout paid again since ([`VaultGrant::revive`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<String>,
+    /// Which end this is, as a count: an odd one is an end, an even one a grant that lives (a
+    /// revival made it so). An end and a revival each add one, and a join keeps the larger count
+    /// with the end it names - or none: a revival, which wins against an older end held by another
+    /// device's vault, and a later end wins against it - ordered by the count, never by two
+    /// computers' clocks (X-DELTA-MONEY3-1). `0` with an `ended`: an end an older build wrote.
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub end_epoch: u32,
+    /// When this computer's clock said the end was recorded (seconds since 1970): the days a
+    /// revivable end is asked again for count from here. An end an older build wrote has none and
+    /// is final.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<u64>,
+    /// The end is a payment taken back (`NotPaid`, [`azlin_contract::IssueRefusal::is_revivable`]):
+    /// the token server's restore of a wrong reversal approves the checkout again, so a look asks
+    /// again once a week for [`REVIVE_FOR_SECS`]. Every other end is final.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub revivable: bool,
     /// A monthly plan: each payment adds a month to `months`, issued with the same key.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recurring: bool,
@@ -68,6 +86,17 @@ pub struct VaultGrant {
     pub changed: bool,
 }
 
+fn is_zero_count(n: &u32) -> bool {
+    *n == 0
+}
+
+/// How often a look asks again for the months of a grant that was ended because the payment was
+/// taken back: once a week (X-DELTA-MONEY3-1).
+pub const REVIVE_EVERY_SECS: u64 = 7 * 86_400;
+/// For how long after its end a revivable end is asked again: 90 days. After that the months not
+/// issued are lost to the checkout.
+pub const REVIVE_FOR_SECS: u64 = 90 * 86_400;
+
 impl fmt::Debug for VaultGrant {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VaultGrant")
@@ -78,6 +107,8 @@ impl fmt::Debug for VaultGrant {
             .field("issued", &self.issued)
             .field("next_issue_at", &self.next_issue_at)
             .field("ended", &self.ended)
+            .field("end_epoch", &self.end_epoch)
+            .field("revivable", &self.revivable)
             .field("recurring", &self.recurring)
             .field("change_tier", &self.change_tier)
             .field("changed", &self.changed)
@@ -97,10 +128,65 @@ impl VaultGrant {
             issued: 0,
             next_issue_at: None,
             ended: None,
+            end_epoch: 0,
+            ended_at: None,
+            revivable: false,
             recurring: false,
             change_tier: false,
             changed: false,
         }
+    }
+
+    /// Records the end `why` at `at` (seconds since 1970, this computer's clock): `revivable` for
+    /// a payment taken back, which is asked again from a week on ([`VaultGrant::revive_due`]).
+    /// A grant that is ended already keeps its first end.
+    pub(crate) fn end(&mut self, why: String, revivable: bool, at: u64) {
+        if self.ended.is_some() {
+            return;
+        }
+        // an even count is a grant that lives: the end makes it odd
+        self.end_epoch = self.end_epoch.saturating_add(1 - self.end_epoch % 2);
+        self.ended = Some(why);
+        self.ended_at = Some(at);
+        self.revivable = revivable;
+        if revivable {
+            self.next_issue_at = Some(at.saturating_add(REVIVE_EVERY_SECS));
+        }
+    }
+
+    /// A look found the checkout paid again - the token server answered what it answers a paid
+    /// one: the end, and the sentence that said the payment was taken back, are cleared. Only a
+    /// revivable end (a payment taken back) is: every other end is final, and a month a replayed
+    /// request brings does not undo it (AZ-P17). Whether there was an end to clear.
+    pub(crate) fn revive(&mut self) -> bool {
+        if self.ended.is_none() || !self.revivable {
+            return false;
+        }
+        // the revival's count is larger than the end's, whatever count that end has
+        self.end_epoch = (self.end_epoch | 1).saturating_add(1);
+        self.ended = None;
+        self.ended_at = None;
+        self.revivable = false;
+        true
+    }
+
+    /// A revivable end whose months a look asks for again at `now`: it is within
+    /// [`REVIVE_FOR_SECS`] of its end, a week or more since it was recorded or last asked
+    /// (`next_issue_at`), and months remain to issue.
+    #[must_use]
+    pub fn revive_due(&self, now: u64) -> bool {
+        self.ended.is_some()
+            && self.revivable
+            && (self.issued < self.months || self.recurring)
+            && self.next_issue_at.is_none_or(|at| at <= now)
+            && self
+                .ended_at
+                .is_some_and(|at| now < at.saturating_add(REVIVE_FOR_SECS))
+    }
+
+    /// A revivable end asked again at `now` and refused again: the next ask is a week on.
+    pub(crate) fn asked_again(&mut self, now: u64) {
+        self.next_issue_at = Some(now.saturating_add(REVIVE_EVERY_SECS));
     }
 
     /// Months may still come: no final refusal, and a month not issued yet or a next one
@@ -108,6 +194,13 @@ impl VaultGrant {
     #[must_use]
     pub fn is_open(&self) -> bool {
         self.ended.is_none() && (self.issued < self.months || self.next_issue_at.is_some())
+    }
+
+    /// The token server said it issues no more of it, and no look found the checkout paid again
+    /// since.
+    #[must_use]
+    pub fn is_ended(&self) -> bool {
+        self.ended.is_some()
     }
 
     /// A move to its tier that has not happened yet.
@@ -132,8 +225,18 @@ impl VaultGrant {
             self.next_issue_at = other.next_issue_at;
         }
         self.months = self.months.max(other.months);
-        if self.ended.is_none() {
+        // The end: the larger count wins, with the end it names - or none, a revival. The same
+        // count: an end this copy missed (or one an older build wrote, which has no count) is
+        // taken; the first end stands.
+        if other.end_epoch > self.end_epoch {
+            self.end_epoch = other.end_epoch;
             self.ended.clone_from(&other.ended);
+            self.ended_at = other.ended_at;
+            self.revivable = other.revivable;
+        } else if other.end_epoch == self.end_epoch && self.ended.is_none() {
+            self.ended.clone_from(&other.ended);
+            self.ended_at = other.ended_at;
+            self.revivable = other.revivable;
         }
         self.recurring |= other.recurring;
         self.change_tier |= other.change_tier;

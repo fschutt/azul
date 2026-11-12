@@ -595,7 +595,7 @@ pub fn issue_next(
     // the end is in every vault by then, and only the replay (answered with the same signatures,
     // counted once) brings that last month back (AZ-P17). The first end stands.
     for kept in state.open_issues(checkout_id) {
-        match send_kept(server, tokens, &grant, kept)? {
+        match send_kept(server, tokens, &grant, kept, now)? {
             Sent::Tokens(tokens) => return Ok(Issued::Tokens(tokens)),
             Sent::Ended(why) => return Ok(Issued::Ended(grant.ended.clone().unwrap_or(why))),
             // never signed (not due, a key that changed, refused for good as unreadable): given
@@ -604,10 +604,17 @@ pub fn issue_next(
         }
     }
     let grant = tokens.state().map_err(not_kept)?.grant(checkout_id).cloned().unwrap_or(grant);
+    // A payment taken back may be put back - the token server's restore of a wrong reversal
+    // approves the checkout again -, so a grant ended for that is asked again, a week apart, for
+    // 90 days after its end ([`VaultGrant::revive_due`]); every other end is final for good
+    // (X-DELTA-MONEY3-1).
+    let reviving = grant.revive_due(now);
     if let Some(why) = &grant.ended {
-        return Ok(Issued::Ended(why.clone()));
+        if !reviving {
+            return Ok(Issued::Ended(why.clone()));
+        }
     }
-    if !grant.may_ask(now) {
+    if !reviving && !grant.may_ask(now) {
         return Ok(Issued::NotDue {
             next_issue_at: grant.is_open().then_some(grant.next_issue_at).flatten(),
         });
@@ -626,7 +633,7 @@ pub fn issue_next(
             request.key_id(),
             &request.messages(),
         )?;
-        match answered(tokens, &grant, &request, answer)? {
+        match answered(tokens, &grant, &request, answer, now)? {
             Sent::Tokens(issued) => return Ok(Issued::Tokens(issued)),
             Sent::Ended(why) => return Ok(Issued::Ended(why)),
             Sent::NotDue => {
@@ -674,29 +681,40 @@ fn send_kept(
     tokens: &DriveTokens,
     grant: &VaultGrant,
     kept: &IssueRequest,
+    now: u64,
 ) -> Result<Sent, TokenError> {
     let answer =
         server.issue_period_tokens(&grant.checkout_id, &grant.issue_key, kept.key_id(), &kept.messages())?;
-    answered(tokens, grant, kept, answer)
+    answered(tokens, grant, kept, answer, now)
 }
 
-/// Acts on `answer` to `request` of `grant`: the tokens finalized, checked and kept with the
-/// grant's new schedule and the request marked done; a refusal recorded (`not_due` moves the
-/// schedule, a final one ends the grant, an unsigned request is marked done); a busy server
-/// keeps the request for the next try (an error).
+/// Acts on `answer` to `request` of `grant` at `now` (seconds since 1970): the tokens finalized,
+/// checked and kept with the grant's new schedule and the request marked done; a refusal recorded
+/// (`not_due` moves the schedule, a final one ends the grant, an unsigned request is marked done);
+/// a busy server keeps the request for the next try (an error). An answer only a PAID checkout is
+/// given - tokens, `not_due`, `key_changed` - clears an end the grant has (the token server
+/// approved the checkout again: its restore of a wrong reversal): the grant is revived, and the
+/// sentence that said the payment was taken back goes with its end (X-DELTA-MONEY3-1).
 fn answered(
     tokens: &DriveTokens,
     grant: &VaultGrant,
     request: &IssueRequest,
     answer: IssueAnswer,
+    now: u64,
 ) -> Result<Sent, TokenError> {
     let done = |grant: Option<VaultGrant>| VaultState {
         grants: grant.into_iter().collect(),
         done: vec![request.id()],
         ..VaultState::default()
     };
+    // the grant as the answer of a paid checkout leaves it: its end, when it had one, cleared
+    let paid = || {
+        let mut revived = grant.clone();
+        revived.revive().then_some(revived)
+    };
     let scheduled = |schedule: &IssueSchedule| {
         let mut moved = grant.clone();
+        moved.revive();
         moved.issued = schedule.issued;
         moved.months = schedule.months;
         moved.next_issue_at = schedule
@@ -729,7 +747,7 @@ fn answered(
             key_id,
             public_key_pem,
         }) => {
-            tokens.join(&done(None)).map_err(not_kept)?;
+            tokens.join(&done(paid())).map_err(not_kept)?;
             let key = public_key_pem
                 .map(|pem| issuer_key_named(&grant.tier, &key_id, pem))
                 .transpose()?;
@@ -738,7 +756,19 @@ fn answered(
         IssueAnswer::Refused(refusal) if refusal.is_final() => {
             let why = ended_words(&refusal);
             let mut ended = grant.clone();
-            ended.ended = Some(why.clone());
+            if !ended.is_ended() {
+                // the first end of a grant that lived: `NotPaid` only is asked again later
+                ended.end(why.clone(), refusal.is_revivable(), now);
+            } else if refusal.is_revivable() {
+                // a revivable end asked again and refused again: the next ask is a week on
+                ended.asked_again(now);
+            } else {
+                // asked again, and the token server says another final word (a stopped mandate,
+                // every month issued): the end is final from now on - a new end, which wins
+                // over the one every vault holds
+                ended.revive();
+                ended.end(why.clone(), false, now);
+            }
             tokens.join(&done(Some(ended))).map_err(not_kept)?;
             Ok(Sent::Ended(why))
         }
@@ -759,8 +789,18 @@ fn answered(
                     refusal.as_str()
                 )));
             }
+            let mut asked = grant.clone();
+            if asked.is_ended() {
+                // an end asked again counts as asked: the next ask is a week on
+                asked.asked_again(now);
+            }
             tokens
                 .join(&VaultState {
+                    grants: if asked.is_ended() {
+                        vec![asked]
+                    } else {
+                        Vec::new()
+                    },
                     issues: vec![counted],
                     ..VaultState::default()
                 })
@@ -938,7 +978,7 @@ pub fn redeem_due(
         Ok(kept) => kept,
         Err(e) => return Redeemed::Kept(e.to_string()),
     };
-    if !holds_months(&kept) {
+    if !holds_months(&kept) && !asks_again(&kept, now) {
         return Redeemed::Nothing;
     }
     let drive_id = tokens.drive_id();
@@ -957,6 +997,14 @@ pub fn redeem_due(
 /// come from ([`brings_months`]).
 fn holds_months(state: &VaultState) -> bool {
     !state.tokens.is_empty() || state.grants.iter().any(|g| brings_months(state, g))
+}
+
+/// Whether a grant of `state` was ended because a payment was taken back and is due to be asked
+/// again at `now` ([`VaultGrant::revive_due`]): the token server's restore of a wrong reversal
+/// approves the checkout again, and this is how a look learns it (X-DELTA-MONEY3-1). Not a month
+/// held: the reminders of an unpaid drive go on until one comes.
+fn asks_again(state: &VaultState, now: u64) -> bool {
+    state.grants.iter().any(|g| g.revive_due(now))
 }
 
 /// Whether a month can still come from `grant`: it is open, or a request of it waits for its
@@ -1145,7 +1193,7 @@ pub fn look_at_drive(
         };
         let redeemed = match (&kept, Active::of(&status)) {
             (Err(e), _) => Redeemed::Kept(e.to_string()),
-            (Ok(kept), _) if !holds_months(kept) => Redeemed::Nothing,
+            (Ok(kept), _) if !holds_months(kept) && !asks_again(kept, now) => Redeemed::Nothing,
             (Ok(_), None) => Redeemed::Banned,
             (Ok(_), Some(active)) => redeem_with(server, tokens, token, active, now),
         };
@@ -1611,7 +1659,9 @@ fn issue_for(
     now: u64,
 ) -> Result<bool, TokenError> {
     // A request waiting for its answer is replayed whatever the schedule or an end says.
-    let asks = |g: &&VaultGrant| g.may_ask(now) || !state.open_issues(&g.checkout_id).is_empty();
+    let asks = |g: &&VaultGrant| {
+        g.may_ask(now) || g.revive_due(now) || !state.open_issues(&g.checkout_id).is_empty()
+    };
     let ours = state
         .grants
         .iter()

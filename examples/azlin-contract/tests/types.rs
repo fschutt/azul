@@ -445,6 +445,17 @@ mod period {
         }
         assert_eq!(all.iter().filter(|r| r.is_final()).count(), 5);
         assert_eq!(all.iter().filter(|r| r.is_about_the_request()).count(), 3);
+        // X-DELTA-MONEY3-1: of the five, only a payment taken back can be put back (the token
+        // server's restore approves the checkout again); the others stay final for good
+        let revivable: Vec<_> = all.iter().filter(|r| r.is_revivable()).collect();
+        assert_eq!(revivable, [&IssueRefusal::NotPaid]);
+        for refusal in &all {
+            assert!(
+                !refusal.is_revivable() || refusal.is_final(),
+                "{}",
+                refusal.as_str()
+            );
+        }
         // the status the server answers a request it could not read with
         assert!(all
             .iter()
