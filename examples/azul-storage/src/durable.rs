@@ -182,18 +182,6 @@ impl Landed {
     pub(crate) fn covers(&self, key: &str) -> bool {
         self.at == key
     }
-
-    /// A receipt for the name `at`, for a test of what a reason covers.
-    #[cfg(test)]
-    pub(crate) fn lab(at: &str) -> Landed {
-        Landed {
-            len: 0,
-            blake3: None,
-            print: Fingerprint::from_parts(Kind::File, 0, 0, 0, 0, 0),
-            at: at.to_string(),
-            _sealed: (),
-        }
-    }
 }
 
 /// The name `name` of `dir` from the root `dir` was walked from: `a/b` and `c.txt` are `a/b/c.txt`.
