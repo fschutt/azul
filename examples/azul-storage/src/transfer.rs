@@ -16,6 +16,7 @@
 
 use std::{
     collections::{BTreeSet, HashSet},
+    fmt,
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -499,6 +500,15 @@ fn same_version(before: &ObjectInfo, now: &ObjectInfo) -> bool {
     now.etag == before.etag && now.size == before.size && now.modified == before.modified
 }
 
+/// What a download that puts a file in place asks of the name it replaces: the rename's own
+/// expectation, and the look once more right before it for a rename that asks nothing
+/// ([`When::last_look`]).
+#[derive(Clone, Copy)]
+struct Guarded<'a> {
+    expect: Expect,
+    last_look: Option<Look<'a>>,
+}
+
 /// Fetches the ranges of `info`'s object into its hidden file next to `dest` - the ones a
 /// failed download of the same version left there are kept - several at once, then puts it in
 /// place when the object did not change meanwhile ([`durable::publish_staged`]: synced to the
@@ -508,10 +518,10 @@ fn download_ranges(
     info: &ObjectInfo,
     dest: &Path,
     chunk: u64,
-    expect: Expect,
+    guard: Guarded<'_>,
     ctl: &dyn Ctl,
 ) -> Result<u64, DriveError> {
-    download_ranges_probed(drive, info, dest, chunk, expect, ctl, &durable::Unprobed)
+    download_ranges_checked(drive, info, dest, chunk, guard, ctl, &durable::Unprobed)
 }
 
 /// [`download_ranges`] with a look at the step that makes a range durable (a test cuts it by
@@ -525,6 +535,28 @@ pub(crate) fn download_ranges_probed(
     ctl: &dyn Ctl,
     probe: &(dyn durable::Probe + Sync),
 ) -> Result<u64, DriveError> {
+    let guard = Guarded {
+        expect,
+        last_look: None,
+    };
+    download_ranges_checked(drive, info, dest, chunk, guard, ctl, probe)
+}
+
+/// [`download_ranges_probed`] that asks `last_look` once more when every range is in and the object
+/// is still the version the download began with, right before the file is renamed into place: a
+/// look that fails ([`DriveError::Conflict`]: the name no longer holds what the plan saw) leaves
+/// the hidden file and its state for the next download, which takes the same version without a
+/// byte more.
+fn download_ranges_checked(
+    drive: &dyn Drive,
+    info: &ObjectInfo,
+    dest: &Path,
+    chunk: u64,
+    guard: Guarded<'_>,
+    ctl: &dyn Ctl,
+    probe: &(dyn durable::Probe + Sync),
+) -> Result<u64, DriveError> {
+    let Guarded { expect, last_look } = guard;
     let key = info.key.as_str();
     let size = info.size;
     let (partial, state_path) = partial_paths(dest);
@@ -637,6 +669,10 @@ pub(crate) fn download_ranges_probed(
             key: key.to_string(),
         });
     }
+    // The last look at the target's name, for a rename that asks nothing of the name it replaces.
+    if let Some(look) = last_look {
+        look()?;
+    }
     let blob = Blob {
         dir: &folder,
         name: &partial_name,
@@ -710,6 +746,25 @@ pub fn download_guarded(
     expect: Expect,
     ctl: &dyn Ctl,
 ) -> Result<u64, DriveError> {
+    let guard = Guarded {
+        expect,
+        last_look: None,
+    };
+    download_looked(drive, key, size, dest, chunk, guard, ctl)
+}
+
+/// [`download_guarded`] that asks `last_look` once more right before the file is put in place
+/// ([`When::last_look`]): for a name whose `expect` cannot ask the file system for its identity.
+fn download_looked(
+    drive: &dyn Drive,
+    key: &str,
+    size: Option<u64>,
+    dest: &Path,
+    chunk: u64,
+    guard: Guarded<'_>,
+    ctl: &dyn Ctl,
+) -> Result<u64, DriveError> {
+    let Guarded { expect, last_look } = guard;
     stop_if_asked(ctl)?;
     let chunk = chunk.max(1);
     let mut info = None;
@@ -731,6 +786,9 @@ pub fn download_guarded(
             Ok(bytes) => {
                 stop_if_asked(ctl)?;
                 let (folder, name) = folder_of(dest, key)?;
+                if let Some(look) = last_look {
+                    look()?;
+                }
                 durable::publish(
                     &folder,
                     &name,
@@ -755,7 +813,7 @@ pub fn download_guarded(
         Some(info) => info,
         None => info_of(drive, key)?,
     };
-    download_ranges(drive, &info, dest, chunk, expect, ctl)
+    download_ranges(drive, &info, dest, chunk, guard, ctl)
 }
 
 /// Where a download of `key` goes in `folder`: the key's file name made safe
@@ -809,12 +867,67 @@ pub fn upload_with_ctl(
     drive.put_file(key, path, ctl)
 }
 
+/// The question a copy asks once more right before it makes a file visible at its target, when the
+/// step that makes it visible cannot ask it itself ([`When::last_look`]): `Ok` while the name still
+/// holds what the plan saw, [`DriveError::Conflict`] when it does not.
+pub type Look<'a> = &'a (dyn Fn() -> Result<(), DriveError> + Sync);
+
+/// A reader that asks its [`Look`] once, when its body has ended and before it says so: the last
+/// thing between the bytes of a copy and the write that completes it, for a target whose write asks
+/// no condition of its own (X-DELTA-SYNC2-9). A look that fails is the reader's failure, so that
+/// the write that reads it is stopped before it completes, and is kept for the caller to answer with
+/// ([`EndLook::failed`]); asked again after a failure it fails again.
+struct EndLook<'a> {
+    inner: &'a mut dyn Read,
+    look: Option<Look<'a>>,
+    asked: bool,
+    failed: Option<DriveError>,
+}
+
+impl<'a> EndLook<'a> {
+    fn new(inner: &'a mut dyn Read, look: Option<Look<'a>>) -> EndLook<'a> {
+        EndLook {
+            inner,
+            look,
+            asked: false,
+            failed: None,
+        }
+    }
+}
+
+impl Read for EndLook<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(why) = &self.failed {
+            return Err(std::io::Error::other(why.to_string()));
+        }
+        let n = self.inner.read(buf)?;
+        if n == 0 && !buf.is_empty() && !self.asked {
+            self.asked = true;
+            if let Some(look) = self.look {
+                if let Err(e) = look() {
+                    let told = std::io::Error::other(e.to_string());
+                    self.failed = Some(e);
+                    return Err(told);
+                }
+            }
+        }
+        Ok(n)
+    }
+}
+
 /// Copies the file `source` to `dest` through a temporary file next to it, synced and renamed
 /// in ([`durable::publish`]), telling `ctl` the bytes copied so far after every chunk and
 /// stopping, with the target as it was and no temporary file, once `ctl` says so. The copy has
 /// the file's permission bits (never setuid, setgid or sticky) and its modification time: a
-/// 0600 key stays private and a photo keeps its date.
-fn copy_file(source: &Path, dest: &Path, expect: Expect, ctl: &dyn Ctl) -> Result<u64, DriveError> {
+/// 0600 key stays private and a photo keeps its date. `last_look` asks the target's name once more
+/// when the bytes have all been read, before the rename.
+fn copy_file(
+    source: &Path,
+    dest: &Path,
+    expect: Expect,
+    last_look: Option<Look<'_>>,
+    ctl: &dyn Ctl,
+) -> Result<u64, DriveError> {
     let mut from = File::open(source)?;
     let (mode, mtime) = source_bits(&from);
     let shown = dest.to_string_lossy();
@@ -823,15 +936,27 @@ fn copy_file(source: &Path, dest: &Path, expect: Expect, ctl: &dyn Ctl) -> Resul
     if let Some(mtime) = mtime {
         publish = publish.with_mtime(mtime);
     }
-    durable::publish(&folder, &name, &mut from, publish)
-        .map(|landed| landed.len)
-        .map_err(|e| e.into_drive(&shown))
+    let mut body = EndLook::new(&mut from, last_look);
+    let landed = durable::publish(&folder, &name, &mut body, publish);
+    match (landed, body.failed.take()) {
+        (_, Some(changed)) => Err(changed),
+        (landed, None) => landed
+            .map(|landed| landed.len)
+            .map_err(|e| e.into_drive(&shown)),
+    }
 }
 
 /// What the name at the target must hold when a copied file is put in place there, asked in the
 /// step that makes the file visible - after the hours a big copy may have taken, not at its start
 /// (X-DELTA-AZDRIVE-FILES-3).
-#[derive(Debug)]
+///
+/// Three kinds of target, three answers: a folder whose file system gives files an identity asks
+/// [`When::expect`] in the rename (nothing can come between); a drive that writes conditionally asks
+/// [`When::condition`] in the request that completes the object; any other - a drive that cannot
+/// write conditionally, a folder on a system that gives files no identity - was looked at when the
+/// copy began and is looked at once more, by [`When::last_look`], right before the write: what is
+/// left is the write's own step (a PUT, a rename), never the copy that took minutes
+/// (X-DELTA-SYNC2-9).
 pub struct When<'a> {
     /// For a folder on this computer: checked by the rename that puts the file in place.
     pub expect: Expect,
@@ -839,6 +964,21 @@ pub struct When<'a> {
     /// that completes the object (a bucket) or the index change that names it (an encrypted
     /// drive). A drive that cannot is not asked: the caller looks at its name first.
     pub condition: Option<&'a Precondition>,
+    /// For a target that asks no condition of its own write (a drive that cannot, or a folder whose
+    /// `expect` is [`Expect::Any`] because the file system gave the file no identity): asked once
+    /// more when the last byte has been read and before the write that completes the copy. A drive
+    /// that [writes conditionally](Drive::conditional_writes) is not asked this: its request is.
+    pub last_look: Option<Look<'a>>,
+}
+
+impl fmt::Debug for When<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("When")
+            .field("expect", &self.expect)
+            .field("condition", &self.condition)
+            .field("last_look", &self.last_look.map(|_| "a look"))
+            .finish()
+    }
 }
 
 /// Copies ONE object from `source` to `target` (the same drive or another):
@@ -913,6 +1053,7 @@ pub fn copy_object_guarded(
     let when = When {
         expect,
         condition: None,
+        last_look: None,
     };
     copy_object_when(source, key, size, target, target_key, when, ctl)
 }
@@ -937,6 +1078,8 @@ pub fn copy_object_when(
     let expect = when.expect;
     // Only a drive that can ask is asked: any other would read a big body for nothing.
     let condition = when.condition.filter(|_| target.conditional_writes());
+    // A write that asks its condition itself needs no last look; any other gets one right before it.
+    let last_look = when.last_look.filter(|_| condition.is_none());
     match (source.local_path(key), target.local_path(target_key)) {
         (Some(from), Some(to)) => {
             if !from.is_file() {
@@ -944,10 +1087,11 @@ pub fn copy_object_when(
                     key: key.to_string(),
                 });
             }
-            copy_file(&from, &to, expect, ctl)
+            copy_file(&from, &to, expect, last_look, ctl)
         }
         (None, Some(to)) => {
-            let len = download_guarded(source, key, size, &to, CHUNK, expect, ctl)?;
+            let guard = Guarded { expect, last_look };
+            let len = download_looked(source, key, size, &to, CHUNK, guard, ctl)?;
             // A file that came down from a drive carries the system's "downloaded from elsewhere"
             // mark, so the system looks at an `.exe`, a script or a shortcut of a shared drive
             // before it runs it (AZ-W20) - whoever calls this: a Download, a Paste, the rescue
@@ -962,14 +1106,27 @@ pub fn copy_object_when(
                     key: key.to_string(),
                 });
             }
-            match condition {
-                Some(condition) => {
+            match (condition, last_look) {
+                (Some(condition), _) => {
                     let len = fs::metadata(&from)?.len();
                     target
                         .put_file_if(target_key, &from, condition, ctl)
                         .map(|_| len)
                 }
-                None => target.put_file(target_key, &from, ctl),
+                (None, None) => target.put_file(target_key, &from, ctl),
+                // A drive that cannot ask: the file streams into its write through the last look
+                // (what `put_file` does for it, with the name looked at once more when the last
+                // byte has been read and before the write completes).
+                (None, Some(look)) => {
+                    let mut file = File::open(&from)?;
+                    let mut progress = ProgressReader::new(&mut file, ctl);
+                    let mut body = EndLook::new(&mut progress, Some(look));
+                    let sent = target.put_from(target_key, &mut body);
+                    match body.failed.take() {
+                        Some(changed) => Err(changed),
+                        None => sent,
+                    }
+                }
             }
         }
         (None, None) => {
@@ -987,7 +1144,13 @@ pub fn copy_object_when(
                             Some(condition) => {
                                 target.put_if(target_key, &bytes, condition).map(|_| ())?
                             }
-                            None => target.put(target_key, &bytes)?,
+                            None => {
+                                // The bytes are in memory: the name is looked at as they go.
+                                if let Some(look) = last_look {
+                                    look()?;
+                                }
+                                target.put(target_key, &bytes)?
+                            }
                         }
                         ctl.bytes(bytes.len() as u64);
                         return Ok(bytes.len() as u64);
@@ -1015,23 +1178,30 @@ pub fn copy_object_when(
             }
             let size = before.size;
             let mut ranges = RangeReader::new(source, key, before, CHUNK, ctl);
-            let copied = {
+            let (copied, target_changed) = {
                 let mut reader = ProgressReader::new(&mut ranges, ctl);
-                match condition {
+                // The last look, for a target that asks no condition of its own write, comes after
+                // the source's own end check: the last thing before the write completes.
+                let mut body = EndLook::new(&mut reader, last_look);
+                let copied = match condition {
                     Some(condition) => target
-                        .put_from_if(target_key, &mut reader, condition)
+                        .put_from_if(target_key, &mut body, condition)
                         .map(|_| size),
-                    None => target.put_from(target_key, &mut reader),
-                }
+                    None => target.put_from(target_key, &mut body),
+                };
+                (copied, body.failed.take())
             };
-            match copied {
-                Ok(len) => Ok(len),
+            match (copied, target_changed) {
+                (Ok(len), _) => Ok(len),
                 // The upload read a torn end and was aborted: another device saved the object
                 // while it was copied. Nothing is made visible under the target's name.
-                Err(_) if ranges.changed => Err(DriveError::Conflict {
+                (Err(_), _) if ranges.changed => Err(DriveError::Conflict {
                     key: key.to_string(),
                 }),
-                Err(e) => Err(ranges.look_failed.take().unwrap_or(e)),
+                // The name at the target is not what the plan saw: the upload was stopped before
+                // it completed.
+                (Err(_), Some(changed)) => Err(changed),
+                (Err(e), None) => Err(ranges.look_failed.take().unwrap_or(e)),
             }
         }
     }

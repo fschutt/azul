@@ -1018,10 +1018,21 @@ struct Swapping {
     put_back: Mutex<Option<PutBack>>,
     /// The ranged reads that asked for a version.
     pinned: AtomicU32,
+    /// What another device does while this drive is read: called with the number of the ranged read
+    /// (from 0), before its answer.
+    on_range: Mutex<Option<RangeSideEffect>>,
+    /// What another device does while this drive is written: called when a write begins, before it
+    /// reads its body or lands.
+    on_put: Mutex<Option<SideEffect>>,
     ranged: AtomicU32,
     /// The streams that were read to their end and stored.
     completed: AtomicU32,
 }
+
+/// What another device does while a drive is read or written.
+type SideEffect = Box<dyn Fn() + Send + Sync>;
+/// [`SideEffect`] told the number of the ranged read (from 0) it happens during.
+type RangeSideEffect = Box<dyn Fn(u32) + Send + Sync>;
 
 /// An object put back with the version it had, after this many ranged reads.
 struct PutBack {
@@ -1092,6 +1103,9 @@ impl Drive for Swapping {
             .map_or(bytes.len() - 1, |end| (end as usize).min(bytes.len() - 1));
         let part = bytes[range.start as usize..=end].to_vec();
         let nth = self.ranged.fetch_add(1, Ordering::SeqCst);
+        if let Some(side) = self.on_range.lock().unwrap().as_ref() {
+            side(nth);
+        }
         if nth == 0 {
             let swap = self.then.lock().unwrap().take();
             if let Some((then_key, then_bytes)) = swap {
@@ -1132,6 +1146,9 @@ impl Drive for Swapping {
         self.get_range(key, range)
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        if let Some(side) = self.on_put.lock().unwrap().as_ref() {
+            side();
+        }
         self.write(key, bytes);
         Ok(())
     }
@@ -1162,6 +1179,9 @@ impl Drive for Swapping {
             .ok_or_else(|| DriveError::NotFound { key: key.into() })
     }
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        if let Some(side) = self.on_put.lock().unwrap().as_ref() {
+            side();
+        }
         // A stream that fails to its end stores nothing, as every real upload does.
         let mut bytes = Vec::new();
         body.read_to_end(&mut bytes)?;
@@ -1440,6 +1460,8 @@ fn x_delta_sync2_3_a_drive_that_cannot_pin_is_read_as_it_is_and_the_look_at_the_
 struct SameBucket {
     inner: Racing,
     copies: AtomicU32,
+    /// `(key, bytes)`: another device saves it while the service copies.
+    during_the_copy: Mutex<Option<(String, Vec<u8>)>>,
 }
 
 impl SameBucket {
@@ -1447,6 +1469,7 @@ impl SameBucket {
         SameBucket {
             inner: Racing::with(files),
             copies: AtomicU32::new(0),
+            during_the_copy: Mutex::new(None),
         }
     }
 }
@@ -1480,6 +1503,10 @@ impl Drive for SameBucket {
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
         self.copies.fetch_add(1, Ordering::SeqCst);
         let bytes = self.inner.get(from)?;
+        if let Some((key, theirs)) = self.during_the_copy.lock().unwrap().take() {
+            // The service takes its time; another device saves a name meanwhile.
+            self.inner.write(&key, &theirs);
+        }
         self.inner.write(to, &bytes);
         Ok(())
     }
@@ -1586,6 +1613,203 @@ fn x_delta_sync2_9_a_small_replace_and_a_big_copy_to_a_free_name_keep_the_bucket
     );
     assert_eq!(bucket.get("out/small.txt").unwrap(), b"small");
     assert_eq!(bucket.get("out/big.bin").unwrap(), big);
+}
+
+/// X-DELTA-SYNC2-9. A target that cannot write conditionally (OpenDAL, WebDAV, Dropbox, a database)
+/// was looked at once, when the copy began, and written unconditionally when the stream ended - after
+/// the minutes a big file takes: another device's save of the name was overwritten. The name is looked
+/// at once more when the last byte has been read, right before the write that completes the copy:
+/// Conflict, the upload stopped before it completed, the other device's file stays. RED on the old
+/// code: the upload completed over it (`done: 1`).
+#[test]
+fn x_delta_sync2_9_a_drive_that_cannot_write_conditionally_is_looked_at_again_right_before_the_write(
+) {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    let target = std::sync::Arc::new(Swapping::with(&[("big.bin", b"the old version")]));
+    let mut plan = make_plan(
+        &source,
+        &[file("big.bin")],
+        target.as_ref(),
+        "",
+        false,
+        "Copy",
+    )
+    .unwrap();
+    assert_eq!(plan.conflicts().len(), 1);
+    plan.choose(0, Choice::Replace);
+    // Another device saves the name while the copy is on its way.
+    let theirs = std::sync::Arc::clone(&target);
+    *target.on_put.lock().unwrap() = Some(Box::new(move || {
+        theirs.write("big.bin", b"saved by another device")
+    }));
+    let report = go(&plan, &source, target.as_ref(), false);
+    assert!(conflict(&report, "big.bin"), "{report:?}");
+    assert_eq!(report.done, 0, "{report:?}");
+    assert_eq!(
+        target.get("big.bin").unwrap(),
+        b"saved by another device",
+        "the other device's file was written over"
+    );
+    assert_eq!(
+        target.completed.load(Ordering::SeqCst),
+        0,
+        "the upload was stopped before it completed"
+    );
+}
+
+/// The same for a file that goes up from this computer: its upload to a drive that cannot ask streams
+/// the file through the last look; a Move keeps the source that never landed.
+#[test]
+fn x_delta_sync2_9_a_file_going_up_to_a_drive_that_cannot_write_conditionally_looks_again_before_it_lands(
+) {
+    let tmp = TempDir::new("dx9-up");
+    let (home, big) = local_with_big_file(&tmp);
+    let target = std::sync::Arc::new(Swapping::with(&[("master.mov", b"v1 of the target")]));
+    let mut plan = make_plan(
+        &home,
+        &[file("master.mov")],
+        target.as_ref(),
+        "",
+        true,
+        "Copy",
+    )
+    .unwrap();
+    plan.choose(0, Choice::Replace);
+    let theirs = std::sync::Arc::clone(&target);
+    *target.on_put.lock().unwrap() = Some(Box::new(move || {
+        theirs.write("master.mov", b"saved by another device")
+    }));
+    let report = go(&plan, &home, target.as_ref(), true);
+    assert!(conflict(&report, "master.mov"), "{report:?}");
+    assert_eq!(
+        target.get("master.mov").unwrap(),
+        b"saved by another device"
+    );
+    assert_eq!(
+        home.get("master.mov").unwrap(),
+        big,
+        "a Move retired a source whose copy never landed"
+    );
+}
+
+/// Nothing changes for the ordinary case: the version the plan saw is replaced after the last look,
+/// and a name that was free is written.
+#[test]
+fn x_delta_sync2_9_the_last_look_lets_a_name_nobody_touched_through() {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1), ("free.bin", &v1)]);
+    let target = Swapping::with(&[("big.bin", b"the old version")]);
+    let mut plan = make_plan(
+        &source,
+        &[file("big.bin"), file("free.bin")],
+        &target,
+        "",
+        false,
+        "Copy",
+    )
+    .unwrap();
+    plan.choose(0, Choice::Replace);
+    let report = go(&plan, &source, &target, false);
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(report.done, 2);
+    assert_eq!(target.get("big.bin").unwrap(), v1);
+    assert_eq!(target.get("free.bin").unwrap(), v1);
+}
+
+/// A folder on a system that gives files no identity (a network share, a file system with no file
+/// index): the plan's tag cannot say which file it was, so the rename that puts the file in place can
+/// ask nothing ([`Expect::Any`]) - and the name, looked at when the copy began, was written over after
+/// the minutes it took. It is looked at once more right before the rename, by what the tag can say
+/// there (size and times): Conflict, the file another device saved stays, and the download is kept
+/// for the next try. A folder with identity is checked by the rename itself (tests above).
+struct NoIdentity(LocalDrive);
+
+impl crate::DriveDelegate for NoIdentity {
+    fn below(&self) -> &dyn Drive {
+        &self.0
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let mut info = self.0.head(key)?;
+        // A tag of this system's own kind: size and time, no file identity.
+        info.etag = Some(format!("n{}-{}", info.size, info.modified.unwrap_or(0)));
+        Ok(info)
+    }
+}
+
+crate::delegate_drive!(NoIdentity);
+
+#[test]
+fn x_delta_sync2_9_a_folder_whose_files_have_no_identity_is_looked_at_again_right_before_the_rename(
+) {
+    let tmp = TempDir::new("dx9-noid");
+    let folder = LocalDrive::without_manifest(tmp.path().join("share"));
+    folder.put("big.bin", b"the old version").unwrap();
+    let target = NoIdentity(folder);
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    let mut plan = make_plan(&source, &[file("big.bin")], &target, "", false, "Copy").unwrap();
+    assert_eq!(plan.conflicts().len(), 1);
+    plan.choose(0, Choice::Replace);
+    // Another program saves the file while the download is on its way.
+    let path = tmp.path().join("share").join("big.bin");
+    *source.on_range.lock().unwrap() = Some(Box::new(move |nth| {
+        if nth == 0 {
+            std::fs::write(&path, b"saved by another program, longer than before").unwrap();
+        }
+    }));
+    let report = go(&plan, &source, &target, false);
+    assert!(conflict(&report, "big.bin"), "{report:?}");
+    assert_eq!(report.done, 0, "{report:?}");
+    assert_eq!(
+        std::fs::read(tmp.path().join("share").join("big.bin")).unwrap(),
+        b"saved by another program, longer than before",
+        "the other program's file was written over"
+    );
+}
+
+/// A server-side copy inside one bucket looks at the name right before it asks the service to copy -
+/// that is what is guaranteed: a name made after the plan is Conflict and the service is not asked.
+/// What is NOT guaranteed is the service's own copy: CopyObject asks no condition of the name it writes
+/// (S3 has no `If-None-Match` for it), so a name another device saves WHILE the service copies is
+/// written over - the window `xfer::run`'s doc names, which a small object's copy makes a matter of
+/// milliseconds and a big one's copy to a free name (the bucket's shortcut stays: streaming it through
+/// this computer would cost the egress of the whole file) of the service's time. Pinned here, so that
+/// a change of either half is seen.
+#[test]
+fn x_delta_sync2_9_a_server_side_copy_looks_right_before_the_service_copies_and_not_during_it() {
+    let big = big_file();
+    // (guaranteed) a name made after the plan and before the run.
+    let bucket = SameBucket::with(&[("in/a.bin", &big)]);
+    let plan = make_plan(&bucket, &[file("in/a.bin")], &bucket, "out/", false, "Copy").unwrap();
+    assert!(
+        plan.conflicts().is_empty(),
+        "the name was free when the plan was made"
+    );
+    bucket.inner.write("out/a.bin", b"saved by another device");
+    let report = go(&plan, &bucket, &bucket, false);
+    assert!(conflict(&report, "in/a.bin"), "{report:?}");
+    assert_eq!(
+        bucket.copies.load(Ordering::SeqCst),
+        0,
+        "the service was not asked"
+    );
+    assert_eq!(bucket.get("out/a.bin").unwrap(), b"saved by another device");
+    // (not guaranteed) a name made during the service's own copy.
+    let bucket = SameBucket::with(&[("in/a.bin", &big)]);
+    let plan = make_plan(&bucket, &[file("in/a.bin")], &bucket, "out/", false, "Copy").unwrap();
+    *bucket.during_the_copy.lock().unwrap() = Some((
+        String::from("out/a.bin"),
+        b"saved by another device".to_vec(),
+    ));
+    let report = go(&plan, &bucket, &bucket, false);
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(bucket.copies.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        bucket.get("out/a.bin").unwrap(),
+        big,
+        "the named window: the service's copy landed over the file saved during it"
+    );
 }
 
 /// X-DELTA-SYNC2-3: a drive whose look says "empty" of an object it listed as big - one that does not

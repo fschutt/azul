@@ -272,6 +272,19 @@ fn copy_one(
     // in that hour must not be written over. A drive that can ask asks again in the step that
     // completes the upload (X-DELTA-AZDRIVE-FILES-3).
     let condition = if on_disk { None } else { guard.condition() };
+    // A write that asks its guard itself - the rename of a folder whose file system gives files an
+    // identity, the request that completes an upload to a drive that writes conditionally - needs no
+    // more. Any other (a drive that cannot, a folder whose `expect` is Any for want of an identity)
+    // looked at the name when the copy began and looks once more right before it writes: what is left
+    // of the window is the write's own step, not the copy (X-DELTA-SYNC2-9).
+    let asks_itself = if on_disk {
+        !matches!(expect, Expect::Any)
+    } else {
+        target.conditional_writes()
+    };
+    let look = || precheck(target, &file.target_key, guard);
+    let last_look: Option<transfer::Look<'_>> =
+        (!asks_itself && !matches!(guard, Guard::Any)).then_some(&look);
     let len = transfer::copy_object_relayed(
         source,
         &file.source_key,
@@ -281,6 +294,7 @@ fn copy_one(
         transfer::When {
             expect,
             condition: condition.as_ref(),
+            last_look,
         },
         stop,
         progress,
@@ -408,6 +422,26 @@ impl SmallBatch {
 /// progress after every chunk, every file and every batch. A failure is noted and the rest goes
 /// on. A stopped run leaves the files that landed (a move retires them: each file is at the
 /// source or at the target, never in neither).
+///
+/// What a copy guarantees about the NAME it writes - a name free when the plan was made stays
+/// unwritten if another device made it since; a version the user chose to replace is replaced only
+/// while it is still that version ([`Guard`]) - and what it leaves:
+///
+/// - a folder on this computer whose file system gives files an identity: the rename that puts the
+///   file in place asks ([`Expect`]); nothing can come between;
+/// - a drive that [writes conditionally](Drive::conditional_writes) (a bucket, an encrypted drive):
+///   the request that completes the object asks (`If-None-Match`, `If-Match`); a big file that
+///   REPLACES a version inside its own bucket goes through that copy and not the bucket's own;
+/// - any other target (a drive that cannot write conditionally; a folder whose file system gave the
+///   file no identity): the name is looked at when the copy begins and once more, right before the
+///   write, when the last byte has been read ([`transfer::When::last_look`]). What is left is the write's
+///   own step - one PUT, one rename - and not the minutes the copy took;
+/// - a server-side copy inside one bucket (a small file that replaces, a file to a free name, a drive
+///   whose own copy is one change of its index): the name is looked at right before the service is
+///   asked, and the service's CopyObject asks no condition of the name it writes (S3 has none for it):
+///   a name another device saves WHILE the service copies is written over. For a small object that is
+///   milliseconds; for a big one to a free name it is the service's time, which the bucket's shortcut
+///   buys (streaming it through this computer would cost the egress of the whole file).
 pub fn run(
     plan: &Plan,
     source: &dyn Drive,
