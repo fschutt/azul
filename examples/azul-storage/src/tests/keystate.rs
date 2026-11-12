@@ -954,6 +954,33 @@ fn x_delta_struct_keystate_9_the_key_permit_and_the_enc_state_gate_agree_on_ever
             }
         }
     }
+
+    // The window after the Members step: the drive key IS the new key and the key it replaced is still kept - a
+    // key change that is not over, which the gate cannot see (a drive key in the keyring is an open drive to it).
+    // The one place the permit reads more than the gate: no removal goes through.
+    let bucket = MemBucket::new();
+    setup_new_drive(&bucket, &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
+    let keyring = MemoryKeyring::new();
+    let (k1, k2) = (DriveKey::generate().unwrap(), DriveKey::generate().unwrap());
+    device::store_drive_key(&keyring, DRIVE, &k2).unwrap();
+    let (previous, next) = device::rotation_key_entries(DRIVE);
+    device::store_key_at(&keyring, &previous, &k1).unwrap();
+    device::store_key_at(&keyring, &next, &k2).unwrap();
+    let gate = enc_judge(&bucket, &keyring, DRIVE, Recorded::default()).unwrap();
+    assert!(
+        matches!(
+            gate,
+            EncState::Encrypted {
+                via: Via::KeyInKeyring,
+                ..
+            }
+        ),
+        "after the Members step: {gate:?}"
+    );
+    match ask(Op::Remove, &with_a_good_proof(gathered(&bucket, &keyring))) {
+        Verdict::Refuse(reason) => assert_eq!(reason.kind, Refusal::KeyChangeUnfinished),
+        Verdict::Permit(_) => panic!("a removal went through a key change that is not over"),
+    }
 }
 
 /// X-DELTA-AZDRIVE-KEYS-6, X-KEYSTATE-4: whatever the keyring could not say, the key change is refused
