@@ -646,6 +646,51 @@ fn rename_noreplace_takes_a_free_name_and_never_a_taken_one() {
     );
 }
 
+/// X-DELTA-SYNC6-7: what the no-replace rename may fall back on, pinned. A volume that does not know the
+/// rename flag falls to a hard link; one that makes no links falls to a look and a plain rename (the
+/// step that is NOT atomic: a file put at the name between the look and the rename is replaced); every
+/// other error - a taken name, a missing folder, a refused permission, a disk that is full - is the
+/// answer and degrades nothing. A new errno in either list moves what the sync's "never over a file that
+/// is there" can promise, and is a decision, not a side effect.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync6_7_which_errors_let_the_no_replace_rename_fall_to_a_weaker_step_is_a_pinned_table() {
+    use crate::beneath::{after_flagged, after_link, Fallback::{Fail, Next}};
+    let os = |code: i32| std::io::Error::from_raw_os_error(code);
+    // The flagged rename: only "this file system does not know the flag" goes on.
+    for (code, want) in [
+        (libc::ENOSYS, Next),
+        (libc::EINVAL, Next),
+        (libc::ENOTSUP, Next),
+        (libc::EOPNOTSUPP, Next),
+        (libc::EEXIST, Fail),
+        (libc::ENOENT, Fail),
+        (libc::EACCES, Fail),
+        (libc::ENOSPC, Fail),
+        (libc::EXDEV, Fail),
+        (libc::EPERM, Fail),
+    ] {
+        assert_eq!(after_flagged(&os(code)), want, "flagged rename, errno {code}");
+    }
+    // The hard link: a taken name stops it; "no links here" (and "no flag", on a platform with no
+    // flagged step) goes on to the look; every other error is the answer.
+    for (code, want) in [
+        (libc::EEXIST, Fail),
+        (libc::ENOENT, Fail),
+        (libc::EACCES, Fail),
+        (libc::ENOSPC, Fail),
+        (libc::EXDEV, Fail),
+        (libc::EPERM, Next),
+        (libc::ENOTSUP, Next),
+        (libc::EOPNOTSUPP, Next),
+        (libc::EMLINK, Next),
+        (libc::ENOSYS, Next),
+        (libc::EINVAL, Next),
+    ] {
+        assert_eq!(after_link(&os(code)), want, "hard link, errno {code}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_folder_the_user_linked_is_opened_through_its_link_and_what_is_below_it_is_not() {

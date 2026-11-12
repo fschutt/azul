@@ -1003,11 +1003,20 @@ impl Dir {
         }
     }
 
-    /// [`Dir::rename`] that never replaces: `to` is taken only when nothing has that name, in
-    /// one step no other writer can come between (`renameat2(RENAME_NOREPLACE)` on Linux,
-    /// `renameatx_np(RENAME_EXCL)` on macOS; a disk that has neither gets a hard link and an
-    /// unlink, and one that has no links either gets a look and a rename - the weakest of the
-    /// three, a short window between the look and the rename).
+    /// [`Dir::rename`] that never replaces: `to` is taken only when nothing has that name. What
+    /// that promises depends on the volume the two folders are on (X-DELTA-SYNC6-7):
+    ///
+    /// | volume | step | what is guaranteed |
+    /// |---|---|---|
+    /// | Windows, every file system | `MoveFileExW` without the replace flag | atomic: taken in one step, or `AlreadyExists` |
+    /// | Linux and macOS volumes that take the rename flag (APFS, ext4, xfs, btrfs, tmpfs, ..) | `renameat2(RENAME_NOREPLACE)`, `renameatx_np(RENAME_EXCL)` | atomic, as above |
+    /// | a volume without the flag that makes hard links | a hard link, then an unlink | the new name is taken atomically (`EEXIST` when held); an unlink that fails leaves BOTH names and the call says so |
+    /// | FAT, exFAT, and some shares (SMB, NFS) and FUSE volumes: neither | a look, then a plain rename | NOT atomic: a file another writer puts at `to` between the look and the rename is replaced - the window is microseconds on a local volume and round trips on a share |
+    ///
+    /// Which errors let the chain fall to the next, weaker step is one table ([`after_flagged`],
+    /// [`after_link`]), pinned by a test: nothing else degrades the guarantee, every other error is
+    /// the answer. A caller that must never replace and can run on a volume of the last kind has no
+    /// more than the look; nothing here says which kind a volume is, and no pass line tells it.
     ///
     /// # Errors
     ///
@@ -1530,6 +1539,42 @@ fn unescape_mount(field: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Where the no-replace rename goes on after a step failed ([`Dir::rename_noreplace`]).
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Fallback {
+    /// The error is the answer: the name is taken, or something else is wrong.
+    Fail,
+    /// The next, weaker step.
+    Next,
+}
+
+/// After the flagged rename failed with `e`: a file system that does not know the flag falls to the
+/// hard link; anything else is the answer.
+#[cfg(unix)]
+pub(crate) fn after_flagged(e: &io::Error) -> Fallback {
+    if sys::flag_unsupported(e) {
+        Fallback::Next
+    } else {
+        Fallback::Fail
+    }
+}
+
+/// After the hard link failed with `e`: a name that is taken is the answer, and so is every error that
+/// does not say "no links here" (or "no such flag", for a platform that has no flagged step and fell
+/// to the link at once); a file system with no links falls to the weakest step, a look and a plain
+/// rename.
+#[cfg(unix)]
+pub(crate) fn after_link(e: &io::Error) -> Fallback {
+    if e.kind() == io::ErrorKind::AlreadyExists
+        || (!sys::flag_unsupported(e) && !sys::no_links(e))
+    {
+        Fallback::Fail
+    } else {
+        Fallback::Next
+    }
+}
+
 #[cfg(unix)]
 mod sys {
     use std::{
@@ -1791,7 +1836,7 @@ mod sys {
                 return Ok(());
             }
             let e = io::Error::last_os_error();
-            if !flag_unsupported(&e) {
+            if super::after_flagged(&e) == super::Fallback::Fail {
                 return Err(e);
             }
         }
@@ -1811,7 +1856,7 @@ mod sys {
                 return Ok(());
             }
             let e = io::Error::last_os_error();
-            if !flag_unsupported(&e) {
+            if super::after_flagged(&e) == super::Fallback::Fail {
                 return Err(e);
             }
         }
@@ -1826,7 +1871,7 @@ mod sys {
             return Ok(());
         }
         let e = io::Error::last_os_error();
-        if e.kind() == io::ErrorKind::AlreadyExists || (!flag_unsupported(&e) && !no_links(&e)) {
+        if super::after_link(&e) == super::Fallback::Fail {
             return Err(e);
         }
         // No links either (FAT, exFAT, some shares): a look, then the rename.
@@ -1838,7 +1883,7 @@ mod sys {
     }
 
     /// Whether `e` says the file system does not know the rename flag asked for.
-    fn flag_unsupported(e: &io::Error) -> bool {
+    pub(super) fn flag_unsupported(e: &io::Error) -> bool {
         matches!(
             e.raw_os_error(),
             Some(code) if code == libc::ENOSYS
