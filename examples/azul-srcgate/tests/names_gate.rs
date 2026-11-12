@@ -15,30 +15,34 @@
 //!   a drive is compared with them through `Protected::is_vcs` (every spelling a disk reads as
 //!   theirs), and the literals stand in `names.rs`, in the scan's exclusion rules and where AzDrive
 //!   reads a repository's own folders.
-//! - **`parent-of-call`**: a call of `Root::parent_of` is `Policy::walk` (names.rs) and nothing
-//!   else since the contained `LocalDrive` walks by `OnDisk` and `Admitted` keys (ARCH29 C6c). Its
-//!   argument is a `LocalKey`, so the compiler already refuses a `&str`; this rule keeps the list of
-//!   callers short, so a new entry point is a new line here and a decision about its `Purpose`.
-//!
-//! - **`walk-local-call`**, **`local-key-call`** and **`purpose-local`** (ARCH29 C6c):
-//!   `names::walk_local(root, key, create)` takes any `&str` and a flag, and walked a name from a
-//!   DRIVE with only the shape rows (X-DELTA-AZDRIVE-FILES-1: a folder the drive renamed to `.git`
-//!   was made on the victim's disk); `names::local_key` and `Purpose::Local` are the key and the
-//!   purpose of those rows. Their callers moved, one file at a time, to `OnDisk` (a name that is on
-//!   the disk or in a record this device wrote: `Root::parent_of_existing`, never makes a folder)
-//!   and `Admitted` (a name to be made: `Root::parent_of_new`). No shipped code outside `names.rs`
-//!   uses the old three now: these rules hold at ZERO, so a new use is a finding and the deleting
-//!   commit after the recorded baseline has no caller to move.
+//! - **`parent-of-call`**, **`walk-local-call`**, **`local-key-call`**, **`purpose-local`**,
+//!   **`policy-walk-call`**, **`root-dir-with-flag`**, **`dir-child-with-flag`** and
+//!   **`admitted-call`** hold at ZERO, everywhere - `names.rs` and `beneath.rs` included - since the
+//!   deleting commits of ARCH29 C6c: `Root::parent_of(&LocalKey, create)`, `names::walk_local(root,
+//!   key, create)`, `names::local_key`, `Purpose::Local`, `Policy::walk(root, key, purpose, create)`,
+//!   `Root::dir(rel, create)`, `Dir::child(name, create)` and the interim `Policy::admitted` took a
+//!   `&str` (or a key) and a FLAG, and walked a name from a DRIVE with only the shape rows
+//!   (X-DELTA-AZDRIVE-FILES-1: a folder the drive renamed to `.git` was made on the victim's disk).
+//!   A function that makes a folder takes a typed key now: `Root::parent_of_new` and `Root::dir_new`
+//!   an `Admitted` one (the rows of its purpose, the protected names in every spelling among
+//!   them), `Root::own_dir` and `Root::trash_dir` the engine's own folders; what is on the disk is
+//!   walked to by `Root::parent_of_existing` (an `OnDisk` key) and `Root::dir_existing`, which have
+//!   no create. A new use of an old name is a finding (X-DELTA-STRUCT-DRIVE-1).
+//! - **`admit-call`**: the callers of `Policy::admit` (`.admit(key, Purpose::X)`), the one maker of
+//!   an `Admitted` key; each file lists them, so which PURPOSE a site chooses is a counted line and a
+//!   decision, not a surprise (the review of C6c found `Purpose::UserTyped` chosen where the weakest
+//!   rows made folders).
 //! - **`walk-existing-call`** and **`make-parent-of-call`**: the sync's own walks (`sync/names.rs`):
 //!   `names::walk_entry` and `names::walk_record` walk to a name that is on the disk (an entry of a
 //!   scan, a record this device wrote) and cannot make a folder; `names::make_parent_of` is the one
 //!   create, after the rows of a name from the drive. The create sites are counted by file: a new
 //!   one is a line here and a question about where its name came from.
 //! - **`on-disk-key`**: the callers of `OnDisk::of_entry` and `OnDisk::of_record`, the only ways to
-//!   an `OnDisk` key - a directory entry or a record this device wrote. A new caller is a new
-//!   claim about where a key came from, and a line here.
-//! - **`parent-of-existing-call`** and **`parent-of-new-call`**: the callers of the two walks that
-//!   take an `OnDisk` and an `Admitted` key; each file lists what it makes.
+//!   an `OnDisk` key - a key to LOOK AT, never to make. A new caller is a new claim about where a
+//!   key came from, and a line here.
+//! - **`parent-of-existing-call`**, **`parent-of-new-call`**, **`dir-new-call`**, **`own-dir-call`**,
+//!   **`trash-dir-call`** and **`make-child-call`**: the callers of the walks, by file; each file
+//!   lists what it makes.
 //!
 //! Not read: a `.push(` or `.join(` of a segment taken from `split('/')` (a lexer cannot tell a
 //! segment from any other string); the `LocalKey` type and the walk are what carry that.
@@ -46,7 +50,9 @@
 
 use std::path::{Path, PathBuf};
 
-use azul_srcgate::{calls, method_calls, strings, Allow, Budget, Gate, Orphans, Root, Rule};
+use azul_srcgate::{
+    calls, method_calls, strings, Allow, Budget, Gate, Located, Orphans, Root, Rule, Tok,
+};
 
 const BOOKKEEPING_NAME: &str = "bookkeeping-name";
 const VCS_NAME: &str = "vcs-name";
@@ -59,6 +65,15 @@ const MAKE_PARENT_OF: &str = "make-parent-of-call";
 const ON_DISK_KEY: &str = "on-disk-key";
 const PARENT_OF_EXISTING: &str = "parent-of-existing-call";
 const PARENT_OF_NEW: &str = "parent-of-new-call";
+const POLICY_WALK: &str = "policy-walk-call";
+const ROOT_DIR_FLAG: &str = "root-dir-with-flag";
+const CHILD_FLAG: &str = "dir-child-with-flag";
+const ADMITTED_CALL: &str = "admitted-call";
+const ADMIT_CALL: &str = "admit-call";
+const DIR_NEW: &str = "dir-new-call";
+const OWN_DIR: &str = "own-dir-call";
+const TRASH_DIR_CALL: &str = "trash-dir-call";
+const MAKE_CHILD: &str = "make-child-call";
 
 const ROOTS: &[Root] = &[
     Root {
@@ -89,6 +104,65 @@ fn is_vcs_name(s: &str) -> bool {
     [".git", ".hg", ".svn"]
         .iter()
         .any(|v| s == *v || s.strip_prefix(*v).is_some_and(|rest| rest.starts_with('/')))
+}
+
+/// The index of the closer that matches the opener at `open`, or the end of `t`.
+fn close_of(t: &[Located], open: usize) -> usize {
+    let mut depth = 0usize;
+    for (i, x) in t.iter().enumerate().skip(open) {
+        if let Tok::Punct(c) = &x.tok {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return i;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    t.len()
+}
+
+/// The lines of the method calls `.name(args)` whose argument tokens `keep` accepts.
+fn method_calls_where(t: &[Located], name: &str, keep: impl Fn(&[Located]) -> bool) -> Vec<usize> {
+    let mut found = Vec::new();
+    for (i, x) in t.iter().enumerate() {
+        if !x.tok.is_ident(name) || i == 0 || !t[i - 1].tok.is_punct('.') {
+            continue;
+        }
+        if !t.get(i + 1).is_some_and(|n| n.tok.is_punct('(')) {
+            continue;
+        }
+        let close = close_of(t, i + 1).min(t.len());
+        if keep(&t[i + 2..close]) {
+            found.push(x.line);
+        }
+    }
+    found
+}
+
+/// Whether the argument tokens hold a comma outside every bracket: two arguments or more.
+fn has_two_arguments(args: &[Located]) -> bool {
+    let mut depth = 0usize;
+    for x in args {
+        if let Tok::Punct(c) = &x.tok {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => return true,
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
+/// Whether the argument tokens name the type `Purpose`: the call chooses what a name is admitted for.
+fn names_a_purpose(args: &[Located]) -> bool {
+    args.iter().any(|x| x.tok.is_ident("Purpose"))
 }
 
 fn rules() -> Vec<Rule> {
@@ -241,15 +315,122 @@ fn rules() -> Vec<Rule> {
                 "pub fn parent_of_new(&self, key: &Admitted) {}",
             ],
         ),
+        Rule::new(
+            POLICY_WALK,
+            |t| method_calls_where(t, "walk", names_a_purpose),
+            &[
+                "let (dir, name) = policy.walk(&tree, key, Purpose::Sync, true)?;",
+                "let walked = Policy::here(Volume::default()).walk(root, key, Purpose::UserTyped, false);",
+            ],
+            &[
+                "let more = self.walk(&format!(\"{key}/\"), out)?;",
+                "workspace.walk(\"\", 0, &mut out);",
+                "pub fn walk(&self, root: &Root, key: &str, purpose: Purpose) {}",
+            ],
+        ),
+        Rule::new(
+            ROOT_DIR_FLAG,
+            |t| method_calls_where(t, "dir", has_two_arguments),
+            &[
+                "let folder = tree.dir(folder, true)?;",
+                "let trash = root.dir(TRASH_DIR, false).ok()?;",
+            ],
+            &[
+                "let path = scratch.dir().to_path_buf();",
+                "let folder = tree.dir_existing(folder)?;",
+                "let here = other.dir(a);",
+            ],
+        ),
+        Rule::new(
+            CHILD_FLAG,
+            |t| method_calls_where(t, "child", has_two_arguments),
+            &[
+                "let inner = dir.child(name, false)?;",
+                "parent.child(name, true).map(|_| ())",
+            ],
+            &[
+                "let inner = dir.child(name)?;",
+                "account_dir(root, id).child(OUTBOX_DIR)",
+                "let id = pty.child().id();",
+            ],
+        ),
+        Rule::new(
+            ADMITTED_CALL,
+            |t| method_calls(t, "admitted"),
+            &["let admitted = policy.admitted(key, Purpose::Sync)?;"],
+            &[
+                "let admitted = policy.admit(key, Purpose::Sync)?;",
+                "pub fn admitted(&self, key: &str) {}",
+                "let x = admitted(1);",
+            ],
+        ),
+        Rule::new(
+            ADMIT_CALL,
+            |t| method_calls_where(t, "admit", names_a_purpose),
+            &[
+                "let admitted = policy.admit(key, Purpose::Sync)?;",
+                "let rows = Policy::here(Volume::default()).admit(&key, Purpose::Copy);",
+            ],
+            &[
+                "if self.told.admit(code) {}",
+                "let kept: Vec<Problem> = rows.into_iter().filter(|p| tally.admit(p.code)).collect();",
+                "chat.admit(device);",
+                "pub fn admit(&self, key: &str, purpose: Purpose) {}",
+            ],
+        ),
+        Rule::new(
+            DIR_NEW,
+            |t| method_calls(t, "dir_new"),
+            &["let dir = tree.dir_new(&admitted)?;"],
+            &[
+                "let x = dir_new(1);",
+                "pub fn dir_new(&self, key: &Admitted) {}",
+            ],
+        ),
+        Rule::new(
+            OWN_DIR,
+            |t| method_calls(t, "own_dir"),
+            &["let dir = root.own_dir(SYNC_DIR)?;"],
+            &[
+                "let x = own_dir(1);",
+                "pub fn own_dir(&self, rel: &'static str) {}",
+            ],
+        ),
+        Rule::new(
+            TRASH_DIR_CALL,
+            |t| method_calls(t, "trash_dir"),
+            &["let trash = root.trash_dir(stamp, &on_disk)?;"],
+            &[
+                "let x = trash_dir(1);",
+                "pub fn trash_dir(&self, stamp: &str, key: &OnDisk) {}",
+            ],
+        ),
+        Rule::new(
+            MAKE_CHILD,
+            |t| method_calls(t, "make_child"),
+            &["let made = parent.make_child(name)?;"],
+            &[
+                "let x = make_child(1);",
+                "pub(crate) fn make_child(&self, name: &str) {}",
+            ],
+        ),
     ]
 }
 
 /// Where the engine's own folder is spelled out, and who calls `parent_of`, today. TO SHRINK.
 const ALLOWED: &[Allow] = &[
-    Allow::file(
+    // ---- the one place the engine's own names are spelled; the deleted walks are held at zero here too ----
+    Allow::exactly(
         "examples/azul-storage/src/names.rs",
-        "the one place: BOOKKEEPING, SYNC_DIR, TRASH_DIR, SPOOL_DIR, RECORD_FILE, and the \
-         Policy::walk that is `parent_of`'s caller",
+        BOOKKEEPING_NAME,
+        5,
+        "the one place: BOOKKEEPING, SYNC_DIR, TRASH_DIR, SPOOL_DIR, RECORD_FILE",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/names.rs",
+        VCS_NAME,
+        3,
+        "VCS_FOLDERS and the metadata names of Protected: the one table of the protected names",
     ),
     Allow::exactly(
         "examples/azul-storage/src/local.rs",
@@ -301,6 +482,125 @@ const ALLOWED: &[Allow] = &[
         "the contained LocalDrive's walks that make a folder, each after Policy::admitted for a name \
          a person chose (new_key): contained_parent_new, contained_make_folder, parent_dir (ARCH29 \
          C6c)",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/local.rs",
+        MAKE_CHILD,
+        1,
+        "contained_make_folder: the last folder of a name a person chose, made after `new_key` (an \
+         `Admitted` key) made its parents (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/beneath.rs",
+        MAKE_CHILD,
+        4,
+        "the four walks that make - `Root::dir_new` and `parent_of_new` (an `Admitted` key), `own_dir` \
+         (a literal) and `trash_dir` (the engine's own trash folder): each is the step of `walk_with` \
+         (ARCH29 C6c; X-DELTA-STRUCT-DRIVE-1)",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/testing.rs",
+        MAKE_CHILD,
+        1,
+        "make_folder_chain: a test's tree of folders too deep for a path (the support of the apps' tests \
+         behind the `testing` feature)",
+    ),
+    // ---- who chooses which purpose a name is admitted for (`Policy::admit`): one counted line each ----
+    Allow::exactly(
+        "examples/azul-storage/src/local.rs",
+        ADMIT_CALL,
+        1,
+        "new_key: the contained LocalDrive's key of a name that is made (a write, a folder, the target of \
+         a rename): Purpose::UserTyped, the folder is the user's own",
+    ),
+    Allow::exactly(
+        "examples/azul-storage/src/xfer/plan.rs",
+        ADMIT_CALL,
+        1,
+        "NameCheck::refuses: the names a transfer writes into a folder of this computer (Purpose::Copy; a \
+         download and a paste are copies)",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/fileops.rs",
+        ADMIT_CALL,
+        1,
+        "check_name_on: a name a person typed for a new folder or a rename (Purpose::UserTyped); the name \
+         is only checked here, no folder is made from the answer",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/archive.rs",
+        ADMIT_CALL,
+        1,
+        "target_of_on: a name of the rescue copy of a locked drive (Purpose::Rescue: a path under the \
+         rescue folder, which the copy makes itself)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/names.rs",
+        ADMIT_CALL,
+        1,
+        "make_parent_of: the sync's one create (Purpose::Sync, the rows of a synced name)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/mod.rs",
+        ADMIT_CALL,
+        1,
+        "apply_folders: a folder the plan makes here (Purpose::Sync)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/mod.rs",
+        DIR_NEW,
+        1,
+        "apply_folders: the folder of an `Admitted` key (Purpose::Sync), made without a link and on the \
+         folder's own disk (ARCH29 C6c)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/session.rs",
+        ADMIT_CALL,
+        2,
+        "the folders of cloud-only files (Purpose::Sync: no folder of a protected name is made for a name \
+         of the drive) and decrypt's name of an opened copy (Purpose::Open)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/session.rs",
+        DIR_NEW,
+        1,
+        "the folders of cloud-only files, made for a key the rows of a synced name admitted \
+         (X-DELTA-STRUCT-DRIVE-1: it was `tree.dir(folder, true)` for the keys of the drive's index)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/movein.rs",
+        ADMIT_CALL,
+        2,
+        "copy_one and copy_tree: the names of the user's own folder that moves in (Purpose::UserTyped: a \
+         repository keeps its `.git`, a spelling a disk would merge into one is refused)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/movein.rs",
+        DIR_NEW,
+        1,
+        "copy_tree: the folder of a folder that moves in, made after the rows of a name a person chose \
+         (X-DELTA-STRUCT-DRIVE-1: it was `tree.dir(key, true)`)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/root.rs",
+        ON_DISK_KEY,
+        1,
+        "trash_target: the key of a file that goes into the trash is a record of this device's, whose own \
+         folders are copied under the pass's trash folder",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/root.rs",
+        OWN_DIR,
+        3,
+        "the engine's own folders, from literals: the marker's (write_marker), the spool (spool) and the \
+         probe's (probe_volume)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/root.rs",
+        TRASH_DIR_CALL,
+        1,
+        "trash_target: the trash folder of a pass and the folders of the file that goes into it, under \
+         `.azlin/sync/trash/<stamp>/` (X-DELTA-STRUCT-DRIVE-1)",
     ),
     Allow::exactly(
         "examples/azul-storage/src/migrate.rs",
@@ -715,6 +1015,141 @@ fn the_drives_protocol_keys_urls_and_messages_are_no_bookkeeping_name() {
         "quiet",
         &[("examples/azcloud-kit/src/lib.rs", quiet.as_str())],
     );
+    assert_eq!(check(&base, &[]), Ok(0));
+    let _ = std::fs::remove_dir_all(base);
+}
+
+const LISTED_MAKERS: &[Allow] = &[
+    Allow::exactly(
+        "examples/azcloud-kit/src/walking.rs",
+        ADMIT_CALL,
+        1,
+        "the planted admission",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/walking.rs",
+        DIR_NEW,
+        1,
+        "the planted folder of an admitted key",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/walking.rs",
+        OWN_DIR,
+        1,
+        "the planted own folder",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/walking.rs",
+        TRASH_DIR_CALL,
+        1,
+        "the planted trash folder",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/walking.rs",
+        MAKE_CHILD,
+        1,
+        "the planted child",
+    ),
+];
+
+/// ARCH29 C6c, X-DELTA-STRUCT-DRIVE-1. What the deleting commits removed stays removed - `Policy::walk`
+/// (a purpose and a flag), `Root::dir(rel, create)`, `Dir::child(name, create)` and the interim
+/// `Policy::admitted` are findings anywhere, with their lines, even in a file whose makers are listed -,
+/// and every function that makes a folder is a counted line: a new maker, or a purpose chosen at a new
+/// `admit`, is a new site, and a maker that went away leaves a stale count.
+#[test]
+fn a_planted_use_of_the_deleted_walks_is_caught_and_the_makers_are_counted() {
+    let makers = [
+        "pub fn make(tree: &Root, policy: &Policy, key: &str, on_disk: &OnDisk, dir: &Dir) {",
+        "    let admitted = policy.admit(key, Purpose::Sync).unwrap();",
+        "    let _ = tree.dir_new(&admitted);",
+        "    let _ = tree.own_dir(SYNC_DIR);",
+        "    let _ = tree.trash_dir(stamp, on_disk);",
+        "    let _ = dir.make_child(\"x\");",
+        "}",
+        "",
+    ]
+    .join("\n");
+    let base = base_with(
+        "makers",
+        &[
+            ("examples/azcloud-kit/src/lib.rs", "mod walking;\n"),
+            ("examples/azcloud-kit/src/walking.rs", makers.as_str()),
+        ],
+    );
+    let wrong = check(&base, &[]).expect_err("five makers, none listed");
+    assert_eq!(wrong.len(), 5, "{wrong:?}");
+    for (line, rule) in [
+        (2, "admit-call"),
+        (3, "dir-new-call"),
+        (4, "own-dir-call"),
+        (5, "trash-dir-call"),
+        (6, "make-child-call"),
+    ] {
+        assert!(
+            wrong.iter().any(|w| w
+                .starts_with(&format!("examples/azcloud-kit/src/walking.rs:{line}"))
+                && w.contains(rule)),
+            "{rule} at line {line} in {wrong:?}"
+        );
+    }
+    assert_eq!(check(&base, LISTED_MAKERS), Ok(5));
+    // A second admission is a new site (a purpose chosen somewhere new): the count says so.
+    std::fs::write(
+        base.join("examples/azcloud-kit/src/walking.rs"),
+        format!("{makers}pub fn more(policy: &Policy) {{\n    let _ = policy.admit(\"k\", Purpose::UserTyped);\n}}\n"),
+    )
+    .unwrap();
+    let wrong = check(&base, LISTED_MAKERS).expect_err("one more admission than the list says");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 2 x admit-call where its allowance says 1")),
+        "{wrong:?}"
+    );
+    // The deleted forms are findings even in a file whose makers are listed: no allowance takes them.
+    let deleted = [
+        "pub fn old(tree: &Root, policy: &Policy, dir: &Dir, key: &str) {",
+        "    let _ = policy.walk(tree, key, Purpose::Sync, true);",
+        "    let _ = tree.dir(key, true);",
+        "    let _ = dir.child(key, false);",
+        "    let _ = policy.admitted(key, Purpose::Sync);",
+        "    let _ = tree.parent_of(key, true);",
+        "}",
+        "",
+    ]
+    .join("\n");
+    std::fs::write(base.join("examples/azcloud-kit/src/walking.rs"), deleted).unwrap();
+    let wrong = check(&base, LISTED_MAKERS).expect_err("the deleted forms are no site anyone owns");
+    for (line, rule) in [
+        (2, "policy-walk-call"),
+        (3, "root-dir-with-flag"),
+        (4, "dir-child-with-flag"),
+        (5, "admitted-call"),
+        (6, "parent-of-call"),
+    ] {
+        assert!(
+            wrong.iter().any(|w| w
+                .starts_with(&format!("examples/azcloud-kit/src/walking.rs:{line}"))
+                && w.contains(rule)),
+            "{rule} at line {line} in {wrong:?}"
+        );
+    }
+    // What looks like them and is none: a method of another type with the same name, a walk with no
+    // purpose, a `child()` that takes one argument, a `dir()` that takes none.
+    let clean = [
+        "pub fn fine(ws: &Workspace, scratch: &Scratch, pty: &Pty, tally: &Tally) {",
+        "    ws.walk(\"\", 0, &mut out);",
+        "    let _ = scratch.dir();",
+        "    let _ = pty.child().id();",
+        "    let _ = tally.admit(code);",
+        "    let _ = tree.dir_existing(key);",
+        "    let _ = dir.child(key);",
+        "}",
+        "",
+    ]
+    .join("\n");
+    std::fs::write(base.join("examples/azcloud-kit/src/walking.rs"), clean).unwrap();
     assert_eq!(check(&base, &[]), Ok(0));
     let _ = std::fs::remove_dir_all(base);
 }

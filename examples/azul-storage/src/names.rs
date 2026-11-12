@@ -14,16 +14,13 @@
 //! system should hold, and Windows (or a disk that refuses what Windows refuses) the rows
 //! Windows misreads - the same rows every path check on Windows refuses.
 
-use std::{fmt, ops::Deref};
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
 pub use crate::key::System;
-use crate::{
-    beneath::{BeneathError, Dir, Root},
-    key::{self as storage_key, NameProblem},
-};
+use crate::key::{self as storage_key, NameProblem};
 
 /// The longest name of one file or folder, in bytes (every common file system).
 pub const COMPONENT_MAX_BYTES: usize = storage_key::NAME_MAX_BYTES;
@@ -503,32 +500,53 @@ impl Protected {
 // ==== The policy and the key that passed it ====
 
 /// Why a name is admitted. The rows that refuse change with it: a name from a synced drive is
-/// held to all of them, a name a person chose for their own files is not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// held to all of them, a name that is made here for another reason is held to the shape, this
+/// system's rows and the spellings a disk would read as a protected name. There is no purpose of
+/// a name that is on the disk already: what is there is looked at ([`OnDisk`]), never made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Purpose {
     /// A key of a synced drive that becomes a file in the synced folder: every row, the protected
     /// names in any spelling included.
     Sync,
-    /// A file of a drive downloaded to a folder the user chose. No production caller says it: the
-    /// one place a drive's names reach a folder of this computer is the transfer plan
-    /// ([`crate::xfer::plan`]), which cannot tell a Download from a Paste and admits every such name
-    /// as [`Purpose::Copy`] - the same rows (X-DELTA-AZDRIVE-FILES-32). The two stay until the
-    /// purposes are merged with [`Purpose::Local`]'s deletion (ARCH29 C6c).
-    Download,
     /// The rescue copy of a drive.
     Rescue,
     /// A cloud file opened from a cache.
     Open,
-    /// A name the user typed (a new folder, a rename): the shape and this system's rows.
+    /// A name a person chose for their own files (a new folder, a rename, a folder moved into a
+    /// synced one): the shape, this system's rows and the spellings a disk reads as a protected
+    /// name - a person who types `GIT~1` or `.GIT` is not making a repository, and a case-folding
+    /// disk would merge it into the one that is there (X-DELTA-STRUCT-DRIVE-2: the rows were the
+    /// shape alone, and the contained `LocalDrive` and the move-in made folders from them).
     UserTyped,
-    /// A copy between drives or into a folder.
+    /// A copy between drives or into a folder, a download and a paste included: the transfer plan
+    /// cannot tell them apart and the rows are the same (X-DELTA-AZDRIVE-FILES-32: a purpose of a
+    /// download had no caller and was deleted).
     Copy,
-    /// A key already on this disk or in this device's own records (a base entry, a trash
-    /// operation): only what makes it unsafe as a path argument. It is the one purpose with no
-    /// protected-name row, which is how a name from a DRIVE could be walked with it and made
-    /// (X-DELTA-AZDRIVE-FILES-1); [`OnDisk`] is its key now - it can only be walked to what is
-    /// there - and the callers move to it one file at a time (ARCH29 C6c). Deleted with the last.
-    Local,
+}
+
+impl Purpose {
+    /// Every purpose, for the tests that cover each of them.
+    pub const ALL: [Purpose; 5] = [
+        Purpose::Sync,
+        Purpose::Rescue,
+        Purpose::Open,
+        Purpose::UserTyped,
+        Purpose::Copy,
+    ];
+
+    /// Whether a key admitted for this purpose may make folders under a root ([`crate::beneath::Root::parent_of_new`],
+    /// [`crate::beneath::Root::dir_new`]): a name to be made in a folder of this computer - the synced folder, a
+    /// folder the user chose. The key of a cloud file opened from a cache ([`Purpose::Open`]) and
+    /// that of the rescue copy ([`Purpose::Rescue`]) become a path under a root of their own
+    /// (`Scratch`, the rescue folder) that their callers make; the walk of a synced or a user's
+    /// folder refuses them.
+    #[must_use]
+    pub fn makes_folders(self) -> bool {
+        match self {
+            Purpose::Sync | Purpose::UserTyped | Purpose::Copy => true,
+            Purpose::Rescue | Purpose::Open => false,
+        }
+    }
 }
 
 /// Why a key was not admitted.
@@ -563,65 +581,68 @@ impl From<Refusal> for crate::DriveError {
     }
 }
 
-/// A key that passed [`Policy::admit`]: the only argument [`crate::beneath::Root::parent_of`]
-/// takes. It cannot be made any other way, copied from a file or defaulted.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct LocalKey(String);
-
-impl Deref for LocalKey {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for LocalKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl LocalKey {
-    /// The key as written.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// The file under `root`: every name of the key pushed on it, none of which can leave it.
-    #[must_use]
-    pub fn under(&self, root: &std::path::Path) -> std::path::PathBuf {
-        let mut path = root.to_path_buf();
-        for name in self.0.split('/') {
-            path.push(name);
-        }
-        path
-    }
-}
-
-/// A key of a name that is on this disk already, or in a record this device wrote about its own
-/// folder: an entry a scan or a listing of the trash read, a base entry, a line of the oplog or the
-/// journal (ARCH29 C6c). It passed the shape of a path and this system's rows - what
-/// [`Purpose::Local`] checked - and never the protected names' spelling rows: the disk has the file
-/// already. What it can do is walk to a file that is there: [`Root::parent_of_existing`] never makes
-/// a folder. A name that comes from a DRIVE, a device or a person and is to be MADE here is an
-/// [`Admitted`] key, which carries the rows of its purpose; the two types do not convert into each
-/// other, so a create cannot be given a key of the first kind (X-DELTA-AZDRIVE-FILES-1: a folder the
-/// drive renamed to `.git` was made on the victim's disk by a walk that took any `&str` and a flag).
+/// A key to LOOK AT: a name that is on this disk already or in a record this device wrote about its
+/// own folder - a base entry, a line of the oplog or the journal, an entry a scan or a listing of
+/// the trash read (ARCH29 C6c). It passed the shape of a path and this system's rows, and never the
+/// protected names' spelling rows: the disk has the file already. What it can do is walk to a file
+/// that is there: [`crate::beneath::Root::parent_of_existing`] never makes a folder.
 ///
-/// Made only by [`OnDisk::of_entry`] and [`OnDisk::of_record`]: the name says where the key came
-/// from, and `names_gate` counts the callers of both per file.
+/// It is the key of a lookup and of nothing that is made. A name that comes from a DRIVE, a device
+/// or a person and is to be MADE here is an [`Admitted`] key, which carries the rows of its purpose;
+/// the two types do not convert into each other - neither is a `&str` that the other takes, and
+/// there is no `Deref` - so a create cannot be given a key of the first kind (X-DELTA-AZDRIVE-FILES-1:
+/// a folder the drive renamed to `.git` was made on the victim's disk by a walk that took any `&str`
+/// and a flag):
+///
+/// ```compile_fail
+/// // `Root::parent_of_new` takes an `Admitted` key; an `OnDisk` one is another type.
+/// use azul_storage::{beneath::Root, names::OnDisk};
+/// fn make(tree: &Root, on_disk: &OnDisk) {
+///     let _ = tree.parent_of_new(on_disk);
+/// }
+/// ```
+///
+/// ```compile_fail
+/// // Nor does `Root::dir_new`.
+/// use azul_storage::{beneath::Root, names::OnDisk};
+/// fn make(tree: &Root, on_disk: &OnDisk) {
+///     let _ = tree.dir_new(on_disk);
+/// }
+/// ```
+///
+/// ```compile_fail
+/// // It is no `&str` the policy takes by itself either: a key that is looked at is not admitted for
+/// // a purpose without being said again.
+/// use azul_storage::names::{OnDisk, Policy, Purpose, Volume};
+/// fn launder(on_disk: &OnDisk) {
+///     let _ = Policy::here(Volume::default()).admit(on_disk, Purpose::UserTyped);
+/// }
+/// ```
+///
+/// What it does, the control of the three above: the walk to what is there, and the key admitted
+/// for a purpose to be made:
+///
+/// ```no_run
+/// use azul_storage::{
+///     beneath::Root,
+///     names::{OnDisk, Policy, Purpose, Volume},
+/// };
+/// fn walk(tree: &Root, on_disk: &OnDisk) {
+///     let _ = tree.parent_of_existing(on_disk);
+/// }
+/// fn make(tree: &Root, key: &str) {
+///     let admitted = Policy::here(Volume::default()).admit(key, Purpose::Copy).unwrap();
+///     let _ = tree.parent_of_new(&admitted);
+///     let _ = tree.dir_new(&admitted);
+/// }
+/// ```
+///
+/// Made only by [`OnDisk::of_entry`] and [`OnDisk::of_record`]: the name says where the caller claims
+/// the key came from, and `names_gate` counts the callers of both per file - a new claim is a new
+/// line there. (The claim is the caller's: nothing here can tell a directory entry from a string. What
+/// the type guarantees is that nothing that claims it can make a folder.)
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OnDisk(String);
-
-impl Deref for OnDisk {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
 
 impl fmt::Display for OnDisk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -631,7 +652,7 @@ impl fmt::Display for OnDisk {
 
 impl OnDisk {
     /// The key of a directory entry this device read: what a scan found, what a listing of the
-    /// trash's folder named.
+    /// trash's folder named, the name of a lookup in a folder on disk.
     ///
     /// # Errors
     ///
@@ -679,27 +700,64 @@ impl OnDisk {
     }
 }
 
-/// A key of a name from a drive, a device, a user or a listing that passed [`Policy::admitted`]: the
-/// rows of the purpose it is for, the protected names in every spelling among them. The only key
-/// that makes a name here: [`Root::parent_of_new`] takes nothing else (ARCH29 C6c), and
-/// [`Policy::admitted`] mints none for [`Purpose::Local`], so an [`OnDisk`] key - what is on the
-/// disk already - cannot be turned into one. It cannot be made any other way, copied from a file or
-/// defaulted. (The type the key of [`Policy::admit`] becomes when [`Purpose::Local`] is gone: the
-/// renamed [`LocalKey`].)
+/// A key of a name from a drive, a device, a user or a listing that passed [`Policy::admit`]: the
+/// rows of the purpose it was admitted for, the protected names in every spelling among them. The
+/// only key that makes a name here: [`crate::beneath::Root::parent_of_new`] and [`crate::beneath::Root::dir_new`] take nothing
+/// else (ARCH29 C6c), and they refuse a purpose that makes no folder under a root
+/// ([`Purpose::makes_folders`]). It records the purpose it was admitted for ([`Admitted::purpose`]).
+/// Made by [`Policy::admit`] and nowhere else - its fields are private, it has no `From<&str>`,
+/// `FromStr`, `Default` or `Deserialize` - and it is no `&str` that a function takes by itself:
+///
+/// ```compile_fail
+/// // Not made from a string, in the form of a struct ...
+/// use azul_storage::names::{Admitted, Purpose};
+/// let key = Admitted {
+///     key: String::from("proj/.GIT/hooks/post-commit"),
+///     purpose: Purpose::Sync,
+/// };
+/// ```
+///
+/// ```compile_fail
+/// // ... nor by a conversion ...
+/// use azul_storage::names::Admitted;
+/// let key: Admitted = "proj/.GIT/hooks/post-commit".into();
+/// ```
+///
+/// ```compile_fail
+/// // ... nor given to a function that takes a `&str`.
+/// use azul_storage::names::{Policy, Purpose, Volume};
+/// fn text(key: &str) -> usize {
+///     key.len()
+/// }
+/// let admitted = Policy::here(Volume::default()).admit("a.txt", Purpose::Copy).unwrap();
+/// let _ = text(&admitted);
+/// ```
+///
+/// What does: the policy lets the key through for a purpose, and the walk that makes takes it.
+///
+/// ```no_run
+/// use azul_storage::{
+///     beneath::Root,
+///     names::{Policy, Purpose, Volume},
+/// };
+/// fn text(key: &str) -> usize {
+///     key.len()
+/// }
+/// let policy = Policy::here(Volume::default());
+/// let admitted = policy.admit("docs/2026/a.txt", Purpose::Sync).unwrap();
+/// let _ = text(admitted.as_str());
+/// let tree = Root::open(std::path::Path::new("/a/synced/folder")).unwrap();
+/// let _ = tree.parent_of_new(&admitted);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Admitted(LocalKey);
-
-impl Deref for Admitted {
-    type Target = str;
-
-    fn deref(&self) -> &str {
-        self.0.as_str()
-    }
+pub struct Admitted {
+    key: String,
+    purpose: Purpose,
 }
 
 impl fmt::Display for Admitted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.0.as_str())
+        f.write_str(&self.key)
     }
 }
 
@@ -707,13 +765,13 @@ impl Admitted {
     /// The key as written.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.key
     }
 
-    /// The file under `root`: every name of the key pushed on it, none of which can leave it.
+    /// What the key was admitted for.
     #[must_use]
-    pub fn under(&self, root: &std::path::Path) -> std::path::PathBuf {
-        self.0.under(root)
+    pub fn purpose(&self) -> Purpose {
+        self.purpose
     }
 }
 
@@ -735,19 +793,24 @@ impl Policy {
         }
     }
 
-    /// The key as a [`LocalKey`], or why not. `key` is a file's key: `a/b/c.txt`.
+    /// The key as an [`Admitted`] one for `purpose`, or why not: the one way to a key that makes a
+    /// name. `key` is a file's key: `a/b/c.txt`.
     ///
     /// # Errors
     ///
     /// [`Refusal`], the first row the key breaks for `purpose`.
-    pub fn admit(&self, key: &str, purpose: Purpose) -> Result<LocalKey, Refusal> {
+    pub fn admit(&self, key: &str, purpose: Purpose) -> Result<Admitted, Refusal> {
         let refuse = |why: String| Refusal {
             key: key.to_string(),
             why,
         };
         let problem = match purpose {
-            Purpose::Sync => key_problem(key).or_else(|| here_problem(key, self.system, &self.volume)),
-            Purpose::Download | Purpose::Rescue | Purpose::Open | Purpose::Copy => {
+            Purpose::Sync => {
+                key_problem(key).or_else(|| here_problem(key, self.system, &self.volume))
+            }
+            // A copy of a repository keeps its `.git`: only a spelling a disk would merge into
+            // one is refused.
+            Purpose::Rescue | Purpose::Open | Purpose::UserTyped | Purpose::Copy => {
                 self.path_problem(key).or_else(|| {
                     key.split('/')
                         .find(|name| Protected::is_disguised(name))
@@ -759,50 +822,14 @@ impl Policy {
                         })
                 })
             }
-            Purpose::UserTyped | Purpose::Local => self.path_problem(key),
         };
         match problem {
             Some(why) => Err(refuse(why)),
-            None => Ok(LocalKey(key.to_string())),
-        }
-    }
-
-    /// The key as an [`Admitted`] one for `purpose` (a name to be made on this disk), or why not:
-    /// [`Policy::admit`]'s rows for the six purposes that are about a name from outside, and never
-    /// for [`Purpose::Local`] - what is on the disk already makes no new name.
-    ///
-    /// # Errors
-    ///
-    /// [`Refusal`], the first row the key breaks for `purpose`; for [`Purpose::Local`] always.
-    pub fn admitted(&self, key: &str, purpose: Purpose) -> Result<Admitted, Refusal> {
-        if purpose == Purpose::Local {
-            return Err(Refusal {
+            None => Ok(Admitted {
                 key: key.to_string(),
-                why: String::from(
-                    "a key of what is on this disk already makes no new name (it is an OnDisk key)",
-                ),
-            });
+                purpose,
+            }),
         }
-        self.admit(key, purpose).map(Admitted)
-    }
-
-    /// The folder of `key` under `root` and the key's last name, reached without a link: the key
-    /// is admitted for `purpose` ([`Policy::admit`]) and walked ([`Root::parent_of`]) in one step.
-    /// The name is owned, since the admitted key is not kept.
-    ///
-    /// # Errors
-    ///
-    /// [`BeneathError::BadName`] for a key the policy refuses, else as [`Root::parent_of`].
-    pub fn walk(
-        &self,
-        root: &Root,
-        key: &str,
-        purpose: Purpose,
-        create: bool,
-    ) -> Result<(Dir, String), BeneathError> {
-        let admitted = self.admit(key, purpose)?;
-        let (dir, name) = root.parent_of(&admitted, create)?;
-        Ok((dir, name.to_string()))
     }
 
     /// The shape of the key and this system's rows: what makes a string unsafe as a path.
@@ -833,29 +860,6 @@ impl Policy {
     pub fn leaf_for_text(&self, text: &str) -> String {
         leaf_for_text(text)
     }
-}
-
-/// A key already on this disk or in this device's own records, as a [`LocalKey`]: it passes the
-/// shape and this system's rows ([`Purpose::Local`]), never a protected name's spelling check (the
-/// disk has it already).
-///
-/// # Errors
-///
-/// [`Refusal`] for a key that is no path of plain names.
-pub fn local_key(key: &str) -> Result<LocalKey, Refusal> {
-    Policy::here(Volume::default()).admit(key, Purpose::Local)
-}
-
-/// [`Policy::walk`] for a key of the engine's own records or of what the disk shows
-/// ([`Purpose::Local`]): its shape and this system's rows, never a protected name's spelling (the
-/// disk has the file already). A name that came from the DRIVE is walked with
-/// [`Purpose::Sync`], by a [`Policy`] that knows the folder's [`Volume`].
-///
-/// # Errors
-///
-/// As [`Policy::walk`].
-pub fn walk_local(root: &Root, key: &str, create: bool) -> Result<(Dir, String), BeneathError> {
-    Policy::here(Volume::default()).walk(root, key, Purpose::Local, create)
 }
 
 /// A folder or file name made from `text` a person wrote: the characters a name cannot hold

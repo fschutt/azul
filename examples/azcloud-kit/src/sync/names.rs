@@ -53,7 +53,7 @@ pub fn make_parent_of(
     policy: &Policy,
     key: &str,
 ) -> Result<(Dir, String), BeneathError> {
-    let admitted = policy.admitted(key, Purpose::Sync)?;
+    let admitted = policy.admit(key, Purpose::Sync)?;
     let (dir, name) = tree.parent_of_new(&admitted)?;
     Ok((dir, name.to_string()))
 }

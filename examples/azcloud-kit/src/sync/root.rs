@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     local::BaseEntry,
-    names::{System, Volume},
+    names::{OnDisk, System, Volume},
 };
 
 pub use azul_storage::names::{SPOOL_DIR, SYNC_DIR, TRASH_DIR};
@@ -74,7 +74,7 @@ pub(super) fn new_id() -> String {
 #[must_use]
 pub fn read_marker(root: &Path) -> Option<Marker> {
     let root = Root::open(root).ok()?;
-    let dir = root.dir(SYNC_DIR, false).ok()?;
+    let dir = root.dir_existing(SYNC_DIR).ok()?;
     let (mut file, _) = dir.open_read(MARKER_FILE).ok()?;
     let mut text = String::new();
     std::io::Read::read_to_string(&mut file, &mut text).ok()?;
@@ -94,7 +94,7 @@ pub fn write_marker(root: &Path) -> Result<Marker, BeneathError> {
         created: crate::now(),
     };
     let root = Root::open(root)?;
-    let dir = root.dir(SYNC_DIR, true)?;
+    let dir = root.own_dir(SYNC_DIR)?;
     let text = serde_json::to_string_pretty(&marker).unwrap_or_default();
     durable::publish(
         &dir,
@@ -187,7 +187,7 @@ fn holds_synced(root: &Path, base: &BTreeMap<String, BaseEntry>) -> bool {
     };
     here.any(|(key, entry)| {
         let (folder, name) = beneath::split_key(key);
-        tree.dir(folder, false)
+        tree.dir_existing(folder)
             .ok()
             .and_then(|dir| dir.lstat(name).ok())
             .is_some_and(|st| {
@@ -229,7 +229,11 @@ pub fn trash_target(
     } else {
         format!("{TRASH_DIR}/{stamp}/{folder}")
     };
-    let trash = root.dir(&rel, true)?;
+    // The key is a file that is on this disk and goes into the trash: its own folders are copied under
+    // the pass's trash folder (the key's rows are those of a record of this device's, never a name to be
+    // made in the synced folder).
+    let on_disk = OnDisk::of_record(key)?;
+    let trash = root.trash_dir(stamp, &on_disk)?;
     let mut target = name.to_string();
     let mut n = 2;
     while trash.lstat(&target).is_ok() {
@@ -245,7 +249,7 @@ pub fn trash_target(
 /// was believed gave ([`super::clock::TrustedClock::purge_before`] of [`TRASH_DAYS`]), never the
 /// wall clock as it stands (AZ-S12).
 pub fn purge_trash(root: &Root, before: i64) {
-    let Ok(trash) = root.dir(TRASH_DIR, false) else {
+    let Ok(trash) = root.dir_existing(TRASH_DIR) else {
         return;
     };
     let horizon = crate::rfc3339(before);
@@ -271,7 +275,7 @@ pub fn purge_trash(root: &Root, before: i64) {
 fn remove_tree(dir: &beneath::Dir, name: &str) {
     match dir.lstat(name) {
         Ok(st) if st.kind == Kind::Dir => {
-            if let Ok(child) = dir.child(name, false) {
+            if let Ok(child) = dir.child(name) {
                 if let Ok(names) = child.names() {
                     for inner in names {
                         if let Some(inner) = inner.to_str() {
@@ -295,7 +299,7 @@ fn remove_tree(dir: &beneath::Dir, name: &str) {
 ///
 /// When it cannot be made.
 pub fn spool(root: &Root) -> Result<beneath::Dir, BeneathError> {
-    root.dir(SPOOL_DIR, true)
+    root.own_dir(SPOOL_DIR)
 }
 
 /// How long a partial download stays in the spool when nothing writes to it. It resumes where
@@ -313,7 +317,7 @@ pub const SPOOL_DAYS: u64 = 6;
 pub fn purge_spool(root: &Root) -> usize {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    let Ok(spool) = root.dir(SPOOL_DIR, false) else {
+    let Ok(spool) = root.dir_existing(SPOOL_DIR) else {
         return 0;
     };
     let Ok(names) = spool.names() else {
@@ -360,7 +364,7 @@ pub fn probe_volume(root: &Path) -> Cap<Volume> {
             "the folder cannot be opened to find out what its disk does with names",
         );
     };
-    let Ok(dir) = root.dir(SYNC_DIR, true) else {
+    let Ok(dir) = root.own_dir(SYNC_DIR) else {
         return Cap::Unknown("the folder's bookkeeping folder cannot be made or entered");
     };
     let touch = |name: &str| dir.create_new(name, 0o600).map(drop).is_ok();

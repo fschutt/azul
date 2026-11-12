@@ -146,12 +146,16 @@ fn a_folder_swapped_for_a_link_after_it_was_listed_fails_the_walk() {
     let w = World::new("swap");
     fs::create_dir_all(w.root.path().join("a/b")).unwrap();
     let root = Root::open(w.root.path()).unwrap();
-    assert!(root.dir("a/b", false).is_ok());
+    assert!(root.dir_existing("a/b").is_ok());
     fs::rename(w.root.path().join("a"), w.root.path().join("a-old")).unwrap();
     w.link_out("a");
-    assert!(matches!(root.dir("a/b", false), Err(BeneathError::ThroughLink(at)) if at == "a"));
+    assert!(matches!(root.dir_existing("a/b"), Err(BeneathError::ThroughLink(at)) if at == "a"));
+    // A walk that makes folders is as blind to the link: the name is admitted, and it is a link.
+    let made = crate::names::Policy::here(crate::names::Volume::default())
+        .admit("a", crate::names::Purpose::Copy)
+        .unwrap();
     assert!(matches!(
-        root.dir("a", true),
+        root.dir_new(&made),
         Err(BeneathError::ThroughLink(_))
     ));
     assert!(w.outside_names().is_empty());

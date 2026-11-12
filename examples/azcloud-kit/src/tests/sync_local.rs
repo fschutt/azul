@@ -866,14 +866,9 @@ fn chain(
     top: &Path,
     name: &str,
     levels: usize,
-    mut each: impl FnMut(usize, &azul_storage::beneath::Dir),
+    each: impl FnMut(usize, &azul_storage::beneath::Dir),
 ) {
-    let tree = azul_storage::beneath::Root::open(top).unwrap();
-    let mut at = tree.top().unwrap();
-    for level in 1..=levels {
-        at = at.child(name, true).unwrap();
-        each(level, &at);
-    }
+    azul_storage::testing::make_folder_chain(top, name, levels, each);
 }
 
 /// Removes a tree `std::fs::remove_dir_all` would meet with a recursion of its own, and a test that

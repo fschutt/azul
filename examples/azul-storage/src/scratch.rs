@@ -551,7 +551,7 @@ impl Scratch {
                     // A folder that holds anything its owner did not write (a copy the user
                     // edited and saved beside or over it) is that person's work, whatever its
                     // age says (X-DELTA-AZDRIVE-FILES-7).
-                    let Ok(kept) = dir.child(name, false) else {
+                    let Ok(kept) = dir.child(name) else {
                         continue;
                     };
                     let mut looks = SWEEP_LOOKS;
@@ -602,7 +602,7 @@ fn newest_mtime_ns(dir: &Dir, looks: &mut usize) -> u64 {
         };
         newest = newest.max(st.mtime_ns);
         if st.kind == Kind::Dir {
-            match dir.child(name, false) {
+            match dir.child(name) {
                 Ok(below) => newest = newest.max(newest_mtime_ns(&below, looks)),
                 Err(_) => return u64::MAX,
             }
@@ -624,7 +624,7 @@ fn remove_tree(parent: &Dir, name: &str, depth: usize) -> io::Result<()> {
     if depth >= TREE_DEPTH {
         return Err(io::Error::other("the folder is too deep to be scratch"));
     }
-    let dir = parent.child(name, false).map_err(io_of)?;
+    let dir = parent.child(name).map_err(io_of)?;
     for entry in dir.names()? {
         let Some(entry) = entry.to_str() else {
             return Err(io::Error::other("a name that is not text"));

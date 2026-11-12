@@ -3490,7 +3490,7 @@ fn apply_folders(
                 let made = policy
                     .admit(key, names::Purpose::Sync)
                     .map_err(BeneathError::from)
-                    .and_then(|admitted| tree.dir(&admitted, true))
+                    .and_then(|admitted| tree.dir_new(&admitted))
                     .and_then(|dir| dir.stat().map_err(BeneathError::from));
                 match made {
                     Ok(st) => {

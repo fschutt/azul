@@ -130,7 +130,7 @@ fn copy_one(
     // The user's own folder moves in with its own names (a repository keeps its `.git`: the scan's
     // rules leave it out later): the rows of a name a person chose, then the folders are made.
     let admitted = Policy::here(Volume::default())
-        .admitted(key, Purpose::UserTyped)
+        .admit(key, Purpose::UserTyped)
         .map_err(BeneathError::from)
         .context(key)?;
     let (dir, name) = tree.parent_of_new(&admitted).context(key)?;
@@ -159,7 +159,12 @@ fn copy_tree(
     pending: &mut PendingMoves,
     copied: &mut Vec<String>,
 ) -> CloudResult<()> {
-    tree.dir(key, true).context(key)?;
+    // The folder is made for a name a person chose, after the rows of one (ARCH29 C6c).
+    let admitted = Policy::here(Volume::default())
+        .admit(key, Purpose::UserTyped)
+        .map_err(BeneathError::from)
+        .context(key)?;
+    tree.dir_new(&admitted).context(key)?;
     let mut entries: Vec<fs::DirEntry> = fs::read_dir(from)
         .with_context(|| from.display())?
         .flatten()

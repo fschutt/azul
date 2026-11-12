@@ -31,7 +31,7 @@ use std::{
 
 use crate::{
     cap::Cap,
-    names::{Admitted, LocalKey, OnDisk},
+    names::{Admitted, OnDisk},
 };
 
 /// Why a path under the root cannot be walked.
@@ -428,6 +428,15 @@ pub fn split_key(key: &str) -> (&str, &str) {
     }
 }
 
+/// Whether the key may make folders: its purpose is one of a name made in a folder of this computer.
+fn makes_folders(key: &Admitted) -> Result<(), BeneathError> {
+    if key.purpose().makes_folders() {
+        Ok(())
+    } else {
+        Err(BeneathError::BadName(key.as_str().to_string()))
+    }
+}
+
 /// A root folder, opened once: every path below it is walked from here.
 pub struct Root {
     path: PathBuf,
@@ -538,18 +547,18 @@ impl Root {
         }
     }
 
-    /// The folder `rel` (`""`, `a`, `a/b`), walked one name at a time; with `create`, the
-    /// folders that are missing are made.
-    ///
-    /// # Errors
-    ///
-    /// [`BeneathError::ThroughLink`] when a name of it is a link or a file,
-    /// [`BeneathError::CrossesMount`] when one is another disk, an I/O error otherwise (a
-    /// missing folder without `create`: not found).
-    pub fn dir(&self, rel: &str, create: bool) -> Result<Dir, BeneathError> {
+    /// Walks `rel` (`""`, `a`, `a/b`) from the root one name at a time with `step`, which says what
+    /// is done at each name (look at the folder, or make it where it is missing). The one walk of
+    /// every function below: none of them takes a flag, so a function that makes is a function that
+    /// is named and typed for it.
+    fn walk_with(
+        &self,
+        rel: &str,
+        step: impl Fn(&Dir, &str) -> Result<Dir, BeneathError>,
+    ) -> Result<Dir, BeneathError> {
         let mut dir = self.top()?;
         for name in rel.split('/').filter(|s| !s.is_empty()) {
-            dir = dir.child(name, create)?;
+            dir = step(&dir, name)?;
             if self.is_mount_point(&dir.rel) {
                 return Err(BeneathError::CrossesMount(dir.rel.clone()));
             }
@@ -557,22 +566,61 @@ impl Root {
         Ok(dir)
     }
 
-    /// The folder of `key` and the key's last name: `a/b/c.txt` -> (the folder `a/b`, `c.txt`).
-    /// The key is a [`LocalKey`]: a name from a drive, a device, a user or a listing reaches a path
-    /// only after [`crate::names::Policy::admit`] let it through (ARCH28 RF42), so no new entry
-    /// point can skip the name policy.
+    /// The folder `rel` (`""`, `a`, `a/b`) as it is on the disk, walked one name at a time. It
+    /// NEVER makes a folder: a missing one is a not-found error and the disk is as it was.
     ///
     /// # Errors
     ///
-    /// As [`Root::dir`], and [`BeneathError::BadName`] for a key without a name.
-    pub fn parent_of<'k>(
-        &self,
-        key: &'k LocalKey,
-        create: bool,
-    ) -> Result<(Dir, &'k str), BeneathError> {
-        let (folder, name) = split_key(key.as_str());
-        check_name(name)?;
-        Ok((self.dir(folder, create)?, name))
+    /// [`BeneathError::ThroughLink`] when a name of it is a link or a file,
+    /// [`BeneathError::CrossesMount`] when one is another disk, not found when a folder is missing,
+    /// an I/O error otherwise.
+    pub fn dir_existing(&self, rel: &str) -> Result<Dir, BeneathError> {
+        self.walk_with(rel, |dir, name| dir.child(name))
+    }
+
+    /// The folder `key` names - the whole key is a folder's path, `a/b` -, made where it is
+    /// missing. The key is an [`Admitted`] one (it passed the rows of its purpose, the protected names
+    /// in every spelling among them) of a purpose that makes folders ([`crate::names::Purpose::makes_folders`]):
+    /// no `&str` and no flag reaches a create (ARCH29 C6c; X-DELTA-AZDRIVE-FILES-1).
+    ///
+    /// # Errors
+    ///
+    /// As [`Root::dir_existing`] with the missing folders made, and [`BeneathError::BadName`] for a
+    /// key of a purpose that makes no folder.
+    pub fn dir_new(&self, key: &Admitted) -> Result<Dir, BeneathError> {
+        makes_folders(key)?;
+        self.walk_with(key.as_str(), |dir, name| dir.make_child(name))
+    }
+
+    /// One of the engine's own folders at the root of a synced folder ([`crate::names::SYNC_DIR`],
+    /// [`crate::names::SPOOL_DIR`]), made where it is missing. `rel` is a literal of the code: no name
+    /// from a drive, a device or a person is in it (a `&'static str` is not made at run time from
+    /// one), and every name of it still passes the walk's own checks.
+    ///
+    /// # Errors
+    ///
+    /// As [`Root::dir_existing`] with the missing folders made.
+    pub fn own_dir(&self, rel: &'static str) -> Result<Dir, BeneathError> {
+        self.walk_with(rel, |dir, name| dir.make_child(name))
+    }
+
+    /// The trash folder of the pass `stamp` and below it the folders of the file `key` (a file that
+    /// is on this disk and is about to be moved into the trash): `.azlin/sync/trash/<stamp>/<folders
+    /// of key>`, made where missing. Everything it makes lies under the engine's own trash folder - a
+    /// name of the key that is a protected one makes no folder of that name in the synced folder, only a
+    /// copy of the file's own path in the trash.
+    ///
+    /// # Errors
+    ///
+    /// As [`Root::dir_existing`] with the missing folders made.
+    pub fn trash_dir(&self, stamp: &str, key: &OnDisk) -> Result<Dir, BeneathError> {
+        let folder = split_key(key.as_str()).0;
+        let rel = if folder.is_empty() {
+            format!("{}/{stamp}", crate::names::TRASH_DIR)
+        } else {
+            format!("{}/{stamp}/{folder}", crate::names::TRASH_DIR)
+        };
+        self.walk_with(&rel, |dir, name| dir.make_child(name))
     }
 
     /// The folder of a name that is on this disk already and the key's last name:
@@ -582,26 +630,30 @@ impl Root {
     ///
     /// # Errors
     ///
-    /// As [`Root::dir`] without `create`, and [`BeneathError::BadName`] for a key without a name.
+    /// As [`Root::dir_existing`], and [`BeneathError::BadName`] for a key without a name.
     pub fn parent_of_existing<'k>(&self, key: &'k OnDisk) -> Result<(Dir, &'k str), BeneathError> {
         let (folder, name) = split_key(key.as_str());
         check_name(name)?;
-        Ok((self.dir(folder, false)?, name))
+        Ok((self.dir_existing(folder)?, name))
     }
 
     /// The folder of a name that is to be made here, made where it is missing, and the key's last
     /// name. The key is an [`Admitted`] one - it passed the rows of its purpose, the protected
     /// names in every spelling among them - so a name from a drive that the full rows refuse never
     /// reaches a folder made here (ARCH29 C6c; X-DELTA-AZDRIVE-FILES-1). It takes no `&str` and no
-    /// flag.
+    /// flag, and refuses a purpose that makes no folder ([`crate::names::Purpose::makes_folders`]).
     ///
     /// # Errors
     ///
-    /// As [`Root::dir`] with `create`, and [`BeneathError::BadName`] for a key without a name.
+    /// As [`Root::dir_new`], and [`BeneathError::BadName`] for a key without a name.
     pub fn parent_of_new<'k>(&self, key: &'k Admitted) -> Result<(Dir, &'k str), BeneathError> {
+        makes_folders(key)?;
         let (folder, name) = split_key(key.as_str());
         check_name(name)?;
-        Ok((self.dir(folder, true)?, name))
+        Ok((
+            self.walk_with(folder, |dir, name| dir.make_child(name))?,
+            name,
+        ))
     }
 
     /// Whether the folder `rel` is a mount point the device numbers do not show (Linux bind
@@ -622,6 +674,14 @@ impl Root {
     pub fn dev(&self) -> u64 {
         self.dev
     }
+}
+
+/// What a step of a walk does with a folder that is missing: nothing (it is a not-found error) or makes it.
+/// Private: the public steps are [`Dir::child`] and the walks of [`Root`], none of which takes a flag.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Making {
+    Never,
+    IfMissing,
 }
 
 impl Dir {
@@ -659,13 +719,26 @@ impl Dir {
         }
     }
 
-    /// The folder `name` in it, never through a link and never into another disk; with
-    /// `create`, made when missing.
+    /// The folder `name` in it, never through a link and never into another disk. It NEVER makes
+    /// the folder: a missing one is a not-found error.
     ///
     /// # Errors
     ///
-    /// As [`Root::dir`].
-    pub fn child(&self, name: &str, create: bool) -> Result<Dir, BeneathError> {
+    /// As [`Root::dir_existing`].
+    pub fn child(&self, name: &str) -> Result<Dir, BeneathError> {
+        self.step(name, Making::Never)
+    }
+
+    /// The folder `name` in it, made when missing. Only the walks of an [`Admitted`] key, the engine's
+    /// own folders and the contained drive's folder that is made make folders; every one is counted by
+    /// `names_gate`.
+    pub(crate) fn make_child(&self, name: &str) -> Result<Dir, BeneathError> {
+        self.step(name, Making::IfMissing)
+    }
+
+    /// The step of every walk: the folder `name` of this one, made or not as `making` says.
+    fn step(&self, name: &str, making: Making) -> Result<Dir, BeneathError> {
+        let create = making == Making::IfMissing;
         check_name(name)?;
         let rel = self.rel_of(name);
         #[cfg(unix)]

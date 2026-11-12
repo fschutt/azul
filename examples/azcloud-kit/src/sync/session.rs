@@ -1399,12 +1399,21 @@ impl SyncSession {
             });
         }
         // The folders of cloud-only files are here: the folder browses as the drive does. Made
-        // from the folder's root without following a link (never inside one, never another disk).
+        // from the folder's root without following a link (never inside one, never another disk),
+        // and only for a name the rows of a synced name admit: the key is the drive's, and a folder
+        // of a protected name - in any spelling - is not made for it (ARCH29 C6c; X-DELTA-STRUCT-DRIVE-1).
+        // `Volume::default()` is the lenient side: the plan has refused what this disk refuses.
         if let Ok(tree) = azul_storage::beneath::Root::open(&self.setup.folder) {
+            let policy = super::names::Policy::here(super::names::Volume::default());
             for (key, _) in states.files.iter().filter(|(_, r)| r.cloud_only) {
                 let folder = azul_storage::beneath::split_key(key).0;
-                if !folder.is_empty() {
-                    let _ = tree.dir(folder, true);
+                if folder.is_empty() {
+                    continue;
+                }
+                // collapse-ok: a folder that cannot be made (a name the rows refuse, a link, a full
+                // disk) is a folder that is not there: the file stays cloud-only, as it was.
+                if let Ok(admitted) = policy.admit(folder, super::names::Purpose::Sync) {
+                    let _ = tree.dir_new(&admitted);
                 }
             }
         }
@@ -2218,6 +2227,7 @@ impl SyncSession {
         // The copy's own name is the key's last name (the folders of the key add nothing: the
         // copy's folder is one per drive, file and version), a name the policy admitted above.
         let name = admitted
+            .as_str()
             .rsplit('/')
             .next()
             .filter(|name| !name.is_empty())

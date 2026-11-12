@@ -1350,7 +1350,7 @@ fn open_listed(
         key,
         id,
     } = listed;
-    match parent.child(&name, false) {
+    match parent.child(&name) {
         Ok(child) if !tree.is_mount_point(child.rel()) => {
             out.dirs.insert(key.clone());
             out.folder_ids.insert(key.clone(), id);
@@ -1641,7 +1641,7 @@ pub fn not_gone(root: &Path, keys: &[String]) -> BTreeSet<String> {
         let (folder, name) = beneath::split_key(key);
         let listing = listings
             .entry(folder)
-            .or_insert_with(|| match tree.dir(folder, false) {
+            .or_insert_with(|| match tree.dir_existing(folder) {
                 Ok(dir) => dir.names().ok().map(|names| names.into_iter().collect()),
                 Err(e) if e.is_not_found() => Some(BTreeSet::new()),
                 Err(_) => None,

@@ -5,7 +5,7 @@ use crate::{
     key::System,
     manifest::is_reserved_key,
     names::{
-        folder_problem, here_problem, key_problem, leaf_for_text, local_key, Policy, Protected,
+        folder_problem, here_problem, key_problem, leaf_for_text, OnDisk, Policy, Protected,
         ProtectedKind, Purpose, Volume,
     },
     Drive, DriveError, LocalDrive,
@@ -156,13 +156,11 @@ fn x_delta_azdrive_files_9_a_version_control_name_is_protected_as_the_last_name_
                 "{key:?} is admitted on {:?}",
                 policy.system
             );
-            // The walk that makes a folder or a file refuses it before anything is made.
+            // The walk that makes a folder or a file has no key to be given: the rows refuse it
+            // before anything is made.
             let tmp = TempDir::new("x-delta-files-9");
             let tree = crate::beneath::Root::open(tmp.path()).unwrap();
-            assert!(
-                policy.walk(&tree, &key, Purpose::Sync, true).is_err(),
-                "{key:?}"
-            );
+            assert!(make_for_sync(&tree, &policy, &key).is_err(), "{key:?}");
             assert!(
                 !tmp.path().join("proj").exists(),
                 "a folder was made for {key:?}"
@@ -207,6 +205,17 @@ fn policies() -> Vec<Policy> {
                 .map(move |volume| Policy { system, volume })
         })
         .collect()
+}
+
+/// The walk the sync makes for a name of the drive (`sync::names::make_parent_of`): the rows of a synced
+/// name first, then the folders - and no folder for a name the rows refuse.
+fn make_for_sync(
+    tree: &crate::beneath::Root,
+    policy: &Policy,
+    key: &str,
+) -> Result<(), crate::beneath::BeneathError> {
+    let admitted = policy.admit(key, Purpose::Sync)?;
+    tree.parent_of_new(&admitted).map(|_| ())
 }
 
 #[test]
@@ -257,15 +266,16 @@ fn az_w7_a_synced_key_under_a_protected_name_is_refused_in_every_spelling_on_eve
 }
 
 #[test]
-fn a_key_is_admitted_for_what_it_is_for_and_only_then_is_a_local_key() {
+fn a_key_is_admitted_for_what_it_is_for_and_only_then_is_an_admitted_key() {
     let here = Policy::here(Volume::default());
-    // A copy of a repository keeps its `.git`; a spelling only a disk would merge into one is
-    // not admitted for a download, an opened file, a rescue copy or a copy.
+    // A copy of a repository keeps its `.git`; a spelling only a disk would merge into one is not
+    // admitted for an opened file, a rescue copy, a copy - or a name a person typed (X-DELTA-STRUCT-DRIVE-2:
+    // the rows of a typed name were the shape alone, and `.GIT` made a folder a disk reads as `.git`).
     for purpose in [
-        Purpose::Download,
         Purpose::Open,
         Purpose::Rescue,
         Purpose::Copy,
+        Purpose::UserTyped,
     ] {
         assert!(
             here.admit("proj/.git/config", purpose).is_ok(),
@@ -279,32 +289,35 @@ fn a_key_is_admitted_for_what_it_is_for_and_only_then_is_a_local_key() {
         assert!(here.admit(".AZLIN/x", purpose).is_err(), "{purpose:?}");
         assert!(here.admit("a/../b", purpose).is_err(), "{purpose:?}");
     }
-    // A name the user typed, and a key already on this disk, are held to the shape only.
-    for purpose in [Purpose::UserTyped, Purpose::Local] {
-        assert!(here.admit("proj/.GIT/x", purpose).is_ok(), "{purpose:?}");
+    // Every purpose holds the shape of a path.
+    for purpose in Purpose::ALL {
         for bad in [
             "", "/etc/x", "a//b", "a/./b", "a/../b", "a\\b", "x\0y", "a/",
         ] {
             assert!(here.admit(bad, purpose).is_err(), "{bad:?} {purpose:?}");
         }
     }
-    let key = local_key("notes/2026/plan.md").unwrap();
+    let key = here
+        .admit("notes/2026/plan.md", Purpose::UserTyped)
+        .unwrap();
     assert_eq!(key.as_str(), "notes/2026/plan.md");
-    assert_eq!(&*key, "notes/2026/plan.md");
     assert_eq!(
-        key.under(std::path::Path::new("/data")),
-        std::path::Path::new("/data/notes/2026/plan.md")
+        key.purpose(),
+        Purpose::UserTyped,
+        "the key says what it was admitted for"
     );
     // Windows reads `C:x` and `nul.txt` as something else, whatever computer asks.
     let windows = Policy {
         system: System::Windows,
         volume: Volume::default(),
     };
-    for bad in ["C:x", "a/nul.txt", "a.txt:s", "dir/aux", "end."] {
-        assert!(windows.admit(bad, Purpose::Local).is_err(), "{bad:?}");
+    for purpose in Purpose::ALL {
+        for bad in ["C:x", "a/nul.txt", "a.txt:s", "dir/aux", "end."] {
+            assert!(windows.admit(bad, purpose).is_err(), "{bad:?} {purpose:?}");
+        }
     }
     // A refusal says the key and why, and is the drive's or the walk's error where one is asked.
-    let refused = here.admit("a/../b", Purpose::Local).unwrap_err();
+    let refused = here.admit("a/../b", Purpose::UserTyped).unwrap_err();
     assert_eq!(refused.key, "a/../b");
     assert!(matches!(
         DriveError::from(refused.clone()),
@@ -371,52 +384,74 @@ fn leaf_for_text_makes_a_name_of_what_a_person_wrote() {
     assert_eq!(Policy::here(Volume::default()).leaf_for_text("CON"), "_CON");
 }
 
-/// RF42 step 3: the path argument of a walk is a `LocalKey`, so there is no way to the disk that
-/// skips the policy. A key walked for the sync is admitted first (a protected name in any
-/// spelling is refused before a folder of it is made), a key of the engine's own records keeps
-/// the shape rows, and a key that climbs out of its folder is a bad name on every path.
+/// RF42 step 3 (and ARCH29 C6c): the walk that makes folders takes an `Admitted` key, so there is no
+/// way to the disk that skips the policy. A key made for the sync is admitted first (a protected name in
+/// any spelling is refused before a folder of it is made), a key that is looked at is an `OnDisk` one
+/// and makes nothing, the engine's own folders are made by their own walks, and a key that climbs out of
+/// its folder is no key of either kind.
 #[test]
-fn rf42_a_walk_takes_only_a_key_the_policy_let_through_and_makes_nothing_for_one_it_refused() {
-    use crate::{
-        beneath::{BeneathError, Root},
-        names::walk_local,
-    };
+fn rf42_a_walk_that_makes_takes_only_a_key_the_policy_let_through_and_makes_nothing_for_one_it_refused(
+) {
+    use crate::beneath::{BeneathError, Root};
     let tmp = TempDir::new("rf42-walk");
     let tree = Root::open(tmp.path()).unwrap();
+    let policy = Policy::here(Volume::default());
     // A plain key: the folders are made and the name is the last one.
-    let (dir, name) = walk_local(&tree, "docs/2026/a.txt", true).unwrap();
+    let plain = policy.admit("docs/2026/a.txt", Purpose::Sync).unwrap();
+    let (dir, name) = tree.parent_of_new(&plain).unwrap();
     assert_eq!(name, "a.txt");
     assert!(dir.path().ends_with("docs/2026"), "{:?}", dir.path());
-    // Shapes that leave the folder are bad names, however the key is spelled.
+    // Shapes that leave the folder are no key at all, however the key is spelled.
     for key in ["../x", "a/../../x", "/abs", "a//b", "a\\b", ""] {
+        assert!(policy.admit(key, Purpose::Sync).is_err(), "{key:?}");
+        assert!(OnDisk::of_entry(key).is_err(), "{key:?}");
         assert!(
-            matches!(walk_local(&tree, key, true), Err(BeneathError::BadName(_))),
+            matches!(
+                make_for_sync(&tree, &policy, key),
+                Err(BeneathError::BadName(_))
+            ),
             "{key:?}"
         );
     }
     // For the sync a protected name in any spelling is refused BEFORE a folder of it is made.
-    let policy = Policy::here(Volume::default());
     for key in [
         ".GIT/hooks/pre-commit",
         ".azlin/sync/x",
         "a/.g\u{200c}it/config",
         "GIT~1/config",
     ] {
-        let refused = policy.walk(&tree, key, Purpose::Sync, true);
+        let refused = make_for_sync(&tree, &policy, key);
         assert!(matches!(refused, Err(BeneathError::BadName(_))), "{key:?}");
     }
     for made in [".GIT", ".azlin", "a", "GIT~1"] {
         assert!(!tmp.path().join(made).exists(), "{made} was made");
     }
-    // The same policy lets a plain synced key through.
-    let (_, name) = policy
-        .walk(&tree, "docs/b.txt", Purpose::Sync, false)
-        .unwrap();
-    assert_eq!(name, "b.txt");
-    // The engine's own records are walked as they are on the disk (the trash is under .azlin).
-    let (_, kept) = walk_local(&tree, ".azlin/sync/trash/2026/c.txt", true).unwrap();
-    assert_eq!(kept, "c.txt");
-    assert!(tmp.path().join(".azlin/sync/trash/2026").is_dir());
+    // The engine's own records are looked at as they are on the disk (the trash is under .azlin) and a
+    // look makes nothing; the engine's own walk makes the trash folder of a pass and the folders of the
+    // file that goes into it.
+    let kept = OnDisk::of_record(".azlin/sync/trash/2026/sub/c.txt").unwrap();
+    assert!(
+        tree.parent_of_existing(&kept)
+            .err()
+            .is_some_and(|e| e.is_not_found()),
+        "a look at a name that is not there fails and makes nothing"
+    );
+    assert!(!tmp.path().join(".azlin").exists());
+    let from = OnDisk::of_record("sub/c.txt").unwrap();
+    let trash = tree.trash_dir("2026", &from).unwrap();
+    assert!(
+        trash.path().ends_with(".azlin/sync/trash/2026/sub"),
+        "{:?}",
+        trash.path()
+    );
+    let (_, found) = tree.parent_of_existing(&kept).unwrap();
+    assert_eq!(found, "c.txt");
+    let marker = tree.own_dir(crate::names::SYNC_DIR).unwrap();
+    assert!(
+        marker.path().ends_with(".azlin/sync"),
+        "{:?}",
+        marker.path()
+    );
 }
 
 /// X-DELTA-AZDRIVE-FILES-32 (h): `.gitmodules` and `.gitattributes` were "warned of" in the doc and
@@ -442,7 +477,7 @@ fn x_delta_azdrive_files_32_a_repositorys_own_configuration_is_warned_of() {
 }
 
 /// ARCH29 C6c. An `OnDisk` key is a name that is on this disk already or in a record this device
-/// wrote: it has the shape rows (what `Purpose::Local` checked) and nothing is made from it. The
+/// wrote: it has the shape rows and nothing is made from it. The
 /// walk finds what is there; for a folder that is not, it fails and leaves the disk as it was - the
 /// spellings of a protected name included (the disk has them already; a key that only reads makes no
 /// folder of one).
@@ -481,7 +516,7 @@ fn c6c_an_on_disk_key_walks_to_what_is_there_and_never_makes_a_folder() {
     for made in ["missing", "docs/2027", "GIT~1", ".hg", ".azlin"] {
         assert!(!tmp.path().join(made).exists(), "{made} was made");
     }
-    // Shapes that leave the folder are no key of what is on a disk, as they were none for Local.
+    // Shapes that leave the folder are no key of what is on a disk.
     for key in [
         "", "/etc/x", "a//b", "a/./b", "a/../b", "a\\b", "x\0y", "a/",
     ] {
@@ -492,12 +527,12 @@ fn c6c_an_on_disk_key_walks_to_what_is_there_and_never_makes_a_folder() {
     assert_eq!(refused.key, "a/../b");
 }
 
-/// ARCH29 C6c. A name is made here only from an `Admitted` key, and every name the full rows refuse
-/// - a protected folder in any spelling (`.git`, `.hg`, `.svn`, `.azlin`, `GIT~1`, `.GIT.`), a
-/// reserved Windows name - is never one, whoever renamed the folder: `Policy::admitted` refuses it
-/// and `Root::parent_of_new` takes nothing else, so the walk that made a drive-renamed `.git`
-/// folder on the victim's disk (X-DELTA-AZDRIVE-FILES-1) has no argument to be given. What is on
-/// the disk already (`Purpose::Local`) never becomes one, and a plain key is made with its folders.
+/// ARCH29 C6c. A name is made here only from an `Admitted` key, and a name the full rows refuse (a
+/// protected folder in any spelling: `.git`, `.hg`, `.svn`, `.azlin`, `GIT~1`, `.GIT.`; a reserved
+/// Windows name) is never one, whoever renamed the folder: `Policy::admit` refuses it and
+/// `Root::parent_of_new` takes nothing else, so the walk that made a drive-renamed `.git` folder on
+/// the victim's disk (X-DELTA-AZDRIVE-FILES-1) has no argument to be given. A plain key is made with
+/// its folders.
 #[test]
 fn c6c_a_name_is_made_only_from_an_admitted_key_and_the_full_rows_refuse_what_a_drive_renamed() {
     use crate::beneath::Root;
@@ -512,7 +547,7 @@ fn c6c_a_name_is_made_only_from_an_admitted_key_and_the_full_rows_refuse_what_a_
         ] {
             for policy in policies() {
                 assert!(
-                    policy.admitted(&key, Purpose::Sync).is_err(),
+                    policy.admit(&key, Purpose::Sync).is_err(),
                     "{key:?} on {:?}",
                     policy.system
                 );
@@ -522,21 +557,21 @@ fn c6c_a_name_is_made_only_from_an_admitted_key_and_the_full_rows_refuse_what_a_
     for name in AZLIN {
         for policy in policies() {
             let key = format!("{name}/sync/x");
-            assert!(policy.admitted(&key, Purpose::Sync).is_err(), "{key:?}");
+            assert!(policy.admit(&key, Purpose::Sync).is_err(), "{key:?}");
         }
     }
-    // The other purposes about a drive's names refuse a spelling that only a disk reads as a
+    // The other purposes about a name that is made here refuse a spelling that only a disk reads as a
     // protected name (a copy of a repository keeps its own `.git`).
     for purpose in [
-        Purpose::Download,
         Purpose::Open,
         Purpose::Rescue,
         Purpose::Copy,
+        Purpose::UserTyped,
     ] {
         for name in [".GIT", "GIT~1", ".git.", ".HG", ".AZLIN"] {
             let key = format!("proj/{name}/x");
             let here = Policy::here(Volume::default());
-            assert!(here.admitted(&key, purpose).is_err(), "{key:?} {purpose:?}");
+            assert!(here.admit(&key, purpose).is_err(), "{key:?} {purpose:?}");
         }
     }
     // A reserved Windows name, whichever computer asks.
@@ -546,28 +581,152 @@ fn c6c_a_name_is_made_only_from_an_admitted_key_and_the_full_rows_refuse_what_a_
     };
     for bad in ["CON", "a/NUL.txt", "dir/aux", "COM1", "a.txt:s", "end."] {
         assert!(
-            windows.admitted(bad, Purpose::Sync).is_err(),
+            windows.admit(bad, Purpose::Sync).is_err(),
             "{bad:?} is admitted for the sync on Windows"
         );
-    }
-    // What is on the disk already makes no new name, whatever its spelling.
-    let here = Policy::here(Volume::default());
-    for key in ["docs/a.txt", "proj/.git/config", ".azlin/sync/x"] {
-        assert!(here.admitted(key, Purpose::Local).is_err(), "{key:?}");
     }
     // Nothing was made for any of it.
     assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     // A plain key is admitted, and made with its folders; a repository's own `.git` is a copy's.
-    let admitted = here.admitted("docs/2026/a.txt", Purpose::Sync).unwrap();
+    let here = Policy::here(Volume::default());
+    let admitted = here.admit("docs/2026/a.txt", Purpose::Sync).unwrap();
     assert_eq!(admitted.as_str(), "docs/2026/a.txt");
+    assert_eq!(admitted.purpose(), Purpose::Sync);
     let (dir, name) = tree.parent_of_new(&admitted).unwrap();
     assert_eq!(name, "a.txt");
     assert!(dir.path().ends_with("docs/2026"), "{:?}", dir.path());
     assert!(tmp.path().join("docs/2026").is_dir());
-    let copy = here.admitted("proj/.git/config", Purpose::Copy).unwrap();
+    let copy = here.admit("proj/.git/config", Purpose::Copy).unwrap();
     assert!(tree.parent_of_new(&copy).is_ok());
     assert!(tmp.path().join("proj/.git").is_dir());
-    // A name the user typed is held to the shape, as it was.
-    assert!(here.admitted("proj/.GIT/x", Purpose::UserTyped).is_ok());
-    assert!(here.admitted("a/../b", Purpose::UserTyped).is_err());
+    // A name the user typed is held to the shape and to the disguised spellings (X-DELTA-STRUCT-DRIVE-2:
+    // it admitted `.GIT`, and the contained drive and the move-in made a folder of it).
+    assert!(here.admit("proj/.GIT/x", Purpose::UserTyped).is_err());
+    assert!(here.admit("proj/.git/x", Purpose::UserTyped).is_ok());
+    assert!(here.admit("a/../b", Purpose::UserTyped).is_err());
+}
+
+/// What each purpose refuses on the create path, written so that a purpose added later is a compile
+/// error here (no wildcard arm): the names refused in ANY position of a key, and the ones refused as the
+/// FIRST name only (the bookkeeping folder is the root's alone for the sync: a user's own `x/.azlin` is a
+/// folder like any other). The sync refuses every spelling, the exact one included; a copy, an opened
+/// file, a rescue copy and a typed name refuse the spellings a disk reads as a protected name - the exact
+/// `.git` is a repository's own and is admitted for them.
+fn refused_by(purpose: Purpose) -> (&'static [&'static str], &'static [&'static str]) {
+    match purpose {
+        Purpose::Sync => (
+            &[".git", ".GIT", ".hg", ".svn", ".git.", ".git ", "GIT~1"],
+            &[".azlin", ".AZLIN", ".azlin ", "AZLIN~1"],
+        ),
+        Purpose::Rescue | Purpose::Open | Purpose::UserTyped | Purpose::Copy => (
+            &[
+                ".GIT",
+                ".Git",
+                ".HG",
+                ".SVN",
+                ".git.",
+                ".git ",
+                "GIT~1",
+                ".g\u{200c}it",
+                ".AZLIN",
+                ".azlin.",
+                "AZLIN~1",
+            ],
+            &[],
+        ),
+    }
+}
+
+/// ARCH29 C6c, X-DELTA-STRUCT-DRIVE-2: for EACH purpose that makes a name here, a name its rows refuse -
+/// a version-control or bookkeeping folder in the spellings of its rows, `GIT~1`, a trailing dot or space,
+/// a reserved Windows name - is not admitted, so the create path (`Root::parent_of_new`,
+/// `Root::dir_new`) has no key to be given, and nothing is made for it at the top of the folder or below
+/// a plain one; the names it admits are made, with the purpose they were admitted for.
+#[test]
+fn c6c_every_purpose_that_makes_a_name_refuses_what_its_rows_refuse_on_the_create_path() {
+    use crate::beneath::Root;
+    let tmp = TempDir::new("c6c-purposes");
+    let tree = Root::open(tmp.path()).unwrap();
+    for purpose in Purpose::ALL {
+        let (anywhere, first_only) = refused_by(purpose);
+        for policy in policies() {
+            let keys = anywhere
+                .iter()
+                .flat_map(|name| {
+                    [
+                        format!("{name}/x"),
+                        format!("proj/{name}/hooks/post-commit"),
+                        format!("proj/{name}"),
+                    ]
+                })
+                .chain(first_only.iter().map(|name| format!("{name}/sync/x")));
+            for key in keys {
+                assert!(
+                    policy.admit(&key, purpose).is_err(),
+                    "{key:?} is admitted for {purpose:?} on {:?}",
+                    policy.system
+                );
+            }
+        }
+        // Trailing dots and spaces and reserved device names, on a Windows disk of any computer.
+        let windows = Policy {
+            system: System::Windows,
+            volume: Volume::default(),
+        };
+        for bad in ["end.", "dir/space ", "CON", "dir/aux", "COM1", "a/NUL.txt"] {
+            assert!(
+                windows.admit(bad, purpose).is_err(),
+                "{bad:?} is admitted for {purpose:?} on Windows"
+            );
+        }
+    }
+    // Nothing was made for any of it: there was no key to make it from.
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    // A plain name is admitted for every purpose; the ones that make folders make them.
+    let here = Policy::here(Volume::default());
+    for (n, purpose) in Purpose::ALL.into_iter().enumerate() {
+        let key = here.admit(&format!("plain{n}/a/b.txt"), purpose).unwrap();
+        assert_eq!(key.purpose(), purpose);
+        let made = tree.parent_of_new(&key);
+        assert_eq!(
+            made.is_ok(),
+            purpose.makes_folders(),
+            "{purpose:?}: {:?}",
+            made.err()
+        );
+        let folders = tree.dir_new(&key);
+        assert_eq!(folders.is_ok(), purpose.makes_folders(), "{purpose:?}");
+        assert_eq!(
+            tmp.path().join(format!("plain{n}")).is_dir(),
+            purpose.makes_folders(),
+            "{purpose:?}: the folders are made for the purposes that make folders only"
+        );
+    }
+}
+
+/// ARCH29 C6c. The purposes of a key that becomes a path under a root of its own - an opened cloud file
+/// (`Scratch`), the rescue copy - make no folder under a synced or a user's folder: the walks that make
+/// refuse their keys with a bad name and the disk is as it was.
+#[test]
+fn c6c_a_key_of_a_purpose_that_makes_no_folder_is_refused_by_the_walks_that_make() {
+    use crate::beneath::{BeneathError, Root};
+    let tmp = TempDir::new("c6c-no-folder");
+    let tree = Root::open(tmp.path()).unwrap();
+    let here = Policy::here(Volume::default());
+    for purpose in [Purpose::Open, Purpose::Rescue] {
+        assert!(!purpose.makes_folders(), "{purpose:?}");
+        let key = here.admit("docs/2026/a.txt", purpose).unwrap();
+        assert!(
+            matches!(tree.parent_of_new(&key), Err(BeneathError::BadName(_))),
+            "{purpose:?}"
+        );
+        assert!(
+            matches!(tree.dir_new(&key), Err(BeneathError::BadName(_))),
+            "{purpose:?}"
+        );
+    }
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+    for purpose in [Purpose::Sync, Purpose::UserTyped, Purpose::Copy] {
+        assert!(purpose.makes_folders(), "{purpose:?}");
+    }
 }

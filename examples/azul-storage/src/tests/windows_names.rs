@@ -120,10 +120,7 @@ fn a_colon_stays_a_valid_name_where_the_system_takes_it() {
 #[cfg(windows)]
 #[test]
 fn a_local_drive_on_windows_refuses_such_a_key_and_writes_nothing() {
-    use crate::{
-        beneath::{BeneathError, Root},
-        DriveError,
-    };
+    use crate::DriveError;
 
     let root = TempDir::new("windows-names");
     for contained in [false, true] {
@@ -150,11 +147,17 @@ fn a_local_drive_on_windows_refuses_such_a_key_and_writes_nothing() {
         fs::read_dir(root.path()).unwrap().next().is_none(),
         "nothing was made in the root"
     );
-    let tree = Root::open(root.path()).unwrap();
-    assert!(matches!(
-        tree.dir("C:x", true),
-        Err(BeneathError::BadName(_))
-    ));
-    // A path argument is a `LocalKey`, and the policy never lets this name become one here.
-    assert!(crate::names::local_key("a.txt:s").is_err());
+    // A name that makes a folder is an `Admitted` key, and the policy of Windows never lets these names
+    // become one - whatever computer asks (a drive's `C:x` is a path relative to drive C's folder there).
+    let windows = crate::names::Policy {
+        system: crate::key::System::Windows,
+        volume: crate::names::Volume::default(),
+    };
+    for bad in ["C:x", "a.txt:s"] {
+        for purpose in crate::names::Purpose::ALL {
+            assert!(windows.admit(bad, purpose).is_err(), "{bad:?} {purpose:?}");
+        }
+    }
+    // And what is looked at is no key of a Windows name either (this test runs on Windows).
+    assert!(crate::names::OnDisk::of_entry("a.txt:s").is_err());
 }

@@ -74,7 +74,7 @@ struct Look<'a> {
 
 /// Every file of the trash, the newest pass first.
 fn in_trash(tree: &Root, named: &BTreeMap<String, String>) -> Vec<Item> {
-    let Ok(trash) = tree.dir(TRASH_DIR, false) else {
+    let Ok(trash) = tree.dir_existing(TRASH_DIR) else {
         return Vec::new();
     };
     let Ok(names) = trash.names() else {
@@ -88,7 +88,7 @@ fn in_trash(tree: &Root, named: &BTreeMap<String, String>) -> Vec<Item> {
     let mut out = Vec::new();
     let mut looks = LOOKS;
     for pass in passes {
-        let Ok(folder) = trash.child(&pass, false) else {
+        let Ok(folder) = trash.child(&pass) else {
             continue;
         };
         let rel = format!("{TRASH_DIR}/{pass}");
@@ -143,7 +143,7 @@ fn walk(look: &mut Look<'_>, dir: &Dir, rel: &str, under: &str, depth: usize) {
                 });
             }
             Kind::Dir if depth < DEPTH => {
-                if let Ok(child) = dir.child(name, false) {
+                if let Ok(child) = dir.child(name) {
                     walk(look, &child, &here, &below, depth + 1);
                 }
             }

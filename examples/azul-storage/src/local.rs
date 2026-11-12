@@ -111,7 +111,7 @@ fn remove_all(dir: &beneath::Dir) -> Result<(), BeneathError> {
             return Err(BeneathError::BadName(name.to_string_lossy().into_owned()));
         };
         if dir.lstat(name)?.kind == Kind::Dir {
-            remove_all(&dir.child(name, false)?)?;
+            remove_all(&dir.child(name)?)?;
             dir.rmdir(name)?;
         } else {
             dir.unlink(name)?;
@@ -254,7 +254,7 @@ fn holds_only_empty_folders(folder: &Dir) -> Result<bool, BeneathError> {
         };
         match folder.lstat(entry) {
             Ok(st) if st.kind == Kind::Dir => {
-                let inner = match folder.child(entry, false) {
+                let inner = match folder.child(entry) {
                     Ok(inner) => inner,
                     // Gone since the listing.
                     Err(e) if e.is_not_found() => continue,
@@ -278,7 +278,7 @@ fn holds_only_empty_folders(folder: &Dir) -> Result<bool, BeneathError> {
 /// link, anything a listing might not show - and then nothing of it is removed, not even an empty
 /// folder inside. Never recursive on content: a file that appears while it is removed stops it.
 fn remove_empty_tree(parent: &Dir, name: &str) -> Result<bool, BeneathError> {
-    let folder = match parent.child(name, false) {
+    let folder = match parent.child(name) {
         Ok(folder) => folder,
         Err(e) if e.is_not_found() => return Ok(true),
         Err(e) => return Err(e),
@@ -297,7 +297,7 @@ fn remove_folder_of_empties(parent: &Dir, name: &str, folder: &Dir) -> Result<bo
         };
         match folder.lstat(entry) {
             Ok(st) if st.kind == Kind::Dir => {
-                let inner = match folder.child(entry, false) {
+                let inner = match folder.child(entry) {
                     Ok(inner) => inner,
                     Err(e) if e.is_not_found() => continue,
                     Err(e) => return Err(e),
@@ -346,11 +346,13 @@ fn existing_key(key: &str) -> Result<OnDisk, DriveError> {
 
 /// The key of a contained walk that makes the folders of a name (a write, a folder, the target of a
 /// rename): an [`Admitted`] key. The folder is the user's own, so the rows are those of a name a person
-/// chose - the shape and this system's ([`Purpose::UserTyped`]); what a name from ANOTHER drive passes
-/// before it reaches this one is the transfer plan's check ([`Purpose::Copy`]).
+/// chose ([`Purpose::UserTyped`]: the shape, this system's and the spellings a disk reads as a protected
+/// name - a name that only a disk would merge into a repository's `.git` is refused, X-DELTA-STRUCT-DRIVE-2);
+/// what a name from ANOTHER drive passes before it reaches this one is the transfer plan's check
+/// ([`Purpose::Copy`], the same rows).
 fn new_key(key: &str) -> Result<Admitted, DriveError> {
     Policy::here(Volume::default())
-        .admitted(key, Purpose::UserTyped)
+        .admit(key, Purpose::UserTyped)
         .map_err(DriveError::from)
 }
 
@@ -550,7 +552,7 @@ impl LocalDrive {
             });
         }
         parent
-            .child(name, true)
+            .make_child(name)
             .map(|_| ())
             .map_err(|e| beneath_error(prefix, e))
     }
@@ -584,9 +586,7 @@ impl LocalDrive {
             }
             Ok(_) => {}
         }
-        let folder = parent
-            .child(name, false)
-            .map_err(|e| beneath_error(prefix, e))?;
+        let folder = parent.child(name).map_err(|e| beneath_error(prefix, e))?;
         remove_all(&folder).map_err(|e| beneath_error(prefix, e))?;
         parent.rmdir(name).map_err(|e| beneath_error(prefix, e))?;
         parent.sync();

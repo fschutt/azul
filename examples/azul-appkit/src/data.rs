@@ -60,9 +60,10 @@ pub fn app_prefix(app_folder: &str) -> String {
 /// The file on disk of a key under a local root (for messages to the user;
 /// reading and writing go through the drive). A key that is no path of plain names - a `..`, an
 /// absolute path, a backslash, a Windows drive or device name - is no place under the root: the
-/// answer is the root itself ([`azul_storage::names::OnDisk`], AZ-CN17). The key is the name of a
-/// file of the drive that is on this disk (an entry): the path is for a message, nothing is opened
-/// or made by it (ARCH29 C6c).
+/// answer is the root itself ([`azul_storage::names::OnDisk`], AZ-CN17). The key is one to LOOK AT
+/// ([`azul_storage::names::OnDisk`] makes nothing): the path is for a message, and it may name a
+/// file that is not there - nothing is opened or made by it (ARCH29 C6c; X-DELTA-STRUCT-DRIVE-2: the
+/// type claimed an entry this disk read, and this caller says a drive's key).
 #[must_use]
 pub fn local_path(root: &Path, key: &str) -> PathBuf {
     match azul_storage::names::OnDisk::of_entry(key.trim_end_matches('/')) {
@@ -140,9 +141,9 @@ mod tests {
         }
     }
 
-    /// ARCH29 C6c. The path of a key for a message is an `OnDisk` key's: the file is on the disk, so its
-    /// name is said as it is - a protected spelling included - and saying it opens and makes nothing (a
-    /// name to be MADE is an `Admitted` key, which no message needs).
+    /// ARCH29 C6c. The path of a key for a message is an `OnDisk` key's: a name to look at, said as it is
+    /// - a protected spelling included - and saying it opens and makes nothing (a name to be MADE is an
+    /// `Admitted` key, which no message needs).
     #[test]
     fn c6c_the_path_for_a_message_names_a_file_that_is_there_as_it_is_and_makes_nothing() {
         let root = Path::new("/c6c-appkit-data-root-that-is-not-there");

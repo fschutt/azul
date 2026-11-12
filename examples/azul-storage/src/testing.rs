@@ -74,6 +74,29 @@ pub fn bind_unix_socket(
     bound
 }
 
+/// Makes the chain `levels` deep of folders called `name` under `top` with `openat` (the path of the
+/// deep ones is past what a path-based call takes), calling `each(level, folder)` on the way down: a
+/// test's tree for the walks that must not recurse. The folders are made by the walk that makes (the
+/// crate's own `Dir::make_child`), which no code outside this crate and its tests can reach.
+///
+/// # Panics
+///
+/// When `top` cannot be opened or a folder of the chain cannot be made.
+#[cfg(unix)]
+pub fn make_folder_chain(
+    top: &Path,
+    name: &str,
+    levels: usize,
+    mut each: impl FnMut(usize, &crate::beneath::Dir),
+) {
+    let tree = crate::beneath::Root::open(top).expect("the top of the chain opens");
+    let mut at = tree.top().expect("the root's own folder");
+    for level in 1..=levels {
+        at = at.make_child(name).expect("a folder of the chain");
+        each(level, &at);
+    }
+}
+
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);

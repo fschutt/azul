@@ -275,7 +275,7 @@ fn x_delta_azdrive_files_26_the_name_is_never_empty_between_the_old_file_and_the
     fs::write(tmp.path().join("doc"), b"old").unwrap();
     let root = Root::open(tmp.path()).unwrap();
     let dir = root.top().unwrap();
-    let trash = root.dir("trash", false).unwrap();
+    let trash = root.dir_existing("trash").unwrap();
     let staged = stage(&dir, "doc", &mut &b"the new version"[..], &shared()).unwrap();
     let slot = TrashSlot {
         dir: &trash,
@@ -321,7 +321,7 @@ fn x_delta_azdrive_files_26_a_file_another_writer_put_at_the_name_is_not_replace
     fs::write(tmp.path().join("doc"), b"old").unwrap();
     let root = Root::open(tmp.path()).unwrap();
     let dir = root.top().unwrap();
-    let trash = root.dir("trash", false).unwrap();
+    let trash = root.dir_existing("trash").unwrap();
     let staged = stage(&dir, "doc", &mut &b"new"[..], &shared()).unwrap();
     let slot = TrashSlot {
         dir: &trash,
@@ -659,7 +659,7 @@ fn a_folder_the_user_linked_is_opened_through_its_link_and_what_is_below_it_is_n
     assert_eq!(fs::read(real.join("doc")).unwrap(), b"in the real one");
     // A link below it is none that is followed.
     std::os::unix::fs::symlink(tmp.path(), real.join("up")).unwrap();
-    assert!(dir.child("up", false).is_err());
+    assert!(dir.child("up").is_err());
 }
 
 #[test]
@@ -669,7 +669,7 @@ fn replace_keeping_puts_the_new_version_in_place_and_the_old_one_in_the_slot() {
     fs::write(tmp.path().join("doc"), b"old").unwrap();
     let root = Root::open(tmp.path()).unwrap();
     let dir = root.top().unwrap();
-    let trash = root.dir("trash", false).unwrap();
+    let trash = root.dir_existing("trash").unwrap();
     let staged = stage(
         &dir,
         "doc",
@@ -703,7 +703,7 @@ fn replace_keeping_puts_the_old_one_back_when_the_new_one_cannot_go_in() {
     fs::write(tmp.path().join("doc"), b"old").unwrap();
     let root = Root::open(tmp.path()).unwrap();
     let dir = root.top().unwrap();
-    let trash = root.dir("trash", false).unwrap();
+    let trash = root.dir_existing("trash").unwrap();
     let staged = stage(&dir, "doc", &mut &b"new"[..], &shared()).unwrap();
     // The staged file vanishes before it can be renamed in.
     fs::remove_file(tmp.path().join(staged.name())).unwrap();
@@ -730,7 +730,7 @@ fn replace_keeping_of_a_file_that_changed_moves_nothing_and_drops_the_staged_fil
     fs::write(&path, b"old").unwrap();
     let root = Root::open(tmp.path()).unwrap();
     let dir = root.top().unwrap();
-    let trash = root.dir("trash", false).unwrap();
+    let trash = root.dir_existing("trash").unwrap();
     let print = Fingerprint::of(&dir.lstat("doc").unwrap());
     fs::write(&path, b"the user edited it meanwhile").unwrap();
     let staged = stage(&dir, "doc", &mut &b"new"[..], &shared()).unwrap();
@@ -755,7 +755,7 @@ fn a_blob_is_renamed_in_with_its_bits_and_left_alone_when_it_does_not_land() {
     fs::create_dir(tmp.path().join("spool")).unwrap();
     let root = Root::open(tmp.path()).unwrap();
     let dir = root.top().unwrap();
-    let spool = root.dir("spool", false).unwrap();
+    let spool = root.dir_existing("spool").unwrap();
     fs::write(tmp.path().join("spool/blob-1"), b"downloaded").unwrap();
     let landed = publish_staged(
         &dir,
