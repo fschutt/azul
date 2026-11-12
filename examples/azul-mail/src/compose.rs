@@ -454,19 +454,24 @@ pub fn draft_bytes(mail: &OutgoingMail, now_secs: i64) -> Vec<u8> {
 
 /// Files a draft's message file in the Drafts folder under `store_root` through SEND's
 /// `send::file_message` (a new local UID, its index line, a local-only state for a folder never
-/// synced), after removing `replaces` - the same draft saved before - so it is there once.
-/// Returns the new index line.
+/// synced), and then removes `replaces` - the same draft saved before - so it is there once. The new
+/// draft is filed FIRST: a full disk or a stop between the two leaves both drafts, never none
+/// (X-DELTA-SYNC4-18); an old draft that cannot be removed stays as a second draft, and the new one
+/// is saved all the same. Returns the new index line.
 pub fn save_draft(
     store_root: &DriveFolder,
     replaces: Option<u32>,
     bytes: &[u8],
     now_secs: i64,
 ) -> std::io::Result<IndexEntry> {
-    if let Some(old) = replaces {
-        delete_draft(&MailStore::new(store_root.clone()), old)?;
-    }
     let flags = [String::from("\\Seen"), String::from("\\Draft")];
-    crate::send::file_message(store_root, DRAFTS_FOLDER, bytes, &flags, now_secs)
+    let filed = crate::send::file_message(store_root, DRAFTS_FOLDER, bytes, &flags, now_secs)?;
+    if let Some(old) = replaces {
+        if let Err(e) = delete_draft(&MailStore::new(store_root.clone()), old) {
+            eprintln!("[azmail] the draft saved before could not be removed: {e}");
+        }
+    }
+    Ok(filed)
 }
 
 /// Removes a draft (once it is sent): its file and its index line.
@@ -940,5 +945,36 @@ mod tests {
             &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
         );
         assert!(index.is_empty());
+    }
+
+    /// X-DELTA-SYNC4-18. RED on the code before: the old draft was deleted BEFORE the new one was
+    /// filed, so a failure of the filing (here a folder where the new file belongs: the stand-in
+    /// for a full disk or a stop) left no draft at all.
+    #[test]
+    fn x_delta_sync4_18_a_draft_that_cannot_be_filed_leaves_the_old_one_whole() {
+        crate::l10n::in_english();
+        let dir = TempDir::new("drafts");
+        let store = MailStore::new(dir.folder());
+        let mail = outgoing(&fields(), Vec::new()).unwrap();
+        let bytes = draft_bytes(&mail, 1_790_757_720);
+        let first = save_draft(&dir.folder(), None, &bytes, 1_790_757_720).unwrap();
+        // Where the next draft's file would go.
+        let next = store::message_key(DRAFTS_FOLDER, 2026, 9, first.uid + 1);
+        std::fs::create_dir_all(dir.0.join(&next)).unwrap();
+        let failed = save_draft(&dir.folder(), Some(first.uid), &bytes, 1_790_757_720);
+        assert!(failed.is_err(), "the new draft cannot be filed");
+        assert_eq!(store.get(&first.path).unwrap(), bytes, "the old draft's file is whole");
+        let index = store::index_from_jsonl(
+            &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
+        );
+        assert_eq!(index, vec![first.clone()], "and so is its line");
+        // The folder gone, the filing works and the old draft goes after it.
+        std::fs::remove_dir_all(dir.0.join(&next)).unwrap();
+        let again = save_draft(&dir.folder(), Some(first.uid), &bytes, 1_790_757_720).unwrap();
+        let index = store::index_from_jsonl(
+            &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
+        );
+        assert_eq!(index, vec![again], "one line per draft");
+        assert!(store.get(&first.path).is_err(), "the old draft's file went after the new was filed");
     }
 }
