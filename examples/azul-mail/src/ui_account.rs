@@ -1290,6 +1290,7 @@ extern "C" fn on_create_drive(mut data: RefAny, mut info: CallbackInfo) -> Updat
             IoJob::CreateDrive {
                 token_url: url,
                 name: String::from("AzMail"),
+                root: s.root.clone(),
             },
         );
         Update::RefreshDom

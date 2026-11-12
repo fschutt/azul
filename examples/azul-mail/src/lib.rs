@@ -68,8 +68,8 @@
 // The mail logic without azul types lives in azul-mail-core, so a headless process (the Azlin
 // Bridge) runs the same code; it keeps its module names here (`azmail::send`, `crate::folders`).
 pub use azmail_core::{
-    account, args, auth, azlin, dkim, folders, mail_drive, message, mutf7, oauth, send, store,
-    submit,
+    account, args, auth, azlin, dkim, folders, mail_drive, message, mutf7, oauth, pending_code,
+    send, store, submit,
 };
 
 pub mod azlin_sync;
@@ -354,6 +354,28 @@ pub(crate) struct KeyringCall {
     pub(crate) secret: Option<Secret>,
 }
 
+/// What the start says of a new drive whose recovery code may not have been shown
+/// ([`pending_code`]: the marker is written before the wrap is published and taken away once the page
+/// has the code): the drive and what is true of it. The marker goes once it is said, so that it is said
+/// once; one that cannot be read is said too - never taken for "nothing pending". `None`: no marker.
+fn pending_code_notice(root: &DriveFolder) -> Option<String> {
+    match pending_code::read(&root.path()) {
+        Ok(None) => None,
+        Ok(Some(pending)) => {
+            // collapse-ok: a marker that stays costs the same notice at the next start.
+            let _ = pending_code::clear(&root.path());
+            Some(t_args(
+                "azmail-pending-code",
+                &[("drive", Arg::from(pending.drive_id.as_str()))],
+            ))
+        }
+        Err(why) => Some(t_args(
+            "azmail-pending-code-unreadable",
+            &[("why", Arg::from(why.as_str()))],
+        )),
+    }
+}
+
 impl MailApp {
     fn create(
         root: DriveFolder,
@@ -383,6 +405,9 @@ impl MailApp {
             std::sync::Arc::new(azlin_keyring(Asking::User)),
             azul_storage::keyring::KeyringNamespace::azlin_shared(),
         );
+        // A drive "Create a new drive" made whose recovery code may not have been shown: said once
+        // (X-DELTA-KEYS2-4).
+        let pending_notice = pending_code_notice(&root);
         // Read once, before the window (as the kit reads settings.json).
         let todo = todo::load(&data_root);
         let settings = {
@@ -434,7 +459,7 @@ impl MailApp {
             print: None,
             editor: None,
             sync: SyncState::Idle,
-            notice: String::new(),
+            notice: pending_notice.unwrap_or_default(),
             azlin_bans: HashMap::new(),
             composes: Vec::new(),
             quitting: false,
@@ -1942,8 +1967,16 @@ pub(crate) enum IoJob {
         context: AzlinContext,
         action: AzlinAction,
     },
-    /// The wizard's "Create a new drive": a drive at the token server `token_url`.
-    CreateDrive { token_url: String, name: String },
+    /// The wizard's "Create a new drive": a drive at the token server `token_url`. `root` is the
+    /// AzMail folder, where the marker of a recovery code that may not be shown is written first
+    /// ([`pending_code`]).
+    CreateDrive {
+        token_url: String,
+        name: String,
+        root: DriveFolder,
+    },
+    /// The page has the new drive's recovery code: the marker that said it might not is taken away.
+    ClearPendingCode { root: DriveFolder },
     /// A new DKIM key for the account editor (making an RSA key takes a moment).
     DkimKey,
     /// The DKIM / DMARC / SPF records in DNS, for the account editor.
@@ -1980,6 +2013,8 @@ pub(crate) enum IoDone {
     /// The wizard's new drive (its session), or why there is none.
     /// The new drive's session, and its recovery code when it was encrypted as it was made.
     DriveCreated(Result<(azlin::AzlinSession, Option<String>), String>),
+    /// The marker of a recovery code that may not have been shown is taken away (or why not).
+    PendingCodeCleared(Result<(), String>),
     DkimKey(Result<dkim::KeyPair, String>),
     DkimChecked(dkim::DnsReport),
     /// The PDF of File > Print is written: its key and its file.
@@ -2049,7 +2084,11 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
             let result = run_azlin_action(&context, &action);
             IoDone::Azlin { action, result }
         }
-        IoJob::CreateDrive { token_url, name } => {
+        IoJob::CreateDrive {
+            token_url,
+            name,
+            root,
+        } => {
             use azlin::CloudAccount;
             let transport = AzulTransport::azlin(USER_AGENT);
             let created = azlin::TokenServer::new(&token_url, &transport)
@@ -2061,26 +2100,35 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
             let created = created.and_then(|session| {
                 #[cfg(feature = "encryption")]
                 {
-                    let bucket = session
-                        .open_drive(None, Box::new(transport.clone()))
-                        .map_err(|e| e.to_string())?;
-                    let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()
-                        .map_err(|e| e.to_string())?;
-                    let (_, code) = azul_storage::crypto::device::setup_new_drive(
-                        &bucket,
-                        &azlin_keyring(Asking::User),
-                        &session.drive_id,
-                        kdf,
-                    )
-                    .map_err(|e| format!("the drive was made but not encrypted: {e}"))?;
-                    Ok((session, Some(code.to_text().to_string())))
+                    // Record first, publish after (X-DELTA-KEYS2-4): the wrap that the code opens
+                    // goes into the bucket, and a stop between that and the page leaves a drive whose
+                    // code nobody saw. The marker says so at the next start (`pending_code`).
+                    let made = (|| -> Result<String, String> {
+                        let bucket = session
+                            .open_drive(None, Box::new(transport.clone()))
+                            .map_err(|e| e.to_string())?;
+                        let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()
+                            .map_err(|e| e.to_string())?;
+                        pending_code::encrypt_new_drive(
+                            &root.path(),
+                            &bucket,
+                            &azlin_keyring(Asking::User),
+                            &session.drive_id,
+                            kdf,
+                        )
+                    })();
+                    made.map(|code| (session, Some(code)))
                 }
                 #[cfg(not(feature = "encryption"))]
                 {
+                    let _ = &root;
                     Ok((session, None))
                 }
             });
             IoDone::DriveCreated(created)
+        }
+        IoJob::ClearPendingCode { root } => {
+            IoDone::PendingCodeCleared(pending_code::clear(&root.path()))
         }
         IoJob::DkimKey => IoDone::DkimKey(dkim::generate_key()),
         IoJob::DkimCheck {
@@ -2176,8 +2224,25 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
             ui_main::azlin_action_done(s, &mut info, app, action, result)
         }
         IoDone::DriveCreated(result) => {
+            // The page has the code once it is told: the marker that said it might not goes.
+            let shown = matches!(&result, Ok((_, Some(_))));
             ui_account::drive_created(s, result);
+            if shown {
+                spawn_io(
+                    &mut info,
+                    app,
+                    IoJob::ClearPendingCode {
+                        root: s.root.clone(),
+                    },
+                );
+            }
             Update::RefreshDom
+        }
+        IoDone::PendingCodeCleared(result) => {
+            if let Err(why) = result {
+                println!("AZMAIL_PENDING_CODE_KEPT {why}");
+            }
+            Update::DoNothing
         }
         IoDone::DkimKey(result) => {
             ui_account::dkim_key_made(s, result);

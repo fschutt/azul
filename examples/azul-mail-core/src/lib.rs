@@ -17,6 +17,8 @@
 //!   is encrypted (feature `encryption`), its incoming-mail drops filed into it.
 //! - [`message`]: MIME parsing for the index lines and the reading pane's model.
 //! - [`mutf7`]: IMAP's modified UTF-7 mailbox names.
+//! - [`pending_code`]: the marker of a new drive whose recovery code may not have been shown (the
+//!   order of "Create a new drive": record first, publish after).
 //! - [`send`]: sending: the outbox, the route, DKIM, the per-domain policy, the Sent folder.
 //! - [`store`]: the mail store's files (`mail/<folder>/<yyyy>/<mm>/<uid>.eml`, `index.jsonl`).
 //! - [`submit`]: signed-in submission to an account's own outgoing server.
@@ -34,6 +36,7 @@ pub mod mail_drive;
 pub mod message;
 pub mod mutf7;
 pub mod oauth;
+pub mod pending_code;
 pub mod send;
 pub mod store;
 pub mod submit;
