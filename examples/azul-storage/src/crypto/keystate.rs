@@ -146,6 +146,10 @@ enum Why {
     /// The keyring holds the new key of a rotation and not the drive key it replaces: its copy of the
     /// new key may be the only one.
     OldKeyGone,
+    /// This device's own journal names a rotation, and the key it replaces is not in the keyring
+    /// (`drive-key-previous`): the rotation cannot go on from here, and nothing else can finish it for
+    /// this device - the recovery code is the way back in.
+    CannotResume,
     /// A fact the state rests on could not be read: what, and why.
     Unreadable { what: &'static str, why: String },
     /// The caller did not read a fact the state rests on.
@@ -409,16 +413,24 @@ fn if_the_index_opens(e: &Evidence<'_>, then: KeyState) -> KeyState {
 
 /// What whether the drive is encrypted is asked as.
 const ENCRYPTED: &str = "whether the drive is encrypted";
+/// What the key under `drive-key` is asked as.
+const DRIVE_KEY: &str = "the drive key";
+/// What the key under `drive-key-next` is asked as.
+const NEW_KEY: &str = "the new key of a key change";
+/// What the key under `drive-key-previous` is asked as.
+const PREVIOUS_KEY: &str = "the key a key change replaces";
+/// What the key under `drive-key-planned` is asked as.
+const PLANNED_KEY: &str = "the key kept for the drive's setup";
+/// What the key change's journal is asked as.
+const JOURNAL: &str = "the key change's journal";
 
 /// The state of a device that holds no key and keeps none for a rotation.
 fn without_a_key(e: &Evidence<'_>) -> KeyState {
     match &e.keyring.planned_key {
         Read::Found(_) => return KeyState::Planned,
-        Read::Failed(why) => return unreadable("the key kept for the drive's setup", why),
+        Read::Failed(why) => return unreadable(PLANNED_KEY, why),
         // Not looked at: "no planned key" would make a drive whose setup is unfinished a new one.
-        Read::Unasked => {
-            return KeyState::Unknown(Why::NotAsked("the key kept for the drive's setup"))
-        }
+        Read::Unasked => return KeyState::Unknown(Why::NotAsked(PLANNED_KEY)),
         Read::Absent => {}
     }
     match &e.bucket.encrypted {
@@ -448,11 +460,11 @@ fn without_a_key(e: &Evidence<'_>) -> KeyState {
 #[must_use]
 fn observe(e: &Evidence<'_>) -> KeyState {
     let k = &e.keyring;
-    let drive = match entry(&k.drive_key, "the drive key") {
+    let drive = match entry(&k.drive_key, DRIVE_KEY) {
         Ok(id) => id,
         Err(state) => return state,
     };
-    let next = match entry(&k.next_key, "the new key of a key change") {
+    let next = match entry(&k.next_key, NEW_KEY) {
         Ok(id) => id,
         Err(state) => return state,
     };
@@ -463,8 +475,19 @@ fn observe(e: &Evidence<'_>) -> KeyState {
         };
     };
     match &e.bucket.journal {
-        Read::Failed(why) => return unreadable("the key change's journal", why),
-        Read::Found(Journal::Own) => return KeyState::Rotating(Start::Resume),
+        Read::Failed(why) => return unreadable(JOURNAL, why),
+        // A journal of this device's own is a rotation it resumes - from `drive-key-previous`, which
+        // `rotate` reads for the key it replaces: without it the journal is this device's and the rotation
+        // cannot go on from here (X-DELTA-STRUCT-KEYSTATE-4). With the new key already the drive key it is
+        // a finished rotation whose cleanup took the previous key first and left the journal.
+        Read::Found(Journal::Own) => {
+            return match entry(&k.previous_key, PREVIOUS_KEY) {
+                Err(state) => state,
+                Ok(Some(_)) => KeyState::Rotating(Start::Resume),
+                Ok(None) if drive == Some(next) => if_the_index_opens(e, KeyState::Active),
+                Ok(None) => KeyState::Torn(Why::CannotResume),
+            };
+        }
         Read::Found(Journal::NotOwn) | Read::Absent | Read::Unasked => {}
     }
     match drive {
@@ -474,13 +497,13 @@ fn observe(e: &Evidence<'_>) -> KeyState {
         // just before the new key's own entry, so: still there - the key change went past that step
         // and is not over (the recovery wrap seals the old key until its step), and the journal says
         // whose it is; gone - a finished key change that left its entry behind (X-DELTA-STRUCT-KEYSTATE-1).
-        Some(_) => match entry(&k.previous_key, "the key a key change replaces") {
+        Some(_) => match entry(&k.previous_key, PREVIOUS_KEY) {
             Err(state) => state,
             Ok(None) => if_the_index_opens(e, KeyState::Active),
             Ok(Some(_)) => match &e.bucket.journal {
                 // Not looked at: this is a rotation of this device or a finished one, and the journal
                 // is what tells (nothing is erased on a guess).
-                Read::Unasked => KeyState::Unknown(Why::NotAsked("the key change's journal")),
+                Read::Unasked => KeyState::Unknown(Why::NotAsked(JOURNAL)),
                 _ => if_the_index_opens(e, KeyState::Rotating(Start::Again)),
             },
         },
@@ -627,6 +650,8 @@ pub enum Refusal {
     OpensNothing,
     /// The new key of a rotation is kept and the drive key it replaces is not.
     OldKeyGone,
+    /// A rotation of this device cannot go on: the key it replaces is not in the keyring.
+    CannotResume,
     /// The keyring takes no key material: the sentence of its protection.
     KeyringKeepsNoKeys(&'static str),
     /// The recovery code was never typed back right (or its stamp is from the future).
@@ -649,6 +674,7 @@ impl Refusal {
         match why {
             Why::OpensNothing => Refusal::OpensNothing,
             Why::OldKeyGone => Refusal::OldKeyGone,
+            Why::CannotResume => Refusal::CannotResume,
             Why::Unreadable { what, why } => Refusal::Unreadable {
                 what,
                 why: why.clone(),
@@ -695,6 +721,11 @@ impl Refusal {
                  code does not, so it waits until the rotation is finished"
             ),
             Refusal::OpensNothing => rotation::OPENS_NOTHING.to_string(),
+            Refusal::CannotResume => format!(
+                "the key change of \"{drive}\" that this device began cannot go on from here: the key it \
+                 replaces is not in the keyring any more, so finish it on the device that holds that key, \
+                 or unlock the drive with its recovery code"
+            ),
             Refusal::OldKeyGone => format!(
                 "this device keeps the new key of a key change of \"{drive}\" and not the drive key it \
                  replaces: finish the change on the device that started it, or unlock the drive with \
@@ -1198,9 +1229,19 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         // computer is a fresh one or a locked one, and both go on the removal's own conditions. (The
         // removal reads no bucket: a drive that cannot be reached is removed all the same.)
         Op::Remove if *why == Why::NotAsked(ENCRYPTED) => removal(e),
-        // A recovery does not rest on whether the bucket lists key files either: a device with no key
-        // (a new one, a locked one) may take one, and it is asked before the bucket is looked at.
-        Op::Recover if *why == Why::NotAsked(ENCRYPTED) => permit_keeping(op, e, Way::Plain),
+        // A recovery is judged on the entry it writes - the drive key - and nothing else: whether the
+        // bucket lists key files is not asked before it runs, and a key change's, a setup's or a journal's
+        // entry that cannot be read does not lock out the user who has the recovery code, which is the way
+        // back in (X-DELTA-STRUCT-KEYSTATE-4). A failed read of the drive key itself refuses.
+        Op::Recover
+            if matches!(
+                why,
+                Why::Unreadable { what, .. } | Why::NotAsked(what)
+                    if matches!(*what, ENCRYPTED | NEW_KEY | PREVIOUS_KEY | PLANNED_KEY)
+            ) =>
+        {
+            permit_keeping(op, e, Way::Plain)
+        }
         Op::Setup
         | Op::Enroll
         | Op::Rotate

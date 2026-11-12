@@ -33,6 +33,7 @@ fn why_refuses(why: &Why) -> Refusal {
     match why {
         Why::OpensNothing => Refusal::OpensNothing,
         Why::OldKeyGone => Refusal::OldKeyGone,
+        Why::CannotResume => Refusal::CannotResume,
         Why::Unreadable { what, why } => Refusal::Unreadable {
             what,
             why: why.clone(),
@@ -173,10 +174,22 @@ fn spec(state: &KeyState, op: Op) -> Cell {
         (S::Unknown(_), Op::Lockdown) => Cell::Permit(Way::Plain, NO_STAYS),
         // a removal does not rest on whether the bucket lists key files (it reads no bucket)
         (S::Unknown(Why::NotAsked("whether the drive is encrypted")), Op::Remove) => Cell::Removal,
-        // nor does a recovery: a device with no key may take one (the keyring's protection is asked)
-        (S::Unknown(Why::NotAsked("whether the drive is encrypted")), Op::Recover) => {
-            Cell::Permit(Way::Plain, NO_STAYS)
-        }
+        // a recovery is judged on the entry it writes, the drive key: a device with no key may take one
+        // (the keyring's protection is asked), and a key change's, a setup's or a journal's entry that
+        // cannot be read does not lock out the user who holds the recovery code
+        (
+            S::Unknown(
+                Why::NotAsked("whether the drive is encrypted")
+                | Why::Unreadable {
+                    what:
+                        "the new key of a key change"
+                        | "the key a key change replaces"
+                        | "the key kept for the drive's setup",
+                    ..
+                },
+            ),
+            Op::Recover,
+        ) => Cell::Permit(Way::Plain, NO_STAYS),
         (
             S::Unknown(why),
             Op::Setup
@@ -206,6 +219,7 @@ fn states() -> Vec<KeyState> {
         KeyState::Rotating(Start::Again),
         KeyState::Torn(Why::OpensNothing),
         KeyState::Torn(Why::OldKeyGone),
+        KeyState::Torn(Why::CannotResume),
         KeyState::Locked,
         KeyState::Unknown(Why::Unreadable {
             what: "the drive key",
@@ -213,6 +227,10 @@ fn states() -> Vec<KeyState> {
         }),
         KeyState::Unknown(Why::NotAsked("the drive key")),
         KeyState::Unknown(Why::NotAsked("whether the drive is encrypted")),
+        KeyState::Unknown(Why::Unreadable {
+            what: "the new key of a key change",
+            why: String::from("the keyring refused"),
+        }),
     ]
 }
 
@@ -819,7 +837,7 @@ fn a_drive_key_and_nothing_else_is_active() {
 fn a_new_key_that_is_not_the_drive_key_is_a_rotation_and_a_journal_nobody_looked_at_is_not_the_devices(
 ) {
     // The journal asked and the device's own: resume (and skip the lockdown it has had).
-    let mut own = keyring(Some(1), Some(2), None);
+    let mut own = keyring_of_a_key_change(1, 2, Some(1));
     own.bucket.journal = Read::Found(Journal::Own);
     assert_eq!(observe(&own), KeyState::Rotating(Start::Resume));
 
@@ -843,12 +861,87 @@ fn a_new_key_that_is_not_the_drive_key_is_a_rotation_and_a_journal_nobody_looked
 
 #[test]
 fn an_own_journal_resumes_whatever_the_drive_key_and_the_index_say() {
-    // `rotation::resumable` asks nothing of the drive key; `start` returns before it reads the index.
+    // `rotation::resumable` asks nothing of the drive key; `start` returns before it reads the index. It
+    // needs the key it replaces, which `rotate` reads from `drive-key-previous`.
     for drive in [None, Some(1)] {
         let mut e = keyring(drive, Some(2), None);
+        e.keyring.previous_key = Read::Found(id(1));
         e.bucket.journal = Read::Found(Journal::Own);
         e.bucket.index_opens = Read::Found(false);
         assert_eq!(observe(&e), KeyState::Rotating(Start::Resume), "{drive:?}");
+    }
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-4: a journal of this device's own whose rotation cannot go on - `rotate` reads the
+/// key it replaces from `drive-key-previous` and says "missing old" when it is gone - is no rotation to
+/// resume: the device is torn, the recovery code is the way back in, and every other operation says why. A
+/// journal left beside a new key that is already the drive key (the cleanup took the previous key first) is a
+/// finished rotation.
+#[test]
+fn x_delta_struct_keystate_4_an_own_journal_without_the_key_it_replaces_is_a_rotation_that_cannot_go_on(
+) {
+    for drive in [None, Some(1)] {
+        let mut e = keyring(drive, Some(2), None);
+        e.bucket.journal = Read::Found(Journal::Own);
+        assert_eq!(observe(&e), KeyState::Torn(Why::CannotResume), "{drive:?}");
+    }
+    let mut finished = keyring(Some(2), Some(2), None);
+    finished.bucket.journal = Read::Found(Journal::Own);
+    assert_eq!(
+        observe(&finished),
+        KeyState::Active,
+        "the journal of a rotation that ended is left over"
+    );
+    // the sentence says what the user can do
+    match judge(
+        &KeyState::Torn(Why::CannotResume),
+        Op::Rotate,
+        &everything_asked(),
+    ) {
+        Verdict::Refuse(reason) => {
+            assert_eq!(reason.kind, Refusal::CannotResume);
+            assert!(
+                reason.sentence.contains("recovery code"),
+                "{}",
+                reason.sentence
+            );
+        }
+        Verdict::Permit(_) => panic!("a rotation that cannot go on was permitted"),
+    }
+    // ... and the way back in is open
+    assert!(matches!(
+        judge(
+            &KeyState::Torn(Why::CannotResume),
+            Op::Recover,
+            &everything_asked()
+        ),
+        Verdict::Permit(_)
+    ));
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-4: a recovery is judged on the entry it writes. A failed read of the key change's,
+/// the setup's or the previous key's entry does not refuse it - the user who holds the code must not be
+/// locked out by an unrelated damaged entry - and a failed read of the drive key does.
+#[test]
+fn x_delta_struct_keystate_4_a_recovery_is_judged_on_the_entry_it_writes() {
+    let mut e = keyring(None, None, None);
+    e.keyring.planned_key = Read::Failed(String::from("damaged"));
+    assert!(matches!(
+        judge(&observe(&e), Op::Recover, &e),
+        Verdict::Permit(_)
+    ));
+    let mut e = keyring(Some(1), None, None);
+    e.keyring.next_key = Read::Failed(String::from("damaged"));
+    assert!(matches!(
+        judge(&observe(&e), Op::Recover, &e),
+        Verdict::Permit(_)
+    ));
+    // the drive key's own entry cannot be read: refused, and so is every other operation
+    let mut e = keyring(None, None, None);
+    e.keyring.drive_key = Read::Failed(String::from("damaged"));
+    match judge(&observe(&e), Op::Recover, &e) {
+        Verdict::Refuse(reason) => assert!(matches!(reason.kind, Refusal::Unreadable { .. })),
+        Verdict::Permit(_) => panic!("a recovery over a drive key that cannot be read"),
     }
 }
 
