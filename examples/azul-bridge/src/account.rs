@@ -214,6 +214,16 @@ impl Drive for AccountDrive {
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         self.with_bucket(|b| b.get_range(key, range))
     }
+    // The bucket's `If-Match` on a ranged GET: a copy that reads one object in many requests asks it
+    // of every one (X-DELTA-SYNC2-3).
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        self.with_bucket(|b| b.get_range_if(key, range, condition))
+    }
     // The bucket's own guard stands: a drive that wraps another forwards the limit, so the
     // transport refuses an answer past it before it is held in memory.
     fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {

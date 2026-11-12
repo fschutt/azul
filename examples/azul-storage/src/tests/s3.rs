@@ -290,6 +290,88 @@ fn get_range_sends_a_signed_range_header() {
         .contains("SignedHeaders=host;range;x-amz-content-sha256;x-amz-date,"));
 }
 
+/// X-DELTA-SYNC2-3: every range of a copy that reads one object in many requests asks `If-Match`
+/// with the tag it began with, signed with the rest (a header the signature does not cover is a
+/// request the service may refuse).
+#[test]
+fn x_delta_sync2_3_a_pinned_ranged_get_sends_if_match_and_signs_it() {
+    let fake = Fake::default();
+    fake.answer(
+        206,
+        &[("Content-Range", "bytes 0-9/100"), ("ETag", "\"abc123\"")],
+        "0123456789",
+    );
+    let bytes = local_drive(&fake)
+        .get_range_if(
+            "big.bin",
+            ByteRange::new(0, Some(9)),
+            &Precondition::Matches(String::from("abc123")),
+        )
+        .unwrap();
+    assert_eq!(bytes, b"0123456789");
+    let call = fake.last();
+    assert_eq!(header(&call, "range"), Some("bytes=0-9"));
+    assert_eq!(header(&call, "if-match"), Some("\"abc123\""));
+    assert!(
+        header(&call, "authorization")
+            .unwrap()
+            .contains("SignedHeaders=host;if-match;range;x-amz-content-sha256;x-amz-date,"),
+        "{call:?}"
+    );
+}
+
+/// A 412 is the conflict: the object is another version than the one the copy began with, and no
+/// byte of it is returned.
+#[test]
+fn x_delta_sync2_3_a_pinned_ranged_get_of_another_version_is_a_conflict() {
+    let fake = Fake::default();
+    fake.answer(412, &[], "");
+    let error = local_drive(&fake)
+        .get_range_if(
+            "big.bin",
+            ByteRange::new(0, Some(9)),
+            &Precondition::Matches(String::from("abc123")),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, DriveError::Conflict { ref key } if key == "big.bin"),
+        "{error:?}"
+    );
+}
+
+/// A service that does not know `If-Match` serves what is there and names it: this side asks the
+/// question again, and a tag that is not the one asked for is the same conflict. The bytes of
+/// another version are never handed on.
+#[test]
+fn x_delta_sync2_3_a_service_that_ignores_if_match_is_held_to_the_tag_it_names() {
+    let fake = Fake::default();
+    fake.answer(
+        206,
+        &[("Content-Range", "bytes 0-9/100"), ("ETag", "\"other\"")],
+        "0123456789",
+    );
+    let error = local_drive(&fake)
+        .get_range_if(
+            "big.bin",
+            ByteRange::new(0, Some(9)),
+            &Precondition::Matches(String::from("abc123")),
+        )
+        .unwrap_err();
+    assert!(matches!(error, DriveError::Conflict { .. }), "{error:?}");
+}
+
+/// "Nothing is there yet" says nothing about the bytes of an object that is read: refused before
+/// any request.
+#[test]
+fn x_delta_sync2_3_a_ranged_get_cannot_ask_for_an_absent_object() {
+    let fake = Fake::default();
+    let error = local_drive(&fake)
+        .get_range_if("big.bin", ByteRange::new(0, Some(9)), &Precondition::Absent)
+        .unwrap_err();
+    assert!(matches!(error, DriveError::Unsupported(_)), "{error:?}");
+    assert!(fake.calls().is_empty(), "no request was sent");
+}
+
 #[test]
 fn a_server_that_ignores_the_range_still_yields_just_the_range() {
     let fake = Fake::default();

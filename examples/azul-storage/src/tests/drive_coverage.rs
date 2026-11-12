@@ -20,6 +20,7 @@
 
 /// The methods `LocalDrive` leaves to the trait's default, each with why that is right.
 const LOCAL_DEFAULTS: &[(&str, &str)] = &[
+    ("get_range_if", "refused as unsupported: a folder on disk is copied by its path (a file copy), never by ranges of one request each, and keeps no versions to ask (see conditional_writes)"),
     ("resume_folder", "a folder on disk has no multipart state: None"),
     ("put_file", "streams the file through LocalDrive::put_from"),
     ("put_file_checked", "opens the checked file once, streams it through LocalDrive::put_from"),

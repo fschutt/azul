@@ -74,6 +74,7 @@ use crate::{
     },
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
+    same_etag,
     scratch::{Scratch, ScratchFile},
     time::now_unix,
     trust::{EncState, Op, Via, Why},
@@ -809,6 +810,14 @@ impl Drive for AutoEncrypted {
     }
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         self.gate(Op::Read)?.get_range(key, range)
+    }
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        self.gate(Op::Read)?.get_range_if(key, range, condition)
     }
     fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
         self.gate(Op::Read)?.get_limited(key, limit)
@@ -1847,6 +1856,52 @@ impl<D: Drive> EncryptedDrive<D> {
         })
     }
 
+    /// The header and the tail of the object (cached), then one ranged GET of the segments covering
+    /// the range - of the object the name names now, and of this version only when `pin` is one: the
+    /// object id as [`Drive::head`] shows it ([`DriveError::Conflict`] for another, before any byte of
+    /// it is read).
+    fn ranged(
+        &self,
+        key: &str,
+        range: ByteRange,
+        pin: Option<&str>,
+    ) -> Result<Vec<u8>, DriveError> {
+        let entry = self.entry(key)?;
+        let Some(object) = &entry.object else {
+            return Err(DriveError::NotFound {
+                key: key.to_string(),
+            });
+        };
+        if let Some(tag) = pin {
+            if !same_etag(info_of(key.to_string(), &entry).etag.as_deref(), tag) {
+                return Err(DriveError::Conflict {
+                    key: key.to_string(),
+                });
+            }
+        }
+        let out_of_range = || DriveError::InvalidRange {
+            key: key.to_string(),
+        };
+        if range.start >= entry.size {
+            return Err(out_of_range());
+        }
+        let end = range
+            .end
+            .map_or(entry.size - 1, |end| end.min(entry.size - 1));
+        if end < range.start {
+            return Err(out_of_range());
+        }
+        if let Some(packed) = &object.packed {
+            // A packed file is small: it is read whole (one ranged GET) and cut here.
+            let plain = zeroize::Zeroizing::new(self.read_packed(key, &entry, object, packed)?);
+            return Ok(plain[range.start as usize..=end as usize].to_vec());
+        }
+        let open = self.opened(key, object)?;
+        let source = DriveObject::new(&self.inner, &object.id);
+        open.read_range(&source, range.start, end)
+            .map_err(|e| read_error(e, key))
+    }
+
     /// The object of the file `path` (a folder marker has none: not found as a file).
     fn object_of(&self, path: &str) -> Result<StoredObject, DriveError> {
         self.entry(path)?.object.ok_or_else(|| DriveError::NotFound {
@@ -2792,31 +2847,25 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
     /// The header and the tail of the object (cached), then one ranged GET of the segments
     /// covering the range.
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        let entry = self.entry(key)?;
-        let Some(object) = &entry.object else {
-            return Err(DriveError::NotFound {
-                key: key.to_string(),
-            });
-        };
-        let out_of_range = || DriveError::InvalidRange {
-            key: key.to_string(),
-        };
-        if range.start >= entry.size {
-            return Err(out_of_range());
+        self.ranged(key, range, None)
+    }
+
+    /// [`Drive::get_range`] of the object the name still names: the index resolves the name on every
+    /// call, so each range of a long read comes from whatever object it names THEN. A call that asks
+    /// for a version ([`Precondition::Matches`]: the object id as [`Drive::head`] shows it) is
+    /// [`DriveError::Conflict`] when the name names another object now (X-DELTA-SYNC2-3).
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        match condition {
+            Precondition::Matches(tag) => self.ranged(key, range, Some(tag)),
+            Precondition::Absent => Err(DriveError::Unsupported(format!(
+                "reading a range of \"{key}\" only if it is absent"
+            ))),
         }
-        let end = range.end.map_or(entry.size - 1, |end| end.min(entry.size - 1));
-        if end < range.start {
-            return Err(out_of_range());
-        }
-        if let Some(packed) = &object.packed {
-            // A packed file is small: it is read whole (one ranged GET) and cut here.
-            let plain = zeroize::Zeroizing::new(self.read_packed(key, &entry, object, packed)?);
-            return Ok(plain[range.start as usize..=end as usize].to_vec());
-        }
-        let open = self.opened(key, object)?;
-        let source = DriveObject::new(&self.inner, &object.id);
-        open.read_range(&source, range.start, end)
-            .map_err(|e| read_error(e, key))
     }
 
     /// A folder marker for a key ending in `/` and no bytes (as S3 consoles make them);

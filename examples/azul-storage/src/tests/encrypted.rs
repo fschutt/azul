@@ -256,6 +256,45 @@ fn a_ranged_read_fetches_the_header_the_tail_and_only_the_covering_segments() {
     ));
 }
 
+/// X-DELTA-SYNC2-3: the index resolves a name on every call, so each range of a long read comes from
+/// whatever object the name names THEN. A range asked for a version (the object id `head` showed) is
+/// read while the name still names that object, and is a conflict - no byte of the other object read -
+/// once the name names another.
+#[test]
+fn x_delta_sync2_3_a_pinned_range_is_of_the_object_head_showed_and_of_no_other() {
+    let drive = drive_with(small_segments());
+    let first = noise(3 * SMALL as usize + 50);
+    drive.put("big.bin", &first).unwrap();
+    let tag = drive.head("big.bin").unwrap().etag.expect("a tag");
+    let condition = Precondition::Matches(tag.clone());
+    let range = ByteRange::new(10, Some(99));
+    assert_eq!(
+        drive.get_range_if("big.bin", range, &condition).unwrap(),
+        &first[10..=99],
+        "the version it asked for"
+    );
+
+    // Another device saves the name: another object, another tag.
+    let second = noise(first.len());
+    drive.put("big.bin", &second).unwrap();
+    assert_ne!(drive.head("big.bin").unwrap().etag, Some(tag));
+    let error = drive
+        .get_range_if("big.bin", range, &condition)
+        .unwrap_err();
+    assert!(
+        matches!(error, DriveError::Conflict { ref key } if key == "big.bin"),
+        "{error:?}"
+    );
+    // The unpinned read is whatever the name names now - which is what made the copy a splice.
+    assert_eq!(drive.get_range("big.bin", range).unwrap(), &second[10..=99]);
+    // A name that is gone is not found, not a conflict nobody can retry.
+    drive.delete("big.bin").unwrap();
+    assert!(matches!(
+        drive.get_range_if("big.bin", range, &condition),
+        Err(DriveError::NotFound { .. })
+    ));
+}
+
 #[test]
 fn listing_and_stat_come_from_the_index_with_the_plaintext_sizes() {
     let drive = drive_with(small_segments());

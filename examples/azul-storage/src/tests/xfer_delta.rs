@@ -1011,9 +1011,24 @@ struct Swapping {
     /// The drive names no tag and no date of an object (a database, a service that gives neither):
     /// all a look can say is its size.
     tagless: std::sync::atomic::AtomicBool,
+    /// The drive reads a range only while the object is the version asked for, as a bucket does with
+    /// `If-Match` ([`Drive::get_range_if`]); off, it answers `Unsupported` and the copy reads as it is.
+    pins: std::sync::atomic::AtomicBool,
+    /// Put in place again, with the version it had - an object replaced and put back.
+    put_back: Mutex<Option<PutBack>>,
+    /// The ranged reads that asked for a version.
+    pinned: AtomicU32,
     ranged: AtomicU32,
     /// The streams that were read to their end and stored.
     completed: AtomicU32,
+}
+
+/// An object put back with the version it had, after this many ranged reads.
+struct PutBack {
+    after: u32,
+    key: String,
+    bytes: Vec<u8>,
+    version: u64,
 }
 
 impl Swapping {
@@ -1027,6 +1042,13 @@ impl Swapping {
 
     fn write(&self, key: &str, bytes: &[u8]) {
         let version = self.clock.fetch_add(1, Ordering::SeqCst) + 1;
+        self.files
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), (bytes.to_vec(), version));
+    }
+
+    fn write_as(&self, key: &str, bytes: &[u8], version: u64) {
         self.files
             .lock()
             .unwrap()
@@ -1069,13 +1091,45 @@ impl Drive for Swapping {
             .end
             .map_or(bytes.len() - 1, |end| (end as usize).min(bytes.len() - 1));
         let part = bytes[range.start as usize..=end].to_vec();
-        if self.ranged.fetch_add(1, Ordering::SeqCst) == 0 {
+        let nth = self.ranged.fetch_add(1, Ordering::SeqCst);
+        if nth == 0 {
             let swap = self.then.lock().unwrap().take();
             if let Some((then_key, then_bytes)) = swap {
                 self.write(&then_key, &then_bytes);
             }
         }
+        let mut back = self.put_back.lock().unwrap();
+        if back.as_ref().is_some_and(|back| nth + 1 == back.after) {
+            if let Some(back) = back.take() {
+                self.write_as(&back.key, &back.bytes, back.version);
+            }
+        }
         Ok(part)
+    }
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        if !self.pins.load(Ordering::SeqCst) {
+            return Err(DriveError::Unsupported(String::from("no If-Match")));
+        }
+        let Precondition::Matches(tag) = condition else {
+            return Err(DriveError::Unsupported(String::from("absent")));
+        };
+        self.pinned.fetch_add(1, Ordering::SeqCst);
+        let version = self
+            .files
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|(_, version)| *version)
+            .ok_or_else(|| DriveError::NotFound { key: key.into() })?;
+        if *tag != format!("v{version}") {
+            return Err(DriveError::Conflict { key: key.into() });
+        }
+        self.get_range(key, range)
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
         self.write(key, bytes);
@@ -1303,6 +1357,79 @@ fn x_delta_sync2_3_a_stop_is_heard_in_the_second_reading_of_a_drive_that_names_n
         3,
         "heard before the fourth range, not at the end of the reading"
     );
+}
+
+/// X-DELTA-SYNC2-3, the object that is replaced and put back. A look at the end finds the tag the copy
+/// began with, and passes it - but the range read while the other version stood there is the other
+/// version's. Every range now asks for the version the copy began with where the drive can ask
+/// ([`Drive::get_range_if`]): the second range meets the other version and the copy is Conflict, the
+/// upload not completed, nothing under the final name. RED on the first fix: the object was put back
+/// before the look at the end, the report says done and the target holds the splice.
+#[test]
+fn x_delta_sync2_3_an_object_replaced_and_put_back_while_it_streams_is_no_finished_copy() {
+    let (v1, v2) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    source.pins.store(true, Ordering::SeqCst);
+    // The other version stands from after the first range until after the second is read.
+    *source.then.lock().unwrap() = Some((String::from("big.bin"), v2));
+    *source.put_back.lock().unwrap() = Some(PutBack {
+        after: 2,
+        key: String::from("big.bin"),
+        bytes: v1.clone(),
+        version: 1,
+    });
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, false);
+    assert!(conflict(&report, "big.bin"), "{report:?}");
+    assert_eq!(report.done, 0, "{report:?}");
+    assert!(
+        target.get("big.bin").is_err(),
+        "nothing - whole or torn - stands under the final name"
+    );
+    assert_eq!(target.completed.load(Ordering::SeqCst), 0);
+}
+
+/// The ordinary case: every range of the copy asked for the version, and the object arrived whole.
+#[test]
+fn x_delta_sync2_3_every_range_of_an_unchanged_big_file_asks_for_its_version() {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    source.pins.store(true, Ordering::SeqCst);
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, true);
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(report.done, 1);
+    assert_eq!(target.get("big.bin").unwrap(), v1);
+    assert_eq!(
+        source.pinned.load(Ordering::SeqCst),
+        2,
+        "one pinned read per range"
+    );
+    assert_eq!(
+        source.ranged.load(Ordering::SeqCst),
+        2,
+        "and no read besides"
+    );
+}
+
+/// A drive that cannot ask is read as it is - once it said so, it is not asked again - and the look
+/// at the end still refuses a replacement that stays. What it cannot see is the replacement that is
+/// put back before the look: that is the named limit of a drive that cannot pin.
+#[test]
+fn x_delta_sync2_3_a_drive_that_cannot_pin_is_read_as_it_is_and_the_look_at_the_end_refuses_a_replacement(
+) {
+    let (v1, v2) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    *source.then.lock().unwrap() = Some((String::from("big.bin"), v2));
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, true);
+    assert!(conflict(&report, "big.bin"), "{report:?}");
+    assert!(target.get("big.bin").is_err());
+    assert_eq!(source.pinned.load(Ordering::SeqCst), 0);
+    assert_eq!(source.ranged.load(Ordering::SeqCst), 2, "two plain reads");
 }
 
 // ==== X-DELTA-SYNC2-9: a big file replaces a name inside its own bucket only through the condition ====

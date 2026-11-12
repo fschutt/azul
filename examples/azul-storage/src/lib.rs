@@ -677,6 +677,26 @@ pub trait Drive: Send + Sync {
     /// Part of the object.
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError>;
 
+    /// [`Drive::get_range`] of the object only while it is still the version `condition` names
+    /// ([`Precondition::Matches`], the entity tag as [`ObjectInfo::etag`] shows it: S3 `If-Match` on
+    /// the ranged GET, the object an encrypted drive's index names): [`DriveError::Conflict`], no
+    /// byte read, when the object is another version now. What a copy that reads one object in many
+    /// requests asks of every one of them, so that the bytes it puts together are of ONE version -
+    /// not a version that was replaced and put back between two of them (X-DELTA-SYNC2-3).
+    /// [`DriveError::Unsupported`] from a drive that cannot ask (the default); the caller then reads
+    /// with [`Drive::get_range`] and looks at the object when it is done.
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        let _ = (range, condition);
+        Err(DriveError::Unsupported(format!(
+            "reading a range of \"{key}\" only if it is unchanged"
+        )))
+    }
+
     /// The whole object when it is at most `limit.max` bytes; a bigger one is refused with an
     /// error that names the limit, and a drive that can says so before it reads it: a bucket
     /// gives the limit to the transport, which refuses an answer past it; a folder on disk looks
@@ -980,6 +1000,14 @@ macro_rules! forward_drive {
             fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
                 (**self).get_range(key, range)
             }
+            fn get_range_if(
+                &self,
+                key: &str,
+                range: ByteRange,
+                condition: &Precondition,
+            ) -> Result<Vec<u8>, DriveError> {
+                (**self).get_range_if(key, range, condition)
+            }
             fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
                 (**self).get_limited(key, limit)
             }
@@ -1116,6 +1144,7 @@ macro_rules! drive_methods {
             (send, required) fn list(request: &$crate::ListRequest) -> ::core::result::Result<$crate::ListPage, $crate::DriveError>;
             (send, required) fn get(key: &str) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::DriveError>;
             (send, required) fn get_range(key: &str, range: $crate::ByteRange) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::DriveError>;
+            (send, provided) fn get_range_if(key: &str, range: $crate::ByteRange, condition: &$crate::Precondition) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::DriveError>;
             (send, provided) fn get_limited(key: &str, limit: $crate::Limit) -> ::core::result::Result<::std::vec::Vec<u8>, $crate::DriveError>;
             (send, required) fn put(key: &str, bytes: &[u8]) -> ::core::result::Result<(), $crate::DriveError>;
             (send, required) fn delete(key: &str) -> ::core::result::Result<(), $crate::DriveError>;

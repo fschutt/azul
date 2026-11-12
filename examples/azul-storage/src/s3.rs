@@ -1435,6 +1435,59 @@ impl S3Drive {
             idempotency,
         )
     }
+
+    /// One ranged GET, of the version `pin` when there is one (X-DELTA-SYNC2-3): the request asks
+    /// `If-Match` and the answer is looked at once more - the tag it names must be the one asked for.
+    fn ranged(
+        &self,
+        key: &str,
+        range: ByteRange,
+        pin: Option<&str>,
+    ) -> Result<Vec<u8>, DriveError> {
+        let mut headers = vec![(String::from("range"), range.header_value())];
+        if let Some(tag) = pin {
+            headers.push(condition_header(&Precondition::Matches(tag.to_string())));
+        }
+        let reply = self.object_call(
+            Method::Get,
+            key,
+            headers,
+            Vec::new(),
+            CallLimits::range(range),
+            Idempotency::Safe,
+        )?;
+        let conflict = || DriveError::Conflict {
+            key: key.to_string(),
+        };
+        if pin.is_some() && reply.status == 412 {
+            return Err(conflict());
+        }
+        if let Some(tag) = pin {
+            // A service that does not know `If-Match` serves whatever is there; it names it.
+            let served = reply
+                .header("etag")
+                .map(xml::strip_quotes)
+                .filter(|etag| !etag.is_empty());
+            if reply.is_success() && served.is_some_and(|served| !same_etag(Some(&served), tag)) {
+                return Err(conflict());
+            }
+        }
+        match reply.status {
+            206 => Ok(reply.body),
+            // A server that ignores `Range` sends the whole object: cut the range out.
+            200 => {
+                let len = reply.body.len() as u64;
+                if range.start >= len {
+                    return Err(DriveError::InvalidRange {
+                        key: key.to_string(),
+                    });
+                }
+                let end = range.end.map_or(len - 1, |end| end.min(len - 1));
+                Ok(reply.body[range.start as usize..=end as usize].to_vec())
+            }
+            _ => Err(failure(&reply, Some(key))),
+        }
+    }
 }
 
 impl Drive for S3Drive {
@@ -1513,28 +1566,24 @@ impl Drive for S3Drive {
     }
 
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        let reply = self.object_call(
-            Method::Get,
-            key,
-            vec![(String::from("range"), range.header_value())],
-            Vec::new(),
-            CallLimits::range(range),
-            Idempotency::Safe,
-        )?;
-        match reply.status {
-            206 => Ok(reply.body),
-            // A server that ignores `Range` sends the whole object: cut the range out.
-            200 => {
-                let len = reply.body.len() as u64;
-                if range.start >= len {
-                    return Err(DriveError::InvalidRange {
-                        key: key.to_string(),
-                    });
-                }
-                let end = range.end.map_or(len - 1, |end| end.min(len - 1));
-                Ok(reply.body[range.start as usize..=end as usize].to_vec())
-            }
-            _ => Err(failure(&reply, Some(key))),
+        self.ranged(key, range, None)
+    }
+
+    /// One ranged GET with `If-Match: "<etag>"`: a 412 is [`DriveError::Conflict`] and no byte is
+    /// read. A service that ignores `If-Match` and names the version it served in its `ETag` is
+    /// asked again by this side: another version than the one asked for is the same conflict.
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        match condition {
+            Precondition::Matches(tag) => self.ranged(key, range, Some(tag)),
+            // "No object yet" says nothing about the bytes of one that is read.
+            Precondition::Absent => Err(DriveError::Unsupported(format!(
+                "reading a range of \"{key}\" only if it is absent"
+            ))),
         }
     }
 

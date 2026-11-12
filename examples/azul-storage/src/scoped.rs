@@ -115,6 +115,16 @@ impl<D: Drive> Drive for ScopedDrive<D> {
         self.inner.get_range(&self.full_key(key)?, range)
     }
 
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        self.inner
+            .get_range_if(&self.full_key(key)?, range, condition)
+    }
+
     fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
         self.inner.get_limited(&self.full_key(key)?, limit)
     }

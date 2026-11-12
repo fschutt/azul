@@ -665,6 +665,15 @@ impl Drive for AzlinDrive {
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
         self.with_bucket(|b| b.get_range(key, range))
     }
+    /// The bucket's `If-Match` on a ranged GET, sent again with fresh credentials like any read.
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        self.with_bucket(|b| b.get_range_if(key, range, condition))
+    }
     fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
         self.with_bucket(|b| b.get_limited(key, limit))
     }

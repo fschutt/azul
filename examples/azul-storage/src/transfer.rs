@@ -9,7 +9,10 @@
 //! - An upload sends the file itself ([`Drive::put_file`]: a bucket sends its parts several at
 //!   once and resumes an upload a killed app left behind).
 //! - A copy between two drives that are not folders here streams ranged GETs into one
-//!   [`Drive::put_from`]: no object passes through memory whole.
+//!   [`Drive::put_from`]: no object passes through memory whole. The ranges are of one version of
+//!   the object (each asks for it where the drive can, and the end of the copy is a look at the
+//!   object - a second reading of it, for a drive that names no tag): a file another device saves
+//!   meanwhile is a conflict, never a splice of two versions under the final name.
 
 use std::{
     collections::{BTreeSet, HashSet},
@@ -182,8 +185,11 @@ fn relay_progress_with<T: Send>(
 /// Every range is a request of its own, and nothing ties two of them to one version: an object
 /// another device saves while the copy streams would arrive as a splice of two versions under the
 /// final name (X-DELTA-SYNC2-3). The reader is of the version `before` - one look when the copy
-/// began - and says it is at its end only when a look then finds the object still that version;
-/// else its read fails, so that the upload that reads it is aborted before it completes.
+/// began. Every range asks for that version where the drive can ask ([`Drive::get_range_if`]: S3's
+/// `If-Match`, the object an encrypted drive's index names), so an object replaced and put back
+/// between two ranges is refused at the range that meets the other version; and the reader says it
+/// is at its end only when a look then finds the object still that version; else its read fails, so
+/// that the upload that reads it is aborted before it completes.
 ///
 /// A drive that names no tag leaves that look with a size and a date, which an edit that keeps both
 /// (a file saved over in the same second, a tool that puts the old date back) leaves as they were:
@@ -204,6 +210,9 @@ struct RangeReader<'a> {
     /// Heard between the ranges of the second reading (the first one is the upload's, which asks
     /// the same `ctl` before every read).
     ctl: &'a dyn Ctl,
+    /// The drive said it cannot read a range only while the object is the version `before` names
+    /// ([`Drive::get_range_if`]): its ranges are read as they are and the look at the end vouches.
+    cannot_pin: bool,
     /// The end was reached and vouched for: said again, it is not looked at again.
     whole: bool,
     /// The look at the end found another version: the copy is not of one.
@@ -232,6 +241,7 @@ impl<'a> RangeReader<'a> {
             at: 0,
             streamed,
             ctl,
+            cannot_pin: false,
             whole: false,
             changed: false,
             look_failed: None,
@@ -240,6 +250,21 @@ impl<'a> RangeReader<'a> {
 
     fn torn(&self) -> std::io::Error {
         std::io::Error::other(format!("\"{}\" changed while it was copied", self.key))
+    }
+
+    /// One range of the object: of the version the copy began with where the drive can ask for it
+    /// ([`Drive::get_range_if`]: an object that was replaced and put back between two ranges would
+    /// pass a look at the end that finds the tag it began with, and its middle ranges would be the
+    /// other version's); as it is, for a drive that says it cannot, or names no tag to ask for.
+    fn range(&mut self, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        if let (Some(tag), false) = (&self.before.etag, self.cannot_pin) {
+            let condition = Precondition::Matches(tag.clone());
+            match self.drive.get_range_if(self.key, range, &condition) {
+                Err(DriveError::Unsupported(_)) => self.cannot_pin = true,
+                answer => return answer,
+            }
+        }
+        self.drive.get_range(self.key, range)
     }
 
     /// The look at the end: the object is still the version the copy began with, and - for a drive
@@ -290,10 +315,7 @@ impl<'a> RangeReader<'a> {
             }
             let end = (offset + self.chunk).min(size) - 1;
             let asked = end - offset + 1;
-            match self
-                .drive
-                .get_range(self.key, ByteRange::new(offset, Some(end)))
-            {
+            match self.range(ByteRange::new(offset, Some(end))) {
                 // As the first reading took them: a range may come back short, never empty and
                 // never longer than asked.
                 Ok(bytes) if !bytes.is_empty() && bytes.len() as u64 <= asked => {
@@ -302,7 +324,7 @@ impl<'a> RangeReader<'a> {
                 }
                 // Empty, longer than the range asked, or no such range any more: the object is not
                 // the one that was streamed.
-                Ok(_) | Err(DriveError::InvalidRange { .. }) => {
+                Ok(_) | Err(DriveError::InvalidRange { .. } | DriveError::Conflict { .. }) => {
                     self.changed = true;
                     return Err(self.torn());
                 }
@@ -332,14 +354,11 @@ impl Read for RangeReader<'_> {
             }
             let size = self.before.size;
             let end = (self.offset + self.chunk).min(size) - 1;
-            let bytes = match self
-                .drive
-                .get_range(self.key, ByteRange::new(self.offset, Some(end)))
-            {
+            let bytes = match self.range(ByteRange::new(self.offset, Some(end))) {
                 Ok(bytes) => bytes,
-                // The object has no such range any more: it is shorter than it was when the copy
-                // began.
-                Err(DriveError::InvalidRange { .. }) => {
+                // The object has no such range any more (it is shorter than it was when the copy
+                // began), or is another version than the one the copy began with.
+                Err(DriveError::InvalidRange { .. } | DriveError::Conflict { .. }) => {
                     self.changed = true;
                     return Err(self.torn());
                 }
