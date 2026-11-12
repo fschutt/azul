@@ -1786,6 +1786,22 @@ pub struct Resealed {
 /// Run again after a stop at any point, it finishes: a manifest that opens with `new` is past
 /// the switch, and 3 runs (again). Objects a crashed writer left behind are the orphan sweep's.
 /// A bucket without a repository has nothing to re-seal.
+///
+/// **What the swap's answer decides** (X-DELTA-SYNC4-1: a conflict or a lost answer is no proof
+/// that the swap did not land - the transport sends a conditional write again after it was done
+/// and the repeat meets the version it made - and the checkpoint the manifest then names is the
+/// ONLY holder of the refs; step 3 then deletes the only other copy). Nothing is deleted on the
+/// answer's word; the manifest is read back:
+///
+/// | answer | read-back | the new checkpoint | the old objects |
+/// |---|---|---|---|
+/// | success | - | stays | deleted once the new set is proven whole |
+/// | any, or none | names this call's checkpoint | stays | deleted once the new set is proven whole |
+/// | 412 | another manifest (the old key's, or another writer's) | removed: a refused conditional write cannot land later | stay |
+/// | 409 (under way) | another manifest | stays: this swap may still land; an orphan is only space | stay |
+/// | an error of unknown certainty (a timeout) | another manifest | stays, same reason | stay |
+/// | a refusal for good (frozen, over quota) | another manifest | removed | stay |
+/// | any | cannot be read | stays | stay: [`MetaError::OutcomeUnknown`] |
 pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
     bucket: &B,
     old: &O,
@@ -1798,7 +1814,8 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
             return Ok(Resealed::default());
         };
         if let Ok(manifest) = open_json::<Manifest, N>(new, keys::MANIFEST, &bytes) {
-            let removed = remove_old(bucket, new, manifest, Some(version), device, now)?;
+            let whole = prove_new_set(bucket, new, &manifest)?;
+            let removed = remove_old(bucket, new, manifest, Some(version), device, now, &whole)?;
             return Ok(Resealed {
                 switched: false,
                 removed,
@@ -1886,35 +1903,69 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
         let sealed = seal_json(new, keys::MANIFEST, &next)?;
         match bucket.replace(keys::MANIFEST, &sealed, &version) {
             Ok(version) => {
-                let removed = remove_old(bucket, new, next, version, device, now)?;
+                let whole = prove_new_set(bucket, new, &next)?;
+                let removed = remove_old(bucket, new, next, version, device, now, &whole)?;
                 return Ok(Resealed {
                     switched: true,
                     removed,
                 });
             }
-            Err(MetaError::Conflict { .. }) => {
-                let _ = bucket.remove(&checkpoint_key);
-            }
-            Err(MetaError::Raced { .. }) => {
-                let _ = bucket.remove(&checkpoint_key);
-                back_off(attempt);
+            Err(lost @ (MetaError::Conflict { .. } | MetaError::Raced { .. })) => {
+                // Another device swapped first - or this very swap landed, its answer got lost
+                // and the request, sent again, met the version it had made (a 412), or is still
+                // under way (a 409). A fresh read decides; no answer of the swap does.
+                match swap_outcome(bucket, old, new, &checkpoint_key) {
+                    Swap::Landed(landed, version) => {
+                        let whole = prove_new_set(bucket, new, &landed)?;
+                        let removed =
+                            remove_old(bucket, new, *landed, version, device, now, &whole)?;
+                        return Ok(Resealed {
+                            switched: true,
+                            removed,
+                        });
+                    }
+                    // A lost race: nothing names the checkpoint and a conditional write that
+                    // answered 412 cannot land later.
+                    Swap::Absent if matches!(lost, MetaError::Conflict { .. }) => {
+                        // collapse-ok: a checkpoint nothing names is only space; a delete the
+                        // storage refuses leaves it for the orphan sweep.
+                        let _ = bucket.remove(&checkpoint_key);
+                    }
+                    // A race (409) may be this swap itself, still under way: the checkpoint
+                    // stays (one nothing names is only space, a named one removed would break the
+                    // repository) and the attempt is made again.
+                    Swap::Absent => back_off(attempt),
+                    // The bucket cannot be read: the swap may have landed or lost. The conflict is
+                    // no answer to hand on, and nothing is deleted on a guess (AZ-M1).
+                    Swap::Unknown => {
+                        return Err(MetaError::OutcomeUnknown {
+                            key: keys::MANIFEST.to_string(),
+                        })
+                    }
+                }
             }
             Err(e) => {
                 // The swap may have landed and only its answer got lost: a fresh read decides.
-                match bucket.read(keys::MANIFEST) {
-                    Ok(Some((bytes, version))) => {
-                        if let Ok(landed) = open_json::<Manifest, N>(new, keys::MANIFEST, &bytes) {
-                            let removed =
-                                remove_old(bucket, new, landed, Some(version), device, now)?;
-                            return Ok(Resealed {
-                                switched: true,
-                                removed,
-                            });
-                        }
-                        // Not switched: the new checkpoint is nobody's.
+                match swap_outcome(bucket, old, new, &checkpoint_key) {
+                    Swap::Landed(landed, version) => {
+                        let whole = prove_new_set(bucket, new, &landed)?;
+                        let removed =
+                            remove_old(bucket, new, *landed, version, device, now, &whole)?;
+                        return Ok(Resealed {
+                            switched: true,
+                            removed,
+                        });
+                    }
+                    // Refused for good - a drive that is frozen, over its quota - and named by no
+                    // manifest: the checkpoint is nobody's.
+                    Swap::Absent if refused_for_good(&e) => {
+                        // collapse-ok: as above, only space.
                         let _ = bucket.remove(&checkpoint_key);
                     }
-                    Ok(None) | Err(_) => {}
+                    // A timeout or a lost connection: the request may be on its way to the
+                    // bucket still, and a read that comes before it lands says "not switched".
+                    // The checkpoint stays; the next run finds the swap landed or lost.
+                    Swap::Absent | Swap::Unknown => {}
                 }
                 return Err(e);
             }
@@ -1925,11 +1976,104 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
     })
 }
 
+/// What a read of the manifest says about the swap of [`reseal`] after it answered anything but
+/// success.
+enum Swap {
+    /// The manifest opens with the new key and names this call's checkpoint: the swap landed,
+    /// whatever it answered. The manifest and its version.
+    Landed(Box<Manifest>, Option<Version>),
+    /// A manifest that does not name the checkpoint - the old key's still, or another writer's
+    /// of the new key: nothing of this call is in it.
+    Absent,
+    /// The manifest could not be read, or opens with neither key: nobody knows.
+    Unknown,
+}
+
+/// Asks the bucket whether the swap that made the manifest `next` - the one naming
+/// `checkpoint_key` - landed. After a swap whose outcome is unknown this decides, never the swap's
+/// own error (X-DELTA-SYNC4-1, as `MetaStore::swap_landed` does for a commit).
+fn swap_outcome<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
+    bucket: &B,
+    old: &O,
+    new: &N,
+    checkpoint_key: &str,
+) -> Swap {
+    let (bytes, version) = match bucket.read(keys::MANIFEST) {
+        Ok(Some(found)) => found,
+        // Nobody removes the manifest: a bucket that says there is none is not to be believed
+        // with a delete.
+        Ok(None) | Err(_) => return Swap::Unknown,
+    };
+    match open_json::<Manifest, N>(new, keys::MANIFEST, &bytes) {
+        Ok(manifest)
+            if manifest
+                .checkpoint
+                .as_ref()
+                .is_some_and(|c| c.key == checkpoint_key) =>
+        {
+            Swap::Landed(Box::new(manifest), Some(version))
+        }
+        Ok(_) => Swap::Absent,
+        Err(_) => match open_json::<Manifest, O>(old, keys::MANIFEST, &bytes) {
+            Ok(_) => Swap::Absent,
+            Err(_) => Swap::Unknown,
+        },
+    }
+}
+
+/// The proof that everything a manifest of the new key names is in the bucket and the checkpoint
+/// opens with the new key: what step 3 of [`reseal`] rests on, for it deletes the only other copy of
+/// the repository. Made by [`prove_new_set`] only (the field is private).
+struct NewSet(());
+
+/// Reads what `manifest` (sealed with `new`) names and says whether the new set is whole: the
+/// checkpoint opens with `new` and is the manifest's, and every pack, index, log entry the manifest
+/// names is there. A set that is not whole is no ground to delete the old one (X-DELTA-SYNC4-1: a
+/// checkpoint a lost answer once removed left the old objects the only readable copy).
+fn prove_new_set<B: Bucket + ?Sized, N: Sealer>(
+    bucket: &B,
+    new: &N,
+    manifest: &Manifest,
+) -> Result<NewSet, MetaError> {
+    let Some(checkpoint) = manifest.checkpoint.as_ref() else {
+        return Err(corrupt(
+            keys::MANIFEST,
+            "the re-sealed index names no checkpoint, so the objects of the old key are kept",
+        ));
+    };
+    let Some((bytes, _)) = bucket.read(&checkpoint.key)? else {
+        return Err(corrupt(
+            &checkpoint.key,
+            "the new checkpoint is missing from the storage, so the objects of the old key are kept",
+        ));
+    };
+    let held: Checkpoint = open_json(new, &checkpoint.key, &bytes)?;
+    if held.seq != checkpoint.seq {
+        return Err(corrupt(
+            &checkpoint.key,
+            "the new checkpoint is not the one the manifest names, so the objects of the old key are kept",
+        ));
+    }
+    for key in live_keys(manifest) {
+        if key == keys::MANIFEST || key == checkpoint.key {
+            continue;
+        }
+        if !bucket.exists(&key)? {
+            return Err(corrupt(
+                &key,
+                "the new index names it and the storage has it not, so the objects of the old key are kept",
+            ));
+        }
+    }
+    Ok(NewSet(()))
+}
+
 /// Step 3 of [`reseal`]: deletes what `manifest` (sealed with `new`, past the switch) lists
 /// as retired - the objects sealed with the old key - and a lease the new key does not open,
 /// then swaps the manifest for one that lists none of them (a lost swap leaves them listed;
 /// garbage collection drops the names of objects that are gone). An object that cannot be
-/// deleted stops it: run again, it goes on.
+/// deleted stops it: run again, it goes on. Only with the proof that the new set is whole
+/// (`_whole`): the old objects are the only other copy.
 fn remove_old<B: Bucket + ?Sized, N: Sealer>(
     bucket: &B,
     new: &N,
@@ -1937,6 +2081,7 @@ fn remove_old<B: Bucket + ?Sized, N: Sealer>(
     version: Option<Version>,
     device: &str,
     now: u64,
+    _whole: &NewSet,
 ) -> Result<usize, MetaError> {
     let mut removed = 0;
     for retired in &manifest.retired {

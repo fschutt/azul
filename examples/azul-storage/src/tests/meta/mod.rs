@@ -25,6 +25,8 @@ mod index_paging;
 #[cfg(feature = "index-cache")]
 mod query_cache;
 mod race;
+/// A key rotation's manifest swap whose answer is not the truth (X-DELTA-SYNC4-1).
+mod reseal;
 /// The reclaimer of the data objects of a drive that keeps its history (feature `encryption`).
 #[cfg(feature = "encryption")]
 mod reclaim;
