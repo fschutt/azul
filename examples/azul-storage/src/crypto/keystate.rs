@@ -1257,6 +1257,24 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         {
             permit_keeping(op, e, Way::Plain)
         }
+        // The keyring's entries say a key change is not over (the drive key IS the new key and the key it
+        // replaces is still kept) and nobody looked at its journal - the flows that touch a wrap or hand the
+        // key out have no bucket to read it in. It is a key change that is not over all the same, whether the
+        // journal is this device's own or an earlier try's: the operations it refuses are refused in ITS words,
+        // not in "was not looked at". The way a rotation would go on needs the journal, and stays unjudged.
+        Op::AddCode | Op::RemoveCode | Op::NewCode if *why == Why::NotAsked(JOURNAL) => {
+            refuse(Refusal::WrapMayChange, e)
+        }
+        Op::Remove
+        | Op::Invite
+        | Op::RemoveMember
+        | Op::Recover
+        | Op::Reencrypt
+        | Op::RestoreAsOf
+            if *why == Why::NotAsked(JOURNAL) =>
+        {
+            refuse(Refusal::KeyChangeUnfinished, e)
+        }
         Op::Setup
         | Op::Enroll
         | Op::Rotate

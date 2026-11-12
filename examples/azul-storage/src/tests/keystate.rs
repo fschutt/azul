@@ -656,6 +656,54 @@ fn the_reseals_run_for_a_rotation_permit_only_and_do_the_existing_steps() {
     );
 }
 
+/// A key change that stopped at ANY of its writes - before the new key is the drive key, after it, with the
+/// journal or without - refuses a code added, replaced or taken out, an invite and a member's removal in the key
+/// change's own words (the recovery wrap may change; the key change is not finished), never in "was not looked
+/// at": these flows ask without a bucket, so the journal is not read, and the entries of the keyring already say
+/// a key change is not over. The window after the Members step - the drive key IS the new key - is among them.
+#[test]
+fn a_key_change_stopped_at_any_write_refuses_the_wraps_and_the_invite_in_its_own_words() {
+    let mut members_window = 0;
+    let mut stopped = 0;
+    for nth in 1..=40 {
+        let (bucket, keyring, _code) = a_drive_with_its_code();
+        let failing: Arc<dyn Drive> = Arc::new(NthWrite::new(bucket.clone(), nth));
+        if rotate(failing, &keyring, DRIVE, &Provider::new(), cheap()).is_ok() {
+            break;
+        }
+        stopped += 1;
+        let (_, next) = device::rotation_key_entries(DRIVE);
+        let new_key = device::load_key_at(&keyring, &next).unwrap();
+        if new_key.is_some() && new_key == device::load_drive_key(&keyring, DRIVE).unwrap() {
+            members_window += 1;
+        }
+        for op in [Op::RemoveCode, Op::NewCode] {
+            let refused = wraps_permit(op, &keyring, DRIVE);
+            assert!(
+                matches!(&refused, Err(DriveError::Denied { message }) if message.contains("recovery wrap")),
+                "write {nth}, {op:?}: {:?}",
+                refused.as_ref().err()
+            );
+        }
+        for op in [Op::Invite, Op::RemoveMember] {
+            let refused = wraps_permit(op, &keyring, DRIVE);
+            assert!(
+                matches!(&refused, Err(DriveError::Denied { message }) if message.contains("not finished")),
+                "write {nth}, {op:?}: {:?}",
+                refused.as_ref().err()
+            );
+        }
+    }
+    assert!(
+        stopped >= 5,
+        "the key change has windows to stop in: {stopped}"
+    );
+    assert!(
+        members_window >= 1,
+        "one of them is the window after the Members step"
+    );
+}
+
 // ==== The local observers over real configurations ====
 
 /// A keyring that cannot be read.

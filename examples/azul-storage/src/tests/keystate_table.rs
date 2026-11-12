@@ -190,6 +190,20 @@ fn spec(state: &KeyState, op: Op) -> Cell {
             ),
             Op::Recover,
         ) => Cell::Permit(Way::Plain, NO_STAYS),
+        // a key change that is not over whose journal nobody looked at: refused in the key change's own words
+        (
+            S::Unknown(Why::NotAsked("the key change's journal")),
+            Op::AddCode | Op::RemoveCode | Op::NewCode,
+        ) => Cell::Refuse(Refusal::WrapMayChange),
+        (
+            S::Unknown(Why::NotAsked("the key change's journal")),
+            Op::Remove
+            | Op::Invite
+            | Op::RemoveMember
+            | Op::Recover
+            | Op::Reencrypt
+            | Op::RestoreAsOf,
+        ) => Cell::Refuse(Refusal::KeyChangeUnfinished),
         (
             S::Unknown(why),
             Op::Setup
@@ -227,6 +241,7 @@ fn states() -> Vec<KeyState> {
         }),
         KeyState::Unknown(Why::NotAsked("the drive key")),
         KeyState::Unknown(Why::NotAsked("whether the drive is encrypted")),
+        KeyState::Unknown(Why::NotAsked("the key change's journal")),
         KeyState::Unknown(Why::Unreadable {
             what: "the new key of a key change",
             why: String::from("the keyring refused"),
