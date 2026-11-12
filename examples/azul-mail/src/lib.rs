@@ -1427,7 +1427,12 @@ fn sync_drive(
         restore: session.restore.clone(),
         ..options.clone()
     };
-    azlin_sync::sync_account(&drive, &MailStore::new(job.mail_root.clone()), &options, progress)
+    azlin_sync::sync_account(
+        &drive,
+        &MailStore::new(job.mail_root.clone()),
+        &options,
+        progress,
+    )
 }
 
 /// An Azlin account's Receive: signs in at the token server when the drive's credentials run

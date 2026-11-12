@@ -235,7 +235,13 @@ fn restore_standing(
         epoch: read_restore_epoch(store)?,
         clock: 0,
     };
-    Ok(judge(&seen, 0, Clock::Own, Some(notice), azlin::MAIL_PREFIX))
+    Ok(judge(
+        &seen,
+        0,
+        Clock::Own,
+        Some(notice),
+        azlin::MAIL_PREFIX,
+    ))
 }
 
 /// The UID after `last` that no line of `index` has (mail filed here has UIDs far above, from
@@ -431,7 +437,9 @@ fn sync_folder(
         let lost: HashSet<u32> = if restored {
             index
                 .values()
-                .filter(|entry| !entry.remote.is_empty() && !on_drive.contains(entry.remote.as_str()))
+                .filter(|entry| {
+                    !entry.remote.is_empty() && !on_drive.contains(entry.remote.as_str())
+                })
                 .map(|entry| entry.uid)
                 .collect()
         } else {
@@ -506,7 +514,9 @@ fn sync_folder(
             // every other the drive is asked about the object itself: a listing that is short for
             // any reason must not delete a copy that may exist nowhere else, and a failed look
             // is an unknown, not an "absent" (the pass ends, nothing more leaves).
-            if !on_drive.contains(remote.as_str()) && ops::exists(drive, &remote).map_err(drive_error)? {
+            if !on_drive.contains(remote.as_str())
+                && ops::exists(drive, &remote).map_err(drive_error)?
+            {
                 continue;
             }
             if let Some(entry) = index.remove(&uid) {
@@ -1138,7 +1148,10 @@ mod tests {
             ("Spam", AZLIN_UIDVALIDITY)
         );
         assert_eq!(
-            read_state(&f.store, "Work.Projects").unwrap().unwrap().display,
+            read_state(&f.store, "Work.Projects")
+                .unwrap()
+                .unwrap()
+                .display,
             "Work/Projects"
         );
     }
@@ -1569,10 +1582,24 @@ mod tests {
         let f = fixture();
         deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
         let flags = [String::from("\\Seen")];
-        crate::send::file_message(f.store.folder(), "sent", &mail(9, "From here"), &flags, SEP_30).unwrap();
+        crate::send::file_message(
+            f.store.folder(),
+            "sent",
+            &mail(9, "From here"),
+            &flags,
+            SEP_30,
+        )
+        .unwrap();
         run(&f);
         // Another mail filed here first, not in the drive yet: its line exists in the index only.
-        crate::send::file_message(f.store.folder(), "sent", &mail(10, "Second"), &flags, SEP_30 + 5).unwrap();
+        crate::send::file_message(
+            f.store.folder(),
+            "sent",
+            &mail(10, "Second"),
+            &flags,
+            SEP_30 + 5,
+        )
+        .unwrap();
         let key = store::index_key("sent");
         let before = bytes_of(&f, &key);
         let file = f.store.folder().path().join(&key);
@@ -1582,7 +1609,11 @@ mod tests {
         let failed = sync_account(&f.bucket, &f.store, &options(), &mut |_| true);
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
-        assert_eq!(bytes_of(&f, &key), before, "the index was not written back from nothing");
+        assert_eq!(
+            bytes_of(&f, &key),
+            before,
+            "the index was not written back from nothing"
+        );
     }
 
     #[test]
@@ -1599,7 +1630,11 @@ mod tests {
         let failed = sync_account(&f.bucket, &f.store, &options(), &mut |_| true);
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
-        assert_eq!(bytes_of(&f, &key), before, "the last UID was not started from 0");
+        assert_eq!(
+            bytes_of(&f, &key),
+            before,
+            "the last UID was not started from 0"
+        );
     }
 
     /// RED on the code before: the move read the unreadable index as empty, found no message to
@@ -1619,8 +1654,15 @@ mod tests {
         let moved = move_messages(&f.bucket, &f.store, "inbox", &[entry.uid], "archive");
         crate::testutil::make_readable(&file);
         assert!(matches!(moved, Err(SyncError::Storage(_))), "{moved:?}");
-        assert_eq!(bytes_of(&f, &index_key), before, "the index was not overwritten");
-        assert!(!missing(&f.bucket.inner, &key), "the object stays in the Inbox of the drive");
+        assert_eq!(
+            bytes_of(&f, &index_key),
+            before,
+            "the index was not overwritten"
+        );
+        assert!(
+            !missing(&f.bucket.inner, &key),
+            "the object stays in the Inbox of the drive"
+        );
     }
 
     /// The marks made here and not pushed yet are not lost to a read that failed: they stay.
@@ -1687,7 +1729,8 @@ mod tests {
             }
             let mut page = self.inner.list(request)?;
             let unlisted = self.unlisted.lock().unwrap();
-            page.objects.retain(|object| !unlisted.contains(&object.key));
+            page.objects
+                .retain(|object| !unlisted.contains(&object.key));
             Ok(page)
         }
         fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
@@ -1745,7 +1788,8 @@ mod tests {
             .into_iter()
             .map(|entry| {
                 let bytes = f.store.get(&entry.path).unwrap_or_default();
-                let on_the_drive = !entry.remote.is_empty() && !missing(&f.bucket.inner, &entry.remote);
+                let on_the_drive =
+                    !entry.remote.is_empty() && !missing(&f.bucket.inner, &entry.remote);
                 (entry, bytes, on_the_drive)
             })
             .collect()
@@ -1768,26 +1812,49 @@ mod tests {
         let report = sync_with(&f.bucket, &f, &announced(1)).unwrap();
         assert_eq!(report.removed(), 0, "a restore deletes no mail here");
         assert_eq!(report.kept_after_restore(), 2);
-        assert_eq!(report.pushed(), 2, "and puts what the drive lacks into it again");
+        assert_eq!(
+            report.pushed(),
+            2,
+            "and puts what the drive lacks into it again"
+        );
         let inbox = held(&f, "inbox");
         assert_eq!(inbox.len(), 2, "both lines stay");
         let subjects: Vec<&str> = inbox.iter().map(|(e, _, _)| e.subject.as_str()).collect();
         assert_eq!(subjects, ["Older", "Newer"]);
-        assert_eq!(inbox[1].1, mail(2, "Newer"), "the file is the mail, not an empty one");
-        assert!(inbox.iter().all(|(_, _, on_the_drive)| *on_the_drive), "every line names an object of the drive");
+        assert_eq!(
+            inbox[1].1,
+            mail(2, "Newer"),
+            "the file is the mail, not an empty one"
+        );
+        assert!(
+            inbox.iter().all(|(_, _, on_the_drive)| *on_the_drive),
+            "every line names an object of the drive"
+        );
         let archive = held(&f, "archive");
         assert_eq!(archive.len(), 1);
-        assert_eq!((archive[0].1.clone(), archive[0].2), (mail(3, "Archived"), true));
+        assert_eq!(
+            (archive[0].1.clone(), archive[0].2),
+            (mail(3, "Archived"), true)
+        );
         assert!(
             archive[0].0.remote.starts_with("mail/Archive/"),
             "put back into its own folder of the drive: {}",
             archive[0].0.remote
         );
-        assert_eq!(read_restore_epoch(&f.store).unwrap(), 1, "the restore is taken once");
+        assert_eq!(
+            read_restore_epoch(&f.store).unwrap(),
+            1,
+            "the restore is taken once"
+        );
         // The same announcement again is no restore: the drive is as it was left.
         let again = sync_with(&f.bucket, &f, &announced(1)).unwrap();
         assert_eq!(
-            (again.removed(), again.pushed(), again.fetched(), again.kept_after_restore()),
+            (
+                again.removed(),
+                again.pushed(),
+                again.fetched(),
+                again.kept_after_restore()
+            ),
             (0, 0, 0, 0)
         );
         assert_eq!(index(&f.store, "inbox").len(), 2);
@@ -1840,17 +1907,26 @@ mod tests {
         assert_eq!(rows[0].1, mail(1, "First"));
         assert_eq!(rows[1].1, mail(2, "Second"));
         assert_eq!(
-            rows.iter().filter(|(_, _, on_the_drive)| *on_the_drive).count(),
+            rows.iter()
+                .filter(|(_, _, on_the_drive)| *on_the_drive)
+                .count(),
             1,
             "one is back in the drive, one waits"
         );
-        assert_eq!(read_restore_epoch(&f.store).unwrap(), 0, "a stopped pass took nothing");
+        assert_eq!(
+            read_restore_epoch(&f.store).unwrap(),
+            0,
+            "a stopped pass took nothing"
+        );
         // The next Send/Receive, the drive answering now: the restore is taken again.
         *drive.puts_left.lock().unwrap() = None;
         let report = sync_with(&drive, &f, &announced(1)).unwrap();
         assert_eq!(report.removed(), 0);
         let rows = held(&f, "inbox");
-        assert!(rows.iter().all(|(_, _, on_the_drive)| *on_the_drive), "both are back");
+        assert!(
+            rows.iter().all(|(_, _, on_the_drive)| *on_the_drive),
+            "both are back"
+        );
         assert_eq!(read_restore_epoch(&f.store).unwrap(), 1);
     }
 
@@ -1866,11 +1942,18 @@ mod tests {
         std::fs::remove_dir_all(f.bucket_dir.0.join("mail").join("Receipts")).unwrap();
         let report = sync_with(&f.bucket, &f, &announced(1)).unwrap();
         assert_eq!((report.removed(), report.kept_after_restore()), (0, 1));
-        assert!(f.store.folders().contains(&String::from("Receipts")), "the folder stays");
+        assert!(
+            f.store.folders().contains(&String::from("Receipts")),
+            "the folder stays"
+        );
         let rows = held(&f, "Receipts");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].1, mail(1, "Invoice"));
-        assert!(rows[0].2 && rows[0].0.remote.starts_with("mail/Receipts/"), "{:?}", rows[0].0.remote);
+        assert!(
+            rows[0].2 && rows[0].0.remote.starts_with("mail/Receipts/"),
+            "{:?}",
+            rows[0].0.remote
+        );
     }
 
     /// A message of which only the header block is here (a big one Send/Receive did not fetch)
@@ -1894,7 +1977,14 @@ mod tests {
             ..small
         };
         let report = sync_account(&f.bucket, &f.store, &restored, &mut |_| true).unwrap();
-        assert_eq!((report.removed(), report.pushed(), report.kept_after_restore()), (0, 0, 1));
+        assert_eq!(
+            (
+                report.removed(),
+                report.pushed(),
+                report.kept_after_restore()
+            ),
+            (0, 0, 1)
+        );
         let lines = index(&f.store, "inbox");
         assert_eq!(lines.len(), 1, "the line stays");
         assert_eq!(lines[0].remote, key, "and keeps the key it had");
@@ -1910,10 +2000,16 @@ mod tests {
         run(&f);
         f.bucket.inner.delete(&key).unwrap();
         let drive = Faulty::of(&f);
-        drive.list_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        drive
+            .list_fails
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let failed = sync_with(&drive, &f, &options());
         assert!(matches!(failed, Err(SyncError::Connect(_))), "{failed:?}");
-        assert_eq!(held(&f, "inbox").len(), 1, "the mail is still here, with its file");
+        assert_eq!(
+            held(&f, "inbox").len(),
+            1,
+            "the mail is still here, with its file"
+        );
     }
 
     /// A listing that never ends is refused by the paging guard, not taken as a complete one
@@ -1924,7 +2020,9 @@ mod tests {
         deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
         run(&f);
         let drive = Faulty::of(&f);
-        drive.list_never_ends.store(true, std::sync::atomic::Ordering::SeqCst);
+        drive
+            .list_never_ends
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         assert!(sync_with(&drive, &f, &options()).is_err());
         assert_eq!(held(&f, "inbox").len(), 1);
     }
@@ -1942,7 +2040,10 @@ mod tests {
         assert_eq!(report.removed(), 0);
         let rows = held(&f, "inbox");
         assert_eq!(rows.len(), 1);
-        assert_eq!((rows[0].0.remote.as_str(), rows[0].1.clone()), (key.as_str(), mail(1, "One")));
+        assert_eq!(
+            (rows[0].0.remote.as_str(), rows[0].1.clone()),
+            (key.as_str(), mail(1, "One"))
+        );
     }
 
     /// The drive that cannot be asked about the object is an unknown, not an absent: the pass
@@ -1954,7 +2055,9 @@ mod tests {
         run(&f);
         f.bucket.inner.delete(&key).unwrap();
         let drive = Faulty::of(&f);
-        drive.head_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        drive
+            .head_fails
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let failed = sync_with(&drive, &f, &options());
         assert!(matches!(failed, Err(SyncError::Connect(_))), "{failed:?}");
         assert_eq!(held(&f, "inbox").len(), 1, "line and file stay");
@@ -1977,7 +2080,9 @@ mod tests {
             return;
         }
         let drive = Faulty::of(&f);
-        drive.list_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        drive
+            .list_fails
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let failed = sync_with(&drive, &f, &announced(1));
         crate::testutil::make_readable(&file);
         assert!(
@@ -1994,7 +2099,12 @@ mod tests {
         assert_eq!(read_restore_epoch(&f.store).unwrap(), 0, "no file");
         f.store.put(DRIVE_FILE, b"{ not json").unwrap();
         assert_eq!(read_restore_epoch(&f.store).unwrap(), 0);
-        f.store.put(DRIVE_FILE, br#"{"format":"other","version":1,"restore_epoch":9}"#).unwrap();
+        f.store
+            .put(
+                DRIVE_FILE,
+                br#"{"format":"other","version":1,"restore_epoch":9}"#,
+            )
+            .unwrap();
         assert_eq!(read_restore_epoch(&f.store).unwrap(), 0);
         write_restore_epoch(&f.store, 4).unwrap();
         assert_eq!(read_restore_epoch(&f.store).unwrap(), 4);

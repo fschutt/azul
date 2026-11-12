@@ -988,8 +988,16 @@ mod tests {
             let failed = delete_draft(&store, first.uid);
             crate::testutil::make_readable(&file);
             assert!(failed.is_err(), "{key}: {failed:?}");
-            assert_eq!(std::fs::read(&file).unwrap(), before, "{key} was not rewritten");
-            assert_eq!(store.get(&first.path).unwrap(), bytes, "{key}: the draft's file is whole");
+            assert_eq!(
+                std::fs::read(&file).unwrap(),
+                before,
+                "{key} was not rewritten"
+            );
+            assert_eq!(
+                store.get(&first.path).unwrap(),
+                bytes,
+                "{key}: the draft's file is whole"
+            );
         }
         // Readable again: the draft goes.
         delete_draft(&store, first.uid).unwrap();
@@ -1012,7 +1020,11 @@ mod tests {
         std::fs::create_dir_all(dir.0.join(&next)).unwrap();
         let failed = save_draft(&dir.folder(), Some(first.uid), &bytes, 1_790_757_720);
         assert!(failed.is_err(), "the new draft cannot be filed");
-        assert_eq!(store.get(&first.path).unwrap(), bytes, "the old draft's file is whole");
+        assert_eq!(
+            store.get(&first.path).unwrap(),
+            bytes,
+            "the old draft's file is whole"
+        );
         let index = store::index_from_jsonl(
             &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
         );
@@ -1024,6 +1036,9 @@ mod tests {
             &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
         );
         assert_eq!(index, vec![again], "one line per draft");
-        assert!(store.get(&first.path).is_err(), "the old draft's file went after the new was filed");
+        assert!(
+            store.get(&first.path).is_err(),
+            "the old draft's file went after the new was filed"
+        );
     }
 }
