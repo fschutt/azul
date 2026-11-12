@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use super::asked::rotate;
+
 use crate::{
     crypto::{
         device::{self, adopt_invite, drive_key_entry, load_member_secret, seal_invite, setup_new_drive, unlock},
@@ -19,7 +21,6 @@ use crate::{
         policy::{MemberChange, MemberRecord},
         IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo,
     },
-    rotation::rotate,
     Drive, DriveError,
 };
 

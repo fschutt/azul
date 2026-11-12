@@ -15,7 +15,10 @@ use std::{
     },
 };
 
-use super::mem_bucket::MemBucket;
+use super::{
+    asked::{lockdown_needed, rotate},
+    mem_bucket::MemBucket,
+};
 use crate::{
     crypto::{
         device::{self, add_recovery_code, setup_new_drive, MAX_EXTRA_RECOVERY_CODES},
@@ -31,7 +34,7 @@ use crate::{
     encrypted::{judge as enc_judge, IndexProvider, MemoryIndex, NameIndex, Recorded},
     footprint::KeyEntry,
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
-    rotation::{self, rotate, JOURNAL_FILE},
+    rotation::{self, JOURNAL_FILE},
     trust::{EncState, Via, Why as Unencrypted},
     Drive, DriveError,
 };
@@ -1525,7 +1528,7 @@ fn observe_says_what_each_local_observer_says_over_real_configurations() {
         rotation::start(bucket.as_ref(), &keyring, DRIVE),
         Ok(rotation::Start::Fresh { .. })
     ));
-    assert!(rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
+    assert!(lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
     assert!(matches!(
         enc_judge(bucket.as_ref(), &keyring, DRIVE, Recorded::default()).unwrap(),
         EncState::Encrypted {
@@ -1562,7 +1565,7 @@ fn observe_says_what_each_local_observer_says_over_real_configurations() {
         rotation::start(bucket.as_ref(), &keyring, DRIVE),
         Ok(rotation::Start::Resume(_))
     ));
-    assert!(!rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
+    assert!(!lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
     // ... and on the other device, which has no new key, nothing of its own is unfinished
     assert!(!rotation::unfinished(&stranger, DRIVE).unwrap());
 
@@ -1579,7 +1582,7 @@ fn observe_says_what_each_local_observer_says_over_real_configurations() {
         rotation::start(bucket.as_ref(), &keyring, DRIVE),
         Ok(rotation::Start::Adopt { .. })
     ));
-    assert!(rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
+    assert!(lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
     bucket.set(JOURNAL_FILE, b"{\"planted\": true}".to_vec());
     let e = gathered(&bucket, &keyring);
     assert_eq!(
@@ -1587,7 +1590,7 @@ fn observe_says_what_each_local_observer_says_over_real_configurations() {
         KeyState::Rotating(Start::Adopt),
         "a planted journal is not this device's"
     );
-    assert!(rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
+    assert!(lockdown_needed(bucket.as_ref(), &keyring, DRIVE).unwrap());
     bucket.set(JOURNAL_FILE, journal);
 
     // Torn: the new key is kept and the drive key it replaces is gone, and the journal is not ours.
@@ -1602,7 +1605,7 @@ fn observe_says_what_each_local_observer_says_over_real_configurations() {
         "the drive key is not the new key"
     );
     assert!(rotation::start(bucket.as_ref(), &keyring, DRIVE).is_err());
-    assert!(rotation::lockdown_needed(bucket.as_ref(), &keyring, DRIVE).is_err());
+    assert!(lockdown_needed(bucket.as_ref(), &keyring, DRIVE).is_err());
     device::store_drive_key(&keyring, DRIVE, &held).unwrap();
 
     // Unknown: a keyring that cannot be read says nothing, and the observers fail with it.
@@ -1617,21 +1620,17 @@ fn observe_says_what_each_local_observer_says_over_real_configurations() {
     assert!(rotation::start(bucket.as_ref(), &Unreadable, DRIVE).is_err());
 }
 
-/// X-DELTA-AZDRIVE-KEYS-6: the guard of the lockdown stops on a failed read and the table permits the
-/// lockdown there: the shadow notes the difference as the finding it is, and asserts nothing.
+/// X-DELTA-AZDRIVE-KEYS-6, X-KEYSTATE-4: whatever the keyring could not say, the key change is refused
+/// BEFORE the account's lockdown. The table permits the lockdown by itself where a read failed (a hostile
+/// bucket must not stop "I was hacked"), but the combined flow asks the rotation with it: a lockdown that
+/// revokes every other device for a drive whose key this device cannot replace would lock its owner out.
+/// `rotation::ask` gives the permit of neither.
 #[test]
-fn x_delta_azdrive_keys_6_lockdown_needed_stops_on_a_failed_read_and_the_shadow_says_so() {
+fn x_delta_azdrive_keys_6_a_key_change_whose_keyring_cannot_be_read_is_refused_before_the_lockdown()
+{
     let bucket = MemBucket::new();
-    assert!(rotation::lockdown_needed(&bucket, &Unreadable, DRIVE).is_err());
-    let noted = disagreements_at("rotation::lockdown_needed");
-    assert!(
-        noted.iter().any(|d| {
-            d.state.row() == "unknown"
-                && d.guard == Guard::Refuses
-                && d.known.is_some_and(|f| f.contains("KEYS-6"))
-        }),
-        "{noted:?}"
-    );
+    assert!(rotation::ask(&bucket, &Unreadable, DRIVE).is_err());
+    assert!(lockdown_needed(&bucket, &Unreadable, DRIVE).is_err());
 }
 
 // ==== X-DELTA-STRUCT-KEYSTATE-1: a rotation that stopped after its Members step ====
@@ -2002,4 +2001,139 @@ fn x_delta_struct_keystate_5_a_planned_key_of_another_id_beside_the_drive_key_do
         judge(&KeyState::Active, Op::Setup, &failed),
         Verdict::Refuse(reason) if reason.kind == Refusal::EncryptedAlready
     ));
+}
+
+// ==== C7 step 3: `rotate` takes the permit of its own operation ====
+
+/// A keyring that keeps its entries in a plain file the user did not allow to hold keys.
+struct PlainFileKeyring<'a>(&'a MemoryKeyring);
+
+impl KeyringStore for PlainFileKeyring<'_> {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        self.0.get(key)
+    }
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        self.0.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        self.0.delete(key)
+    }
+    fn protection(&self) -> crate::keyring::Protection {
+        crate::keyring::Protection::PlainFile {
+            allow: crate::keyring::Allow::Nothing,
+        }
+    }
+}
+
+/// `rotate` changes the drive's key only for the permit of a rotation of THIS drive: the lockdown's
+/// permit of the same `ask` is the permit of another operation, and the permit of another drive is for
+/// another drive. Nothing in the bucket or the keyring changes for either.
+#[test]
+fn a_rotation_takes_a_permit_of_its_own_operation_and_drive_and_changes_nothing_for_another() {
+    let (bucket, keyring) = a_drive_set_up();
+    let drive_key = device::load_drive_key(&keyring, DRIVE).unwrap().unwrap();
+    let objects = bucket.objects();
+
+    let rotation = rotation::ask(bucket.as_ref(), &keyring, DRIVE).unwrap();
+    let lockdown = rotation
+        .lockdown()
+        .expect("a rotation that starts has its lockdown still to run");
+    assert_eq!(lockdown.op(), Op::Lockdown);
+    let again: Arc<dyn Drive> = bucket.clone();
+    let refused = rotation::rotate(lockdown, again, &keyring, DRIVE, &Provider::new(), cheap());
+    assert!(
+        matches!(&refused, Err(DriveError::Denied { message }) if message.contains("lockdown")),
+        "{refused:?}"
+    );
+
+    // the permit of a rotation of another drive
+    let (other_bucket, other_keyring) = {
+        let bucket = Arc::new(MemBucket::new());
+        let keyring = MemoryKeyring::new();
+        setup_new_drive(bucket.as_ref(), &keyring, "d_other", cheap()).unwrap();
+        (bucket, keyring)
+    };
+    let other = rotation::ask(other_bucket.as_ref(), &other_keyring, "d_other").unwrap();
+    let again: Arc<dyn Drive> = bucket.clone();
+    let refused = rotation::rotate(
+        other.permit(),
+        again,
+        &keyring,
+        DRIVE,
+        &Provider::new(),
+        cheap(),
+    );
+    assert!(
+        matches!(&refused, Err(DriveError::Denied { message }) if message.contains("d_other")),
+        "{refused:?}"
+    );
+
+    assert_eq!(bucket.objects(), objects, "nothing was written");
+    assert_eq!(
+        device::load_drive_key(&keyring, DRIVE).unwrap(),
+        Some(drive_key),
+        "the keyring is as it was"
+    );
+    let (previous, next) = device::rotation_key_entries(DRIVE);
+    assert!(keyring.get(&previous).unwrap().is_none() && keyring.get(&next).unwrap().is_none());
+}
+
+/// A permit is the answer of one moment: asked before a rotation of this device started, it does not
+/// start another over the one that stopped. The new `ask` says so too: the rotation resumes, and its
+/// lockdown is not run again.
+#[test]
+fn a_permit_asked_before_a_key_change_started_does_not_start_another_over_the_one_that_stopped() {
+    let (bucket, keyring) = a_drive_set_up();
+    let stale = rotation::ask(bucket.as_ref(), &keyring, DRIVE).unwrap();
+    assert_eq!(stale.permit().way(), Way::New);
+
+    // A rotation of this device stops after its journal went in (the third write is refused).
+    let failing: Arc<dyn Drive> = Arc::new(NthWrite::new(bucket.clone(), 3));
+    assert!(rotate(failing, &keyring, DRIVE, &Provider::new(), cheap()).is_err());
+    assert!(rotation::unfinished(&keyring, DRIVE).unwrap());
+    let (_, next) = device::rotation_key_entries(DRIVE);
+    let kept = device::load_key_at(&keyring, &next).unwrap();
+    let objects = bucket.objects();
+
+    let again: Arc<dyn Drive> = bucket.clone();
+    let refused = rotation::rotate(
+        stale.permit(),
+        again,
+        &keyring,
+        DRIVE,
+        &Provider::new(),
+        cheap(),
+    );
+    assert!(
+        matches!(&refused, Err(DriveError::Denied { message }) if message.contains("changed since")),
+        "{refused:?}"
+    );
+    assert_eq!(bucket.objects(), objects, "nothing was written");
+    assert_eq!(
+        device::load_key_at(&keyring, &next).unwrap(),
+        kept,
+        "no second new key was made over the first"
+    );
+
+    let fresh = rotation::ask(bucket.as_ref(), &keyring, DRIVE).unwrap();
+    assert_eq!(fresh.permit().way(), Way::Resume);
+    assert!(
+        fresh.lockdown().is_none(),
+        "the rotation that stopped has had its lockdown"
+    );
+}
+
+/// A keyring that keeps no key material is refused BEFORE the lockdown (KEYS-25), by the judge now: `ask`
+/// gives a permit of neither, in the sentence of the keyring's protection, and nothing is read from
+/// the bucket for it.
+#[test]
+fn a_key_change_on_a_keyring_that_keeps_no_key_is_refused_before_the_lockdown() {
+    let (bucket, keyring) = a_drive_set_up();
+    let plain = PlainFileKeyring(&keyring);
+    let refused = rotation::ask(bucket.as_ref(), &plain, DRIVE);
+    assert!(
+        matches!(&refused, Err(DriveError::InvalidConfig(why)) if why.contains("plain file")),
+        "{:?}",
+        refused.as_ref().err()
+    );
 }

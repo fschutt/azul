@@ -8,6 +8,7 @@ use std::sync::{
 };
 
 use super::{
+    asked::{lockdown_needed, rotate},
     faulty::{Fail, Faulty},
     mem_bucket::MemBucket,
 };
@@ -30,8 +31,7 @@ use crate::{
     encrypted::{open_encrypted, Expect, IndexChange, IndexProvider, MemoryIndex, NameIndex},
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
     rotation::{
-        lockdown_needed, pending, reencrypt_pass, resumable, rotate, unfinished, Phase,
-        ReencryptState, JOURNAL_FILE,
+        pending, reencrypt_pass, resumable, unfinished, Phase, ReencryptState, JOURNAL_FILE,
     },
     sharing::{list_shares, share},
     time::now_unix,

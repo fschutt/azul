@@ -291,13 +291,25 @@ mod after_a_key_rotation {
         meta::{
             merge::keep_both, DriveBucket, IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo,
         },
-        rotation::rotate,
-        Drive,
+        rotation::{self, Rotated},
+        Drive, DriveError,
     };
 
     use super::*;
 
     const DRIVE: &str = "d_rot";
+
+    /// A key change as the apps run it: asked (the key permit), then done.
+    fn rotate(
+        bucket: Arc<dyn Drive>,
+        keyring: &MemoryKeyring,
+        drive: &str,
+        provider: &MetaIndexProvider,
+        kdf: RecoveryKdf,
+    ) -> Result<Rotated, DriveError> {
+        let rotation = rotation::ask(bucket.as_ref(), keyring, drive)?;
+        rotation::rotate(rotation.permit(), bucket, keyring, drive, provider, kdf)
+    }
 
     /// An encrypted drive with `notes/plan.txt` written twice (two versions) and `other.txt`,
     /// on a bucket in memory; `rotate`d when asked.

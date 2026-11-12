@@ -413,7 +413,11 @@ pub(crate) fn rotate_key(s: &mut DriveState, args: &Args) -> Answer {
     });
     let provider = crate::encryption::meta_provider(Some(cache));
     let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
+    // As the apps run it: the key permit asks first, and the permit is what `rotate` takes.
+    let rotation = rotation::ask(bucket.as_ref(), remote.keyring.as_ref(), &remote.drive_name)
+        .map_err(|e| format!("the key rotation: {e}"))?;
     let rotated = rotation::rotate(
+        rotation.permit(),
         bucket,
         remote.keyring.as_ref(),
         &remote.drive_name,

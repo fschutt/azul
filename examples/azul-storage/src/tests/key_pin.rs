@@ -6,6 +6,8 @@
 
 use std::sync::Arc;
 
+use super::asked::rotate;
+
 use crate::{
     crypto::{
         device::{
@@ -19,7 +21,6 @@ use crate::{
     encrypted::open_encrypted,
     keyring::{KeyringStore, MemoryKeyring},
     meta::{keys, IndexProfile, MemoryBucket, MetaIndexProvider},
-    rotation::rotate,
     Drive, DriveError,
 };
 

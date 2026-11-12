@@ -3,7 +3,10 @@
 
 use std::sync::Arc;
 
-use super::faulty::{Fail, Faulty};
+use super::{
+    asked::{lockdown_needed, rotate},
+    faulty::{Fail, Faulty},
+};
 use crate::{
     crypto::{
         device::{enroll, load_drive_key, load_key_at, rotation_key_entries, setup_new_drive},
@@ -15,9 +18,7 @@ use crate::{
     meta::{
         keys, wal::narrow_writable_max, IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo,
     },
-    rotation::{
-        begun, lockdown_needed, pending, resumable, rewrap_batch, rotate, Phase, JOURNAL_FILE,
-    },
+    rotation::{begun, pending, resumable, rewrap_batch, Phase, JOURNAL_FILE},
     Drive, DriveError, ListRequest,
 };
 

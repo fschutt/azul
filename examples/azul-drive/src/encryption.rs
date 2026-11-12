@@ -76,7 +76,7 @@ use azul_storage::{
     crypto::{
         device,
         keys::{load_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap},
-        keystate::{Evidence, Guard, Journal, Op, Read},
+        keystate::{Evidence, Guard, Op, Read},
         random_bytes, CryptoError, KeyId, Zeroizing,
     },
     config::EncryptionRecord,
@@ -472,39 +472,6 @@ fn shadow_removal(
                 "the keyring failed on an entry the guard does not read (the planned key)"
             ),
         ]
-    );
-}
-
-/// "I was hacked" as the job runs it: `lockdown` is what `rotation::lockdown_needed` answered after
-/// it passed (the shadows inside azul-storage compare its reads; this one asks both permits at the
-/// place the job acts on them): true when the lockdown is to run, false for a rotation of this
-/// device that resumes.
-fn shadow_rotation(keyring: &dyn KeyringStore, drive: &str, lockdown: bool) {
-    let mut evidence = shadow_evidence(drive, keyring);
-    evidence.bucket.journal = Read::Found(if lockdown {
-        Journal::NotOwn
-    } else {
-        Journal::Own
-    });
-    evidence.bucket.index_opens = Read::Found(true);
-    const REREAD: &str = "the keyring failed on a re-read after the guard had read it";
-    azul_storage::key_shadow!(
-        "azul_drive::encryption::rotate_job",
-        Op::Lockdown,
-        evidence,
-        if lockdown {
-            Guard::Permits
-        } else {
-            Guard::Refuses
-        },
-        known = [("unknown", REREAD)]
-    );
-    azul_storage::key_shadow!(
-        "azul_drive::encryption::rotate_job",
-        Op::Rotate,
-        evidence,
-        Guard::Permits,
-        known = [("unknown", REREAD)]
     );
 }
 
@@ -3588,17 +3555,18 @@ fn rotate_job(
         let provider = auto
             .provider()
             .ok_or_else(|| String::from("azdrive-enc-err-no-index"))?;
-        // The rotation of THIS device that stopped has had its lockdown. A journal anyone planted
-        // in the bucket is none: it must not skip the lockdown. A rotation that cannot be finished
-        // is refused here, before the lockdown.
-        let needed = rotation::lockdown_needed(auto.bucket().as_ref(), keyring, auto.drive())
+        // The key permit asks BEFORE the lockdown: the rotation of THIS device that stopped has had
+        // its lockdown, a journal anyone planted in the bucket is none and must not skip it, and a
+        // rotation that cannot be finished is refused here, while the other computers keep their
+        // access.
+        let rotation = rotation::ask(auto.bucket().as_ref(), keyring, auto.drive())
             .map_err(|e| e.to_string())?;
-        shadow_rotation(keyring, auto.drive(), needed);
-        if needed {
+        if rotation.lockdown().is_some() {
             lockdown()?;
         }
         let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
         let rotated = rotation::rotate(
+            rotation.permit(),
             Arc::clone(auto.bucket()),
             keyring,
             auto.drive(),
@@ -6118,6 +6086,18 @@ mod tests {
         }
     }
 
+    /// A key change as the app runs it: asked (the key permit), then done.
+    fn rotate_asked(
+        bucket: Arc<dyn Drive>,
+        keyring: &dyn KeyringStore,
+        drive: &str,
+        provider: &dyn IndexProvider,
+        kdf: RecoveryKdf,
+    ) -> Result<azul_storage::rotation::Rotated, azul_storage::DriveError> {
+        let rotation = rotation::ask(bucket.as_ref(), keyring, drive)?;
+        rotation::rotate(rotation.permit(), bucket, keyring, drive, provider, kdf)
+    }
+
     /// A bucket that refuses every write of one key: the network went exactly there.
     struct RefusesWritesOf(Arc<azul_storage::meta::MemoryBucket>, &'static str);
 
@@ -6225,7 +6205,7 @@ mod tests {
             device::setup_new_drive(bucket.as_ref(), &keyring, KEYS_DRIVE, kdf.clone()).unwrap();
         let refusing: Arc<dyn Drive> =
             Arc::new(RefusesWritesOf(Arc::clone(&bucket), RECOVERY_KEY_FILE));
-        let stopped = rotation::rotate(
+        let stopped = rotate_asked(
             refusing,
             &keyring,
             KEYS_DRIVE,
@@ -6287,9 +6267,7 @@ mod tests {
         // From here the keyring refuses to make the new key the drive key.
         keyring.armed.store(true, Ordering::SeqCst);
         let arc_bucket: Arc<dyn Drive> = bucket.clone();
-        assert!(
-            rotation::rotate(arc_bucket, &keyring, KEYS_DRIVE, &RekeyingProvider, kdf).is_err()
-        );
+        assert!(rotate_asked(arc_bucket, &keyring, KEYS_DRIVE, &RekeyingProvider, kdf).is_err());
         keyring.armed.store(false, Ordering::SeqCst);
         assert_eq!(
             device::load_drive_key(&keyring, KEYS_DRIVE).unwrap(),
@@ -6334,8 +6312,7 @@ mod tests {
         let keyring = MemoryKeyring::new();
         device::setup_new_drive(bucket.as_ref(), &keyring, KEYS_DRIVE, kdf.clone()).unwrap();
         let arc_bucket: Arc<dyn Drive> = bucket.clone();
-        let done =
-            rotation::rotate(arc_bucket, &keyring, KEYS_DRIVE, &RekeyingProvider, kdf).unwrap();
+        let done = rotate_asked(arc_bucket, &keyring, KEYS_DRIVE, &RekeyingProvider, kdf).unwrap();
         assert!(done.left_over.is_empty(), "{:?}", done.left_over);
         assert!(!rotation::unfinished(&keyring, KEYS_DRIVE).unwrap());
         let kept = kept_by_a_removal(&keyring, None);

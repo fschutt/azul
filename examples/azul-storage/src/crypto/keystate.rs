@@ -702,6 +702,28 @@ impl Reason {
         let sentence = kind.sentence(drive);
         Reason { kind, sentence }
     }
+
+    /// The refusal as the error a flow returns, in the class its callers knew: a drive this device
+    /// holds no key of is [`DriveError::Locked`], an encrypted drive and a keyring that keeps no key are
+    /// `InvalidConfig` (what setup said), too many further codes `Unsupported`, a fact that could not be
+    /// read `Io`, and every other refusal `Denied` with its sentence. A flow that holds the error of the
+    /// read that failed (the keyring's, the bucket's) returns that one instead.
+    #[must_use]
+    pub fn error(&self, drive: &str) -> DriveError {
+        match &self.kind {
+            Refusal::Locked => DriveError::Locked {
+                drive: drive.to_string(),
+            },
+            Refusal::EncryptedAlready | Refusal::KeyringKeepsNoKeys(_) => {
+                DriveError::InvalidConfig(self.sentence.clone())
+            }
+            Refusal::TooManyCodes => DriveError::Unsupported(self.sentence.clone()),
+            Refusal::Unreadable { .. } => DriveError::Io(self.sentence.clone()),
+            _ => DriveError::Denied {
+                message: self.sentence.clone(),
+            },
+        }
+    }
 }
 
 impl fmt::Display for Reason {
@@ -724,6 +746,27 @@ pub struct Permit {
 }
 
 impl Permit {
+    /// `Ok` when this permit is for `op` of `drive`: what a function that takes a permit checks first.
+    /// A permit of another operation, or for another drive, permits nothing here.
+    ///
+    /// # Errors
+    ///
+    /// `Denied`, naming what the permit is for.
+    pub fn allows(&self, op: Op, drive: &str) -> Result<(), DriveError> {
+        if self.op == op && self.drive == drive {
+            Ok(())
+        } else {
+            Err(DriveError::Denied {
+                message: format!(
+                    "the permit is for {} of \"{}\", not for {} of \"{drive}\"",
+                    self.op.name(),
+                    self.drive,
+                    op.name()
+                ),
+            })
+        }
+    }
+
     /// The operation it permits.
     #[must_use]
     pub fn op(&self) -> Op {
@@ -783,12 +826,26 @@ fn failed(what: &'static str, why: &str) -> Refusal {
 /// done at a server (KEYS-25). `None`: nothing in the way. Whether the keyring keeps keys is a fact
 /// such an operation rests on: not looked at is not "yes" (X-DELTA-STRUCT-KEYSTATE-2).
 fn keyring_refuses(e: &Evidence<'_>) -> Option<Refusal> {
-    match &e.keyring.keeps_keys {
+    keeps_refusal(&e.keyring.keeps_keys)
+}
+
+/// [`keyring_refuses`] on the fact itself.
+fn keeps_refusal(keeps: &Read<Keeps>) -> Option<Refusal> {
+    match keeps {
         Read::Found(Keeps::No(why)) => Some(Refusal::KeyringKeepsNoKeys(why)),
         Read::Failed(why) => Some(failed(KEEPS, why)),
         Read::Found(Keeps::Yes) => None,
         Read::Absent | Read::Unasked => Some(Refusal::NotAsked(KEEPS)),
     }
+}
+
+/// What a flow that writes a key says FIRST, before it reads anything of the drive: a keyring that keeps
+/// no key material (a plain file the user did not allow) refuses whatever else is the matter on this
+/// device, in the words that tell the user what to allow - the same refusal the cells of Setup, Rotate and
+/// Recover give. `None`: the keyring takes keys.
+#[must_use]
+pub fn keyring_refusal(drive: &str, keeps: &Read<Keeps>) -> Option<Reason> {
+    keeps_refusal(keeps).map(|kind| Reason::of(kind, drive))
 }
 
 /// What a keyring's protection is asked as.
@@ -1006,6 +1063,14 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::Reencrypt
         | Op::RestoreAsOf => refuse(Refusal::of(why), e),
     }
+}
+
+/// What `op` may do on this device: THE question of the key permit. The state of the drive's key is
+/// observed inside from the evidence ([`observe`]) and judged for `op` ([`judge`]); the caller hands
+/// over what it read and never a state of its own making. The verdict is a [`Permit`] - the only way
+/// to get one - or the [`Reason`] the window shows.
+pub fn ask(op: Op, e: &Evidence<'_>) -> Verdict {
+    judge(&observe(e), op, e)
 }
 
 /// What `op` may do in `state`, given what was read (`e`). TOTAL: all 7 x 10 cells answer, and no
@@ -1365,18 +1430,7 @@ impl fmt::Debug for Consumer {
 
 /// A reseal or a forget runs only for a permit of its operation, for this drive.
 fn permitted(permit: &Permit, op: Op, drive: &str) -> Result<(), DriveError> {
-    if permit.op == op && permit.drive == drive {
-        Ok(())
-    } else {
-        Err(DriveError::Denied {
-            message: format!(
-                "the permit is for {} of \"{}\", not for {} of \"{drive}\"",
-                permit.op.name(),
-                permit.drive,
-                op.name()
-            ),
-        })
-    }
+    permit.allows(op, drive)
 }
 
 /// Steps 2 and 3 of a rotation: the index sealed under the new key (an index that cannot be rekeyed

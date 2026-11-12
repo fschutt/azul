@@ -62,7 +62,7 @@
 //! keyring and no journal of its own - the journal was deleted, replaced by another device's, or
 //! is junk - goes on with THAT K2 ([`Start::Adopt`]: a new journal, every step again) and does
 //! not make a second one; and one that finds the index open with neither key this device holds
-//! stops at once, before the account's lockdown ([`lockdown_needed`]).
+//! stops at once, before the account's lockdown ([`ask`]).
 //!
 //! Every step can be run again: a rotation that stopped (a crash, no network) resumes from the
 //! journal on the device that started it (the one with K2), with the same call.
@@ -93,7 +93,7 @@ use crate::{
             load_key_chain, store_key_chain, KeyChain, RecoveryCode, RecoveryKdf, RecoveryWrap,
             KEYS_PREFIX,
         },
-        keystate::{self, BucketFacts, Guard, Op, Read, Way},
+        keystate::{self, BucketFacts, Op, Permit, Read, Verdict, Way},
         DriveKey, KeyId,
     },
     encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex, Rewrite},
@@ -239,7 +239,7 @@ pub fn pending(bucket: &dyn Drive) -> Result<Option<Journal>, DriveError> {
 /// verifies under the new key the keyring keeps for it. `None` for no journal, a journal that
 /// is no rotation of this device (planted, from another device, damaged, too big, unreadable),
 /// and a rotation whose new key this device lost. A caller that skips the account's lockdown
-/// because a rotation is under way asks this (through [`lockdown_needed`]), never [`pending`]: a
+/// because a rotation is under way asks this (through [`ask`]), never [`pending`]: a
 /// journal anyone can plant would skip the lockdown for the attacker.
 ///
 /// The keyring is asked FIRST: a device without a new key of a rotation has no journal of its own,
@@ -402,24 +402,12 @@ pub fn start(
     drive: &str,
 ) -> Result<Start, DriveError> {
     let entries = device::read_entries(keyring, drive);
-    let mut seen = BucketFacts::default();
-    let started = start_seen(bucket, &entries, drive, &mut seen);
-    // The key permit's shadow (C7 step 2): the judge is asked beside this guard, on what it read -
-    // the keyring's entries and the bucket's facts, the same reads. This guard decides; the shadow
-    // changes nothing.
-    let guard = match &started {
-        Ok(Start::Resume(_)) => Guard::PermitsAs(Way::Resume),
-        Ok(Start::Adopt { .. }) => Guard::PermitsAs(Way::Adopt),
-        Ok(Start::Fresh { .. }) => Guard::PermitsAs(Way::New),
-        Err(_) => Guard::Refuses,
-    };
-    let evidence = shadow_evidence(drive, keyring, &entries, seen);
-    crate::key_shadow!("rotation::start", Op::Rotate, evidence, guard);
-    // After the shadow: the key permit's judge knows nothing of the writer's cap.
-    if let Ok(Start::Fresh { old }) = &started {
+    let started = start_seen(bucket, &entries, drive, &mut BucketFacts::default())?;
+    // After the guard: the key permit's judge knows nothing of the writer's cap.
+    if let Start::Fresh { old } = &started {
         index_is_resealable(bucket, old)?;
     }
-    started
+    Ok(started)
 }
 
 /// The pre-flight of a rotation that starts (X-DELTA-KEYS2-2): R4 seals every pack of the index
@@ -445,7 +433,7 @@ fn index_is_resealable(bucket: &dyn Drive, key: &DriveKey) -> Result<(), DriveEr
     Ok(())
 }
 
-/// What `start` and `lockdown_needed` decide on, from the keyring's entries (read once by the
+/// What `start` and `ask` decide on, from the keyring's entries (read once by the
 /// caller) and what they read of the bucket on the way (`seen`).
 fn start_seen(
     bucket: &dyn Drive,
@@ -481,10 +469,10 @@ fn start_seen(
     }
 }
 
-/// The evidence a guard of this file hands the key permit's judge: the keyring's entries the guard
-/// read (the same reads: nothing is read again), the keyring's protection (no read: a property of the
+/// The evidence a key change hands the key permit's judge: the keyring's entries the guard read
+/// (the same reads: nothing is read again), the keyring's protection (no read: a property of the
 /// keyring), and what the guard itself read of the bucket.
-fn shadow_evidence<'a>(
+fn evidence_of<'a>(
     drive: &'a str,
     keyring: &dyn KeyringStore,
     entries: &device::KeyEntries,
@@ -497,45 +485,97 @@ fn shadow_evidence<'a>(
     evidence
 }
 
-/// Whether the account's lockdown is to run before [`rotate`]: yes, unless a rotation of this
-/// device is under way (it has had its lockdown). A rotation that could not finish is refused
-/// HERE, before the lockdown locks the other devices out of a drive whose key is not replaced
-/// ([`start`]).
-pub fn lockdown_needed(
+/// What a key change is let do: the permit of the rotation itself and, when the account's lockdown is
+/// still to run, the permit of that. Both are asked TOGETHER ([`ask`]): the lockdown locks every other
+/// device out at the token server, so it must not run for a drive whose key cannot be replaced.
+pub struct Rotation {
+    rotate: Permit,
+    lockdown: Option<Permit>,
+}
+
+impl Rotation {
+    /// The permit [`rotate`] takes.
+    #[must_use]
+    pub fn permit(&self) -> &Permit {
+        &self.rotate
+    }
+
+    /// The permit of the account's lockdown, which runs BEFORE [`rotate`]: `None` for a rotation of
+    /// this device that resumes (it has had its lockdown), `Some` for every other way on.
+    #[must_use]
+    pub fn lockdown(&self) -> Option<&Permit> {
+        self.lockdown.as_ref()
+    }
+}
+
+/// The way a key change goes on, as the key permit says it.
+fn way_of(started: &Start) -> Way {
+    match started {
+        Start::Resume(_) => Way::Resume,
+        Start::Adopt { .. } => Way::Adopt,
+        Start::Fresh { .. } => Way::New,
+    }
+}
+
+/// The permit is no longer the answer: what it was asked on has changed.
+fn changed_since_asked() -> DriveError {
+    DriveError::Denied {
+        message: String::from(
+            "the keys of this drive changed since the key change was asked for: nothing was \
+             changed here, ask again",
+        ),
+    }
+}
+
+/// May this device change the drive's key, and has the account's lockdown still to run? Reads the
+/// keyring and the bucket, writes neither, and answers BEFORE the lockdown: a key change that cannot
+/// finish - no drive key here, an index that opens with none of the keys this device holds, a keyring
+/// or a bucket that cannot be read, a keyring that keeps no key material, an index the writer cannot
+/// seal again - is refused HERE, while the other devices still have their access (X-DELTA-AZDRIVE-KEYS-1,
+/// -6, -25; X-DELTA-KEYS2-2). A refusal keeps the words and the class the guards had: the keyring's or
+/// the bucket's own error for a read that failed, `Denied` with the sentence of `opens_nothing`.
+///
+/// # Errors
+///
+/// As above.
+pub fn ask(
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
     drive: &str,
-) -> Result<bool, DriveError> {
+) -> Result<Rotation, DriveError> {
+    // A keyring that keeps no key material says so FIRST, whatever else is the matter with the drive on
+    // this device (the user can allow it): the new key could not be written, and the lockdown would have
+    // locked the others out for nothing (X-DELTA-AZDRIVE-KEYS-25).
+    if let Some(reason) = keystate::keyring_refusal(drive, &device::keeps_keys_fact(keyring)) {
+        return Err(reason.error(drive));
+    }
     let entries = device::read_entries(keyring, drive);
     let mut seen = BucketFacts::default();
-    let started = start_seen(bucket, &entries, drive, &mut seen);
-    // The shadow of the lockdown (C7 step 2). The guard stops on any read that failed, and the table
-    // permits the lockdown in the state of a failed read (X-DELTA-AZDRIVE-KEYS-6): see the finding.
-    let guard = match &started {
-        Ok(Start::Resume(_)) | Err(_) => Guard::Refuses,
-        Ok(Start::Adopt { .. } | Start::Fresh { .. }) => Guard::Permits,
+    let started = start_seen(bucket, &entries, drive, &mut seen)?;
+    let evidence = evidence_of(drive, keyring, &entries, seen);
+    let rotate = match keystate::ask(Op::Rotate, &evidence) {
+        Verdict::Permit(permit) => permit,
+        Verdict::Refuse(reason) => return Err(reason.error(drive)),
     };
-    let evidence = shadow_evidence(drive, keyring, &entries, seen);
-    crate::key_shadow!(
-        "rotation::lockdown_needed",
-        Op::Lockdown,
-        evidence,
-        guard,
-        known = [(
-            "unknown",
-            "X-DELTA-AZDRIVE-KEYS-6: the guard errs on every read that fails and so stops the lockdown; \
-             the table permits it (a failed read stops no lockdown). The guard is right for the \
-             combined flow - a lockdown must not lock the others out of a drive whose key cannot be \
-             replaced - so the combined flow asks judge for Lockdown AND Rotate before the lockdown"
-        )]
-    );
-    let started = started?;
-    // After the shadow, as in `start`: before the lockdown, so that a drive whose index the rotation
-    // cannot seal again is refused while the other devices still have their access.
+    // The judge and the guard decide on the same reads: they must say the same way on.
+    if rotate.way() != way_of(&started) {
+        return Err(changed_since_asked());
+    }
+    // After the judge, which knows nothing of the writer's cap: before the lockdown, so that a drive
+    // whose index the rotation cannot seal again is refused while the other devices have their access.
     if let Start::Fresh { old } = &started {
         index_is_resealable(bucket, old)?;
     }
-    Ok(!matches!(started, Start::Resume(_)))
+    // A rotation of this device that resumes has had its lockdown; every other way on runs it.
+    let lockdown = if matches!(started, Start::Resume(_)) {
+        None
+    } else {
+        match keystate::ask(Op::Lockdown, &evidence) {
+            Verdict::Permit(permit) => Some(permit),
+            Verdict::Refuse(reason) => return Err(reason.error(drive)),
+        }
+    };
+    Ok(Rotation { rotate, lockdown })
 }
 
 fn save(
@@ -809,18 +849,33 @@ fn missing(which: &str) -> DriveError {
 /// Rotates the drive key of `drive` (its plain `bucket`; the index from `provider`; the keys
 /// in `keyring`), or resumes the rotation the bucket's journal names, or goes on with the new
 /// key of an earlier try whose journal is gone ([`Start`]). See the module docs.
+///
+/// `permit` is the rotation's own ([`ask`]): the key permit's word that this device may change the
+/// drive's key, and how (a new key, the journal's rotation, the earlier try's key). A permit of
+/// another operation or drive, or one whose way is not the way the keyring and the bucket say NOW,
+/// changes nothing.
+///
+/// # Errors
+///
+/// A permit that does not fit (`Denied`), and everything a step of the rotation says.
 pub fn rotate(
+    permit: &Permit,
     bucket: Arc<dyn Drive>,
     keyring: &dyn KeyringStore,
     drive: &str,
     provider: &dyn IndexProvider,
     kdf: RecoveryKdf,
 ) -> Result<Rotated, DriveError> {
+    permit.allows(Op::Rotate, drive)?;
     let (previous_entry, next_entry) = device::rotation_key_entries(drive);
     // Only a journal this device wrote is resumed: any other (planted by whoever can write to
     // the bucket, or a damaged one) is replaced by the journal of the rotation that goes on, and
     // a new key of an earlier try is never replaced by a second one (K2 may seal the index).
-    let (old, new, stashed, mut journal) = match start(bucket.as_ref(), keyring, drive)? {
+    let started = start(bucket.as_ref(), keyring, drive)?;
+    if way_of(&started) != permit.way() {
+        return Err(changed_since_asked());
+    }
+    let (old, new, stashed, mut journal) = match started {
         Start::Fresh { old } => {
             let new = DriveKey::generate().map_err(|e| e.for_key(drive))?;
             device::store_key_at(keyring, &previous_entry, &old)?;

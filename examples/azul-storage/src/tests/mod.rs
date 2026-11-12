@@ -1,6 +1,9 @@
 //! Unit tests of the storage crate. No network and no libazul: the S3 tests
 //! send through a fake transport, the local tests work in a temporary folder.
 
+/// A key change as the apps run it: asked, then done.
+#[cfg(feature = "encryption")]
+mod asked;
 /// Reads and writes that never go through a link out of the root.
 mod beneath;
 /// Objects whose size the index names are asked for within it (feature `encryption`: the encrypted

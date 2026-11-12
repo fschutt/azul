@@ -37,7 +37,7 @@ use azul_storage::{
         device::{self, Adopted},
         drops::{self, DropPublic},
         keys::{RecoveryCode, RecoveryKdf},
-        keystate::{Evidence, Guard, Journal, Keeps, KeyringFacts, Op, Read, Way},
+        keystate::{Evidence, Guard, KeyringFacts, Op, Read, Way},
         DriveKey, KeyId,
     },
     encrypted::{EncryptedDrive, Recorded},
@@ -115,45 +115,6 @@ fn shadow_join(keyring: &dyn KeyringStore, drive: &str, kept: bool) {
                  the first key written"
             ),
         ]
-    );
-}
-
-/// The two guards before "I was hacked" runs - the keyring must take the new key
-/// (`check_keeps_keys`) and the rotation must be able to finish (`lockdown_needed`), whose answer
-/// `lockdown` is: true when the lockdown is to run (no rotation of this device under way: a journal
-/// that is not its own, or none), false when this device's own rotation resumes. Both permits are
-/// asked: the lockdown, and the rotation that follows.
-fn shadow_rotation(keyring: &dyn KeyringStore, drive: &str, lockdown: bool) {
-    let mut evidence = Evidence::new(drive, azul_storage::time::now_unix());
-    evidence.keyring = device::key_facts(keyring, drive);
-    // The guard above passed: the keyring keeps key material.
-    evidence.keyring.keeps_keys = Read::Found(Keeps::Yes);
-    // What `lockdown_needed` answered says what it found: a resume is a journal of this device's own,
-    // and every other way on was decided with the drive's index opening with a key this device holds.
-    evidence.bucket.journal = Read::Found(if lockdown {
-        Journal::NotOwn
-    } else {
-        Journal::Own
-    });
-    evidence.bucket.index_opens = Read::Found(true);
-    const REREAD: &str = "the keyring failed on a re-read after the guard had read it";
-    azul_storage::key_shadow!(
-        "azcloud_kit::encryption::rotate_drive_key",
-        Op::Lockdown,
-        evidence,
-        if lockdown {
-            Guard::Permits
-        } else {
-            Guard::Refuses
-        },
-        known = [("unknown", REREAD)]
-    );
-    azul_storage::key_shadow!(
-        "azcloud_kit::encryption::rotate_drive_key",
-        Op::Rotate,
-        evidence,
-        Guard::Permits,
-        known = [("unknown", REREAD)]
     );
 }
 
@@ -493,23 +454,20 @@ impl Account {
         provider: &dyn IndexProvider,
         kdf: RecoveryKdf,
     ) -> CloudResult<Rotated> {
-        // Before the lockdown locks the other devices out: a keyring that keeps no key would refuse
-        // the first key of the rotation, and the drive would be locked with its key not replaced
-        // (X-DELTA-AZDRIVE-KEYS-25).
-        device::check_keeps_keys(keyring, "the new drive key")?;
-        // A rotation of THIS device that stopped has had its lockdown. A journal anyone planted
-        // in the bucket is no such rotation: it must not skip the lockdown. A rotation that
-        // cannot be finished (no key here, an index that opens with neither key this device
-        // holds) is refused here, BEFORE the lockdown locks the other devices out.
-        let lockdown =
-            rotation::lockdown_needed(&self.bucket_drive()?, keyring, &self.record().id)?;
-        shadow_rotation(keyring, &self.record().id, lockdown);
-        if lockdown {
+        // The key permit asks BEFORE the lockdown locks the other devices out: a keyring that keeps no
+        // key would refuse the first key of the rotation (X-DELTA-AZDRIVE-KEYS-25), a rotation that
+        // cannot be finished (no key here, an index that opens with neither key this device holds, a
+        // keyring or a bucket that cannot be read) would leave the drive locked with its key not
+        // replaced. A rotation of THIS device that stopped has had its lockdown - the permit says so -
+        // and a journal anyone planted in the bucket is no such rotation: it must not skip it.
+        let rotation = rotation::ask(&self.bucket_drive()?, keyring, &self.record().id)?;
+        if rotation.lockdown().is_some() {
             self.lockdown()?;
         }
         // The lockdown's new credentials.
         let bucket: Arc<dyn Drive> = Arc::new(self.bucket_drive()?);
         Ok(rotation::rotate(
+            rotation.permit(),
             bucket,
             keyring,
             &self.record().id,
