@@ -164,9 +164,17 @@ impl AzMailSubmitter {
         let mut kept = Vec::new();
         let mut moved = 0;
         for entry in entries {
-            let Ok(bytes) = spool.get(&entry.path) else {
-                // The file is gone: so is the entry.
-                continue;
+            let bytes = match spool.get(&entry.path) {
+                Ok(bytes) => bytes,
+                // The file is verifiably gone: the entry has nothing to move, and goes.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                // Any other failure (a scanner holds the file, a failing disk) is an unknown, not
+                // "gone": the entry stays and the next drain moves the copy (X-DELTA-SYNC6-9).
+                Err(e) => {
+                    eprintln!("[azul-bridge] the Sent copy {} cannot be read yet: {e}", entry.path);
+                    kept.push(entry);
+                    continue;
+                }
             };
             let arrived = parse_iso8601(&entry.date).unwrap_or_else(crate::store::now);
             let marks = Marks {
@@ -486,5 +494,74 @@ mod tests {
             Some("-----BEGIN PRIVATE KEY-----")
         );
         assert!(loaded.sign_in.is_none());
+    }
+
+    /// A Sent copy whose file cannot be READ (a scanner holds it, a failing disk) is not one that
+    /// is gone: its line stays and the next drain moves it (X-DELTA-SYNC6-9). RED on the code
+    /// before: the line was dropped on any read error and the index rewritten without it, so the
+    /// copy never reached the drive and its file was left in the spool.
+    #[test]
+    fn x_delta_sync6_9_a_sent_copy_that_cannot_be_read_keeps_its_line_and_the_next_drain_moves_it() {
+        let dir = TempDir::new("bridge-drain");
+        let (submitter, drive, _) = submitter(&dir, 0);
+        let sent_root = account::account_dir(&DriveFolder::outside(dir.0.join("spool")), ACCOUNT);
+        let entry = send::file_message(
+            &sent_root,
+            local_sent(),
+            MESSAGE.as_bytes(),
+            &[String::from("\\Seen")],
+            1_790_843_400,
+        )
+        .unwrap();
+        let spool = local::MailStore::new(sent_root.clone());
+        let file = sent_root.path().join(&entry.path);
+        let bytes = std::fs::read(&file).unwrap();
+        // No permission to read it (a scanner holds the file, a failing disk): the read fails, and
+        // the failure is no "not found" - asserted.
+        if !azmail_core::testutil::make_unreadable(&file) {
+            return;
+        }
+        let failure = spool.get(&entry.path).expect_err("no permission to read it");
+        assert_ne!(failure.kind(), std::io::ErrorKind::NotFound, "the premise of the test: {failure}");
+        assert_eq!(submitter.drain(), 0, "nothing could be moved");
+        let index = local::index_from_jsonl(
+            &String::from_utf8(spool.get(&local::index_key(local_sent())).unwrap()).unwrap(),
+        );
+        assert_eq!(index.len(), 1, "the line stays: {index:?}");
+        assert!(!drive.keys().iter().any(|k| k.starts_with("mail/Sent/")), "{:?}", drive.keys());
+        // The file can be read again: the next drain moves the copy and forgets the line.
+        azmail_core::testutil::make_readable(&file);
+        assert_eq!(std::fs::read(&file).unwrap(), bytes);
+        assert_eq!(submitter.drain(), 1);
+        assert_eq!(drive.keys().iter().filter(|k| k.starts_with("mail/Sent/")).count(), 1);
+        let index = local::index_from_jsonl(
+            &String::from_utf8(spool.get(&local::index_key(local_sent())).unwrap()).unwrap(),
+        );
+        assert!(index.is_empty(), "{index:?}");
+    }
+
+    /// A file that is verifiably gone leaves a line with nothing to move: the line goes (the
+    /// arm that was right before, pinned).
+    #[test]
+    fn x_delta_sync6_9_a_sent_copy_whose_file_is_gone_is_dropped_from_the_spool() {
+        let dir = TempDir::new("bridge-drain");
+        let (submitter, drive, _) = submitter(&dir, 0);
+        let sent_root = account::account_dir(&DriveFolder::outside(dir.0.join("spool")), ACCOUNT);
+        let entry = send::file_message(
+            &sent_root,
+            local_sent(),
+            MESSAGE.as_bytes(),
+            &[String::from("\\Seen")],
+            1_790_843_400,
+        )
+        .unwrap();
+        std::fs::remove_file(sent_root.path().join(&entry.path)).unwrap();
+        assert_eq!(submitter.drain(), 0);
+        let spool = local::MailStore::new(sent_root);
+        let index = local::index_from_jsonl(
+            &String::from_utf8(spool.get(&local::index_key(local_sent())).unwrap()).unwrap(),
+        );
+        assert!(index.is_empty(), "{index:?}");
+        assert!(!drive.keys().iter().any(|k| k.starts_with("mail/Sent/")));
     }
 }
