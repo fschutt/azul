@@ -362,9 +362,10 @@ const WAIT_WRITE_EVERY_SECS: i64 = 3_600;
 /// counted to `now` (seconds since 1970, this computer's clock): the moment it starts at and the
 /// moment counted to as they stand after the round - the ONE derivation every wait of this
 /// module makes ([`PendingTokens::claimed_at`] for the drive's vault and the receipt,
-/// [`TakenBack`]). A step of the clock - from the last moment counted to (else the start) to `now`
-/// - counts for itself up to [`WAIT_STEP_MAX_SECS`]; what is more, and a step back, moves the
-/// start along, so `now - since` is the time this computer saw pass, not the time the clock says.
+/// [`TakenBack`]). A step of the clock (from the last moment counted to, else the start, to
+/// `now`) counts for itself up to [`WAIT_STEP_MAX_SECS`]; what is more, and a step back, moves
+/// the start along, so `now - since` is the time this computer saw pass, not the time the clock
+/// says.
 /// Not recorded yet (`since` of 0 or less): the wait starts at `now`.
 fn count_step(since: i64, counted_at: i64, now: i64) -> (i64, i64) {
     if since <= 0 || now <= 0 {

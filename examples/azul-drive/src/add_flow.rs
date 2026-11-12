@@ -1741,6 +1741,9 @@ pub(crate) fn payment_ended(
         }
         None => {
             s.info(why);
+            if ended {
+                start_claims(info, app, s);
+            }
             return;
         }
     };
@@ -1756,6 +1759,11 @@ pub(crate) fn payment_ended(
     }
     if let Some(d) = dialog_of(s, serial) {
         d.notice = said;
+    }
+    // A checkout that ended - or stays on the list taken back - leaves the claims to look at what
+    // is left, and to say when to come back for it.
+    if ended {
+        start_claims(info, app, s);
     }
 }
 
@@ -1814,6 +1822,8 @@ pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
         return;
     }
     s.claiming = true;
+    // This run decides when the next is due.
+    s.claims_again_at = None;
     // The cash orders are asked in this run: their next daily look is a day from now.
     crate::cash::looked(s);
     // Background work: an entry only a prompt would hand over waits for the next start.
@@ -2139,12 +2149,53 @@ pub(crate) fn joined(
     }
 }
 
-/// The background claims ended.
-pub(crate) fn claims_done(s: &mut DriveState, problem: Option<Text>) {
+/// The background claims ended: what kept them from asking, if anything, and in how many seconds
+/// the next run is due for the checkouts they left with a pace of its own - a receipt awaited, a
+/// payment taken back ([`claims_if_due`]).
+pub(crate) fn claims_done(s: &mut DriveState, problem: Option<Text>, again_in: Option<u64>) {
     s.claiming = false;
+    s.claims_again_at = again_in.map(|secs| crate::actions::now_secs().saturating_add(secs));
     if let Some(problem) = problem {
         s.warn(problem);
     }
+}
+
+/// Whether the window's timer starts the background claims at `now` (seconds since 1970): a run
+/// that ended named a time for what it left with a pace of its own, the time has come, and no run
+/// goes. A run is one hour at most, and a receipt is awaited for three days, a payment taken back
+/// asked about for thirty: without this nothing started the next run before the next start of the
+/// app (X-DELTA-MONEY5-4).
+#[must_use]
+pub(crate) fn claims_due(again_at: Option<u64>, claiming: bool, now: u64) -> bool {
+    !claiming && again_at.is_some_and(|at| now >= at)
+}
+
+/// The period timer's tick: the background claims start when [`claims_due`].
+pub(crate) fn claims_if_due(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if claims_due(s.claims_again_at, s.claiming, crate::actions::now_secs()) {
+        start_claims(info, app, s);
+    }
+}
+
+/// The background claims found the payment of the checkout `checkout_id` taken back: said once
+/// in a run. The checkout stays on the keyring's list - the token server puts a payment back when
+/// its refund failed or a dispute was won, and its drive then arrives with the claim key the entry
+/// keeps - and the claims ask about it once a day for `days` days. It is no checkout in flight any
+/// more: the dialog's machine may order again (X-DELTA-MONEY5-1).
+pub(crate) fn taken_back(s: &mut DriveState, checkout_id: &str, why: &str, days: u32) {
+    s.in_flight.retain(|c| c.checkout_id != checkout_id);
+    if let Some(d) = dialog(s) {
+        if matches!(&d.pay, PayState::InFlight { checkout_id: id } if id == checkout_id) {
+            d.pay = PayState::Choosing;
+        }
+    }
+    eprintln!("[azdrive] the checkout {checkout_id} was taken back: {why}");
+    s.warn(
+        Phrase::new("azdrive-add-checkout-taken-back")
+            .arg("checkout", checkout_id)
+            .arg("why", l10n::t_label(why))
+            .arg("days", days),
+    );
 }
 
 /// A claimed checkout finished: off the keyring's list, its period tokens kept - or what kept it

@@ -218,6 +218,10 @@ mod add_flow;
 mod cash;
 #[cfg(test)]
 mod cash_tests;
+/// The background claims over days: a clock that only a pause moves, a token server that
+/// remembers when it was asked.
+#[cfg(test)]
+mod claims_tests;
 /// Buy storage's first question: the buyer's country (the list, the guess, the search).
 mod countries;
 #[cfg(test)]
@@ -1379,6 +1383,10 @@ pub(crate) struct DriveState {
     pub presence: Option<presence::Gated>,
     /// The background claims of unfinished checkouts run (one job at a time).
     pub claiming: bool,
+    /// When the window's timer starts the background claims again (seconds since 1970): what a
+    /// run that ended named for the checkouts it left with a pace of its own - a receipt awaited,
+    /// a payment taken back ([`add_flow::claims_if_due`]); `None`: no run named one.
+    pub claims_again_at: Option<u64>,
     /// The checkouts bought here whose payment may be under way (not claimed, not ended): a
     /// new order in the Add drive dialog asks about the first one before it makes another, so
     /// nobody pays twice. Filled by the background claims and by abandons the token server did
@@ -3062,6 +3070,7 @@ pub(crate) extern "C" fn on_job_done(
             | Outcome::Scanned { done: false, .. }
             | Outcome::Claimed { serial: None, .. }
             | Outcome::CheckoutDropped { .. }
+            | Outcome::TakenBack { .. }
             | Outcome::CashWaiting { .. }
             | Outcome::InFlight { .. }
             | Outcome::CheckoutFinished {
@@ -3472,7 +3481,12 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::CheckoutDropped { checkout_id, why } => {
             add_flow::checkout_dropped(s, &checkout_id, &why);
         }
-        Outcome::ClaimsDone { problem } => add_flow::claims_done(s, problem),
+        Outcome::TakenBack {
+            checkout_id,
+            why,
+            days,
+        } => add_flow::taken_back(s, &checkout_id, &why, days),
+        Outcome::ClaimsDone { problem, again_in } => add_flow::claims_done(s, problem, again_in),
         Outcome::CheckoutFinished {
             checkout_id,
             result,
@@ -4400,6 +4414,7 @@ pub fn start() {
         unlocks: unlock::Unlocks::default(),
         presence: None,
         claiming: false,
+        claims_again_at: None,
         in_flight: Vec::new(),
         period_tokens,
         redemptions: periods::Schedule::default(),

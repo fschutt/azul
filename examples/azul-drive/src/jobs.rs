@@ -48,7 +48,7 @@ use azul_storage::{
     ops as storage_ops,
     scratch::{CopyOf, OpenedCopy, Scratch},
     transfer, BatchDelete, ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive,
-    ObjectInfo, Precondition,
+    ObjectInfo, Precondition, Transport,
 };
 
 use crate::{
@@ -841,8 +841,24 @@ pub(crate) enum Outcome {
     /// The background claims took a checkout off the keyring's list (the payment declined, the
     /// token server no longer has it): why - to be said once. A job that still runs.
     CheckoutDropped { checkout_id: String, why: String },
-    /// The background claims ended: what kept them from asking, if anything.
-    ClaimsDone { problem: Option<Text> },
+    /// The background claims asked about the checkout `checkout_id`, and its payment was taken
+    /// back (a refund, a returned debit, a chargeback): `why`, as the kit says it. It stays on the
+    /// keyring's list - the token server puts a payment back when its refund failed or a dispute
+    /// was won, and the drive then arrives with the claim key the entry keeps - and is asked about
+    /// once a day for `days` days: said once per run. A job that still runs.
+    TakenBack {
+        checkout_id: String,
+        why: String,
+        days: u32,
+    },
+    /// The background claims ended: what kept them from asking, if anything, and when the next
+    /// run is due for the checkouts they left with a pace of their own (a receipt awaited, a
+    /// payment taken back): the seconds from now, which the window's timer starts it after
+    /// ([`crate::add_flow::claims_if_due`]).
+    ClaimsDone {
+        problem: Option<Text>,
+        again_in: Option<u64>,
+    },
     /// A claimed checkout finished: `Ok(None)` off the keyring's list (no period tokens to
     /// issue), `Ok(Some(..))` what became of its period tokens, `Err` the list could not be
     /// changed. `from_claims`: a message of the background claims, which still run.
@@ -3139,6 +3155,16 @@ fn await_payment(
                 failures = 0;
                 wait = PAYMENT_POLL_SECS;
             }
+            // Its payment was taken back: nobody pays a reversed checkout, so the dialog's wait is
+            // over - the checkout stays on the keyring's list for the day the token server puts the
+            // payment back, and the claims ask once a day (X-DELTA-MONEY5-1).
+            Polled::Transient(pending::Transient::TakenBack(why)) => {
+                return Outcome::PaymentEnded {
+                    serial,
+                    why: Phrase::new("azdrive-pay-taken-back").arg("why", why).into(),
+                    ended: true,
+                }
+            }
             Polled::Transient(why) => {
                 last_problem = why.to_string();
                 failures = failures.saturating_add(1);
@@ -3190,25 +3216,95 @@ fn await_payment(
     }
 }
 
-/// The background claims: the unfinished checkouts on the keyring's list, each asked at its
-/// own token server (else `token_url`), every few seconds until none is left or an hour is gone
-/// (the next start asks again). The list is read anew every round (another window adds to it).
-/// A paid one's drive and a dropped one go to the window at once; a drive claimed here is not
-/// reported again while the window finishes its checkout. A checkout whose drive is saved and
-/// whose period tokens are not issued yet (AZLINSEC17 F24) is not asked about again: its tokens
-/// are issued with the issue key it keeps ([`pending::finish`]) - the sealed sign-up may be
-/// gone by now.
-/// Whether a cash checkout last asked at `last` (in this claims run) is to be asked at `now`:
-/// never asked yet, or `every` seconds (its daily look's interval) gone since.
-#[must_use]
-pub(crate) fn cash_ask_due(last: Option<Instant>, every: u64, now: Instant) -> bool {
-    last.is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(every))
+/// How the background claims ask about a kept checkout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pace {
+    /// Every round of the run: a payment that may arrive at any moment, a paid grant that waits
+    /// for its drive's vault.
+    Rounds,
+    /// A cash order that waits for its letter: once in a run, and then once each daily interval
+    /// (the period timer's daily look starts the next run, [`crate::cash::look_if_due`]).
+    Cash,
+    /// A paid checkout that waits for its receipt only: every [`RECEIPT_LOOK_SECS`] - every
+    /// [`pending::RECEIPT_RETRY_EVERY_SECS`] once its three days are over and a look could not be
+    /// made - for as long as the wait lasts, in a run or, between runs, by the window's timer
+    /// ([`crate::add_flow::claims_if_due`], X-DELTA-MONEY5-4).
+    Receipt,
+    /// An unclaimed checkout whose payment was taken back: once a day, as the entry's own count
+    /// says ([`pending::TakenBack::look_is_due`]) - the token server may put the payment back, and
+    /// the entry is the only thing that can open its drive (X-DELTA-MONEY5-1).
+    TakenBack,
 }
 
 /// Seconds between two looks of the background claims for the receipt of one checkout: ten
 /// minutes - the token server's tick that books the sales that the approval's own request did
 /// not is five.
-const RECEIPT_LOOK_SECS: u64 = 600;
+pub(crate) const RECEIPT_LOOK_SECS: u64 = 600;
+
+/// How `checkout` is asked about, and how many seconds are left until it is due (0: now).
+/// `asked` is when this run asked it last, on the run's own clock (`now`), and how often it then
+/// wanted to be asked again; `wall` is the wall clock (seconds since 1970) the entry's own counts
+/// are made on.
+#[must_use]
+pub(crate) fn look_in(
+    checkout: &PendingCheckout,
+    asked: Option<(u64, u64)>,
+    now: u64,
+    wall: i64,
+) -> (Pace, u64) {
+    // the seconds until what this run asked is to be asked again
+    let in_run = asked.map_or(0, |(at, every)| {
+        at.saturating_add(every).saturating_sub(now)
+    });
+    if checkout.period.is_none() {
+        if let Some(back) = &checkout.taken_back {
+            let wait = if back.look_is_due(wall) {
+                0
+            } else {
+                u64::try_from(
+                    back.counted_at
+                        .saturating_add(pending::TAKEN_BACK_ASK_SECS)
+                        .saturating_sub(wall),
+                )
+                .unwrap_or(0)
+            };
+            return (Pace::TakenBack, wait);
+        }
+        if checkout.is_cash() {
+            return (Pace::Cash, in_run);
+        }
+        // asked in this run and found taken back, with no count in the entry (the list could not
+        // take it): not again in every round
+        if asked.is_some() {
+            return (Pace::TakenBack, in_run);
+        }
+    }
+    if checkout.period.is_some() && checkout.receipt_due == Some(ReceiptDue::GrantKept) {
+        return (Pace::Receipt, in_run);
+    }
+    (Pace::Rounds, 0)
+}
+
+/// Seconds until the earliest of the `checkouts` that wait at a pace of their own - a receipt, a
+/// payment taken back - is due again: what the window's timer starts the next run for. `None`:
+/// there is none (a cash order has the period timer's daily look of its own).
+#[must_use]
+fn next_look(
+    checkouts: &[PendingCheckout],
+    asked: &HashMap<String, (u64, u64)>,
+    now: u64,
+    wall: i64,
+) -> Option<u64> {
+    checkouts
+        .iter()
+        .filter_map(
+            |c| match look_in(c, asked.get(&c.checkout_id).copied(), now, wall) {
+                (Pace::Receipt | Pace::TakenBack, wait) => Some(wait),
+                (Pace::Rounds | Pace::Cash, _) => None,
+            },
+        )
+        .min()
+}
 
 /// A result of the claims' round that the window has nothing to say of: a try that failed, a
 /// grant that waits for the drive's vault with nothing new to say, a receipt that is still
@@ -3223,6 +3319,26 @@ pub(crate) fn finish_is_quiet(finished: &Finished) -> bool {
     )
 }
 
+/// What a run of the background claims reaches outside the keyring: the transport its token
+/// servers are asked through, its clocks and pauses, and the window it reports to. Production
+/// builds it from the real ones ([`claim_pending`]); a test builds it from a fake transport and a
+/// clock that a pause moves, and runs the claims over days in a moment.
+pub(crate) struct ClaimsWorld<'a> {
+    /// The transport the token servers are asked through.
+    pub transport: &'a dyn Transport,
+    /// The run's own clock: seconds on a clock that never steps (the paces of one run).
+    pub mono: &'a dyn Fn() -> u64,
+    /// The wall clock, seconds since 1970: what the entries' own counts and the receipt's wait
+    /// are made on.
+    pub wall: &'a dyn Fn() -> u64,
+    /// Waits this many seconds between two rounds.
+    pub sleep: &'a dyn Fn(u64),
+    /// What the run says to the window, in order.
+    pub say: &'a mut dyn FnMut(Outcome),
+}
+
+/// The background claims on a worker thread: [`claim_run`] over the real transport, clocks and
+/// pauses, saying what it finds to the window through `sender`.
 fn claim_pending(
     keyring: &SharedKeyring,
     token_url: Option<&str>,
@@ -3233,15 +3349,48 @@ fn claim_pending(
 ) -> Outcome {
     let transport = AzulTransport::azlin(USER_AGENT);
     let started = Instant::now();
+    let mut say = |outcome: Outcome| send(sender, outcome);
+    let mut world = ClaimsWorld {
+        transport: &transport,
+        mono: &|| started.elapsed().as_secs(),
+        wall: &crate::actions::now_secs,
+        sleep: &|secs| std::thread::sleep(Duration::from_secs(secs)),
+        say: &mut say,
+    };
+    claim_run(&mut world, keyring, token_url, store, drives, cash_every)
+}
+
+/// The background claims: the unfinished checkouts on the keyring's list, each asked at its own
+/// token server (else `token_url`) at the pace it has ([`Pace`]) - a payment that may arrive any
+/// moment every few seconds, until none is left or an hour is gone (the next start asks again);
+/// a cash order once; a paid checkout that waits for its receipt only every ten minutes; a payment
+/// that was taken back once a day. The list is read anew every round (another window adds to it).
+/// A run ends when nothing is due: what it leaves with a pace of its own - a receipt, a payment
+/// taken back - is said as `again_in`, the seconds the window's timer starts the next run after,
+/// so a checkout is asked for its whole wait and not only for the first hour of an uninterrupted
+/// session (X-DELTA-MONEY5-4). A paid one's drive and a dropped one go to the window at once; a
+/// drive claimed here is not reported again while the window finishes its checkout. A checkout
+/// whose drive is saved and whose period tokens are not issued yet (AZLINSEC17 F24) is not asked
+/// about again: its tokens are issued with the issue key it keeps ([`pending::finish`]) - the
+/// sealed sign-up may be gone by now.
+pub(crate) fn claim_run(
+    world: &mut ClaimsWorld<'_>,
+    keyring: &SharedKeyring,
+    token_url: Option<&str>,
+    store: &PeriodTokenStore,
+    drives: &HashMap<String, Arc<azcloud_kit::AzlinAccount>>,
+    cash_every: u64,
+) -> Outcome {
+    let started = (world.mono)();
     let mut reported: Vec<String> = Vec::new();
-    // A cash checkout is asked once, then once each daily interval (its letter takes days):
-    // never every round.
-    let mut asked_cash: HashMap<String, Instant> = HashMap::new();
-    // A checkout whose grant is kept and that waits for its receipt only is asked once, then
-    // once each [`RECEIPT_LOOK_SECS`] (ENT27-B06): the token server books a sale within minutes,
-    // and asking every round would ask every ten seconds for as long as the claims run.
-    let mut asked_receipt: HashMap<String, Instant> = HashMap::new();
+    // When this run asked each checkout that has a pace of its own, and how often that one
+    // wants to be asked again: a cash order is asked once, then once each daily interval; a
+    // checkout that waits for its receipt only once, then once each [`RECEIPT_LOOK_SECS`] (the
+    // token server books a sale within minutes, and asking every round would ask every ten
+    // seconds for as long as the claims run).
+    let mut asked: HashMap<String, (u64, u64)> = HashMap::new();
     let mut said_in_flight: Vec<String> = Vec::new();
+    let mut said_taken_back: Vec<String> = Vec::new();
     // Rounds in a row in which the token server did not answer or asked to wait, and the longest
     // wait it asked for in the round (AZ-P10).
     let mut failures = 0_u32;
@@ -3253,21 +3402,10 @@ fn claim_pending(
         if let Err(e) = pending::forget_stale_postings(keyring, azcloud_kit::now()) {
             eprintln!("[azdrive] the records of orders without an answer were not cleared: {e}");
         }
-        let open: Vec<PendingCheckout> = match pending::list(keyring) {
-            Ok(checkouts) => checkouts
-                .into_iter()
-                .filter(|c| !c.is_posting())
-                .filter(|c| c.period.is_some() || !reported.contains(&c.checkout_id))
-                .filter(|c| {
-                    !(c.is_cash()
-                        && c.period.is_none()
-                        && !cash_ask_due(
-                            asked_cash.get(&c.checkout_id).copied(),
-                            cash_every,
-                            Instant::now(),
-                        ))
-                })
-                .collect(),
+        let now = (world.mono)();
+        let wall = wall_of(world);
+        let listed = match pending::list(keyring) {
+            Ok(checkouts) => checkouts,
             Err(e) => {
                 // A system without a keyring kept no checkout either: nothing to say then.
                 let no_keyring = matches!(
@@ -3280,49 +3418,56 @@ fn claim_pending(
                             .arg("why", e.to_string())
                             .into()
                     }),
+                    again_in: None,
                 };
             }
         };
+        let again_in = next_look(&listed, &asked, now, wall);
+        let open: Vec<PendingCheckout> = listed
+            .into_iter()
+            .filter(|c| !c.is_posting())
+            .filter(|c| c.period.is_some() || !reported.contains(&c.checkout_id))
+            .filter(|c| look_in(c, asked.get(&c.checkout_id).copied(), now, wall).1 == 0)
+            .collect();
         if open.is_empty() {
-            return Outcome::ClaimsDone { problem: None };
+            return Outcome::ClaimsDone {
+                problem: None,
+                again_in,
+            };
         }
-        let mut asked = 0;
+        let mut rounds_asked = 0;
         for checkout in open {
             let url = if checkout.token_url.is_empty() {
                 token_url.unwrap_or_default().to_string()
             } else {
                 checkout.token_url.clone()
             };
-            let Ok(server) = TokenServer::new(&url, &transport) else {
+            let Ok(server) = TokenServer::new(&url, world.transport) else {
                 continue;
             };
-            asked += 1;
+            rounds_asked += 1;
+            let (pace, _) = look_in(&checkout, None, now, wall);
             // Its grant is in two places already: what is left is its receipt, asked for at its
             // own pace and without opening the drive.
-            if checkout.receipt_due == Some(ReceiptDue::GrantKept) && checkout.period.is_some() {
-                let now = Instant::now();
-                if cash_ask_due(
-                    asked_receipt.get(&checkout.checkout_id).copied(),
-                    RECEIPT_LOOK_SECS,
-                    now,
+            if pace == Pace::Receipt {
+                asked.insert(checkout.checkout_id.clone(), (now, RECEIPT_LOOK_SECS));
+                let finished = pending::await_receipt(&server, keyring, &checkout, (world.wall)());
+                // The three days are over and the last look could not be made: a day on.
+                if matches!(
+                    finished,
+                    Finished::Receipt(pending::Receipted::LateWaits(_))
                 ) {
-                    asked_receipt.insert(checkout.checkout_id.clone(), now);
-                    let finished = pending::await_receipt(
-                        &server,
-                        keyring,
-                        &checkout,
-                        crate::actions::now_secs(),
+                    asked.insert(
+                        checkout.checkout_id.clone(),
+                        (now, pending::RECEIPT_RETRY_EVERY_SECS),
                     );
-                    if !finish_is_quiet(&finished) {
-                        send(
-                            sender,
-                            Outcome::CheckoutFinished {
-                                checkout_id: checkout.checkout_id.clone(),
-                                result: Ok(Some(finished)),
-                                from_claims: true,
-                            },
-                        );
-                    }
+                }
+                if !finish_is_quiet(&finished) {
+                    (world.say)(Outcome::CheckoutFinished {
+                        checkout_id: checkout.checkout_id.clone(),
+                        result: Ok(Some(finished)),
+                        from_claims: true,
+                    });
                 }
                 continue;
             }
@@ -3332,24 +3477,28 @@ fn claim_pending(
                     // tried again next round, quietly
                     Err(_) => continue,
                 };
-                let now = crate::actions::now_secs();
-                let finished = pending::finish(&server, keyring, store, &tokens, &checkout, owed, now);
+                let finished = pending::finish(
+                    &server,
+                    keyring,
+                    store,
+                    &tokens,
+                    &checkout,
+                    owed,
+                    (world.wall)(),
+                );
                 // A try that failed, and a grant that waits for the drive's vault with nothing
                 // new to say, is tried again next round, quietly.
                 if !finish_is_quiet(&finished) {
-                    send(
-                        sender,
-                        Outcome::CheckoutFinished {
-                            checkout_id: checkout.checkout_id.clone(),
-                            result: Ok(Some(finished)),
-                            from_claims: true,
-                        },
-                    );
+                    (world.say)(Outcome::CheckoutFinished {
+                        checkout_id: checkout.checkout_id.clone(),
+                        result: Ok(Some(finished)),
+                        from_claims: true,
+                    });
                 }
                 continue;
             }
-            if checkout.is_cash() {
-                asked_cash.insert(checkout.checkout_id.clone(), Instant::now());
+            if pace == Pace::Cash {
+                asked.insert(checkout.checkout_id.clone(), (now, cash_every));
             }
             // Bought here and not paid yet: a new order in this window asks about it first.
             let may_be_in_flight = !checkout.is_cash() && !checkout.picked_up;
@@ -3363,58 +3512,73 @@ fn claim_pending(
             }
             match polled {
                 Polled::Pending if checkout.is_cash() => {
-                    send(sender, Outcome::CashWaiting { checkout });
+                    (world.say)(Outcome::CashWaiting { checkout });
+                }
+                // Its payment was taken back: it stays on the list, said once in this run - the
+                // token server may put the payment back, and the drive then comes by itself.
+                Polled::Transient(pending::Transient::TakenBack(why)) => {
+                    asked.insert(
+                        checkout.checkout_id.clone(),
+                        (
+                            now,
+                            u64::try_from(pending::TAKEN_BACK_ASK_SECS).unwrap_or(86_400),
+                        ),
+                    );
+                    if !said_taken_back.contains(&checkout.checkout_id) {
+                        said_taken_back.push(checkout.checkout_id.clone());
+                        (world.say)(Outcome::TakenBack {
+                            days: u32::try_from(checkout.handover_life_secs() / 86_400)
+                                .unwrap_or(u32::MAX),
+                            checkout_id: checkout.checkout_id,
+                            why,
+                        });
+                    }
                 }
                 Polled::Pending | Polled::Transient(_)
                     if may_be_in_flight && !said_in_flight.contains(&checkout.checkout_id) =>
                 {
                     said_in_flight.push(checkout.checkout_id.clone());
-                    send(sender, Outcome::InFlight { checkout });
+                    (world.say)(Outcome::InFlight { checkout });
                 }
                 Polled::Final(Final::Claimed(claimed)) => {
                     reported.push(checkout.checkout_id.clone());
-                    send(
-                        sender,
-                        Outcome::Claimed {
-                            serial: None,
-                            checkout,
-                            claimed,
-                        },
-                    );
+                    (world.say)(Outcome::Claimed {
+                        serial: None,
+                        checkout,
+                        claimed,
+                    });
                 }
                 // Its months wait with it for the drive: the next round finishes it.
                 Polled::Final(Final::Renewed {
                     drive_id,
                     months,
                     record,
-                }) => send(
-                    sender,
-                    Outcome::Renewed {
-                        serial: None,
-                        checkout_id: checkout.checkout_id.clone(),
-                        drive_id,
-                        months,
-                        change_tier: checkout.change_tier,
-                        record,
-                    },
-                ),
-                Polled::Final(end) => send(
-                    sender,
-                    Outcome::CheckoutDropped {
-                        checkout_id: checkout.checkout_id,
-                        why: end.why(),
-                    },
-                ),
+                }) => (world.say)(Outcome::Renewed {
+                    serial: None,
+                    checkout_id: checkout.checkout_id.clone(),
+                    drive_id,
+                    months,
+                    change_tier: checkout.change_tier,
+                    record,
+                }),
+                Polled::Final(end) => (world.say)(Outcome::CheckoutDropped {
+                    checkout_id: checkout.checkout_id,
+                    why: end.why(),
+                }),
                 Polled::Pending | Polled::Transient(_) | Polled::Settled => {}
             }
         }
-        if asked == 0 {
+        if rounds_asked == 0 {
             return Outcome::ClaimsDone {
                 problem: Some(Text::key("azdrive-pay-claims-no-server")),
+                again_in: None,
             };
         }
-        if started.elapsed() > Duration::from_secs(CLAIM_WAIT_SECS) {
-            return Outcome::ClaimsDone { problem: None };
+        if (world.mono)().saturating_sub(started) > CLAIM_WAIT_SECS {
+            return Outcome::ClaimsDone {
+                problem: None,
+                again_in: next_look_now(world, keyring, &asked),
+            };
         }
         failures = if unanswered {
             failures.saturating_add(1)
@@ -3422,10 +3586,27 @@ fn claim_pending(
             0
         };
         let wait = backoff_secs(CLAIM_POLL_SECS, failures, CLAIM_BACKOFF_MAX_SECS, asked_for);
-        std::thread::sleep(Duration::from_secs(wait));
+        (world.sleep)(wait);
     }
 }
 
+/// The wall clock of the run, as the stamps of the entries count it (seconds since 1970).
+fn wall_of(world: &ClaimsWorld<'_>) -> i64 {
+    i64::try_from((world.wall)()).unwrap_or(i64::MAX)
+}
+
+/// [`next_look`] over the list as it stands now: what a run that ends leaves with a pace of its
+/// own. A list that cannot be read now leaves no word (`None`): the next start asks again.
+fn next_look_now(
+    world: &ClaimsWorld<'_>,
+    keyring: &SharedKeyring,
+    asked: &HashMap<String, (u64, u64)>,
+) -> Option<u64> {
+    // collapse-ok: the timer is the second chance of an ask that is not due before the next
+    // start in any case; a list that cannot be read here fails the next round's read loudly
+    let listed = pending::list(keyring).ok()?;
+    next_look(&listed, asked, (world.mono)(), wall_of(world))
+}
 /// A price notice written as a document of `drive` - the drive as the window opens it, so an
 /// encrypted drive's gate decides (`Encrypted` takes it into the index, anything else refuses it
 /// and nothing is written).

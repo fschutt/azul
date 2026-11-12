@@ -482,6 +482,9 @@ extern "C" fn on_period_timer(mut data: RefAny, info: TimerCallbackInfo) -> Time
     crate::problems::notify_due(&mut callback_info, &mut *s);
     // A cash order's daily look (its letter may have arrived).
     crate::cash::look_if_due(&mut callback_info, &app, &mut *s);
+    // The next run of the claims for what the last one left with a pace of its own: a receipt
+    // awaited, a payment taken back.
+    crate::add_flow::claims_if_due(&mut callback_info, &app, &mut s);
     // The trash of the local drives, once a day (the start looked at it once).
     crate::trash::look_if_due(&mut callback_info, &app, &mut s);
     // A banned drive's banner counts its hours down.

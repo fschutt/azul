@@ -274,15 +274,32 @@ fn the_choose_page_offers_to_pick_up_a_paid_drive_with_a_claim_code() {
 
 #[test]
 fn a_long_claims_run_asks_a_cash_checkout_again_only_after_its_daily_interval() {
-    use std::time::{Duration, Instant};
+    use crate::jobs::{look_in, Pace};
 
-    use crate::jobs::cash_ask_due;
-
-    let now = Instant::now();
-    assert!(cash_ask_due(None, 86_400, now), "never asked in this run: now");
-    let asked = now.checked_sub(Duration::from_secs(10)).unwrap_or(now);
-    assert!(!cash_ask_due(Some(asked), 86_400, now), "not every round of the run");
-    assert!(cash_ask_due(Some(asked), 5, now), "a test run's short interval is over");
+    let mut cash = azcloud_kit::PendingCheckout::new(
+        "ck_1",
+        &azcloud_kit::ClaimKey::generate().unwrap(),
+        "100GB",
+        "http://127.0.0.1:18081",
+        "Photos",
+    );
+    cash.method = String::from("cash");
+    let wall = 1_791_450_000;
+    assert_eq!(
+        look_in(&cash, None, 5_000, wall),
+        (Pace::Cash, 0),
+        "never asked in this run: now"
+    );
+    assert_eq!(
+        look_in(&cash, Some((4_990, 86_400)), 5_000, wall),
+        (Pace::Cash, 86_400 - 10),
+        "not every round of the run"
+    );
+    assert_eq!(
+        look_in(&cash, Some((4_990, 5)), 5_000, wall).1,
+        0,
+        "a test run's short interval is over"
+    );
 }
 
 #[test]
