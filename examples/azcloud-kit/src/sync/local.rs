@@ -390,6 +390,15 @@ impl LocalFile {
     }
 }
 
+/// A file the rules leave out, as the scan met it ([`Scan::temps`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Temp {
+    /// Its bytes.
+    pub size: u64,
+    /// Its modification time (nanoseconds): a temp written moments ago is an app saving now.
+    pub mtime_ns: u64,
+}
+
 /// What a scan found.
 #[derive(Clone, Debug, Default)]
 pub struct Scan {
@@ -417,9 +426,9 @@ pub struct Scan {
     /// written, and why: unknown this pass, never a delete (nothing below such a folder
     /// either).
     pub unknown: BTreeMap<String, Why>,
-    /// The files the rules leave out, with their sizes: an app that saves a file writes it
+    /// The files the rules leave out, with their sizes and times: an app that saves a file writes it
     /// aside and renames the old one to such a name for a moment, which is no delete.
-    pub temps: BTreeMap<String, u64>,
+    pub temps: BTreeMap<String, Temp>,
     /// What the scan has to tell, file by file (links, special files, names, unreadable): the first
     /// [`LISTED_PER_CODE`](super::problems::LISTED_PER_CODE) of each code, and one row of it that
     /// says how many more there were ([`Problem::more`]; X-DELTA-EDGE-3).
@@ -1183,7 +1192,13 @@ pub fn scan_settled(
             }
             if rules.excluded(&key).is_some() {
                 out.excluded += 1;
-                out.temps.insert(key, st.size);
+                out.temps.insert(
+                    key,
+                    Temp {
+                        size: st.size,
+                        mtime_ns: st.mtime_ns,
+                    },
+                );
                 continue;
             }
             if let Err(e) = super::remote::check_key(&key) {
@@ -1361,9 +1376,7 @@ fn open_listed(
                 Code::Unreadable,
                 &key,
                 format!("cannot be read ({e})"),
-                format!(
-                    "the folder cannot be opened ({e}); nothing in it is taken for deleted"
-                ),
+                format!("the folder cannot be opened ({e}); nothing in it is taken for deleted"),
             );
             out.unknown.insert(key, Why::Unreadable);
             None
@@ -1601,6 +1614,40 @@ pub fn stat_now(root: &Path, key: &str) -> Result<Option<Stat>, BeneathError> {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
     }
+}
+
+/// Of the files `keys` (the plan deletes them on the drive because they are gone here), the ones
+/// that are NOT known to be gone now: back (an app that unlinked a file and renames its new one in
+/// later), or not to be told - a folder of the path is a link or another disk or cannot be read, or
+/// the folder cannot be opened at all. A name nobody could look at is no delete (X-DELTA-EDGE-5).
+/// Asked as the scan asked: of the listing of the folder, by the name as it is spelled - a disk that
+/// takes `File.txt` for `file.txt` finds a file by the one name that is the other's rename, and a
+/// delete of the old spelling stands. One listing for all the keys of a folder.
+#[must_use]
+pub fn not_gone(root: &Path, keys: &[String]) -> BTreeSet<String> {
+    let Ok(tree) = beneath::Root::open(root) else {
+        return keys.iter().cloned().collect();
+    };
+    // Per folder: its names, `Some(none)` when the folder is gone, `None` when it cannot be told.
+    let mut listings: BTreeMap<&str, Option<BTreeSet<std::ffi::OsString>>> = BTreeMap::new();
+    let mut back = BTreeSet::new();
+    for key in keys {
+        let (folder, name) = beneath::split_key(key);
+        let listing = listings
+            .entry(folder)
+            .or_insert_with(|| match tree.dir(folder, false) {
+                Ok(dir) => dir.names().ok().map(|names| names.into_iter().collect()),
+                Err(e) if e.is_not_found() => Some(BTreeSet::new()),
+                Err(_) => None,
+            });
+        let gone = listing
+            .as_ref()
+            .is_some_and(|names| !names.contains(std::ffi::OsStr::new(name)));
+        if !gone {
+            back.insert(key.clone());
+        }
+    }
+    back
 }
 
 /// Whether the file of `key` is still as the scan found it (`None`: still absent) - checked

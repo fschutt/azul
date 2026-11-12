@@ -3148,7 +3148,7 @@ fn moved_scan(scan: &mut Scan, moves: &[(String, String)]) {
         .collect();
     scan.temps = std::mem::take(&mut scan.temps)
         .into_iter()
-        .map(|(key, size)| (m(key.as_str()), size))
+        .map(|(key, temp)| (m(key.as_str()), temp))
         .collect();
     scan.links = std::mem::take(&mut scan.links)
         .into_iter()
@@ -3633,18 +3633,25 @@ fn hash_here(root: &Path, key: &str) -> Option<String> {
     Some(hasher.finalize().to_hex().to_string())
 }
 
-/// P10, D6: an app that saves a file writes the new version aside and renames the old one to
-/// an ignored temporary name in the same folder for a moment, then renames the new one in. A
+/// P10, D6: an app that saves a file writes the new version aside and renames the old one to an
+/// ignored temporary name in the same folder for a moment, then renames the new one in. A
 /// run in that moment sees the file gone; a delete on the drive then would lose it on every
 /// device. A delete whose old bytes sit in such a temporary file next to it waits for the next
-/// run.
+/// run. So does a delete next to a temp of the same size that cannot be read (an app that still
+/// holds it open: the bytes cannot be told, so it is no evidence against), and one next to a temp
+/// written within `window` (the app's `file_settle`, or the folder's quiet wait `settle` when that is
+/// longer): an app that saves now, whatever its bytes - the old file may be the user's version that was
+/// never synced, and a temp written slowly after the unlink is no quiet folder (X-DELTA-EDGE-5).
 fn keep_saves(
     actions: &mut Vec<Action>,
     scan: &Scan,
     base: &BTreeMap<String, BaseEntry>,
     root: &Path,
+    window: Duration,
     report: &mut SyncReport,
 ) {
+    let now_ns = crate::now_ns();
+    let window_ns = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
     let mut hashes: BTreeMap<String, Option<String>> = BTreeMap::new();
     actions.retain(|action| {
         let Action::DeleteRemote { key } = action else {
@@ -3654,27 +3661,78 @@ fn keep_saves(
             return true;
         };
         let folder = beneath::split_key(key).0;
-        for (temp, size) in &scan.temps {
+        for (temp, found) in &scan.temps {
             let (temp_folder, temp_name) = beneath::split_key(temp);
-            if temp_folder != folder || *size != entry.size {
+            if temp_folder != folder {
                 continue;
             }
-            let hash = hashes
-                .entry(temp.clone())
-                .or_insert_with(|| hash_here(root, temp));
-            if hash.as_deref() == Some(entry.hash.as_str()) {
+            let why = if found.size == entry.size {
+                let hash = hashes
+                    .entry(temp.clone())
+                    .or_insert_with(|| hash_here(root, temp));
+                match hash.as_deref() {
+                    Some(hash) if hash == entry.hash => {
+                        Some(format!("its old version is in {temp_name}"))
+                    }
+                    // A temp of this size that cannot be read is no proof of another file.
+                    None => Some(format!("{temp_name} has its size and cannot be read")),
+                    Some(_) => None,
+                }
+            } else {
+                None
+            };
+            // Written moments ago: the app is saving now (a time in the future is no write in
+            // progress, as for a file the scan leaves for later).
+            let why = why.or_else(|| {
+                (window_ns > 0
+                    && found.mtime_ns <= now_ns
+                    && found.mtime_ns.saturating_add(window_ns) > now_ns)
+                    .then(|| format!("{temp_name} was written moments ago"))
+            });
+            if let Some(why) = why {
                 report.tell(
                     problems::Code::SaveInProgress,
                     key,
-                    format!(
-                        "an app is saving it (its old version is in {temp_name}); the next pass \
-                         takes the result"
-                    ),
+                    format!("an app is saving it ({why}); the next pass takes the result"),
                 );
                 return false;
             }
         }
         true
+    });
+}
+
+/// Right before the commit, the deletes the plan made from the scan of a moment ago are looked at
+/// again: an app that unlinks a file and renames its new bytes in later has put the file back, and a
+/// delete committed then is a tombstone every other device trashes its copy for, and a new upload
+/// one pass later. A file that is back, or cannot be looked at, is no delete: it is dropped from the
+/// plan and listed, and the next pass takes what is there (X-DELTA-EDGE-5).
+fn hold_returned_deletes(actions: &mut Vec<Action>, root: &Path, report: &mut SyncReport) {
+    let keys: Vec<String> = actions
+        .iter()
+        .filter(|a| matches!(a, Action::DeleteRemote { .. }))
+        .map(|a| a.key().to_string())
+        .collect();
+    if keys.is_empty() {
+        return;
+    }
+    let back = local::not_gone(root, &keys);
+    if back.is_empty() {
+        return;
+    }
+    actions.retain(|action| {
+        if !matches!(action, Action::DeleteRemote { .. }) || !back.contains(action.key()) {
+            return true;
+        }
+        // An attempt that lost the race to another device looks again: said once.
+        let said = format!(
+            "{}: changed during the run; the next run takes it",
+            action.key()
+        );
+        if !report.changed_during_sync.contains(&said) {
+            report.changed_during_sync.push(said);
+        }
+        false
     });
 }
 
@@ -4428,7 +4486,14 @@ fn run_pass<R: SyncRemote + ?Sized>(
         }
         let mut actions = merge::plan(&input);
         hold_unnameable_copies(&mut actions, &mut report);
-        keep_saves(&mut actions, &scan, base, &root.path, &mut report);
+        keep_saves(
+            &mut actions,
+            &scan,
+            base,
+            &root.path,
+            opts.file_settle.max(opts.settle),
+            &mut report,
+        );
         // A backup's one-way answers first: a conflict there is no question for the user.
         if hooks.backup {
             oneway::backup_plan(&mut actions, &scan, base);
@@ -4575,6 +4640,8 @@ fn run_pass<R: SyncRemote + ?Sized>(
             &mut report,
         )?;
         actions.retain(|a| !abandoned.contains(a.key()));
+        // The deletes are looked at again right before the commit: the uploads took time.
+        hold_returned_deletes(&mut actions, &root.path, &mut report);
         // From the drive's whole index: the entries no run acts on stay in it as they are.
         let next = next_index(
             &remote,

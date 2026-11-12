@@ -1596,3 +1596,133 @@ fn x_ar5a_12_a_disk_that_cannot_say_its_free_space_is_a_posture_and_a_note_not_a
     assert_eq!(closed, 0, "no download fits a disk that cannot be asked");
     assert!(note.expect("said").contains("no statvfs here"));
 }
+
+/// X-DELTA-EDGE-5 (E1d, T2). `keep_saves` held a delete only when a temp of the same size had the old
+/// file's BLAKE3 - and read a temp it could not read as "no evidence": a temp the saving app still
+/// holds open (a Windows sharing violation, a mode the app set) let the delete through. Word's save as
+/// above, the old-bytes temp unreadable (mode 000): a temp of the delete's size that cannot be read
+/// is a save in progress too.
+#[cfg(unix)]
+#[test]
+fn a_same_size_temp_that_cannot_be_read_holds_the_delete_like_a_save_in_progress() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = S3Bucket::new();
+    let a = Device::new("unreadable-save-a");
+    let b = Device::new("unreadable-save-b");
+    a.write("Report.docx", b"draft");
+    a.sync(&store);
+    b.sync(&store);
+    a.write("~WRD0001.tmp", b"final");
+    fs::rename(a.path().join("Report.docx"), a.path().join("~WRL0002.tmp")).unwrap();
+    let held = a.path().join("~WRL0002.tmp");
+    fs::set_permissions(&held, fs::Permissions::from_mode(0o000)).unwrap();
+    // A user who reads a file of mode 000 (root) cannot play this.
+    if fs::read(&held).is_ok() {
+        fs::set_permissions(&held, fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+    let report = a.sync(&store);
+    fs::set_permissions(&held, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        lists(&report, Code::SaveInProgress, Some("Report.docx")),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    b.sync(&store);
+    assert_eq!(b.read("Report.docx").as_deref(), Some(&b"draft"[..]));
+    assert!(trashed(b.path()).is_empty());
+}
+
+/// X-DELTA-EDGE-5 (E1d, T2, the second case). The base holds v1, the user saved v2 (not synced yet)
+/// and the app is saving v3: the temp holds v2 - the same size as v1, other bytes - so no hash matches
+/// and `keep_saves` found no evidence. A temp the app wrote within the settle window (the app's
+/// `file_settle`) is a save in progress whatever its bytes; one that is older is no evidence, as before
+/// (a stale temp beside a file deleted for good must not hold the delete for ever).
+#[test]
+fn a_temp_written_within_the_settle_window_holds_the_delete_whatever_its_bytes() {
+    let store = S3Bucket::new();
+    let a = Device::new("recent-temp-a");
+    let b = Device::new("recent-temp-b");
+    a.write("Plan.docx", b"draft v1");
+    a.sync(&store);
+    b.sync(&store);
+    // v2 is saved here and not synced; the app starts saving v3: v2 moves to a temp, v3 is written.
+    a.write("Plan.docx", b"draft v2");
+    a.write("~WRD0003.tmp", b"draft v3, longer");
+    fs::rename(a.path().join("Plan.docx"), a.path().join("~WRL0004.tmp")).unwrap();
+    let mut opts = a.opts();
+    opts.file_settle = Duration::from_secs(3600);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        lists(&report, Code::SaveInProgress, Some("Plan.docx")),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    b.sync(&store);
+    assert_eq!(b.read("Plan.docx").as_deref(), Some(&b"draft v1"[..]));
+
+    // The same folder an hour on: the temps are stale, and a delete is a delete.
+    for temp in ["~WRD0003.tmp", "~WRL0004.tmp"] {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(a.path().join(temp))
+            .unwrap();
+        file.set_modified(std::time::SystemTime::now() - Duration::from_secs(7200))
+            .unwrap();
+    }
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert_eq!(report.deleted_there, 1, "{}", report.summary());
+    assert!(
+        !lists(&report, Code::SaveInProgress, None),
+        "{:?}",
+        report.problems
+    );
+}
+
+/// X-DELTA-EDGE-5 (E1b, T1, the slow-writer variant). A writer that unlinks the document and writes its
+/// temp slowly afterwards: the folder's own time moves when the temp is made, not when it is written
+/// into (the wait for a quiet folder does not look at an ignored file), so a pass with a quiet wait of
+/// 500 ms starts its scan while the temp is mid-write, finds the document gone and plans its delete.
+/// A temp written within the quiet wait holds the delete; the pass after the rename sends the new bytes
+/// as an edit, and the other device never trashes its copy.
+#[test]
+fn a_temp_written_slowly_after_the_unlink_holds_the_delete_while_the_folder_waits_for_quiet() {
+    use std::io::Write;
+    let store = S3Bucket::new();
+    let a = Device::new("slow-temp-a");
+    let b = Device::new("slow-temp-b");
+    a.write("doc.docx", b"old");
+    a.sync(&store);
+    b.sync(&store);
+    fs::remove_file(a.path().join("doc.docx")).unwrap();
+    let writer = {
+        let (temp, doc) = (a.path().join("doc.tmp"), a.path().join("doc.docx"));
+        std::thread::spawn(move || {
+            let mut file = fs::File::create(&temp).unwrap();
+            for _ in 0..60 {
+                file.write_all(b"slowly written bytes ").unwrap();
+                file.flush().unwrap();
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            drop(file);
+            fs::rename(&temp, &doc).unwrap();
+        })
+    };
+    let mut opts = a.opts();
+    opts.settle = Duration::from_millis(500);
+    let report = a.sync_with(&store, &opts).unwrap();
+    writer.join().unwrap();
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    assert!(
+        index_of(&store).deleted.is_empty(),
+        "{:?}",
+        index_of(&store).deleted.keys()
+    );
+    let report = a.sync(&store);
+    assert_eq!(report.files_up, 1, "{}", report.summary());
+    b.sync(&store);
+    assert_eq!(b.read("doc.docx").map(|bytes| bytes.len()), Some(21 * 60));
+    assert!(trashed(b.path()).is_empty());
+}

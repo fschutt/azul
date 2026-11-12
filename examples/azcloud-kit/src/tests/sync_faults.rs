@@ -761,3 +761,117 @@ fn x_delta_sync2_1_a_pass_cut_while_the_size_cap_frees_a_file_leaves_the_drive_a
     assert!(base_of(state.path()).files["big.txt"].cloud_only);
     faults::clear(folder.path());
 }
+
+/// The files of `folder`'s trash.
+fn trash_of(folder: &Path) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut stack = vec![folder.join(".azlin").join("sync").join("trash")];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if entry.file_type().unwrap().is_dir() {
+                stack.push(entry.path());
+            } else {
+                out.push(fs::read(entry.path()).unwrap());
+            }
+        }
+    }
+    out
+}
+
+/// X-DELTA-EDGE-5 (E1b, T1). A writer that deletes the original FIRST and renames a temp with new
+/// bytes in later (or writes the temp slowly after the unlink): `keep_saves` cannot match the temp
+/// (its bytes are not the old file's), and nothing looked at the file again before the commit - the
+/// pass planned a delete from a scan taken before the rename, committed a tombstone, and every other
+/// device trashed its copy; the next pass uploaded the new bytes. Churn and version noise, no loss.
+/// The pass is paused right after its scan (the file gone, the temp there), the writer renames the
+/// temp in, the pass goes on: the file is looked at again before the commit, the delete is dropped
+/// and listed, the drive keeps the file, and the next pass sends the new bytes as an edit. RED on
+/// the old code: `deleted_there` is 1, the drive holds a tombstone and B's trash holds "old".
+#[test]
+fn a_delete_then_rename_save_with_a_pass_between_is_no_delete_on_the_drive() {
+    let store = Arc::new(S3Bucket::new());
+    let (a, a_state) = (
+        TempDir::new("azcloud-faults-e5-a"),
+        TempDir::new("azcloud-faults-e5-a-state"),
+    );
+    let (b, b_state) = (
+        TempDir::new("azcloud-faults-e5-b"),
+        TempDir::new("azcloud-faults-e5-b-state"),
+    );
+    let on_a = Arc::new(faulted_as("A", a.path(), a_state.path(), &store));
+    let on_b = faulted_as("B", b.path(), b_state.path(), &store);
+    fs::write(a.path().join("doc.docx"), "old").unwrap();
+    pass(&on_a).expect("a sends the document");
+    pass(&on_b).expect("b gets it");
+    let generation = drive_index(&store).generation;
+
+    // The first half of an unlink-then-rename writer: the old bytes are nowhere.
+    fs::write(a.path().join("doc.tmp"), "new, longer").unwrap();
+    fs::remove_file(a.path().join("doc.docx")).unwrap();
+    faults::arm_pause(a.path(), "after-scan");
+    let running = {
+        let on_a = Arc::clone(&on_a);
+        std::thread::spawn(move || on_a.pass(&AtomicBool::new(false), &mut |_| {}))
+    };
+    assert_eq!(
+        faults::wait_paused(a.path(), Duration::from_secs(30)).as_deref(),
+        Some("after-scan"),
+        "the pass has scanned the folder without the document"
+    );
+    // The second half, while the pass is paused: the document is there again.
+    fs::rename(a.path().join("doc.tmp"), a.path().join("doc.docx")).unwrap();
+    faults::release(a.path());
+    let report = running
+        .join()
+        .expect("the pass ends")
+        .expect("the pass succeeds")
+        .report
+        .expect("a report");
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    let index = drive_index(&store);
+    assert!(
+        index.files.contains_key("doc.docx"),
+        "{:?}",
+        index.files.keys()
+    );
+    assert!(
+        index.deleted.is_empty(),
+        "no tombstone: {:?}",
+        index.deleted.keys()
+    );
+    assert_eq!(index.generation, generation, "the drive was not touched");
+
+    // The next pass sees an edit and sends it: one commit, nothing deleted.
+    let report = on_a
+        .pass(&AtomicBool::new(false), &mut |_| {})
+        .unwrap()
+        .report
+        .unwrap();
+    assert_eq!(report.files_up, 1, "{}", report.summary());
+    let index = drive_index(&store);
+    assert!(index.deleted.is_empty());
+    assert_eq!(index.generation, generation + 1);
+    pass(&on_b).expect("b syncs");
+    assert_eq!(
+        fs::read_to_string(b.path().join("doc.docx")).unwrap(),
+        "new, longer"
+    );
+    assert!(trash_of(b.path()).is_empty(), "b trashed nothing");
+    let names: Vec<String> = fs::read_dir(b.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n != ".azlin")
+        .collect();
+    assert_eq!(names, ["doc.docx"], "no conflict copy");
+    for session in [&*on_a, &on_b] {
+        let report = session
+            .pass(&AtomicBool::new(false), &mut |_| {})
+            .unwrap()
+            .report
+            .unwrap();
+        assert!(!report.index_written, "{}", report.summary());
+    }
+    faults::clear(a.path());
+    faults::clear(b.path());
+}

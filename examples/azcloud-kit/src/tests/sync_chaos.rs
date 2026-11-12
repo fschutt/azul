@@ -616,3 +616,52 @@ fn a_folder_changed_while_it_is_read_is_read_again_once_it_is_quiet() {
     .unwrap();
     assert_eq!(once, 1);
 }
+
+/// X-DELTA-EDGE-5 (E1b, T1, the pure variant). A writer that unlinks the file first and renames a
+/// new one in later (`x`, then `x.tmp`, then `x` again) while a scan reads: the first read sees `x`
+/// gone - and the folder's own time moved while it was read, so the read is made again and sees `x`.
+/// A characterization test - the torn-scan re-read is older than the fix beside it.
+#[test]
+fn a_file_unlinked_and_renamed_back_while_the_folder_is_read_is_held_by_the_second_read() {
+    let folder = TempDir::new("azcloud-chaos-unlink-then-rename");
+    fs::write(folder.path().join("x"), b"old bytes").unwrap();
+    let rules = Rules::base();
+    let read = || {
+        local::scan(
+            folder.path(),
+            &rules,
+            &std::collections::BTreeMap::new(),
+            0,
+            &[],
+            u64::MAX,
+        )
+    };
+    let mut reads = 0;
+    let scan = local::scan_unchanged(
+        folder.path(),
+        &rules,
+        Duration::from_millis(50),
+        Duration::from_secs(10),
+        &|| false,
+        || {
+            reads += 1;
+            if reads > 1 {
+                return read();
+            }
+            // The writer unlinks the original and starts its temp, the read finds the folder
+            // without `x`, and the temp is renamed in as the read ends.
+            fs::remove_file(folder.path().join("x")).unwrap();
+            fs::write(folder.path().join("x.tmp"), b"new bytes, longer").unwrap();
+            let torn = read()?;
+            assert!(
+                !torn.files.contains_key("x"),
+                "the first read is the torn one"
+            );
+            fs::rename(folder.path().join("x.tmp"), folder.path().join("x")).unwrap();
+            Ok(torn)
+        },
+    )
+    .unwrap();
+    assert_eq!(reads, 2, "the torn read is read again");
+    assert!(scan.files.contains_key("x"), "{:?}", scan.files.keys());
+}
