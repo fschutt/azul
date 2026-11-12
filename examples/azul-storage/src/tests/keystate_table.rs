@@ -183,9 +183,18 @@ fn spec(state: &KeyState, op: Op) -> Cell {
         (S::Unknown(_), Op::Lockdown) => Cell::Permit(Way::Plain, NO_STAYS),
         // a removal does not rest on whether the bucket lists key files (it reads no bucket)
         (S::Unknown(Why::NotAsked("whether the drive is encrypted")), Op::Remove) => Cell::Removal,
-        // a recovery is judged on the entry it writes, the drive key: a device with no key may take one
-        // (the keyring's protection is asked), and a key change's, a setup's or a journal's entry that
-        // cannot be read does not lock out the user who holds the recovery code
+        // A recovery is judged on the entry it writes, the drive key: a device with no key may take one (the
+        // keyring's protection is asked). Exactly FOUR (why, fact) pairs permit it, each decided with its reason
+        // (X-DELTA-INTEGRITY3-2, -4; the other eight pairs of `states()` fall to the refusal below):
+        // - NotAsked(whether the drive is encrypted): a recovery reads no bucket before it runs, and the unasked
+        //   listing cannot tell a Fresh device from a Locked one - both permit Recover (Plain), and this cell is
+        //   their union. It was Refuse(NotAsked) before 079cc11fe. The property still guarded: a keyring that
+        //   cannot be read (Unreadable drive key), one that keeps no key (`keeps_keys`, asked) and a key change's
+        //   journal nobody looked at (KeyChangeUnfinished) take no recovered key;
+        // - Unreadable(the new key | the key it replaces | the setup's key): a key change's or a setup's entry
+        //   that cannot be read does not lock out the user who holds the recovery code, the way back in. The
+        //   control: Unreadable(the drive key) - the entry a recovery writes - refuses.
+        // A listing that was asked and FAILED, and a keyring entry nobody asked, are no yes: refused.
         (
             S::Unknown(
                 Why::NotAsked("whether the drive is encrypted")
@@ -233,9 +242,21 @@ fn spec(state: &KeyState, op: Op) -> Cell {
     }
 }
 
+/// The facts the state of a drive's key rests on (`observe`), in the table's words: each of them can be
+/// unreadable or not asked, and `states()` holds every one of those twelve pairs, so that the exhaustive test
+/// decides them and no arm of the judge can be wider than the table without a red test (X-DELTA-INTEGRITY3-4).
+const FACTS: [&str; 6] = [
+    "the drive key",
+    "whether the drive is encrypted",
+    "the new key of a key change",
+    "the key a key change replaces",
+    "the key kept for the drive's setup",
+    "the key change's journal",
+];
+
 /// One state of every row, and each payload that a cell depends on.
 fn states() -> Vec<KeyState> {
-    vec![
+    let mut states = vec![
         KeyState::Fresh,
         KeyState::Planned,
         KeyState::Active,
@@ -246,18 +267,15 @@ fn states() -> Vec<KeyState> {
         KeyState::Torn(Why::OldKeyGone),
         KeyState::Torn(Why::CannotResume),
         KeyState::Locked,
-        KeyState::Unknown(Why::Unreadable {
-            what: "the drive key",
+    ];
+    for what in FACTS {
+        states.push(KeyState::Unknown(Why::Unreadable {
+            what,
             why: String::from("the keyring refused"),
-        }),
-        KeyState::Unknown(Why::NotAsked("the drive key")),
-        KeyState::Unknown(Why::NotAsked("whether the drive is encrypted")),
-        KeyState::Unknown(Why::NotAsked("the key change's journal")),
-        KeyState::Unknown(Why::Unreadable {
-            what: "the new key of a key change",
-            why: String::from("the keyring refused"),
-        }),
-    ]
+        }));
+        states.push(KeyState::Unknown(Why::NotAsked(what)));
+    }
+    states
 }
 
 /// Evidence in which everything a cell may rest on was asked and says yes: the keyring keeps keys, the
@@ -311,11 +329,72 @@ fn the_table_is_the_specification_and_judge_answers_every_cell_by_it() {
     assert_eq!(cells.len(), 98, "seven states, fourteen operations");
 }
 
+/// X-DELTA-INTEGRITY3-4: a recovery is permitted on exactly four (why, fact) pairs of an unknown state - the
+/// four the table states: the bucket's listing not asked, and the new key, the key it replaces and the
+/// setup's key unreadable. The production arm took eight (a listing that FAILED and each of those three keyring
+/// entries NOT ASKED too) while `states()` held none of the extra rows, so the exhaustive test could not tell.
+/// (The facts are the production's own: a renamed or added fact shows here.)
+#[test]
+fn x_delta_integrity3_4_a_recovery_is_permitted_on_exactly_four_why_fact_pairs_of_an_unknown_state()
+{
+    assert_eq!(
+        FACTS,
+        [
+            DRIVE_KEY,
+            ENCRYPTED,
+            NEW_KEY,
+            PREVIOUS_KEY,
+            PLANNED_KEY,
+            JOURNAL
+        ],
+        "the facts the state rests on"
+    );
+    let mut permitted = Vec::new();
+    for what in FACTS {
+        for (kind, why) in [
+            (
+                "unreadable",
+                Why::Unreadable {
+                    what,
+                    why: String::from("the keyring refused"),
+                },
+            ),
+            ("not asked", Why::NotAsked(what)),
+        ] {
+            if matches!(
+                judge(&KeyState::Unknown(why), Op::Recover, &everything_asked()),
+                Verdict::Permit(_)
+            ) {
+                permitted.push((kind, what));
+            }
+        }
+    }
+    assert_eq!(
+        permitted,
+        [
+            ("not asked", "whether the drive is encrypted"),
+            ("unreadable", "the new key of a key change"),
+            ("unreadable", "the key a key change replaces"),
+            ("unreadable", "the key kept for the drive's setup"),
+        ]
+    );
+}
+
 /// X-DELTA-STRUCT-KEYSTATE-2: the table's permits rest on facts, and a fact nobody asked is no "yes".
 /// With nothing asked, an operation that changes or erases key material is refused wherever the table
-/// permits it, and says which fact was not asked; the one cell that rests on nothing is the removal of
-/// a further code's wrap in an Active drive (it writes no key and reads no fact). The refusals of the
-/// table stay as they are.
+/// permits it, and says which fact was not asked. TWO cells rest on nothing and stay permitted; the list
+/// is the exemptions' and MAY ONLY SHRINK (it grew from one to two at 079cc11fe with no reason written
+/// down - X-DELTA-INTEGRITY3-2; here is each entry's):
+/// - Active x RemoveCode takes a further code's wrap out of the bucket;
+/// - Active x NewCode replaces the first code's wrap under the drive key the keyring holds.
+/// Neither writes a keyring entry or reads a bucket fact: the state Active - observed from the keyring's
+/// entries, which ARE asked - is all they rest on, and `device::wraps_permit` asks the keyring alone.
+/// `Invite` and `RemoveMember` are `permit_plain` in Active too and are not in `KEY_CHANGING`: they replace
+/// no recovery wrap and erase none of the user's ways back in when every device is lost, which is what the
+/// list is about - an invite adds a one-time member wrap for the device the user is adding, a member's
+/// removal takes ANOTHER device's wrap out - and both are refused in every state in which a key change is
+/// under way (the exhaustive table). Listing them would be two more exemptions in a list that does not
+/// grow. The refusals of the table stay as they are.
 #[test]
 fn x_delta_struct_keystate_2_with_nothing_asked_no_key_changing_operation_is_permitted_unless_its_cell_rests_on_nothing(
 ) {
@@ -399,7 +478,7 @@ fn x_delta_struct_keystate_2_a_removal_judged_on_the_keyring_alone_is_refused() 
             Read::Unasked,
         ),
     ];
-    for state in [KeyState::Fresh, KeyState::Active] {
+    for state in removal_states() {
         for (what, record, months) in unasked.clone() {
             let e = with_a_record(Evidence::new(DRIVE, NOW), record, months);
             assert_eq!(
@@ -588,12 +667,27 @@ fn removal_verdict(state: &KeyState, e: &Evidence<'_>) -> Result<Vec<Stays>, Ref
     }
 }
 
+/// The states a removal goes on its own conditions in: a drive whose keys are here or not yet made (Fresh,
+/// Active) and a drive this computer holds no key of - Locked (what it keeps of such a drive goes with a code
+/// typed back right) and the unknown state whose only unknown is that the bucket was not asked (a removal
+/// reads no bucket). The last two are the cells 4305cacaa turned from Refuse to the removal's own
+/// conditions; the loops below were Fresh and Active only, so a `locked()` that checked the code and skipped
+/// the months stayed green (X-DELTA-INTEGRITY3-5).
+fn removal_states() -> [KeyState; 4] {
+    [
+        KeyState::Fresh,
+        KeyState::Active,
+        KeyState::Locked,
+        KeyState::Unknown(Why::NotAsked("whether the drive is encrypted")),
+    ]
+}
+
 /// KEYS-8 and KEYS-32: Remove drive lets the keys go only with a checked code, a registered code and
-/// the months kept elsewhere - in the two states that can hold them - and says what stays.
+/// the months kept elsewhere - in every state it goes on its own conditions in - and says what stays.
 #[test]
 fn x_delta_azdrive_keys_8_remove_is_permitted_only_with_a_checked_registered_code_and_months_kept_elsewhere(
 ) {
-    for state in [KeyState::Fresh, KeyState::Active] {
+    for state in removal_states() {
         let stays = removal_verdict(&state, &all_good()).unwrap();
         assert_eq!(
             stays,

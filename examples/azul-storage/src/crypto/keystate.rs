@@ -1353,15 +1353,24 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         // computer is a fresh one or a locked one, and both go on the removal's own conditions. (The
         // removal reads no bucket: a drive that cannot be reached is removed all the same.)
         Op::Remove if *why == Why::NotAsked(ENCRYPTED) => removal(e),
-        // A recovery is judged on the entry it writes - the drive key - and nothing else: whether the
-        // bucket lists key files is not asked before it runs, and a key change's, a setup's or a journal's
-        // entry that cannot be read does not lock out the user who has the recovery code, which is the way
-        // back in (X-DELTA-STRUCT-KEYSTATE-4). A failed read of the drive key itself refuses.
+        // A recovery is judged on the entry it writes - the drive key - and nothing else
+        // (X-DELTA-STRUCT-KEYSTATE-4): FOUR (why, fact) pairs permit it, the four the table states
+        // (`tests/keystate_table.rs`), and every other pair refuses (X-DELTA-INTEGRITY3-2, -4).
+        // - the bucket's listing NOT ASKED: a recovery reads no bucket before it runs, and the unasked listing
+        //   cannot tell a Fresh device from a Locked one, which both permit it - this cell is their union;
+        // - the new key, the key it replaces or the setup's key UNREADABLE: a key change's or a setup's entry
+        //   that cannot be read does not lock out the user who has the recovery code, the way back in.
+        // Not these: a listing that was asked and FAILED, and a keyring entry nobody asked (the flows ask all
+        // four of them), are no "yes" - the arm used to take them too, and no cell of the table decided them.
+        // A failed read of the drive key itself refuses, as does a journal nobody looked at.
         Op::Recover
             if matches!(
                 why,
-                Why::Unreadable { what, .. } | Why::NotAsked(what)
-                    if matches!(*what, ENCRYPTED | NEW_KEY | PREVIOUS_KEY | PLANNED_KEY)
+                Why::NotAsked(ENCRYPTED)
+                    | Why::Unreadable {
+                        what: NEW_KEY | PREVIOUS_KEY | PLANNED_KEY,
+                        ..
+                    }
             ) =>
         {
             permit_keeping(op, e, Way::Plain)

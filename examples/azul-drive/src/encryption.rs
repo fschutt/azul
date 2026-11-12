@@ -6530,6 +6530,92 @@ mod tests {
             .is_none());
     }
 
+    /// X-DELTA-INTEGRITY3-5: a computer that holds NO key of the drive (a member key and the vault's key; the
+    /// removal reads no bucket, so the drive is not Fresh or Locked here but "not asked") goes on the same
+    /// conditions as one that holds it. The test above holds the drive key; the one for a keyless computer
+    /// (`x_delta_struct_keystate_4_..`) kept a session, which is nothing to keep, so it could not tell a permit
+    /// from a refusal: months only this computer holds keep the vault AND the key that opens it, and so does a
+    /// removal with no code typed back right; the same removal with the months kept elsewhere takes everything.
+    #[test]
+    fn x_delta_integrity3_5_a_computer_without_the_drive_key_keeps_what_the_conditions_keep() {
+        use azul_storage::durable::{self, Mode};
+        let dir = azul_storage::testing::TempDir::new("i35-removal");
+        let vault = dir.path().join("d_k2.json");
+        durable::replace(&vault, b"{}", Mode::Private).unwrap();
+        let places = crate::footprint::Places {
+            drives_file: None,
+            spots: vec![crate::footprint::Spot {
+                store: "period vault",
+                paths: vec![vault.clone()],
+                only_with_proof: true,
+            }],
+            open_copies: azul_storage::scratch::Scratch::tagged_under(
+                dir.path(),
+                "open",
+                KEYS_DRIVE,
+            ),
+        };
+        let keyring = azul_storage::keyring::MemoryKeyring::new();
+        device::member_secret(&keyring, KEYS_DRIVE).unwrap();
+        keyring
+            .set(&KeyEntry::VaultKey.name(KEYS_DRIVE), "the vault's key")
+            .unwrap();
+        assert_eq!(device::load_drive_key(&keyring, KEYS_DRIVE).unwrap(), None);
+
+        for (what, token, months) in [
+            ("months only here", a_checked_code(), Months(Ok(false))),
+            (
+                "the vault could not be told",
+                a_checked_code(),
+                Months(Err(String::from("the drive's vault was not read"))),
+            ),
+            (
+                "no code typed back right",
+                TokenFacts::no_record(),
+                Months(Ok(true)),
+            ),
+        ] {
+            let report = forget_job(&keyring, KEYS_DRIVE, &places, true, token, Some(&months));
+            assert!(report.complete(), "{what}: {report:?}");
+            assert!(vault.exists(), "{what}: the only copy of the months stays");
+            assert!(
+                keyring
+                    .get(&KeyEntry::VaultKey.name(KEYS_DRIVE))
+                    .unwrap()
+                    .is_some(),
+                "{what}: and so does the key that opens it"
+            );
+            assert!(
+                device::load_member_secret(&keyring, KEYS_DRIVE)
+                    .unwrap()
+                    .is_some(),
+                "{what}: and the member key"
+            );
+        }
+        // The months are kept elsewhere and the code was typed back right: everything goes.
+        let report = forget_job(
+            &keyring,
+            KEYS_DRIVE,
+            &places,
+            true,
+            a_checked_code(),
+            Some(&Months(Ok(true))),
+        );
+        assert!(
+            report.complete() && report.kept().is_empty(),
+            "{:?}",
+            report.kept()
+        );
+        assert!(!vault.exists());
+        assert!(keyring
+            .get(&KeyEntry::VaultKey.name(KEYS_DRIVE))
+            .unwrap()
+            .is_none());
+        assert!(device::load_member_secret(&keyring, KEYS_DRIVE)
+            .unwrap()
+            .is_none());
+    }
+
     /// A keyring that cannot be read.
     struct UnreadableKeyring;
 
