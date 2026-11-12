@@ -11,7 +11,7 @@ use super::*;
 /// start finds it until the page has taken it away.
 #[test]
 fn x_delta_keys2_4_a_drive_whose_code_was_never_shown_is_found_by_the_next_start() {
-    let dir = TempDir::new("azmail-pending-found");
+    let dir = TempDir::new("pending-found");
     let root = dir.path();
     assert_eq!(read(root), Ok(None), "nothing pending");
     note(root, "d_made").unwrap();
@@ -30,7 +30,7 @@ fn x_delta_keys2_4_a_drive_whose_code_was_never_shown_is_found_by_the_next_start
 /// it cannot read, it never reads a failed read as a clean one.
 #[test]
 fn x_delta_keys2_4_an_unreadable_marker_is_not_nothing_pending() {
-    let dir = TempDir::new("azmail-pending-unreadable");
+    let dir = TempDir::new("pending-unreadable");
     std::fs::write(dir.path().join(FILE), b"{ not json").unwrap();
     assert!(read(dir.path()).is_err(), "{:?}", read(dir.path()));
 }
@@ -38,7 +38,7 @@ fn x_delta_keys2_4_an_unreadable_marker_is_not_nothing_pending() {
 /// The marker holds the drive and nothing else: no code, no key.
 #[test]
 fn x_delta_keys2_4_the_marker_holds_no_code_and_no_key() {
-    let dir = TempDir::new("azmail-pending-plain");
+    let dir = TempDir::new("pending-plain");
     note(dir.path(), "d_made").unwrap();
     let text = std::fs::read_to_string(dir.path().join(FILE)).unwrap();
     assert_eq!(text, r#"{"drive_id":"d_made"}"#);
@@ -48,7 +48,7 @@ fn x_delta_keys2_4_the_marker_holds_no_code_and_no_key() {
 /// back, no marker is there.
 #[test]
 fn x_delta_keys2_4_a_marker_that_cannot_be_written_says_so() {
-    let dir = TempDir::new("azmail-pending-unwritable");
+    let dir = TempDir::new("pending-unwritable");
     // A file where the folder should be.
     let blocked = dir.path().join("blocked");
     std::fs::write(&blocked, b"a file").unwrap();
@@ -134,7 +134,7 @@ mod setup {
     /// page to take away.
     #[test]
     fn x_delta_keys2_4_the_marker_is_on_the_disk_before_the_first_write_of_the_setup() {
-        let dir = TempDir::new("azmail-encrypt-order");
+        let dir = TempDir::new("encrypt-order");
         let bucket = Watching::over(dir.path());
         let keyring = MemoryKeyring::new();
         let code = encrypt_new_drive(dir.path(), &bucket, &keyring, "d_made", kdf()).unwrap();
@@ -161,7 +161,7 @@ mod setup {
     #[test]
     fn x_delta_keys2_4_a_marker_that_cannot_be_written_stops_the_setup_before_it_publishes_anything(
     ) {
-        let dir = TempDir::new("azmail-encrypt-blocked");
+        let dir = TempDir::new("encrypt-blocked");
         let blocked = dir.path().join("blocked");
         std::fs::write(&blocked, b"a file").unwrap();
         let bucket = Watching::over(&blocked);
@@ -184,7 +184,7 @@ mod setup {
     /// the next start must not say a code was never shown for a drive nobody was told is fine.
     #[test]
     fn x_delta_keys2_4_a_setup_that_fails_takes_its_marker_back() {
-        let dir = TempDir::new("azmail-encrypt-failed");
+        let dir = TempDir::new("encrypt-failed");
         let mut bucket = Watching::over(dir.path());
         bucket.refuses = true;
         let keyring = MemoryKeyring::new();
