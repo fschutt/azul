@@ -70,6 +70,7 @@ use crate::{
     go, ids,
     jobs::{BoughtDrive, Job, OptionsFailed, PayVia, StartFailed, Started, TiersFailed},
     keyring, refresh_disks,
+    renewals::{bought_text, month_due_at_once, Takes},
     sign_in::{self, PendingSignIn},
     spawn, with_state, DriveState, KeyringCall, KeyringOp, Popup, Slot,
 };
@@ -1941,21 +1942,24 @@ pub(crate) fn renewed(
     checkout_id: &str,
     drive_id: &str,
     months: u32,
+    change_tier: bool,
     record: &Recorded,
 ) {
     println!("AZDRIVE_RENEWED {checkout_id} {drive_id} {months}");
     receipt_not_kept(s, checkout_id, record);
     crate::periods::look_after_claim(s, drive_id);
     s.in_flight.retain(|c| c.checkout_id != checkout_id);
+    // what the toast may say depends on what the vault will do with the months: read BEFORE the
+    // proof below changes what the looks saw (X-DELTA-MONEY2-13)
+    let takes = Takes::of(
+        change_tier,
+        month_due_at_once(s, drive_id, crate::actions::now_secs()),
+    );
     // a locked drive: the payment is named in a proof, so it counts at once
     crate::archive::renewed(info, app, s, drive_id, checkout_id);
     crate::cash::claimed(s, checkout_id);
     let name = s.drive_name(&Place::folder(drive_id, ""));
-    s.success(
-        Phrase::new("azdrive-months-renewed")
-            .arg("months", months)
-            .arg("drive", name),
-    );
+    s.success(bought_text(&name, months, takes));
     if serial.is_some_and(|serial| dialog_of(s, serial).is_some()) {
         cancel(s);
         start_claims(info, app, s);

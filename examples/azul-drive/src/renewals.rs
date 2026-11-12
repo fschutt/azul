@@ -130,6 +130,74 @@ pub(crate) fn reminder_text(drive: &str, reminder: &Reminder) -> Phrase {
         .arg("days", reminder.days_before)
 }
 
+/// When the months a renewal bought take effect - what the drive's vault will do with them -,
+/// which is what the toast of the claim may say of them (X-DELTA-MONEY2-13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Takes {
+    /// The drive's paid period runs on past the week the vault redeems a month ahead
+    /// ([`azcloud_kit::period::REDEEM_AHEAD_SECS`]): each month is redeemed a week before the
+    /// period ends.
+    AWeekBefore,
+    /// The drive's paid period has ended, or ends within that week: the first look at the drive
+    /// (ten minutes to six hours after the claim) redeems the first month at once - `due` is true
+    /// for an end in the past or within the week -, and each next one a week before the end that
+    /// made.
+    AtTheNextLook,
+    /// Bought to move the drive to its tier: the first look at the drive applies the change - a
+    /// bigger tier at once, a smaller one from a week before the period's end, when the data
+    /// fits ([`azcloud_kit::period::change_due`]) - and says which.
+    MovesTier,
+}
+
+impl Takes {
+    /// What a renewal bought as `change_tier` for a drive whose next month is `month_due` (its
+    /// period has ended or ends within the week, as the last look saw it: [`month_due_at_once`])
+    /// does.
+    #[must_use]
+    pub(crate) fn of(change_tier: bool, month_due: bool) -> Takes {
+        if change_tier {
+            Takes::MovesTier
+        } else if month_due {
+            Takes::AtTheNextLook
+        } else {
+            Takes::AWeekBefore
+        }
+    }
+}
+
+/// Whether the first look at the drive `drive_id` redeems a month at once, as the looks last saw
+/// the drive at `now` (seconds since 1970): its paid period has ended ([`crate::archive::period_ended`]:
+/// grace, read-only or locked), or its period's end is within the week the vault redeems a month
+/// ahead - the reminder of its end, which a look keeps while the vault holds no month for the
+/// drive. A drive no look saw ends no sooner than the sentence says, which is the common case.
+#[must_use]
+pub(crate) fn month_due_at_once(s: &DriveState, drive_id: &str, now: u64) -> bool {
+    crate::archive::period_ended(s, drive_id)
+        || s.renewals
+            .get(drive_id)
+            .and_then(|seen| seen.reminder.as_ref())
+            .is_some_and(|reminder| match reminder.kind {
+                DeadlineKind::PeriodEnd => {
+                    reminder.at <= now.saturating_add(azcloud_kit::period::REDEEM_AHEAD_SECS)
+                }
+                // a later deadline is named only once the period has ended
+                _ => true,
+            })
+}
+
+/// The toast of a claimed renewal of `months` for the drive `drive`: what was bought and when the
+/// drive's vault adds it - never "a week before the paid period ends" for months that are added
+/// at the next look.
+#[must_use]
+pub(crate) fn bought_text(drive: &str, months: u32, takes: Takes) -> Phrase {
+    let key = match takes {
+        Takes::AWeekBefore => "azdrive-months-renewed",
+        Takes::AtTheNextLook => "azdrive-months-renewed-next-look",
+        Takes::MovesTier => "azdrive-tier-change-bought",
+    };
+    Phrase::new(key).arg("months", months).arg("drive", drive)
+}
+
 /// A change of tier's words for the drive `drive`.
 #[must_use]
 pub(crate) fn change_text(drive: &str, change: &ChangeSeen) -> Phrase {

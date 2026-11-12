@@ -1317,6 +1317,86 @@ fn x_delta_azdrive_money_16_the_toast_of_a_renewal_says_bought_and_when_each_mon
     azul_appkit::l10n::set_locale("en-US");
 }
 
+/// X-DELTA-MONEY2-13: the toast of a claimed renewal says what the drive's vault will do with the
+/// months, not one sentence for all. "Each month is added a week before the paid period ends" is
+/// false for a renewal made after the period ended - or within the week before its end -: the
+/// drive's first look (ten minutes to six hours after the claim) redeems the first month at once,
+/// `due` being true for an end in the past or within the week - and for a tier change, which that
+/// look applies. `renewed()` reads what it needs - the checkout's own `change_tier`, the drive's
+/// period as its last look saw it ([`month_due_at_once`]) - and asks [`Takes::of`] and
+/// [`bought_text`], which these tests drive for every case, in both languages.
+#[test]
+fn x_delta_money2_13_the_toast_of_a_renewal_follows_what_the_vault_will_do_with_its_months() {
+    use azul_appkit::l10n::t_phrase;
+
+    use crate::renewals::{bought_text, Takes};
+    // what the vault does: a bought tier change is applied at the first look whatever the period
+    // says; a renewal whose next month is due (the period ended, or ends within the week) is
+    // redeemed at the first look; any other is redeemed a week before the end
+    assert_eq!(Takes::of(false, false), Takes::AWeekBefore);
+    assert_eq!(Takes::of(false, true), Takes::AtTheNextLook);
+    assert_eq!(Takes::of(true, false), Takes::MovesTier);
+    assert_eq!(Takes::of(true, true), Takes::MovesTier);
+
+    crate::l10n::in_english();
+    let said = |months: u32, takes: Takes| t_phrase(&bought_text("Photos", months, takes));
+    // before the week: the sentence X-DELTA-AZDRIVE-MONEY-16 settled
+    assert_eq!(
+        said(12, Takes::AWeekBefore),
+        "12 months are bought for \"Photos\". Each month is added a week before the paid period ends."
+    );
+    // an end that has passed or is within the week: the first month at the next look, within
+    // hours - not "a week before" an end that is not that far away - and the next ones a week
+    // before the end that month made
+    assert_eq!(
+        said(1, Takes::AtTheNextLook),
+        "1 month is bought for \"Photos\". It is added at the next look at the drive, within a few \
+         hours."
+    );
+    let soon = said(12, Takes::AtTheNextLook);
+    assert!(
+        soon.contains("The first is added at the next look at the drive, within a few hours"),
+        "{soon}"
+    );
+    assert!(
+        soon.contains("each next one a week before the paid period ends"),
+        "{soon}"
+    );
+    assert!(
+        !soon.starts_with("12 months are bought for \"Photos\". Each month"),
+        "{soon}"
+    );
+    // a tier change: a move, not months added; said by what the look does with it
+    let moved = said(1, Takes::MovesTier);
+    assert_eq!(
+        moved,
+        "The new tier of \"Photos\" is bought. The next look at the drive, within a few hours, \
+         moves it: a bigger tier at once, a smaller one at the end of the paid period."
+    );
+    assert!(!moved.contains("month"), "{moved}");
+    for text in [said(1, Takes::AtTheNextLook), soon, moved] {
+        assert!(!text.contains("right away"), "{text}");
+        assert!(
+            !text.contains("Each month is added a week before"),
+            "{text}"
+        );
+    }
+    azul_appkit::l10n::set_locale("de-DE");
+    let german = said(12, Takes::AtTheNextLook);
+    assert!(german.contains("nächsten Blick"), "{german}");
+    assert!(
+        german.contains("jeder weitere eine Woche vor dem Ende"),
+        "{german}"
+    );
+    assert!(!said(1, Takes::AtTheNextLook).contains("eine Woche vor dem Ende des bezahlten"));
+    let german_move = said(1, Takes::MovesTier);
+    assert!(
+        german_move.contains("neue Stufe") && !german_move.contains("Monat"),
+        "{german_move}"
+    );
+    azul_appkit::l10n::set_locale("en-US");
+}
+
 /// AZ-CN3: "Test connection" showed "Test failed: no answer from the storage service: ..
 /// https://api.pcloud.com/listfolder?path=/&username=ann&password=hunter2: the name did not resolve",
 /// the password on a screen that is shared. The answer the form shows names the host and not the

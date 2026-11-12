@@ -3411,6 +3411,7 @@ pub(crate) extern "C" fn on_job_done(
             checkout_id,
             drive_id,
             months,
+            change_tier,
             record,
         } => add_flow::renewed(
             &mut info,
@@ -3420,6 +3421,7 @@ pub(crate) extern "C" fn on_job_done(
             &checkout_id,
             &drive_id,
             months,
+            change_tier,
             &record,
         ),
         Outcome::PlanCancelled { drive_id, result } => {

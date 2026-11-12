@@ -1820,6 +1820,11 @@ azdrive-months-renewed = { $months ->
         [one] 1 Monat wurde für „{ $drive }“ gekauft. Er wird eine Woche vor dem Ende des bezahlten Zeitraums hinzugefügt.
        *[other] { $months } Monate wurden für „{ $drive }“ gekauft. Jeder Monat wird eine Woche vor dem Ende des bezahlten Zeitraums hinzugefügt.
     }
+azdrive-months-renewed-next-look = { $months ->
+        [one] 1 Monat wurde für „{ $drive }“ gekauft. Er wird beim nächsten Blick auf das Laufwerk hinzugefügt, innerhalb weniger Stunden.
+       *[other] { $months } Monate wurden für „{ $drive }“ gekauft. Der erste wird beim nächsten Blick auf das Laufwerk hinzugefügt, innerhalb weniger Stunden, jeder weitere eine Woche vor dem Ende des bezahlten Zeitraums.
+    }
+azdrive-tier-change-bought = Die neue Stufe von „{ $drive }“ wurde gekauft. Der nächste Blick auf das Laufwerk, innerhalb weniger Stunden, stellt es um: eine größere Stufe sofort, eine kleinere am Ende des bezahlten Zeitraums.
 azdrive-tier-change-waits = „{ $drive }“ wechselt am Ende seines bezahlten Zeitraums auf die kleinere Stufe, ab { $at }.
 azdrive-tier-change-too-full = „{ $drive }“ passt noch nicht in die kleinere Stufe: gib zuerst { $free } frei. Die neue Stufe wartet.
 azdrive-tier-changed = „{ $drive }“ ist jetzt auf { $tier }{ $days ->

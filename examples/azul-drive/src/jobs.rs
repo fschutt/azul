@@ -866,6 +866,8 @@ pub(crate) enum Outcome {
         checkout_id: String,
         drive_id: String,
         months: u32,
+        /// It was bought to move the drive to its tier: the months are not "the next months".
+        change_tier: bool,
         record: Recorded,
     },
     PlanCancelled { drive_id: String, result: Result<(), String> },
@@ -3164,6 +3166,7 @@ fn await_payment(
                     checkout_id: checkout.checkout_id.clone(),
                     drive_id,
                     months,
+                    change_tier: checkout.change_tier,
                     record,
                 }
             }
@@ -3391,6 +3394,7 @@ fn claim_pending(
                         checkout_id: checkout.checkout_id.clone(),
                         drive_id,
                         months,
+                        change_tier: checkout.change_tier,
                         record,
                     },
                 ),

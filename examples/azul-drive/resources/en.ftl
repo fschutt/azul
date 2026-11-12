@@ -1822,6 +1822,11 @@ azdrive-months-renewed = { $months ->
         [one] 1 month is bought for "{ $drive }". It is added a week before the paid period ends.
        *[other] { $months } months are bought for "{ $drive }". Each month is added a week before the paid period ends.
     }
+azdrive-months-renewed-next-look = { $months ->
+        [one] 1 month is bought for "{ $drive }". It is added at the next look at the drive, within a few hours.
+       *[other] { $months } months are bought for "{ $drive }". The first is added at the next look at the drive, within a few hours, and each next one a week before the paid period ends.
+    }
+azdrive-tier-change-bought = The new tier of "{ $drive }" is bought. The next look at the drive, within a few hours, moves it: a bigger tier at once, a smaller one at the end of the paid period.
 azdrive-tier-change-waits = "{ $drive }" moves to its smaller tier at the end of its paid period, from { $at }.
 azdrive-tier-change-too-full = "{ $drive }" does not fit its smaller tier yet: free { $free } first. The new tier waits.
 azdrive-tier-changed = "{ $drive }" is on { $tier } now{ $days ->
