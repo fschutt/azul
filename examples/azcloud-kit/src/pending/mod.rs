@@ -1257,6 +1257,16 @@ pub enum Transient {
     /// keeps. Asked again once a day ([`TAKEN_BACK_ASK_SECS`], [`TakenBack::look_is_due`]) until
     /// the hand-over's life is over ([`HANDOVER_KEPT_SECS`]), then [`Final::Gone`].
     TakenBack(String),
+    /// Its payment was taken back, as [`Transient::TakenBack`] says - and the list could not take
+    /// the count of this look (the keyring refused the write): the entry stays exactly as it was,
+    /// unmarked, claim secret and all (X-DELTA-MONEY6-6, X-MONEY5A-3). The answer is the same as
+    /// the counted one's, so a caller says "taken back" and never "in flight", and asks about it
+    /// once per run - nothing the token server says changes until the list takes a write -, not in
+    /// every round. The entry ends only by the hand-over's life ([`HANDOVER_KEPT_SECS`]) counted
+    /// from the first look the list COULD write down ([`TakenBack`]), never earlier: a list that
+    /// never takes the mark keeps the entry for as long as it does, and an unmarked entry stands
+    /// as an open order ([`PendingCheckout::is_open_order`]) until a poll marks it.
+    TakenBackUncounted(String),
 }
 
 impl Transient {
@@ -1269,7 +1279,8 @@ impl Transient {
             | Transient::Unopened(why)
             | Transient::NotKept(why)
             | Transient::Unread(why)
-            | Transient::TakenBack(why) => why,
+            | Transient::TakenBack(why)
+            | Transient::TakenBackUncounted(why) => why,
         }
     }
 
@@ -1282,7 +1293,8 @@ impl Transient {
             | Transient::Unopened(_)
             | Transient::NotKept(_)
             | Transient::Unread(_)
-            | Transient::TakenBack(_) => None,
+            | Transient::TakenBack(_)
+            | Transient::TakenBackUncounted(_) => None,
         }
     }
 }
@@ -1448,7 +1460,9 @@ fn taken_back(shared: &SharedKeyring, checkout: &PendingCheckout, why: &str) -> 
             None => Polled::Transient(Transient::TakenBack(said)),
         },
         Ok(None) => Polled::Settled,
-        Err(e) => Polled::Transient(Transient::NotKept(format!(
+        // still taken back, though the list took no count: its own word, so that nobody reads it
+        // as a checkout in flight (X-DELTA-MONEY6-6)
+        Err(e) => Polled::Transient(Transient::TakenBackUncounted(format!(
             "{said}; the list could not count it: {e}"
         ))),
     }

@@ -3519,8 +3519,15 @@ pub(crate) fn claim_run(
                     (world.say)(Outcome::CashWaiting { checkout });
                 }
                 // Its payment was taken back: it stays on the list, said once in this run - the
-                // token server may put the payment back, and the drive then comes by itself.
-                Polled::Transient(pending::Transient::TakenBack(why)) => {
+                // token server may put the payment back, and the drive then comes by itself. An
+                // entry whose count the list could not take is the same payment taken back: asked
+                // once per run too (nothing changes until the list takes a write, and every round
+                // would ask the token server for nothing), said as taken back and never as in
+                // flight (X-DELTA-MONEY6-6).
+                Polled::Transient(
+                    pending::Transient::TakenBack(why)
+                    | pending::Transient::TakenBackUncounted(why),
+                ) => {
                     asked.insert(
                         checkout.checkout_id.clone(),
                         (

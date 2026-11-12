@@ -812,3 +812,71 @@ fn x_delta_money6_2_an_abandon_whose_count_cannot_be_written_does_not_say_order_
     assert_eq!(listed(&shared).taken_back, None);
 }
 
+// ==== X-DELTA-MONEY6-6 / X-MONEY5A-3: a taken-back entry the list cannot mark ====
+
+/// A poll that finds the payment taken back and cannot write the count used to answer
+/// `Transient::NotKept` - the same word as a drive whose session could not be kept - so the claims
+/// polled the entry in every round and said it was in flight (X-DELTA-MONEY6-6). Now it is
+/// `TakenBackUncounted`: the entry stays as it was, unmarked and with its claim secret, and the
+/// hand-over's life counts from the first look the list could write down - never from an earlier
+/// one, so the entry is not ended before the token server's hand-over is purged.
+#[test]
+fn x_delta_money6_6_a_poll_that_found_the_payment_taken_back_and_could_not_count_it_says_so_in_a_type(
+) {
+    let dir = TempDir::new("azcloud-taken-back");
+    let gate = Arc::new(WritesOnDemand {
+        inner: MemoryKeyring::new(),
+        refuse: AtomicBool::new(false),
+    });
+    let shared = SharedKeyring::with_lock_root(
+        gate.clone() as Arc<dyn KeyringStore>,
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    );
+    let claim = ClaimKey::generate().unwrap();
+    pending::add(&shared, &unclaimed(&claim)).unwrap();
+    let transport = Shared(saying(vec![REVERSED.into()]));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    gate.refuse.store(true, Ordering::SeqCst);
+    match pending::poll(&server, &shared, &listed(&shared)) {
+        Polled::Transient(Transient::TakenBackUncounted(why)) => {
+            assert!(why.contains("the debit was returned"), "{why}");
+            assert!(why.contains("taken back"), "{why}");
+            assert!(why.contains("could not count it"), "{why}");
+        }
+        other => panic!("not said as taken back: {other:?}"),
+    }
+    let entry = listed(&shared);
+    assert_eq!(entry.taken_back, None, "unmarked: the list took no write");
+    assert_eq!(
+        entry.claim_secret,
+        claim.to_base64(),
+        "the claim secret stays"
+    );
+    assert!(
+        entry.is_open_order(),
+        "an unmarked entry stands as an open order"
+    );
+    // the keyring takes writes again: the next poll counts, from THIS look
+    gate.refuse.store(false, Ordering::SeqCst);
+    let second = crate::now();
+    assert!(matches!(
+        pending::poll(&server, &shared, &listed(&shared)),
+        Polled::Transient(Transient::TakenBack(_))
+    ));
+    let mark = listed(&shared).taken_back.expect("counted now");
+    assert!(
+        mark.since >= second,
+        "counted from the first look that could be written: {mark:?}"
+    );
+    // the typed answer says what the others do not: it is no NotKept, and no wait of the server's
+    assert_eq!(
+        Transient::TakenBackUncounted(String::from("x")).retry_after(),
+        None
+    );
+    assert_eq!(
+        Transient::TakenBackUncounted(String::from("why")).why(),
+        "why"
+    );
+}
+

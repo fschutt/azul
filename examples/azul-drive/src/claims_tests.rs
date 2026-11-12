@@ -749,3 +749,61 @@ fn x_delta_money6_5_a_wall_clock_stepped_back_does_not_postpone_the_next_ask() {
     assert!(window.due(wrong_now + 3 * DAY, 1_000));
 }
 
+/// X-DELTA-MONEY6-6 (the fallback X-MONEY5A-3 names), through the claims run: the entry of a payment
+/// taken back that the list cannot mark (the keyring refuses the write) was the kit's `NotKept`, and
+/// `look_in`'s "asked in this run and found taken back, with no count in the entry" branch was dead
+/// for it: the entry was polled in EVERY round of the run (an HTTP call each, 361 in an hour), the
+/// first answer was said as "in flight" - a payment that was taken back - and the dialog's order
+/// stayed refused. Now it is a typed answer of its own: asked once per run, said once as taken back,
+/// never as in flight, the next ask a day on, and the entry stays on the list with its claim secret.
+#[test]
+fn x_delta_money6_6_an_entry_the_list_cannot_mark_is_asked_once_per_run_and_said_as_taken_back() {
+    let dir = TempDir::new("azdrive-claims");
+    let gate = LockedOnDemand::open();
+    let shared = keyring_over(&dir, gate.clone());
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let clock = Clock::at(start());
+    pending::add(&shared, &entry()).unwrap();
+    gate.writes_refused.store(true, Ordering::SeqCst);
+    let server = Server::new(&clock, |_| {
+        String::from(
+            r#"{"checkout_id": "ck_1", "status": "reversed", "reason": "the debit was returned"}"#,
+        )
+    });
+    let mut said = Vec::new();
+    let Outcome::ClaimsDone {
+        again_in: Some(wait),
+        ..
+    } = run(&clock, &server, &shared, &store, &mut said)
+    else {
+        panic!("the run names the time of the next ask");
+    };
+    assert_eq!(
+        server.asked().len(),
+        1,
+        "asked once in the run, not in every round: {:?}",
+        server.asked().len()
+    );
+    let taken_back = said
+        .iter()
+        .filter(|outcome| matches!(outcome, Outcome::TakenBack { .. }))
+        .count();
+    assert_eq!(taken_back, 1, "said once, as taken back");
+    assert!(
+        !said
+            .iter()
+            .any(|outcome| matches!(outcome, Outcome::InFlight { .. })),
+        "a payment taken back is never said to be in flight"
+    );
+    assert!(
+        (DAY - 120..=DAY + 120).contains(&wait),
+        "the next ask a day on: {wait}"
+    );
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(listed.len(), 1, "the entry stays");
+    assert_eq!(
+        listed[0].taken_back, None,
+        "unmarked: the list took no write"
+    );
+    assert!(!listed[0].claim_secret.is_empty(), "with its claim secret");
+}
