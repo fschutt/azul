@@ -1564,7 +1564,7 @@ fn az_m2_re_encrypting_a_drive_with_history_keeps_its_old_versions_until_the_use
         "the confirmation survives a restart"
     );
     let confirmation = state.purge_confirmation().expect("they confirmed");
-    let report = provider.purge(raw, &key, &confirmation).unwrap();
+    let report = provider.purge("drive-1", raw, &key, &confirmation).unwrap();
     assert_eq!((report.deleted, report.failed), (2, 0), "{}", report.line());
     assert_eq!(objects(&bucket), 1);
     assert_eq!(drive.get("a.txt").unwrap(), b"version two");
@@ -2367,35 +2367,166 @@ fn x_delta_sync4_4_a_clock_corrected_between_the_analysis_and_the_delete_stops_t
     assert_eq!(lab.data_objects().len(), 2, "nothing was deleted");
 }
 
-/// X-DELTA-SYNC4-10. The user-confirmed purge asked the erasure of every version there was when they
-/// said so; `purge_options` ignored the confirmation's time and its window started at the moment the run
-/// began, so a version saved AFTER the click - a re-encryption pass takes hours - was erased by the purge
-/// that followed it. The window is the time since the confirmation. RED on the old code: the version made
-/// after the click is deleted too.
+/// X-DELTA-SYNC4-10, as X-DELTA-SYNC6-1 corrected it. The user-confirmed purge erases every version
+/// there was when they said so - the version that was current at the click included, however late
+/// the save that replaced it - and keeps what a commit made after the confirmation FIRST names: a
+/// version they never agreed to lose. The first version of this test kept version two, "released by
+/// the save after the click"; that was the state the click found, the very thing the purge is for.
+/// RED on the old code: the window of the purge began at the click, so the click-time state was live
+/// and version two stayed.
 #[test]
-fn x_delta_sync4_10_the_purge_erases_the_versions_before_the_confirmation_and_keeps_the_ones_after()
+fn x_delta_sync4_10_the_purge_keeps_the_versions_first_made_after_the_confirmation_and_erases_every_other_one(
+) {
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 30 * DAY, |drive| drive);
+    lab.bucket.set_server_clock(crate::time::now_unix);
+    lab.drive.put("a.txt", b"version one").unwrap();
+    let one = lab.object_of("a.txt");
+    lab.at(now - 20 * DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    let two = lab.object_of("a.txt");
+    // The user confirmed ten days ago; the file was saved twice after it.
+    let confirmation = crate::meta::reclaim::PurgeConfirmation::lab(now - 10 * DAY);
+    lab.at(now - 5 * DAY);
+    lab.drive.put("a.txt", b"version three").unwrap();
+    let three = lab.object_of("a.txt");
+    lab.at(now - 4 * DAY);
+    lab.drive.put("a.txt", b"version four").unwrap();
+    let four = lab.object_of("a.txt");
+    assert_eq!(lab.data_objects().len(), 4, "four versions in the bucket");
+    let provider = provider_with(90, ServerClock::Required);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider
+        .purge("drive-1", bucket, &lab.key, &confirmation)
+        .unwrap();
+    let left = lab.data_objects();
+    assert!(
+        !left.contains(&one) && !left.contains(&two),
+        "versions one and two were there when the user confirmed: erased ({left:?}): {}",
+        report.line()
+    );
+    assert!(
+        left.contains(&three) && left.contains(&four),
+        "version three was first made after the confirmation and version four is the head: both stay \
+         ({left:?}): {}",
+        report.line()
+    );
+    assert_eq!((report.deleted, report.failed), (2, 0), "{}", report.line());
+    assert_eq!(lab.drive.get("a.txt").unwrap(), b"version four");
+}
+
+/// X-DELTA-SYNC6-1, the order the docs describe: the user confirms, the re-encryption pass rewrites
+/// every file in the hours after the click (each rewrite is a commit made AFTER the confirmation and
+/// releases the click-time object, the one the old key opens), the purge runs when the pass is over.
+/// The click-time objects are gone; what the pass wrote, and a version the user saved after the
+/// click, stay. RED on the old code: the window began at the click, so the state the click found was
+/// live and the releases of the pass's own commits were never scanned - the purge erased the history
+/// before the click and none of the objects the user wanted gone (one of three here).
+#[test]
+fn x_delta_sync6_1_a_purge_confirmed_before_the_re_encryption_erases_the_objects_the_pass_replaced()
 {
+    use crate::{rotation::ReencryptState, tests::asked::reencrypt_pass_of_parts};
+
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 30 * DAY, |drive| drive);
+    lab.bucket.set_server_clock(crate::time::now_unix);
+    lab.drive.put("a.txt", b"a, version one").unwrap();
+    let a_one = lab.object_of("a.txt");
+    lab.at(now - 20 * DAY);
+    lab.drive.put("a.txt", b"a, version two").unwrap();
+    let a_two = lab.object_of("a.txt");
+    lab.drive.put("b.txt", b"b, the only version").unwrap();
+    let b_one = lab.object_of("b.txt");
+
+    // Ten days ago the user chose "re-encrypt everything and erase the old versions": the answer is
+    // in the state the pass saves.
+    let mut state = ReencryptState::new(now + 10);
+    state.confirm_purge(now - 10 * DAY);
+    // The pass takes hours: its commits come after the confirmation.
+    lab.at(now - 10 * DAY + 3_600);
+    assert!(
+        reencrypt_pass_of_parts(&lab.key, &lab.drive, &mut state, &mut |_| Ok(()), &|| false)
+            .unwrap()
+    );
+    assert_eq!(state.done, 2);
+    let a_new = lab.object_of("a.txt");
+    let b_new = lab.object_of("b.txt");
+    // A save of the user's after the pass: a version first made after the confirmation.
+    lab.at(now - 9 * DAY);
+    lab.drive.put("b.txt", b"b, edited after the pass").unwrap();
+    let b_edit = lab.object_of("b.txt");
+    assert_eq!(lab.data_objects().len(), 6);
+
+    let provider = provider_with(90, ServerClock::Required);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let confirmation = state.purge_confirmation().expect("they confirmed");
+    let report = provider
+        .purge("drive-1", bucket, &lab.key, &confirmation)
+        .unwrap();
+    let left = lab.data_objects();
+    for (name, gone) in [("a one", &a_one), ("a two", &a_two), ("b one", &b_one)] {
+        assert!(
+            !left.contains(gone),
+            "{name} was there when the user confirmed: erased ({left:?}): {}",
+            report.line()
+        );
+    }
+    for (name, kept) in [
+        ("a, re-encrypted", &a_new),
+        ("b, re-encrypted", &b_new),
+        ("b, edited", &b_edit),
+    ] {
+        assert!(
+            left.contains(kept),
+            "{name} was first made after the confirmation: kept ({left:?}): {}",
+            report.line()
+        );
+    }
+    assert_eq!((report.deleted, report.failed), (3, 0), "{}", report.line());
+    assert_eq!(lab.drive.get("a.txt").unwrap(), b"a, version two");
+    assert_eq!(lab.drive.get("b.txt").unwrap(), b"b, edited after the pass");
+}
+
+/// X-DELTA-SYNC6-1: the purge's window is the confirmation's own time, carried as it is - not a
+/// span measured from a clock read before the repository was opened (that one started late by the
+/// time the open takes, and was zero for a confirmation dated ahead of the purge's clock: the
+/// no-window behaviour, every released version gone).
+#[test]
+fn x_delta_sync6_1_the_purge_options_carry_the_confirmations_own_time() {
+    let confirmation = crate::meta::reclaim::PurgeConfirmation::lab(1_234_567);
+    assert_eq!(
+        crate::meta::reclaim::purge_options(&confirmation).purge_after,
+        Some(1_234_567)
+    );
+    assert_eq!(
+        ReclaimOptions::shadow().purge_after,
+        None,
+        "the reclaimer's own run has none"
+    );
+}
+
+/// X-DELTA-SYNC6-1: a confirmation dated after this device's clock covers what cannot be told (a
+/// clock set back since): nothing is erased. RED on the old code: `since` came out zero, the window
+/// became "no window" and every released version went, versions saved after the click included.
+#[test]
+fn x_delta_sync6_1_a_confirmation_dated_after_this_devices_clock_erases_nothing() {
     let now = crate::time::now_unix();
     let lab = Lab::starting_at(now - 30 * DAY, |drive| drive);
     lab.bucket.set_server_clock(crate::time::now_unix);
     lab.drive.put("a.txt", b"version one").unwrap();
     lab.at(now - 20 * DAY);
     lab.drive.put("a.txt", b"version two").unwrap();
-    // The user confirmed ten days ago; the file was saved again five days ago.
-    let confirmation = crate::meta::reclaim::PurgeConfirmation::lab(now - 10 * DAY);
-    lab.at(now - 5 * DAY);
-    lab.drive.put("a.txt", b"version three").unwrap();
-    let before = lab.data_objects().len();
-    assert_eq!(before, 3, "three versions in the bucket");
+    let confirmation = crate::meta::reclaim::PurgeConfirmation::lab(now + 3 * DAY);
     let provider = provider_with(90, ServerClock::Required);
     let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
-    let report = provider.purge(bucket, &lab.key, &confirmation).unwrap();
-    assert_eq!(
-        lab.data_objects().len(),
-        2,
-        "version one (released before the confirmation) is erased; version two, released by the save \
-         after it, stays: {}",
+    let report = provider
+        .purge("drive-1", bucket, &lab.key, &confirmation)
+        .unwrap();
+    assert_eq!(report.deleted, 0, "{}", report.line());
+    assert!(
+        matches!(report.stopped, Some(NotYet::Confirmation { .. })),
+        "{}",
         report.line()
     );
-    assert_eq!((report.deleted, report.failed), (1, 0), "{}", report.line());
+    assert_eq!(lab.data_objects().len(), 2, "nothing was erased");
 }

@@ -367,6 +367,56 @@ fn az_m4_a_maintenance_round_of_a_drive_refuses_a_manifest_older_than_its_copy_h
     assert_eq!(swept, [older], "the manifest is as the storage served it");
 }
 
+/// X-DELTA-SYNC4-10 (the floor). A purge that knows its drive refuses a manifest older than the one
+/// this computer's copy of the drive's index has seen, as the maintenance round does (AZ-M4): a
+/// rolled-back head makes an object that a later commit names again a candidate, and the purge
+/// deletes candidates. RED on the old code: `purge` had no drive id and opened the repository with no
+/// floor at all.
+#[test]
+fn x_delta_sync4_10_a_purge_of_a_drive_refuses_a_manifest_older_than_its_copy_has_seen() {
+    let dir = TempDir::new("meta-purge-floor");
+    let raw = MemoryBucket::new();
+    raw.set_server_clock(crate::time::now_unix);
+    let bucket: Arc<dyn Drive> = Arc::new(raw.clone());
+    let key = DriveKey::generate().unwrap();
+    let provider = MetaIndexProvider::new(IndexProfile {
+        cache_root: Some(dir.path().to_path_buf()),
+        ..IndexProfile::in_memory("Laptop")
+    });
+    let index = provider
+        .open_index("drive-1", Arc::clone(&bucket), &key)
+        .unwrap();
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
+    drive.put("a.txt", b"a, one").unwrap();
+    drive.put("a.txt", b"a, two").unwrap();
+    let older = raw.read(keys::MANIFEST).unwrap().unwrap().0;
+    drive.put("b.txt", b"b").unwrap();
+    // The storage serves the older manifest again, and nobody announced a restore.
+    raw.overwrite(keys::MANIFEST, &older);
+    let objects = |bucket: &MemoryBucket| {
+        bucket
+            .objects()
+            .into_iter()
+            .filter(|(key, _)| key.starts_with("data/"))
+            .count()
+    };
+    let before = objects(&raw);
+
+    let confirmation = crate::meta::reclaim::PurgeConfirmation::lab(crate::time::now_unix() - 60);
+    let error = provider
+        .purge("drive-1", Arc::clone(&bucket), &key, &confirmation)
+        .unwrap_err();
+    assert!(
+        matches!(&error, DriveError::Protocol(text) if text.contains("older index")),
+        "{error:?}"
+    );
+    assert_eq!(
+        objects(&raw),
+        before,
+        "nothing was erased on the strength of it"
+    );
+}
+
 /// A drive that answers everything but a listing: its manifest is missing, and whether anything
 /// else is there cannot be told.
 struct Unlistable(MemoryBucket);

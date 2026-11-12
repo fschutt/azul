@@ -310,6 +310,10 @@ pub struct ReclaimOptions {
     /// Whether the run goes on from the manifest's mark and moves it. A purge ([`purge_options`])
     /// reads the whole history and leaves the mark where it is.
     pub use_mark: bool,
+    /// A purge the user confirmed at this time (seconds since 1970, the confirmation's own record:
+    /// [`PurgeConfirmation::at`]): the versions the history keeps are the ones FIRST named by a commit
+    /// made after it, and `retention` is not read ([`purge_options`]). `None` for the reclaimer's own run.
+    pub purge_after: Option<u64>,
 }
 
 impl ReclaimOptions {
@@ -325,6 +329,7 @@ impl ReclaimOptions {
             retention: super::retention::RETENTION,
             server_clock: ServerClock::Required,
             use_mark: true,
+            purge_after: None,
         }
     }
 
@@ -736,17 +741,20 @@ impl PurgeConfirmation {
     }
 }
 
-/// The options of a purge: every object the head does not name that the history released BEFORE the
-/// user confirmed, whatever its age, deleted; the whole history read; no mark kept. The bucket's clock
-/// must still agree with the device's.
+/// The options of a purge: every object the head does not name that the history released and that
+/// was named by a commit made at or before the moment the user confirmed, whatever its age, deleted;
+/// the whole history read; no mark kept. The bucket's clock must still agree with the device's.
 ///
-/// What the user confirmed is the erasure of the versions there were when they said so: the window of
-/// versions the analysis keeps is the time since then (a re-encryption pass takes hours, and what was
-/// saved in them is a version the user never agreed to lose). A commit made in the second of the
-/// confirmation counts as before it (X-DELTA-SYNC4-10).
+/// What the user confirmed is the erasure of the versions there were when they said so - the old
+/// objects the old key opens, which a re-encryption pass replaces one by one in the hours after the
+/// click. Those go however late the commit that replaced them is. What a commit made AFTER the
+/// confirmation first names stays (a version the user never agreed to lose), and so does what the
+/// head names. The boundary is the confirmation's own time, carried as it is
+/// ([`ReclaimOptions::purge_after`]) - not a span measured from a clock read before the repository
+/// was opened (X-DELTA-SYNC6-1, which replaced X-DELTA-SYNC4-10's `now - at` window: that one kept
+/// every object the click-time state named, i.e. none of the ones the purge was for).
 #[must_use]
 pub fn purge_options(confirmation: &PurgeConfirmation) -> ReclaimOptions {
-    let since = crate::time::now_unix().saturating_sub(confirmation.at.saturating_add(1));
     ReclaimOptions {
         mode: ReclaimMode::Delete,
         caps: Caps {
@@ -757,13 +765,15 @@ pub fn purge_options(confirmation: &PurgeConfirmation) -> ReclaimOptions {
             // The user asked for the whole history to be read.
             pack_bytes: u64::MAX,
         },
+        // Not read: `purge_after` decides what is kept.
         retention: Retention {
             trash: std::time::Duration::ZERO,
             node: std::time::Duration::ZERO,
-            versions: std::time::Duration::from_secs(since),
+            versions: std::time::Duration::ZERO,
         },
         server_clock: ServerClock::Required,
         use_mark: false,
+        purge_after: Some(confirmation.at),
     }
 }
 
@@ -809,6 +819,9 @@ pub enum NotYet {
     Lease,
     /// The drive's index is bigger than a run reads ([`Caps::pack_bytes`]): nothing was fetched.
     TooBig { bytes: u64, budget: u64 },
+    /// A purge's confirmation is dated after this device's clock by more than [`SKEW_SECS`]: what it
+    /// covers cannot be told (a clock that was set back since), and nothing is erased on a guess.
+    Confirmation { at: u64, now: u64 },
 }
 
 impl fmt::Display for NotYet {
@@ -841,6 +854,11 @@ impl fmt::Display for NotYet {
                 "the drive's index is {} MiB and a run judges up to {} MiB: too big to judge",
                 bytes / (1024 * 1024),
                 budget / (1024 * 1024)
+            ),
+            NotYet::Confirmation { at, now } => write!(
+                f,
+                "the confirmation is dated {at}, after this device's clock ({now}): what it covers \
+                 cannot be told, nothing is erased"
             ),
         }
     }
@@ -1274,6 +1292,18 @@ impl<'a> Walk<'a> {
     }
 }
 
+/// Which versions of a drive an analysis keeps.
+#[derive(Clone, Copy)]
+enum Keep<'a> {
+    /// The reclaimer's: the versions of the last `retention.versions`, and the state that span began
+    /// with.
+    Span(&'a Retention),
+    /// A purge the user confirmed at this time (seconds since 1970; [`purge_options`]): what the head
+    /// names and what a commit made after it FIRST names. Every other object the history released
+    /// goes, whatever its age and whichever commit released it.
+    After(u64),
+}
+
 /// What the history of `head` says of the drive's data objects at `now` (the time of day by the
 /// caller's clock): the objects the head and the window name, and - unless `live_only` - the
 /// objects the old commits (after `after`, at most `caps.commits` of them) named and nothing live
@@ -1287,23 +1317,73 @@ pub(crate) fn analyse(
     caps: &Caps,
     live_only: bool,
 ) -> Result<Analysis, NotYet> {
+    analyse_by(
+        objects,
+        head,
+        now,
+        Keep::Span(retention),
+        after,
+        caps,
+        live_only,
+    )
+}
+
+/// [`analyse`] for a purge the user confirmed at `confirmed_at` ([`purge_options`]): the window is
+/// the commits made after it, and what is kept is what the head names and what those commits first
+/// name - not the state the confirmation found, which is what the purge is for. Every commit's
+/// releases are scanned, the ones made after the confirmation too (a re-encryption pass replaces the
+/// old objects after the click).
+pub(crate) fn analyse_confirmed(
+    objects: &Objects,
+    head: &GitId,
+    now: u64,
+    confirmed_at: u64,
+    caps: &Caps,
+) -> Result<Analysis, NotYet> {
+    analyse_by(
+        objects,
+        head,
+        now,
+        Keep::After(confirmed_at),
+        None,
+        caps,
+        false,
+    )
+}
+
+fn analyse_by(
+    objects: &Objects,
+    head: &GitId,
+    now: u64,
+    keep: Keep<'_>,
+    after: Option<&Mark>,
+    caps: &Caps,
+    live_only: bool,
+) -> Result<Analysis, NotYet> {
     let (nodes, order) = load_graph(objects, head, now)?;
-    // A retention of nothing keeps no state but the head: no commit is inside the window.
-    let window_start = if retention.versions.is_zero() {
-        u64::MAX
-    } else {
-        now.saturating_sub(retention.versions.as_secs())
+    let window_start = match keep {
+        // A retention of nothing keeps no state but the head: no commit is inside the window.
+        Keep::Span(retention) if retention.versions.is_zero() => u64::MAX,
+        Keep::Span(retention) => now.saturating_sub(retention.versions.as_secs()),
+        // Absolute, from the confirmation's own record: a span measured from a clock read before the
+        // repository was opened starts late by the time the open takes (X-DELTA-SYNC6-1).
+        Keep::After(confirmed_at) => confirmed_at.saturating_add(1),
     };
     let in_window = |id: &GitId| nodes.get(id).is_some_and(|node| node.eff >= window_start);
+    let confirmed = matches!(keep, Keep::After(_));
 
-    // The window's commits, and the old commits it grew out of: the state the window began with.
+    // The window's commits, and the old commits it grew out of: the state the window began with. A
+    // purge scans the releases of every commit and keeps no state a commit before its confirmation
+    // names.
     let mut window: Vec<GitId> = Vec::new();
     let mut frontier: HashSet<GitId> = HashSet::new();
     let mut old: Vec<GitId> = Vec::new();
     for id in &order {
         if in_window(id) {
             window.push(*id);
-            if let Some(node) = nodes.get(id) {
+            if confirmed {
+                old.push(*id);
+            } else if let Some(node) = nodes.get(id) {
                 frontier.extend(node.parents.iter().filter(|parent| !in_window(parent)));
             }
         } else {
@@ -1318,9 +1398,13 @@ pub(crate) fn analyse(
         .ok_or_else(|| NotYet::unreadable("the head", "it is not in the history"))?;
     walk.refs(&head_node.tree, &mut live)?;
     let head_names: HashSet<ObjectId> = live.keys().copied().collect();
-    for id in window.iter().chain(frontier.iter()) {
-        if let Some(node) = nodes.get(id) {
-            walk.refs(&node.tree, &mut live)?;
+    if confirmed {
+        first_named_after(objects, &nodes, &order, &in_window, &mut live)?;
+    } else {
+        for id in window.iter().chain(frontier.iter()) {
+            if let Some(node) = nodes.get(id) {
+                walk.refs(&node.tree, &mut live)?;
+            }
         }
     }
 
@@ -1397,6 +1481,42 @@ pub(crate) fn analyse(
         analysis.cursor = Some(mark);
     }
     Ok(analysis)
+}
+
+/// Adds to `live` the objects FIRST named by a commit inside the window: named by the tree of some
+/// commit there and by the tree of no commit before it. What a purge keeps beside the head
+/// ([`Keep::After`]): a version made after the user's confirmation. An object a commit before the
+/// confirmation named is not kept for being named by a later one too - a file the re-encryption pass
+/// has not reached yet is named by every commit until it does, and the pass replaces it afterwards.
+fn first_named_after(
+    objects: &Objects,
+    nodes: &HashMap<GitId, Node>,
+    order: &[GitId],
+    in_window: &dyn Fn(&GitId) -> bool,
+    live: &mut HashMap<ObjectId, u64>,
+) -> Result<(), NotYet> {
+    // One walk and one map for each side: a walk reads a tree and a pointer once for the map it
+    // fills, so the two sides must not share one.
+    let mut before: HashMap<ObjectId, u64> = HashMap::new();
+    let mut after: HashMap<ObjectId, u64> = HashMap::new();
+    let mut walk_before = Walk::new(objects);
+    let mut walk_after = Walk::new(objects);
+    for id in order {
+        let Some(node) = nodes.get(id) else {
+            continue;
+        };
+        if in_window(id) {
+            walk_after.refs(&node.tree, &mut after)?;
+        } else {
+            walk_before.refs(&node.tree, &mut before)?;
+        }
+    }
+    for (id, bytes) in after {
+        if !before.contains_key(&id) {
+            live.entry(id).or_insert(bytes);
+        }
+    }
+    Ok(())
 }
 
 /// What a restore of the drive could still bring back at `now`, derived the way the restore dialog
@@ -1813,15 +1933,27 @@ pub(crate) fn reclaim_judged<B: Bucket, S: Sealer>(
         .and_then(|manifest| manifest.reclaimed.as_ref())
         .and_then(Mark::from_wal)
         .filter(|_| options.use_mark);
-    let mut analysis = match analyse(
-        repo.objects(),
-        &head,
-        now,
-        &options.retention,
-        after.as_ref(),
-        &options.caps,
-        false,
-    ) {
+    // A confirmation dated after this device's clock covers what cannot be told: nothing is erased.
+    if let Some(at) = options
+        .purge_after
+        .filter(|at| *at > now.saturating_add(SKEW_SECS))
+    {
+        report.stopped = Some(NotYet::Confirmation { at, now });
+        return Ok(report);
+    }
+    let analysed = match options.purge_after {
+        Some(at) => analyse_confirmed(repo.objects(), &head, now, at, &options.caps),
+        None => analyse(
+            repo.objects(),
+            &head,
+            now,
+            &options.retention,
+            after.as_ref(),
+            &options.caps,
+            false,
+        ),
+    };
+    let mut analysis = match analysed {
         Ok(analysis) => analysis,
         Err(why) => {
             report.stopped = Some(why);

@@ -938,30 +938,55 @@ impl MetaIndexProvider {
         self.judged_round(None, bucket, drive_key)
     }
 
-    /// Erases every old version of every file of the drive in `bucket`: each data object the
-    /// head does not name is deleted, whatever its age - the history before this moment cannot be
-    /// restored afterwards. What the user asked for after changing the drive's keys (the old
-    /// objects are the ones the old key still opens); it needs their confirmation
-    /// ([`PurgeConfirmation`]) and is not switched off by the reclaimer's mode, nor held back by
-    /// the evidence of the shadow rounds ([`go`]): the user said so. The bucket's clock must still
-    /// agree with this device's.
+    /// Erases every old version of every file of the drive `drive` in `bucket` that the user
+    /// confirmed: each data object the head does not name that a commit made at or before the
+    /// confirmation named, whatever its age - the history before that moment cannot be restored
+    /// afterwards; what a commit made after it first names stays (what the user never agreed to
+    /// lose: [`purge_options`]). What the user asked for after changing the drive's keys (the old
+    /// objects are the ones the old key still opens, and a re-encryption pass replaces them one by
+    /// one in the hours after the click); it needs their confirmation ([`PurgeConfirmation`]) and
+    /// is not switched off by the reclaimer's mode, nor held back by the evidence of the shadow
+    /// rounds ([`go`]): the user said so. The bucket's clock must still agree with this device's,
+    /// and the floor of this device's copy of the drive refuses a bucket that serves an older
+    /// manifest than the copy has seen, as the maintenance round does (a rolled-back head would make
+    /// an object a later commit names again a candidate, and the purge deletes candidates). A device
+    /// that has no copy of the drive knows no floor: the purge is run by the one that re-encrypted.
     ///
     /// # Errors
     ///
-    /// The drive's error.
+    /// The drive's error; [`DriveError::Protocol`] for a bucket that serves an older index than this
+    /// device's copy has seen.
     pub fn purge(
         &self,
+        drive: &str,
         bucket: Arc<dyn Drive>,
         drive_key: &DriveKey,
         confirmation: &PurgeConfirmation,
     ) -> Result<ReclaimReport, DriveError> {
         let options = purge_options(confirmation);
+        let device = self.device_id();
+        let floor = self
+            .drive_cache_dir(drive)
+            .map_or(0, |dir| super::repo::cached_floor(&dir, drive_key));
+        match MetaStore::open_above(
+            DriveBucket::new(Arc::clone(&bucket)),
+            drive_key.clone(),
+            &device,
+            floor,
+        ) {
+            Ok(_) => {}
+            Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(options.mode)),
+            Err(e) => return Err(to_drive(e)),
+        }
         let mut repo = match MetaRepo::open_with(
             DriveBucket::new(bucket),
             drive_key.clone(),
-            &self.device_id(),
+            &device,
             "Maintenance",
-            &RepoOptions::default(),
+            &RepoOptions {
+                restore: self.restore.clone(),
+                ..RepoOptions::default()
+            },
         ) {
             Ok(repo) => repo,
             Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(options.mode)),
