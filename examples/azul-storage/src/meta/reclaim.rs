@@ -675,9 +675,13 @@ pub(crate) fn ask_retired_delete(history: History<'_>, now: u64) -> Gate {
 /// What the user confirmed when they asked for the old versions of a drive to be erased: after a
 /// key was changed ("I was hacked": re-encrypting every file leaves the old objects, which the old
 /// key still opens, in the history) the history is restorable until the retention is over -
-/// unless they say it is not. Made from the confirmation a person gave and from nothing else: the
-/// answer a re-encryption pass recorded ([`PurgeConfirmation::recorded_in`]); the constructor from a
-/// number is this module's and nothing outside it can call it.
+/// unless they say it is not. Made from the answer an app recorded in the re-encryption's state
+/// ([`PurgeConfirmation::recorded_in`], after [`crate::rotation::ReencryptState::confirm_purge`]) and
+/// from nothing else: the constructor from a number is this module's, and nothing outside it can
+/// call it. What no type can say is that the user really answered. The app records it, through
+/// `confirm_purge`, whose callers are the commands and dialogs of a user's own request and are
+/// listed by a text gate (`azul-srcgate/tests/confirm_purge_gate.rs`): the door is that record, and
+/// a state that was saved with an answer in it is the same record read back (X-DELTA-KEYS4-5).
 ///
 /// ```compile_fail,E0451
 /// // Not made by hand: the field is private.
@@ -686,7 +690,9 @@ pub(crate) fn ask_retired_delete(history: History<'_>, now: u64) -> Gate {
 /// ```
 ///
 /// ```compile_fail,E0624
-/// // Not made from a number.
+/// // Not made from a number DIRECTLY: the constructor is private. (A number recorded with
+/// // `ReencryptState::confirm_purge` and read back with `purge_confirmation` is the other door,
+/// // the one the gate above watches.)
 /// use azul_storage::meta::reclaim::PurgeConfirmation;
 /// let _confirmation = PurgeConfirmation::confirmed_by_the_user(1);
 /// ```

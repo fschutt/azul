@@ -900,7 +900,10 @@ fn x_delta_sync6_3_erase_old_versions_needs_the_confirmation_and_the_end_of_the_
     assert_eq!(report.deleted, 0);
     assert_eq!(
         *provider.asked.lock().unwrap(),
-        vec![(String::from("d_1"), state.purge_confirmed_at.unwrap())]
+        vec![(
+            String::from("d_1"),
+            state.purge_confirmation().expect("confirmed").at
+        )]
     );
 
     // A provider that keeps no history says so; nothing is erased.

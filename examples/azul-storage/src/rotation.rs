@@ -1131,9 +1131,11 @@ pub struct ReencryptState {
     /// 1970); `None`: they are not, and the drive's history stays restorable until the retention is
     /// over. Re-encrypting every file writes new objects with new keys; the old ones - which the
     /// old drive key still opens - stay in a drive that keeps its history, as the history of the
-    /// files. Only this confirmation erases them ([`ReencryptState::purge_confirmation`]).
+    /// files. Only this confirmation erases them ([`ReencryptState::purge_confirmation`]). Not
+    /// public (X-DELTA-KEYS4-5): it is set by [`ReencryptState::confirm_purge`] and by reading back a
+    /// state an app saved, and read by nothing outside this crate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub purge_confirmed_at: Option<u64>,
+    pub(crate) purge_confirmed_at: Option<u64>,
 }
 
 impl ReencryptState {
@@ -1154,6 +1156,15 @@ impl ReencryptState {
     /// The user confirmed, at `at`, that the old versions of every file are erased with the
     /// re-encryption: for good, the history before it cannot be restored afterwards. Record it
     /// here, in the state the pass saves, so a restart does not lose the answer.
+    ///
+    /// This is the one door by which the user's answer becomes a [`crate::meta::reclaim::PurgeConfirmation`]
+    /// ([`ReencryptState::purge_confirmation`]): the app records what the user said, and nothing
+    /// in the types can tell that they said it - a number is all it takes. So the callers are a
+    /// short list in shipped code, the commands and dialogs of a user's own request, and a text gate
+    /// (`azul-srcgate/tests/confirm_purge_gate.rs`) names the modules that may call it, as
+    /// `chose_gate` does for a `Chose` (X-DELTA-KEYS4-5: the doc of the confirmation said "from
+    /// nothing else", and the state is `Deserialize`: a saved state that records an answer is the
+    /// same record read back).
     pub fn confirm_purge(&mut self, at: u64) {
         self.purge_confirmed_at = Some(at);
     }
