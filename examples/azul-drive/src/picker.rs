@@ -797,7 +797,7 @@ pub(crate) fn copy_finished(info: &mut CallbackInfo, s: &mut DriveState, done: b
     let mut items = Vec::new();
     for r in copy.refs {
         let staged = crate::jobs::path_in(&copy.root, &r.key);
-        let copies = crate::footprint::open_copies_of(&r.drive_id);
+        let copies = Scratch::open_copies_of(&r.drive_id);
         match hand_out(&copies, &r, &staged) {
             Ok(path) => items.push(PickedItem {
                 path: Some(path.to_string_lossy().into_owned()),

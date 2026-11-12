@@ -1882,7 +1882,7 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
             return;
         };
         s.info(opening_phrase(&*drive, &item, &entry.name));
-        let copies = crate::footprint::open_copies_of(&drive_id);
+        let copies = azul_storage::scratch::Scratch::open_copies_of(&drive_id);
         spawn(
             info,
             app,
@@ -1916,7 +1916,7 @@ pub(crate) fn activate(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState
         return;
     };
     s.info(opening_phrase(&*drive, &entry.key, &entry.name));
-    let copies = crate::footprint::open_copies_of(&drive_id);
+    let copies = azul_storage::scratch::Scratch::open_copies_of(&drive_id);
     spawn(
         info,
         app,
@@ -3218,7 +3218,7 @@ pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut Dri
         key: entry.key.clone(),
         content: None,
     });
-    let copies = crate::footprint::open_copies_of(&drive_id);
+    let copies = azul_storage::scratch::Scratch::open_copies_of(&drive_id);
     spawn(
         info,
         app,

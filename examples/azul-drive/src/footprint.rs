@@ -33,14 +33,6 @@ use azul_storage::{
     scratch::Scratch,
 };
 
-/// Where the copies of `drive`'s cloud files handed to apps wait (AZ-W4, AZ-U13): scratch purpose
-/// `open`, one purpose folder per drive (`open-<hash of its id>`), so that a removed drive takes its
-/// own with it and a sweep treats each like any purpose (X-DELTA-AZDRIVE-KEYS-32: one folder for
-/// every drive could not be told apart at a removal).
-pub(crate) fn open_copies_of(drive: &str) -> Scratch {
-    Scratch::open_copies_of(drive)
-}
-
 /// The folder of drive `drive`'s copy of its index (named by a hash of its id) under `root`, the
 /// drive indexes' folder (`<cache>/drive-index`): the copy itself, its `search/` (the plain text
 /// of its files), its `objects/` and its `packs/` journal. `None` without a root (the copies are in
@@ -250,7 +242,9 @@ impl Places {
             spots,
             open_copies: match &computer.scratch_root {
                 Some(root) => Scratch::open_copies_under(root, drive),
-                None => open_copies_of(drive),
+                // The copies of the drive's cloud files handed to apps wait in one purpose folder per drive,
+                // so that a removed drive takes its own with it (X-DELTA-AZDRIVE-KEYS-32).
+                None => Scratch::open_copies_of(drive),
             },
         }
     }

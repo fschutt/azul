@@ -885,6 +885,7 @@ mod tests {
     /// K6, LANE-AZ-2: "Remove drive" takes the drive's keys, and the paid months kept beside them,
     /// off the computer only with the evidence that its recovery code was typed back right once;
     /// before that they are the only way into the drive. A check stamped after `now` is none.
+    #[cfg(feature = "encryption")]
     #[test]
     fn lane_az_2_a_removed_drives_keys_go_only_once_its_recovery_code_was_checked() {
         let never_made: Vec<RecoveryState> = Vec::new();
@@ -913,6 +914,7 @@ mod tests {
     /// for a removal: the removal dropped the signed pending requests, which cannot be made again without
     /// the code. A registration that was never recorded used to pass here and not in the key permit's
     /// table; the settings answer what the table answers.
+    #[cfg(feature = "encryption")]
     #[test]
     fn x_delta_azdrive_keys_8_a_code_the_token_server_does_not_know_is_no_proof_for_a_removal() {
         let mut state = checked();
@@ -937,6 +939,7 @@ mod tests {
     /// typed back right is no witness from then on (it would pass every drill and let a removal
     /// delete the keys after a rotation that stopped with the wrap replaced and the new code never
     /// seen): the check is forgotten when the job starts, and the proof with it.
+    #[cfg(feature = "encryption")]
     #[test]
     fn x_delta_azdrive_keys_2_a_rotation_forgets_the_check_of_the_code_it_may_replace() {
         let mut state = checked();
