@@ -1303,6 +1303,12 @@ pub fn scan_settled(
             }
         }
     }
+    // A disk a test harness plays as one that gives its folders no identity (FAT, exFAT, a share).
+    if super::faults::blank_folder_ids(root) {
+        for id in out.folder_ids.values_mut() {
+            *id = (0, 0);
+        }
+    }
     // The problems the list left out are one row each.
     let told = out.told.clone();
     told.close(&mut out.problems);

@@ -15,6 +15,9 @@
 //!   share, a folder swapped for a file, a permission), which `chmod` alone cannot play.
 //! - **A look at every folder the scan lists** ([`set_listing_hook`]): a test hears each listing
 //!   as it happens, to count what the scan holds open at that moment.
+//! - **A disk that gives no identity to folders** ([`set_blank_folder_ids`]): the scan's folders
+//!   come back with no inode and no device, as FAT, exFAT and a network share give them, so a
+//!   folder renamed here is no rename the scan can tell by identity.
 //! - **A file that cannot be put in place** ([`fail_replace`]): the steps that write, trash or
 //!   rename a file here (a download, a delete into the trash, a conflict's rename) meet the error
 //!   the system gives for a lock, a sharing violation or a permission, for the files whose key
@@ -106,6 +109,8 @@ struct Faults {
     replace_errors: BTreeMap<String, (i32, u32)>,
     /// The patterns that fail in the pass running now (taken at its scan).
     replace_now: BTreeMap<String, i32>,
+    /// The scan keeps no inode and no device of the folders it finds.
+    blank_folder_ids: bool,
 }
 
 impl Faults {
@@ -122,6 +127,7 @@ impl Faults {
             && self.listing.is_none()
             && self.replace_errors.is_empty()
             && self.replace_now.is_empty()
+            && !self.blank_folder_ids
     }
 }
 
@@ -362,6 +368,21 @@ pub fn readdir_error(root: &Path, folder: &str) -> Option<std::io::Error> {
     all.get(root)
         .and_then(|f| f.readdir_now.get(folder.trim_matches('/')))
         .map(|errno| std::io::Error::from_raw_os_error(*errno))
+}
+
+/// Plays `root`'s disk as one that gives no identity to its folders (`true`) or not: the folders the
+/// scan finds come back with inode 0 and device 0, on a disk that has them too. (The files keep
+/// theirs: a file's identity is checked again when it is read, and a disk that gave none there would
+/// hold every upload for ever.)
+pub fn set_blank_folder_ids(root: &Path, blank: bool) {
+    with(root, |f| f.blank_folder_ids = blank);
+}
+
+/// Whether the scan of `root` keeps no identity of the folders ([`set_blank_folder_ids`]).
+#[must_use]
+pub fn blank_folder_ids(root: &Path) -> bool {
+    let all = faults();
+    !all.is_empty() && all.get(root).is_some_and(|f| f.blank_folder_ids)
 }
 
 /// Makes the steps of `root`'s passes that put a file in place - a download written, a delete moved

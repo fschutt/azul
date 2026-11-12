@@ -4,7 +4,7 @@
 //! app's save never taken for a delete, a file still being written left for later, the drive's
 //! bad entries listed and never acted on, the folder's bookkeeping unreachable from the drive.
 
-use std::{fs, path::Path, time::Duration};
+use std::{collections::BTreeSet, fs, path::Path, time::Duration};
 
 use azul_storage::{cap::Cap, testing::TempDir};
 
@@ -1725,4 +1725,151 @@ fn a_temp_written_slowly_after_the_unlink_holds_the_delete_while_the_folder_wait
     b.sync(&store);
     assert_eq!(b.read("doc.docx").map(|bytes| bytes.len()), Some(21 * 60));
     assert!(trashed(b.path()).is_empty());
+}
+
+/// Rewrites the drive's index as a hostile server would: `edit` changes it, its generation goes up.
+fn craft_index(store: &S3Bucket, edit: impl FnOnce(&mut RemoteIndex)) {
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).expect("an index")).unwrap();
+    edit(&mut index);
+    index.generation += 1;
+    store.write(&key, index.to_bytes());
+}
+
+/// A tombstone as a server that wants a delete believed writes it: confirmed, by the device it names.
+fn tombstone_of(hash: String, device: &str, gen: u64) -> crate::sync::Tombstone {
+    crate::sync::Tombstone {
+        hash,
+        gen,
+        at: 1_700_000_000,
+        device: device.to_string(),
+        confirmed: true,
+    }
+}
+
+/// X-DELTA-EDGE (E17b, T13). A malicious (or broken) server feeds a crafted tombstone stream. To a
+/// device paired afresh - no base, its state wiped - nothing it says is a delete: five files with no
+/// tombstone, three with a tombstone of the bytes this device holds (kept, listed, never sent), three
+/// with a tombstone of OTHER bytes (this device's are newer: they go up), every tombstone `confirmed`
+/// and signed with the device's own name. Afterwards, on a paired device, the server can take a file
+/// out of the folder only into the trash (restorable), and a stream that empties a folder is HELD for
+/// the user whatever the tombstones' `confirmed` says. A characterization test: green on the first
+/// run, with the counts the brief asked for.
+#[test]
+fn a_crafted_index_deletes_nothing_on_a_freshly_paired_device_and_only_into_the_trash_afterwards() {
+    let store = S3Bucket::new();
+    let a = Device::new("crafted-a");
+    let b = Device::new("crafted-b");
+    // 30 files in nested folders: root, a/, a/b/, a/b/c/ (15) and a folder of 15 that pass 3 empties.
+    let mut keys: Vec<String> = Vec::new();
+    for folder in ["", "a/", "a/b/", "a/b/c/"] {
+        let count = if folder.is_empty() { 3 } else { 4 };
+        for i in 0..count {
+            keys.push(format!("{folder}f{i}.txt"));
+        }
+    }
+    for i in 0..15 {
+        keys.push(format!("bulk/k{i:02}.txt"));
+    }
+    assert_eq!(keys.len(), 30);
+    let bytes_of = |key: &str| format!("the bytes of {key}").into_bytes();
+    for key in &keys {
+        a.write(key, &bytes_of(key));
+    }
+    a.sync(&store);
+    // B was wiped: no base, no state. Its folder holds the same 30 files - three of them newer than
+    // the drive's - and three of its own.
+    let no_tombstone = ["a/f0.txt", "a/f1.txt", "a/f2.txt", "a/f3.txt", "a/b/f0.txt"];
+    let same_bytes = ["f0.txt", "f1.txt", "f2.txt"];
+    let newer = ["a/b/f1.txt", "a/b/f2.txt", "a/b/f3.txt"];
+    for key in &keys {
+        let bytes = if newer.contains(&key.as_str()) {
+            format!("a NEWER version of {key}").into_bytes()
+        } else {
+            bytes_of(key)
+        };
+        b.write(key, &bytes);
+    }
+    let own = ["mine/one.txt", "mine/two.txt", "a/mine-three.txt"];
+    for key in own {
+        b.write(key, b"only here");
+    }
+    let before = b.tree();
+    assert_eq!(before.len(), 33);
+    craft_index(&store, |index| {
+        let gen = index.generation + 1;
+        for key in no_tombstone {
+            index.files.remove(key);
+        }
+        for key in same_bytes {
+            let held = index.files.remove(key).expect("on the drive");
+            index
+                .deleted
+                .insert(key.to_string(), tombstone_of(held.hash, "crafted-b", gen));
+        }
+        for key in newer {
+            index.files.remove(key);
+            index.deleted.insert(
+                key.to_string(),
+                tombstone_of(hash_bytes(b"what the drive once had"), "crafted-b", gen),
+            );
+        }
+    });
+
+    // Pass 1: nothing is deleted here, whatever the tombstones say.
+    let report = b.sync(&store);
+    assert_eq!(report.deleted_here, 0, "{}", report.summary());
+    assert!(trashed(b.path()).is_empty(), "nothing went to the trash");
+    assert_eq!(b.tree(), before, "all 33 local files are intact");
+    for key in same_bytes {
+        assert!(
+            lists(&report, Code::DeletedElsewhereKept, Some(key)),
+            "{key}: {:?}",
+            report.problems
+        );
+    }
+    let index = index_of(&store);
+    for key in same_bytes {
+        assert!(!index.files.contains_key(key), "{key} is not sent again");
+    }
+    for key in newer.iter().chain(&no_tombstone).chain(&own) {
+        assert!(index.files.contains_key(*key), "{key} goes up");
+    }
+    assert_eq!(report.files_up, 3 + 5 + 3, "{}", report.summary());
+
+    // Pass 2: the server drops two files that are unchanged here. A delete from the drive is a move
+    // into the folder's trash.
+    craft_index(&store, |index| {
+        index.files.remove("bulk/k00.txt");
+        index.files.remove("bulk/k01.txt");
+    });
+    let report = b.sync(&store);
+    assert_eq!(report.deleted_here, 2, "{}", report.summary());
+    let gone: BTreeSet<Vec<u8>> = [bytes_of("bulk/k00.txt"), bytes_of("bulk/k01.txt")].into();
+    assert_eq!(
+        trashed(b.path()).into_iter().collect::<BTreeSet<_>>(),
+        gone,
+        "both are in the trash, restorable"
+    );
+
+    // Pass 3: a stream that tombstones the rest of a folder - 13 files, every one of them - is held
+    // for the user, `confirmed` or not, and nothing changes.
+    craft_index(&store, |index| {
+        let gen = index.generation + 1;
+        for i in 2..15 {
+            let key = format!("bulk/k{i:02}.txt");
+            let held = index.files.remove(&key).expect("on the drive");
+            index
+                .deleted
+                .insert(key, tombstone_of(held.hash, "crafted-b", gen));
+        }
+    });
+    let held = b.tree();
+    let refused = b.sync_with(&store, &b.opts());
+    let error = refused
+        .expect_err("the pass asks the user instead of deleting")
+        .to_string();
+    assert!(error.contains("--allow-mass-delete"), "{error}");
+    assert_eq!(b.tree(), held, "the files are untouched");
+    assert_eq!(trashed(b.path()).len(), 2, "nothing more went to the trash");
 }
