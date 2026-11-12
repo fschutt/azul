@@ -535,9 +535,9 @@ mod on_windows {
         let top = tree.top().unwrap();
         assert_eq!(top.lstat("junction").unwrap().kind, Kind::Link);
         assert_eq!(top.lstat("plain").unwrap().kind, Kind::Dir);
-        assert!(top.child("plain", false).is_ok());
+        assert!(top.child("plain").is_ok());
         assert!(matches!(
-            top.child("junction", false),
+            top.child("junction"),
             Err(beneath::BeneathError::ThroughLink(_))
         ));
     }
@@ -586,7 +586,7 @@ mod on_windows {
         fs::write(outside.join("victim.txt"), b"keep").unwrap();
 
         let tree = Root::open(&root).unwrap();
-        let sub = tree.top().unwrap().child("sub", false).unwrap();
+        let sub = tree.top().unwrap().child("sub").unwrap();
         // Walked as a folder; then the folder moves away and a junction to the other tree takes
         // its name.
         fs::rename(root.join("sub"), root.join("sub.moved")).unwrap();
@@ -612,7 +612,7 @@ mod on_windows {
         assert!(!outside.join("renamed.txt").exists());
         // The control: a folder that was not swapped works as before.
         fs::create_dir_all(root.join("plain")).unwrap();
-        let plain = tree.top().unwrap().child("plain", false).unwrap();
+        let plain = tree.top().unwrap().child("plain").unwrap();
         fs::write(root.join("plain").join("x.txt"), b"x").unwrap();
         assert!(plain.open_read("x.txt").is_ok());
         plain.create_new("y.txt", 0o644).unwrap();
