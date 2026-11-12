@@ -1788,10 +1788,23 @@ pub fn file_message(
 ) -> std::io::Result<IndexEntry> {
     let store = MailStore::new(store_root.clone());
     let index_key = store::index_key(folder_key);
-    let mut entries: Vec<IndexEntry> = store
-        .get(&index_key)
-        .map(|b| store::index_from_jsonl(&String::from_utf8_lossy(&b)))
-        .unwrap_or_default();
+    // The folder's lines and its state are read FIRST, and a read that FAILED ends the call before
+    // anything is written: an index taken for empty would be written back with this one line (the
+    // others dropped) and the UID numbered from the floor again, over the file of another message
+    // (X-DELTA-SYNC4-21). A file that is not there is a folder never filed into.
+    let mut entries: Vec<IndexEntry> = match store.get(&index_key) {
+        Ok(b) => store::index_from_jsonl(&String::from_utf8_lossy(&b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(e),
+    };
+    let state_key = store::state_key(folder_key);
+    let old_state = match store.get(&state_key) {
+        Ok(b) => String::from_utf8(b)
+            .ok()
+            .and_then(|text| FolderState::from_json(&text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
     let uid = entries
         .iter()
         .map(|e| e.uid)
@@ -1804,16 +1817,10 @@ pub fn file_message(
     let entry = message::index_entry(uid, bytes, flags, Some(now), &path);
     entries.push(entry.clone());
     store.put(&index_key, store::index_to_jsonl(&entries).as_bytes())?;
-    let state_key = store::state_key(folder_key);
-    let mut state = store
-        .get(&state_key)
-        .ok()
-        .and_then(|b| String::from_utf8(b).ok())
-        .and_then(|text| FolderState::from_json(&text))
-        .unwrap_or_else(|| {
-            let display = Role::of_key(folder_key).label().unwrap_or(folder_key);
-            FolderState::create(display, display, 0)
-        });
+    let mut state = old_state.unwrap_or_else(|| {
+        let display = Role::of_key(folder_key).label().unwrap_or(folder_key);
+        FolderState::create(display, display, 0)
+    });
     state.messages = entries.len() as u64;
     store.put(&state_key, state.to_json().as_bytes())?;
     Ok(entry)
@@ -3724,6 +3731,54 @@ mod tests {
         assert!(waits.windows(2).all(|pair| pair[0] <= pair[1]), "{waits:?}");
         assert_eq!(waits.last().copied(), Some(4 * 3600), "{waits:?}");
         assert!(waits.iter().all(|wait| *wait <= 4 * 3600), "{waits:?}");
+    }
+
+    // ==== X-DELTA-SYNC4-21: filing a message over an index that cannot be read ====
+
+    /// RED on the code before: an index that could not be READ was an empty one - the next mail was
+    /// numbered from the floor again, over the file of the first, and the index written back with its
+    /// one line.
+    #[test]
+    fn x_delta_sync4_21_a_message_is_not_filed_when_the_folders_index_cannot_be_read() {
+        let dir = TempDir::new("send-file-unreadable");
+        let flags = [String::from("\\Seen")];
+        let first = file_message(&dir.folder(), "sent", b"one", &flags, OCT_1).unwrap();
+        let index = dir.0.join("mail/sent/index.jsonl");
+        let before = std::fs::read(&index).unwrap();
+        if !crate::testutil::make_unreadable(&index) {
+            return;
+        }
+        let failed = file_message(&dir.folder(), "sent", b"two", &flags, OCT_1 + 1);
+        crate::testutil::make_readable(&index);
+        assert!(failed.is_err(), "{failed:?}");
+        assert_eq!(std::fs::read(&index).unwrap(), before, "the index was not rewritten from nothing");
+        assert_eq!(
+            MailStore::new(dir.folder()).get(&first.path).unwrap(),
+            b"one",
+            "the first message's file is whole"
+        );
+    }
+
+    #[test]
+    fn x_delta_sync4_21_a_message_is_not_filed_when_the_folders_state_cannot_be_read() {
+        let dir = TempDir::new("send-file-state");
+        let flags = [String::from("\\Seen")];
+        file_message(&dir.folder(), "sent", b"one", &flags, OCT_1).unwrap();
+        let state = dir.0.join("mail/sent/state.json");
+        let before = std::fs::read(&state).unwrap();
+        let index_before = std::fs::read(dir.0.join("mail/sent/index.jsonl")).unwrap();
+        if !crate::testutil::make_unreadable(&state) {
+            return;
+        }
+        let failed = file_message(&dir.folder(), "sent", b"two", &flags, OCT_1 + 1);
+        crate::testutil::make_readable(&state);
+        assert!(failed.is_err(), "{failed:?}");
+        assert_eq!(std::fs::read(&state).unwrap(), before, "the state was not started anew");
+        assert_eq!(
+            std::fs::read(dir.0.join("mail/sent/index.jsonl")).unwrap(),
+            index_before,
+            "nothing was written before the failed read"
+        );
     }
 
     #[test]
