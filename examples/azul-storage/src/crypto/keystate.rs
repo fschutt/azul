@@ -25,13 +25,16 @@
 //! - [`Permit`], the verdict that lets an operation through. Only this module makes one (its
 //!   constructor is private), so a function that takes a `&Permit` cannot be handed one by a flow that
 //!   did not ask: `rotate`, `reencrypt_pass`, the removal's [`crate::footprint::RemovalProof`], the
-//!   recovery wraps' removal and restore take one of their own operation.
+//!   recovery wraps' removal and restore and `device::withdraw_invite` take one of their own operation;
+//!   `setup_new_drive`, `recover`, `adopt_invite` and `add_recovery_code` read the keyring themselves and ask
+//!   inside, on the reads they act on.
 //! - The facts are witnesses: the keyring's and the bucket's are made by the gatherers of `device.rs` and
 //!   `rotation.rs` (their fields are the crate's), the recovery record's and the vault's by the app that
 //!   keeps them ([`RecoveryRecord`], [`PaidMonths`], [`TokenFacts::of`], [`VaultFacts::of`]).
-//! - [`CONSUMERS`], what a drive key touches, each with its reseal and its forget, and
-//!   `tests/key_consumers_gate.rs` of azul-srcgate, which fails when a function that seals or opens
-//!   with the drive key is not listed.
+//! - [`CONSUMERS`], what a drive key touches, each with its reseal and its forget - which are what
+//!   `rotate` ([`Consumer::reseal_for`]) and the removal's keyring store ([`forget`]) RUN, so there is no
+//!   second copy of a step - and `tests/key_consumers_gate.rs` of azul-srcgate, which fails when a function
+//!   that seals or opens with the drive key is not listed.
 //!
 //! Decisions of this module, each a cell or a fact the key review did not settle (the table's own
 //! cells are in the tests):
@@ -50,6 +53,15 @@
 //!   made from a name. A journal nobody looked at is
 //!   never taken for the device's own: only a journal that is (`Journal::Own`) makes a rotation
 //!   resume, and resuming skips the account's lockdown.
+//! - `Recover` is judged on the entry it writes, the drive key: a failed read of the new key's, the
+//!   previous key's or the planned key's entry does not lock out the user who holds the recovery code. A
+//!   rotation of this device that cannot go on from here (its journal, the new key in the keyring, and the
+//!   key it replaces gone) is `Torn(CannotResume)`: every operation says so and `Recover` is the way back
+//!   in (X-DELTA-STRUCT-KEYSTATE-4).
+//! - A refused `Remove` means the keys STAY and the drive still leaves the list (its credentials, copies
+//!   and listing go all the same); what this computer keeps of a drive it holds no key of (`Locked`, a
+//!   drive nobody asked about) goes on the removal's own conditions below, never a refusal that would leave
+//!   a member key behind for good.
 //! - Removing a drive is permitted only with a recovery code typed back right (not by a clock that
 //!   ran ahead), the token server's knowledge of it (a registration that was never recorded is not
 //!   "registered"), and the months paid kept elsewhere. A planned key may be the only copy: nothing
@@ -804,10 +816,13 @@ impl fmt::Display for Reason {
     }
 }
 
-/// The evidence that an operation may go on: what [`judge`] hands out. Its constructor is private to
+/// The evidence that an operation may go on: what [`ask`] hands out. Its constructor is private to
 /// this module and it has no `Clone`, `Default` or `Deserialize`: whoever holds one asked the judge
-/// about this drive and this operation. A function that changes or erases key material takes a
-/// `&Permit` (C7 step 3; none does yet).
+/// about this drive and this operation. The functions that change or erase key material in a bucket
+/// or a keyring take a `&Permit` of their own operation (`rotation::rotate`, `rotation::reencrypt_pass`,
+/// the removal's `RemovalProof`, the recovery codes' removal and restore, `device::withdraw_invite`);
+/// the ones that read the keyring themselves (`setup_new_drive`, `recover`, `adopt_invite`,
+/// `add_recovery_code`) ask inside.
 #[derive(Debug, PartialEq, Eq)]
 #[must_use]
 pub struct Permit {
@@ -1258,15 +1273,15 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
 }
 
 /// What `op` may do on this device: THE question of the key permit. The state of the drive's key is
-/// observed inside from the evidence ([`observe`]) and judged for `op` ([`judge`]); the caller hands
-/// over what it read and never a state of its own making. The verdict is a [`Permit`] - the only way
-/// to get one - or the [`Reason`] the window shows.
+/// observed inside from the evidence and judged for `op`; the caller hands over what it read and never a
+/// state of its own making. The verdict is a [`Permit`] - the only way to get one - or the [`Reason`] the
+/// window shows.
 pub fn ask(op: Op, e: &Evidence<'_>) -> Verdict {
     judge(&observe(e), op, e)
 }
 
-/// What `op` may do in `state`, given what was read (`e`). TOTAL: all 7 x 10 cells answer, and no
-/// cell is a catch-all - `tests/keystate.rs` states the table as an exhaustive match over
+/// What `op` may do in `state`, given what was read (`e`). TOTAL: all 7 x 13 cells answer, and no
+/// cell is a catch-all - `tests/keystate_table.rs` states the table as an exhaustive match over
 /// `(KeyState, Op)`.
 ///
 /// The cells that carry a finding: Rotating x Rotate resumes or adopts, never a second new key
@@ -1276,7 +1291,8 @@ pub fn ask(op: Op, e: &Evidence<'_>) -> Verdict {
 /// everything else is refused (KEYS-6); Torn x Rotate is refused (`opens_nothing`); Active x Remove is
 /// permitted only with a checked code, a registered code and the months kept elsewhere, and says what
 /// stays (KEYS-8, KEYS-32); Active x RestoreAsOf is permitted and keeps the recorded key id
-/// (KEYS-18); Locked x anything but Recover is refused.
+/// (KEYS-18); Locked x anything but Recover and Remove is refused (a removal is judged by its own
+/// conditions: what this computer keeps of a drive it holds no key of goes with a code typed back right).
 fn judge(state: &KeyState, op: Op, e: &Evidence<'_>) -> Verdict {
     match state {
         KeyState::Fresh => fresh(op, e),

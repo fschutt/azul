@@ -42,7 +42,7 @@ fn why_refuses(why: &Why) -> Refusal {
     }
 }
 
-/// THE SPECIFICATION: all 7 x 10 cells.
+/// THE SPECIFICATION: all 7 x 13 cells.
 fn spec(state: &KeyState, op: Op) -> Cell {
     use KeyState as S;
     match (state, op) {
