@@ -1808,9 +1808,7 @@ mod tests {
         let key = store::index_key("sent");
         let before = bytes_of(&f, &key);
         let file = f.store.folder().path().join(&key);
-        if !crate::testutil::make_unreadable(&file) {
-            return;
-        }
+        crate::testutil::make_unreadable(&file);
         let failed = sync_account(&f.bucket, &f.store, &options(), &no_restore(), &mut |_| {
             true
         });
@@ -1831,9 +1829,7 @@ mod tests {
         let key = store::state_key("inbox");
         let before = bytes_of(&f, &key);
         let file = f.store.folder().path().join(&key);
-        if !crate::testutil::make_unreadable(&file) {
-            return;
-        }
+        crate::testutil::make_unreadable(&file);
         let failed = sync_account(&f.bucket, &f.store, &options(), &no_restore(), &mut |_| {
             true
         });
@@ -1857,9 +1853,7 @@ mod tests {
         let index_key = store::index_key("inbox");
         let before = bytes_of(&f, &index_key);
         let file = f.store.folder().path().join(&index_key);
-        if !crate::testutil::make_unreadable(&file) {
-            return;
-        }
+        crate::testutil::make_unreadable(&file);
         let moved = move_messages(&f.bucket, &f.store, "inbox", &[entry.uid], "archive");
         crate::testutil::make_readable(&file);
         assert!(matches!(moved, Err(SyncError::Storage(_))), "{moved:?}");
@@ -1887,9 +1881,7 @@ mod tests {
         let key = listing::flags_key("inbox");
         let before = bytes_of(&f, &key);
         let file = f.store.folder().path().join(&key);
-        if !crate::testutil::make_unreadable(&file) {
-            return;
-        }
+        crate::testutil::make_unreadable(&file);
         let failed = push_marks(&f.bucket, &f.store, "inbox");
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
@@ -2286,9 +2278,7 @@ mod tests {
         write_restore_epoch(&f.store, 0).unwrap();
         // No permission to read it: the read fails, and is no "not found" (skips where it cannot).
         let file = f.store.folder().path().join(DRIVE_FILE);
-        if !crate::testutil::make_unreadable(&file) {
-            return;
-        }
+        crate::testutil::make_unreadable(&file);
         let drive = Faulty::of(&f);
         drive
             .list_fails

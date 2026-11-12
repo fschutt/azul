@@ -3605,14 +3605,12 @@ mod tests {
     }
 
     /// Takes the permission to read the entry's message file away (a virus scanner that holds it, a
-    /// failing disk): the read fails and is no "not found" - asserted. `None` where that cannot be
-    /// done ([`crate::testutil::make_unreadable`]): the test skips. Else the file's bytes.
-    fn make_unreadable(dir: &TempDir, entry: &OutboxEntry) -> Option<Vec<u8>> {
+    /// failing disk): the read fails and is no "not found" - asserted; where that cannot be done the
+    /// test fails ([`crate::testutil::make_unreadable`]). The file's bytes.
+    fn make_unreadable(dir: &TempDir, entry: &OutboxEntry) -> Vec<u8> {
         let file = eml_of(dir, entry);
         let bytes = std::fs::read(&file).unwrap();
-        if !crate::testutil::make_unreadable(&file) {
-            return None;
-        }
+        crate::testutil::make_unreadable(&file);
         let outbox = MailStore::new(outbox_dir(&dir.folder(), ACCOUNT));
         let failure = outbox
             .get(&format!("{}.eml", entry.id))
@@ -3622,7 +3620,7 @@ mod tests {
             std::io::ErrorKind::NotFound,
             "the premise of the test: {failure}"
         );
-        Some(bytes)
+        bytes
     }
 
     fn retry_at(
@@ -3647,9 +3645,7 @@ mod tests {
     fn x_delta_sync4_19_an_unreadable_eml_keeps_its_entry_and_a_later_read_sends_it() {
         let dir = TempDir::new("send-unreadable");
         let entry = queued(&dir);
-        let Some(bytes) = make_unreadable(&dir, &entry) else {
-            return;
-        };
+        let bytes = make_unreadable(&dir, &entry);
         let mut fake = take_all();
         let now = OCT_1 + 400;
         let results = retry_at(&dir, true, now, &mut fake);
@@ -3721,9 +3717,7 @@ mod tests {
     fn x_delta_sync4_19_an_eml_that_stays_unreadable_is_given_up_after_five_days_and_says_so() {
         let dir = TempDir::new("send-giveup");
         let entry = queued(&dir);
-        if make_unreadable(&dir, &entry).is_none() {
-            return;
-        }
+        make_unreadable(&dir, &entry);
         let mut fake = take_all();
         let results = retry_at(&dir, true, OCT_1 + GIVE_UP_AFTER_SECS + 1, &mut fake);
         let SendStatus::Failed { reason } = &results[0].1 else {
@@ -3748,9 +3742,7 @@ mod tests {
     fn x_delta_sync4_19_the_backoff_of_an_unreadable_eml_grows_and_stops_at_four_hours() {
         let dir = TempDir::new("send-backoff");
         let entry = queued(&dir);
-        if make_unreadable(&dir, &entry).is_none() {
-            return;
-        }
+        make_unreadable(&dir, &entry);
         let mut fake = take_all();
         let mut waits = Vec::new();
         for n in 0..10 {
@@ -3781,9 +3773,7 @@ mod tests {
         let first = file_message(&dir.folder(), "sent", b"one", &flags, OCT_1).unwrap();
         let index = dir.0.join("mail/sent/index.jsonl");
         let before = std::fs::read(&index).unwrap();
-        if !crate::testutil::make_unreadable(&index) {
-            return;
-        }
+        crate::testutil::make_unreadable(&index);
         let failed = file_message(&dir.folder(), "sent", b"two", &flags, OCT_1 + 1);
         crate::testutil::make_readable(&index);
         assert!(failed.is_err(), "{failed:?}");
@@ -3807,9 +3797,7 @@ mod tests {
         let state = dir.0.join("mail/sent/state.json");
         let before = std::fs::read(&state).unwrap();
         let index_before = std::fs::read(dir.0.join("mail/sent/index.jsonl")).unwrap();
-        if !crate::testutil::make_unreadable(&state) {
-            return;
-        }
+        crate::testutil::make_unreadable(&state);
         let failed = file_message(&dir.folder(), "sent", b"two", &flags, OCT_1 + 1);
         crate::testutil::make_readable(&state);
         assert!(failed.is_err(), "{failed:?}");

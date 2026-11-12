@@ -982,9 +982,7 @@ mod tests {
         ] {
             let file = dir.0.join(&key);
             let before = std::fs::read(&file).unwrap();
-            if !crate::testutil::make_unreadable(&file) {
-                return;
-            }
+            crate::testutil::make_unreadable(&file);
             let failed = delete_draft(&store, first.uid);
             crate::testutil::make_readable(&file);
             assert!(failed.is_err(), "{key}: {failed:?}");

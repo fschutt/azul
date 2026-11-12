@@ -522,9 +522,7 @@ mod tests {
         let bytes = std::fs::read(&file).unwrap();
         // No permission to read it (a scanner holds the file, a failing disk): the read fails, and
         // the failure is no "not found" - asserted.
-        if !azmail_core::testutil::make_unreadable(&file) {
-            return;
-        }
+        azmail_core::testutil::make_unreadable(&file);
         let failure = spool
             .get(&entry.path)
             .expect_err("no permission to read it");

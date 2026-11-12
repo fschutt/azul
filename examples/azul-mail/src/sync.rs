@@ -747,9 +747,7 @@ mod tests {
             .insert(3, message(3));
         let file = dir.0.join(index_key("inbox"));
         let before = std::fs::read(&file).unwrap();
-        if !crate::testutil::make_unreadable(&file) {
-            return;
-        }
+        crate::testutil::make_unreadable(&file);
         let failed = run(&mut server, &store);
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
@@ -778,9 +776,7 @@ mod tests {
         // The server renumbers the folder.
         server.folders.get_mut("INBOX").unwrap().uidvalidity = 2;
         let file = dir.0.join(&filed.path);
-        if !crate::testutil::make_unreadable(&file) {
-            return;
-        }
+        crate::testutil::make_unreadable(&file);
         let failed = run(&mut server, &store);
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
@@ -803,9 +799,7 @@ mod tests {
         run(&mut server, &store).unwrap();
         let file = dir.0.join(state_key("inbox"));
         let before = std::fs::read(&file).unwrap();
-        if !crate::testutil::make_unreadable(&file) {
-            return;
-        }
+        crate::testutil::make_unreadable(&file);
         let failed = run(&mut server, &store);
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");

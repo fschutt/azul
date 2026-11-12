@@ -21,34 +21,39 @@ impl MailFolder for TempDir {
 
 /// Takes away the permission to read `file`: the stand-in for a failing disk, or for a virus scanner
 /// that holds a file - a read that fails and is NO "not found" (a folder where the file belongs reads
-/// as not found, so it is no stand-in). `true` when the read fails now; `false` where it cannot be
-/// done (not Unix) or does not bite (a process that reads anything, root): the test skips then, and
-/// the line on stderr says so. Give the permission back with [`make_readable`].
-pub fn make_unreadable(file: &std::path::Path) -> bool {
+/// as not found, so it is no stand-in). Where the failure cannot be made - not Unix, or a process
+/// that reads anything (root) - the test FAILS, with the reason: a test about a read that fails
+/// that returned early was a pass that asserted nothing, on exactly the runners (a Windows scanner,
+/// CI as root) where the case is real (X-DELTA-APPS3-11). Give the permission back with
+/// [`make_readable`].
+///
+/// # Panics
+///
+/// When the read cannot be made to fail here.
+pub fn make_unreadable(file: &std::path::Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o000)).is_err() {
-            eprintln!(
-                "skipped: the permission of {} cannot be changed",
+        std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o000)).unwrap_or_else(|e| {
+            panic!(
+                "this test needs a file whose read fails, and the permission of {} cannot be taken away: {e}",
+                file.display()
+            )
+        });
+        if std::fs::read(file).is_ok() {
+            make_readable(file);
+            panic!(
+                "this test needs a file whose read fails, and this process reads {} without the permission (root?): run it as an ordinary user",
                 file.display()
             );
-            return false;
         }
-        if std::fs::read(file).is_err() {
-            return true;
-        }
-        make_readable(file);
-        eprintln!("skipped: this process reads files it has no permission to");
-        false
     }
     #[cfg(not(unix))]
     {
-        eprintln!(
-            "skipped: no Unix file permissions here ({})",
+        panic!(
+            "this test needs a file whose read fails, and there are no Unix file permissions here to make one ({}): the stand-in for this platform (a file held open with no sharing) is not built",
             file.display()
         );
-        false
     }
 }
 
@@ -243,4 +248,34 @@ pub fn spawn_smtp_sink(script: SinkScript) -> (u16, std::sync::mpsc::Receiver<Si
         let _ = tx.send(session);
     });
     (port, rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// X-DELTA-APPS3-11, RED on the code before: `make_unreadable` answered `false` where the
+    /// failure could not be made and its 15 callers `return`ed - passes that asserted nothing. A
+    /// setup that cannot make the read fail now FAILS the test, naming why.
+    #[test]
+    #[should_panic(expected = "this test needs a file whose read fails")]
+    fn x_delta_apps3_11_a_setup_that_cannot_make_the_read_fail_fails_the_test() {
+        let dir = TempDir::new("unreadable-missing");
+        make_unreadable(&dir.0.join("not-there"));
+    }
+
+    /// The case the callers rely on: the file is there, its read fails and is no "not found", and
+    /// the permission comes back.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_apps3_11_an_unreadable_file_fails_its_read_and_reads_again_when_given_back() {
+        let dir = TempDir::new("unreadable-ok");
+        let file = dir.0.join("f");
+        std::fs::write(&file, b"x").unwrap();
+        make_unreadable(&file);
+        let failure = std::fs::read(&file).unwrap_err();
+        assert_ne!(failure.kind(), std::io::ErrorKind::NotFound, "{failure}");
+        make_readable(&file);
+        assert_eq!(std::fs::read(&file).unwrap(), b"x");
+    }
 }
