@@ -6,8 +6,11 @@
 //! closed, the computer off - leaves an encrypted drive whose recovery code nobody saw. The order is
 //! record first, publish after (the order AzDrive's "I was hacked" has: it saves that the wrap may
 //! change before the job that changes it): [`note`] writes a marker BEFORE the wrap is published,
-//! [`clear`] takes it away once the page has the code, and the next start [`read`]s it - a marker that
-//! is still there says the code was never shown, and the notice names the drive.
+//! [`clear`] takes it away once the USER has said they saved the code ("I saved the code" on the
+//! account page - the page has the code long before: closing the window or killing the app between
+//! would leave a drive whose code nobody has and no marker to say so, X-DELTA-SYNC4-15), and the next
+//! start [`read`]s it - a marker that is still there says the code was never confirmed, and the
+//! notice names the drive.
 //!
 //! The marker holds no code and no key: the keys are in the keyring on this computer, and the drive is
 //! empty. It says which drive, so that nothing is lost but the paper the code would have been written
@@ -56,7 +59,8 @@ pub fn note(root: &Path, drive_id: &str) -> Result<(), String> {
 /// anything of the setup reaches the bucket or the keyring, so that a stop between the wrap and the
 /// page is found by the next start; a marker that cannot be written is the reason to publish nothing.
 /// A setup that fails takes the marker away again (the page reports it as "not encrypted"); one that
-/// succeeds leaves it for [`clear`], which the page asks for once it has the code.
+/// succeeds leaves it for [`clear`], which the account page asks for once the user has said they saved
+/// the code.
 ///
 /// # Errors
 ///
@@ -88,7 +92,7 @@ pub fn encrypt_new_drive(
     }
 }
 
-/// Takes the marker away: the page has the code. A marker that is not there is as good.
+/// Takes the marker away: the user has said they saved the code. A marker that is not there is as good.
 ///
 /// # Errors
 ///

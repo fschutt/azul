@@ -114,6 +114,11 @@ pub(crate) struct AccountEditor {
     /// The recovery code of the drive "Create a new drive" made (encrypted as it was made):
     /// shown on the page this once. A secret.
     pub(crate) azlin_recovery: Option<Secret>,
+    /// The user said they saved the recovery code ("I saved the code"): the marker that says the code
+    /// may not have been shown goes only then ([`AccountEditor::take_marker_job`]).
+    pub(crate) azlin_code_saved: bool,
+    /// The job that takes that marker away was started.
+    azlin_marker_sent: bool,
     /// The Azlin Bridge's settings ("Other programs"), read when Account Settings opened.
     pub(crate) bridge: crate::ui_bridge::BridgeView,
 }
@@ -138,8 +143,29 @@ impl AccountEditor {
             azlin_session: None,
             azlin_busy: false,
             azlin_recovery: None,
+            azlin_code_saved: false,
+            azlin_marker_sent: false,
             bridge: crate::ui_bridge::BridgeView::default(),
         }
+    }
+
+    /// The user says they saved the recovery code the page shows. Nothing without a code on the page.
+    pub(crate) fn code_saved(&mut self) {
+        if self.azlin_recovery.is_some() {
+            self.azlin_code_saved = true;
+        }
+    }
+
+    /// The job that takes away the marker of a recovery code that may not have been shown
+    /// ([`crate::pending_code`]): only once the user has said they saved the code - never because the
+    /// page received it, for a window closed or an app killed in between would then leave a drive
+    /// whose code nobody has and no marker to say so (X-DELTA-SYNC4-15) - and once.
+    pub(crate) fn take_marker_job(&mut self, root: &crate::store::DriveFolder) -> Option<IoJob> {
+        if self.azlin_recovery.is_none() || !self.azlin_code_saved || self.azlin_marker_sent {
+            return None;
+        }
+        self.azlin_marker_sent = true;
+        Some(IoJob::ClearPendingCode { root: root.clone() })
     }
 
     /// The secret the account is saved with: the typed one (an IMAP account's password or
@@ -775,6 +801,19 @@ fn azlin_fields(s: &MailApp, editor: &AccountEditor, app: &RefAny) -> Dom {
             t("azmail-acct-new-drive-what")
         };
         page.add_child(note(&text));
+        // The code is on the page: the user says when it is written down.
+        if editor.azlin_recovery.is_some() && !editor.azlin_code_saved {
+            page.add_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row; margin-top: 12px;")
+                    .with_child(
+                        Button::create(l10n::label("azmail-acct-code-saved"))
+                            .with_on_click(app.clone(), on_code_saved as ButtonOnClickCallbackType)
+                            .dom()
+                            .with_id(ids::AZLIN_CODE_SAVED),
+                    ),
+            );
+        }
     }
     page.with_child(label("azmail-acct-local-folder")).with_child(input(
         app,
@@ -1312,6 +1351,23 @@ pub(crate) fn new_drive_note(drive_id: &str, recovery_code: Option<&str>) -> Str
     }
 }
 
+/// "I saved the code": the recovery code the page shows is written down, so the marker that said it
+/// might not have been shown goes (X-DELTA-SYNC4-15).
+extern "C" fn on_code_saved(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, |s, app| {
+        let root = s.root.clone();
+        let Some(editor) = s.editor.as_mut() else {
+            return Update::DoNothing;
+        };
+        editor.code_saved();
+        if let Some(job) = editor.take_marker_job(&root) {
+            crate::spawn_io(&mut info, app, job);
+        }
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
 pub(crate) fn drive_created(
     s: &mut MailApp,
     result: Result<(azlin::AzlinSession, Option<String>), String>,
@@ -1319,6 +1375,16 @@ pub(crate) fn drive_created(
     let Some(editor) = s.editor.as_mut() else {
         return;
     };
+    editor_got_drive(editor, result);
+}
+
+/// What "Create a new drive"'s answer does to the editor: the drive, its session and - encrypted as
+/// it was made - its recovery code, shown on the page. Nothing here touches the marker of that code
+/// ([`AccountEditor::take_marker_job`]).
+fn editor_got_drive(
+    editor: &mut AccountEditor,
+    result: Result<(azlin::AzlinSession, Option<String>), String>,
+) {
     editor.azlin_busy = false;
     match result {
         Ok((session, recovery)) => {
@@ -1331,6 +1397,8 @@ pub(crate) fn drive_created(
             editor.secret = Secret::new(String::new());
             editor.azlin_session = Some(Secret::new(session.to_secret()));
             editor.azlin_recovery = recovery.map(Secret::new);
+            editor.azlin_code_saved = false;
+            editor.azlin_marker_sent = false;
             editor.error.clear();
         }
         Err(e) => {
@@ -1486,5 +1554,69 @@ mod tests {
             spf: None,
         });
         assert!(offline[0].contains("timed out"), "{offline:?}");
+    }
+
+    /// X-DELTA-SYNC4-15. The marker of a new drive's recovery code that may not have been shown stays
+    /// when the page RECEIVES the code and goes when the user says they saved it. RED on the code
+    /// before: the receipt of the code started the job that took the marker away.
+    #[test]
+    fn x_delta_sync4_15_the_marker_goes_when_the_user_saved_the_code_not_when_the_page_has_it() {
+        use super::{editor_got_drive, AccountEditor};
+        use crate::{
+            account::AccountForm,
+            pending_code::{self, Pending},
+            send::SendSettings,
+            testutil::{MailFolder, TempDir},
+            IoJob,
+        };
+        let dir = TempDir::new("pending-lifecycle");
+        let root = dir.folder();
+        let mut editor =
+            AccountEditor::create(AccountForm::default(), false, SendSettings::default());
+        // "Create a new drive" wrote the marker before it published the recovery wrap, then answered.
+        pending_code::note(&dir.0, "d_1").unwrap();
+        let session = crate::azlin::AzlinSession::with_token("d_1", "dt_token");
+        let code = String::from("0123A-4567B-89CDE-FGHJK-MNPQRS");
+        editor_got_drive(&mut editor, Ok((session, Some(code))));
+        // The page has the code. Nobody has written it down yet.
+        assert!(
+            editor.take_marker_job(&root).is_none(),
+            "the receipt of the code takes nothing away"
+        );
+        assert_eq!(
+            pending_code::read(&dir.0),
+            Ok(Some(Pending {
+                drive_id: String::from("d_1")
+            }))
+        );
+        // The window is closed here, or the app is killed: the marker is what the next start finds.
+        // The user says they saved it: the one job that takes the marker away.
+        editor.code_saved();
+        let Some(IoJob::ClearPendingCode { root: cleared }) = editor.take_marker_job(&root) else {
+            panic!("the user's confirmation starts the job");
+        };
+        assert_eq!(cleared, root);
+        pending_code::clear(&cleared.path()).unwrap();
+        assert_eq!(pending_code::read(&dir.0), Ok(None));
+        assert!(editor.take_marker_job(&root).is_none(), "once");
+    }
+
+    /// A drive made without a code (a build without the encryption) has nothing to confirm.
+    #[test]
+    fn x_delta_sync4_15_a_drive_without_a_code_has_nothing_to_confirm() {
+        use super::{editor_got_drive, AccountEditor};
+        use crate::{
+            account::AccountForm,
+            send::SendSettings,
+            testutil::{MailFolder, TempDir},
+        };
+        let dir = TempDir::new("pending-no-code");
+        let root = dir.folder();
+        let mut editor =
+            AccountEditor::create(AccountForm::default(), false, SendSettings::default());
+        let session = crate::azlin::AzlinSession::with_token("d_2", "dt_token");
+        editor_got_drive(&mut editor, Ok((session, None)));
+        editor.code_saved();
+        assert!(editor.take_marker_job(&root).is_none());
     }
 }

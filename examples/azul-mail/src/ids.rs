@@ -85,6 +85,8 @@ pub const ACCT_DRIVE_ID: AzString = AzString::from_const_str("__azmail_acct_driv
 pub const ACCT_DRIVE_TOKEN: AzString = AzString::from_const_str("__azmail_acct_drive_token");
 /// The "Create a new drive" button.
 pub const AZLIN_CREATE_DRIVE: AzString = AzString::from_const_str("__azmail_azlin_create_drive");
+/// The "I saved the code" button under a new drive's recovery code.
+pub const AZLIN_CODE_SAVED: AzString = AzString::from_const_str("__azmail_azlin_code_saved");
 /// The SMTP server (sending through one).
 pub const SEND_HOST: AzString = AzString::from_const_str("__azmail_send_host");
 /// The SMTP port.

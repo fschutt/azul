@@ -305,6 +305,7 @@ azmail-acct-drive-id = Laufwerks-ID:
 azmail-acct-drive-token = Laufwerkstoken:
 azmail-acct-drive-token-note = Ein Laufwerkstoken für diesen Computer, von deinem Azlin-Anbieter oder aus den Geräten von AzDrive. Jede Anmeldung ersetzt es durch ein neues: Gib AzMail ein eigenes Token, nicht eines, das AzDrive verwendet.
 azmail-acct-create-drive = Neues Laufwerk erstellen
+azmail-acct-code-saved = Ich habe den Code gespeichert
 azmail-acct-asking-drive = Der Tokenserver wird nach einem neuen Laufwerk gefragt…
 azmail-acct-new-drive-what = Ein neues, leeres Laufwerk bei diesem Tokenserver (dem eines Entwicklungs-Tokenservers: ein echtes kommt von deinem Azlin-Anbieter).
 azmail-acct-local-folder = Lokaler E-Mail-Ordner:

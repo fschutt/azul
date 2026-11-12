@@ -305,6 +305,7 @@ azmail-acct-drive-id = Drive id:
 azmail-acct-drive-token = Drive token:
 azmail-acct-drive-token-note = A drive token for this computer, from your Azlin provider or AzDrive's devices. Every sign-in replaces it with a new one: give AzMail a token of its own, not one AzDrive uses.
 azmail-acct-create-drive = Create a new drive
+azmail-acct-code-saved = I saved the code
 azmail-acct-asking-drive = Asking the token server for a new drive…
 azmail-acct-new-drive-what = A new, empty drive at this token server (a development token server's: a real one comes from your Azlin provider).
 azmail-acct-local-folder = Local mail folder:

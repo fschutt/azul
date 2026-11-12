@@ -1988,7 +1988,8 @@ pub(crate) enum IoJob {
         name: String,
         root: DriveFolder,
     },
-    /// The page has the new drive's recovery code: the marker that said it might not is taken away.
+    /// The user said they saved the new drive's recovery code ("I saved the code"): the marker that
+    /// said it might not have been shown is taken away (X-DELTA-SYNC4-15).
     ClearPendingCode { root: DriveFolder },
     /// A new DKIM key for the account editor (making an RSA key takes a moment).
     DkimKey,
@@ -2237,18 +2238,11 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
             ui_main::azlin_action_done(s, &mut info, app, action, result)
         }
         IoDone::DriveCreated(result) => {
-            // The page has the code once it is told: the marker that said it might not goes.
-            let shown = matches!(&result, Ok((_, Some(_))));
+            // The page has the code now, but the marker that says it may not have been shown is the
+            // proof that somebody wrote it down, and only the user gives that ("I saved the code":
+            // `ui_account::on_code_saved`). A window closed or an app killed before that leaves the
+            // marker, and the next start says so (X-DELTA-SYNC4-15).
             ui_account::drive_created(s, result);
-            if shown {
-                spawn_io(
-                    &mut info,
-                    app,
-                    IoJob::ClearPendingCode {
-                        root: s.root.clone(),
-                    },
-                );
-            }
             Update::RefreshDom
         }
         IoDone::PendingCodeCleared(result) => {
