@@ -39,7 +39,7 @@ use super::{
     },
     retention::RETENTION,
     seal::{KeyWindow, Sealer},
-    shadow::{Footing, Ledger, Round, UNVERIFIED},
+    shadow::{Footing, Ledger, Round, ANALYSIS_RULES, UNVERIFIED},
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
     wal::{reseal, Maintained, Maintenance, MetaStore, Packs, Publish, RefUpdate},
@@ -1058,6 +1058,7 @@ impl MetaIndexProvider {
                 candidates: 0,
                 candidate_bytes: 0,
                 live: 0,
+                rules: ANALYSIS_RULES,
                 clean: false,
                 unclean: why.to_string(),
             };
@@ -1118,6 +1119,7 @@ impl MetaIndexProvider {
                         candidates: u64::try_from(report.candidates).unwrap_or(u64::MAX),
                         candidate_bytes: report.candidate_bytes,
                         live: u64::try_from(report.live_objects).unwrap_or(u64::MAX),
+                        rules: ANALYSIS_RULES,
                         clean,
                         unclean: if clean {
                             String::new()
@@ -1172,6 +1174,7 @@ impl MetaIndexProvider {
                     candidates: 0,
                     candidate_bytes: 0,
                     live: 0,
+                    rules: ANALYSIS_RULES,
                     clean: false,
                     unclean: why,
                 };

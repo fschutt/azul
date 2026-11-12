@@ -5,7 +5,7 @@
 use crate::meta::{
     go,
     reclaim::{GO_CLEAN_ROUNDS, GO_DAYS, GO_DEVICES},
-    shadow::{Footing, Ledger, Round, EVERY_SECS, KEEP_ROUNDS},
+    shadow::{Footing, Ledger, Round, ANALYSIS_RULES, EVERY_SECS, KEEP_ROUNDS},
     Go, GoEvidence, Hold, MemoryBucket, ReclaimMode, TestSealer,
 };
 
@@ -240,6 +240,7 @@ fn round(day: u64, device: &str, clean: bool) -> Round {
         candidates: 3,
         candidate_bytes: 300,
         live: 10,
+        rules: ANALYSIS_RULES,
         clean,
         unclean: if clean {
             String::new()
@@ -467,4 +468,59 @@ fn x_delta_sync2_2_a_round_is_made_clean_only_by_confirming_the_round_that_was_w
     other.clean = false;
     other.unclean = String::from(UNVERIFIED);
     assert!(Ledger::confirm(&bucket, &sealer, &other).unwrap().is_none());
+}
+
+/// X-DELTA-SYNC4-7. A round recorded nothing about the analysis that made it: seven clean rounds of one
+/// definition of "clean" licensed a run of another - `6d4c5f823` itself changed it (the head's listing
+/// only, then the head's listing AND the window AND the bucket's clock), and the ledger of a build before
+/// it counted. A round carries the version of its analysis, and only the rounds of the current one count:
+/// a ledger of rounds of an older version (or of none: 0, a build before rounds were versioned) shows no
+/// clean round at all, and the streak starts again on the first round of the current version.
+#[test]
+fn x_delta_sync4_7_only_rounds_of_the_current_analysis_count_towards_the_switch() {
+    let versioned = |day: u64, device: &str, rules: u32| Round {
+        rules,
+        ..round(day, device, true)
+    };
+    // Fifteen daily rounds by three devices: enough for the switch when they are of the current version.
+    let current: Vec<Round> = (0..=14)
+        .map(|day| versioned(day, ["a", "b", "c"][(day % 3) as usize], ANALYSIS_RULES))
+        .collect();
+    let e = ledger_of(&current).evidence(T0 + 15 * DAY, &footing());
+    assert_eq!(go(ReclaimMode::Delete, &e), Go::Delete, "{e:?}");
+    // The same fifteen rounds written by an older analysis (or before rounds were versioned): none counts.
+    for older in [0, ANALYSIS_RULES + 1] {
+        let rounds: Vec<Round> = (0..=14)
+            .map(|day| versioned(day, ["a", "b", "c"][(day % 3) as usize], older))
+            .collect();
+        let e = ledger_of(&rounds).evidence(T0 + 15 * DAY, &footing());
+        assert_eq!(
+            (e.clean_rounds, e.days, e.devices),
+            (0, 0, 0),
+            "rounds of version {older} are no evidence for version {ANALYSIS_RULES}"
+        );
+        assert_ne!(go(ReclaimMode::Delete, &e), Go::Delete);
+    }
+    // A round of the current version after old ones starts the streak - and an old one in the middle
+    // ends it, as a round that was not clean does.
+    let mixed = [
+        versioned(0, "a", 0),
+        versioned(1, "b", 0),
+        versioned(2, "a", ANALYSIS_RULES),
+        versioned(3, "b", ANALYSIS_RULES),
+    ];
+    let e = ledger_of(&mixed).evidence(T0 + 4 * DAY, &footing());
+    assert_eq!((e.clean_rounds, e.devices), (2, 2), "{e:?}");
+    let broken = [
+        versioned(0, "a", ANALYSIS_RULES),
+        versioned(1, "b", 0),
+        versioned(2, "a", ANALYSIS_RULES),
+    ];
+    let e = ledger_of(&broken).evidence(T0 + 3 * DAY, &footing());
+    assert_eq!(e.clean_rounds, 1, "{e:?}");
+    // A ledger an older build wrote has no `rules` field: it reads as version 0.
+    let old_ledger = r#"{"rounds":[{"at":1800000000,"device":"a","revision":1,"clean":true}]}"#;
+    let read: Ledger = serde_json::from_str(old_ledger).unwrap();
+    assert_eq!(read.rounds[0].rules, 0);
+    assert_eq!(read.evidence(T0 + DAY, &footing()).clean_rounds, 0);
 }

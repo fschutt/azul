@@ -39,6 +39,17 @@ pub const EVERY_SECS: u64 = 86_400;
 /// Rounds the ledger keeps (the newest).
 pub const KEEP_ROUNDS: usize = 64;
 
+/// The version of what a round means by "clean": the analysis that finds the candidates, the window
+/// it judges the versions by (the restore dialog's), the independent listing of the head and the
+/// bucket's clock that vouches for the stamp. A round carries the version of the analysis that made
+/// it ([`Round::rules`]) and only rounds of THIS version count towards the switch to deleting
+/// ([`Ledger::evidence`]): seven clean rounds of an older definition of "clean" are no evidence for
+/// the next one (X-DELTA-SYNC4-7). Bump it with any change of `analyse`, of `restorable` or of the
+/// window, of the head's listing or of the clock check of a round: the ledgers of the builds before
+/// it then count for nothing, and the streak starts again (a round that does not count only holds
+/// the switch back).
+pub const ANALYSIS_RULES: u32 = 1;
+
 /// Attempts at the compare-and-swap of the ledger before the round is left unrecorded.
 const WRITE_ATTEMPTS: u32 = 3;
 
@@ -62,6 +73,10 @@ pub struct Round {
     /// The data objects the head and the window name.
     #[serde(default)]
     pub live: u64,
+    /// The version of the analysis that made it ([`ANALYSIS_RULES`]); 0 for a round a build wrote
+    /// before rounds were versioned: such a round never counts.
+    #[serde(default)]
+    pub rules: u32,
     /// Whether it ran to its end, fitted the budget and the independent listing agreed.
     pub clean: bool,
     /// Why it was not clean (empty when it was).
@@ -122,7 +137,8 @@ impl Ledger {
         let mut stamps: Vec<u64> = Vec::new();
         let mut devices: BTreeSet<&str> = BTreeSet::new();
         for round in self.rounds.iter().rev() {
-            if !round.clean {
+            // A round of another version of the analysis ends the streak as one that was not clean.
+            if !round.clean || round.rules != ANALYSIS_RULES {
                 break;
             }
             clean_rounds = clean_rounds.saturating_add(1);
@@ -237,6 +253,7 @@ impl Ledger {
             let Some(round) = ledger.rounds.iter_mut().rev().find(|round| {
                 !round.clean
                     && round.unclean == UNVERIFIED
+                    && round.rules == written.rules
                     && round.device == written.device
                     && round.at == written.at
                     && round.revision == written.revision

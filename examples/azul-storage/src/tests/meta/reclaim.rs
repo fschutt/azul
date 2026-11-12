@@ -686,6 +686,13 @@ fn x_delta_azdrive_sync_5_a_maintenance_round_runs_the_reclaimer_once_a_day_per_
     assert!(report.line().contains("agrees"), "{}", report.line());
     assert_eq!(ledger().rounds.len(), 1, "and the round is written down");
     assert!(ledger().rounds[0].clean, "{:?}", ledger().rounds[0]);
+    // X-DELTA-SYNC4-7: it says which analysis made it.
+    assert_eq!(
+        ledger().rounds[0].rules,
+        crate::meta::shadow::ANALYSIS_RULES,
+        "{:?}",
+        ledger().rounds[0]
+    );
 
     // Minutes later: the next maintenance round - of this device or another - runs none.
     provider
