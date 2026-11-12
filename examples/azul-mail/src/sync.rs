@@ -116,12 +116,18 @@ pub struct FolderReport {
     pub renumbered: Option<u32>,
     /// An Azlin account's: mail filed here first that this sync put into the drive.
     pub pushed: u64,
-    /// An Azlin account's: messages gone from the drive, dropped from the local copy.
+    /// An Azlin account's: messages the drive no longer lists, taken out of the folder - their
+    /// files held under `removed/` for 90 days, never deleted ([`crate::azlin_sync::HOLD_DAYS`]).
     pub removed: u64,
     /// An Azlin account's: messages a restored drive lacks, kept here (put into the drive again
     /// where this computer has the message; a message of which only the header block is here
     /// stays as it is). Never counted in `removed`.
     pub kept_after_restore: u64,
+    /// An Azlin account's: messages a restored drive lacks of which only the header block is here
+    /// (a big message Send/Receive did not fetch): nothing of them can go back into the drive. Not
+    /// counted in `kept_after_restore`; the next ordinary pass holds their lines like any other
+    /// message the drive does not list (X-DELTA-APPS3-12).
+    pub header_only_after_restore: u64,
     /// An Azlin account's: messages the drive no longer lists, kept here because the token server
     /// could not be asked whether the drive was restored ([`SyncReport::restore_unknown`]). They
     /// are neither removed nor put back; the next Send/Receive decides. Never counted in `removed`.
@@ -136,6 +142,9 @@ pub struct SyncReport {
     /// (the text of the error), when some folder had mail the drive no longer lists. `None`:
     /// it was not needed, or it answered.
     pub restore_unknown: Option<String>,
+    /// An Azlin account's: why the holding area could not be swept this time (the text of the
+    /// error); nothing was deleted then. `None`: it was swept, or there was nothing to sweep.
+    pub sweep_failed: Option<String>,
 }
 
 impl SyncReport {
@@ -161,6 +170,13 @@ impl SyncReport {
 
     pub fn kept_unasked(&self) -> u64 {
         self.folders.iter().map(|f| f.kept_unasked).sum()
+    }
+
+    pub fn header_only_after_restore(&self) -> u64 {
+        self.folders
+            .iter()
+            .map(|f| f.header_only_after_restore)
+            .sum()
     }
 }
 

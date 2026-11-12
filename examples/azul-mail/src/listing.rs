@@ -442,6 +442,7 @@ mod tests {
             size: 100,
             path: format!("mail/inbox/2026/09/{uid}.eml"),
             remote: String::new(),
+            on_drive_since: None,
         }
     }
 

@@ -227,6 +227,14 @@ azmail-outbox-empty-no-account = Nothing waits in the Outbox. To receive mail, a
 azmail-outbox-empty-local = Nothing waits in the Outbox of Local Folders.
 azmail-sending-outbox = Sending the Outbox…
 azmail-outbox-counts = Outbox: { $sent } sent, { $queued } waiting, { $failed } failed.
+azmail-restore-header-only = { $count ->
+    [one] The Azlin drive was restored to an earlier state and lacks 1 more message you have, of which only the header is here: it cannot go back into the drive.
+   *[other] The Azlin drive was restored to an earlier state and lacks { $count } more messages you have, of which only the headers are here: they cannot go back into the drive.
+ }
+azmail-removed-held = { $count ->
+    [one] 1 message was removed from the drive; it stays on this computer for { $days } days.
+   *[other] { $count } messages were removed from the drive; they stay on this computer for { $days } days.
+ }
 azmail-restore-unknown = { $count ->
     [one] The Azlin drive no longer lists 1 message you have, and the token server could not be asked whether the drive was restored ({ $why }): it stays here until the next Send/Receive.
    *[other] The Azlin drive no longer lists { $count } messages you have, and the token server could not be asked whether the drive was restored ({ $why }): they stay here until the next Send/Receive.

@@ -1707,6 +1707,11 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
     }
     Update::RefreshDom
 }
+            // The mail held 90 days after the drive stopped listing it is swept at the end of a
+            // Send/Receive; a sweep that could not read its list deleted nothing (X-DELTA-APPS3-3).
+            if let Some(why) = &report.sweep_failed {
+                eprintln!("[azmail] the removed mail held here could not be swept: {why}");
+            }
 
 // ==== Send / Receive of Local Folders: the mail written without an account ====
 

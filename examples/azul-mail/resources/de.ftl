@@ -227,6 +227,14 @@ azmail-outbox-empty-no-account = Im Postausgang wartet nichts. Um E-Mails zu emp
 azmail-outbox-empty-local = Im Postausgang der lokalen Ordner wartet nichts.
 azmail-sending-outbox = Der Postausgang wird gesendet…
 azmail-outbox-counts = Postausgang: { $sent } gesendet, { $queued } wartend, { $failed } fehlgeschlagen.
+azmail-restore-header-only = { $count ->
+    [one] Das Azlin-Laufwerk wurde auf einen früheren Stand zurückgesetzt und hat 1 weitere Nachricht nicht, die du hast und von der nur der Kopf hier ist: Sie kann nicht ins Laufwerk zurück.
+   *[other] Das Azlin-Laufwerk wurde auf einen früheren Stand zurückgesetzt und hat { $count } weitere Nachrichten nicht, die du hast und von denen nur die Köpfe hier sind: Sie können nicht ins Laufwerk zurück.
+ }
+azmail-removed-held = { $count ->
+    [one] 1 Nachricht wurde aus dem Laufwerk entfernt; sie bleibt { $days } Tage auf diesem Computer.
+   *[other] { $count } Nachrichten wurden aus dem Laufwerk entfernt; sie bleiben { $days } Tage auf diesem Computer.
+ }
 azmail-restore-unknown = { $count ->
     [one] Das Azlin-Laufwerk listet 1 Nachricht, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleibt hier bis zum nächsten Senden/Empfangen.
    *[other] Das Azlin-Laufwerk listet { $count } Nachrichten, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleiben hier bis zum nächsten Senden/Empfangen.

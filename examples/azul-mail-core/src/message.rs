@@ -69,6 +69,7 @@ pub fn index_entry(
         size: bytes.len() as u64,
         path: path.to_string(),
         remote: String::new(),
+        on_drive_since: None,
     }
 }
 

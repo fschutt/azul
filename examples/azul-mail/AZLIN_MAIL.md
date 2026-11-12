@@ -108,18 +108,40 @@ Send/Receive on a device:
    made here and not yet written are written (the local `flags.json` holds them until then).
 2. **Pull**: one listing per folder (one ListObjectsV2 page per 1000 messages) and one
    recursive listing of `mail/.state/`. New names are fetched, the flags come from the markers.
-   A name that is gone from the listing is dropped from the local copy only when the drive,
-   asked about that very object (a HEAD), says it is not there: a listing that is short for any
-   reason, or a look that fails, deletes nothing.
+   A name that is gone from the listing leaves the folder only when the token server, asked
+   then (`GET /v1/drives/{id}`: once per Send/Receive, and only when some folder has a name that
+   is gone), says the drive was not restored, and the drive, asked about that very object (a
+   HEAD), says it is not there: a listing that is short for any reason, or a look that fails,
+   takes nothing out, and a token server that cannot be asked leaves the mail where it is (the
+   window says so). What leaves is NOT deleted: its file moves to `removed/<folder>/<stamp>/` of
+   the local copy (`<stamp>` is the moment of the pull; `index.jsonl` there holds the folder's
+   lines of it) and stays 90 days, the span the drive keeps its own history; the window says how
+   many messages were removed from the drive. Only a sweep of `removed/` after those 90 days
+   deletes it, and one that cannot read its list deletes nothing.
 
-After a pull the local copy equals the bucket as listed; with no new writes, every device's
-next pull ends in the same state - except after a RESTORE of the drive. A restore (the operator
-rebuilt the drive from its lagging off-site copy) is announced by the token server with an epoch
-(`restore.rs`, the one protocol of every drive); the Send/Receive that meets an epoch newer than
-the one this computer took (`azlin-drive.json`, written after the last folder was synced) deletes
-no mail here: what the restored drive lacks came after the restore's moment and exists on this
-computer only, so it is put back into the drive (a message of which only the header block is
-here stays as it is), and the window says so.
+After a pull the local copy equals the bucket as listed (what the bucket no longer lists is held
+under `removed/`, not in the folder); with no new writes, every device's next pull ends in the
+same state - except after a RESTORE of the drive. An operator's restore (the drive rebuilt from
+its lagging off-site copy) is announced by the token server with an epoch (`restore.rs`, the one
+protocol of every drive). The session of the last sign-in carries the newest announcement it
+saw, hours old, so Send/Receive asks the token server again before it lets go of anything the
+drive no longer lists: a restore announced after that sign-in is in no snapshot. The
+Send/Receive that meets an epoch newer than the one this computer took (`azlin-drive.json`,
+written after the last folder was synced) deletes no mail here: what the restored drive lacks
+came after the restore's moment and exists on this computer only, so it is put back into the
+drive, and the window says so. "After the restore's moment" is decided by each index line's
+`on_drive_since` (when this computer first saw its object in the drive) against the notice's
+`as_of`: mail first seen before the moment and absent from the restored drive was deleted before
+it, and is an ordinary delete (held); a line without the stamp (from before the field), or a
+notice without a moment, goes back as it always did - the first Send/Receive after an upgrade is
+that one conservative pass, and it stamps every line it sees in the drive. A message of which only
+the header block is here cannot go back: the window says that apart. The restore a pass takes is
+written into `azlin-drive.json` (`taking`) before the first message goes back, and the epoch
+(`restore_epoch`) only after the last folder.
+The user's own "Restore the drive as of ..." is no such announcement: on an encrypted drive, the
+only kind AzMail opens, it is one ordinary commit that removes every file made since, and AzMail
+follows it as the delete it looks like - the copies on this computer, possibly the only ones,
+are held for 90 days under `removed/` (the drive's own history keeps them for the same span).
 
 ### 4.4 Cost, and what comes later
 

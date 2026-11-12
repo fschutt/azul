@@ -7,6 +7,8 @@
 //! mail/<folder>/index.jsonl             one line per message (IndexEntry)
 //! mail/<folder>/state.json              UIDVALIDITY and the last synced UID (FolderState)
 //! stale/<folder>/<uidvalidity>/...      a folder's files from before the server renumbered it
+//! removed/<folder>/<stamp>/...          what an Azlin account's pull took out of a folder because
+//!                                       the drive no longer lists it, held for 90 days
 //! ```
 //!
 //! `<yyyy>/<mm>` is the month the server received the message (its INTERNALDATE, in UTC), so a
@@ -29,6 +31,11 @@ use serde::{Deserialize, Serialize};
 pub const MAIL_PREFIX: &str = "mail";
 /// Where a renumbered folder's old files go.
 pub const STALE_PREFIX: &str = "stale";
+/// Where an Azlin account's pull keeps what the drive no longer lists, for the span a drive keeps
+/// its own history: `removed/<folder>/<stamp>/<yyyy>/<mm>/<uid>.eml` and, beside them, the folder's
+/// index lines of what left at `<stamp>` (`index.jsonl`). A pull never destroys a copy; the sweep
+/// of this folder is the only thing that does, after the span (X-DELTA-APPS3-3).
+pub const REMOVED_PREFIX: &str = "removed";
 pub const INDEX_FILE: &str = "index.jsonl";
 pub const STATE_FILE: &str = "state.json";
 /// The `format` of a folder's state file.
@@ -70,6 +77,12 @@ pub fn state_key(folder: &str) -> String {
 /// `stale/<folder>/<uidvalidity>`
 pub fn stale_prefix(folder: &str, uidvalidity: u32) -> String {
     format!("{STALE_PREFIX}/{folder}/{uidvalidity}")
+}
+
+/// `removed/<folder>/<stamp>` (`<stamp>` is the SigV4 date of the moment the pull took the mail
+/// out: `20261008T091500Z`).
+pub fn removed_prefix(folder: &str, stamp: &str) -> String {
+    format!("{REMOVED_PREFIX}/{folder}/{stamp}")
 }
 
 /// A folder of AzMail's files on a drive: the drive's root on this computer, whether that root
@@ -242,16 +255,26 @@ impl MailStore {
     }
 
     /// Every key under the folder `prefix` (`outbox`, `mail/inbox`; at any depth), in key order.
+    /// A listing that failed is an empty one here; a caller that decides on what is NOT there (a
+    /// sweep that deletes) asks [`MailStore::keys_checked`].
     pub fn keys(&self, prefix: &str) -> Vec<String> {
-        let Ok(drive) = self.drive() else {
-            return Vec::new();
-        };
+        // collapse-ok: for the callers that only look (a folder to move, one to show); a caller that
+        // deletes by the list takes `keys_checked`.
+        self.keys_checked(prefix).unwrap_or_default()
+    }
+
+    /// [`MailStore::keys`] where a listing that FAILED is an error, never an empty list: a folder
+    /// that cannot be read is no folder with nothing in it.
+    pub fn keys_checked(&self, prefix: &str) -> std::io::Result<Vec<String>> {
+        let drive = self.drive()?;
         let folder = format!("{}/", prefix.trim_end_matches('/'));
         let mut keys: Vec<String> = azul_storage::ops::list_all(&drive, &folder)
-            .map(|objects| objects.into_iter().map(|o| o.key).collect())
-            .unwrap_or_default();
+            .map_err(io_error)?
+            .into_iter()
+            .map(|o| o.key)
+            .collect();
         keys.sort();
-        keys
+        Ok(keys)
     }
 
     /// The names of the folders directly in the folder `prefix` (empty: this folder's own).
@@ -299,6 +322,24 @@ impl MailStore {
             .map_err(io_error)
     }
 
+    /// Moves the object `from` to `to`: one rename on the disk that puts it in place only if
+    /// nothing has the name (nothing is ever replaced), the folders on the way made. A missing
+    /// `from` is [`std::io::ErrorKind::NotFound`]; a taken `to` is an error.
+    pub fn move_object(&self, from: &str, to: &str) -> std::io::Result<()> {
+        Self::check(from)?;
+        Self::check(to)?;
+        self.drive()?.rename(from, to).map_err(io_error)
+    }
+
+    /// Removes the folder `prefix` when nothing is in it but empty folders; `true` when it is gone
+    /// (or was never there). Never a file.
+    pub fn remove_empty_folder(&self, prefix: &str) -> std::io::Result<bool> {
+        Self::check(prefix)?;
+        self.drive()?
+            .remove_empty_folder(&format!("{}/", prefix.trim_end_matches('/')))
+            .map_err(io_error)
+    }
+
     /// The synced folders: every `mail/<folder>` holding a state file, by name.
     pub fn folders(&self) -> Vec<String> {
         self.subfolders(MAIL_PREFIX)
@@ -336,6 +377,13 @@ pub struct IndexEntry {
     /// drive yet (the next Send/Receive puts it there).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub remote: String,
+    /// An Azlin account's message: when this computer first saw its object in the drive - fetched
+    /// it there, or put it there - in seconds since 1970 by this computer's clock. A restore of the
+    /// drive to the moment `as_of` lost the mail first seen after it; mail first seen before it and
+    /// absent from the restored drive was deleted before (X-DELTA-APPS3-13). `None`: a line from
+    /// before the field, which a restore pass treats as it always did (the mail goes back).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_drive_since: Option<i64>,
 }
 
 /// The index file: one JSON object per line, by UID, one line per UID (the later entry wins).
@@ -436,6 +484,7 @@ mod tests {
             size: 1234,
             path: message_key("inbox", 2026, 9, uid),
             remote: String::new(),
+            on_drive_since: None,
         }
     }
 

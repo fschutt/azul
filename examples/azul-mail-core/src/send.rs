@@ -960,6 +960,7 @@ impl Transport for Network<'_> {
                     })
                     .collect()
             }
+            on_drive_since: None,
         }
     }
 

@@ -7,11 +7,15 @@
 //!
 //! 1. **Push**: mail filed here first (a sent mail, a draft saved while offline: no `remote`
 //!    yet) goes into its folder of the drive under its name (`azlin::object_name`).
-//! 2. **Pull**: the folder's listing against the index. Names that are gone leave the local
-//!    copy - when the token server, asked NOW, says the drive was not restored
+//! 2. **Pull**: the folder's listing against the index. Names that are gone leave the folder -
+//!    when the token server, asked NOW, says the drive was not restored
 //!    ([`AskRestore`]; once per Send/Receive, and only when some folder has a name that is gone),
 //!    and the drive, asked about the object itself, says it is not there; never after a restore of
-//!    the drive (below), and never when the token server cannot be asked; new ones are fetched -
+//!    the drive (below), and never when the token server cannot be asked. They are NOT deleted:
+//!    the file moves to `removed/<folder>/<stamp>/` and stays [`HOLD_DAYS`] days, like the drive's
+//!    own history ([`hold`], [`sweep_removed`]; X-DELTA-APPS3-3: the user's own "Restore the drive
+//!    as of" on an encrypted drive is one ordinary commit nobody announces, so no notice can tell
+//!    it from a delete). New names are fetched -
 //!    whole up to `full_fetch_limit`, else only their first `head_bytes` (the header block;
 //!    [`fetch_message`] gets the rest when the message is opened) - and get the next UIDs in
 //!    name (arrival) order.
@@ -49,7 +53,7 @@ use std::{
 use azul_storage::{
     ops,
     restore::{judge, Clock, RestoreNotice, Seen, Standing},
-    time::parse_iso8601,
+    time::{amz_date, parse_iso8601},
     ByteRange, Drive, DriveError, ObjectInfo,
 };
 use serde::{Deserialize, Serialize};
@@ -216,6 +220,12 @@ struct DriveMemory {
     /// completely.
     #[serde(default)]
     restore_epoch: u64,
+    /// The restore epoch a pass is taking now, written down BEFORE the first message goes back into
+    /// the drive and cleared (0) with the epoch above once every folder is through: a memory that
+    /// cannot be written ends the call before anything is put, and a pass that was cut says what it
+    /// was taking (X-DELTA-APPS3-13).
+    #[serde(default)]
+    taking: u64,
 }
 
 /// The restore epoch this copy took last: 0 for a copy that took none (no file, or one that is not
@@ -234,10 +244,20 @@ fn read_restore_epoch(store: &MailStore) -> Result<u64, SyncError> {
 }
 
 fn write_restore_epoch(store: &MailStore, epoch: u64) -> std::io::Result<()> {
+    write_memory(store, epoch, 0)
+}
+
+/// Writes that a pass is taking the restore `taking` while the newest epoch taken is `taken`.
+fn write_restore_taking(store: &MailStore, taken: u64, taking: u64) -> std::io::Result<()> {
+    write_memory(store, taken, taking)
+}
+
+fn write_memory(store: &MailStore, restore_epoch: u64, taking: u64) -> std::io::Result<()> {
     let memory = DriveMemory {
         format: DRIVE_FORMAT.to_string(),
         version: 1,
-        restore_epoch: epoch,
+        restore_epoch,
+        taking,
     };
     let mut text = serde_json::to_string_pretty(&memory)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -302,6 +322,8 @@ struct Pass<'a> {
     seen: u64,
     ask: &'a dyn AskRestore,
     knowledge: Knowledge,
+    /// The restore this pass takes is written into the memory ([`write_restore_taking`]).
+    taking_written: bool,
 }
 
 impl<'a> Pass<'a> {
@@ -318,6 +340,7 @@ impl<'a> Pass<'a> {
             seen,
             ask,
             knowledge,
+            taking_written: false,
         }
     }
 
@@ -354,6 +377,20 @@ impl<'a> Pass<'a> {
         }
     }
 
+    /// Writes down the restore this pass takes, once, before the first message of it goes back into
+    /// the drive: a memory that cannot be written is an error here, with nothing put.
+    fn record_taking(&mut self, store: &MailStore) -> Result<(), SyncError> {
+        if self.taking_written {
+            return Ok(());
+        }
+        let Knowledge::Restored(notice) = &self.knowledge else {
+            return Ok(());
+        };
+        write_restore_taking(store, self.seen, notice.epoch).map_err(io)?;
+        self.taking_written = true;
+        Ok(())
+    }
+
     /// The restore this pass takes, to be remembered once every folder is through.
     fn restore_taken(&self) -> Option<&RestoreNotice> {
         match &self.knowledge {
@@ -368,6 +405,21 @@ impl<'a> Pass<'a> {
             Knowledge::Unknown(why) => Some(why),
             _ => None,
         }
+    }
+}
+
+/// Whether the restore of the drive to the moment `as_of` lost the mail of `entry`, whose object
+/// the restored drive lacks: this computer first saw it in the drive AFTER that moment, so the
+/// restore took it away and it goes back. Mail first seen before the moment and absent was deleted
+/// before it - elsewhere - and does not come back (X-DELTA-APPS3-13). Nothing known is the old
+/// answer, the conservative one: a line from before `on_drive_since`, or a notice that names no
+/// moment, goes back. (The moment is the token server's, the line's stamp this computer's: a clock
+/// that is off puts a line on the wrong side, and a copy that does not go back is held 90 days,
+/// never deleted.)
+fn restore_lost(entry: &IndexEntry, as_of: Option<i64>) -> bool {
+    match (entry.on_drive_since, as_of) {
+        (Some(since), Some(as_of)) => since >= as_of,
+        _ => true,
     }
 }
 
@@ -431,6 +483,136 @@ pub fn remote_of(store: &MailStore, folder: &str, uid: u32) -> Option<String> {
 /// header block ([`fetch_message`] gets the rest).
 pub fn needs_fetch(store: &MailStore, entry: &IndexEntry) -> bool {
     !entry.remote.is_empty() && store.size_of(&entry.path).is_none()
+}
+
+/// How long what a pull took out of a folder stays on this computer: the span a drive keeps the
+/// versions of its files ([`azul_storage::meta::RETENTION`], the owner's 90 days), counted from the
+/// stamp of the folder it was moved into. The one number the window's sentence and the sweep share.
+pub const HOLD_DAYS: u64 = azul_storage::meta::RETENTION.versions_days();
+
+/// [`HOLD_DAYS`] in seconds.
+const HOLD_SECS: u64 = azul_storage::meta::RETENTION.versions.as_secs();
+
+/// Takes `leaving`, the lines of the folder `folder` whose objects the drive no longer has, out of
+/// `index` - and keeps what they were: a pull never destroys a copy, so a delete on another device
+/// or the user's own "Restore the drive as of ..." (one ordinary commit that nobody announces)
+/// costs the mail on this computer nothing for [`HOLD_DAYS`] days (X-DELTA-APPS3-3).
+///
+/// The order, every step a crash cell: (1) the record `removed/<folder>/<stamp>/index.jsonl` of
+/// every leaving line, durable BEFORE any file moves - a store that cannot be written (a full
+/// disk) ends the pull here, with nothing moved and nothing of the drive touched; a record of the
+/// same stamp that is there already (a retry in the same second) is merged, its lines kept; (2) each
+/// file moves (one rename that replaces nothing: a taken name ends the pull) and only then its line
+/// leaves `index`. A line whose file is not here (a big message of which only the header block was
+/// fetched, or one an earlier pass moved) has nothing to move: its line is in the record. A stop
+/// anywhere leaves every line in the folder's index or in a record, every file where it was or in
+/// the holding folder.
+fn hold(
+    store: &MailStore,
+    folder: &str,
+    leaving: &[IndexEntry],
+    now: i64,
+    index: &mut BTreeMap<u32, IndexEntry>,
+    report: &mut FolderReport,
+) -> Result<(), SyncError> {
+    if leaving.is_empty() {
+        return Ok(());
+    }
+    // A holding folder is dated by the clock of this computer; without one it would be dated 1970
+    // and swept at once.
+    let Some(at) = u64::try_from(now).ok().filter(|secs| *secs > 0) else {
+        return Err(SyncError::Storage(String::from(
+            "the clock of this computer is not set: nothing is removed from the folder",
+        )));
+    };
+    let held = store::removed_prefix(folder, &amz_date(at));
+    let record_key = format!("{held}/{}", store::INDEX_FILE);
+    let mut record: BTreeMap<u32, IndexEntry> = match store.get(&record_key) {
+        Ok(bytes) => store::index_from_jsonl(&String::from_utf8_lossy(&bytes))
+            .into_iter()
+            .map(|entry| (entry.uid, entry))
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+        Err(e) => return Err(io(e)),
+    };
+    for entry in leaving {
+        record.insert(entry.uid, entry.clone());
+    }
+    let lines: Vec<IndexEntry> = record.into_values().collect();
+    store
+        .put(&record_key, store::index_to_jsonl(&lines).as_bytes())
+        .map_err(io)?;
+    let inside = format!("{}/", store::folder_prefix(folder));
+    for entry in leaving {
+        let relative = entry
+            .path
+            .strip_prefix(&inside)
+            .unwrap_or_else(|| entry.path.rsplit('/').next().unwrap_or(&entry.path));
+        match store.move_object(&entry.path, &format!("{held}/{relative}")) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io(e)),
+        }
+        index.remove(&entry.uid);
+        report.removed += 1;
+    }
+    Ok(())
+}
+
+/// Deletes what the pull took out of the folders [`HOLD_DAYS`] days ago and more: the folders of
+/// `removed/` whose stamp - the moment of the pull, by the clock of this computer - is that old at
+/// `now`. Returns how many it deleted. Never early: a stamp that is no date, one in the future (the
+/// clock was stepped back since) and a key of another shape stay, and so does everything when the
+/// list of `removed/` cannot be read - a list that failed is no list with nothing in it. The only
+/// thing that deletes a copy the drive no longer lists.
+///
+/// # Errors
+///
+/// The list could not be read, or a file could not be deleted: nothing more is deleted.
+pub fn sweep_removed(store: &MailStore, now: i64) -> Result<u64, SyncError> {
+    sweep_removed_with(store, now, &|prefix| store.keys_checked(prefix))
+}
+
+/// [`sweep_removed`] with the listing a test can make fail.
+fn sweep_removed_with(
+    store: &MailStore,
+    now: i64,
+    list: &dyn Fn(&str) -> std::io::Result<Vec<String>>,
+) -> Result<u64, SyncError> {
+    // No clock, no expiry.
+    let Some(now) = u64::try_from(now).ok().filter(|secs| *secs > 0) else {
+        return Ok(0);
+    };
+    let mut folders: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for key in list(store::REMOVED_PREFIX).map_err(io)? {
+        let mut parts = key.splitn(4, '/');
+        if let (Some(store::REMOVED_PREFIX), Some(folder), Some(stamp), Some(_)) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        {
+            folders
+                .entry((folder.to_string(), stamp.to_string()))
+                .or_default()
+                .push(key.clone());
+        }
+    }
+    let mut swept = 0;
+    for ((folder, stamp), keys) in folders {
+        let Some(at) = azlin::stamp_of(&stamp).filter(|_| stamp.len() == 16) else {
+            continue;
+        };
+        if now < at.saturating_add(HOLD_SECS) {
+            continue;
+        }
+        for key in &keys {
+            // ARCH30-4: NONE-FITS (expiry): a copy the drive no longer lists, past its holding span.
+            store.delete(key).map_err(io)?;
+        }
+        // The empty folders it leaves behind are tidied away; one that stays holds nothing.
+        // collapse-ok: cosmetic, the next sweep tries again.
+        let _ = store.remove_empty_folder(&store::removed_prefix(&folder, &stamp));
+        swept += 1;
+    }
+    Ok(swept)
 }
 
 // ==== The drive's folders ====
@@ -514,6 +696,11 @@ pub fn sync_account(
         write_restore_epoch(store, notice.epoch).map_err(io)?;
     }
     report.restore_unknown = pass.unknown().map(str::to_string);
+    // Housekeeping, after the mail is synced: what was held [`HOLD_DAYS`] days ago goes. A sweep
+    // that cannot read its list deletes nothing and never fails the sync; the report says so.
+    report.sweep_failed = sweep_removed(store, options.now)
+        .err()
+        .map(|e| e.to_string());
     Ok(report)
 }
 
@@ -587,6 +774,14 @@ fn sync_folder(
         display: mailbox.display.clone(),
         ..FolderReport::default()
     };
+    // The restore this folder takes is written into the memory before its first put (a memory that
+    // cannot be written ends the call, with nothing put).
+    let as_of = pass.restore_taken().and_then(|notice| notice.as_of);
+    if stance == Stance::Restore {
+        pass.record_taking(store)?;
+    }
+    // This computer's clock for what it first sees in the drive now; none when the clock is not set.
+    let seen_now = (options.now > 0).then_some(options.now);
 
     let result = (|| -> Result<(), SyncError> {
         // 1. Push: mail filed here first goes into the folder (whatever the listing said, it
@@ -598,7 +793,9 @@ fn sync_folder(
             index
                 .values()
                 .filter(|entry| {
-                    !entry.remote.is_empty() && !on_drive.contains(entry.remote.as_str())
+                    !entry.remote.is_empty()
+                        && !on_drive.contains(entry.remote.as_str())
+                        && restore_lost(entry, as_of)
                 })
                 .map(|entry| entry.uid)
                 .collect()
@@ -621,8 +818,10 @@ fn sync_folder(
             let bytes = match store.get(&file) {
                 Ok(bytes) => bytes,
                 // A line the restore lost whose file is not here (a big message Send/Receive
-                // fetched the header block of) has nothing to put back: it stays as it is.
+                // fetched the header block of) has nothing to put back: it stays as it is, said
+                // apart from the mail that goes back - it is not "put back" (X-DELTA-APPS3-12).
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound && lost.contains(&uid) => {
+                    report.header_only_after_restore += 1;
                     continue;
                 }
                 // A line whose file is gone holds nothing to put: it goes.
@@ -644,11 +843,14 @@ fn sync_folder(
             }
             if let Some(entry) = index.get_mut(&uid) {
                 entry.remote = object.clone();
+                entry.on_drive_since = seen_now;
             }
             pushed.insert(object);
             report.pushed += 1;
+            if lost.contains(&uid) {
+                report.kept_after_restore += 1;
+            }
         }
-        report.kept_after_restore = lost.len() as u64;
 
         // 2. Pull: what is gone leaves, what is new comes.
         let gone: Vec<u32> = index
@@ -660,11 +862,14 @@ fn sync_folder(
             })
             .map(|entry| entry.uid)
             .collect();
+        let mut leaving: Vec<IndexEntry> = Vec::new();
         for uid in gone {
             match stance {
-                // After a restore nothing leaves: what the listing lacks was lost, not deleted,
-                // and exists here only (X-DELTA-SYNC4-20).
-                Stance::Restore => continue,
+                // After a restore the mail it lost does not leave: what the listing lacks was lost,
+                // not deleted, and exists here only (X-DELTA-SYNC4-20). What was deleted before the
+                // restore's moment is an ordinary delete (X-DELTA-APPS3-13).
+                Stance::Restore if lost.contains(&uid) => continue,
+                Stance::Restore => {}
                 // A drive that could not be asked whether it was restored: the mail stays, and
                 // is not put back either - the next Send/Receive that can ask decides
                 // (X-DELTA-APPS3-2).
@@ -674,23 +879,22 @@ fn sync_folder(
                 }
                 Stance::Ordinary => {}
             }
-            let Some(remote) = index.get(&uid).map(|entry| entry.remote.clone()) else {
+            let Some(entry) = index.get(&uid) else {
                 continue;
             };
             // The listing's word is enough for a message another program hid with a mark. For
             // every other the drive is asked about the object itself: a listing that is short for
-            // any reason must not delete a copy that may exist nowhere else, and a failed look
+            // any reason must not take out a copy that may exist nowhere else, and a failed look
             // is an unknown, not an "absent" (the pass ends, nothing more leaves).
-            if !on_drive.contains(remote.as_str())
-                && ops::exists(drive, &remote).map_err(drive_error)?
+            if !on_drive.contains(entry.remote.as_str())
+                && ops::exists(drive, &entry.remote).map_err(drive_error)?
             {
                 continue;
             }
-            if let Some(entry) = index.remove(&uid) {
-                store.delete(&entry.path).map_err(io)?;
-                report.removed += 1;
-            }
+            leaving.push(entry.clone());
         }
+        // What the drive no longer lists is held here, never deleted (X-DELTA-APPS3-3).
+        hold(store, key, &leaving, options.now, &mut index, &mut report)?;
         let known: HashSet<String> = index.values().map(|entry| entry.remote.clone()).collect();
         let mut new: Vec<&ObjectInfo> = listed
             .iter()
@@ -741,6 +945,7 @@ fn sync_folder(
                 message::index_entry(uid, &bytes, &flags, i64::try_from(stamp).ok(), &file);
             entry.size = object.size;
             entry.remote = object.key.clone();
+            entry.on_drive_since = seen_now;
             index.insert(uid, entry);
             state.last_uid = state.last_uid.max(uid);
             report.fetched += 1;
@@ -765,6 +970,11 @@ fn sync_folder(
                 .map(MessageState::imap_flags)
                 .unwrap_or_default();
             entry.flags = flags;
+            // The first pass after the field existed gives every line it sees in the drive its stamp:
+            // one conservative restore pass for the lines from before it, never a second one.
+            if entry.on_drive_since.is_none() && on_drive.contains(entry.remote.as_str()) {
+                entry.on_drive_since = seen_now;
+            }
         }
         Ok(())
     })();
@@ -1176,6 +1386,21 @@ pub fn drive_sentences(report: &SyncReport) -> Vec<String> {
             &[("count", Arg::from(report.kept_after_restore()))],
         ));
     }
+    if report.header_only_after_restore() > 0 {
+        sentences.push(t_args(
+            "azmail-restore-header-only",
+            &[("count", Arg::from(report.header_only_after_restore()))],
+        ));
+    }
+    if report.removed() > 0 {
+        sentences.push(t_args(
+            "azmail-removed-held",
+            &[
+                ("count", Arg::from(report.removed())),
+                ("days", Arg::from(HOLD_DAYS)),
+            ],
+        ));
+    }
     if report.kept_unasked() > 0 {
         sentences.push(t_args(
             "azmail-restore-unknown",
@@ -1384,6 +1609,10 @@ mod tests {
         assert_eq!(report.removed(), 1);
         assert!(index(&f.store, "inbox").is_empty());
         assert_eq!(f.store.size_of(&path), None);
+        assert!(
+            !f.store.keys(store::REMOVED_PREFIX).is_empty(),
+            "it is held, not deleted"
+        );
     }
 
     #[test]
@@ -2179,18 +2408,47 @@ mod tests {
         };
         let report =
             sync_account(&f.bucket, &f.store, &restored, &no_restore(), &mut |_| true).unwrap();
+        // Nothing of it goes back: it is no "put back" and is not counted as one, it is said apart
+        // (X-DELTA-APPS3-12; it was counted in `kept_after_restore`, and the sentence said it
+        // "goes back into the drive").
         assert_eq!(
             (
                 report.removed(),
                 report.pushed(),
-                report.kept_after_restore()
+                report.kept_after_restore(),
+                report.header_only_after_restore()
             ),
-            (0, 0, 1)
+            (0, 0, 0, 1)
+        );
+        crate::l10n::in_english();
+        let said = drive_sentences(&report);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains("only the header is here")
+                && !said[0].contains("goes back into the drive"),
+            "{said:?}"
         );
         let lines = index(&f.store, "inbox");
         assert_eq!(lines.len(), 1, "the line stays");
         assert_eq!(lines[0].remote, key, "and keeps the key it had");
         assert_eq!(lines[0].subject, "Holiday photos");
+        // The next ordinary pass takes the line out like any message the drive does not list - its
+        // line is held in the record, and the window says it was removed (not that it went back).
+        let later = AzlinOptions {
+            now: SEP_30 + 60,
+            ..small
+        };
+        let report =
+            sync_account(&f.bucket, &f.store, &later, &no_restore(), &mut |_| true).unwrap();
+        assert_eq!(
+            (report.removed(), report.header_only_after_restore()),
+            (1, 0)
+        );
+        assert!(index(&f.store, "inbox").is_empty());
+        assert!(
+            !f.store.keys(store::REMOVED_PREFIX).is_empty(),
+            "its line is in the record"
+        );
     }
 
     /// The listing that FAILS deletes nothing: the call ends before any folder is read (this arm
@@ -2487,7 +2745,14 @@ mod tests {
         // go, as it did before.
         let report = sync_asking(&f, &options(), &Asked::none()).unwrap();
         assert_eq!((report.removed(), report.kept_unasked()), (2, 0));
-        assert!(drive_sentences(&report).is_empty());
+        // Let go means held 90 days (X-DELTA-APPS3-3), and the window says so.
+        let said = drive_sentences(&report);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains("2 messages were removed from the drive")
+                && said[0].contains("90 days"),
+            "{said:?}"
+        );
     }
 
     /// The answer is the epoch this copy already took: the drive stands where it was left, so an
@@ -2586,5 +2851,486 @@ mod tests {
             (1, 0, 1),
             "no notice: the token server is asked, and an ordinary pull"
         );
+    }
+    // ==== X-DELTA-APPS3-3: a pull never destroys a copy ====
+
+    const DAY: i64 = 86_400;
+
+    /// `options()` at `now`.
+    fn options_at(now: i64) -> AzlinOptions {
+        AzlinOptions { now, ..options() }
+    }
+
+    fn run_at(f: &Fixture, now: i64) -> SyncReport {
+        sync_account(
+            &f.bucket,
+            &f.store,
+            &options_at(now),
+            &no_restore(),
+            &mut |_| true,
+        )
+        .unwrap()
+    }
+
+    /// Every key of the drive, the hidden folders and the markers too.
+    fn drive_keys(f: &Fixture) -> Vec<String> {
+        ops::list_all(&f.bucket.inner, "")
+            .unwrap()
+            .into_iter()
+            .map(|object| object.key)
+            .collect()
+    }
+
+    /// Every key under `removed/` of the local copy.
+    fn held_keys(f: &Fixture) -> Vec<String> {
+        f.store.keys(store::REMOVED_PREFIX)
+    }
+
+    /// The holding folder a pull at `now` makes for `folder`.
+    fn holding(folder: &str, now: i64) -> String {
+        store::removed_prefix(folder, &azul_storage::time::amz_date(now as u64))
+    }
+
+    /// RED on the code before: the pull deleted the local copy of every message the drive no longer
+    /// listed. That is right for a delete on another device and wrong for the user's own "Restore the
+    /// drive as of Tuesday" on an encrypted drive - one ordinary commit nobody announces, which
+    /// looks like a delete of every file made since - and the local copies may be the only ones. The
+    /// file moves to `removed/<folder>/<stamp>/` with the line it had, and the window says so.
+    #[test]
+    fn x_delta_apps3_3_a_message_the_drive_no_longer_lists_is_held_and_not_deleted() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        let gone = index(&f.store, "inbox").remove(0);
+        f.bucket.inner.delete(&one).unwrap();
+        let report = run(&f);
+        assert_eq!(report.removed(), 1);
+        let subjects: Vec<String> = index(&f.store, "inbox")
+            .into_iter()
+            .map(|e| e.subject)
+            .collect();
+        assert_eq!(subjects, ["Two"]);
+        assert_eq!(f.store.size_of(&gone.path), None, "not under its old name");
+        let held = holding("inbox", SEP_30);
+        let relative = gone.path.strip_prefix("mail/inbox/").unwrap();
+        assert_eq!(
+            f.store.get(&format!("{held}/{relative}")).unwrap(),
+            mail(1, "One"),
+            "the file is there, byte for byte"
+        );
+        let record = store::index_from_jsonl(
+            &String::from_utf8(f.store.get(&format!("{held}/index.jsonl")).unwrap()).unwrap(),
+        );
+        assert_eq!(record.len(), 1);
+        assert_eq!(
+            (record[0].subject.as_str(), record[0].remote.as_str()),
+            ("One", one.as_str())
+        );
+        crate::l10n::in_english();
+        let said = drive_sentences(&report);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains("1 message was removed from the drive")
+                && said[0].contains("stays on this computer for 90 days"),
+            "{said:?}"
+        );
+        assert_eq!(HOLD_DAYS, 90, "the drive's own history");
+    }
+
+    /// The sweep is the only thing that deletes it: after 90 days by the stamp, never early - not a
+    /// day early, not on a clock stepped back, not a folder that is no stamp's, and not at all when
+    /// the list of `removed/` cannot be read.
+    #[test]
+    fn x_delta_apps3_3_the_holding_area_is_swept_after_90_days_and_never_early() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        deliver(&f, "Inbox", &mail(3, "Three"), SEP_30 + 120);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        run_at(&f, SEP_30);
+        let first = holding("inbox", SEP_30);
+        // Thirty days on, another message leaves.
+        f.bucket.inner.delete(&two).unwrap();
+        let report = run_at(&f, SEP_30 + 30 * DAY);
+        assert_eq!(report.removed(), 1);
+        let second = holding("inbox", SEP_30 + 30 * DAY);
+        let stays = |f: &Fixture, prefix: &str| held_keys(f).iter().any(|k| k.starts_with(prefix));
+        // A clock stepped back a year: everything stays.
+        run_at(&f, SEP_30 - 365 * DAY);
+        assert!(stays(&f, &first) && stays(&f, &second));
+        // The 89th day (and the last second of it): everything stays.
+        run_at(&f, SEP_30 + 90 * DAY - 1);
+        assert!(stays(&f, &first) && stays(&f, &second));
+        // A folder that is no stamp's, a stamp in the future and a key of another shape stay for ever.
+        f.store
+            .put("removed/inbox/notes/readme.txt", b"mine")
+            .unwrap();
+        f.store
+            .put("removed/inbox/29990101T000000Z/x.eml", b"future")
+            .unwrap();
+        f.store.put("removed/stray.txt", b"stray").unwrap();
+        // The 90th day by the first stamp: the first folder goes whole, the second stays.
+        let report = run_at(&f, SEP_30 + 90 * DAY);
+        assert_eq!(report.sweep_failed, None);
+        assert!(!stays(&f, &first), "{:?}", held_keys(&f));
+        assert!(stays(&f, &second));
+        for kept in [
+            "removed/inbox/notes/readme.txt",
+            "removed/inbox/29990101T000000Z/x.eml",
+            "removed/stray.txt",
+        ] {
+            assert!(
+                held_keys(&f).contains(&kept.to_string()),
+                "{kept}: {:?}",
+                held_keys(&f)
+            );
+        }
+        // The second goes thirty days later, by ITS stamp.
+        run_at(&f, SEP_30 + 120 * DAY);
+        assert!(!stays(&f, &second));
+        // Nothing is swept by a pull that has no clock.
+        f.store
+            .put(&format!("{}/x.eml", holding("inbox", SEP_30)), b"again")
+            .unwrap();
+        run_at(&f, 0);
+        assert!(stays(&f, &first));
+    }
+
+    /// A sweep that cannot read its list deletes nothing, however old the stamps are.
+    #[test]
+    fn x_delta_apps3_3_a_sweep_that_cannot_read_its_list_deletes_nothing() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        run_at(&f, SEP_30);
+        let before = held_keys(&f);
+        assert_eq!(before.len(), 2, "the file and the record: {before:?}");
+        let failing = |_: &str| -> std::io::Result<Vec<String>> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the list cannot be read",
+            ))
+        };
+        let failed = sweep_removed_with(&f.store, SEP_30 + 400 * DAY, &failing);
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        assert_eq!(held_keys(&f), before, "nothing was deleted");
+        // The same sweep with a list that works deletes it: the failure was the list's.
+        assert_eq!(sweep_removed(&f.store, SEP_30 + 400 * DAY).unwrap(), 1);
+        assert!(held_keys(&f).is_empty());
+    }
+
+    /// The crash table of the hold, each row by stopping the flow after a write.
+    ///
+    /// Row 1: the move is cut after the first message (the second's name in the holding folder is
+    /// taken): the first message and its line are out, the second stays with its line and its
+    /// file, the pull ends with the error, the next pull finishes.
+    #[test]
+    fn x_delta_apps3_3_a_move_cut_after_the_first_message_leaves_the_rest_where_it_was() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        let lines = index(&f.store, "inbox");
+        f.bucket.inner.delete(&one).unwrap();
+        f.bucket.inner.delete(&two).unwrap();
+        let held = holding("inbox", SEP_30);
+        let second = lines[1].path.strip_prefix("mail/inbox/").unwrap();
+        f.store.put(&format!("{held}/{second}"), b"taken").unwrap();
+        let failed = sync_account(&f.bucket, &f.store, &options(), &no_restore(), &mut |_| {
+            true
+        });
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        let rows = held_rows(&f);
+        assert_eq!(rows, ["Two"], "the first line is out, the second stays");
+        assert_eq!(
+            f.store.get(&lines[1].path).unwrap(),
+            mail(2, "Two"),
+            "its file was not touched"
+        );
+        assert_eq!(f.store.size_of(&lines[0].path), None);
+        let first = lines[0].path.strip_prefix("mail/inbox/").unwrap();
+        assert_eq!(
+            f.store.get(&format!("{held}/{first}")).unwrap(),
+            mail(1, "One")
+        );
+        // The next pull (the name is free again at the next stamp) finishes.
+        let report = run_at(&f, SEP_30 + 60);
+        assert_eq!(report.removed(), 1);
+        assert!(held_rows(&f).is_empty());
+        let later = holding("inbox", SEP_30 + 60);
+        assert_eq!(
+            f.store.get(&format!("{later}/{second}")).unwrap(),
+            mail(2, "Two")
+        );
+        assert_eq!(
+            f.store.get(&format!("{held}/{second}")).unwrap(),
+            b"taken",
+            "nothing is ever replaced"
+        );
+    }
+
+    /// The subjects of the lines of the folder's index here.
+    fn held_rows(f: &Fixture) -> Vec<String> {
+        index(&f.store, "inbox")
+            .into_iter()
+            .map(|e| e.subject)
+            .collect()
+    }
+
+    /// Row 2: the holding folder of this stamp exists already (a pull that was cut in the same
+    /// second wrote its record first): the lines of that record are kept, the new ones join them.
+    #[test]
+    fn x_delta_apps3_3_a_holding_folder_that_exists_already_keeps_its_record() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        let earlier = IndexEntry {
+            uid: 99,
+            subject: String::from("From the cut pull"),
+            path: String::from("mail/inbox/2026/09/99.eml"),
+            remote: String::from("mail/Inbox/earlier.eml"),
+            ..IndexEntry::default()
+        };
+        let record_key = format!("{}/index.jsonl", holding("inbox", SEP_30));
+        f.store
+            .put(&record_key, store::index_to_jsonl(&[earlier]).as_bytes())
+            .unwrap();
+        run(&f);
+        let record =
+            store::index_from_jsonl(&String::from_utf8(f.store.get(&record_key).unwrap()).unwrap());
+        let subjects: Vec<&str> = record.iter().map(|e| e.subject.as_str()).collect();
+        assert_eq!(subjects, ["One", "From the cut pull"], "{subjects:?}");
+    }
+
+    /// Row 3: the local store cannot be written (a file stands where the holding area's folder
+    /// would be, as a full disk would refuse it): the pull ends with the error before it moves
+    /// anything or touches the drive; every line and file stays; the next pull, once it can write,
+    /// does it.
+    #[test]
+    fn x_delta_apps3_3_a_store_that_cannot_be_written_ends_the_pull_before_it_moves_or_touches_anything(
+    ) {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        let lines = index(&f.store, "inbox");
+        f.bucket.inner.delete(&one).unwrap();
+        let drive_before = drive_keys(&f);
+        let blocker = f.store.folder().path().join(store::REMOVED_PREFIX);
+        std::fs::write(&blocker, b"a file, not a folder").unwrap();
+        let failed = sync_account(&f.bucket, &f.store, &options(), &no_restore(), &mut |_| {
+            true
+        });
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        assert_eq!(index(&f.store, "inbox"), lines, "every line stays");
+        assert_eq!(
+            f.store.get(&lines[0].path).unwrap(),
+            mail(1, "One"),
+            "and every file"
+        );
+        assert_eq!(drive_keys(&f), drive_before, "the drive was not touched");
+        std::fs::remove_file(&blocker).unwrap();
+        let report = run(&f);
+        assert_eq!(report.removed(), 1, "writable again: the pull does it");
+        assert!(held_keys(&f).len() == 2);
+    }
+
+    /// A message whose file is not here (a big one of which only the header block was fetched) has
+    /// nothing to move: its line is in the record, which is all there is of it.
+    #[test]
+    fn x_delta_apps3_3_a_header_only_line_is_recorded_when_it_leaves() {
+        let f = fixture();
+        let mut big = mail(5, "Holiday photos");
+        big.extend(std::iter::repeat_n(b'x', 5000));
+        let key = deliver(&f, "Inbox", &big, SEP_30);
+        let small = AzlinOptions {
+            full_fetch_limit: 1000,
+            head_bytes: 512,
+            ..options()
+        };
+        sync_account(&f.bucket, &f.store, &small, &no_restore(), &mut |_| true).unwrap();
+        f.bucket.inner.delete(&key).unwrap();
+        let report =
+            sync_account(&f.bucket, &f.store, &small, &no_restore(), &mut |_| true).unwrap();
+        assert_eq!(report.removed(), 1);
+        assert!(index(&f.store, "inbox").is_empty());
+        let record_key = format!("{}/index.jsonl", holding("inbox", SEP_30));
+        let record =
+            store::index_from_jsonl(&String::from_utf8(f.store.get(&record_key).unwrap()).unwrap());
+        assert_eq!(
+            (record.len(), record[0].subject.as_str()),
+            (1, "Holiday photos")
+        );
+        assert_eq!(
+            held_keys(&f),
+            [record_key],
+            "only the record: there was no file"
+        );
+    }
+    // ==== X-DELTA-APPS3-13: a restore puts back only the mail it lost ====
+
+    /// The index lines of `folder` by subject, with the stamp each carries.
+    fn since_of(f: &Fixture, folder: &str) -> Vec<(String, Option<i64>)> {
+        index(&f.store, folder)
+            .into_iter()
+            .map(|entry| (entry.subject, entry.on_drive_since))
+            .collect()
+    }
+
+    /// `announced(epoch)` with the restored data's moment.
+    fn announced_as_of(epoch: u64, as_of: i64) -> AzlinOptions {
+        AzlinOptions {
+            restore: Some(RestoreNotice {
+                epoch,
+                as_of: Some(as_of),
+                ..RestoreNotice::default()
+            }),
+            ..options()
+        }
+    }
+
+    /// RED on the code before: the restore pass re-uploaded EVERY line the restored drive lacked,
+    /// so mail deleted elsewhere before the restore's moment came back as "lost". Three mails: A and B
+    /// were first seen here before the moment, C after it. A was deleted elsewhere before it; the
+    /// restored drive lacks A and C (C arrived after) and has B. Only C goes back; A is an ordinary
+    /// delete, held; B stays.
+    #[test]
+    fn x_delta_apps3_13_a_restore_puts_back_only_the_mail_newer_than_its_moment() {
+        let f = fixture();
+        let a = deliver(&f, "Inbox", &mail(1, "A"), SEP_30);
+        run_at(&f, SEP_30);
+        let b = deliver(&f, "Inbox", &mail(2, "B"), SEP_30 + 10);
+        run_at(&f, SEP_30 + 10);
+        let c = deliver(&f, "Inbox", &mail(3, "C"), SEP_30 + 100);
+        run_at(&f, SEP_30 + 100);
+        assert_eq!(
+            since_of(&f, "inbox"),
+            [
+                (String::from("A"), Some(SEP_30)),
+                (String::from("B"), Some(SEP_30 + 10)),
+                (String::from("C"), Some(SEP_30 + 100))
+            ],
+            "every line says when this computer first saw its object in the drive"
+        );
+        // The restored drive (as of SEP_30 + 50): A was deleted before, C came after.
+        f.bucket.inner.delete(&a).unwrap();
+        f.bucket.inner.delete(&c).unwrap();
+        let options = AzlinOptions {
+            now: SEP_30 + 200,
+            ..announced_as_of(1, SEP_30 + 50)
+        };
+        let report = sync_with(&f.bucket, &f, &options).unwrap();
+        assert_eq!(
+            (
+                report.pushed(),
+                report.kept_after_restore(),
+                report.removed()
+            ),
+            (1, 1, 1),
+            "C goes back, A is an ordinary delete"
+        );
+        assert!(missing(&f.bucket.inner, &a), "A is not put back");
+        assert!(!missing(&f.bucket.inner, &b), "B was never gone");
+        let back = index(&f.store, "inbox");
+        let subjects: Vec<&str> = back.iter().map(|e| e.subject.as_str()).collect();
+        assert_eq!(subjects, ["B", "C"], "A left the folder, held 90 days");
+        assert!(!f.store.keys(store::REMOVED_PREFIX).is_empty());
+        let c_line = back.iter().find(|e| e.subject == "C").unwrap();
+        assert!(
+            !missing(&f.bucket.inner, &c_line.remote),
+            "C is in the drive again"
+        );
+        assert_eq!(
+            c_line.on_drive_since,
+            Some(SEP_30 + 200),
+            "first seen there again now"
+        );
+    }
+
+    /// A notice that names no moment, and a line that has no stamp (from before the field), keep the
+    /// old answer - everything the restored drive lacks goes back - and the first pass gives every
+    /// line in the drive its stamp: the first sync after the upgrade is the one conservative pass.
+    #[test]
+    fn x_delta_apps3_13_without_a_moment_or_a_stamp_everything_goes_back_once_and_every_line_gets_its_stamp(
+    ) {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        // No moment in the notice: both go back.
+        f.bucket.inner.delete(&one).unwrap();
+        f.bucket.inner.delete(&two).unwrap();
+        let report = sync_with(&f.bucket, &f, &announced(1)).unwrap();
+        assert_eq!(
+            (
+                report.pushed(),
+                report.kept_after_restore(),
+                report.removed()
+            ),
+            (2, 2, 0)
+        );
+        // Lines from before the field: the stamps are taken away (an index written by the old code).
+        let mut lines = read_index(&f.store, "inbox").unwrap();
+        for line in lines.values_mut() {
+            line.on_drive_since = None;
+        }
+        write_index(&f.store, "inbox", &lines).unwrap();
+        for line in lines.values() {
+            f.bucket.inner.delete(&line.remote).unwrap();
+        }
+        // A second restore WITH a moment finds no stamp on the lines: the same conservative answer.
+        let report = sync_with(&f.bucket, &f, &announced_as_of(2, SEP_30 + 50)).unwrap();
+        assert_eq!(
+            (
+                report.pushed(),
+                report.kept_after_restore(),
+                report.removed()
+            ),
+            (2, 2, 0),
+            "no stamp: the line is treated as it always was"
+        );
+        // And the first pass after the upgrade gives every line it sees in the drive its stamp.
+        let g = fixture();
+        deliver(&g, "Inbox", &mail(1, "One"), SEP_30);
+        run(&g);
+        let mut lines = read_index(&g.store, "inbox").unwrap();
+        for line in lines.values_mut() {
+            line.on_drive_since = None;
+        }
+        write_index(&g.store, "inbox", &lines).unwrap();
+        run_at(&g, SEP_30 + 500);
+        assert_eq!(
+            since_of(&g, "inbox"),
+            [(String::from("One"), Some(SEP_30 + 500))]
+        );
+    }
+
+    /// RED on the code before (as a cut pass): the memory said nothing of the restore a pass was
+    /// taking, and a memory that cannot be written failed only after every put. Now the restore is
+    /// written down BEFORE the first message goes back: a pass whose very first put fails has
+    /// already said what it was taking.
+    #[test]
+    fn x_delta_apps3_13_a_restore_pass_writes_down_what_it_takes_before_it_puts_anything_back() {
+        let f = fixture();
+        let first = deliver(&f, "Inbox", &mail(1, "First"), SEP_30);
+        run(&f);
+        f.bucket.inner.delete(&first).unwrap();
+        let drive = Faulty::of(&f);
+        *drive.puts_left.lock().unwrap() = Some(0);
+        let stopped = sync_with(&drive, &f, &announced(1));
+        assert!(matches!(stopped, Err(SyncError::Connect(_))), "{stopped:?}");
+        let text = String::from_utf8(f.store.get(DRIVE_FILE).unwrap()).unwrap();
+        let memory: DriveMemory = serde_json::from_str(&text).unwrap();
+        assert_eq!((memory.restore_epoch, memory.taking), (0, 1), "{text}");
+        // The pass that finishes takes it: the epoch is the memory's, nothing is being taken.
+        *drive.puts_left.lock().unwrap() = None;
+        sync_with(&drive, &f, &announced(1)).unwrap();
+        let memory: DriveMemory =
+            serde_json::from_slice(&f.store.get(DRIVE_FILE).unwrap()).unwrap();
+        assert_eq!((memory.restore_epoch, memory.taking), (1, 0));
     }
 }
