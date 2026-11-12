@@ -75,6 +75,45 @@ fn string_at(t: &[Located], i: usize) -> bool {
     t.get(i).is_some_and(|x| matches!(x.tok, Tok::Str(_)))
 }
 
+/// An expression that is a status - a bare binding (`s`, `status`) or `x.status()` - starts at
+/// `start` and ends before `end`, and is DECIDED by a status number: compared (`s == 404`,
+/// `s >= 500`), matched (`match s { 404 => .. }`, `matches!(s, 404)`) or ranged (`(400..=499)
+/// .contains(&s)`). The forms a binding renamed to dodge `status: 404` is read in.
+fn status_decided(t: &[Located], start: usize, end: usize) -> bool {
+    if operator_len(t, end).is_some_and(|len| status_number_at(t, end + len)) {
+        return true;
+    }
+    // `matches!(s, 404 ..)`
+    if start >= 3
+        && ident_at(t, start - 3, "matches")
+        && punct_at(t, start - 2, '!')
+        && punct_at(t, start - 1, '(')
+        && punct_at(t, end, ',')
+        && status_number_at(t, end + 1)
+    {
+        return true;
+    }
+    // `match s { 404 => ..`
+    if start >= 1
+        && ident_at(t, start - 1, "match")
+        && punct_at(t, end, '{')
+        && status_number_at(t, end + 1)
+    {
+        return true;
+    }
+    // `(400..=499).contains(&s)`: a number right before the receiver's `.contains(`
+    if start >= 4
+        && punct_at(t, start - 1, '&')
+        && punct_at(t, start - 2, '(')
+        && ident_at(t, start - 3, "contains")
+        && punct_at(t, start - 4, '.')
+        && punct_at(t, end, ')')
+    {
+        return (start.saturating_sub(14)..start - 4).any(|k| status_number_at(t, k));
+    }
+    false
+}
+
 /// A three-digit HTTP status as the lexer reads a number (an identifier of digits).
 fn status_number_at(t: &[Located], i: usize) -> bool {
     t.get(i).is_some_and(|x| match &x.tok {
@@ -237,10 +276,8 @@ fn status_literal(t: &[Located]) -> Vec<usize> {
             {
                 return false;
             }
-            (i + 3..(i + 24).min(t.len())).any(|k| {
-                t[k].tok.is_ident(bound)
-                    && operator_len(t, k + 1).is_some_and(|len| status_number_at(t, k + 1 + len))
-            })
+            (i + 3..(i + 24).min(t.len()))
+                .any(|k| t[k].tok.is_ident(bound) && status_decided(t, k, k + 1))
         })
         .map(|i| t[i].line)
         .collect()
@@ -258,21 +295,85 @@ fn status_compared(t: &[Located]) -> Vec<usize> {
                 return false;
             }
             let on_reply = i >= 2 && punct_at(t, i - 1, '.') && ident_at(t, i - 2, "reply");
-            let after = if punct_at(t, i + 1, '(') && punct_at(t, i + 2, ')') {
-                i + 3
+            let called = punct_at(t, i + 1, '(') && punct_at(t, i + 2, ')');
+            let after = if called { i + 3 } else { i + 1 };
+            // `status` bare, or `x.status()`: where the expression starts
+            let start = if called && i >= 2 && punct_at(t, i - 1, '.') {
+                i - 2
             } else {
-                i + 1
+                i
             };
-            !on_reply && operator_len(t, after).is_some_and(|len| status_number_at(t, after + len))
+            !on_reply && status_decided(t, start, after)
         })
         .map(|i| t[i].line)
         .collect()
 }
 
+/// The no-argument string adapters that change a text and not what it says: a question put to
+/// `e.to_string().to_lowercase()` is a question put to the error's text.
+const TEXT_ADAPTERS: &[&str] = &[
+    "to_lowercase",
+    "to_ascii_lowercase",
+    "to_uppercase",
+    "to_ascii_uppercase",
+    "trim",
+    "as_str",
+];
+
+/// The receiver of a `.contains(..)` / `.starts_with(..)` / `.ends_with(..)` that ends with the `)`
+/// at `close` is an error's text or a refusal's code: `e.to_string()`, `e.said()`,
+/// `code.as_str()` - with any of the [`TEXT_ADAPTERS`] after it (`e.to_string().to_lowercase()`).
+fn error_text_receiver(t: &[Located], mut close: usize) -> bool {
+    for _ in 0..6 {
+        if !(punct_at(t, close, ')') && close >= 2 && punct_at(t, close - 1, '(')) {
+            return false;
+        }
+        let name = close - 2;
+        if ident_at(t, name, "to_string") || ident_at(t, name, "said") {
+            return true;
+        }
+        if ident_at(t, name, "as_str") && name >= 2 && ident_at(t, name - 2, "code") {
+            return true;
+        }
+        // `<receiver>.adapter()`: look at what the adapter was called on
+        if name >= 3
+            && punct_at(t, name - 1, '.')
+            && punct_at(t, name - 2, ')')
+            && TEXT_ADAPTERS.iter().any(|a| ident_at(t, name, a))
+        {
+            close = name - 2;
+            continue;
+        }
+        return false;
+    }
+    false
+}
+
+/// An occurrence of `bound` at `k` - a binding of a refusal's `code` under another name
+/// (`Refused { code: c, .. }`) - asks about a word: `c == "word"`, `"word" == c`,
+/// `c.starts_with("..")`, `c.contains("..")`, `c.ends_with("..")`, `matches!(c.as_str(), ..)`,
+/// `WORDS.contains(&c.as_str())`.
+fn code_asked_as(t: &[Located], k: usize) -> bool {
+    let against_word = comparison_at(t, k + 1) && string_at(t, k + 3);
+    let word_against = k >= 3 && comparison_at(t, k - 2) && string_at(t, k - 3);
+    let method = punct_at(t, k + 1, '.')
+        && ["starts_with", "ends_with", "contains"]
+            .iter()
+            .any(|m| ident_at(t, k + 2, m))
+        && punct_at(t, k + 3, '(')
+        && string_at(t, k + 4);
+    let as_str = punct_at(t, k + 1, '.') && ident_at(t, k + 2, "as_str");
+    let in_list = as_str && k >= 3 && ident_at(t, k - 3, "contains") && punct_at(t, k - 1, '&');
+    let in_match = as_str && k >= 3 && ident_at(t, k - 3, "matches") && punct_at(t, k - 2, '!');
+    against_word || word_against || method || in_list || in_match
+}
+
 /// `code == "word"`, `"word" == code`, `.contains(&code.as_str())`, `matches!(code.as_str(), ..)`
 /// and a question about a word put to the code or to the error's text - `code.starts_with("..")`,
-/// `code.as_str().contains("..")`, `e.to_string().contains("..")`, `e.said().ends_with("..")` -
-/// in a file that names `TokenError` or `Refusal`.
+/// `code.as_str().contains("..")`, `e.to_string().contains("..")`, `e.said().ends_with("..")`,
+/// `e.to_string().to_lowercase().contains("..")` - in a file that names `TokenError` or
+/// `Refusal`; and the same of the code under another name: `Refused { code: c, .. } if
+/// c.starts_with("lock_")`.
 fn code_compared(t: &[Located]) -> Vec<usize> {
     if !names_token_error(t) {
         return Vec::new();
@@ -287,29 +388,27 @@ fn code_compared(t: &[Located]) -> Vec<usize> {
                 && punct_at(t, i - 1, '.')
                 && punct_at(t, i + 1, '(')
                 && string_at(t, i + 2)
+                && (ident_at(t, i - 2, "code") || error_text_receiver(t, i - 2))
             {
-                let on_code = ident_at(t, i - 2, "code");
-                let on_call = punct_at(t, i - 2, ')')
-                    && i >= 4
-                    && punct_at(t, i - 3, '(')
-                    && (ident_at(t, i - 4, "to_string")
-                        || ident_at(t, i - 4, "said")
-                        || (ident_at(t, i - 4, "as_str") && i >= 6 && ident_at(t, i - 6, "code")));
-                if on_code || on_call {
-                    return true;
-                }
+                return true;
             }
             if !t[i].tok.is_ident("code") {
                 return false;
             }
-            let against_word = comparison_at(t, i + 1) && string_at(t, i + 3);
-            let word_against = i >= 3 && comparison_at(t, i - 2) && string_at(t, i - 3);
-            let as_str = punct_at(t, i + 1, '.') && ident_at(t, i + 2, "as_str");
-            let in_list =
-                as_str && i >= 3 && ident_at(t, i - 3, "contains") && punct_at(t, i - 1, '&');
-            let in_match =
-                as_str && i >= 3 && ident_at(t, i - 3, "matches") && punct_at(t, i - 2, '!');
-            against_word || word_against || in_list || in_match
+            // `code: c` binds the code under another name: `c` is asked about soon after
+            if punct_at(t, i + 1, ':') && !punct_at(t, i + 2, ':') {
+                let Some(bound) = t.get(i + 2).and_then(|x| x.tok.ident()) else {
+                    return false;
+                };
+                if matches!(bound, "_" | "ref" | "mut")
+                    || bound.starts_with(|c: char| c.is_ascii_digit())
+                {
+                    return false;
+                }
+                return (i + 3..(i + 24).min(t.len()))
+                    .any(|k| t[k].tok.is_ident(bound) && code_asked_as(t, k));
+            }
+            code_asked_as(t, i)
         })
         .map(|i| t[i].line)
         .collect()
@@ -341,12 +440,18 @@ pub fn refusal_rules(words: &[String]) -> Vec<Rule> {
                 "match e { TokenError::Refused { status: s, .. } if s == 404 => {} _ => {} }",
                 "match r { Refusal::Unclassified { status: gone, .. } if gone >= 500 => {} _ => {} }",
                 "match r { Refusal::Unclassified { status: 404, .. } => {} _ => {} }",
+                "match e { TokenError::Refused { status: s, .. } if matches!(s, 404 | 410) => {} _ => {} }",
+                "match e { TokenError::Refused { status: s, .. } => match s { 404 => {} _ => {} } }",
+                "match e { TokenError::Refused { status: s, .. } if (400..=499).contains(&s) => {} _ => {} }",
             ],
             &[
                 "match e { TokenError::Refused { status, .. } => drop(status), _ => {} }",
                 "let reply = HttpReply { status: 200 };",
                 "match e { TokenError::Refused { status: s, .. } => drop(s), _ => {} }",
                 "match e { TokenError::Refused { status: s, .. } if other == 404 => drop(s), _ => {} }",
+                "match e { TokenError::Refused { status: s, .. } if matches!(other, 404) => drop(s), _ => {} }",
+                "match e { TokenError::Refused { status: s, .. } if (400..=499).contains(&other) => drop(s), _ => {} }",
+                "match e { TokenError::Refused { status: s, .. } => match other { 404 => drop(s), _ => {} } }",
             ],
         ),
         Rule::new(
@@ -357,11 +462,20 @@ pub fn refusal_rules(words: &[String]) -> Vec<Rule> {
                 "let gone = TokenError::Protocol(String::new()); if e.status() != 200 {}",
                 "let r: Refusal = x; if status >= 500 {}",
                 "let e: TokenError = x; if e.status() < 500 {}",
+                "let e: TokenError = x; if matches!(status, 404) {}",
+                "let e: TokenError = x; if matches!(e.status(), 404 | 410) {}",
+                "let e: TokenError = x; match status { 404 => {} _ => {} }",
+                "let e: TokenError = x; if (400..=499).contains(&status) {}",
+                "let e: TokenError = x; if (500..=599).contains(&e.status()) {}",
             ],
             &[
                 "let signed_out = TokenError::SignIn(String::new()); if reply.status == 401 {}",
                 "let ok = TokenError::Config(String::new()); let status = 4;",
                 "let e: TokenError = x; if status == other {}",
+                "let e: TokenError = x; if matches!(status, other) {}",
+                "let e: TokenError = x; if (lo..=hi).contains(&status) {}",
+                "let e: TokenError = x; match status { s => drop(s) }",
+                "let ok = TokenError::Config(String::new()); if matches!(reply.status, 404) {}",
             ],
         ),
         Rule::new(
@@ -376,6 +490,12 @@ pub fn refusal_rules(words: &[String]) -> Vec<Rule> {
                 "let e: TokenError = x; if code.as_str().contains(\"paid\") {}",
                 "let e: TokenError = x; if e.to_string().contains(\"no such checkout\") {}",
                 "let r: Refusal = x; if e.said().ends_with(\"gone\") {}",
+                "let e: TokenError = x; if e.to_string().to_lowercase().contains(\"no such\") {}",
+                "let e: TokenError = x; if e.said().trim().to_ascii_lowercase().starts_with(\"lock\") {}",
+                "match e { TokenError::Refused { code: c, .. } if c.starts_with(\"lock_\") => {} _ => {} }",
+                "match e { TokenError::Refused { code: word, .. } if word == \"no_such_checkout\" => {} _ => {} }",
+                "match e { TokenError::Refused { code: w, .. } if matches!(w.as_str(), \"a\" | \"b\") => {} _ => {} }",
+                "match e { TokenError::Refused { code: w, .. } if WORDS.contains(&w.as_str()) => {} _ => {} }",
             ],
             &[
                 "let e: TokenError = x; if code == other {}",
@@ -384,6 +504,11 @@ pub fn refusal_rules(words: &[String]) -> Vec<Rule> {
                 "let e: TokenError = x; if text.contains(\"word\") {}",
                 "let e: TokenError = x; if e.to_string().contains(&needle) {}",
                 "let e = 1; if code.starts_with(\"lock_\") {}",
+                "let e: TokenError = x; if text.to_lowercase().contains(\"word\") {}",
+                "let e: TokenError = x; if e.to_string().to_lowercase().contains(&needle) {}",
+                "match e { TokenError::Refused { code: c, .. } => drop(c), _ => {} }",
+                "match e { TokenError::Refused { code: c, .. } if other.starts_with(\"lock_\") => drop(c), _ => {} }",
+                "match e { TokenError::Refused { code: _, .. } => {} _ => {} }",
             ],
         ),
         Rule::new(
@@ -573,12 +698,19 @@ fn euro_defaulted(t: &[Located]) -> Vec<usize> {
 }
 
 /// A zero as the default of a call that starts at `open` (its `(`): `(0)`, `(0u64)`, `(0_u64)`,
-/// `(0, ..)`, `(|| 0)`, `(|| 0_i64, ..)`.
+/// `(0, ..)`, `(|| 0)`, `(|| 0_i64, ..)`, `(|_| 0)`, `(|e| 0, ..)`.
 fn zero_default_at(t: &[Located], open: usize) -> bool {
     let a = open + 1;
     let ends = |i: usize| punct_at(t, i, ')') || punct_at(t, i, ',');
-    (zero_at(t, a) && ends(a + 1))
-        || (punct_at(t, a, '|') && punct_at(t, a + 1, '|') && zero_at(t, a + 2) && ends(a + 3))
+    let no_arguments =
+        punct_at(t, a, '|') && punct_at(t, a + 1, '|') && zero_at(t, a + 2) && ends(a + 3);
+    // `|_| 0`, `|e| 0`: a closure that takes the error and ignores it
+    let one_argument = punct_at(t, a, '|')
+        && t.get(a + 1).is_some_and(|x| x.tok.ident().is_some())
+        && punct_at(t, a + 2, '|')
+        && zero_at(t, a + 3)
+        && ends(a + 4);
+    (zero_at(t, a) && ends(a + 1)) || no_arguments || one_argument
 }
 
 /// A missing figure read as zero in a statement that talks of an amount, cents, VAT or a
@@ -652,6 +784,8 @@ pub fn default_rules() -> Vec<Rule> {
                 "let a = answer.amount_cents.map_or(0, |a| a);",
                 "let a = answer.amount_cents.unwrap_or_else(|| 0);",
                 "let a = answer.amount_cents.map_or_else(|| 0_i64, |a| a);",
+                "let a = answer.amount_cents.unwrap_or_else(|_| 0);",
+                "let a = answer.amount_cents.map_or_else(|e| 0_u64, |a| a);",
             ],
             &[
                 "let n = count.unwrap_or(0);",
@@ -660,6 +794,8 @@ pub fn default_rules() -> Vec<Rule> {
                 "let n = hits.map_or(0, |h| h.len());",
                 "let a = answer.amount_cents.map_or(1, |a| a);",
                 "let n = count.unwrap_or_else(|| 0u64);",
+                "let a = answer.amount_cents.unwrap_or_else(|_| 1);",
+                "let n = hits.map_or_else(|e| 0, |h| h.len());",
             ],
         ),
     ]
@@ -696,6 +832,112 @@ pub fn show_rules() -> Vec<Rule> {
         ],
         &["let s = show(&c);", "let m = c.money(5);"],
     )]
+}
+
+// ==== 6. The v1 order button ends a checkout in flight before it orders again ====
+
+/// The index of the `}` that closes the `{` at `open`.
+fn block_end(t: &[Located], open: usize) -> usize {
+    let mut depth = 0_i32;
+    for (j, x) in t.iter().enumerate().skip(open) {
+        if x.tok.is_punct('{') {
+            depth += 1;
+        } else if x.tok.is_punct('}') {
+            depth -= 1;
+            if depth == 0 {
+                return j;
+            }
+        }
+    }
+    t.len()
+}
+
+/// The `fn buy_on_the_payment_page` items of a file: the index of each one's name and of the `{`
+/// that opens its body.
+fn v1_order_fns(t: &[Located]) -> Vec<(usize, usize)> {
+    (1..t.len())
+        .filter(|&i| ident_at(t, i, "buy_on_the_payment_page") && ident_at(t, i - 1, "fn"))
+        .filter_map(|i| {
+            let open = (i + 1..t.len()).find(|&k| punct_at(t, k, '{') || punct_at(t, k, ';'))?;
+            punct_at(t, open, '{').then_some((i, open))
+        })
+        .collect()
+}
+
+/// The first index in `from..to` where the identifiers `first :: second` stand.
+fn path_in(t: &[Located], from: usize, to: usize, first: &str, second: &str) -> Option<usize> {
+    (from..to.min(t.len())).find(|&k| {
+        ident_at(t, k, first)
+            && punct_at(t, k + 1, ':')
+            && punct_at(t, k + 2, ':')
+            && ident_at(t, k + 3, second)
+    })
+}
+
+/// `fn buy_on_the_payment_page`: the one function that is the v1 payment page's order button, once
+/// per definition - what the wiring rule below must find to judge (a renamed or removed function
+/// would leave it judging nothing).
+fn v1_order_function(t: &[Located]) -> Vec<usize> {
+    v1_order_fns(t)
+        .into_iter()
+        .map(|(name, _)| t[name].line)
+        .collect()
+}
+
+/// A `buy_on_the_payment_page` that does not end a checkout in flight before it places the order:
+/// its body must ask `must_release_first` and send `Event::Release` BEFORE the `Job::Checkout` it
+/// spawns - a checkout in flight may be paid already or any moment, and the buyer never pays twice
+/// for one thing (AZ-P4). The predicate `must_release_first` is tested on its own
+/// (`add_drive_tests`); this is the test that deleting its call, or the release it sends, fails.
+fn v1_order_without_release(t: &[Located]) -> Vec<usize> {
+    v1_order_fns(t)
+        .into_iter()
+        .filter(|&(_, open)| {
+            let close = block_end(t, open);
+            let order = path_in(t, open, close, "Job", "Checkout").unwrap_or(close);
+            let asks = (open..order).any(|k| ident_at(t, k, "must_release_first"));
+            let releases = path_in(t, open, order, "Event", "Release").is_some();
+            !(asks && releases)
+        })
+        .map(|(name, _)| t[name].line)
+        .collect()
+}
+
+pub const V1_ORDER_FN: &str = "v1-order-function";
+pub const V1_ORDER_RELEASE: &str = "v1-order-releases-first";
+
+#[must_use]
+pub fn wiring_rules() -> Vec<Rule> {
+    vec![
+        Rule::new(
+            V1_ORDER_FN,
+            v1_order_function,
+            &["fn buy_on_the_payment_page() {}"],
+            &["fn buy_on_the_card_page() {}", "let buy_on_the_payment_page = 1;"],
+        ),
+        Rule::new(
+            V1_ORDER_RELEASE,
+            v1_order_without_release,
+            &[
+                // no release at all
+                "fn buy_on_the_payment_page() { spawn(Job::Checkout { serial }); }",
+                // the release after the order
+                "fn buy_on_the_payment_page() { spawn(Job::Checkout { serial }); \
+                 if dialog_ref(s).is_some_and(must_release_first) { pay(Event::Release); } }",
+                // the predicate asked, nothing sent
+                "fn buy_on_the_payment_page() { if dialog_ref(s).is_some_and(must_release_first) { return; } \
+                 spawn(Job::Checkout { serial }); }",
+                // sent, never asked: every order would end the checkout it just made
+                "fn buy_on_the_payment_page() { pay(Event::Release); spawn(Job::Checkout { serial }); }",
+            ],
+            &[
+                "fn buy_on_the_payment_page() { \
+                 if dialog_ref(s).is_some_and(must_release_first) { let _ = pay(info, app, s, Event::Release); return; } \
+                 spawn(info, app, s, Job::Checkout { serial }); }",
+                "fn buy_on_the_card_page() { spawn(Job::Checkout { serial }); }",
+            ],
+        ),
+    ]
 }
 
 // ==== The allowances, and the gates ====
@@ -878,6 +1120,28 @@ pub fn default_gate() -> Gate<'static> {
         roots: WIRE_AND_CLIENT,
         rules: default_rules(),
         budget: Budget(ALLOWED_DEFAULTS),
+        orphans: Orphans::Fail,
+    }
+}
+
+/// The v1 order button is one function, in one file.
+pub const ALLOWED_WIRING: &[Allow] = &[Allow::exactly(
+    "examples/azul-drive/src/add_flow.rs",
+    V1_ORDER_FN,
+    1,
+    "buy_on_the_payment_page: the one order button of the v1 payment page, which must release a \
+     checkout in flight first",
+)];
+
+/// Gate 6: the v1 order button ends a checkout in flight before it orders again (AZ-P4,
+/// X-DELTA-AZDRIVE-MONEY-15).
+#[must_use]
+pub fn wiring_gate() -> Gate<'static> {
+    Gate {
+        name: "money_gate: v1 order wiring",
+        roots: CLIENT,
+        rules: wiring_rules(),
+        budget: Budget(ALLOWED_WIRING),
         orphans: Orphans::Fail,
     }
 }

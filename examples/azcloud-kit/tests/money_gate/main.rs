@@ -10,19 +10,25 @@
 //!    secret and issue key are erased only on a proof made there from evidence nobody else
 //!    constructs (X-DELTA-AZDRIVE-MONEY-11: `abandoned` took a public enum and was `pub`);
 //! 2. a file that names `TokenError` or `Refusal` decides by `status: 4xx`, a `status: s` bound
-//!    and compared with a status number, `status ==` (and `>=`, `<`, ..), `code == "word"`,
-//!    `code.starts_with("..")`, `e.to_string().contains("..")`, `.contains(&code.as_str())`, or
-//!    holds one of the contract's code words as a literal, outside the two files that decode a
-//!    refusal (`token/refusal.rs`, `answer.rs`);
+//!    and compared with a status number - `s == 404`, `matches!(s, 404)`, `match s { 404 => ..
+//!    }`, `(400..=499).contains(&s)` -, `status ==` (and `>=`, `<`, ..) and the same forms of a
+//!    bare `status` or `e.status()`, `code == "word"`, `code.starts_with("..")`, the code under
+//!    another name (`Refused { code: c, .. } if c.starts_with("lock_")`),
+//!    `e.to_string().contains("..")` - also after `.to_lowercase()` and the like -,
+//!    `.contains(&code.as_str())`, or holds one of the contract's code words as a literal,
+//!    outside the two files that decode a refusal (`token/refusal.rs`, `answer.rs`);
 //! 3. an amount (`amount_cents: u64`, `price_cents: i64`, `amount: Option<u64>` - any
 //!    whole-number field or parameter whose name says amount, cents or price) or a currency
 //!    (`currency: String`, `Option<String>`, `&String`) stands alone outside the wire and the
 //!    records of the wire;
 //! 4. an amount, VAT or currency is defaulted: `.unwrap_or("EUR")`, `.map_or("EUR", ..)`,
 //!    `.unwrap_or(DEFAULT_CURRENCY)`, `.unwrap_or(0)` in any spelling (`0u64`, `0_u64`),
-//!    `.unwrap_or_else(|| 0)`, `.map_or(0, ..)` and `.unwrap_or_default()` in a statement that
-//!    talks of one;
-//! 5. `l10n::money(` is called anywhere but `pay_words::show`, or imported as another name.
+//!    `.unwrap_or_else(|| 0)`, `.unwrap_or_else(|_| 0)`, `.map_or(0, ..)` and
+//!    `.unwrap_or_default()` in a statement that talks of one;
+//! 5. `l10n::money(` is called anywhere but `pay_words::show`, or imported as another name;
+//! 6. the v1 payment page's order button (`buy_on_the_payment_page`) does not ask
+//!    `must_release_first` and send `Event::Release` before it places its `Job::Checkout`: the
+//!    wiring of a checkout in flight being ended before the buyer orders again (AZ-P4).
 //!
 //! The allowances name the file, the rule, how many and why. A hit no allowance takes fails, an
 //! allowance whose count is not the code's fails and so does one nothing uses any more: the
@@ -33,7 +39,7 @@
 mod rules;
 
 use azlin_contract::{CheckoutRefusal, ClaimRefusal, IssueRefusal, RedeemRefusal};
-use rules::{default_gate, pair_gate, refusal_gate, settled_gate, show_gate};
+use rules::{default_gate, pair_gate, refusal_gate, settled_gate, show_gate, wiring_gate};
 
 /// The issue refusals' words that no other refusal shares with a meaning of its own
 /// (`bad_request`, `try_again`, `unavailable` are generic: `answer.rs` decides them).
@@ -103,6 +109,14 @@ fn no_amount_vat_or_currency_is_defaulted() {
 #[test]
 fn money_is_written_for_a_person_by_one_function() {
     show_gate().run();
+}
+
+/// X-DELTA-AZDRIVE-MONEY-15: the v1 payment page's order button releases a checkout in flight
+/// before it orders again. The predicate it asks is tested on its own; deleting the call to it, or
+/// the release it sends, left every test green.
+#[test]
+fn the_order_button_of_the_v1_page_ends_a_checkout_in_flight_before_it_orders() {
+    wiring_gate().run();
 }
 
 /// The hand-listed words are words of the contract: one that is not any more (renamed, removed)
