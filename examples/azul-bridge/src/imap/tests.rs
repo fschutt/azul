@@ -869,3 +869,76 @@ fn x_delta_sync4_21_a_copy_whose_target_cannot_be_listed_leaves_the_uid_map_alon
         "the copy is the next one: {after:?}"
     );
 }
+
+/// X-APPS2-2 (the bridge's half), RED on the code before: the drive keeps one `deleted` marker per
+/// message id, so flagging the Inbox copy of a message flagged its copy in Archive too, and any
+/// connection that expunged Archive - a mail program closing the folder - deleted a copy nobody
+/// flagged. Now the flag is shown on the copy a client flagged only: the Archive copy shows none,
+/// its EXPUNGE takes nothing, the Inbox copy goes when its own client expunges, and un-flagging one
+/// of two flagged copies leaves the drive's shared marker for the other.
+#[test]
+fn x_apps2_2_a_deleted_flag_on_one_copy_is_not_on_its_twin_and_expunging_the_twin_keeps_it() {
+    let drive = seeded();
+    let imap = bridge(drive.clone());
+    let in_archive = |drive: &MemoryDrive| {
+        drive
+            .keys()
+            .iter()
+            .filter(|k| k.starts_with("mail/Archive/"))
+            .count()
+    };
+    let mut a = Client::signed_in(imap.clone());
+    a.ok("a0", "SELECT INBOX");
+    a.ok("a1", "COPY 1 Archive");
+    assert_eq!(in_archive(&drive), 1);
+    let flagged = a.ok("a2", "STORE 1 +FLAGS (\\Deleted)");
+    assert!(has(&flagged, "\\Deleted"), "{flagged:?}");
+    // Another mail program has the Archive open.
+    let mut b = Client::signed_in(imap.clone());
+    b.ok("b0", "SELECT Archive");
+    let seen = b.ok("b1", "FETCH 1 FLAGS");
+    assert!(
+        !has(&seen, "\\Deleted"),
+        "the flag did not leak to the copy: {seen:?}"
+    );
+    assert!(!has(&b.ok("b2", "STATUS Archive (DELETED)"), "DELETED 1"));
+    b.ok("b3", "EXPUNGE");
+    b.ok("b4", "CLOSE");
+    assert_eq!(
+        in_archive(&drive),
+        1,
+        "the copy nobody flagged is still there"
+    );
+    // The client that flagged the Inbox copy expunges it: that copy goes, the other stays.
+    a.ok("a3", "EXPUNGE");
+    assert_eq!(
+        drive
+            .keys()
+            .iter()
+            .filter(|k| k.starts_with("mail/Inbox/"))
+            .count(),
+        1,
+        "{:?}",
+        drive.keys()
+    );
+    assert_eq!(in_archive(&drive), 1);
+    let again = Client::signed_in(imap.clone()).ok("c0", "SELECT Archive");
+    assert!(has(&again, "* 1 EXISTS"), "{again:?}");
+    // Two copies of one message, both flagged; un-flagging one leaves the shared marker for the other.
+    a.ok("a4", "COPY 1 Archive");
+    a.ok("a5", "STORE 1 +FLAGS (\\Deleted)");
+    let mut c = Client::signed_in(imap.clone());
+    c.ok("c1", "SELECT Archive");
+    c.ok("c2", "STORE 2 +FLAGS (\\Deleted)");
+    let marker = drive
+        .keys()
+        .into_iter()
+        .find(|k| k.ends_with("/deleted"))
+        .expect("the shared marker");
+    a.ok("a6", "STORE 1 -FLAGS (\\Deleted)");
+    assert!(
+        drive.keys().contains(&marker),
+        "the other copy is still flagged: {:?}",
+        drive.keys()
+    );
+}

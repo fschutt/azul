@@ -22,7 +22,7 @@ pub mod search;
 pub mod session;
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     net::TcpListener,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -152,6 +152,13 @@ pub struct Imap {
     pub limits: Limits,
     pub sent: Arc<SentRegistry>,
     marks: Mutex<Option<(Instant, Arc<HashMap<String, Marks>>)>>,
+    /// The copies a client of this process flagged `\Deleted`: (mailbox path, message id). The
+    /// drive keeps ONE `deleted` marker per message id, which every copy shares, so the marker alone
+    /// cannot say which copy a client meant - and an EXPUNGE of a mailbox that merely holds another
+    /// copy took it with the flagged one (X-APPS2-2). A message that no other mailbox holds needs no
+    /// record: its marker is its own. Not kept across a restart: a shared message then shows no
+    /// `\Deleted` anywhere - nothing is deleted on a flag nobody can place.
+    deleted_here: Mutex<HashSet<(String, String)>>,
 }
 
 impl std::fmt::Debug for Imap {
@@ -180,6 +187,37 @@ impl Imap {
             limits,
             sent,
             marks: Mutex::new(None),
+            deleted_here: Mutex::new(HashSet::new()),
+        }
+    }
+
+    fn deleted_marks(&self) -> std::sync::MutexGuard<'_, HashSet<(String, String)>> {
+        self.deleted_here
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Whether a client flagged the copy of `id` in `path` `\Deleted` ([`Imap::deleted_here`]).
+    pub(crate) fn flagged_here(&self, path: &str, id: &str) -> bool {
+        self.deleted_marks()
+            .contains(&(path.to_string(), id.to_string()))
+    }
+
+    /// Whether the copy of `id` in another mailbox than `path` is flagged `\Deleted` too.
+    pub(crate) fn flagged_elsewhere(&self, path: &str, id: &str) -> bool {
+        self.deleted_marks()
+            .iter()
+            .any(|(other, other_id)| other_id == id && other != path)
+    }
+
+    /// Records that the copy of `id` in `path` is (`on`) or is no longer flagged `\Deleted`.
+    pub(crate) fn note_deleted(&self, path: &str, id: &str, on: bool) {
+        let key = (path.to_string(), id.to_string());
+        let mut marks = self.deleted_marks();
+        if on {
+            marks.insert(key);
+        } else {
+            marks.remove(&key);
         }
     }
 

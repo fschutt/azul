@@ -697,6 +697,16 @@ impl<'s, C: Conn> Session<'s, C> {
         .cloned())
     }
 
+    /// Whether a mailbox other than `path` holds a message called `name`: a copy of it.
+    fn held_elsewhere(&self, path: &str, name: &str) -> Result<bool, StoreError> {
+        for other in self.imap.store.mailboxes()? {
+            if other.path != path && self.imap.store.holds(&other.path, name)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// A new mailbox's path from the name a client gives.
     fn new_path(&self, raw: &[u8]) -> Result<String, StoreError> {
         let name = self.name_from(raw);
@@ -725,13 +735,28 @@ impl<'s, C: Conn> Session<'s, C> {
         let messages: Vec<StoredMessage> = self.imap.store.messages(path)?;
         let names: Vec<String> = messages.iter().map(|m| m.name.clone()).collect();
         let marks = self.imap.marks()?;
+        // The drive's `deleted` marker is one per message id, shared by every copy: a copy that
+        // another mailbox also holds shows `\Deleted` only where a client flagged it, never on the
+        // copies a flag on its twin leaked to (X-APPS2-2).
+        let mut leaked: HashSet<&str> = HashSet::new();
+        for m in &messages {
+            if marks.get(&m.id).is_some_and(|marks| marks.deleted)
+                && !self.imap.flagged_here(path, &m.id)
+                && self.held_elsewhere(path, &m.name)?
+            {
+                leaked.insert(m.id.as_str());
+            }
+        }
         let by_name: HashMap<&str, (&StoredMessage, Flags)> = messages
             .iter()
             .map(|m| {
-                let flags = match marks.get(&m.id) {
+                let mut flags = match marks.get(&m.id) {
                     Some(marks) => Flags::from_marks(marks, in_drafts),
                     None => Flags::from_marks(&Marks::default(), in_drafts),
                 };
+                if leaked.contains(m.id.as_str()) {
+                    flags.deleted = false;
+                }
                 (m.name.as_str(), (m, flags))
             })
             .collect();
@@ -1457,10 +1482,17 @@ impl<'s, C: Conn> Session<'s, C> {
             }
             // \Draft follows from the folder: a STORE does not change it.
             new.draft = msg.flags.draft;
-            if let Err(e) = self.imap.write_marks(&msg.id, &msg.flags, &new) {
+            // The drive's `deleted` marker is shared by every copy: while another mailbox's copy is
+            // flagged too, un-flagging this one leaves it where it is (X-APPS2-2).
+            let mut written = new.clone();
+            if msg.flags.deleted && !new.deleted && self.imap.flagged_elsewhere(&path, &msg.id) {
+                written.deleted = true;
+            }
+            if let Err(e) = self.imap.write_marks(&msg.id, &msg.flags, &written) {
                 let _ = self.send(&out);
                 return self.store_no(tag, &e);
             }
+            self.imap.note_deleted(&path, &msg.id, new.deleted);
             let modseq = self
                 .imap
                 .uids
@@ -1645,7 +1677,14 @@ impl<'s, C: Conn> Session<'s, C> {
             .iter()
             .filter_map(|&i| self.selected().map(|s| s.msgs[i].name.clone()))
             .collect();
+        let ids: Vec<String> = doomed
+            .iter()
+            .filter_map(|&i| self.selected().map(|s| s.msgs[i].id.clone()))
+            .collect();
         self.imap.store.expunge(&path, &names).map_err(Some)?;
+        for id in &ids {
+            self.imap.note_deleted(&path, id, false);
+        }
         self.imap.marks_changed();
         let qresync = self.qresync;
         let mut out = Vec::new();

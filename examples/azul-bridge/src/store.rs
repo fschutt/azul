@@ -125,6 +125,14 @@ pub trait MailStore: Send + Sync {
     /// The store's.
     fn messages(&self, path: &str) -> Result<Vec<StoredMessage>, StoreError>;
 
+    /// Whether the mailbox `path` holds a message called `name` (the copies of one message keep
+    /// its name: COPY and MOVE do not rename it).
+    ///
+    /// # Errors
+    ///
+    /// The store's.
+    fn holds(&self, path: &str, name: &str) -> Result<bool, StoreError>;
+
     /// Every message's marks, by id (a message without any is not there).
     ///
     /// # Errors
@@ -470,6 +478,14 @@ impl MailStore for DriveMailStore {
                 )
             })
             .collect())
+    }
+
+    fn holds(&self, path: &str, name: &str) -> Result<bool, StoreError> {
+        match self.drive.head(&azlin::message_key(path, name)) {
+            Ok(_) => Ok(true),
+            Err(DriveError::NotFound { .. }) => Ok(false),
+            Err(e) => Err(drive_error(e)),
+        }
     }
 
     fn read(&self, path: &str, name: &str) -> Result<Vec<u8>, StoreError> {
