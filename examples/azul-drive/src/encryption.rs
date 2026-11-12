@@ -3473,13 +3473,29 @@ fn held_key(keyring: &dyn KeyringStore, drive: &str) -> HeldKey {
 /// ([`held_key`]): the drive's keys were changed on another computer. A keyring that could not be
 /// read before, or cannot be read now, says yes - the record is asked again, which only costs a
 /// drill; no is said only for a key that was read.
-fn key_changed_since(before: HeldKey, keyring: &dyn KeyringStore, drive: &str) -> bool {
+///
+/// A computer that held NO key (a lost keychain, a reinstall with the settings restored) has nothing to
+/// compare the key it takes with, and the recovery record in its settings is of the key it HAD: the id the
+/// drives file recorded for the drive (`recorded`, the one place a computer writes down which key it opened
+/// the drive with) stands in for it - a key that is not the recorded one is another line of the drive's keys
+/// and the record of its code is the dead code's; a record with no id, or one that cannot be read, says
+/// yes (X-DELTA-KEYS3-5: this said no for every computer without a key, and a recovery after a lost keychain
+/// kept the record of the dead code - its drill passed the old paper and refused the live one).
+fn key_changed_since(
+    before: HeldKey,
+    recorded: Recorded,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> bool {
     match (before, held_key(keyring, drive)) {
-        (HeldKey::Nothing, _) => false,
         (HeldKey::Key(was), HeldKey::Key(is)) => was != is,
-        (HeldKey::Key(_), HeldKey::Nothing | HeldKey::Unreadable) | (HeldKey::Unreadable, _) => {
-            true
+        (HeldKey::Nothing, HeldKey::Key(is)) => {
+            recorded.damaged || recorded.key_id.is_none_or(|was| was != is)
         }
+        (HeldKey::Nothing, HeldKey::Nothing) => false,
+        (HeldKey::Key(_) | HeldKey::Nothing, HeldKey::Unreadable)
+        | (HeldKey::Key(_), HeldKey::Nothing)
+        | (HeldKey::Unreadable, _) => true,
     }
 }
 
@@ -3492,10 +3508,12 @@ fn recover_job(
     code: &RecoveryCode,
 ) -> Result<bool, String> {
     let before = held_key(keyring, auto.drive());
+    // What the drives file recorded, as of now: `reopen` forgets the decision, not the record.
+    let recorded = auto.recorded();
     device::recover(auto.bucket().as_ref(), keyring, auto.drive(), code)
         .map_err(|e| e.to_string())?;
     auto.reopen();
-    Ok(key_changed_since(before, keyring, auto.drive()))
+    Ok(key_changed_since(before, recorded, keyring, auto.drive()))
 }
 
 /// [`adopt_join_key_with`] that also says whether the key taken is another than the one this
@@ -3507,9 +3525,10 @@ fn adopt_join_key_noting(
     key_id: Option<&str>,
 ) -> (Result<bool, String>, Option<String>) {
     let before = held_key(keyring, auto.drive());
+    let recorded = auto.recorded();
     let (result, invite_left) = adopt_join_key_with(keyring, auto, seal, key_id);
     (
-        result.map(|()| key_changed_since(before, keyring, auto.drive())),
+        result.map(|()| key_changed_since(before, recorded, keyring, auto.drive())),
         invite_left,
     )
 }
@@ -7348,16 +7367,203 @@ mod tests {
             "no record, nothing to clear"
         );
 
+        let held = device::load_drive_key(keyring.as_ref(), drive)
+            .unwrap()
+            .expect("the key this computer holds");
+        let recorded = |key: &KeyId| Recorded::from_entry(true, Some(&key.to_hex()));
         assert!(key_changed_since(
             HeldKey::Unreadable,
+            recorded(&held.id()),
             keyring.as_ref(),
             drive
         ));
+        // No key held before: the drives file's word stands in (X-DELTA-KEYS3-5) - the key it recorded
+        // is the key that is held now: nothing changed.
         assert!(!key_changed_since(
             HeldKey::Nothing,
+            recorded(&held.id()),
             keyring.as_ref(),
             drive
         ));
+    }
+
+    /// X-DELTA-KEYS3-5: every cell of the comparison. A computer that held no key and finds the key it
+    /// recorded has seen no change; another recorded key, no recorded key and a recorded key that cannot be
+    /// read say a change (the record is asked again, which costs a drill); a key held before decides by itself.
+    #[test]
+    fn x_delta_keys3_5_what_a_computer_with_no_key_compares_the_new_key_with_is_the_drives_files_record(
+    ) {
+        let drive = "d_k35_table";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (_auto, _code) = drive_with_keys(drive, Arc::clone(&keyring));
+        let now = device::load_drive_key(keyring.as_ref(), drive)
+            .unwrap()
+            .unwrap()
+            .id();
+        let other = azul_storage::crypto::DriveKey::generate().unwrap().id();
+        let record =
+            |key: Option<&KeyId>| Recorded::from_entry(true, key.map(|k| k.to_hex()).as_deref());
+        let changed = |before: HeldKey, recorded: Recorded| {
+            key_changed_since(before, recorded, keyring.as_ref(), drive)
+        };
+        assert!(
+            !changed(HeldKey::Nothing, record(Some(&now))),
+            "the recorded key is the key taken"
+        );
+        assert!(
+            changed(HeldKey::Nothing, record(Some(&other))),
+            "another key than the recorded one"
+        );
+        assert!(
+            changed(HeldKey::Nothing, record(None)),
+            "nothing recorded says nothing"
+        );
+        assert!(
+            changed(
+                HeldKey::Nothing,
+                Recorded::from_entry(true, Some("not a key id"))
+            ),
+            "a record that cannot be read"
+        );
+        assert!(
+            !changed(HeldKey::Key(now), record(Some(&other))),
+            "a key held before decides: the same"
+        );
+        assert!(
+            changed(HeldKey::Key(other), record(Some(&now))),
+            "a key held before decides: another"
+        );
+        assert!(
+            changed(HeldKey::Unreadable, record(Some(&now))),
+            "an unreadable keyring says yes"
+        );
+    }
+
+    /// X-DELTA-KEYS3-5: computer B kept a recovery record of the drive (the old code's key, checked, registered)
+    /// and lost its keychain (a reinstall with the settings restored); another computer rotated meanwhile. B
+    /// recovers with the NEW code: it held no key, so the comparison said "nothing to compare, no change", the
+    /// record of the dead code stayed, and B's drill passed the dead paper offline and refused the live code
+    /// ("not this drive's code") while the health stayed green. The drives file recorded the key B opened the
+    /// drive with: it is not the key B takes now, so the record is cleared and the drill asks the bucket.
+    #[test]
+    fn x_delta_keys3_5_a_recovery_after_a_lost_keychain_clears_the_record_of_the_dead_code() {
+        let drive = "d_k35_recover";
+        let b: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (new_code, _auto, new_key, bucket, record) = rotated_elsewhere(drive, Arc::clone(&b));
+        let old_key = device::load_drive_key(b.as_ref(), drive)
+            .unwrap()
+            .expect("B held the old key");
+        // B's keychain is gone; its drives file still says which key it opened the drive with.
+        b.delete(&device::drive_key_entry(drive)).unwrap();
+        let auto = wrap_with(
+            Arc::clone(&b),
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            bucket,
+            EncryptionRecord {
+                encrypted: true,
+                key_id: Some(old_key.id().to_hex()),
+            },
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        let mut states = vec![record];
+        assert!(
+            matches!(
+                crate::recovery::drill_answer(
+                    states[0].recovery_key.as_deref(),
+                    drive,
+                    &new_code.to_text()
+                ),
+                crate::recovery::DrillAnswer::NotTheCode
+            ),
+            "premise: the dead code's key refuses the live code (what the user saw)"
+        );
+
+        let key_changed =
+            recover_job(b.as_ref(), &auto, &new_code).expect("the new code opens the drive");
+        assert_eq!(
+            device::load_drive_key(b.as_ref(), drive)
+                .unwrap()
+                .map(|key| key.id()),
+            Some(new_key.id())
+        );
+        assert!(
+            key_changed,
+            "the key B takes is not the one its drives file recorded: the drive's keys were changed"
+        );
+        assert!(recovered_with(&mut states, drive, key_changed));
+        let state = &states[0];
+        assert_eq!(
+            (
+                state.recovery_key.clone(),
+                state.code_checked,
+                state.code_made
+            ),
+            (None, None, None)
+        );
+        assert_eq!(state.registration, Registration::Unknown);
+        assert!(
+            matches!(
+                crate::recovery::drill_answer(
+                    state.recovery_key.as_deref(),
+                    drive,
+                    &new_code.to_text()
+                ),
+                crate::recovery::DrillAnswer::AskTheBucket(_)
+            ),
+            "the drill asks the bucket's wrap, which the live code opens"
+        );
+    }
+
+    /// X-DELTA-KEYS3-5: the same through a join code (`JoinKeyAdopted` ends as `Recovered`), and a recovery
+    /// with the key the drives file recorded changes nothing.
+    #[test]
+    fn x_delta_keys3_5_a_join_after_a_lost_keychain_says_so_and_the_recorded_key_says_no_change() {
+        let drive = "d_k35_join";
+        let b: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (_code, _auto, new_key, bucket, _record) = rotated_elsewhere(drive, Arc::clone(&b));
+        let old_key = device::load_drive_key(b.as_ref(), drive).unwrap().unwrap();
+        b.delete(&device::drive_key_entry(drive)).unwrap();
+        let wrapped = |recorded: &azul_storage::crypto::DriveKey| {
+            wrap_with(
+                Arc::clone(&b),
+                Some(Arc::new(MemoryProvider)),
+                drive,
+                bucket.clone(),
+                EncryptionRecord {
+                    encrypted: true,
+                    key_id: Some(recorded.id().to_hex()),
+                },
+                "slot-1",
+                &crate::KeyRecords::default(),
+            )
+        };
+        let invite = device::seal_invite(bucket.as_ref(), drive, &new_key).unwrap();
+        let seal = device::invite_text(&invite).to_string();
+        let (result, left) = adopt_join_key_noting(
+            b.as_ref(),
+            &wrapped(&old_key),
+            &seal,
+            Some(&new_key.id().to_hex()),
+        );
+        assert_eq!(left, None);
+        assert_eq!(
+            result,
+            Ok(true),
+            "B's drives file recorded the old key; the join brought the new one"
+        );
+        // The same join for a computer whose drives file already records the NEW key: nothing changed.
+        b.delete(&device::drive_key_entry(drive)).unwrap();
+        let invite = device::seal_invite(bucket.as_ref(), drive, &new_key).unwrap();
+        let seal = device::invite_text(&invite).to_string();
+        let (result, _) = adopt_join_key_noting(
+            b.as_ref(),
+            &wrapped(&new_key),
+            &seal,
+            Some(&new_key.id().to_hex()),
+        );
+        assert_eq!(result, Ok(false), "the recorded key is the key taken");
     }
 
     /// X-DELTA-KEYS2-5: the join with a code from the computer that rotated, the other way into
