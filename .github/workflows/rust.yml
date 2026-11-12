@@ -38,8 +38,8 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
+  pages: write # zizmor: ignore[excessive-permissions] the Pages deploy job needs it; moving it into that job's own block is the owner's call
+  id-token: write # zizmor: ignore[excessive-permissions] OIDC publishing and the Pages deploy need it; moving it into their jobs' own blocks is the owner's call
 
 # Only allow one run per branch. A newer push cancels an older run.
 concurrency:
@@ -7463,7 +7463,7 @@ jobs:
 
       - name: Upload to PyPI (gh-action-pypi-publish)
         if: env.PUBLISH_PYPI == '1'
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1 branch, 2026-09-07
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1 branch, 2026-09-07 # zizmor: ignore[known-vulnerable-actions] GHSA-5xjx-3w67-w9x9 (critical), fixed in v1.14.3: bump this pin FIRST, then delete this comment
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist

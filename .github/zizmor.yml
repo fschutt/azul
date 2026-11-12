@@ -33,21 +33,15 @@ rules:
       - ci-report.yml
       - post-release.yml
 
-  # Workflow-level write permissions that the jobs which publish need: `pages: write` + `id-token: write` in rust.yml
-  # (GitHub Pages deploy, OIDC publishing), `packages: write` in dockery.yml (push to ghcr.io). Moving them to the jobs
-  # that need them changes the token of every other job of the file.
-  excessive-permissions:
-    ignore:
-      - rust.yml:41
-      - rust.yml:42
-      - dockery.yml:38
-
-  # pypa/gh-action-pypi-publish v1.14.2 (the `pypi` job of rust.yml) has GHSA-5xjx-3w67-w9x9 (critical, published
-  # 2026-10-30: the CA of Sigstore's chain used by trusted publishing and attestations was revoked); fixed in v1.14.3.
-  # TO DO FIRST: bump the pin (`# v1.14.3`), then delete this entry. Left as it is because it is a release job.
-  known-vulnerable-actions:
-    ignore:
-      - rust.yml:7466
+  # Not in this file, but next to the code, so that they move with it (a `# zizmor: ignore[...]` comment):
+  #  - excessive-permissions: the workflow-level `pages: write` and `id-token: write` of rust.yml (GitHub Pages deploy,
+  #    OIDC publishing) and `packages: write` of dockery.yml (push to ghcr.io). Moving them into the jobs that need them
+  #    changes the token of every other job of the file.
+  #  - known-vulnerable-actions: pypa/gh-action-pypi-publish v1.14.2 (the `pypi` job of rust.yml) has GHSA-5xjx-3w67-w9x9
+  #    (critical, published 2026-10-30: the CA of Sigstore's chain used by trusted publishing and attestations was
+  #    revoked); fixed in v1.14.3. TO DO FIRST: bump the pin (`# v1.14.3`) and delete the comment. Left as it is because
+  #    it is a release job.
+  # `grep -rn 'zizmor: ignore' .github` finds them all.
 
   # `echo ... >> $GITHUB_PATH` in the Windows install job of post-release.yml.
   github-env:

@@ -35,7 +35,7 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  packages: write # zizmor: ignore[excessive-permissions] both jobs push to ghcr.io; moving it into their own blocks is the owner's call
 
 concurrency:
   group: docker-web-base-${{ github.ref }}
