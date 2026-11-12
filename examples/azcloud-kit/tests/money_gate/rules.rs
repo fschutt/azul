@@ -852,16 +852,22 @@ fn block_end(t: &[Located], open: usize) -> usize {
     t.len()
 }
 
-/// The `fn buy_on_the_payment_page` items of a file: the index of each one's name and of the `{`
+/// The `fn <name>` items of a file that have a body: the index of each one's name and of the `{`
 /// that opens its body.
-fn v1_order_fns(t: &[Located]) -> Vec<(usize, usize)> {
+fn fn_bodies(t: &[Located], name: &str) -> Vec<(usize, usize)> {
     (1..t.len())
-        .filter(|&i| ident_at(t, i, "buy_on_the_payment_page") && ident_at(t, i - 1, "fn"))
+        .filter(|&i| ident_at(t, i, name) && ident_at(t, i - 1, "fn"))
         .filter_map(|i| {
             let open = (i + 1..t.len()).find(|&k| punct_at(t, k, '{') || punct_at(t, k, ';'))?;
             punct_at(t, open, '{').then_some((i, open))
         })
         .collect()
+}
+
+/// The `fn buy_on_the_payment_page` items of a file: the index of each one's name and of the `{`
+/// that opens its body.
+fn v1_order_fns(t: &[Located]) -> Vec<(usize, usize)> {
+    fn_bodies(t, "buy_on_the_payment_page")
 }
 
 /// The first index in `from..to` where the identifiers `first :: second` stand.
@@ -1082,6 +1088,181 @@ pub fn toast_rules() -> Vec<Rule> {
     ]
 }
 
+// ==== 8. The claims timer is wired: the tick asks the clock, a run's end hands it its word ====
+
+/// A call of `add_flow::claims_if_due(`: what the period timer's tick does for the background
+/// claims. Deleting it left every test green (they call `claim_run` and the clock directly) and a
+/// receipt was asked again only in the first hour of each start (X-DELTA-MONEY6-3).
+fn claims_tick_call(t: &[Located]) -> Vec<usize> {
+    calls(t, "add_flow::claims_if_due")
+}
+
+/// The `fn claims_done` items: the one place a run's end reaches the window's clock.
+fn claims_done_fn(t: &[Located]) -> Vec<usize> {
+    fn_bodies(t, "claims_done")
+        .into_iter()
+        .map(|(name, _)| t[name].line)
+        .collect()
+}
+
+/// The `fn start_claims` items: the one place a run begins.
+fn claims_start_fn(t: &[Located]) -> Vec<usize> {
+    fn_bodies(t, "start_claims")
+        .into_iter()
+        .map(|(name, _)| t[name].line)
+        .collect()
+}
+
+/// The `fn claims_if_due` items: the tick's decision.
+fn claims_due_fn(t: &[Located]) -> Vec<usize> {
+    fn_bodies(t, "claims_if_due")
+        .into_iter()
+        .map(|(name, _)| t[name].line)
+        .collect()
+}
+
+/// Whether `.<method>(` stands among `from..to`, and, when `arg` is given, names `arg` among its
+/// arguments.
+fn method_call_in(t: &[Located], from: usize, to: usize, method: &str, arg: Option<&str>) -> bool {
+    (from..to.min(t.len())).any(|k| {
+        punct_at(t, k, '.')
+            && ident_at(t, k + 1, method)
+            && punct_at(t, k + 2, '(')
+            && arg.is_none_or(|arg| (k + 2..paren_end(t, k + 2)).any(|j| ident_at(t, j, arg)))
+    })
+}
+
+/// A `claims_done` that does not hand the run's `again_in` to the clock's `.done(`: the word of a
+/// run that ended - when the next is due - is dropped, and nothing starts another run before the
+/// next start of the app (X-DELTA-MONEY6-3, the second mutant).
+fn claims_done_drops_the_word(t: &[Located]) -> Vec<usize> {
+    fn_bodies(t, "claims_done")
+        .into_iter()
+        .filter(|&(_, open)| !method_call_in(t, open, block_end(t, open), "done", Some("again_in")))
+        .map(|(name, _)| t[name].line)
+        .collect()
+}
+
+/// A `start_claims` that does not begin the run through the clock's `.start(` before it spawns the
+/// job: the clock would not know a run goes, and the word of the last run would not be spent (the
+/// third mutant).
+fn claims_start_skips_the_clock(t: &[Located]) -> Vec<usize> {
+    fn_bodies(t, "start_claims")
+        .into_iter()
+        .filter(|&(_, open)| {
+            let close = block_end(t, open);
+            let spawn = (open..close)
+                .find(|&k| ident_at(t, k, "spawn"))
+                .unwrap_or(close);
+            !method_call_in(t, open, spawn, "start", None)
+        })
+        .map(|(name, _)| t[name].line)
+        .collect()
+}
+
+/// A `claims_if_due` that does not ask the clock (`.due(`) or does not start the claims
+/// (`start_claims(`) when it says so.
+fn claims_due_skips_the_clock(t: &[Located]) -> Vec<usize> {
+    fn_bodies(t, "claims_if_due")
+        .into_iter()
+        .filter(|&(_, open)| {
+            let close = block_end(t, open);
+            let asks = method_call_in(t, open, close, "due", None);
+            let starts =
+                (open..close).any(|k| ident_at(t, k, "start_claims") && punct_at(t, k + 1, '('));
+            !(asks && starts)
+        })
+        .map(|(name, _)| t[name].line)
+        .collect()
+}
+
+pub const CLAIMS_TICK: &str = "claims-timer-ticks";
+pub const CLAIMS_DONE_FN: &str = "claims-done-function";
+pub const CLAIMS_START_FN: &str = "claims-start-function";
+pub const CLAIMS_DUE_FN: &str = "claims-if-due-function";
+pub const CLAIMS_DONE_WORD: &str = "claims-done-hands-on-the-word";
+pub const CLAIMS_START_CLOCK: &str = "claims-start-goes-through-the-clock";
+pub const CLAIMS_DUE_CLOCK: &str = "claims-tick-asks-the-clock";
+
+#[must_use]
+pub fn claims_timer_rules() -> Vec<Rule> {
+    vec![
+        Rule::new(
+            CLAIMS_TICK,
+            claims_tick_call,
+            &["crate::add_flow::claims_if_due(&mut callback_info, &app, &mut s);"],
+            &[
+                "fn claims_if_due(info: &mut CallbackInfo) {}",
+                "s.claims_if_due(info);",
+                "crate::cash::look_if_due(&mut callback_info, &app, &mut s);",
+            ],
+        ),
+        Rule::new(
+            CLAIMS_DONE_FN,
+            claims_done_fn,
+            &["fn claims_done() {}"],
+            &["fn claims_done_twice() {}", "let claims_done = 1;"],
+        ),
+        Rule::new(
+            CLAIMS_START_FN,
+            claims_start_fn,
+            &["fn start_claims() {}"],
+            &["fn start_claims_now() {}", "let start_claims = 1;"],
+        ),
+        Rule::new(
+            CLAIMS_DUE_FN,
+            claims_due_fn,
+            &["fn claims_if_due() {}"],
+            &["fn claims_if_dues() {}", "let claims_if_due = 1;"],
+        ),
+        Rule::new(
+            CLAIMS_DONE_WORD,
+            claims_done_drops_the_word,
+            &[
+                // the word is never handed on
+                "fn claims_done(s: &mut DriveState, problem: Option<Text>, again_in: Option<u64>) { \
+                 let say = s.claims.done(problem, None, now_secs(), mono_secs()); }",
+                // no clock at all
+                "fn claims_done(s: &mut DriveState, problem: Option<Text>, again_in: Option<u64>) { \
+                 s.claiming = false; }",
+            ],
+            &[
+                "fn claims_done(s: &mut DriveState, problem: Option<Text>, again_in: Option<u64>) { \
+                 let say = s.claims.done(problem, again_in, now_secs(), mono_secs()); }",
+                "fn claims_done_elsewhere() { s.claims.done(problem, None, 0, 0); }",
+            ],
+        ),
+        Rule::new(
+            CLAIMS_START_CLOCK,
+            claims_start_skips_the_clock,
+            &[
+                "fn start_claims(info: &mut CallbackInfo) { spawn(info, app, s, Job::Claims {}); }",
+                // the clock asked after the job was spawned
+                "fn start_claims(info: &mut CallbackInfo) { spawn(info, app, s, Job::Claims {}); \
+                 s.claims.start(); }",
+            ],
+            &[
+                "fn start_claims(info: &mut CallbackInfo) { if !s.claims.start() { return; } \
+                 spawn(info, app, s, Job::Claims {}); }",
+                "fn start_claims_elsewhere() { spawn(info, app, s, Job::Claims {}); }",
+            ],
+        ),
+        Rule::new(
+            CLAIMS_DUE_CLOCK,
+            claims_due_skips_the_clock,
+            &[
+                "fn claims_if_due(info: &mut CallbackInfo) { start_claims(info, app, s); }",
+                "fn claims_if_due(info: &mut CallbackInfo) { if s.claims.due(now_secs(), mono_secs()) { } }",
+            ],
+            &[
+                "fn claims_if_due(info: &mut CallbackInfo) { if s.claims.due(now_secs(), mono_secs()) { \
+                 start_claims(info, app, s); } }",
+                "fn claims_if_dues(info: &mut CallbackInfo) { start_claims(info, app, s); }",
+            ],
+        ),
+    ]
+}
+
 // ==== The allowances, and the gates ====
 
 /// A `Settled` is made in `pending/proof.rs`, from evidence nobody else can construct.
@@ -1275,6 +1456,35 @@ pub const ALLOWED_WIRING: &[Allow] = &[Allow::exactly(
      checkout in flight first",
 )];
 
+/// The claims timer's wiring: the period timer's tick calls the claims' decision once, and the
+/// three functions it goes through are each one item in one file.
+pub const ALLOWED_CLAIMS_TIMER: &[Allow] = &[
+    Allow::exactly(
+        "examples/azul-drive/src/periods.rs",
+        CLAIMS_TICK,
+        1,
+        "on_period_timer: the period timer's tick asks whether the background claims' next run is due",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/add_flow.rs",
+        CLAIMS_DONE_FN,
+        1,
+        "claims_done: the one place the end of a run reaches the window's clock",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/add_flow.rs",
+        CLAIMS_START_FN,
+        1,
+        "start_claims: the one place a run begins",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/add_flow.rs",
+        CLAIMS_DUE_FN,
+        1,
+        "claims_if_due: the tick's decision, which asks the clock",
+    ),
+];
+
 /// A renewal's toast is worded in one place from one fact: three keys in `renewals::bought_text`,
 /// one call of it and one read of the drive's period in `add_flow::renewed`.
 pub const ALLOWED_TOAST: &[Allow] = &[
@@ -1320,6 +1530,21 @@ pub fn toast_gate() -> Gate<'static> {
         roots: CLIENT,
         rules: toast_rules(),
         budget: Budget(ALLOWED_TOAST),
+        orphans: Orphans::Fail,
+    }
+}
+
+/// Gate 8: the background claims' timer is wired - the period timer's tick calls `claims_if_due`,
+/// which asks the window's clock, a run's end hands the clock its `again_in`, and a start goes
+/// through the clock (X-DELTA-MONEY6-3: no test builds a window, so a deleted call left every test
+/// green).
+#[must_use]
+pub fn claims_timer_gate() -> Gate<'static> {
+    Gate {
+        name: "money_gate: claims timer",
+        roots: CLIENT,
+        rules: claims_timer_rules(),
+        budget: Budget(ALLOWED_CLAIMS_TIMER),
         orphans: Orphans::Fail,
     }
 }

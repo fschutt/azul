@@ -370,7 +370,7 @@ pub(crate) fn looked(s: &mut DriveState) {
 /// The period timer's tick: the background claims start when a cash order's daily look is due
 /// (and none run).
 pub(crate) fn look_if_due(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    if s.claiming {
+    if s.claims.running() {
         return;
     }
     let open: Vec<String> = s

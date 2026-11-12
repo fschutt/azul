@@ -218,6 +218,8 @@ mod add_flow;
 mod cash;
 #[cfg(test)]
 mod cash_tests;
+/// When the window's timer starts the next run of the background claims: a value a test drives.
+mod claims_clock;
 /// The background claims over days: a clock that only a pause moves, a token server that
 /// remembers when it was asked.
 #[cfg(test)]
@@ -1410,12 +1412,11 @@ pub(crate) struct DriveState {
     pub unlocks: unlock::Unlocks,
     /// The action that waits for Touch ID or the password (`presence.rs`); one at a time.
     pub presence: Option<presence::Gated>,
-    /// The background claims of unfinished checkouts run (one job at a time).
-    pub claiming: bool,
-    /// When the window's timer starts the background claims again (seconds since 1970): what a
-    /// run that ended named for the checkouts it left with a pace of its own - a receipt awaited,
-    /// a payment taken back ([`add_flow::claims_if_due`]); `None`: no run named one.
-    pub claims_again_at: Option<u64>,
+    /// The background claims of unfinished checkouts: whether a run goes (one job at a time) and
+    /// when the window's timer starts the next - what a run that ended named for the checkouts it
+    /// left with a pace of its own, a receipt awaited, a payment taken back
+    /// ([`add_flow::claims_if_due`], [`claims_clock::ClaimsClock`]).
+    pub claims: claims_clock::ClaimsClock,
     /// The checkouts bought here whose payment may be under way (not claimed, not ended): a
     /// new order in the Add drive dialog asks about the first one before it makes another, so
     /// nobody pays twice. Filled by the background claims and by abandons the token server did
@@ -4455,8 +4456,7 @@ pub fn start() {
         quiet_keyring,
         unlocks: unlock::Unlocks::default(),
         presence: None,
-        claiming: false,
-        claims_again_at: None,
+        claims: claims_clock::ClaimsClock::default(),
         in_flight: Vec::new(),
         period_tokens,
         redemptions: periods::Schedule::default(),

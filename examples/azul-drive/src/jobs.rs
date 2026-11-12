@@ -3407,7 +3407,8 @@ pub(crate) fn claim_run(
         let listed = match pending::list(keyring) {
             Ok(checkouts) => checkouts,
             Err(e) => {
-                // A system without a keyring kept no checkout either: nothing to say then.
+                // A system without a keyring kept no checkout either: nothing to say then, and
+                // nothing to ask later.
                 let no_keyring = matches!(
                     e.root(),
                     CloudError::Keyring(azul_storage::keyring::KeyringError::Unavailable)
@@ -3418,7 +3419,10 @@ pub(crate) fn claim_run(
                             .arg("why", e.to_string())
                             .into()
                     }),
-                    again_in: None,
+                    // A keychain that is locked now may be open at the next tick: the list that
+                    // cannot be read is asked for again like a receipt that is awaited, and not
+                    // given up until the next start (X-DELTA-MONEY6-4).
+                    again_in: (!no_keyring).then_some(RECEIPT_LOOK_SECS),
                 };
             }
         };
@@ -3596,15 +3600,17 @@ fn wall_of(world: &ClaimsWorld<'_>) -> i64 {
 }
 
 /// [`next_look`] over the list as it stands now: what a run that ends leaves with a pace of its
-/// own. A list that cannot be read now leaves no word (`None`): the next start asks again.
-fn next_look_now(
+/// own. A list that cannot be read now leaves the next tick to try again
+/// ([`RECEIPT_LOOK_SECS`]): the run that ends here has no next round to fail the read loudly, and a
+/// receipt or a payment taken back that nothing asks about again is the defect (X-DELTA-MONEY6-4).
+pub(crate) fn next_look_now(
     world: &ClaimsWorld<'_>,
     keyring: &SharedKeyring,
     asked: &HashMap<String, (u64, u64)>,
 ) -> Option<u64> {
-    // collapse-ok: the timer is the second chance of an ask that is not due before the next
-    // start in any case; a list that cannot be read here fails the next round's read loudly
-    let listed = pending::list(keyring).ok()?;
+    let Ok(listed) = pending::list(keyring) else {
+        return Some(RECEIPT_LOOK_SECS);
+    };
     next_look(&listed, asked, (world.mono)(), wall_of(world))
 }
 /// The drive a price notice is written to: the encryption's gate (`AutoEncrypted`), which takes a write only

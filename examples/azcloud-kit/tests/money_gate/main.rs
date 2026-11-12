@@ -32,7 +32,11 @@
 //! 7. a claimed renewal's toast is worded anywhere but `renewals::bought_text`, or `renewed` does
 //!    not call it with `month_due_at_once` (X-DELTA-MONEY2-13), or that fact does not decide the
 //!    `Takes::of` the words follow, or the words are not asked with the `takes` it made
-//!    (X-DELTA-INTEGRITY3-20).
+//!    (X-DELTA-INTEGRITY3-20);
+//! 8. the background claims' timer is not wired: the period timer's tick does not call
+//!    `claims_if_due`, which does not ask the window's clock and start the claims, `claims_done`
+//!    does not hand the clock the run's `again_in`, or `start_claims` does not begin a run through
+//!    it (X-DELTA-MONEY6-3).
 //!
 //! The allowances name the file, the rule, how many and why. A hit no allowance takes fails, an
 //! allowance whose count is not the code's fails and so does one nothing uses any more: the
@@ -44,7 +48,8 @@ mod rules;
 
 use azlin_contract::{CheckoutRefusal, ClaimRefusal, IssueRefusal, RedeemRefusal};
 use rules::{
-    default_gate, pair_gate, refusal_gate, settled_gate, show_gate, toast_gate, wiring_gate,
+    claims_timer_gate, default_gate, pair_gate, refusal_gate, settled_gate, show_gate, toast_gate,
+    wiring_gate,
 };
 
 /// The issue refusals' words that no other refusal shares with a meaning of its own
@@ -132,6 +137,16 @@ fn the_order_button_of_the_v1_page_ends_a_checkout_in_flight_before_it_orders() 
 #[test]
 fn a_renewals_toast_is_worded_from_what_the_vault_will_do_and_renewed_asks_for_it() {
     toast_gate().run();
+}
+
+/// X-DELTA-MONEY6-3: the background claims' timer is wired. `on_period_timer` needs a window's
+/// `CallbackInfo` and the claims' functions a `DriveState`, which no test builds: the clock they hold
+/// ([`ClaimsClock`], driven by `claims_tests`) is tested, and this gate holds what the tests cannot
+/// reach - the tick's call of `claims_if_due`, the clock it asks, the word `claims_done` hands it
+/// and the start that goes through it. Deleting any of the three lines turns this red.
+#[test]
+fn the_claims_timer_is_wired_the_tick_asks_the_clock_and_a_runs_end_hands_it_its_word() {
+    claims_timer_gate().run();
 }
 
 /// The hand-listed words are words of the contract: one that is not any more (renamed, removed)

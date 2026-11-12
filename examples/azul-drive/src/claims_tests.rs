@@ -1,12 +1,13 @@
 //! The background claims over time (X-DELTA-MONEY5-4, X-DELTA-MONEY5-1, X-DELTA-MONEY5-5): runs of
 //! [`claim_run`] on a clock that only a pause moves, against a token server that remembers when it
 //! was asked - days of the claims in a moment. No window: what a run says is collected, and the
-//! window's timer ([`claims_due`]) is played by the test.
+//! window's side - what it does with `Outcome::ClaimsDone`, the period timer's tick - is played
+//! through the [`ClaimsClock`] the window holds (X-DELTA-MONEY6-3).
 
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
 };
@@ -16,14 +17,17 @@ use azcloud_kit::{
     ClaimKey, PendingCheckout, PeriodTokenStore, SharedKeyring,
 };
 use azul_storage::{
-    keyring::{KeyringNamespace, MemoryKeyring},
+    keyring::{KeyringError, KeyringNamespace, KeyringStore, MemoryKeyring},
     testing::TempDir,
     HttpCall, HttpReply, Transport,
 };
 
 use crate::{
-    add_flow::claims_due,
-    jobs::{claim_run, look_in, ClaimsWorld, Outcome, Pace, RECEIPT_LOOK_SECS},
+    claims_clock::ClaimsClock,
+    jobs::{
+        claim_run, finish_is_quiet, look_in, next_look_now, ClaimsWorld, Outcome, Pace,
+        RECEIPT_LOOK_SECS,
+    },
 };
 
 const TOKEN: &str = "http://127.0.0.1:18081";
@@ -124,9 +128,11 @@ fn run(
     claim_run(&mut world, shared, Some(TOKEN), store, &HashMap::new(), DAY)
 }
 
-/// The window's side, played: a run at the clock's now, and the next run when the last one says
-/// it is due - [`claims_due`] is what the period timer asks - until a run says nothing is left (or
-/// `runs` runs are gone). How many runs there were.
+/// The window's side, played through the clock the window holds ([`ClaimsClock`]): the app's start
+/// begins a run at the clock's now, what the run says (`Outcome::ClaimsDone`) is handed to the
+/// clock the way the window's dispatch does, and the next run starts when the period timer's tick
+/// ([`ClaimsClock::due`]) says it is due - until a run says nothing is left (or `runs` runs are
+/// gone). How many runs there were.
 fn until_nothing_is_left(
     clock: &Arc<Clock>,
     server: &Server,
@@ -135,19 +141,23 @@ fn until_nothing_is_left(
     said: &mut Vec<Outcome>,
     runs: usize,
 ) -> usize {
+    let mut window = ClaimsClock::default();
     for made in 1..=runs {
+        assert!(window.start(), "the app's start or the timer begins a run");
         match run(clock, server, shared, store, said) {
-            Outcome::ClaimsDone {
-                again_in: Some(secs),
-                ..
-            } => {
-                let at = clock.now() + secs;
-                assert!(!claims_due(Some(at), false, at - 1), "not a second early");
-                assert!(!claims_due(Some(at), true, at), "never while a run goes");
-                assert!(claims_due(Some(at), false, at), "due at its time");
-                clock.set(at);
+            Outcome::ClaimsDone { problem, again_in } => {
+                let now = clock.now();
+                let _ = window.done(problem, again_in, now, now);
+                let Some(secs) = again_in else {
+                    return made;
+                };
+                assert!(
+                    !window.due(now + secs - 1, now + secs - 1),
+                    "not a second early"
+                );
+                assert!(window.due(now + secs, now + secs), "due at its time");
+                clock.set(now + secs);
             }
-            Outcome::ClaimsDone { again_in: None, .. } => return made,
             _ => panic!("a run ends with ClaimsDone"),
         }
     }
@@ -295,11 +305,15 @@ fn x_delta_money5_4_the_receipt_that_is_booked_on_the_second_day_ends_the_asking
 /// starts nothing; a run that named nothing leaves nothing to start.
 #[test]
 fn x_delta_money5_4_the_timer_starts_a_run_only_when_one_is_due_and_none_goes() {
-    assert!(!claims_due(None, false, u64::MAX), "no run named a time");
-    assert!(!claims_due(Some(1_000), false, 999));
-    assert!(claims_due(Some(1_000), false, 1_000));
-    assert!(claims_due(Some(1_000), false, 5_000));
-    assert!(!claims_due(Some(1_000), true, 5_000), "one runs");
+    let mut window = ClaimsClock::default();
+    assert!(!window.due(u64::MAX, u64::MAX), "no run named a time");
+    assert!(window.start());
+    assert!(window.done(None, Some(1_000), 0, 0).is_none());
+    assert!(!window.due(999, 999));
+    assert!(window.due(1_000, 1_000));
+    assert!(window.due(5_000, 5_000));
+    assert!(window.start());
+    assert!(!window.due(5_000, 5_000), "one runs");
 }
 
 /// X-DELTA-MONEY5-1, the claims' pace: a checkout whose payment was taken back is asked once a day
@@ -455,3 +469,283 @@ fn the_pace_of_a_kept_checkout_is_decided_by_what_it_waits_for() {
     // every round: an entry the run has no pace of its own for
     assert_eq!(look_in(&plain, None, 5_000, wall), (Pace::Rounds, 0));
 }
+
+/// X-DELTA-MONEY6-1: what the claims say to the window of a paid grant whose month the token server
+/// holds back for a stop a restore lifts. The call that lets the entry go says it once
+/// (`Finished::Stopped`); the rounds in which the entry waits for the drive's vault with nothing new
+/// to say (`Waits` with no month) stay quiet, so the warning is not repeated every round.
+#[test]
+fn x_delta_money6_1_the_claims_say_a_stop_once_and_stay_quiet_while_the_entry_waits() {
+    use azcloud_kit::Finished;
+    assert!(!finish_is_quiet(&Finished::Stopped {
+        drive_id: String::from("d_1"),
+        why: String::from("its payment mandate was stopped after payments went back"),
+        days: 90,
+    }));
+    assert!(finish_is_quiet(&Finished::Waits {
+        drive_id: String::from("d_1"),
+        count: 0,
+        why: String::from("the drive keeps no vault for it yet"),
+    }));
+    // a final end is said, as before
+    assert!(!finish_is_quiet(&Finished::Dropped(String::from(
+        "the token server takes no issue key of this checkout"
+    ))));
+}
+
+// ==== X-DELTA-MONEY6-3, -4, -5: the timer's clock ====
+
+/// A keyring whose reads and writes can be refused on demand: a locked macOS keychain or Secret
+/// Service answers an error without a prompt (the claims read through the quiet keyring), and a
+/// keychain the user said "No" to takes no write.
+struct LockedOnDemand {
+    inner: MemoryKeyring,
+    locked: AtomicBool,
+    writes_refused: AtomicBool,
+}
+
+impl LockedOnDemand {
+    fn open() -> Arc<LockedOnDemand> {
+        Arc::new(LockedOnDemand {
+            inner: MemoryKeyring::new(),
+            locked: AtomicBool::new(false),
+            writes_refused: AtomicBool::new(false),
+        })
+    }
+}
+
+impl KeyringStore for LockedOnDemand {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        if self.locked.load(Ordering::SeqCst) {
+            return Err(KeyringError::Failed(String::from("the keychain is locked")));
+        }
+        self.inner.get(key)
+    }
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        if self.writes_refused.load(Ordering::SeqCst) {
+            return Err(KeyringError::Denied);
+        }
+        self.inner.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        self.inner.delete(key)
+    }
+}
+
+fn keyring_over(dir: &TempDir, store: Arc<dyn KeyringStore>) -> SharedKeyring {
+    SharedKeyring::with_lock_root(
+        store,
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    )
+}
+
+/// X-DELTA-MONEY6-3: the window's clock, driven the way the window drives it - the app's start, a
+/// run's end handed over as `Outcome::ClaimsDone` carries it, the period timer's tick. A run's word
+/// (`again_in`) arms the next run on both clocks - dropping it in `done` is the defect, a receipt
+/// asked again only in the first hour of each start -, and nothing is due while a run goes.
+#[test]
+fn x_delta_money6_3_a_runs_word_arms_the_timer_on_both_clocks_and_nothing_is_due_while_one_goes() {
+    let mut window = ClaimsClock::default();
+    assert!(!window.due(u64::MAX, u64::MAX), "no run named a time");
+    // the app's start: a run goes, a second start finds it going
+    assert!(window.start());
+    assert!(window.running());
+    assert!(!window.start(), "one run at a time");
+    // the run ends with the word `590`: armed on both clocks
+    assert!(window.done(None, Some(590), 1_000, 50).is_none());
+    assert!(!window.running());
+    assert_eq!(window.named(), Some(590), "the word is kept");
+    assert!(!window.due(1_589, 639), "not before it on either clock");
+    assert!(window.due(1_590, 50), "the wall clock reached it");
+    assert!(window.due(1_000, 640), "the other clock reached it");
+    // the timer starts the run: nothing is due while it goes, whatever the clocks say
+    assert!(window.start());
+    assert!(!window.due(u64::MAX, u64::MAX), "never while a run goes");
+}
+
+/// X-DELTA-MONEY6-3: a start spends the word of the last run (this run decides when the next is
+/// due), and a run that names nothing leaves nothing to start - a clock that keeps the old word
+/// would start a run nobody asked for at every tick.
+#[test]
+fn x_delta_money6_3_a_start_spends_the_word_of_the_last_run_and_a_run_that_names_nothing_leaves_nothing(
+) {
+    let mut window = ClaimsClock::default();
+    assert!(window.start());
+    assert!(window.done(None, Some(590), 1_000, 50).is_none());
+    assert_eq!(window.named(), Some(590));
+    assert!(window.start());
+    assert_eq!(
+        window.named(),
+        None,
+        "a start spends the word of the last run"
+    );
+    assert!(window.done(None, None, 2_000, 100).is_none());
+    assert_eq!(window.named(), None);
+    assert!(
+        !window.due(u64::MAX, u64::MAX),
+        "nothing named, nothing to start"
+    );
+}
+
+/// X-DELTA-MONEY6-4: a run's problem is said once per streak of runs that had one - the timer
+/// tries a locked keychain again every ten minutes, and a warning every ten minutes is no help; a
+/// run that ended without a problem ends the streak, so the next failure says it again.
+#[test]
+fn x_delta_money6_4_a_streak_of_failing_runs_says_its_problem_once() {
+    let mut window = ClaimsClock::default();
+    let problem = || Some(azul_appkit::l10n::Text::key("azdrive-pay-checkouts-unread"));
+    assert!(window.start());
+    assert!(
+        window.done(problem(), Some(600), 3_000, 200).is_some(),
+        "said the first time"
+    );
+    assert!(window.start());
+    assert!(
+        window.done(problem(), Some(600), 3_600, 800).is_none(),
+        "not again while it goes on"
+    );
+    assert!(window.start());
+    assert!(window.done(None, None, 4_200, 1_400).is_none());
+    assert!(window.start());
+    assert!(
+        window.done(problem(), None, 4_800, 2_000).is_some(),
+        "a new streak says it again"
+    );
+}
+
+/// X-DELTA-MONEY6-4, through the claims run: AzDrive stays open for days with a card sale whose
+/// receipt is awaited; the run that would arm the timer reads the list through the quiet keyring,
+/// and a locked keychain answers an error without a prompt. The old run said `again_in: None`: the
+/// timer was disarmed until the next start and a receipt awaited "for the whole wait" was asked no
+/// more. Now the run says one warning and names the next try, the timer starts it, and once the
+/// keychain opens the receipt is asked; a second failing run in a row says nothing new.
+#[test]
+fn x_delta_money6_4_a_run_whose_list_cannot_be_read_names_the_next_run_and_the_timer_starts_it() {
+    let dir = TempDir::new("azdrive-claims");
+    let locked = LockedOnDemand::open();
+    let shared = keyring_over(&dir, locked.clone());
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let origin = start();
+    let clock = Clock::at(origin);
+    pending::add(&shared, &waiting_for_its_receipt(origin)).unwrap();
+    let server = Server::new(&clock, |_| {
+        String::from(
+            r#"{"checkout_id": "ck_1", "status": "approved", "tier": "100GB", "months": 12}"#,
+        )
+    });
+    let mut window = ClaimsClock::default();
+    let mut said = Vec::new();
+
+    // the app's start finds the keychain locked
+    locked.locked.store(true, Ordering::SeqCst);
+    assert!(window.start());
+    let Outcome::ClaimsDone { problem, again_in } =
+        run(&clock, &server, &shared, &store, &mut said)
+    else {
+        panic!("a run ends with ClaimsDone");
+    };
+    assert!(problem.is_some(), "the user is told once");
+    assert_eq!(
+        again_in,
+        Some(RECEIPT_LOOK_SECS),
+        "and the next try is named"
+    );
+    assert!(window
+        .done(problem, again_in, clock.now(), clock.now())
+        .is_some());
+    assert!(server.asked().is_empty());
+
+    // the timer ticks before the time: nothing; at the time: the next run is due
+    clock.set(origin + RECEIPT_LOOK_SECS - 1);
+    assert!(!window.due(clock.now(), clock.now()));
+    clock.set(origin + RECEIPT_LOOK_SECS);
+    assert!(
+        window.due(clock.now(), clock.now()),
+        "the timer starts the next run"
+    );
+
+    // that run finds the keychain locked still: no second warning, and the next try is named again
+    assert!(window.start());
+    let Outcome::ClaimsDone { problem, again_in } =
+        run(&clock, &server, &shared, &store, &mut said)
+    else {
+        panic!("a run ends with ClaimsDone");
+    };
+    assert_eq!(again_in, Some(RECEIPT_LOOK_SECS));
+    assert!(
+        window
+            .done(problem, again_in, clock.now(), clock.now())
+            .is_none(),
+        "a streak of failing runs says it once"
+    );
+
+    // the keychain opens: the next run asks for the receipt
+    locked.locked.store(false, Ordering::SeqCst);
+    clock.set(clock.now() + RECEIPT_LOOK_SECS);
+    assert!(window.due(clock.now(), clock.now()));
+    assert!(window.start());
+    let Outcome::ClaimsDone { problem, .. } = run(&clock, &server, &shared, &store, &mut said)
+    else {
+        panic!("a run ends with ClaimsDone");
+    };
+    assert!(problem.is_none());
+    assert_eq!(server.asked().len(), 1, "the receipt was asked for");
+}
+
+/// X-DELTA-MONEY6-4, the run that ends at its one-hour limit: the list read that says what is left
+/// to ask later fails there too - and there is no next round to fail it loudly. It leaves the next
+/// tick to try again, where the old code returned `None` and disarmed the timer.
+#[test]
+fn x_delta_money6_4_a_list_that_cannot_be_read_at_the_end_of_a_run_leaves_the_next_tick_to_try_again(
+) {
+    let dir = TempDir::new("azdrive-claims");
+    let locked = LockedOnDemand::open();
+    let shared = keyring_over(&dir, locked.clone());
+    let origin = start();
+    let clock = Clock::at(origin);
+    pending::add(&shared, &waiting_for_its_receipt(origin)).unwrap();
+    let transport = Server::new(&clock, |_| String::new());
+    let mut say = |_outcome: Outcome| {};
+    let world = ClaimsWorld {
+        transport: &transport,
+        mono: &|| clock.now(),
+        wall: &|| clock.now(),
+        sleep: &|_| {},
+        say: &mut say,
+    };
+    let asked = HashMap::new();
+    // readable: the receipt's own pace
+    assert_eq!(next_look_now(&world, &shared, &asked), Some(0));
+    // locked: try again at the next tick
+    locked.locked.store(true, Ordering::SeqCst);
+    assert_eq!(
+        next_look_now(&world, &shared, &asked),
+        Some(RECEIPT_LOOK_SECS)
+    );
+}
+
+/// X-DELTA-MONEY6-5: a laptop boots with a wrong clock (a dead CMOS battery: a year ahead), AzDrive
+/// starts, a run ends and arms the timer; the network time then steps the clock back a year. An
+/// absolute wall time (`now + again_in`, a year ahead) postponed the next ask by the size of the
+/// step - no receipt, no daily taken-back ask, until the next start. The run's word is also counted
+/// on a clock that never steps, so the next run is due after `again_in` seconds all the same - and a
+/// machine that slept for days (its monotonic clock stopped) is due by the wall clock at once.
+#[test]
+fn x_delta_money6_5_a_wall_clock_stepped_back_does_not_postpone_the_next_ask() {
+    let real = start();
+    let a_year = 365 * DAY;
+    let mut window = ClaimsClock::default();
+    assert!(window.start());
+    // the run ends while the wall clock says a year ahead; 590 seconds on both clocks
+    let wrong_now = real + a_year;
+    assert!(window.done(None, Some(590), wrong_now, 1_000).is_none());
+    // the network time steps the wall clock back to the real time: 589 seconds on, not due
+    assert!(!window.due(real, 1_589));
+    // 590 seconds on the clock that never steps: due, though the wall clock is a year below the time
+    // the run armed (the old `claims_due(Some(at), false, now)` was false for a year)
+    assert!(window.due(real, 1_590));
+    // the other way: the machine slept for three days, the monotonic clock stood still
+    assert!(window.due(wrong_now + 3 * DAY, 1_000));
+}
+
