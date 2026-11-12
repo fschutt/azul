@@ -65,7 +65,10 @@ commands:
                                  stdin, never the command line)
   rotate --yes [--out F]         \"I was hacked\": locks the drive down (every other device, key and
                                  link), then a new drive key; the new RECOVERY CODE shows once
-  reencrypt                      after rotate: every file into a new object (recommended)
+  reencrypt [--erase-old-versions --yes]
+                                 after rotate: every file into a new object (recommended);
+                                 with --erase-old-versions --yes the old versions - the objects the
+                                 old key still opens - are erased for good once it is done
   packs [--grace-days D]         the packs small files share: uploads a crash left half done
                                  cleared up, packs under half live repacked, retired packs
                                  deleted D days after they were retired (default 30)
@@ -166,6 +169,7 @@ const SWITCHES: &[&str] = &[
     "-h",
     "--no-refresh",
     "--allow-plain-secrets",
+    "--erase-old-versions",
 ];
 
 /// The command line, parsed.
@@ -1281,29 +1285,61 @@ fn cmd_rotate(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
     Ok((value, text))
 }
 
+/// Whether `azcloud reencrypt` also erases the old versions (X-DELTA-SYNC6-3). The erase cannot be
+/// taken back - the history before it is gone - so it takes both words, as every destructive command
+/// here does: `--erase-old-versions` alone is refused and says what it would do.
+#[cfg(feature = "encryption")]
+fn erase_old_versions_asked(args: &Args) -> Result<bool> {
+    match (args.on("--erase-old-versions"), args.on("--yes")) {
+        (false, _) => Ok(false),
+        (true, true) => Ok(true),
+        (true, false) => bail!(
+            "azcloud reencrypt --erase-old-versions --yes: once every file is in a new object, \
+             erases the old versions too - the objects the old drive key still opens - for good; \
+             they cannot be restored afterwards. Without it they stay restorable until the \
+             history's retention is over"
+        ),
+    }
+}
+
 #[cfg(feature = "encryption")]
 fn cmd_reencrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> {
+    // Before anything is read or written: the words are checked first.
+    let erase = erase_old_versions_asked(args)?;
     let account = encrypted_account(settings, net, args)?;
     let device = account.state().device(args.value("--device-name"))?;
     let provider = index_provider(account.state(), &device.name, announced_restore(account.record().restore.clone()));
     let keyring = account.state().secrets();
     let mut state =
         azul_storage::rotation::ReencryptState::new(azul_storage::time::now_unix());
+    if erase {
+        // The confirmation first, as the pass's docs describe: what the pass replaces after the
+        // click is what the erase is for, and the erase takes only what was confirmed.
+        state.confirm_purge(azul_storage::time::now_unix());
+    }
     let done = account.reencrypt(&keyring, provider.as_ref(), &mut state, &mut |_| Ok(()), &|| false)?;
     let id = account.record().id.clone();
-    let value = json!({"ok": done, "drive": id, "reencrypted": state.done, "failed": state.failed});
-    Ok((
-        value,
-        format!(
-            "drive {id}: {} files in new objects{}\n",
-            state.done,
-            if state.failed > 0 {
-                format!(", {} damaged ones left as they were", state.failed)
-            } else {
-                String::new()
-            }
-        ),
-    ))
+    let mut value = json!({"ok": done, "drive": id, "reencrypted": state.done, "failed": state.failed});
+    let mut text = format!(
+        "drive {id}: {} files in new objects{}\n",
+        state.done,
+        if state.failed > 0 {
+            format!(", {} damaged ones left as they were", state.failed)
+        } else {
+            String::new()
+        }
+    );
+    if erase && done {
+        let report = account.erase_old_versions(&keyring, provider.as_ref(), &state)?;
+        value["erased"] = json!({
+            "objects": report.deleted,
+            "bytes": report.deleted_bytes,
+            "failed": report.failed,
+            "stopped": report.stopped.as_ref().map(|why| format!("{why:?}")),
+        });
+        text.push_str(&format!("{}\n", report.line()));
+    }
+    Ok((value, text))
 }
 
 /// The upkeep of an encrypted drive's packs of small files: what an idle AzDrive does every six
@@ -1611,6 +1647,23 @@ mod tests {
         assert!(Args::parse(&argv("ls --json=1")).is_err());
         let b = Args::parse(&argv("join - -- --not-a-flag")).unwrap();
         assert_eq!(b.positional, vec!["join", "-", "--not-a-flag"]);
+    }
+
+    /// X-DELTA-SYNC6-3: the erase of the old versions needs both words; one alone is refused with the
+    /// sentence that says what it does, and a plain `reencrypt` erases nothing.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_sync6_3_the_erase_of_old_versions_needs_both_words() {
+        let none = Args::parse(&argv("reencrypt")).unwrap();
+        assert!(!erase_old_versions_asked(&none).unwrap());
+        let yes_only = Args::parse(&argv("reencrypt --yes")).unwrap();
+        assert!(!erase_old_versions_asked(&yes_only).unwrap());
+        let both = Args::parse(&argv("reencrypt --erase-old-versions --yes")).unwrap();
+        assert!(erase_old_versions_asked(&both).unwrap());
+        let alone = Args::parse(&argv("reencrypt --erase-old-versions")).unwrap();
+        let refused = erase_old_versions_asked(&alone).unwrap_err().to_string();
+        assert!(refused.contains("for good") && refused.contains("--yes"), "{refused}");
+        assert!(USAGE.contains("--erase-old-versions"), "the usage offers it");
     }
 
     #[test]
