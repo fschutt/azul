@@ -6070,37 +6070,85 @@ mod tests {
         assert_eq!(cloud.gets(), 1, "fetched once");
     }
 
+    /// `time` set on `path`, a file or a folder.
+    #[cfg(unix)]
+    fn made_old(path: &Path, time: SystemTime) {
+        fs::File::open(path).unwrap().set_modified(time).unwrap();
+    }
+
+    /// Notes the copy `name` of the kept `folder` as made AFTER everything in the folder was aged
+    /// to `time`: what a copy that was made then and has not been touched since looks like. A
+    /// record names the time of the file it describes, so a file aged after it was noted is
+    /// "another file" to it ([`MadeState::Changed`]) and its folder the user's work - which is what
+    /// a sweep must see only of a file somebody really wrote -; and writing the record changes the
+    /// folder, which makes it young again, so the record and the folder are aged last. The same
+    /// order as the kit's and the storage's sweep tests (`note_made_long_ago`, `grown_old`) and the
+    /// picker's (X-DELTA-SYNC2-4).
+    #[cfg(unix)]
+    fn note_made_long_ago(folder: &Path, name: &str, time: SystemTime) {
+        use azul_storage::scratch::MadeState;
+
+        Scratch::note_made(folder, name).unwrap();
+        made_old(&folder.join(".made.json"), time);
+        made_old(folder, time);
+        assert_eq!(
+            Scratch::made_state(folder, name),
+            MadeState::Untouched,
+            "the copy is the file that was written, three days on"
+        );
+    }
+
     /// X-DELTA-AZDRIVE-FILES-7: a folder that holds work of the user's is never swept, however old;
     /// the same age takes an untouched copy's folder (and one no record names) away.
+    ///
+    /// The copies are aged the way time ages them: every file of both folders is made three days
+    /// old, and the two copies nobody touched are noted AFTER that (`note_made_long_ago`). The
+    /// first version of this test aged the files after the copies were noted, so each record named
+    /// a time its file no longer had, both folders held "a file that is no longer what was
+    /// written", and the sweep took none (left 0, right 1) - the sweep was right, and the fixture
+    /// was not a copy that time had aged.
     #[cfg(unix)]
     #[test]
     fn x_delta_azdrive_files_7_a_folder_that_holds_an_edit_is_never_swept() {
         let base = TempDir::new("dx7-sweep");
         let (copies, cloud, path) = opened_report(&base);
         let folder = path.parent().unwrap().to_path_buf();
-        // A second file's copy, untouched; both folders become three days old.
+        // A second file's copy, untouched.
         let other = opened_copy(&cloud, &copies, "docs/other.docx").unwrap();
         let other_folder = other.parent().unwrap().to_path_buf();
+        assert_ne!(other_folder, folder, "two files, two folders");
         // The user saves beside the copy ("Save As" in the folder the editor proposes).
-        fs::write(folder.join("report - my version.docx"), b"my version").unwrap();
+        let mine = folder.join("report - my version.docx");
+        fs::write(&mine, b"my version").unwrap();
+        // Three days go by: everything in both folders is that old (a kept folder is as old as the
+        // newest thing in it), and the copies are the files that were written, three days on.
         let long_ago = SystemTime::now() - OPEN_COPY_KEPT * 3;
-        // A kept folder is as old as the newest thing in it: everything in them is old.
         for dir in [&folder, &other_folder] {
             for entry in fs::read_dir(dir).unwrap() {
-                let file = fs::File::open(entry.unwrap().path()).unwrap();
-                file.set_modified(long_ago).unwrap();
+                made_old(&entry.unwrap().path(), long_ago);
             }
-            fs::File::open(dir).unwrap().set_modified(long_ago).unwrap();
         }
+        note_made_long_ago(&folder, "report.docx", long_ago);
+        note_made_long_ago(&other_folder, "other.docx", long_ago);
         let swept = copies.sweep(OPEN_COPY_KEPT);
         assert_eq!(swept, 1, "only the untouched copy's folder went");
         assert!(!other_folder.exists());
         assert_eq!(
-            fs::read(folder.join("report - my version.docx")).unwrap(),
+            fs::read(&mine).unwrap(),
             b"my version",
             "the user's file was swept with the copy's folder"
         );
         assert!(path.exists());
+        // The negative control: the folder stayed because of the user's file, not because it was
+        // young or its copy "changed". Without the file, the same folder at the same age is swept.
+        fs::remove_file(&mine).unwrap();
+        made_old(&folder, long_ago);
+        assert_eq!(
+            copies.sweep(OPEN_COPY_KEPT),
+            1,
+            "an untouched copy of that age is swept: it was the user's file that kept the folder"
+        );
+        assert!(!folder.exists());
     }
 
     /// AZ-U13: the status line says that a cloud file opens as a read-only copy, and a file on
