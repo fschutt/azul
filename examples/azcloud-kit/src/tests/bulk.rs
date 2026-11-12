@@ -866,3 +866,123 @@ mod encrypted {
         assert_eq!((on_drive(&drive, "new/"), on_drive(&drive, "old/")), (200, 0));
     }
 }
+
+// ==== The sync at the scale of the owner's list: twenty thousand small files (register SYNC-E7) ====
+
+mod twenty_thousand {
+    use std::{
+        collections::BTreeSet,
+        time::{Duration, Instant},
+    };
+
+    use super::super::{
+        fake_s3::S3Bucket,
+        sync::{index_of, Device, PREFIX},
+    };
+    use crate::sync::{faults, memory, remote::index_key};
+
+    /// A small file whose size is between 2 and 8 KiB and whose bytes are its own.
+    fn small(i: usize) -> Vec<u8> {
+        let size = 2048 + (i * 7919) % 6145;
+        format!("file {i}: ")
+            .into_bytes()
+            .into_iter()
+            .cycle()
+            .take(size)
+            .collect()
+    }
+
+    /// X-DELTA-EDGE (E6b, E7, T8), the register's SYNC-E7: 20,000 files of 2-8 KiB up from one device
+    /// and down to another, then a pass after locks on 200 files. Written, NOT RUN: it takes minutes
+    /// and gigabytes of churn on a laptop, so it is `#[ignore]`d and run by the coordinator's RUN step
+    /// (Z30-RUN) and by the E2E scenario `res-many-small-files-20k`. What it asserts: the whole run
+    /// is under ten minutes on the in-memory stand-in (the plan's estimate for the stage-0 stand-in;
+    /// the real drive's bound is the E2E scenario's), the process's peak resident set stays under a
+    /// gigabyte (a sync must stream, never hold a folder in memory: the bytes alone are 100 MB), a
+    /// second pass sends nothing (`blobs_up == 0`, no index written), the index is committed in a
+    /// few batches (the plain index is ONE commit; the bound is 40), and a pass that meets locks on
+    /// 200 files is followed by a pass that finishes them and a pass that is quiet.
+    #[test]
+    #[ignore = "SYNC-E7: 20,000 files (minutes of wall time, hundreds of megabytes): run by the RUN step and the E2E scenario res-many-small-files-20k"]
+    fn twenty_thousand_small_files_go_up_and_down_and_a_second_pass_sends_nothing() {
+        const FILES: usize = 20_000;
+        const LOCKED: usize = 200;
+        let started = Instant::now();
+        let store = S3Bucket::new();
+        let (up, down) = (Device::new("e7-up"), Device::new("e7-down"));
+        for i in 0..FILES {
+            up.write(&format!("many/d{:02}/f{i:05}.bin", i % 40), &small(i));
+        }
+        let sent = up.sync(&store);
+        assert_eq!(sent.files_up, FILES, "{}", sent.summary());
+        let commits = store.count_under("PUT", &index_key(PREFIX));
+        assert!(
+            commits <= 40,
+            "{commits} commits of the index for {FILES} files"
+        );
+        assert_eq!(index_of(&store).files.len(), FILES);
+
+        let got = down.sync(&store);
+        assert_eq!(got.files_down, FILES, "{}", got.summary());
+        for i in (0..FILES).step_by(97) {
+            let key = format!("many/d{:02}/f{i:05}.bin", i % 40);
+            assert_eq!(
+                down.read(&key).as_deref(),
+                Some(small(i).as_slice()),
+                "{key}"
+            );
+        }
+
+        // A second pass on either side sends nothing.
+        store.clear_log();
+        for device in [&up, &down] {
+            let quiet = device.sync(&store);
+            assert_eq!(quiet.blobs_up, 0, "{}", quiet.summary());
+            assert!(!quiet.index_written, "{}", quiet.summary());
+            assert_eq!((quiet.files_down, quiet.deleted_here), (0, 0));
+        }
+        assert_eq!(store.count("PUT"), 0, "nothing went up");
+
+        // Locks on 200 files of the second device: the pass that meets them is Ok, the next finishes
+        // them, and the one after is quiet.
+        for i in 0..LOCKED {
+            up.write(&format!("locked/f{i:03}.bin"), &small(FILES + i));
+        }
+        up.sync(&store);
+        let access_denied = faults::errno_of("EACCES").expect("a number for EACCES");
+        faults::fail_replace(down.path(), "locked/*", access_denied, 1);
+        let met = down.sync(&store);
+        assert!(
+            met.errors.len() >= LOCKED,
+            "{}: {:?}",
+            met.summary(),
+            met.errors.len()
+        );
+        let finished = down.sync(&store);
+        assert_eq!(finished.files_down, LOCKED, "{}", finished.summary());
+        let quiet = down.sync(&store);
+        assert!(!quiet.index_written, "{}", quiet.summary());
+        assert_eq!(
+            (quiet.files_down, quiet.deleted_here),
+            (0, 0),
+            "{}",
+            quiet.summary()
+        );
+        faults::clear(down.path());
+        let names: BTreeSet<String> = down.tree().keys().cloned().collect();
+        assert_eq!(names.len(), FILES + LOCKED);
+
+        assert!(
+            started.elapsed() < Duration::from_secs(600),
+            "{:?}",
+            started.elapsed()
+        );
+        if let Some(peak) = memory::peak_bytes() {
+            assert!(
+                peak < 1 << 30,
+                "the peak resident set is {} MiB",
+                peak >> 20
+            );
+        }
+    }
+}

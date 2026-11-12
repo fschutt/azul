@@ -15,6 +15,11 @@
 //!   share, a folder swapped for a file, a permission), which `chmod` alone cannot play.
 //! - **A look at every folder the scan lists** ([`set_listing_hook`]): a test hears each listing
 //!   as it happens, to count what the scan holds open at that moment.
+//! - **A file that cannot be put in place** ([`fail_replace`]): the steps that write, trash or
+//!   rename a file here (a download, a delete into the trash, a conflict's rename) meet the error
+//!   the system gives for a lock, a sharing violation or a permission, for the files whose key
+//!   matches a pattern and for a number of passes - on every host, where `chmod` plays it on Unix
+//!   only.
 //!
 //! Faults are kept per synced folder, the pairing's folder exactly as its setup names it, so a
 //! process that syncs several folders (AzDrive's E2E devices) faults each on its own. Nothing is
@@ -96,6 +101,11 @@ struct Faults {
     readdir_now: BTreeMap<String, i32>,
     /// Told the key of every folder right before a scan lists it.
     listing: Option<Listing>,
+    /// Key patterns whose files cannot be put in place for the next scans' passes: the error
+    /// number and how many are left.
+    replace_errors: BTreeMap<String, (i32, u32)>,
+    /// The patterns that fail in the pass running now (taken at its scan).
+    replace_now: BTreeMap<String, i32>,
 }
 
 impl Faults {
@@ -110,6 +120,8 @@ impl Faults {
             && self.readdir_errors.is_empty()
             && self.readdir_now.is_empty()
             && self.listing.is_none()
+            && self.replace_errors.is_empty()
+            && self.replace_now.is_empty()
     }
 }
 
@@ -329,6 +341,12 @@ pub fn scan_started(root: &Path) {
         *left -= 1;
     }
     f.readdir_errors.retain(|_, (_, left)| *left > 0);
+    f.replace_now.clear();
+    for (pattern, (errno, left)) in &mut f.replace_errors {
+        f.replace_now.insert(pattern.clone(), *errno);
+        *left -= 1;
+    }
+    f.replace_errors.retain(|_, (_, left)| *left > 0);
     if f.is_empty() {
         all.remove(root);
     }
@@ -344,6 +362,69 @@ pub fn readdir_error(root: &Path, folder: &str) -> Option<std::io::Error> {
     all.get(root)
         .and_then(|f| f.readdir_now.get(folder.trim_matches('/')))
         .map(|errno| std::io::Error::from_raw_os_error(*errno))
+}
+
+/// Makes the steps of `root`'s passes that put a file in place - a download written, a delete moved
+/// into the trash, a conflict's rename - fail with the OS error `errno` for every key that matches
+/// `key_glob` (`*` any run of characters, `?` one), in the next `passes` passes (counted at their
+/// scans). Nothing is changed by a step that fails: the file is as it was.
+pub fn fail_replace(root: &Path, key_glob: &str, errno: i32, passes: u32) {
+    with(root, |f| {
+        if passes == 0 {
+            f.replace_errors.remove(key_glob);
+        } else {
+            f.replace_errors
+                .insert(key_glob.to_string(), (errno, passes));
+        }
+    });
+}
+
+/// Whether the step that puts the file of `key` in place may go ahead: the error a pattern of
+/// [`fail_replace`] gives while its passes last. A pass calls it before it writes, trashes or renames
+/// a file of the folder.
+///
+/// # Errors
+///
+/// The OS error a test harness played for the file.
+pub fn check_replace(root: &Path, key: &str) -> std::io::Result<()> {
+    let all = faults();
+    if all.is_empty() {
+        return Ok(());
+    }
+    match all.get(root).and_then(|f| {
+        f.replace_now
+            .iter()
+            .find(|(pattern, _)| glob_matches(pattern, key))
+    }) {
+        Some((_, errno)) => Err(std::io::Error::from_raw_os_error(*errno)),
+        None => Ok(()),
+    }
+}
+
+/// Whether `text` matches `pattern`, `*` standing for any run of characters (a `/` too) and `?` for
+/// one.
+fn glob_matches(pattern: &str, text: &str) -> bool {
+    let (pattern, text): (Vec<char>, Vec<char>) =
+        (pattern.chars().collect(), text.chars().collect());
+    let (mut p, mut t) = (0, 0);
+    // Where the last `*` was, and the text it covers so far.
+    let mut star: Option<(usize, usize)> = None;
+    while t < text.len() {
+        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == text[t]) {
+            p += 1;
+            t += 1;
+        } else if p < pattern.len() && pattern[p] == '*' {
+            star = Some((p, t));
+            p += 1;
+        } else if let Some((at, covered)) = star {
+            p = at + 1;
+            t = covered + 1;
+            star = Some((at, covered + 1));
+        } else {
+            return false;
+        }
+    }
+    pattern[p..].iter().all(|c| *c == '*')
 }
 
 /// Has `hook` told the key of every folder (`""` the top) the scans of `root` list, right before
@@ -431,6 +512,40 @@ mod tests {
         assert_eq!(pass.join().expect("the pass ends"), "went on");
         assert_eq!(paused_at(&r), None);
         clear(&r);
+    }
+
+    #[test]
+    fn a_replace_fails_for_the_files_a_pattern_names_and_for_the_passes_it_was_set_for() {
+        let r = root("replace");
+        fail_replace(&r, "f2/*", 13, 2);
+        // Not armed until a pass starts: the pass that is running now is another.
+        assert!(check_replace(&r, "f2/a.txt").is_ok());
+        scan_started(&r);
+        let e = check_replace(&r, "f2/a.txt").expect_err("the first pass fails it");
+        assert_eq!(e.raw_os_error(), Some(13));
+        assert!(
+            check_replace(&r, "f1/a.txt").is_ok(),
+            "another folder is not named"
+        );
+        scan_started(&r);
+        assert!(
+            check_replace(&r, "f2/deep/b.txt").is_err(),
+            "the second pass too"
+        );
+        scan_started(&r);
+        assert!(check_replace(&r, "f2/a.txt").is_ok(), "the third is free");
+        clear(&r);
+    }
+
+    #[test]
+    fn a_glob_takes_a_star_for_any_run_and_a_question_mark_for_one_character() {
+        assert!(glob_matches("f?/*.txt", "f2/a/b.txt"));
+        assert!(glob_matches("*", ""));
+        assert!(glob_matches("a*b*c", "aXXbYYc"));
+        assert!(!glob_matches("a*b*c", "aXXbYY"));
+        assert!(!glob_matches("f?", "f"));
+        assert!(glob_matches("exact", "exact"));
+        assert!(!glob_matches("exact", "exactly"));
     }
 
     #[test]

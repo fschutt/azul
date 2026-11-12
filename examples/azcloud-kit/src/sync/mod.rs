@@ -2470,7 +2470,9 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         continue;
                     }
                 };
-                let moved = dir.rename(name, &trash, &target);
+                let moved = faults::check_replace(&root.path, key)
+                    .map_err(BeneathError::from)
+                    .and_then(|()| dir.rename(name, &trash, &target));
                 if moved.is_ok() {
                     trash.sync();
                     dir.sync();
@@ -2567,7 +2569,9 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         continue;
                     }
                 };
-                let renamed = dir.rename(name, &dir, copy_name);
+                let renamed = faults::check_replace(&root.path, key)
+                    .map_err(BeneathError::from)
+                    .and_then(|()| dir.rename(name, &dir, copy_name));
                 if renamed.is_ok() {
                     dir.sync();
                 }
@@ -2619,6 +2623,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 let Some(m) = merged.get(key) else { continue };
                 let expect = scan.files.get(key);
                 let written = faults::check_write(&root.path)
+                    .and_then(|()| faults::check_replace(&root.path, key))
                     .map_err(|e| Replace::Failed(e.into()))
                     .and_then(|()| names::walk_record(&tree, here).map_err(Replace::Failed))
                     .and_then(|(dir, name)| {
@@ -2792,7 +2797,9 @@ fn write_download(
     // caught there.
     hooks.point("before-rename");
     // A disk played full by a test harness fails the write as a full disk does.
-    let written = match faults::check_write(&root.path) {
+    let written = match faults::check_write(&root.path)
+        .and_then(|()| faults::check_replace(&root.path, &d.key))
+    {
         Err(e) => Err(Replace::Failed(e.into())),
         Ok(()) => match &blob {
             Blob::Bytes(bytes) => replace_checked(

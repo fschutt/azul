@@ -3,6 +3,7 @@
 //! what the drive and the folder hold afterwards, and the next pass.
 
 use std::{
+    collections::{BTreeMap, BTreeSet},
     fs,
     panic::{catch_unwind, AssertUnwindSafe},
     path::Path,
@@ -14,11 +15,16 @@ use azul_storage::{lock::LockDir, testing::TempDir};
 
 use super::fake_s3::S3Bucket;
 use crate::{
+    error::CloudResult,
     store::RemoteStore,
     sync::{
+        engine::{Engine, PassSummary},
         faults,
+        problems::Code,
+        quarantine::OwnDevices,
         remote::{index_key, RemoteIndex},
         session::{Resolution, SyncSession, SyncSetup, SyncStates, PASS_LOCK},
+        sync_to, LocalRoot, RunHooks, SyncOptions, SyncReport, Target,
     },
 };
 
@@ -874,4 +880,281 @@ fn a_delete_then_rename_save_with_a_pass_between_is_no_delete_on_the_drive() {
     }
     faults::clear(a.path());
     faults::clear(b.path());
+}
+
+/// One unattended pass of `folder`'s pairing (the engine around `sync_to`, as the command line runs
+/// it: no conflict is held), hearing the fault seam under the folder. A crash a harness armed comes
+/// back as the `Err` payload.
+fn unattended(
+    device: &str,
+    folder: &Path,
+    state: &Path,
+    store: &S3Bucket,
+) -> std::thread::Result<(CloudResult<SyncReport>, PassSummary)> {
+    catch_unwind(AssertUnwindSafe(|| {
+        let root = folder.to_path_buf();
+        let engine = Engine::new(
+            state,
+            folder,
+            Box::new(OwnDevices(vec![device.to_string()])),
+        )
+        .with_points(Box::new(move |name: &str| faults::point(&root, name)));
+        let local = LocalRoot::folder(folder);
+        let opts = SyncOptions::new(PREFIX, "d-faults", device).unwrap();
+        let index = state.join(crate::sync::session::INDEX_FILE);
+        engine.pass(RunHooks::default(), |hooks| {
+            sync_to(Target::Index(store), &local, &index, &opts, hooks)
+        })
+    }))
+}
+
+/// What the device that met the locks ends with: its files, the drive's, its trash.
+#[derive(Debug, PartialEq, Eq)]
+struct BatchEnd {
+    tree: BTreeMap<String, Vec<u8>>,
+    drive_files: BTreeMap<String, String>,
+    drive_deleted: BTreeSet<String>,
+    trash: BTreeSet<Vec<u8>>,
+}
+
+/// Every file of `folder` by key, the sync's own folder aside.
+fn files_of(folder: &Path) -> BTreeMap<String, Vec<u8>> {
+    fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) {
+        for entry in fs::read_dir(dir).unwrap().flatten() {
+            let key = format!("{prefix}{}", entry.file_name().to_string_lossy());
+            if key == ".azlin" {
+                continue;
+            }
+            if entry.file_type().unwrap().is_dir() {
+                walk(&entry.path(), &format!("{key}/"), out);
+            } else {
+                out.insert(key, fs::read(entry.path()).unwrap());
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(folder, "", &mut out);
+    out
+}
+
+/// X-DELTA-EDGE (E6b, T7), one run of the scenario. Device B syncs 63 files in three folders; A edits
+/// the three `c.txt` and deletes six files; B edits `f2/c.txt` (a conflict, copied: no one is asked).
+/// B's pass meets a lock on everything it puts in place in `f2` and `f3` for the passes `locked`
+/// says; with `crash`, the first pass is cut at `before-base-save` (everything it did on the disk
+/// is done, the base is not saved).
+fn locked_batch(crash: bool) -> BatchEnd {
+    let access_denied = faults::errno_of("EACCES").expect("a number for EACCES");
+    let store = S3Bucket::new();
+    let (a, a_state) = (
+        TempDir::new("azcloud-faults-e6b-a"),
+        TempDir::new("azcloud-faults-e6b-a-state"),
+    );
+    let (b, b_state) = (
+        TempDir::new("azcloud-faults-e6b-b"),
+        TempDir::new("azcloud-faults-e6b-b-state"),
+    );
+    let put = |folder: &Path, key: &str, bytes: &str| {
+        let path = folder.join(key);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, bytes).unwrap();
+    };
+    let pass_of = |who: &str, folder: &TempDir, state: &TempDir| {
+        let (result, summary) =
+            unattended(who, folder.path(), state.path(), &store).expect("the pass is not cut");
+        (result.expect("the pass is no failure"), summary)
+    };
+    for folder in ["f1", "f2", "f3"] {
+        for i in 0..20 {
+            put(
+                a.path(),
+                &format!("{folder}/n{i:02}.txt"),
+                &format!("{folder} file {i}"),
+            );
+        }
+        put(a.path(), &format!("{folder}/c.txt"), "the first c");
+    }
+    pass_of("A", &a, &a_state);
+    pass_of("B", &b, &b_state);
+    for folder in ["f1", "f2", "f3"] {
+        put(a.path(), &format!("{folder}/c.txt"), "the c of A");
+        for i in 0..2 {
+            fs::remove_file(a.path().join(format!("{folder}/n{i:02}.txt"))).unwrap();
+        }
+    }
+    pass_of("A", &a, &a_state);
+    put(b.path(), "f2/c.txt", "the c of B");
+    let locked: BTreeSet<String> = ["f2", "f3"]
+        .iter()
+        .flat_map(|f| {
+            [
+                format!("{f}/n00.txt"),
+                format!("{f}/n01.txt"),
+                format!("{f}/c.txt"),
+            ]
+        })
+        .collect();
+    let old_base = |state: &Path| {
+        crate::sync::LocalIndex::load(&state.join(crate::sync::session::INDEX_FILE))
+            .unwrap()
+            .expect("a base")
+    };
+    let first = old_base(b_state.path());
+    let passes_locked = if crash { 1 } else { 2 };
+    for folder in ["f2", "f3"] {
+        faults::fail_replace(
+            b.path(),
+            &format!("{folder}/*"),
+            access_denied,
+            passes_locked,
+        );
+    }
+    let drive_before = drive_index(&store);
+
+    // Pass 1.
+    if crash {
+        faults::arm_crash(b.path(), "before-base-save");
+        let cut = unattended("B", b.path(), b_state.path(), &store)
+            .expect_err("the pass is cut before it saves its base");
+        assert_eq!(
+            faults::crashed_at(cut.as_ref()).as_deref(),
+            Some("before-base-save")
+        );
+    } else {
+        for round in 1..=passes_locked {
+            let (report, summary) = pass_of("B", &b, &b_state);
+            let told: BTreeSet<String> = summary
+                .problems
+                .problems
+                .iter()
+                .filter(|p| p.code == Code::Locked)
+                .map(|p| p.key.clone())
+                .collect();
+            assert_eq!(
+                told, locked,
+                "pass {round}: Locked for exactly the keys of f2 and f3"
+            );
+            assert!(
+                summary.error.is_none(),
+                "pass {round}: no abort: {:?}",
+                summary.error
+            );
+            // Everything in f1 is done.
+            assert_eq!(files_of(b.path())["f1/c.txt"], b"the c of A");
+            assert!(!b.path().join("f1/n00.txt").exists() && !b.path().join("f1/n01.txt").exists());
+            // What the base says is what the disk holds: finished keys are new, failed ones old.
+            let base = old_base(b_state.path());
+            assert_eq!(
+                base.files["f1/c.txt"].hash,
+                crate::sync::local::hash_bytes(b"the c of A")
+            );
+            assert!(!base.files.contains_key("f1/n00.txt"));
+            for key in &locked {
+                assert_eq!(
+                    base.files[key], first.files[key],
+                    "pass {round}: the base entry of {key} is as it was"
+                );
+            }
+            assert!(
+                b.path().join("f2/n00.txt").exists(),
+                "the delete did not happen"
+            );
+            assert_eq!(files_of(b.path())["f3/c.txt"], b"the first c");
+            // The commit stands whatever the disk said: the drive is not rolled back.
+            let drive = drive_index(&store);
+            assert!(drive.deleted.len() >= drive_before.deleted.len());
+            assert!(
+                !report.errors.is_empty(),
+                "the failures are said: {}",
+                report.summary()
+            );
+        }
+    }
+    // The passes after: no fault left.
+    let (report, _) = pass_of("B", &b, &b_state);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let (quiet, _) = pass_of("B", &b, &b_state);
+    assert!(!quiet.index_written, "{}", quiet.summary());
+    assert_eq!(
+        (quiet.files_down, quiet.deleted_here),
+        (0, 0),
+        "{}",
+        quiet.summary()
+    );
+
+    // Finished: every file is where A's version and B's copy put it, nothing is left behind.
+    let tree = files_of(b.path());
+    let copies: Vec<&String> = tree.keys().filter(|k| k.contains("(conflict ")).collect();
+    assert_eq!(
+        copies.len(),
+        1,
+        "the conflict made exactly one copy: {copies:?}"
+    );
+    assert_eq!(tree[copies[0]], b"the c of B");
+    for folder in ["f1", "f2", "f3"] {
+        assert_eq!(tree[&format!("{folder}/c.txt")], b"the c of A");
+        for i in 0..2 {
+            assert!(!tree.contains_key(&format!("{folder}/n{i:02}.txt")));
+        }
+    }
+    let trash: BTreeSet<Vec<u8>> = trash_of(b.path()).into_iter().collect();
+    assert_eq!(trash.len(), 6, "the six deletes are in the trash once each");
+    let stale: Vec<String> = walk_names(b.path())
+        .into_iter()
+        .filter(|name| azul_storage::beneath::is_temp_name(name))
+        .collect();
+    assert!(stale.is_empty(), "no temp file is left: {stale:?}");
+    assert!(
+        !b_state
+            .path()
+            .join(crate::sync::journal::JOURNAL_FILE)
+            .exists(),
+        "the journal is gone"
+    );
+    let drive = drive_index(&store);
+    faults::clear(b.path());
+    BatchEnd {
+        tree,
+        drive_files: drive
+            .files
+            .iter()
+            .map(|(k, f)| (k.clone(), f.hash.clone()))
+            .collect(),
+        drive_deleted: drive.deleted.keys().cloned().collect(),
+        trash,
+    }
+}
+
+/// Every name of `folder` and below, the sync's own folder included.
+fn walk_names(folder: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![folder.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            out.push(entry.file_name().to_string_lossy().into_owned());
+            if entry.file_type().unwrap().is_dir() {
+                stack.push(entry.path());
+            }
+        }
+    }
+    out
+}
+
+/// X-DELTA-EDGE (E6b, T7). A batch whose steps meet locks on every file of two folders (a scanner, a
+/// sharing violation, a permission): the pass is Ok and does not abort, `Locked` is listed for exactly
+/// the files of those folders, everything in the third folder is done, the base says what finished
+/// (the new hash) and what did not (the old one: no entry claims bytes the disk does not hold, no
+/// entry of a delete that did not happen is gone), the drive keeps what the pass committed, and the
+/// next passes finish the rest: the six deletes are in the trash once each, the conflict made one
+/// copy, no temp file or journal is left, and a pass after is quiet. The same ending when the first
+/// pass is cut before it saves its base. The lock is played by the seam's `fail_replace`, so the test
+/// runs on every host.
+#[test]
+fn a_batch_that_meets_locks_leaves_the_base_describing_only_what_finished_and_the_next_passes_finish_it(
+) {
+    let locked = locked_batch(false);
+    let cut = locked_batch(true);
+    assert_eq!(
+        cut, locked,
+        "a pass cut before its base is saved ends where the locked ones do"
+    );
 }
