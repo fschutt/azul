@@ -476,13 +476,16 @@ pub fn save_draft(
 
 /// Removes a draft (once it is sent): its file and its index line.
 pub fn delete_draft(store: &MailStore, uid: u32) -> std::io::Result<()> {
-    let mut index = read_drafts_index(store);
+    let mut index = read_drafts_index(store)?;
     let Some(at) = index.iter().position(|e| e.uid == uid) else {
         return Ok(());
     };
+    // The state is read BEFORE anything is deleted: a read that FAILED ends the call with the draft
+    // still there and the folder's files as they were (X-DELTA-SYNC4-21).
+    let state = read_drafts_state(store)?;
     let entry = index.remove(at);
     store.delete(&entry.path)?;
-    write_drafts_index(store, &index)
+    write_drafts_index(store, &index, state)
 }
 
 // ==== Helpers ====
@@ -529,27 +532,42 @@ fn checked_line(line: &str) -> Result<Vec<String>, ComposeError> {
     }
 }
 
-/// The Drafts folder's index; empty when there is none.
-fn read_drafts_index(store: &MailStore) -> Vec<IndexEntry> {
-    store
-        .get(&store::index_key(DRAFTS_FOLDER))
-        .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
-        .unwrap_or_default()
+/// The Drafts folder's index; empty when there is none (a file that is not there). A read that
+/// FAILED is an error, never an empty folder: the index written back from nothing would drop every
+/// draft's line.
+fn read_drafts_index(store: &MailStore) -> std::io::Result<Vec<IndexEntry>> {
+    match store.get(&store::index_key(DRAFTS_FOLDER)) {
+        Ok(bytes) => Ok(store::index_from_jsonl(&String::from_utf8_lossy(&bytes))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
 }
 
-/// Writes the Drafts folder's index and its state: the synced state when the server's Drafts
-/// is synced, else one that says the folder is local only (UIDVALIDITY 0).
-fn write_drafts_index(store: &MailStore, index: &[IndexEntry]) -> std::io::Result<()> {
+/// The Drafts folder's state: `None` when there is none (or it is none of this AzMail's); a read that
+/// FAILED is an error (a local-only state written over a synced one would start its UIDVALIDITY
+/// anew).
+fn read_drafts_state(store: &MailStore) -> std::io::Result<Option<FolderState>> {
+    match store.get(&store::state_key(DRAFTS_FOLDER)) {
+        Ok(bytes) => Ok(String::from_utf8(bytes)
+            .ok()
+            .and_then(|text| FolderState::from_json(&text))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Writes the Drafts folder's index and its state: the synced state (`old_state`) when the server's
+/// Drafts is synced, else one that says the folder is local only (UIDVALIDITY 0).
+fn write_drafts_index(
+    store: &MailStore,
+    index: &[IndexEntry],
+    old_state: Option<FolderState>,
+) -> std::io::Result<()> {
     store.put(
         &store::index_key(DRAFTS_FOLDER),
         store::index_to_jsonl(index).as_bytes(),
     )?;
-    let mut state = store
-        .get(&store::state_key(DRAFTS_FOLDER))
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|text| FolderState::from_json(&text))
-        .unwrap_or_else(|| FolderState::create("", "Drafts", 0));
+    let mut state = old_state.unwrap_or_else(|| FolderState::create("", "Drafts", 0));
     state.messages = index.len() as u64;
     store.put(&store::state_key(DRAFTS_FOLDER), state.to_json().as_bytes())
 }
@@ -945,6 +963,37 @@ mod tests {
             &String::from_utf8(store.get(&store::index_key(DRAFTS_FOLDER)).unwrap()).unwrap(),
         );
         assert!(index.is_empty());
+    }
+
+    /// X-DELTA-SYNC4-21. RED on the code before: a Drafts index that could not be READ was an empty
+    /// one (the draft was "deleted" without a word: nothing happened), and a state that could not be
+    /// read was a local-only one written over the synced state (UIDVALIDITY 0).
+    #[test]
+    fn x_delta_sync4_21_a_draft_is_not_deleted_when_the_folders_index_or_state_cannot_be_read() {
+        crate::l10n::in_english();
+        let dir = TempDir::new("drafts-unreadable");
+        let store = MailStore::new(dir.folder());
+        let mail = outgoing(&fields(), Vec::new()).unwrap();
+        let bytes = draft_bytes(&mail, 1_790_757_720);
+        let first = save_draft(&dir.folder(), None, &bytes, 1_790_757_720).unwrap();
+        for key in [
+            store::index_key(DRAFTS_FOLDER),
+            store::state_key(DRAFTS_FOLDER),
+        ] {
+            let file = dir.0.join(&key);
+            let before = std::fs::read(&file).unwrap();
+            if !crate::testutil::make_unreadable(&file) {
+                return;
+            }
+            let failed = delete_draft(&store, first.uid);
+            crate::testutil::make_readable(&file);
+            assert!(failed.is_err(), "{key}: {failed:?}");
+            assert_eq!(std::fs::read(&file).unwrap(), before, "{key} was not rewritten");
+            assert_eq!(store.get(&first.path).unwrap(), bytes, "{key}: the draft's file is whole");
+        }
+        // Readable again: the draft goes.
+        delete_draft(&store, first.uid).unwrap();
+        assert!(store.get(&first.path).is_err());
     }
 
     /// X-DELTA-SYNC4-18. RED on the code before: the old draft was deleted BEFORE the new one was
