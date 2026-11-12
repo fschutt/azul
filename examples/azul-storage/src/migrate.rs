@@ -204,6 +204,17 @@ fn unchanged(bucket: &dyn Drive, object: &ObjectInfo) -> Result<bool, DriveError
 /// entity tag; a drive that tells none has only the HEAD of [`unchanged`] before it): a file another
 /// device saved under the name since the look beats the delete (X-DELTA-SYNC4-16). `Ok(false)`: it
 /// changed, and stays.
+///
+/// What this guarantees and what it does not (X-DELTA-SYNC6-4): the plaintext bucket's version
+/// delete is a check, then an act - a HEAD that compares the tag (the trait's `delete_many` of a
+/// drive without a conditional delete, an S3 bucket's DeleteObjects after a HEAD per item: a
+/// general-purpose bucket takes no condition on a delete). The window is the one round trip between
+/// that HEAD and the DELETE: a plaintext object another device saves INSIDE it is deleted with the
+/// old one, and the encrypted copy of the old bytes is then the only one left. Nothing closes that
+/// window in the bucket; what keeps it from mattering is the module's premise - the other devices
+/// have stopped writing plaintext (they see `.azlin/keys/` and open the drive encrypted) - and the
+/// pin in `x_delta_sync6_4_*`, which says what is and is not guaranteed. Only an encrypted drive's
+/// own `of_version` is one atomic index change, and this is not one.
 fn delete_unchanged(bucket: &dyn Drive, object: &ObjectInfo) -> Result<bool, DriveError> {
     let item = match object.etag.as_deref() {
         Some(etag) => BatchDelete::new(&object.key).of_version(etag),
@@ -212,6 +223,38 @@ fn delete_unchanged(bucket: &dyn Drive, object: &ObjectInfo) -> Result<bool, Dri
     match bucket.delete_many(&[item]).into_iter().next() {
         Some(Ok(())) => Ok(true),
         Some(Err(DriveError::Conflict { .. })) => Ok(false),
+        Some(Err(e)) => Err(e),
+        None => Err(DriveError::Protocol(String::from(
+            "the storage answered for fewer deletes than were asked",
+        ))),
+    }
+}
+
+/// Takes back the encrypted copy THIS run wrote of `key`: the entry that still names the object
+/// `written` says (its tag is the object's id), and no other. Another device that has the drive open
+/// encrypted may have saved the name since our write landed, and its newer entry is not ours to remove:
+/// a delete by name took it (X-DELTA-SYNC6-8). A name that is another entry's now answers a conflict -
+/// it stays; a name that is gone is gone.
+///
+/// # Errors
+///
+/// The index's or the bucket's, for an undo that could not be made: the plaintext stays and the next
+/// run compares the bytes again.
+fn undo_our_copy<D: Drive>(
+    encrypted: &EncryptedDrive<D>,
+    key: &str,
+    written: &ObjectInfo,
+) -> Result<(), DriveError> {
+    // No object id, nothing that is certainly ours to take back.
+    let Some(version) = written.etag.as_deref() else {
+        return Ok(());
+    };
+    match encrypted
+        .delete_many(&[BatchDelete::new(key).of_version(version)])
+        .into_iter()
+        .next()
+    {
+        Some(Ok(()) | Err(DriveError::Conflict { .. })) => Ok(()),
         Some(Err(e)) => Err(e),
         None => Err(DriveError::Protocol(String::from(
             "the storage answered for fewer deletes than were asked",
@@ -274,21 +317,22 @@ fn move_one<D: Drive>(
                 },
                 hasher: blake3::Hasher::new(),
             };
-            match encrypted.write_from(key, &mut reader, Expect::Absent) {
-                Ok(_) => {}
+            let written = match encrypted.write_from(key, &mut reader, Expect::Absent) {
+                Ok(written) => written,
                 // Written encrypted meanwhile (another device): the next run compares.
                 Err(DriveError::Conflict { .. }) => return Ok(Outcome::Again),
                 Err(e) => return Err(e),
-            }
+            };
             let read = reader.hasher.finalize();
             let stored = encrypted.entry(key)?.object;
             let checked = stored.as_ref().is_some_and(|stored| read == stored.blake3);
-            // The delete names the version the listing showed: a plaintext object saved by another
-            // device between the HEAD and the DELETE is not deleted.
+            // The delete names the version the listing showed (and has the window the doc of
+            // `delete_unchanged` names).
             if !checked || !unchanged(bucket, object)? || !delete_unchanged(bucket, object)? {
-                // Not the bytes the bucket holds now: the encrypted copy goes, the plaintext
-                // stays for the next run.
-                encrypted.delete(key)?;
+                // Not the bytes the bucket holds now: the encrypted copy THIS run wrote goes - the
+                // entry that names our object, never another device's newer one under the same
+                // name - and the plaintext stays for the next run.
+                undo_our_copy(encrypted, key, &written)?;
                 return Ok(Outcome::Again);
             }
             Ok(Outcome::Moved(object.size))

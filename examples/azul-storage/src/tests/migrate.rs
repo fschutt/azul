@@ -6,7 +6,7 @@
 use std::{
     cell::{Cell, RefCell},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
 };
@@ -357,5 +357,167 @@ fn x_delta_sync4_16_a_file_saved_between_the_last_look_and_the_delete_is_not_del
     assert_eq!(
         drive.get("mail/inbox/1.eml").unwrap(),
         b"Subject: hello\r\n\r\nwritten by another device"
+    );
+}
+
+/// A bucket whose first look at the mail after the migration wrote its encrypted copy is the moment
+/// another device, with the drive open encrypted already, saves the same name encrypted - and the
+/// plaintext object changes too, so that this run takes its own copy back.
+struct EncryptedElsewhere {
+    inner: Arc<MemBucket>,
+    other: EncryptedDrive<Arc<MemBucket>>,
+    fired: AtomicBool,
+}
+
+impl Drive for EncryptedElsewhere {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let info = self.inner.head(key)?;
+        if key == "mail/inbox/1.eml" && !self.fired.swap(true, Ordering::SeqCst) {
+            self.other
+                .put(key, b"written encrypted by another device")
+                .unwrap();
+            self.inner
+                .set(key, b"Subject: hello\r\n\r\nedited meanwhile".to_vec());
+        }
+        Ok(info)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.inner.put_if(key, bytes, condition)
+    }
+}
+
+/// X-DELTA-SYNC6-8. The migration took its own encrypted copy back by NAME (`Expect::Any`) when the
+/// plaintext object changed: another device that already had the drive open encrypted, and saved the
+/// same name after our write landed, lost its newer entry (an index without history releases the
+/// object at once). The undo names the object this run wrote: the other device's entry stays, the
+/// plaintext stays for the next run. RED on the old code: the other device's file is gone.
+#[test]
+fn x_delta_sync6_8_the_undo_of_the_migrations_copy_never_removes_another_devices_newer_entry() {
+    let bucket = plaintext_bucket();
+    let key = drive_key(&bucket);
+    let index: Arc<MemoryIndex> = Arc::new(MemoryIndex::new());
+    let other = EncryptedDrive::new(bucket.clone(), key.clone(), index.clone());
+    let drive = EncryptedDrive::new(
+        EncryptedElsewhere {
+            inner: bucket.clone(),
+            other,
+            fired: AtomicBool::new(false),
+        },
+        key.clone(),
+        index.clone(),
+    );
+    let mut state = MigrationState::default();
+    let done = run(&drive, &mut state);
+    assert!(!done, "not done: the mail changed while it moved");
+    let elsewhere = EncryptedDrive::new(bucket.clone(), key, index);
+    assert_eq!(
+        elsewhere
+            .get("mail/inbox/1.eml")
+            .expect("the entry the other device saved is still named"),
+        b"written encrypted by another device"
+    );
+    assert_eq!(
+        bucket
+            .object("mail/inbox/1.eml")
+            .expect("the plaintext stays for the next run"),
+        b"Subject: hello\r\n\r\nedited meanwhile"
+    );
+}
+
+/// A bucket where another device saves a new version of the mail right after the SECOND look at it:
+/// the HEAD inside the delete, the round trip before the DELETE itself.
+struct SavedInsideTheDelete {
+    inner: Arc<MemBucket>,
+    looks: AtomicU32,
+}
+
+impl Drive for SavedInsideTheDelete {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let info = self.inner.head(key)?;
+        if key == "mail/inbox/1.eml" && self.looks.fetch_add(1, Ordering::SeqCst) == 1 {
+            self.inner.set(
+                key,
+                b"Subject: hello\r\n\r\nsaved inside the round trip".to_vec(),
+            );
+        }
+        Ok(info)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.inner.put_if(key, bytes, condition)
+    }
+}
+
+/// X-DELTA-SYNC6-4 - a PIN, not a fix: what the migration's version delete does and does not
+/// guarantee on a bucket. The delete checks the tag with a HEAD and then deletes (a general-purpose
+/// bucket takes no condition on a delete; the trait's `delete_many` and S3's DeleteObjects are both
+/// check-then-act), so the window is the one round trip between the HEAD and the DELETE. A save
+/// BEFORE the HEAD is caught (`x_delta_sync4_16_*`); a save INSIDE the round trip goes with the
+/// object, and the encrypted copy of the old bytes is the only one left. The window is named in the
+/// doc of `delete_unchanged` and in the module's premise (the other devices have stopped writing
+/// plaintext). When a bucket with a conditional delete is used, this test is the one to turn around.
+#[test]
+fn x_delta_sync6_4_pin_a_save_inside_the_round_trip_of_the_versioned_delete_is_not_guarded() {
+    let bucket = plaintext_bucket();
+    let key = drive_key(&bucket);
+    let drive = EncryptedDrive::new(
+        SavedInsideTheDelete {
+            inner: bucket.clone(),
+            looks: AtomicU32::new(0),
+        },
+        key,
+        Arc::new(MemoryIndex::new()),
+    );
+    let mut state = MigrationState::default();
+    assert!(run(&drive, &mut state), "every file moved");
+    assert_eq!(
+        bucket.object("mail/inbox/1.eml"),
+        None,
+        "PINNED (X-DELTA-SYNC6-4): the object another device saved inside the round trip between the \
+         HEAD and the DELETE went with the old one - the delete is check-then-act on a bucket"
+    );
+    assert_eq!(
+        drive.get("mail/inbox/1.eml").unwrap(),
+        MAIL,
+        "and the encrypted copy holds the bytes the migration read"
     );
 }
