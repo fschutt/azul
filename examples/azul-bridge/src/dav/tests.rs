@@ -1318,6 +1318,111 @@ fn x_delta_apps3_14_a_record_of_another_process_waits_for_its_grace_and_a_runnin
     );
 }
 
+/// A [`Flaky`] drive that, while `refuse` is set, refuses to delete what a swap staged (`*.azul-*`):
+/// the drive is gone just when the cleanup of a failed copy runs.
+struct Stubborn {
+    inner: Arc<Flaky>,
+    refuse: std::sync::atomic::AtomicBool,
+}
+
+impl Stubborn {
+    fn new(inner: Arc<Flaky>) -> Arc<Stubborn> {
+        Arc::new(Stubborn {
+            inner,
+            refuse: std::sync::atomic::AtomicBool::new(true),
+        })
+    }
+
+    fn refusing(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+        if key.contains(".azul-") && self.refuse.load(Ordering::SeqCst) {
+            return Err(azul_storage::DriveError::Transport(String::from(
+                "the drive is gone",
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl Drive for Stubborn {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, azul_storage::DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(
+        &self,
+        key: &str,
+        range: azul_storage::ByteRange,
+    ) -> Result<Vec<u8>, azul_storage::DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+        self.refusing(key)?;
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+        self.inner.head(key)
+    }
+    fn copy(&self, from: &str, to: &str) -> Result<(), azul_storage::DriveError> {
+        self.inner.copy(from, to)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), azul_storage::DriveError> {
+        self.inner.rename(from, to)
+    }
+    fn delete_folder(&self, prefix: &str) -> Result<(), azul_storage::DriveError> {
+        self.refusing(prefix)?;
+        self.inner.delete_folder(prefix)
+    }
+}
+
+/// X-DELTA-APPS3-14, the row the kill table does not reach: a step that FAILS leaves the destination
+/// as it was and deletes what this call made - and when the drive refuses that delete too (it is gone
+/// just then) the partial copy stays, and so must the intent that names it: the record went with the
+/// "settled" swap and nothing swept the copy for ever. A swap is settled only when nothing it made is
+/// left under a staging name; the next process's first request deletes the copy and then the record.
+#[test]
+fn x_delta_apps3_14_a_cleanup_the_drive_refuses_keeps_the_intent_for_the_next_start() {
+    // A folder COPY whose second file cannot be copied, on a drive that refuses the cleanup too.
+    let flaky = Flaky::new(1, &[]);
+    let drive = Stubborn::new(flaky.clone());
+    let dav = dav_over(drive.clone());
+    let answer = dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"");
+    assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
+    let keys = flaky.inner.keys();
+    assert!(
+        keys.iter().any(|key| key.contains(".azul-new-")),
+        "the partial copy is left: {keys:?}"
+    );
+    assert_eq!(
+        keys.iter()
+            .filter(|key| key.starts_with(".azlin/dav-swaps/"))
+            .count(),
+        1,
+        "and so is the intent that names it: {keys:?}"
+    );
+    assert_eq!(flaky.inner.get("dest/keep.txt").unwrap(), b"old");
+    // The drive answers again: the first request of the next process settles it.
+    drive.refuse.store(false, Ordering::SeqCst);
+    let next = dav_over(drive.clone());
+    assert_eq!(
+        next.respond(&head("OPTIONS", "/", &[]), b"").status,
+        Status::OK
+    );
+    let keys = flaky.inner.keys();
+    assert!(
+        keys.iter()
+            .all(|key| !key.contains(".azul-") && !key.contains("dav-swaps")),
+        "nothing under a staging name, no intent: {keys:?}"
+    );
+    assert_eq!(flaky.inner.get("dest/keep.txt").unwrap(), b"old");
+    assert_eq!(flaky.inner.get("src/one.txt").unwrap(), b"one");
+    assert_eq!(flaky.inner.get("src/two.txt").unwrap(), b"two");
+}
+
 /// RED on the code before: PUT and DELETE ignored `If-Match`, so a save another client made after
 /// this one's PROPFIND was overwritten or deleted without a word.
 #[test]

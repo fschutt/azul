@@ -1373,10 +1373,11 @@ impl Dav {
         );
         // 1. The new content beside the destination.
         if let Err(e) = self.put_in_place(key, beside, folder, moving, depth_zero) {
-            if !moving {
-                self.discard_own(beside, folder);
-            }
-            return (Err(e), true);
+            // A copy that failed midway is deleted (this call made it); a move that failed moved
+            // nothing. A delete the drive refuses leaves a stray: the swap is then not settled, and
+            // the intent stays to name it.
+            let clean = moving || self.discard_own(beside, folder).is_ok();
+            return (Err(e), clean);
         }
         // Undoes step 1 when a later step fails: a copy is deleted (this call made it), a move
         // is renamed back (it is the source itself). Whether it left nothing behind.
@@ -1389,8 +1390,8 @@ impl Dav {
                     eprintln!("[azul-bridge] the moved {key} is kept as {beside}: it could not be put back: {e}");
                     return false;
                 }
-            } else {
-                this.discard_own(beside, folder);
+            } else if this.discard_own(beside, folder).is_err() {
+                return false;
             }
             true
         };
@@ -1544,7 +1545,9 @@ impl Dav {
                         &format!("{}{new_slash}", intent.key),
                     )?;
                 } else {
-                    self.discard_own(&intent.beside, intent.folder);
+                    // A delete the drive refuses ends the look here: the intent stays, the next
+                    // request tries again.
+                    self.discard_own(&intent.beside, intent.folder)?;
                 }
                 Ok(true)
             }
@@ -1587,8 +1590,10 @@ impl Dav {
         }
     }
 
-    /// Deletes what this very request made beside a destination and no other client knows of.
-    fn discard_own(&self, key: &str, folder: bool) {
+    /// Deletes what this very request made beside a destination and no other client knows of. An
+    /// error when the drive refuses: what is left is a stray, said on stderr, and the caller keeps
+    /// the swap's intent so that the next start settles it.
+    fn discard_own(&self, key: &str, folder: bool) -> Result<(), DriveError> {
         let removed = if folder {
             // ARCH30-4: Why::Refused
             self.drive.delete_folder(&format!("{key}/"))
@@ -1596,9 +1601,10 @@ impl Dav {
             // ARCH30-4: Why::Refused
             self.drive.delete(key)
         };
-        if let Err(e) = removed {
+        if let Err(e) = &removed {
             eprintln!("[azul-bridge] {key} is left over from a copy that failed: {e}");
         }
+        removed
     }
 
     fn lock(&self, head: &Head, key: &str, folder_syntax: bool, body: &[u8]) -> Result<Response, DriveError> {
