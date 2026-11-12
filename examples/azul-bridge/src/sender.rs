@@ -171,7 +171,10 @@ impl AzMailSubmitter {
                 // Any other failure (a scanner holds the file, a failing disk) is an unknown, not
                 // "gone": the entry stays and the next drain moves the copy (X-DELTA-SYNC6-9).
                 Err(e) => {
-                    eprintln!("[azul-bridge] the Sent copy {} cannot be read yet: {e}", entry.path);
+                    eprintln!(
+                        "[azul-bridge] the Sent copy {} cannot be read yet: {e}",
+                        entry.path
+                    );
                     kept.push(entry);
                     continue;
                 }
@@ -501,7 +504,8 @@ mod tests {
     /// before: the line was dropped on any read error and the index rewritten without it, so the
     /// copy never reached the drive and its file was left in the spool.
     #[test]
-    fn x_delta_sync6_9_a_sent_copy_that_cannot_be_read_keeps_its_line_and_the_next_drain_moves_it() {
+    fn x_delta_sync6_9_a_sent_copy_that_cannot_be_read_keeps_its_line_and_the_next_drain_moves_it()
+    {
         let dir = TempDir::new("bridge-drain");
         let (submitter, drive, _) = submitter(&dir, 0);
         let sent_root = account::account_dir(&DriveFolder::outside(dir.0.join("spool")), ACCOUNT);
@@ -521,19 +525,36 @@ mod tests {
         if !azmail_core::testutil::make_unreadable(&file) {
             return;
         }
-        let failure = spool.get(&entry.path).expect_err("no permission to read it");
-        assert_ne!(failure.kind(), std::io::ErrorKind::NotFound, "the premise of the test: {failure}");
+        let failure = spool
+            .get(&entry.path)
+            .expect_err("no permission to read it");
+        assert_ne!(
+            failure.kind(),
+            std::io::ErrorKind::NotFound,
+            "the premise of the test: {failure}"
+        );
         assert_eq!(submitter.drain(), 0, "nothing could be moved");
         let index = local::index_from_jsonl(
             &String::from_utf8(spool.get(&local::index_key(local_sent())).unwrap()).unwrap(),
         );
         assert_eq!(index.len(), 1, "the line stays: {index:?}");
-        assert!(!drive.keys().iter().any(|k| k.starts_with("mail/Sent/")), "{:?}", drive.keys());
+        assert!(
+            !drive.keys().iter().any(|k| k.starts_with("mail/Sent/")),
+            "{:?}",
+            drive.keys()
+        );
         // The file can be read again: the next drain moves the copy and forgets the line.
         azmail_core::testutil::make_readable(&file);
         assert_eq!(std::fs::read(&file).unwrap(), bytes);
         assert_eq!(submitter.drain(), 1);
-        assert_eq!(drive.keys().iter().filter(|k| k.starts_with("mail/Sent/")).count(), 1);
+        assert_eq!(
+            drive
+                .keys()
+                .iter()
+                .filter(|k| k.starts_with("mail/Sent/"))
+                .count(),
+            1
+        );
         let index = local::index_from_jsonl(
             &String::from_utf8(spool.get(&local::index_key(local_sent())).unwrap()).unwrap(),
         );

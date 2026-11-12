@@ -757,7 +757,11 @@ fn dav_over(drive: Arc<dyn Drive>) -> Dav {
     Dav::new(
         drive,
         Credentials::new(USER, PASSWORD),
-        Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
+        Arc::new(FailureGate::new(
+            100,
+            Duration::from_secs(60),
+            Duration::ZERO,
+        )),
         Limits::default(),
         0,
     )
@@ -806,7 +810,11 @@ impl Drive for Flaky {
     fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
         self.inner.get(key)
     }
-    fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, azul_storage::DriveError> {
+    fn get_range(
+        &self,
+        key: &str,
+        range: azul_storage::ByteRange,
+    ) -> Result<Vec<u8>, azul_storage::DriveError> {
         self.inner.get_range(key, range)
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
@@ -821,7 +829,9 @@ impl Drive for Flaky {
     fn copy(&self, from: &str, to: &str) -> Result<(), azul_storage::DriveError> {
         let left = self.copies_ok.load(Ordering::SeqCst);
         if left == 0 {
-            return Err(azul_storage::DriveError::Transport(String::from("the copy failed")));
+            return Err(azul_storage::DriveError::Transport(String::from(
+                "the copy failed",
+            )));
         }
         if left != usize::MAX {
             self.copies_ok.store(left - 1, Ordering::SeqCst);
@@ -831,7 +841,9 @@ impl Drive for Flaky {
     fn rename(&self, from: &str, to: &str) -> Result<(), azul_storage::DriveError> {
         let call = self.renames.fetch_add(1, Ordering::SeqCst) + 1;
         if self.rename_fails.contains(&call) {
-            return Err(azul_storage::DriveError::Transport(String::from("the rename failed")));
+            return Err(azul_storage::DriveError::Transport(String::from(
+                "the rename failed",
+            )));
         }
         azul_storage::ops::rename_by_copy(self, from, to)
     }
@@ -861,8 +873,17 @@ fn x_delta_sync4_17_a_move_or_copy_onto_an_ancestor_is_refused_and_nothing_is_de
         ("MOVE", "/docs/", "/docs/sub/"),
     ] {
         let answer = dav.respond(&head(method, source, &dest(destination)), b"");
-        assert_eq!(answer.status, Status::FORBIDDEN, "{method} {source} -> {destination}: {}", text(&answer));
-        assert_eq!(drive.keys(), before, "{method} {source} -> {destination} touched the drive");
+        assert_eq!(
+            answer.status,
+            Status::FORBIDDEN,
+            "{method} {source} -> {destination}: {}",
+            text(&answer)
+        );
+        assert_eq!(
+            drive.keys(),
+            before,
+            "{method} {source} -> {destination} touched the drive"
+        );
     }
     assert_eq!(drive.get("docs/a.txt").unwrap(), b"hello world");
 }
@@ -878,15 +899,22 @@ fn x_delta_sync4_17_a_move_of_a_folder_onto_its_own_parent_on_disk_is_refused_an
     let dav = dav_over(Arc::new(local));
     let answer = dav.respond(&head("MOVE", "/x/a/a/", &dest("/x/a")), b"");
     assert_eq!(answer.status, Status::FORBIDDEN, "{}", text(&answer));
-    assert_eq!(std::fs::read(dir.0.join("x/a/a/file.txt")).unwrap(), b"inside");
-    assert_eq!(std::fs::read(dir.0.join("x/a/other.txt")).unwrap(), b"beside");
+    assert_eq!(
+        std::fs::read(dir.0.join("x/a/a/file.txt")).unwrap(),
+        b"inside"
+    );
+    assert_eq!(
+        std::fs::read(dir.0.join("x/a/other.txt")).unwrap(),
+        b"beside"
+    );
 }
 
 /// A destination spelt in another case is the source on a disk that ignores case: the MOVE
 /// deleted it (the "existing destination") and then found nothing to rename. Skipped, said so,
 /// on a volume that tells the two names apart.
 #[test]
-fn x_delta_sync4_17_a_move_that_only_changes_the_case_does_not_delete_the_file_on_a_disk_that_ignores_it() {
+fn x_delta_sync4_17_a_move_that_only_changes_the_case_does_not_delete_the_file_on_a_disk_that_ignores_it(
+) {
     let dir = azul_storage::testing::TempDir::new("bridge-dav-case");
     let local = azul_storage::LocalDrive::without_manifest(dir.0.clone());
     local.put("Doc.odt", b"the only copy").unwrap();
@@ -897,7 +925,10 @@ fn x_delta_sync4_17_a_move_that_only_changes_the_case_does_not_delete_the_file_o
     let dav = dav_over(Arc::new(local));
     let answer = dav.respond(&head("MOVE", "/Doc.odt", &dest("/doc.odt")), b"");
     assert_eq!(answer.status, Status::FORBIDDEN, "{}", text(&answer));
-    assert_eq!(std::fs::read(dir.0.join("Doc.odt")).unwrap(), b"the only copy");
+    assert_eq!(
+        std::fs::read(dir.0.join("Doc.odt")).unwrap(),
+        b"the only copy"
+    );
 }
 
 #[test]
@@ -912,10 +943,18 @@ fn x_delta_sync4_17_overwrite_f_onto_an_existing_file_or_folder_is_412_and_chang
         ("COPY", "/docs/a.txt", "/photos"),
     ] {
         let answer = dav.respond(
-            &head(method, source, &[("Destination", destination), ("Overwrite", "F")]),
+            &head(
+                method,
+                source,
+                &[("Destination", destination), ("Overwrite", "F")],
+            ),
             b"",
         );
-        assert_eq!(answer.status, Status::PRECONDITION_FAILED, "{method} {source} -> {destination}");
+        assert_eq!(
+            answer.status,
+            Status::PRECONDITION_FAILED,
+            "{method} {source} -> {destination}"
+        );
         assert_eq!(drive.keys(), before);
     }
     assert_eq!(drive.get("docs/b b.pdf").unwrap(), b"%PDF-1.4");
@@ -929,7 +968,11 @@ fn x_delta_sync4_17_a_copy_that_fails_leaves_the_old_destination_file_whole() {
     let before = drive.inner.keys();
     let answer = dav.respond(&head("COPY", "/docs/a.txt", &dest("/docs/b%20b.pdf")), b"");
     assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
-    assert_eq!(drive.inner.get("docs/b b.pdf").unwrap(), b"%PDF-1.4", "the destination is as it was");
+    assert_eq!(
+        drive.inner.get("docs/b b.pdf").unwrap(),
+        b"%PDF-1.4",
+        "the destination is as it was"
+    );
     assert_eq!(drive.inner.keys(), before);
     // A move is that copy and then the removal of the source: the copy failed, so both stay.
     let answer = dav.respond(&head("MOVE", "/docs/a.txt", &dest("/docs/b%20b.pdf")), b"");
@@ -945,8 +988,15 @@ fn x_delta_sync4_17_a_move_over_a_file_replaces_it_and_removes_the_source_after_
     let answer = dav.respond(&head("MOVE", "/docs/a.txt", &dest("/docs/b%20b.pdf")), b"");
     assert_eq!(answer.status, Status::NO_CONTENT, "{}", text(&answer));
     assert_eq!(drive.inner.get("docs/b b.pdf").unwrap(), b"hello world");
-    assert!(drive.inner.get("docs/a.txt").is_err(), "the source went after the copy landed");
-    assert!(drive.inner.keys().iter().all(|key| !key.contains(".azul-")), "{:?}", drive.inner.keys());
+    assert!(
+        drive.inner.get("docs/a.txt").is_err(),
+        "the source went after the copy landed"
+    );
+    assert!(
+        drive.inner.keys().iter().all(|key| !key.contains(".azul-")),
+        "{:?}",
+        drive.inner.keys()
+    );
 }
 
 /// RED on the code before: `dest/` was deleted, then the copy of `src/` failed after one file.
@@ -958,7 +1008,11 @@ fn x_delta_sync4_17_a_folder_copy_that_fails_halfway_leaves_the_destination_fold
     let answer = dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"");
     assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
     assert_eq!(drive.inner.get("dest/keep.txt").unwrap(), b"old");
-    assert_eq!(drive.inner.keys(), before, "no half of the copy and no staging folder is left");
+    assert_eq!(
+        drive.inner.keys(),
+        before,
+        "no half of the copy and no staging folder is left"
+    );
 }
 
 #[test]
@@ -968,16 +1022,33 @@ fn x_delta_sync4_17_a_folder_replaces_a_folder_whole_by_copy_and_by_move() {
     let answer = dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"");
     assert_eq!(answer.status, Status::NO_CONTENT, "{}", text(&answer));
     let keys = drive.inner.keys();
-    assert!(keys.contains(&String::from("dest/one.txt")) && keys.contains(&String::from("dest/two.txt")), "{keys:?}");
-    assert!(!keys.contains(&String::from("dest/keep.txt")), "the old content is replaced: {keys:?}");
-    assert!(keys.contains(&String::from("src/one.txt")), "a copy keeps the source: {keys:?}");
+    assert!(
+        keys.contains(&String::from("dest/one.txt"))
+            && keys.contains(&String::from("dest/two.txt")),
+        "{keys:?}"
+    );
+    assert!(
+        !keys.contains(&String::from("dest/keep.txt")),
+        "the old content is replaced: {keys:?}"
+    );
+    assert!(
+        keys.contains(&String::from("src/one.txt")),
+        "a copy keeps the source: {keys:?}"
+    );
     assert!(keys.iter().all(|key| !key.contains(".azul-")), "{keys:?}");
     // Now a move over a folder that is there (docs/ over src/).
     let answer = dav.respond(&head("MOVE", "/docs/", &dest("/src/")), b"");
     assert_eq!(answer.status, Status::NO_CONTENT, "{}", text(&answer));
     let keys = drive.inner.keys();
-    assert!(keys.contains(&String::from("src/a.txt")) && !keys.contains(&String::from("src/one.txt")), "{keys:?}");
-    assert!(keys.iter().all(|key| !key.starts_with("docs/") && !key.contains(".azul-")), "{keys:?}");
+    assert!(
+        keys.contains(&String::from("src/a.txt")) && !keys.contains(&String::from("src/one.txt")),
+        "{keys:?}"
+    );
+    assert!(
+        keys.iter()
+            .all(|key| !key.starts_with("docs/") && !key.contains(".azul-")),
+        "{keys:?}"
+    );
 }
 
 #[test]
@@ -992,7 +1063,10 @@ fn x_delta_sync4_17_a_file_replaces_a_folder_and_a_folder_replaces_a_file() {
     assert_eq!(answer.status, Status::NO_CONTENT, "{}", text(&answer));
     let keys = drive.inner.keys();
     assert!(keys.contains(&String::from("top.txt/one.txt")), "{keys:?}");
-    assert!(!keys.contains(&String::from("top.txt")), "the file is replaced by the folder: {keys:?}");
+    assert!(
+        !keys.contains(&String::from("top.txt")),
+        "the file is replaced by the folder: {keys:?}"
+    );
     assert!(keys.iter().all(|key| !key.contains(".azul-")), "{keys:?}");
 }
 
@@ -1007,7 +1081,12 @@ fn x_delta_sync4_17_a_swap_step_that_fails_puts_the_old_destination_back() {
         let dav = dav_over(drive.clone());
         let before = drive.inner.keys();
         let answer = dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"");
-        assert_eq!(answer.status, Status::BAD_GATEWAY, "rename {failing}: {}", text(&answer));
+        assert_eq!(
+            answer.status,
+            Status::BAD_GATEWAY,
+            "rename {failing}: {}",
+            text(&answer)
+        );
         assert_eq!(drive.inner.keys(), before, "rename {failing} failed");
         assert_eq!(drive.inner.get("dest/keep.txt").unwrap(), b"old");
     }
@@ -1017,7 +1096,12 @@ fn x_delta_sync4_17_a_swap_step_that_fails_puts_the_old_destination_back() {
         let dav = dav_over(drive.clone());
         let before = drive.inner.keys();
         let answer = dav.respond(&head("MOVE", "/src/", &dest("/dest/")), b"");
-        assert_eq!(answer.status, Status::BAD_GATEWAY, "rename {failing}: {}", text(&answer));
+        assert_eq!(
+            answer.status,
+            Status::BAD_GATEWAY,
+            "rename {failing}: {}",
+            text(&answer)
+        );
         assert_eq!(drive.inner.keys(), before, "rename {failing} failed");
         assert_eq!(drive.inner.get("dest/keep.txt").unwrap(), b"old");
         assert_eq!(drive.inner.get("src/one.txt").unwrap(), b"one");
@@ -1036,21 +1120,45 @@ fn x_delta_sync4_21_put_and_delete_ask_if_match_and_if_none_match_before_they_ch
         .unwrap()
         .to_string();
     let stale = [("If-Match", "\"stale\"")];
-    assert_eq!(dav.respond(&head("PUT", "/docs/a.txt", &stale), b"mine").status, Status::PRECONDITION_FAILED);
-    assert_eq!(drive.get("docs/a.txt").unwrap(), b"hello world", "not overwritten");
-    assert_eq!(dav.respond(&head("DELETE", "/docs/a.txt", &stale), b"").status, Status::PRECONDITION_FAILED);
+    assert_eq!(
+        dav.respond(&head("PUT", "/docs/a.txt", &stale), b"mine")
+            .status,
+        Status::PRECONDITION_FAILED
+    );
+    assert_eq!(
+        drive.get("docs/a.txt").unwrap(),
+        b"hello world",
+        "not overwritten"
+    );
+    assert_eq!(
+        dav.respond(&head("DELETE", "/docs/a.txt", &stale), b"")
+            .status,
+        Status::PRECONDITION_FAILED
+    );
     assert!(drive.get("docs/a.txt").is_ok(), "not deleted");
     assert_eq!(
-        dav.respond(&head("PUT", "/docs/a.txt", &[("If-None-Match", "*")]), b"mine").status,
+        dav.respond(
+            &head("PUT", "/docs/a.txt", &[("If-None-Match", "*")]),
+            b"mine"
+        )
+        .status,
         Status::PRECONDITION_FAILED,
         "the name is taken"
     );
     assert_eq!(
-        dav.respond(&head("PUT", "/docs/new.txt", &[("If-None-Match", "*")]), b"new").status,
+        dav.respond(
+            &head("PUT", "/docs/new.txt", &[("If-None-Match", "*")]),
+            b"new"
+        )
+        .status,
         Status::CREATED
     );
     assert_eq!(
-        dav.respond(&head("PUT", "/docs/a.txt", &[("If-Match", etag.as_str())]), b"mine").status,
+        dav.respond(
+            &head("PUT", "/docs/a.txt", &[("If-Match", etag.as_str())]),
+            b"mine"
+        )
+        .status,
         Status::NO_CONTENT
     );
     assert_eq!(drive.get("docs/a.txt").unwrap(), b"mine");
@@ -1060,7 +1168,11 @@ fn x_delta_sync4_21_put_and_delete_ask_if_match_and_if_none_match_before_they_ch
         .unwrap()
         .to_string();
     assert_eq!(
-        dav.respond(&head("DELETE", "/docs/a.txt", &[("If-Match", etag.as_str())]), b"").status,
+        dav.respond(
+            &head("DELETE", "/docs/a.txt", &[("If-Match", etag.as_str())]),
+            b""
+        )
+        .status,
         Status::NO_CONTENT
     );
     assert!(drive.get("docs/a.txt").is_err());

@@ -29,7 +29,10 @@ pub fn make_unreadable(file: &std::path::Path) -> bool {
     {
         use std::os::unix::fs::PermissionsExt;
         if std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o000)).is_err() {
-            eprintln!("skipped: the permission of {} cannot be changed", file.display());
+            eprintln!(
+                "skipped: the permission of {} cannot be changed",
+                file.display()
+            );
             return false;
         }
         if std::fs::read(file).is_err() {
@@ -41,7 +44,10 @@ pub fn make_unreadable(file: &std::path::Path) -> bool {
     }
     #[cfg(not(unix))]
     {
-        eprintln!("skipped: no Unix file permissions here ({})", file.display());
+        eprintln!(
+            "skipped: no Unix file permissions here ({})",
+            file.display()
+        );
         false
     }
 }
@@ -52,7 +58,10 @@ pub fn make_readable(file: &std::path::Path) {
     {
         use std::os::unix::fs::PermissionsExt;
         if let Err(e) = std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)) {
-            eprintln!("the permission of {} could not be given back: {e}", file.display());
+            eprintln!(
+                "the permission of {} could not be given back: {e}",
+                file.display()
+            );
         }
     }
     #[cfg(not(unix))]

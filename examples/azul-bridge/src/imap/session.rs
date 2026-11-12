@@ -1704,8 +1704,11 @@ impl<'s, C: Conn> Session<'s, C> {
             if let Ok(listed) = self.imap.store.messages(&target.path) {
                 let names: Vec<String> = listed.into_iter().map(|m| m.name).collect();
                 let numbered = self.imap.uids.number(&target.path, &names);
-                let target_uid: HashMap<&str, u32> =
-                    numbered.uids.iter().map(|(n, u)| (n.as_str(), *u)).collect();
+                let target_uid: HashMap<&str, u32> = numbered
+                    .uids
+                    .iter()
+                    .map(|(n, u)| (n.as_str(), *u))
+                    .collect();
                 let pairs: Vec<(u32, u32)> = copied
                     .iter()
                     .filter_map(|(uid, name)| target_uid.get(name.as_str()).map(|t| (*uid, *t)))

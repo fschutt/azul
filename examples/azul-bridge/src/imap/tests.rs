@@ -629,16 +629,27 @@ struct Flaky {
 }
 
 impl Drive for Flaky {
-    fn list(&self, request: &azul_storage::ListRequest) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
-        if self.armed.load(std::sync::atomic::Ordering::SeqCst) && request.prefix.starts_with(&self.prefix) {
-            return Err(azul_storage::DriveError::Transport(String::from("the listing failed")));
+    fn list(
+        &self,
+        request: &azul_storage::ListRequest,
+    ) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+        if self.armed.load(std::sync::atomic::Ordering::SeqCst)
+            && request.prefix.starts_with(&self.prefix)
+        {
+            return Err(azul_storage::DriveError::Transport(String::from(
+                "the listing failed",
+            )));
         }
         self.inner.list(request)
     }
     fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
         self.inner.get(key)
     }
-    fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, azul_storage::DriveError> {
+    fn get_range(
+        &self,
+        key: &str,
+        range: azul_storage::ByteRange,
+    ) -> Result<Vec<u8>, azul_storage::DriveError> {
         self.inner.get_range(key, range)
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
@@ -663,7 +674,10 @@ fn x_delta_sync4_21_a_copy_whose_target_cannot_be_listed_leaves_the_uid_map_alon
     let drive = seeded();
     let archived = mail("old", "Already in the Archive.");
     drive
-        .put(&azlin::message_key("Archive", &azlin::object_name(&archived, OCT_1 - 600)), &archived)
+        .put(
+            &azlin::message_key("Archive", &azlin::object_name(&archived, OCT_1 - 600)),
+            &archived,
+        )
         .unwrap();
     let flaky = Arc::new(Flaky {
         inner: drive.clone(),
@@ -674,7 +688,11 @@ fn x_delta_sync4_21_a_copy_whose_target_cannot_be_listed_leaves_the_uid_map_alon
         Arc::new(DriveMailStore::new(flaky.clone())),
         Arc::new(UidMaps::in_memory().with_clock(|| 1_700_000_000)),
         Credentials::new(USER, PASSWORD),
-        Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
+        Arc::new(FailureGate::new(
+            100,
+            Duration::from_secs(60),
+            Duration::ZERO,
+        )),
         Limits::default(),
         Arc::new(SentRegistry::new()),
     ));
@@ -685,11 +703,25 @@ fn x_delta_sync4_21_a_copy_whose_target_cannot_be_listed_leaves_the_uid_map_alon
     client.ok("s2", "SELECT INBOX");
     flaky.armed.store(true, std::sync::atomic::Ordering::SeqCst);
     let copied = client.run("c1", "COPY 1 Archive");
-    assert!(copied.last().unwrap().starts_with("c1 OK"), "the copy landed: {copied:?}");
-    assert!(!has(&copied, "COPYUID"), "no listing, no numbers: {copied:?}");
-    flaky.armed.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        copied.last().unwrap().starts_with("c1 OK"),
+        "the copy landed: {copied:?}"
+    );
+    assert!(
+        !has(&copied, "COPYUID"),
+        "no listing, no numbers: {copied:?}"
+    );
+    flaky
+        .armed
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     client.ok("s3", "SELECT Archive");
     let after = client.ok("f2", "UID FETCH 1:* (UID)");
-    assert!(has(&after, "(UID 1)"), "the message that was there keeps its UID: {after:?}");
-    assert!(has(&after, "(UID 2)"), "the copy is the next one: {after:?}");
+    assert!(
+        has(&after, "(UID 1)"),
+        "the message that was there keeps its UID: {after:?}"
+    );
+    assert!(
+        has(&after, "(UID 2)"),
+        "the copy is the next one: {after:?}"
+    );
 }

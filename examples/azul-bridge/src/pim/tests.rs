@@ -703,16 +703,25 @@ impl Unreadable {
 }
 
 impl Drive for Unreadable {
-    fn list(&self, request: &azul_storage::ListRequest) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+    fn list(
+        &self,
+        request: &azul_storage::ListRequest,
+    ) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
         self.inner.list(request)
     }
     fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
         if self.keys.lock().unwrap().iter().any(|k| k == key) {
-            return Err(azul_storage::DriveError::Transport(String::from("the drive did not answer")));
+            return Err(azul_storage::DriveError::Transport(String::from(
+                "the drive did not answer",
+            )));
         }
         self.inner.get(key)
     }
-    fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, azul_storage::DriveError> {
+    fn get_range(
+        &self,
+        key: &str,
+        range: azul_storage::ByteRange,
+    ) -> Result<Vec<u8>, azul_storage::DriveError> {
         self.inner.get_range(key, range)
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
@@ -734,9 +743,16 @@ fn x_delta_sync4_21_a_to_do_whose_old_file_cannot_be_read_is_not_written_over() 
     contacts.set_now(1_790_843_400);
     let calendar = Arc::new(MemoryDrive::new());
     let list = TaskList::new(LIST.to_string(), String::from("Home"), 1);
-    contacts.put(&list.key(), task::list_to_json(&list).as_bytes()).unwrap();
+    contacts
+        .put(&list.key(), task::list_to_json(&list).as_bytes())
+        .unwrap();
     let made = day(2026, 10, 1).and_time(at(8, 0));
-    let mut rent = Task::new(TASK.to_string(), LIST.to_string(), String::from("Pay rent"), made);
+    let mut rent = Task::new(
+        TASK.to_string(),
+        LIST.to_string(),
+        String::from("Pay rent"),
+        made,
+    );
     rent.flagged = true;
     rent.subtasks = vec![Subtask {
         id: String::from("s1"),
@@ -752,11 +768,20 @@ fn x_delta_sync4_21_a_to_do_whose_old_file_cannot_be_read_is_not_written_over() 
     let done = vtodo(&format!("UID:{TASK}\r\nSUMMARY:Pay the rent\r\n"));
     let answer = ask(&pim, "PUT", &href, &[], &done);
     assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
-    assert_eq!(contacts.get(&rent.key()).unwrap(), before.as_bytes(), "the task is as it was");
+    assert_eq!(
+        contacts.get(&rent.key()).unwrap(),
+        before.as_bytes(),
+        "the task is as it was"
+    );
     // The drive answers again: the same PUT goes through and the steps and the flag stay.
     flaky.keys.lock().unwrap().clear();
-    assert_eq!(ask(&pim, "PUT", &href, &[], &done).status, Status::NO_CONTENT);
-    let stored = task::task_from_json(&String::from_utf8(contacts.get(&rent.key()).unwrap()).unwrap()).unwrap();
+    assert_eq!(
+        ask(&pim, "PUT", &href, &[], &done).status,
+        Status::NO_CONTENT
+    );
+    let stored =
+        task::task_from_json(&String::from_utf8(contacts.get(&rent.key()).unwrap()).unwrap())
+            .unwrap();
     assert_eq!(stored.title, "Pay the rent");
     assert!(stored.flagged && stored.subtasks.len() == 1, "{stored:?}");
 }
@@ -786,8 +811,15 @@ fn x_delta_sync4_21_an_event_whose_old_file_cannot_be_read_is_not_written_over()
     let later = DENTIST.replace("SUMMARY:Dentist", "SUMMARY:Dentist (moved)");
     let answer = ask(&pim, "PUT", href, &[], &later);
     assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
-    assert_eq!(calendar.get(&key).unwrap(), before, "the event is as it was");
+    assert_eq!(
+        calendar.get(&key).unwrap(),
+        before,
+        "the event is as it was"
+    );
     flaky.keys.lock().unwrap().clear();
-    assert_eq!(ask(&pim, "PUT", href, &[], &later).status, Status::NO_CONTENT);
+    assert_eq!(
+        ask(&pim, "PUT", href, &[], &later).status,
+        Status::NO_CONTENT
+    );
     assert_ne!(calendar.get(&key).unwrap(), before);
 }

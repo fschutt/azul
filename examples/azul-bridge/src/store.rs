@@ -748,12 +748,30 @@ mod tests {
         let kept = store
             .append("Work", &mail("kept"), OCT_1, Marks::default())
             .unwrap();
-        assert!(matches!(store.delete_mailbox("work"), Err(StoreError::NotFound(_))));
-        assert!(matches!(store.rename_mailbox("work", "Play"), Err(StoreError::NotFound(_))));
-        assert_eq!(store.messages("Work").unwrap().len(), 1, "the mail is still there");
-        assert!(drive.keys().iter().any(|k| k.contains(&kept.name)), "{:?}", drive.keys());
+        assert!(matches!(
+            store.delete_mailbox("work"),
+            Err(StoreError::NotFound(_))
+        ));
+        assert!(matches!(
+            store.rename_mailbox("work", "Play"),
+            Err(StoreError::NotFound(_))
+        ));
+        assert_eq!(
+            store.messages("Work").unwrap().len(),
+            1,
+            "the mail is still there"
+        );
+        assert!(
+            drive.keys().iter().any(|k| k.contains(&kept.name)),
+            "{:?}",
+            drive.keys()
+        );
         store.delete_mailbox("Work").unwrap();
-        assert!(!drive.keys().iter().any(|k| k.starts_with("mail/Work/")), "{:?}", drive.keys());
+        assert!(
+            !drive.keys().iter().any(|k| k.starts_with("mail/Work/")),
+            "{:?}",
+            drive.keys()
+        );
     }
 
     #[test]

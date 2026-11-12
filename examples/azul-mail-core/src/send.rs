@@ -1268,7 +1268,10 @@ pub(crate) fn retry_outbox_with(
             // a failing disk, a folder that cannot be listed to be sure - is an unknown, not
             // "gone": the mail waits like one whose server did not answer.
             Err(e) => {
-                results.push((entry.id.clone(), wait_for_unreadable(&outbox, &mut entry, &e, now)));
+                results.push((
+                    entry.id.clone(),
+                    wait_for_unreadable(&outbox, &mut entry, &e, now),
+                ));
                 continue;
             }
         };
@@ -1344,7 +1347,10 @@ fn wait_for_unreadable(
     let mut status = if given_up {
         entry.state = OutboxState::Failed;
         SendStatus::Failed {
-            reason: format!("\"{}\" was given up on after 5 days: {said}.", entry.subject),
+            reason: format!(
+                "\"{}\" was given up on after 5 days: {said}.",
+                entry.subject
+            ),
         }
     } else {
         entry.state = OutboxState::Queued;
@@ -3619,8 +3625,20 @@ mod tests {
         Some(bytes)
     }
 
-    fn retry_at(dir: &TempDir, force: bool, now: i64, fake: &mut Fake) -> Vec<(String, SendStatus)> {
-        retry_outbox_with(&dir.folder(), ACCOUNT, &SendSettings::default(), force, now, fake)
+    fn retry_at(
+        dir: &TempDir,
+        force: bool,
+        now: i64,
+        fake: &mut Fake,
+    ) -> Vec<(String, SendStatus)> {
+        retry_outbox_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            force,
+            now,
+            fake,
+        )
     }
 
     /// RED on the code before: the read error deleted the entry (`outbox_entries` was empty), so
@@ -3659,7 +3677,10 @@ mod tests {
         crate::testutil::make_readable(&file);
         assert_eq!(std::fs::read(&file).unwrap(), bytes);
         let results = retry_at(&dir, false, kept[0].next_attempt, &mut fake);
-        assert!(matches!(results[0].1, SendStatus::Sent { .. }), "{results:?}");
+        assert!(
+            matches!(results[0].1, SendStatus::Sent { .. }),
+            "{results:?}"
+        );
         assert!(outbox_files(&dir.0).is_empty());
         assert_eq!(sent_index(&dir.0).len(), 1);
     }
@@ -3678,14 +3699,20 @@ mod tests {
             panic!("{results:?}");
         };
         assert!(
-            reason.contains("Lunch") && reason.contains("ben@example.net") && reason.contains("gone"),
+            reason.contains("Lunch")
+                && reason.contains("ben@example.net")
+                && reason.contains("gone"),
             "{reason}"
         );
         let kept = outbox_entries(&dir.folder(), ACCOUNT);
         assert_eq!(kept.len(), 1, "never removed in silence");
         assert_eq!(kept[0].state, OutboxState::Failed);
         assert_eq!(kept[0].recipients[0].state, RecipientProgress::Failed);
-        assert!(kept[0].recipients[0].reason.contains("gone"), "{:?}", kept[0].recipients);
+        assert!(
+            kept[0].recipients[0].reason.contains("gone"),
+            "{:?}",
+            kept[0].recipients
+        );
         // A failed entry is not tried again, and says nothing twice.
         assert!(retry_at(&dir, true, OCT_1 + 9999, &mut fake).is_empty());
     }
@@ -3702,11 +3729,17 @@ mod tests {
         let SendStatus::Failed { reason } = &results[0].1 else {
             panic!("{results:?}");
         };
-        assert!(reason.contains("Lunch") && reason.contains("given up"), "{reason}");
+        assert!(
+            reason.contains("Lunch") && reason.contains("given up"),
+            "{reason}"
+        );
         let kept = outbox_entries(&dir.folder(), ACCOUNT);
         assert_eq!((kept.len(), kept[0].state), (1, OutboxState::Failed));
         let said = &kept[0].recipients[0].reason;
-        assert!(said.contains("given up after 5 days") && said.contains("cannot be read"), "{said}");
+        assert!(
+            said.contains("given up after 5 days") && said.contains("cannot be read"),
+            "{said}"
+        );
         assert!(eml_of(&dir, &entry).exists(), "nothing was deleted");
         assert!(fake.calls.is_empty());
     }
@@ -3723,7 +3756,10 @@ mod tests {
         for n in 0..10 {
             let now = OCT_1 + 400 + n;
             let results = retry_at(&dir, true, now, &mut fake);
-            assert!(matches!(results[0].1, SendStatus::Queued { .. }), "{results:?}");
+            assert!(
+                matches!(results[0].1, SendStatus::Queued { .. }),
+                "{results:?}"
+            );
             let kept = outbox_entries(&dir.folder(), ACCOUNT).remove(0);
             assert_eq!(kept.attempts, 2 + u32::try_from(n).unwrap());
             waits.push(kept.next_attempt - now);
@@ -3751,7 +3787,11 @@ mod tests {
         let failed = file_message(&dir.folder(), "sent", b"two", &flags, OCT_1 + 1);
         crate::testutil::make_readable(&index);
         assert!(failed.is_err(), "{failed:?}");
-        assert_eq!(std::fs::read(&index).unwrap(), before, "the index was not rewritten from nothing");
+        assert_eq!(
+            std::fs::read(&index).unwrap(),
+            before,
+            "the index was not rewritten from nothing"
+        );
         assert_eq!(
             MailStore::new(dir.folder()).get(&first.path).unwrap(),
             b"one",
@@ -3773,7 +3813,11 @@ mod tests {
         let failed = file_message(&dir.folder(), "sent", b"two", &flags, OCT_1 + 1);
         crate::testutil::make_readable(&state);
         assert!(failed.is_err(), "{failed:?}");
-        assert_eq!(std::fs::read(&state).unwrap(), before, "the state was not started anew");
+        assert_eq!(
+            std::fs::read(&state).unwrap(),
+            before,
+            "the state was not started anew"
+        );
         assert_eq!(
             std::fs::read(dir.0.join("mail/sent/index.jsonl")).unwrap(),
             index_before,
@@ -3785,7 +3829,10 @@ mod tests {
     fn x_delta_sync4_19_a_file_is_gone_only_when_the_outbox_lists_the_entry_without_it() {
         let dir = TempDir::new("send-gone");
         let entry = queued(&dir);
-        assert!(!file_is_gone(&dir.folder(), ACCOUNT, &entry.id), "the file is there");
+        assert!(
+            !file_is_gone(&dir.folder(), ACCOUNT, &entry.id),
+            "the file is there"
+        );
         std::fs::remove_file(eml_of(&dir, &entry)).unwrap();
         assert!(file_is_gone(&dir.folder(), ACCOUNT, &entry.id));
         assert!(

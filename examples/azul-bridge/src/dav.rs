@@ -1137,11 +1137,16 @@ impl Dav {
             .is_some_and(|o| o.eq_ignore_ascii_case("F"));
         let replaced = existing != Resource::Missing;
         if replaced && !overwrite {
-            return Ok(Response::text(Status::PRECONDITION_FAILED, "The destination is there."));
+            return Ok(Response::text(
+                Status::PRECONDITION_FAILED,
+                "The destination is there.",
+            ));
         }
         let depth_zero = head.header("Depth") == Some("0");
         match (&existing, folder) {
-            (Resource::Missing, _) => self.put_in_place(key, &target, folder, moving, depth_zero)?,
+            (Resource::Missing, _) => {
+                self.put_in_place(key, &target, folder, moving, depth_zero)?
+            }
             // A file over a file: the copy replaces the destination in one step, and only when
             // the source was read; a copy that fails leaves the destination as it was. A move is
             // that copy and then the source's removal - which only a landed copy licenses.
@@ -1167,7 +1172,11 @@ impl Dav {
         if moving {
             self.forget_locks_under(key);
         }
-        Ok(Response::new(if replaced { Status::NO_CONTENT } else { Status::CREATED }))
+        Ok(Response::new(if replaced {
+            Status::NO_CONTENT
+        } else {
+            Status::CREATED
+        }))
     }
 
     /// The refusal when the destination `target` is the source `key`, lies inside it or is the
@@ -1176,23 +1185,47 @@ impl Dav {
     /// a second drive over the folder), never by the spelling - a MOVE onto an ancestor deleted the
     /// destination first and took the source with it (X-DELTA-SYNC4-17). `existing`: what is at
     /// the destination now.
-    fn refuse_overlap(&self, key: &str, folder: bool, target: &str, existing: &Resource) -> Option<Response> {
+    fn refuse_overlap(
+        &self,
+        key: &str,
+        folder: bool,
+        target: &str,
+        existing: &Resource,
+    ) -> Option<Response> {
         let site = self.drive.site();
-        let from = if folder { format!("{key}/") } else { key.to_string() };
-        let to = if *existing == Resource::Folder { format!("{target}/") } else { target.to_string() };
+        let from = if folder {
+            format!("{key}/")
+        } else {
+            key.to_string()
+        };
+        let to = if *existing == Resource::Folder {
+            format!("{target}/")
+        } else {
+            target.to_string()
+        };
         let (status, why) = match overlap(&site, &from, &site, &to) {
             Overlap::Disjoint => return None,
             Overlap::Same => (Status::FORBIDDEN, "Not onto itself."),
             Overlap::SourceHoldsTarget => (Status::FORBIDDEN, "Not into itself."),
             Overlap::TargetHoldsSource => (Status::FORBIDDEN, "Not onto the folder it lies in."),
-            Overlap::Unknown => (Status::FORBIDDEN, "The destination cannot be told from the source."),
+            Overlap::Unknown => (
+                Status::FORBIDDEN,
+                "The destination cannot be told from the source.",
+            ),
         };
         Some(Response::text(status, why))
     }
 
     /// The source where nothing is: a rename for a move, a copy for a copy (a folder's copy is its
     /// folder and every object under it, with `Depth: 0` the folder alone).
-    fn put_in_place(&self, key: &str, target: &str, folder: bool, moving: bool, depth_zero: bool) -> Result<(), DriveError> {
+    fn put_in_place(
+        &self,
+        key: &str,
+        target: &str,
+        folder: bool,
+        moving: bool,
+        depth_zero: bool,
+    ) -> Result<(), DriveError> {
         match (folder, moving) {
             (false, true) => self.drive.rename(key, target),
             (false, false) => self.drive.copy(key, target),
@@ -1243,7 +1276,10 @@ impl Dav {
         let stamp = unique_stamp();
         let beside = format!("{target}.azul-new-{stamp}");
         let aside = format!("{target}.azul-old-{stamp}");
-        let (new_slash, old_slash) = (if folder { "/" } else { "" }, if destination_is_folder { "/" } else { "" });
+        let (new_slash, old_slash) = (
+            if folder { "/" } else { "" },
+            if destination_is_folder { "/" } else { "" },
+        );
         // 1. The new content beside the destination.
         if let Err(e) = self.put_in_place(key, &beside, folder, moving, depth_zero) {
             if !moving {
@@ -1255,7 +1291,10 @@ impl Dav {
         // is renamed back (it is the source itself).
         let undo_step_1 = |this: &Dav| {
             if moving {
-                if let Err(e) = this.drive.rename(&format!("{beside}{new_slash}"), &format!("{key}{new_slash}")) {
+                if let Err(e) = this.drive.rename(
+                    &format!("{beside}{new_slash}"),
+                    &format!("{key}{new_slash}"),
+                ) {
                     eprintln!("[azul-bridge] the moved {key} is kept as {beside}: it could not be put back: {e}");
                 }
             } else {
@@ -1263,12 +1302,18 @@ impl Dav {
             }
         };
         // 2. The old destination steps aside.
-        if let Err(e) = self.drive.rename(&format!("{target}{old_slash}"), &format!("{aside}{old_slash}")) {
+        if let Err(e) = self.drive.rename(
+            &format!("{target}{old_slash}"),
+            &format!("{aside}{old_slash}"),
+        ) {
             undo_step_1(self);
             return Err(e);
         }
         // 3. The new content takes its place.
-        if let Err(e) = self.drive.rename(&format!("{beside}{new_slash}"), &format!("{target}{new_slash}")) {
+        if let Err(e) = self.drive.rename(
+            &format!("{beside}{new_slash}"),
+            &format!("{target}{new_slash}"),
+        ) {
             match self.drive.rename(&format!("{aside}{old_slash}"), &format!("{target}{old_slash}")) {
                 Ok(()) => undo_step_1(self),
                 Err(back) => eprintln!(
