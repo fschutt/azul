@@ -38,7 +38,7 @@ fn not_found(key: &str) -> DriveError {
 
 /// The entity tag of `bytes`: their BLAKE3, shortened.
 fn etag_of(bytes: &[u8]) -> String {
-    crate::crypto::to_hex(&blake3::hash(bytes).as_bytes()[..8])
+    blake3::hash(bytes).to_hex()[..16].to_string()
 }
 
 impl MemBucket {

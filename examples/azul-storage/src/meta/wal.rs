@@ -395,6 +395,7 @@ pub(crate) fn writable_max() -> u64 {
 
 /// What [`narrow_writable_max`] gives back when it drops.
 #[cfg(test)]
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))]
 pub(crate) struct Narrowed(Option<u64>);
 
 #[cfg(test)]
@@ -406,6 +407,7 @@ impl Drop for Narrowed {
 
 /// A test: the writer's cap is `max` bytes on this thread until the guard drops.
 #[cfg(test)]
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))]
 pub(crate) fn narrow_writable_max(max: u64) -> Narrowed {
     Narrowed(NARROWED_MAX.with(|cap| cap.replace(Some(max))))
 }
@@ -416,6 +418,7 @@ pub(crate) fn narrow_writable_max(max: u64) -> Narrowed {
 /// counted a drive of some 600,000 files by it). A change of any file of a folder writes the whole
 /// tree of the folder again - of its shard, for a folder in shards ([`super::shard`]) - so a batch
 /// is sized to a quarter of what a pack may weigh and the rest is left for the trees.
+#[cfg(feature = "encryption")]
 pub(crate) const ENTRY_PACK_BYTES: u64 = 540;
 
 /// Whether a sealed pack of `pack` bytes with an index of `idx` bytes is one a reader takes: neither

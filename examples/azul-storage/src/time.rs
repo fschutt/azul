@@ -35,6 +35,7 @@ thread_local! {
 /// How long something has taken by the MONOTONIC clock: what carries a time of day read at the start
 /// forward to the moment it is compared with another clock, when the device's own clock may have been
 /// stepped in between ([`crate::meta::reclaim::stamp_agrees`]).
+#[cfg(feature = "encryption")]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Stopwatch {
     at: std::time::Instant,
@@ -43,6 +44,7 @@ pub(crate) struct Stopwatch {
     extra_at_start: u64,
 }
 
+#[cfg(feature = "encryption")]
 impl Stopwatch {
     /// Starts it now.
     #[must_use]
@@ -64,14 +66,14 @@ impl Stopwatch {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "encryption"))]
 thread_local! {
     static TEST_MONOTONIC: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Lets every [`Stopwatch`] of THIS thread read `secs` seconds more: a test that plays a long analysis
 /// moves the device's clock AND the monotonic one, a test that plays a step moves the first only.
-#[cfg(test)]
+#[cfg(all(test, feature = "encryption"))]
 pub(crate) fn advance_monotonic(secs: u64) {
     TEST_MONOTONIC.with(|extra| extra.set(extra.get() + secs));
 }
@@ -79,6 +81,7 @@ pub(crate) fn advance_monotonic(secs: u64) {
 /// Makes [`now_unix`] of THIS thread read `secs` seconds off the system clock (0: as it is). A test
 /// only: the clock of a computer that was set wrong and is corrected while a round runs.
 #[cfg(test)]
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))]
 pub(crate) fn step_clock(secs: i64) {
     TEST_STEP.with(|step| step.set(secs));
 }

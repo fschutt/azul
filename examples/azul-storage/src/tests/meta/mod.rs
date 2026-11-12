@@ -69,6 +69,7 @@ impl Unplugged {
 
     /// While refusing, every call is answered as an Azlin node answers an unpaid drive: 403,
     /// `x-azlin-error: read_only_unpaid`.
+    #[cfg_attr(not(feature = "encryption"), allow(dead_code))]
     pub(crate) fn set_refusing(&self, refusing: bool) {
         self.refusing.store(refusing, Ordering::SeqCst);
     }

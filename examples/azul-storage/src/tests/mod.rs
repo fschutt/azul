@@ -142,8 +142,9 @@ pub(crate) mod compress_inputs;
 /// refused when changed; compression on by default.
 #[cfg(feature = "encryption")]
 mod azl1_transform;
-/// A bucket in memory that counts and records its calls (the encryption tests).
-#[cfg(feature = "encryption")]
+/// A bucket in memory that counts and records its calls (the encryption tests, and the ranged
+/// download's: it compiles without the `encryption` feature too, where only some of it is used).
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))]
 mod mem_bucket;
 /// A bucket that misbehaves where a test asks it to: a refused write, a lost answer, a failing
 /// delete (the tests of the key lanes' delta review).

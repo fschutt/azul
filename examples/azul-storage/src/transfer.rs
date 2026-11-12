@@ -526,6 +526,7 @@ fn download_ranges(
 
 /// [`download_ranges`] with a look at the step that makes a range durable (a test cuts it by
 /// failing it).
+#[cfg(test)]
 pub(crate) fn download_ranges_probed(
     drive: &dyn Drive,
     info: &ObjectInfo,
@@ -542,11 +543,12 @@ pub(crate) fn download_ranges_probed(
     download_ranges_checked(drive, info, dest, chunk, guard, ctl, probe)
 }
 
-/// [`download_ranges_probed`] that asks `last_look` once more when every range is in and the object
-/// is still the version the download began with, right before the file is renamed into place: a
-/// look that fails ([`DriveError::Conflict`]: the name no longer holds what the plan saw) leaves
-/// the hidden file and its state for the next download, which takes the same version without a
-/// byte more.
+/// The ranged download itself: [`download_ranges`] with a look at the step that makes a range
+/// durable (`probe`: a test cuts it by failing it), and `last_look` asked once more when every range
+/// is in and the object is still the version the download began with, right before the file is
+/// renamed into place: a look that fails ([`DriveError::Conflict`]: the name no longer holds what
+/// the plan saw) leaves the hidden file and its state for the next download, which takes the same
+/// version without a byte more.
 fn download_ranges_checked(
     drive: &dyn Drive,
     info: &ObjectInfo,
