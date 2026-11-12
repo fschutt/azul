@@ -350,7 +350,7 @@ pub(crate) fn start_forget(
 #[derive(Clone)]
 pub(crate) struct VaultCheck {
     store: azcloud_kit::PeriodTokenStore,
-    azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
+    azlin: Option<Arc<azcloud_kit::AzlinAccount>>,
 }
 
 impl VaultCheck {
@@ -2692,7 +2692,7 @@ pub(crate) enum EncryptionJob {
     Rotate {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
-        azlin: Arc<azcloud_kit::AzlinDrive>,
+        azlin: Arc<azcloud_kit::AzlinAccount>,
         /// The current recovery code as typed (it signs the new code's registration).
         current: Option<Zeroizing<String>>,
         /// The state of the "re-encrypt everything" pass of the keys before: a pass that stopped

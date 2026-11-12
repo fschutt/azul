@@ -554,7 +554,7 @@ pub(crate) struct Slot {
     pub auto: Option<Arc<azul_storage::AutoEncrypted>>,
     /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked"), its node's
     /// count of stored bytes (HeadBucket).
-    pub azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
+    pub azlin: Option<Arc<azcloud_kit::AzlinAccount>>,
     /// An Azlin drive's AZL1 objects kept on this computer, below its encryption: a synced
     /// encrypted drive's "encrypted local copies".
     #[cfg(feature = "encryption")]
@@ -618,79 +618,95 @@ impl Slot {
             let transports: azcloud_kit::drive::TransportFactory = Arc::new(|| {
                 Box::new(AzulTransport::azlin(USER_AGENT)) as Box<dyn azul_storage::Transport>
             });
-            let concrete = azcloud_kit::AzlinDrive::new(
-                &self.entry,
-                session,
-                token_url.unwrap_or_default(),
-                keyring.clone(),
-                transports,
-                Box::new(
-                    move |session: &azcloud_kit::AzlinSession, saved: Result<(), String>| {
-                        if let Ok(mut queue) = queue.lock() {
-                            queue.push(Rotated {
-                                drive_id: id.clone(),
-                                secret: azcloud_kit::Zeroizing::new(session.to_keyring_secret()),
-                                unsaved: saved.err(),
-                            });
-                        }
-                    },
-                ),
-            )?
             // The node list of the last refresh outlives the app: the next start fails over to
             // the nodes before its first refresh.
-            .with_nodes_file(&nodes_file(&self.entry.id));
+            let nodes = nodes_file(&self.entry.id);
             // iroh to the nodes first (their iroh ids and sockets come with the node list), then
             // HTTPS; AZCLOUD_TRANSPORT=https keeps to HTTPS.
-            let concrete = Arc::new(
-                match crate::iroh_lane::dialer(&|var: &str| std::env::var(var).ok()) {
-                    Some(dialer) => concrete.with_iroh(dialer, relay),
-                    None => concrete,
+            let iroh = crate::iroh_lane::dialer(&|var: &str| std::env::var(var).ok())
+                .map(|dialer| (dialer, relay));
+            // The account and the bytes: the ONE place the drive's token server is resolved
+            // (`azcloud_kit::azlin_target`), and the bytes come out of the layers below - the
+            // retries, the encrypted copies kept here, and the encryption's gate, built where it
+            // always was (`encryption::wrap`) - never as the bucket's plain store (X-DELTA-AZDRIVE-
+            // KEYS-4, -9; ARCH29 C6d).
+            let entry = &self.entry;
+            #[cfg(feature = "encryption")]
+            let (objects_slot, auto_slot) = (&mut self.objects, &mut self.auto);
+            let (account, drive) = azcloud_kit::open_azlin(
+                entry,
+                azcloud_kit::AzlinOpen {
+                    session,
+                    token_url: token_url.unwrap_or_default(),
+                    keyring: keyring.clone(),
+                    transports,
+                    on_rotated: Box::new(
+                        move |session: &azcloud_kit::AzlinSession, saved: Result<(), String>| {
+                            if let Ok(mut queue) = queue.lock() {
+                                queue.push(Rotated {
+                                    drive_id: id.clone(),
+                                    secret: azcloud_kit::Zeroizing::new(
+                                        session.to_keyring_secret(),
+                                    ),
+                                    unsaved: saved.err(),
+                                });
+                            }
+                        },
+                    ),
+                    nodes_file: Some(&nodes),
+                    iroh,
                 },
-            );
-            self.azlin = Some(concrete.clone());
-            // The drive's restore announcement as its last refresh answered it: the drive's index
-            // asks it at every poll and commit (never the bucket: whoever controls the storage
-            // could announce a restore).
-            #[cfg(feature = "encryption")]
-            let restore = {
-                let announcer = concrete.clone();
-                azul_storage::meta::RestoreSource::new(move || announcer.restore_notice())
-            };
-            let azlin: Arc<dyn Drive> = connection(concrete);
-            // Plain or encrypted: the first call (a worker thread) decides.
-            #[cfg(feature = "encryption")]
-            let azlin: Arc<dyn Drive> = {
-                // The Azlin drive's id: the keys are kept and bound under it in every app.
-                let drive_id = self
-                    .entry
-                    .azlin()
-                    .map_or_else(|| self.entry.id.clone(), |(id, _)| id.to_string());
-                // Below the encryption, the objects a sync keeps on this computer (encrypted
-                // local copies; nothing is kept until a sync asks) - in the drive's own cache
-                // folder of the run's cache folder; none without one.
-                let azlin: Arc<dyn Drive> =
-                    match crate::encryption::objects_dir(crate::encryption::drive_index_root(), &drive_id)
-                    {
-                        Some(dir) => {
-                            let objects =
-                                Arc::new(azcloud_kit::sync::objects::ObjectCache::new(azlin, dir));
-                            self.objects = Some(objects.clone());
-                            objects
-                        }
-                        None => azlin,
+                |account, bytes| {
+                    // The drive's restore announcement as its last refresh answered it: the drive's
+                    // index asks it at every poll and commit (never the bucket: whoever controls the
+                    // storage could announce a restore).
+                    #[cfg(feature = "encryption")]
+                    let restore = {
+                        let announcer = account.clone();
+                        azul_storage::meta::RestoreSource::new(move || announcer.restore_notice())
                     };
-                let auto = crate::encryption::wrap(
-                    &drive_id,
-                    azlin,
-                    self.entry.encryption_record().unwrap_or_default(),
-                    &self.entry.id,
-                    records,
-                    restore,
-                );
-                self.auto = Some(auto.clone());
-                auto
-            };
-            azlin
+                    #[cfg(not(feature = "encryption"))]
+                    let _ = account;
+                    let azlin: Arc<dyn Drive> = connection(bytes);
+                    // Plain or encrypted: the first call (a worker thread) decides.
+                    #[cfg(feature = "encryption")]
+                    let azlin: Arc<dyn Drive> = {
+                        // The Azlin drive's id: the keys are kept and bound under it in every app.
+                        let drive_id = entry
+                            .azlin()
+                            .map_or_else(|| entry.id.clone(), |(id, _)| id.to_string());
+                        // Below the encryption, the objects a sync keeps on this computer
+                        // (encrypted local copies; nothing is kept until a sync asks) - in the
+                        // drive's own cache folder of the run's cache folder; none without one.
+                        let azlin: Arc<dyn Drive> = match crate::encryption::objects_dir(
+                            crate::encryption::drive_index_root(),
+                            &drive_id,
+                        ) {
+                            Some(dir) => {
+                                let objects = Arc::new(
+                                    azcloud_kit::sync::objects::ObjectCache::new(azlin, dir),
+                                );
+                                *objects_slot = Some(objects.clone());
+                                objects
+                            }
+                            None => azlin,
+                        };
+                        let auto = crate::encryption::wrap(
+                            &drive_id,
+                            azlin,
+                            entry.encryption_record().unwrap_or_default(),
+                            &entry.id,
+                            records,
+                            restore,
+                        );
+                        *auto_slot = Some(auto.clone());
+                        auto
+                    };
+                    azlin
+                },
+            )?;
+            self.azlin = Some(account);
+            drive
         } else {
             // A signed-in consumer cloud (Google Drive, Dropbox, OneDrive) refreshes its access
             // token itself; a refresh token its provider rotates (OneDrive) is stored at once,

@@ -166,7 +166,7 @@ pub(crate) struct Started {
 pub(crate) struct RenewJob {
     pub order: crate::renewals::RenewOrder,
     pub store: PeriodTokenStore,
-    pub azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
+    pub azlin: Option<Arc<azcloud_kit::AzlinAccount>>,
 }
 
 /// A folder's size, counted for the Properties dialog.
@@ -410,7 +410,7 @@ pub(crate) enum Job {
         token_url: Option<String>,
         store: PeriodTokenStore,
         /// The open Azlin drives by id: a claimed checkout's grant goes into its drive's vault.
-        drives: HashMap<String, Arc<azcloud_kit::AzlinDrive>>,
+        drives: HashMap<String, Arc<azcloud_kit::AzlinAccount>>,
         cash_every: u64,
     },
     /// A claimed checkout whose drive `drive_id` is in the drives file: without a `grant` it
@@ -420,7 +420,7 @@ pub(crate) enum Job {
         keyring: SharedKeyring,
         store: PeriodTokenStore,
         /// The drive, when it is open already: its grant goes into its vault.
-        azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
+        azlin: Option<Arc<azcloud_kit::AzlinAccount>>,
         checkout: PendingCheckout,
         drive_id: String,
         grant: Option<PeriodTokens>,
@@ -430,7 +430,7 @@ pub(crate) enum Job {
     CancelPlan {
         token_url: String,
         store: PeriodTokenStore,
-        azlin: Option<Arc<azcloud_kit::AzlinDrive>>,
+        azlin: Option<Arc<azcloud_kit::AzlinAccount>>,
         drive_id: String,
         checkout_id: String,
     },
@@ -481,7 +481,7 @@ pub(crate) enum Job {
         store: PeriodTokenStore,
         /// Each drive's id, its token server and, when it is open, the drive itself (its
         /// period tokens are kept in its vault then).
-        drives: Vec<(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)>,
+        drives: Vec<(String, String, Option<Arc<azcloud_kit::AzlinAccount>>)>,
     },
     /// The settings file saved by a merge (through a LocalDrive on the data tree): `mine` is
     /// what the window has, `start` what it last read from the file or saved to it - only what
@@ -534,7 +534,7 @@ pub(crate) enum Job {
     /// usage line's stored bytes and quota.
     BucketSpace {
         azlin_id: String,
-        azlin: Arc<azcloud_kit::AzlinDrive>,
+        azlin: Arc<azcloud_kit::AzlinAccount>,
     },
     /// A voucher `code` at `token_url`: on `drive` (its id, under its keyring lock) the days it
     /// adds ([`Outcome::VoucherRedeemed`]); without one a new drive of `tier` (empty: the
@@ -948,7 +948,7 @@ pub(crate) enum Outcome {
     VoucherRedeemed {
         drive_id: String,
         result: Result<(u32, Option<u64>), Text>,
-        /// The days bought: the drive's credentials follow ([`azcloud_kit::AzlinDrive::apply`]).
+        /// The days bought: the drive's credentials follow ([`azcloud_kit::AzlinAccount::apply`]).
         grant: Option<GrantChanged>,
     },
     /// What the removal of the device `member` from `drive_id` came to.
@@ -3227,7 +3227,7 @@ fn claim_pending(
     keyring: &SharedKeyring,
     token_url: Option<&str>,
     store: &PeriodTokenStore,
-    drives: &HashMap<String, Arc<azcloud_kit::AzlinDrive>>,
+    drives: &HashMap<String, Arc<azcloud_kit::AzlinAccount>>,
     cash_every: u64,
     sender: &mut ThreadSender,
 ) -> Outcome {
@@ -3441,16 +3441,17 @@ pub(crate) fn save_notice(drive: &dyn Drive, key: &str, text: &str) -> Result<()
 pub(crate) fn drive_tokens(
     store: &PeriodTokenStore,
     drive_id: &str,
-    azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
+    azlin: Option<&Arc<azcloud_kit::AzlinAccount>>,
 ) -> Result<DriveTokens, String> {
     use azcloud_kit::NoVault;
     #[cfg(feature = "encryption")]
     let why = match azlin {
         Some(azlin) => {
-            let bucket: Arc<dyn Drive> = azlin.clone();
             let keyring =
                 azul_storage::azul_keyring::azlin_keyring(azul_storage::keyring::Asking::User);
-            match azcloud_kit::UnlockedDrive::open(drive_id, bucket, &keyring) {
+            // The vault is sealed under the drive key and lies below the gate on purpose: the account
+            // hands its own handle to the vault's code and to nothing else (ARCH29 C6d).
+            match azlin.unlocked(drive_id, &keyring) {
                 Ok(Some(unlocked)) => return store.for_drive(&unlocked).map_err(|e| e.to_string()),
                 // a plain drive, or its key not here yet
                 Ok(None) => NoVault::NoKey,
@@ -3476,7 +3477,7 @@ pub(crate) fn drive_tokens(
 fn redeem_periods(
     keyring: &SharedKeyring,
     store: &PeriodTokenStore,
-    drives: &[(String, String, Option<Arc<azcloud_kit::AzlinDrive>>)],
+    drives: &[(String, String, Option<Arc<azcloud_kit::AzlinAccount>>)],
 ) -> Outcome {
     let transport = AzulTransport::azlin(USER_AGENT);
     let now = crate::actions::now_secs();
@@ -3518,7 +3519,7 @@ fn renewal_seen(
     store: &PeriodTokenStore,
     tokens: &DriveTokens,
     look: &azcloud_kit::Look,
-    azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
+    azlin: Option<&Arc<azcloud_kit::AzlinAccount>>,
     now: u64,
 ) -> crate::renewals::RenewalSeen {
     use crate::renewals::{ChangeSeen, RenewalSeen};
@@ -3599,7 +3600,7 @@ fn lock_paid(keyring: &SharedKeyring, checkout_id: &str) -> Option<crate::renewa
 fn cancel_plan(
     token_url: &str,
     store: &PeriodTokenStore,
-    azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
+    azlin: Option<&Arc<azcloud_kit::AzlinAccount>>,
     drive_id: &str,
     checkout_id: &str,
 ) -> Result<(), String> {
@@ -3622,7 +3623,7 @@ fn cancel_plan(
 fn finish_checkout(
     keyring: &SharedKeyring,
     store: &PeriodTokenStore,
-    azlin: Option<&Arc<azcloud_kit::AzlinDrive>>,
+    azlin: Option<&Arc<azcloud_kit::AzlinAccount>>,
     checkout: &PendingCheckout,
     drive_id: &str,
     grant: Option<&PeriodTokens>,

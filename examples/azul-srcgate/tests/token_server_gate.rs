@@ -1,20 +1,22 @@
 //! Gate: the token server an Azlin drive's credentials are SENT to is chosen in one place, and
 //! the address a drive entry carries (`account_url` in `drives.json`) is read only where this
-//! list says (X-DELTA-AZDRIVE-KEYS-9, AZ-K20, REVIEW K20, P7, ARCH28 RF39).
+//! list says (X-DELTA-AZDRIVE-KEYS-9, AZ-K20, REVIEW K20, P7, ARCH28 RF39, ARCH29 C6d).
 //!
 //! A drive token, the period tokens, a recovery key, a voucher and a lockdown go to the token
 //! server a run resolves; `drives.json` and `account.json` are files any process of the user can
 //! write, and a lying token server can seed the address of a drive it hands out
 //! (`DriveBundle::entry_named`). AzDrive's refresh asked `anchors::token_server_for` (REVIEW K20)
-//! and eight other call sites read the entry's `account_url` themselves. They all go through
-//! `periods::azlin_drive` now, which asks the anchors: a shipped build answers the run's (the
-//! live) server, whatever the entry says. This gate keeps a ninth site from growing: a new file
-//! that names the identifier `account_url` fails, and a file that stops naming it has to leave
-//! the list - the counts only go down.
+//! and eight other call sites read the entry's `account_url` themselves; then they went through
+//! `periods::azlin_drive`, AzDrive's own resolver, beside AzMail's copy. They all go through
+//! `azcloud_kit::azlin_target` now (`azcloud-kit/src/drive.rs`), which `open_azlin` asks and which asks
+//! the anchors: a shipped build answers the run's (the live) server, whatever the entry says. This gate
+//! keeps another site from growing: a new file that names the identifier `account_url` fails, and a
+//! file that stops naming it has to leave the list - the counts only go down.
 //!
 //! What it finds is the identifier in shipped code - a field, a pattern, a variable, a
-//! parameter. Comments, strings and test items are not read. AzMail's own copy of the choice is
-//! `azul-mail-core`'s `Endpoints::token_url_for`, listed under its heading.
+//! parameter. Comments, strings and test items are not read. AzMail's account has no entry: its
+//! `Endpoints::token_url_for` takes the account's address as `named` and asks the same anchors function
+//! for a test build (a shipped one answers the live server as a constant).
 
 use std::path::{Path, PathBuf};
 
@@ -46,20 +48,14 @@ const ALLOWED: &[Allow] = &[
          (a record of where it was made; nothing reads it to send a credential there in a \
          shipped build)",
     ),
-    // ---- The choices: where the address becomes a destination ----
+    // ---- The choice: where the address becomes a destination ----
     Allow::exactly(
-        "examples/azul-drive/src/periods.rs",
+        "examples/azcloud-kit/src/drive.rs",
         READ,
         2,
-        "azlin_drive: the one place of AzDrive that asks the anchors which server a drive's \
-         credentials go to (a shipped build: the run's, whatever the entry says)",
-    ),
-    Allow::exactly(
-        "examples/azul-mail-core/src/azlin.rs",
-        READ,
-        4,
-        "Endpoints::token_url_for: AzMail's choice (a shipped build: the live server, whatever \
-         the account's saved address says)",
+        "azlin_target_choice: THE resolver - the one place of the apps that reads the entry's address and \
+         asks the anchors which server a drive's credentials go to (a shipped build: the run's, whatever \
+         the entry says); `open_azlin` and AzDrive's every look go through it (ARCH29 C6d)",
     ),
 ];
 

@@ -10,7 +10,7 @@
 //!   conditional read of the drive (a HEAD of the plain index; an encrypted drive's own
 //!   index polls its manifest) and a scan of the folder.
 //! - A drive's calls go through the drive the window holds: an Azlin drive refreshes its
-//!   credentials under the drive's keyring lock (azcloud-kit's `AzlinDrive`, as
+//!   credentials under the drive's keyring lock (azcloud-kit's `AzlinAccount`, as
 //!   `SharedKeyring::with_drive_token` does), so two AzDrive windows never spend one drive
 //!   token twice. No call here takes the drive token itself.
 //! - Plain drives sync through the plain index and blobs (`DriveStore`); an encrypted drive

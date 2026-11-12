@@ -735,16 +735,23 @@ impl Endpoints {
     /// The token server an account's drive token is sent to. A TEST build: the account's own
     /// (the one it was created with), else this run's. A SHIPPED build: the live one, whatever
     /// the account's file says (`account.json` is a file any process of the user can write).
-    pub fn token_url_for(&self, account_url: &str) -> Option<String> {
-        self.token_url_for_with(azul_appkit::anchors::layers_honoured(), account_url)
+    pub fn token_url_for(&self, named: &str) -> Option<String> {
+        self.token_url_for_with(azul_appkit::anchors::layers_honoured(), named)
     }
 
     /// [`Endpoints::token_url_for`] with the build's choice as an argument (the tests set both).
-    pub fn token_url_for_with(&self, honour_layers: bool, account_url: &str) -> Option<String> {
+    /// The choice of a test build is the one every Azlin drive's is - `anchors::token_server_choice`, the
+    /// function the kit's `azlin_target` asks for a drive's entry (ARCH29 C6d: AzMail kept a second
+    /// copy of "the account's own, else the run's"); what stays here is AzMail's own rule for a shipped
+    /// build: the live server as a constant, whatever the run's endpoints hold.
+    pub fn token_url_for_with(&self, honour_layers: bool, named: &str) -> Option<String> {
         if !honour_layers {
             return Endpoints::pinned().token_url;
         }
-        said(Some(account_url.to_string())).or_else(|| self.token_url.clone())
+        let run = self.token_url.as_deref().unwrap_or_default();
+        said(Some(
+            azul_appkit::anchors::token_server_choice(true, named, run).to_string(),
+        ))
     }
 }
 

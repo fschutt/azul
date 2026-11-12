@@ -335,7 +335,7 @@ pub(crate) fn drive_written(
 /// during the ask) and at the periods' look.
 pub(crate) fn request_space(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     let now = azul_storage::time::now_unix();
-    let due: Vec<(String, Arc<azcloud_kit::AzlinDrive>)> = s
+    let due: Vec<(String, Arc<azcloud_kit::AzlinAccount>)> = s
         .slots
         .iter()
         .filter_map(|slot| {

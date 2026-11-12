@@ -27,10 +27,7 @@ use azul::{
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
 };
-use azul_storage::{
-    config::{DriveAuth, DriveEntry, DriveLocation},
-    time::iso8601,
-};
+use azul_storage::{config::DriveEntry, time::iso8601};
 
 use azul_appkit::l10n::{label, t_args, translate_text, Arg, Phrase, Text};
 
@@ -177,48 +174,18 @@ pub(crate) fn store_through(
 }
 
 /// The Azlin drive of `entry`: its id at the token server and that server - the one a drive
-/// token, a recovery key, a voucher, a period token or a lockdown is SENT to. A shipped build
-/// answers `fallback` (the run's, the live server's), whatever the entry's `account_url` says:
-/// `drives.json` is a file any process of the user can write, and a hostile token server can
-/// seed the address (REVIEW K20, X-DELTA-AZDRIVE-KEYS-9). A test build answers the entry's, else
-/// `fallback` ([`azul_appkit::anchors::token_server_for`]). `None` for every other drive, and for
-/// one with no server to name. This is the only place of the app that reads the entry's address.
+/// token, a recovery key, a voucher, a period token or a lockdown is SENT to - as the kit's ONE
+/// resolver chooses ([`azcloud_kit::azlin_target`], X-DELTA-AZDRIVE-KEYS-9: it was this function's own
+/// reading of the entry's `account_url`, a file any process of the user can write). A pair, for the
+/// callers that look at the drive's id and the address one after the other. `None` for every other
+/// drive, and for one with no server to name.
 pub(crate) fn azlin_drive(entry: &DriveEntry, fallback: Option<&str>) -> Option<(String, String)> {
-    azlin_drive_choice(azul_appkit::anchors::layers_honoured(), entry, fallback)
-}
-
-/// [`azlin_drive`] with the build's choice as an argument (the tests set both).
-pub(crate) fn azlin_drive_choice(
-    honour_entry: bool,
-    entry: &DriveEntry,
-    fallback: Option<&str>,
-) -> Option<(String, String)> {
-    let DriveLocation::S3 {
-        auth:
-            DriveAuth::Azlin {
-                drive_id,
-                account_url,
-                ..
-            },
-        ..
-    } = &entry.location
-    else {
-        return None;
-    };
-    let url = azul_appkit::anchors::token_server_choice(
-        honour_entry,
-        account_url,
-        fallback.unwrap_or_default(),
-    );
-    if url.is_empty() {
-        return None;
-    }
-    Some((drive_id.clone(), url.to_string()))
+    azcloud_kit::azlin_target(entry, fallback).map(|target| (target.drive_id, target.token_url))
 }
 
 /// The open Azlin drives by their id at the token server: their period tokens are kept in
 /// their vaults, and a month bought refreshes their read-only credentials.
-pub(crate) fn azlin_drives(s: &DriveState) -> HashMap<String, Arc<azcloud_kit::AzlinDrive>> {
+pub(crate) fn azlin_drives(s: &DriveState) -> HashMap<String, Arc<azcloud_kit::AzlinAccount>> {
     s.slots
         .iter()
         .filter_map(|slot| {
