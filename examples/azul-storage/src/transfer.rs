@@ -184,6 +184,12 @@ fn relay_progress_with<T: Send>(
 /// final name (X-DELTA-SYNC2-3). The reader is of the version `before` - one look when the copy
 /// began - and says it is at its end only when a look then finds the object still that version;
 /// else its read fails, so that the upload that reads it is aborted before it completes.
+///
+/// A drive that names no tag leaves that look with a size and a date, which an edit that keeps both
+/// (a file saved over in the same second, a tool that puts the old date back) leaves as they were:
+/// for such an object the end is a SECOND READING of the whole object, hashed, against the hash of
+/// what was streamed ([`RangeReader::read_again`]) - twice the bytes from a source that cannot say
+/// which version it serves, and never a copy that nothing vouches for.
 struct RangeReader<'a> {
     drive: &'a dyn Drive,
     key: &'a str,
@@ -193,6 +199,13 @@ struct RangeReader<'a> {
     offset: u64,
     buffer: Vec<u8>,
     at: usize,
+    /// The bytes streamed, hashed as they come: kept only for an object whose drive names no tag.
+    streamed: Option<blake3::Hasher>,
+    /// Heard between the ranges of the second reading (the first one is the upload's, which asks
+    /// the same `ctl` before every read).
+    ctl: &'a dyn Ctl,
+    /// The end was reached and vouched for: said again, it is not looked at again.
+    whole: bool,
     /// The look at the end found another version: the copy is not of one.
     changed: bool,
     /// The look at the end failed: nothing vouches for the copy.
@@ -200,7 +213,15 @@ struct RangeReader<'a> {
 }
 
 impl<'a> RangeReader<'a> {
-    fn new(drive: &'a dyn Drive, key: &'a str, before: ObjectInfo, chunk: u64) -> RangeReader<'a> {
+    fn new(
+        drive: &'a dyn Drive,
+        key: &'a str,
+        before: ObjectInfo,
+        chunk: u64,
+        ctl: &'a dyn Ctl,
+    ) -> RangeReader<'a> {
+        // No tag: the look at the end can tell a size and a date and nothing more.
+        let streamed = before.etag.is_none().then(blake3::Hasher::new);
         RangeReader {
             drive,
             key,
@@ -209,34 +230,94 @@ impl<'a> RangeReader<'a> {
             offset: 0,
             buffer: Vec::new(),
             at: 0,
+            streamed,
+            ctl,
+            whole: false,
             changed: false,
             look_failed: None,
         }
     }
 
-    /// The look at the end: the object is still the version the copy began with. Said again after
-    /// a failure it fails again.
+    fn torn(&self) -> std::io::Error {
+        std::io::Error::other(format!("\"{}\" changed while it was copied", self.key))
+    }
+
+    /// The look at the end: the object is still the version the copy began with, and - for a drive
+    /// that names no tag - a second reading of it is what was streamed. Said again after a failure
+    /// it fails again.
     fn still_whole(&mut self) -> std::io::Result<()> {
-        let torn =
-            || std::io::Error::other(format!("\"{}\" changed while it was copied", self.key));
         if self.changed {
-            return Err(torn());
+            return Err(self.torn());
         }
         if let Some(e) = &self.look_failed {
             return Err(std::io::Error::other(e.to_string()));
         }
+        if self.whole {
+            return Ok(());
+        }
         match info_of(self.drive, self.key) {
-            Ok(now) if same_version(&self.before, &now) => Ok(()),
+            Ok(now) if same_version(&self.before, &now) => {}
             Ok(_) => {
                 self.changed = true;
-                Err(torn())
+                return Err(self.torn());
             }
             Err(e) => {
                 let told = std::io::Error::other(e.to_string());
                 self.look_failed = Some(e);
-                Err(told)
+                return Err(told);
             }
         }
+        // Kept until the second reading ends well: a stop in the middle of it leaves the end unvouched
+        // for, and a read asked again reads again.
+        if let Some(streamed) = self.streamed.as_ref().map(blake3::Hasher::finalize) {
+            self.read_again(streamed)?;
+        }
+        self.whole = true;
+        Ok(())
+    }
+
+    /// Reads the whole object again, range by range, and compares its hash with that of the bytes
+    /// that were streamed: another hash, or an object that is shorter or longer now, is a copy of
+    /// two versions ([`RangeReader::changed`]); a reading that fails vouches for nothing. A stop of
+    /// `ctl` is heard before every range.
+    fn read_again(&mut self, streamed: blake3::Hash) -> std::io::Result<()> {
+        let size = self.before.size;
+        let mut again = blake3::Hasher::new();
+        let mut offset = 0u64;
+        while offset < size {
+            if self.ctl.cancelled() {
+                return Err(Stopped::io());
+            }
+            let end = (offset + self.chunk).min(size) - 1;
+            let asked = end - offset + 1;
+            match self
+                .drive
+                .get_range(self.key, ByteRange::new(offset, Some(end)))
+            {
+                // As the first reading took them: a range may come back short, never empty and
+                // never longer than asked.
+                Ok(bytes) if !bytes.is_empty() && bytes.len() as u64 <= asked => {
+                    again.update(&bytes);
+                    offset += bytes.len() as u64;
+                }
+                // Empty, longer than the range asked, or no such range any more: the object is not
+                // the one that was streamed.
+                Ok(_) | Err(DriveError::InvalidRange { .. }) => {
+                    self.changed = true;
+                    return Err(self.torn());
+                }
+                Err(e) => {
+                    let told = std::io::Error::other(e.to_string());
+                    self.look_failed = Some(e);
+                    return Err(told);
+                }
+            }
+        }
+        if again.finalize() != streamed {
+            self.changed = true;
+            return Err(self.torn());
+        }
+        Ok(())
     }
 }
 
@@ -251,17 +332,34 @@ impl Read for RangeReader<'_> {
             }
             let size = self.before.size;
             let end = (self.offset + self.chunk).min(size) - 1;
-            let bytes = self
+            let bytes = match self
                 .drive
                 .get_range(self.key, ByteRange::new(self.offset, Some(end)))
-                .map_err(std::io::Error::other)?;
+            {
+                Ok(bytes) => bytes,
+                // The object has no such range any more: it is shorter than it was when the copy
+                // began.
+                Err(DriveError::InvalidRange { .. }) => {
+                    self.changed = true;
+                    return Err(self.torn());
+                }
+                Err(e) => return Err(std::io::Error::other(e)),
+            };
             if bytes.is_empty() {
                 return Err(std::io::Error::other(format!(
                     "\"{}\" ended at byte {} of {}",
                     self.key, self.offset, size
                 )));
             }
+            // More than the range asked is no part of the object the copy began with.
+            if bytes.len() as u64 > end - self.offset + 1 {
+                self.changed = true;
+                return Err(self.torn());
+            }
             self.offset += bytes.len() as u64;
+            if let Some(streamed) = &mut self.streamed {
+                streamed.update(&bytes);
+            }
             self.buffer = bytes;
             self.at = 0;
         }
@@ -897,7 +995,7 @@ pub fn copy_object_when(
                 )));
             }
             let size = before.size;
-            let mut ranges = RangeReader::new(source, key, before, CHUNK);
+            let mut ranges = RangeReader::new(source, key, before, CHUNK, ctl);
             let copied = {
                 let mut reader = ProgressReader::new(&mut ranges, ctl);
                 match condition {

@@ -1008,6 +1008,9 @@ struct Swapping {
     head_fails_after_a_range: std::sync::atomic::AtomicBool,
     /// A look at an object says it is empty (a drive that does not tell its sizes).
     head_says_empty: std::sync::atomic::AtomicBool,
+    /// The drive names no tag and no date of an object (a database, a service that gives neither):
+    /// all a look can say is its size.
+    tagless: std::sync::atomic::AtomicBool,
     ranged: AtomicU32,
     /// The streams that were read to their end and stored.
     completed: AtomicU32,
@@ -1030,12 +1033,13 @@ impl Swapping {
             .insert(key.to_string(), (bytes.to_vec(), version));
     }
 
-    fn info(key: &str, bytes: &[u8], version: u64) -> ObjectInfo {
+    fn info(&self, key: &str, bytes: &[u8], version: u64) -> ObjectInfo {
+        let tagless = self.tagless.load(Ordering::SeqCst);
         ObjectInfo {
             key: key.to_string(),
             size: bytes.len() as u64,
-            modified: Some(1),
-            etag: Some(format!("v{version}")),
+            modified: (!tagless).then_some(1),
+            etag: (!tagless).then(|| format!("v{version}")),
         }
     }
 }
@@ -1046,7 +1050,7 @@ impl Drive for Swapping {
         let mut page = ListPage::default();
         for (key, (bytes, version)) in files.iter() {
             if key.starts_with(&request.prefix) {
-                page.objects.push(Self::info(key, bytes, *version));
+                page.objects.push(self.info(key, bytes, *version));
             }
         }
         Ok(page)
@@ -1095,7 +1099,7 @@ impl Drive for Swapping {
             .unwrap()
             .get(key)
             .map(|(bytes, version)| {
-                let mut info = Self::info(key, bytes, *version);
+                let mut info = self.info(key, bytes, *version);
                 if empty {
                     info.size = 0;
                 }
@@ -1189,6 +1193,116 @@ fn x_delta_sync2_3_a_failed_look_at_the_end_of_the_copy_is_no_finished_copy() {
     assert!(target.get("big.bin").is_err());
     assert_eq!(target.completed.load(Ordering::SeqCst), 0);
     assert_eq!(source.get("big.bin").unwrap(), v1, "the source stays");
+}
+
+/// X-DELTA-SYNC2-3, the drive that cannot pin. A source that names no tag and no date (a database,
+/// a service that gives neither) leaves the look at the end with a size - and a file saved over
+/// with another version of the same size is the same size. The first fix compared tag, size and
+/// date: for such a drive that is "the same", and the splice of two versions arrived under the final
+/// name. The end of the copy is now a second reading of the whole object against the hash of what was
+/// streamed. RED on the first fix: the target holds the first chunk of one version and the rest of
+/// the other, and the report says done.
+#[test]
+fn x_delta_sync2_3_a_file_replaced_while_a_drive_that_names_no_tag_streams_it_is_no_finished_copy()
+{
+    let (v1, v2) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    source.tagless.store(true, Ordering::SeqCst);
+    *source.then.lock().unwrap() = Some((String::from("big.bin"), v2.clone()));
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, true);
+    assert!(conflict(&report, "big.bin"), "{report:?}");
+    assert_eq!(report.done, 0, "{report:?}");
+    assert!(
+        target.get("big.bin").is_err(),
+        "nothing - whole or torn - stands under the final name"
+    );
+    assert_eq!(
+        target.completed.load(Ordering::SeqCst),
+        0,
+        "the upload was not allowed to complete"
+    );
+    assert_eq!(
+        source.get("big.bin").unwrap(),
+        v2,
+        "the Move keeps the source: it holds the other device's save"
+    );
+}
+
+/// The ordinary case of a drive that names no tag: nothing changes, the object arrives whole and
+/// the Move retires its source - after the object was read twice (two ranges, twice), which is what
+/// vouching for it costs and the test pins.
+#[test]
+fn x_delta_sync2_3_an_unchanged_big_file_of_a_drive_that_names_no_tag_is_read_twice_and_copied_whole(
+) {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    source.tagless.store(true, Ordering::SeqCst);
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, false);
+    assert!(report.failed.is_empty(), "{report:?}");
+    assert_eq!(report.done, 1);
+    assert_eq!(target.get("big.bin").unwrap(), v1);
+    assert_eq!(
+        source.ranged.load(Ordering::SeqCst),
+        4,
+        "two ranges to copy it and the same two to check it"
+    );
+}
+
+/// A drive that names a tag is looked at once more and read no more: the second reading is for the
+/// drive that cannot say which version it serves.
+#[test]
+fn x_delta_sync2_3_a_drive_that_names_a_tag_is_not_read_twice() {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    let report = go(&plan, &source, &target, false);
+    assert_eq!(report.done, 1, "{report:?}");
+    assert_eq!(source.ranged.load(Ordering::SeqCst), 2);
+}
+
+/// Stops once `source` has been asked for `after` ranges: the stop of a user who cancels while the
+/// object is being read the second time.
+struct StopAfterRanges<'a> {
+    source: &'a Swapping,
+    after: u32,
+}
+
+impl Ctl for StopAfterRanges<'_> {
+    fn bytes(&self, _: u64) {}
+    fn cancelled(&self) -> bool {
+        self.source.ranged.load(Ordering::SeqCst) >= self.after
+    }
+}
+
+/// The second reading is a loop over the bytes of a big object, and it hears the stop between its
+/// ranges: cancelled, the upload not completed, nothing under the final name.
+#[test]
+fn x_delta_sync2_3_a_stop_is_heard_in_the_second_reading_of_a_drive_that_names_no_tag() {
+    let (v1, _) = two_versions();
+    let source = Swapping::with(&[("big.bin", &v1)]);
+    source.tagless.store(true, Ordering::SeqCst);
+    let target = Swapping::default();
+    let plan = make_plan(&source, &[file("big.bin")], &target, "", true, "Copy").unwrap();
+    // Two ranges stream the object; the third is the first of the second reading.
+    let stop = StopAfterRanges {
+        source: &source,
+        after: 3,
+    };
+    let report = run(&plan, &source, &target, false, &stop, &mut |_| {});
+    assert!(report.cancelled, "{report:?}");
+    assert_eq!(report.done, 0, "{report:?}");
+    assert!(target.get("big.bin").is_err());
+    assert_eq!(target.completed.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        source.ranged.load(Ordering::SeqCst),
+        3,
+        "heard before the fourth range, not at the end of the reading"
+    );
 }
 
 // ==== X-DELTA-SYNC2-9: a big file replaces a name inside its own bucket only through the condition ====
