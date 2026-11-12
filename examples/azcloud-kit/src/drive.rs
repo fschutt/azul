@@ -757,10 +757,6 @@ impl AzlinDrive {
         self.rebuilt(|account| account.with_clock(clock))
     }
 
-    pub(crate) fn with_nodes_file(self, path: &Path) -> AzlinDrive {
-        self.rebuilt(|account| account.with_nodes_file(path))
-    }
-
     pub(crate) fn with_nodes_file_for(self, honour: bool, path: &Path) -> AzlinDrive {
         self.rebuilt(|account| account.with_nodes_file_for(honour, path))
     }

@@ -142,7 +142,7 @@ mod tests {
     }
 
     /// ARCH29 C6c. The path of a key for a message is an `OnDisk` key's: a name to look at, said as it is
-    /// - a protected spelling included - and saying it opens and makes nothing (a name to be MADE is an
+    /// (a protected spelling included), and saying it opens and makes nothing (a name to be MADE is an
     /// `Admitted` key, which no message needs).
     #[test]
     fn c6c_the_path_for_a_message_names_a_file_that_is_there_as_it_is_and_makes_nothing() {
