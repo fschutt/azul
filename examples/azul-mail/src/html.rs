@@ -1417,9 +1417,16 @@ mod tests {
         );
         // `&#0;` is U+FFFD, as a browser reads it.
         assert_eq!(inner("&#150; &#0; x"), "\u{2013} \u{fffd} x");
-        // What XML 1.0 cannot carry is left out (a C0 control); DEL is XML and stays, as in
-        // the browser's tree - the one encoder decides (HYGIENE F5).
-        assert_eq!(inner("a\u{1}b\u{7f}c"), "ab\u{7f}c");
+        // A C0 control in the mail comes in as U+FFFD: the engine's one input rule
+        // (`azul_css::input_chars::INPUT_CHAR_RULES`, 0b1f4dcaf: NUL, the C0 controls but tab, line
+        // feed, form feed and carriage return, U+FFFE and U+FFFF) replaces it before the tree is
+        // built - the lenient loader used to drop it - so it stays visible, as CSS Text 3 asks a
+        // control character to be painted, and never reaches the encoder. DEL is no row of the
+        // rule and stays, as in the browser's tree.
+        assert_eq!(inner("a\u{1}b\u{7f}c"), "a\u{fffd}b\u{7f}c");
+        // What XML 1.0 cannot carry is left out by the one encoder, where text reaches it without
+        // that rule (HYGIENE F5): a C0 control goes, DEL (XML's) stays.
+        assert_eq!(Xml::encode_text("a\u{1}b\u{7f}c").as_str(), "ab\u{7f}c");
     }
 
     /// The markup is written by azul's one encoder (`Xml::encode_text` /
