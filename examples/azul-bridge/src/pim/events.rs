@@ -255,22 +255,36 @@ impl Pim {
     /// again only when its version changed. `None` for a file AzCalendar cannot read either (it
     /// reports those).
     fn read_event(&self, info: &ObjectInfo, id: &str) -> Option<Event> {
+        // collapse-ok: a listing shows what it can read; a write asks `read_event_checked`.
+        self.read_event_checked(info, id).ok().flatten()
+    }
+
+    /// [`Pim::read_event`] that tells a read that FAILED from a file that is not an event: `Err`
+    /// for the first (the drive did not answer), `Ok(None)` for a file that is gone since the look
+    /// or that AzCalendar cannot read either. A write that keeps what the old event held asks this
+    /// one.
+    fn read_event_checked(&self, info: &ObjectInfo, id: &str) -> Result<Option<Event>, DriveError> {
         let version = version_of(info);
         if let Some((cached, event)) = self.lock_events().get(&info.key) {
             if *cached == version {
-                return Some(event.clone());
+                return Ok(Some(event.clone()));
             }
         }
-        let event = self
-            .calendar
-            .get(&info.key)
+        let bytes = match self.calendar.get(&info.key) {
+            Ok(bytes) => bytes,
+            Err(DriveError::NotFound { .. }) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let Some(event) = String::from_utf8(bytes)
             .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok())
             .and_then(|text| event::from_json(&text).ok())
-            .filter(|event| event.id == id)?;
+            .filter(|event| event.id == id)
+        else {
+            return Ok(None);
+        };
         self.lock_events()
             .insert(info.key.clone(), (version, event.clone()));
-        Some(event)
+        Ok(Some(event))
     }
 
     /// Every event file, under the names the programs gave them (else their ids).
@@ -448,8 +462,14 @@ impl Pim {
         let Ok(mut new) = master.to_event(&id, &calendar_id) else {
             return Ok(dav_error(Status::FORBIDDEN, "<C:valid-calendar-data/>"));
         };
-        // What iCalendar does not carry stays: the meeting's code, times and state, same link.
-        if let Some(old) = current.as_ref().and_then(|info| self.read_event(info, &id)) {
+        // What iCalendar does not carry stays: the meeting's code, times and state, same link. An
+        // event that is there and whose read FAILED is an unknown, not an empty one: nothing is
+        // written over it (X-DELTA-SYNC4-21).
+        let old = match current.as_ref() {
+            Some(info) => self.read_event_checked(info, &id)?,
+            None => None,
+        };
+        if let Some(old) = old {
             if let (Some(kept), Some(meeting)) = (old.meeting, new.meeting.as_mut()) {
                 if kept.link == meeting.link {
                     *meeting = kept;

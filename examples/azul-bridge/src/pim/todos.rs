@@ -143,24 +143,38 @@ impl Pim {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// The task of the file `info` (named for `id`), read through the cache.
+    /// The task of the file `info` (named for `id`), read through the cache; `None` for a file that
+    /// cannot be read or is none (a listing leaves it out).
     fn read_task(&self, info: &ObjectInfo, id: &str) -> Option<Task> {
+        // collapse-ok: a listing shows what it can read; a write asks `read_task_checked`.
+        self.read_task_checked(info, id).ok().flatten()
+    }
+
+    /// [`Pim::read_task`] that tells a read that FAILED from a file that is not a task: `Err` for
+    /// the first (the drive did not answer), `Ok(None)` for a file that is gone since the look or
+    /// that AzTasks cannot read either. A write that keeps what the old task held asks this one.
+    fn read_task_checked(&self, info: &ObjectInfo, id: &str) -> Result<Option<Task>, DriveError> {
         let version = version_of(info);
         if let Some((cached, task)) = self.lock_tasks().get(&info.key) {
             if *cached == version {
-                return Some(task.clone());
+                return Ok(Some(task.clone()));
             }
         }
-        let task = self
-            .contacts
-            .get(&info.key)
+        let bytes = match self.contacts.get(&info.key) {
+            Ok(bytes) => bytes,
+            Err(DriveError::NotFound { .. }) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let Some(task) = String::from_utf8(bytes)
             .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok())
             .and_then(|text| task::task_from_json(&text).ok())
-            .filter(|task| task.id == id)?;
+            .filter(|task| task.id == id)
+        else {
+            return Ok(None);
+        };
         self.lock_tasks()
             .insert(info.key.clone(), (version, task.clone()));
-        Some(task)
+        Ok(Some(task))
     }
 
     /// AzTasks' lists (a list without its `list.json` too, as AzTasks shows it) and every task
@@ -372,8 +386,14 @@ impl Pim {
         let Some(mut new) = read.tasks.into_iter().next() else {
             return Ok(dav_error(Status::FORBIDDEN, "<C:supported-calendar-component/>"));
         };
-        // What iCalendar does not carry stays from the task there was.
-        if let Some(old) = current.as_ref().and_then(|info| self.read_task(info, &id)) {
+        // What iCalendar does not carry stays from the task there was. A task that is there and
+        // whose read FAILED is an unknown, not an empty one: the program's text written over it
+        // would drop its steps, attachments and reminder, so nothing is written (X-DELTA-SYNC4-21).
+        let old = match current.as_ref() {
+            Some(info) => self.read_task_checked(info, &id)?,
+            None => None,
+        };
+        if let Some(old) = old {
             new.subtasks = old.subtasks;
             new.attachments = old.attachments;
             new.flagged = old.flagged;

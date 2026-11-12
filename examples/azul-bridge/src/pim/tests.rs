@@ -683,3 +683,111 @@ fn what_the_bridge_does_not_do_is_refused_plainly() {
         Ok(Some(Place::Event(String::from("default"), String::from("x"))))
     );
 }
+
+// ==== X-DELTA-SYNC4-21: an old file that cannot be read is no empty one ====
+
+/// A drive in memory whose reads of the keys in `keys` fail (a drive that did not answer); every
+/// other call is the drive's own.
+struct Unreadable {
+    inner: Arc<MemoryDrive>,
+    keys: std::sync::Mutex<Vec<String>>,
+}
+
+impl Unreadable {
+    fn over(inner: &Arc<MemoryDrive>) -> Arc<Unreadable> {
+        Arc::new(Unreadable {
+            inner: inner.clone(),
+            keys: std::sync::Mutex::new(Vec::new()),
+        })
+    }
+}
+
+impl Drive for Unreadable {
+    fn list(&self, request: &azul_storage::ListRequest) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+        if self.keys.lock().unwrap().iter().any(|k| k == key) {
+            return Err(azul_storage::DriveError::Transport(String::from("the drive did not answer")));
+        }
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, azul_storage::DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+        self.inner.head(key)
+    }
+}
+
+/// RED on the code before: the task there was could not be read, the program's text was written
+/// over it and its steps, flag and reminder were gone.
+#[test]
+fn x_delta_sync4_21_a_to_do_whose_old_file_cannot_be_read_is_not_written_over() {
+    let contacts = Arc::new(MemoryDrive::new());
+    contacts.set_now(1_790_843_400);
+    let calendar = Arc::new(MemoryDrive::new());
+    let list = TaskList::new(LIST.to_string(), String::from("Home"), 1);
+    contacts.put(&list.key(), task::list_to_json(&list).as_bytes()).unwrap();
+    let made = day(2026, 10, 1).and_time(at(8, 0));
+    let mut rent = Task::new(TASK.to_string(), LIST.to_string(), String::from("Pay rent"), made);
+    rent.flagged = true;
+    rent.subtasks = vec![Subtask {
+        id: String::from("s1"),
+        title: String::from("Check the amount"),
+        done: false,
+    }];
+    let before = task::task_to_json(&rent);
+    contacts.put(&rent.key(), before.as_bytes()).unwrap();
+    let flaky = Unreadable::over(&contacts);
+    flaky.keys.lock().unwrap().push(rent.key());
+    let pim = Pim::new(flaky.clone(), calendar, Names::in_memory(), ADDRESS);
+    let href = format!("/calendars/tasks-{LIST}/{TASK}.ics");
+    let done = vtodo(&format!("UID:{TASK}\r\nSUMMARY:Pay the rent\r\n"));
+    let answer = ask(&pim, "PUT", &href, &[], &done);
+    assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
+    assert_eq!(contacts.get(&rent.key()).unwrap(), before.as_bytes(), "the task is as it was");
+    // The drive answers again: the same PUT goes through and the steps and the flag stay.
+    flaky.keys.lock().unwrap().clear();
+    assert_eq!(ask(&pim, "PUT", &href, &[], &done).status, Status::NO_CONTENT);
+    let stored = task::task_from_json(&String::from_utf8(contacts.get(&rent.key()).unwrap()).unwrap()).unwrap();
+    assert_eq!(stored.title, "Pay the rent");
+    assert!(stored.flagged && stored.subtasks.len() == 1, "{stored:?}");
+}
+
+/// The same for an event: its file stops answering, the program's save is refused, nothing is
+/// written.
+#[test]
+fn x_delta_sync4_21_an_event_whose_old_file_cannot_be_read_is_not_written_over() {
+    let contacts = Arc::new(MemoryDrive::new());
+    let calendar = Arc::new(MemoryDrive::new());
+    calendar.set_now(1_790_843_400);
+    let flaky = Unreadable::over(&calendar);
+    let pim = Pim::new(contacts, flaky.clone(), Names::in_memory(), ADDRESS);
+    let href = "/calendars/default/9F3E2B1A-UPPER.ics";
+    assert_eq!(
+        ask(&pim, "PUT", href, &[("If-None-Match", "*")], DENTIST).status,
+        Status::CREATED
+    );
+    let id = pim
+        .names
+        .id_of(Kind::Event, "9F3E2B1A-UPPER")
+        .expect("the program's name is kept");
+    let key = event::object_key(&id);
+    let before = calendar.get(&key).unwrap();
+    // The event's file stops answering; the program saves a change.
+    flaky.keys.lock().unwrap().push(key.clone());
+    let later = DENTIST.replace("SUMMARY:Dentist", "SUMMARY:Dentist (moved)");
+    let answer = ask(&pim, "PUT", href, &[], &later);
+    assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
+    assert_eq!(calendar.get(&key).unwrap(), before, "the event is as it was");
+    flaky.keys.lock().unwrap().clear();
+    assert_eq!(ask(&pim, "PUT", href, &[], &later).status, Status::NO_CONTENT);
+    assert_ne!(calendar.get(&key).unwrap(), before);
+}
