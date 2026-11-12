@@ -1108,6 +1108,216 @@ fn x_delta_sync4_17_a_swap_step_that_fails_puts_the_old_destination_back() {
     }
 }
 
+/// A drive in memory that DIES - the process is gone: a panic nothing catches but the test, and
+/// nothing after it runs, no undo - right before the `die_at`-th step of a swap: a rename, or the
+/// delete of a name this swap staged (`*.azul-*`). The same files as [`Flaky`]'s.
+struct Killing {
+    inner: MemoryDrive,
+    steps: AtomicUsize,
+    die_at: AtomicUsize,
+}
+
+impl Killing {
+    fn new(die_at: usize) -> Arc<Killing> {
+        let inner = MemoryDrive::new();
+        inner.set_now(1_790_843_400);
+        for (key, bytes) in [
+            ("src/one.txt", &b"one"[..]),
+            ("src/two.txt", b"two"),
+            ("dest/keep.txt", b"old"),
+            ("top.txt", b"top"),
+        ] {
+            inner.put(key, bytes).unwrap();
+        }
+        Arc::new(Killing {
+            inner,
+            steps: AtomicUsize::new(0),
+            die_at: AtomicUsize::new(die_at),
+        })
+    }
+
+    fn step(&self, what: &str) {
+        let n = self.steps.fetch_add(1, Ordering::SeqCst) + 1;
+        if n == self.die_at.load(Ordering::SeqCst) {
+            panic!("the process died before step {n}: {what}");
+        }
+    }
+}
+
+impl Drive for Killing {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, azul_storage::DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(
+        &self,
+        key: &str,
+        range: azul_storage::ByteRange,
+    ) -> Result<Vec<u8>, azul_storage::DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+        if key.contains(".azul-") {
+            self.step("delete");
+        }
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+        self.inner.head(key)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), azul_storage::DriveError> {
+        self.step("rename");
+        self.inner.rename(from, to)
+    }
+    fn delete_folder(&self, prefix: &str) -> Result<(), azul_storage::DriveError> {
+        if prefix.contains(".azul-") {
+            self.step("delete_folder");
+        }
+        self.inner.delete_folder(prefix)
+    }
+}
+
+/// X-DELTA-APPS3-14, RED on the code before: a kill inside `swap_in` left `*.azul-new-*` /
+/// `*.azul-old-*` that nothing found again - a stray copy beside the destination, the source of a
+/// MOVE under a staging name with its own name gone (a retried MOVE answered 404 although nothing
+/// was lost), the destination's name missing, both full copies for ever. Now the swap writes its
+/// intent first and the first request of the next process finishes or undoes it, by the names the
+/// intent holds. Every row of the table, by stopping the flow before each step: the destination
+/// ends whole - the old content or the new, never neither - the source is where it belongs,
+/// nothing is left under a staging name and the intent is gone.
+#[test]
+fn x_delta_apps3_14_a_kill_inside_a_swap_is_finished_or_undone_by_the_next_start() {
+    // COPY src/ over dest/: steps are 1 = dest aside, 2 = new content into place, 3 = old deleted.
+    // MOVE src/ over dest/: 1 = src beside, 2 = dest aside, 3 = beside into place, 4 = old deleted.
+    for (method, kills) in [("COPY", 3_usize), ("MOVE", 4)] {
+        for die_at in 1..=kills {
+            let drive = Killing::new(die_at);
+            let dav = dav_over(drive.clone());
+            let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                dav.respond(&head(method, "/src/", &dest("/dest/")), b"")
+            }));
+            assert!(
+                died.is_err(),
+                "{method}: the process died before step {die_at}"
+            );
+            drop(dav);
+            // The next process: a new server over the same drive; its first request settles it.
+            drive.die_at.store(usize::MAX, Ordering::SeqCst);
+            let next = dav_over(drive.clone());
+            let answer = next.respond(&head("OPTIONS", "/", &[]), b"");
+            assert_eq!(answer.status, Status::OK, "{method} {die_at}");
+            let keys = drive.inner.keys();
+            let at = format!("{method}, before step {die_at}: {keys:?}");
+            assert!(
+                keys.iter()
+                    .all(|key| !key.contains(".azul-") && !key.contains("dav-swaps")),
+                "nothing under a staging name, no intent: {at}"
+            );
+            // Which side of the swap the kill left it on: the first steps are undone, the rest
+            // finished.
+            let finished = die_at >= if method == "MOVE" { 3 } else { 2 };
+            if finished {
+                assert_eq!(drive.inner.get("dest/one.txt").unwrap(), b"one", "{at}");
+                assert_eq!(drive.inner.get("dest/two.txt").unwrap(), b"two", "{at}");
+                assert!(
+                    drive.inner.get("dest/keep.txt").is_err(),
+                    "the old content is gone: {at}"
+                );
+            } else {
+                assert_eq!(drive.inner.get("dest/keep.txt").unwrap(), b"old", "{at}");
+                assert!(drive.inner.get("dest/one.txt").is_err(), "{at}");
+            }
+            if method == "COPY" || !finished {
+                assert_eq!(
+                    drive.inner.get("src/one.txt").unwrap(),
+                    b"one",
+                    "the source stays: {at}"
+                );
+                assert_eq!(drive.inner.get("src/two.txt").unwrap(), b"two", "{at}");
+            } else {
+                assert!(
+                    drive.inner.get("src/one.txt").is_err(),
+                    "the source moved: {at}"
+                );
+            }
+            // Settled once: the next request finds nothing to do.
+            assert_eq!(next.recover_swaps(u64::MAX / 2).unwrap(), 0, "{at}");
+        }
+    }
+}
+
+/// A record another process wrote may be a swap that is running: it is left alone for ten
+/// minutes, and settled after them; a record this process is running is never touched; a record
+/// that cannot be read stays.
+#[test]
+fn x_delta_apps3_14_a_record_of_another_process_waits_for_its_grace_and_a_running_swap_is_left_alone(
+) {
+    let drive = Killing::new(usize::MAX);
+    // A copy of src/ made beside dest/, as a swap that is cut after its first step leaves it.
+    drive
+        .inner
+        .put("dest.azul-new-1000-4242-0/one.txt", b"one")
+        .unwrap();
+    let intent = SwapIntent {
+        key: String::from("src"),
+        target: String::from("dest"),
+        beside: String::from("dest.azul-new-1000-4242-0"),
+        aside: String::from("dest.azul-old-1000-4242-0"),
+        folder: true,
+        destination_is_folder: true,
+        moving: false,
+    };
+    drive
+        .inner
+        .put(
+            ".azlin/dav-swaps/1000-4242-0.json",
+            &serde_json::to_vec(&intent).unwrap(),
+        )
+        .unwrap();
+    drive
+        .inner
+        .put(".azlin/dav-swaps/damaged.json", b"{ not an intent")
+        .unwrap();
+    let dav = dav_over(drive.clone());
+    // Five minutes after it was written, by another process (4242 is not this one): left alone.
+    assert_eq!(dav.recover_swaps(1000 + 300).unwrap(), 0);
+    assert!(drive.inner.get("dest.azul-new-1000-4242-0/one.txt").is_ok());
+    // Past the grace: the stray copy goes, the destination was never touched.
+    assert_eq!(dav.recover_swaps(1000 + 601).unwrap(), 1);
+    assert!(
+        drive.inner.keys().iter().all(|key| !key.contains(".azul-")),
+        "{:?}",
+        drive.inner.keys()
+    );
+    assert_eq!(drive.inner.get("dest/keep.txt").unwrap(), b"old");
+    // The record that is no intent stays for a person to look at.
+    assert!(drive.inner.get(".azlin/dav-swaps/damaged.json").is_ok());
+    // This process's own running swap is not recovered under it.
+    let stamp = format!("1-{}-0", std::process::id());
+    dav.running().insert(stamp.clone());
+    drive
+        .inner
+        .put(
+            &format!(".azlin/dav-swaps/{stamp}.json"),
+            &serde_json::to_vec(&intent).unwrap(),
+        )
+        .unwrap();
+    drive
+        .inner
+        .put("dest.azul-new-1000-4242-0/one.txt", b"one")
+        .unwrap();
+    assert_eq!(dav.recover_swaps(u64::MAX / 2).unwrap(), 0);
+    assert!(
+        drive.inner.get("dest.azul-new-1000-4242-0/one.txt").is_ok(),
+        "left alone"
+    );
+}
+
 /// RED on the code before: PUT and DELETE ignored `If-Match`, so a save another client made after
 /// this one's PROPFIND was overwritten or deleted without a word.
 #[test]

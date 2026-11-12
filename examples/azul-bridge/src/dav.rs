@@ -20,8 +20,9 @@
 //!   [`crate::pim`]).
 
 use std::{
+    collections::HashSet,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -45,6 +46,14 @@ use crate::{
 
 /// The folder the Azlin sync keeps its bookkeeping in: hidden.
 pub const HIDDEN: &str = ".azlin";
+/// Where a replacing COPY or MOVE writes down what it is about to do ([`Dav::swap_in`]): one
+/// `<stamp>.json` each in the sync's hidden folder, written before the first step and removed
+/// after the last. A process that dies inside a swap leaves its record, and the first request of
+/// the next one finishes or undoes it ([`Dav::recover_swaps`]) by the names the record holds, never
+/// by a pattern (X-DELTA-APPS3-14).
+const SWAPS: &str = ".azlin/dav-swaps";
+/// A record of another process is left alone for this long: it may be a swap that is running.
+const SWAP_GRACE_SECS: u64 = 600;
 /// A lock lasts at most this long without a refresh.
 pub const MAX_LOCK_SECS: u64 = 3600;
 /// ...and this long when the client asks for none.
@@ -105,6 +114,30 @@ pub struct Dav {
     digest: DigestAuth,
     /// CalDAV and CardDAV instead of the drive's files ([`Dav::for_pim`]).
     pim: Option<Pim>,
+    /// The stamps of the swaps this process is running now ([`SWAPS`]): recovery leaves them alone.
+    swaps: Mutex<HashSet<String>>,
+    /// Whether the swaps an earlier process left have been looked at ([`Dav::recover_swaps_once`]).
+    swaps_recovered: AtomicBool,
+}
+
+/// What a replacing COPY or MOVE is about to do, written down before the first step
+/// ([`SWAPS`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct SwapIntent {
+    /// The source.
+    key: String,
+    /// The destination, which steps aside and is replaced.
+    target: String,
+    /// Where the new content is made first.
+    beside: String,
+    /// Where the old destination waits until the new content is in its place.
+    aside: String,
+    /// The source is a folder.
+    folder: bool,
+    /// The destination is a folder.
+    destination_is_folder: bool,
+    /// A MOVE: the source itself goes into place.
+    moving: bool,
 }
 
 impl std::fmt::Debug for Dav {
@@ -415,6 +448,8 @@ impl Dav {
             locks: Mutex::new(Vec::new()),
             digest: DigestAuth::new("Azlin Bridge"),
             pim: None,
+            swaps: Mutex::new(HashSet::new()),
+            swaps_recovered: AtomicBool::new(false),
         }
     }
 
@@ -711,6 +746,7 @@ impl Dav {
         if let Some(pim) = &self.pim {
             return pim.respond(head, body);
         }
+        self.recover_swaps_once();
         let (key, folder_syntax) = match key_of(&head.target) {
             Ok(found) => found,
             Err(status) => return Response::text(status, "Not a path of the drive."),
@@ -1261,9 +1297,18 @@ impl Dav {
     /// is not touched until the new content is complete, then it steps aside under a name of its
     /// own, the new content is renamed into its place, and only then is the old one deleted. A step
     /// that fails puts back what it moved, deletes nothing but what this call made, and leaves the
-    /// destination under its name. Crash table: after the new content beside it - the destination
-    /// is untouched and a stray `*.azul-new-*` is left; after it stepped aside - the old content is
-    /// whole under `*.azul-old-*` and the new beside it; after the rename - both exist.
+    /// destination under its name.
+    ///
+    /// A KILL inside the swap is the other crash row: the process is gone and nothing puts back.
+    /// So the swap writes its intent first ([`SWAPS`]: the source, the destination and the two
+    /// staging names) and removes it when the swap is settled, and the next process finishes or
+    /// undoes what it finds ([`Dav::recover_swaps`], by those names and only when the destination
+    /// is where the table below expects it). The table, by what a kill leaves: after the new content
+    /// beside it (for a MOVE: the source under that name) - the destination is untouched, the
+    /// recovery undoes: a copy beside it is deleted, a moved source goes back; after it stepped
+    /// aside - the old content is whole under the aside name and the new beside it, the recovery
+    /// finishes: the new content into place, the old deleted; after the rename - both exist, the
+    /// recovery deletes the old one.
     fn swap_in(
         &self,
         key: &str,
@@ -1274,53 +1319,107 @@ impl Dav {
         depth_zero: bool,
     ) -> Result<(), DriveError> {
         let stamp = unique_stamp();
-        let beside = format!("{target}.azul-new-{stamp}");
-        let aside = format!("{target}.azul-old-{stamp}");
+        let intent = SwapIntent {
+            key: key.to_string(),
+            target: target.to_string(),
+            beside: format!("{target}.azul-new-{stamp}"),
+            aside: format!("{target}.azul-old-{stamp}"),
+            folder,
+            destination_is_folder,
+            moving,
+        };
+        // 0. The intent, durable before anything moves: a drive that cannot take it is a swap
+        //    that does not start, with nothing touched.
+        let record = format!("{SWAPS}/{stamp}.json");
+        let text = serde_json::to_vec(&intent).map_err(|e| DriveError::Io(e.to_string()))?;
+        self.drive.put(&record, &text)?;
+        self.running().insert(stamp.clone());
+        let (result, clean) = self.swap_steps(&intent, depth_zero);
+        self.running().remove(&stamp);
+        // The intent goes only when nothing this swap made is left behind: a stray keeps it, for
+        // the next start to settle.
+        if clean {
+            // ARCH30-4: Why::Superseded (the swap is settled).
+            if let Err(e) = self.drive.delete(&record) {
+                eprintln!("[azul-bridge] the record of a finished swap could not be removed ({record}): {e}");
+            }
+        }
+        result
+    }
+
+    /// The swaps this process is running ([`Dav::swaps`]).
+    fn running(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
+        self.swaps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The steps of a swap ([`Dav::swap_in`]); with them, whether the swap is settled - nothing of
+    /// it is left under a staging name.
+    fn swap_steps(&self, intent: &SwapIntent, depth_zero: bool) -> (Result<(), DriveError>, bool) {
+        let SwapIntent {
+            key,
+            target,
+            beside,
+            aside,
+            folder,
+            destination_is_folder,
+            moving,
+        } = intent;
+        let (folder, destination_is_folder, moving) = (*folder, *destination_is_folder, *moving);
         let (new_slash, old_slash) = (
             if folder { "/" } else { "" },
             if destination_is_folder { "/" } else { "" },
         );
         // 1. The new content beside the destination.
-        if let Err(e) = self.put_in_place(key, &beside, folder, moving, depth_zero) {
+        if let Err(e) = self.put_in_place(key, beside, folder, moving, depth_zero) {
             if !moving {
-                self.discard_own(&beside, folder);
+                self.discard_own(beside, folder);
             }
-            return Err(e);
+            return (Err(e), true);
         }
         // Undoes step 1 when a later step fails: a copy is deleted (this call made it), a move
-        // is renamed back (it is the source itself).
-        let undo_step_1 = |this: &Dav| {
+        // is renamed back (it is the source itself). Whether it left nothing behind.
+        let undo_step_1 = |this: &Dav| -> bool {
             if moving {
                 if let Err(e) = this.drive.rename(
                     &format!("{beside}{new_slash}"),
                     &format!("{key}{new_slash}"),
                 ) {
                     eprintln!("[azul-bridge] the moved {key} is kept as {beside}: it could not be put back: {e}");
+                    return false;
                 }
             } else {
-                this.discard_own(&beside, folder);
+                this.discard_own(beside, folder);
             }
+            true
         };
         // 2. The old destination steps aside.
         if let Err(e) = self.drive.rename(
             &format!("{target}{old_slash}"),
             &format!("{aside}{old_slash}"),
         ) {
-            undo_step_1(self);
-            return Err(e);
+            let clean = undo_step_1(self);
+            return (Err(e), clean);
         }
         // 3. The new content takes its place.
         if let Err(e) = self.drive.rename(
             &format!("{beside}{new_slash}"),
             &format!("{target}{new_slash}"),
         ) {
-            match self.drive.rename(&format!("{aside}{old_slash}"), &format!("{target}{old_slash}")) {
+            let clean = match self.drive.rename(
+                &format!("{aside}{old_slash}"),
+                &format!("{target}{old_slash}"),
+            ) {
                 Ok(()) => undo_step_1(self),
-                Err(back) => eprintln!(
-                    "[azul-bridge] the old {target} is kept as {aside}: it could not be put back: {back}"
-                ),
-            }
-            return Err(e);
+                Err(back) => {
+                    eprintln!(
+                        "[azul-bridge] the old {target} is kept as {aside}: it could not be put back: {back}"
+                    );
+                    false
+                }
+            };
+            return (Err(e), clean);
         }
         // 4. The old one goes: the replacement landed.
         let removed = if destination_is_folder {
@@ -1328,12 +1427,164 @@ impl Dav {
             self.drive.delete_folder(&format!("{aside}/"))
         } else {
             // ARCH30-4: Why::Superseded
-            self.drive.delete(&aside)
+            self.drive.delete(aside)
         };
         if let Err(e) = removed {
             eprintln!("[azul-bridge] the replaced {target} is kept as {aside}: it could not be deleted: {e}");
+            return (Ok(()), false);
         }
-        Ok(())
+        (Ok(()), true)
+    }
+
+    /// Looks, once, at the swaps an earlier process left ([`SWAPS`]) before the first request is
+    /// answered; a look that fails is made again by the next request.
+    fn recover_swaps_once(&self) {
+        if self.swaps_recovered.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        match self.recover_swaps(azul_storage::time::now_unix()) {
+            Ok(0) => {}
+            Ok(settled) => eprintln!("[azul-bridge] {settled} interrupted copy or move settled"),
+            Err(e) => {
+                eprintln!(
+                    "[azul-bridge] the interrupted copies and moves could not be looked at: {e}"
+                );
+                self.swaps_recovered.store(false, Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// Finishes or undoes the swaps recorded in [`SWAPS`] that are not running now; how many it
+    /// settled. A record of this process that is not running was cut by a panic; one of another
+    /// process is left alone for [`SWAP_GRACE_SECS`] (`now`: seconds since 1970) - it may be a swap
+    /// that is running. A record that cannot be read stays, and so does one whose names are not
+    /// where the table of [`Dav::swap_in`] expects them: nothing is guessed.
+    fn recover_swaps(&self, now: u64) -> Result<usize, DriveError> {
+        let prefix = format!("{SWAPS}/");
+        let records = match ops::list_all(&*self.drive, &prefix) {
+            Ok(records) => records,
+            Err(DriveError::NotFound { .. }) => return Ok(0),
+            Err(e) => return Err(e),
+        };
+        let mut settled = 0;
+        for record in records {
+            let Some(stamp) = record
+                .key
+                .strip_prefix(&prefix)
+                .and_then(|name| name.strip_suffix(".json"))
+            else {
+                continue;
+            };
+            if self.running().contains(stamp) {
+                continue;
+            }
+            // `<seconds>-<process>-<counter>` ([`unique_stamp`]).
+            let mut parts = stamp.split('-');
+            let at = parts.next().and_then(|secs| secs.parse::<u64>().ok());
+            let process = parts.next().and_then(|pid| pid.parse::<u32>().ok());
+            if process != Some(std::process::id())
+                && at.is_none_or(|at| now < at.saturating_add(SWAP_GRACE_SECS))
+            {
+                continue;
+            }
+            let intent = match self.drive.get(&record.key) {
+                Ok(bytes) => {
+                    match serde_json::from_slice::<SwapIntent>(&bytes) {
+                        Ok(intent) => intent,
+                        Err(e) => {
+                            eprintln!("[azul-bridge] the record {} of an interrupted swap is damaged: {e}", record.key);
+                            continue;
+                        }
+                    }
+                }
+                Err(DriveError::NotFound { .. }) => continue,
+                Err(e) => return Err(e),
+            };
+            if self.settle_swap(&intent)? {
+                // ARCH30-4: Why::Superseded (the swap is settled).
+                self.drive.delete(&record.key)?;
+                settled += 1;
+            }
+        }
+        Ok(settled)
+    }
+
+    /// Settles one interrupted swap by what is where (the table of [`Dav::swap_in`]); `false`
+    /// when the names are not where that table expects them and nothing was touched.
+    fn settle_swap(&self, intent: &SwapIntent) -> Result<bool, DriveError> {
+        let present = |name: &str| -> Result<bool, DriveError> {
+            Ok(self.resource(name, false)? != Resource::Missing)
+        };
+        let (new_slash, old_slash) = (
+            if intent.folder { "/" } else { "" },
+            if intent.destination_is_folder {
+                "/"
+            } else {
+                ""
+            },
+        );
+        let (target, beside, aside) = (
+            present(&intent.target)?,
+            present(&intent.beside)?,
+            present(&intent.aside)?,
+        );
+        match (target, beside, aside) {
+            // Nothing of the swap is left under a staging name: it was settled before the record
+            // could go.
+            (_, false, false) => Ok(true),
+            // After step 1: the destination is untouched; the new content is a copy to delete, or
+            // the moved source to put back (when its own name is free).
+            (true, true, false) => {
+                if intent.moving {
+                    if present(&intent.key)? {
+                        return Ok(false);
+                    }
+                    self.drive.rename(
+                        &format!("{}{new_slash}", intent.beside),
+                        &format!("{}{new_slash}", intent.key),
+                    )?;
+                } else {
+                    self.discard_own(&intent.beside, intent.folder);
+                }
+                Ok(true)
+            }
+            // After step 2: the old content is whole under its staging name and the new content
+            // is complete beside the (missing) destination: the swap finishes.
+            (false, true, true) => {
+                self.drive.rename(
+                    &format!("{}{new_slash}", intent.beside),
+                    &format!("{}{new_slash}", intent.target),
+                )?;
+                self.drop_aside(intent, old_slash)?;
+                Ok(true)
+            }
+            // After step 3: the new content is in place and the old one waits to go.
+            (true, false, true) => {
+                self.drop_aside(intent, old_slash)?;
+                Ok(true)
+            }
+            // The destination is gone and only the old content is left: it goes back under its name.
+            (false, false, true) => {
+                self.drive.rename(
+                    &format!("{}{old_slash}", intent.aside),
+                    &format!("{}{old_slash}", intent.target),
+                )?;
+                Ok(true)
+            }
+            // Anything else is not a state of the table: nothing is guessed.
+            _ => Ok(false),
+        }
+    }
+
+    /// Deletes the old destination of a swap that landed, by its staging name.
+    fn drop_aside(&self, intent: &SwapIntent, old_slash: &str) -> Result<(), DriveError> {
+        if old_slash.is_empty() {
+            // ARCH30-4: Why::Superseded
+            self.drive.delete(&intent.aside)
+        } else {
+            // ARCH30-4: Why::Superseded
+            self.drive.delete_folder(&format!("{}/", intent.aside))
+        }
     }
 
     /// Deletes what this very request made beside a destination and no other client knows of.
