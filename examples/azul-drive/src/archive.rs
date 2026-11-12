@@ -268,14 +268,14 @@ fn back(info: &mut CallbackInfo, s: &mut DriveState, azlin_id: &str) {
 fn slot_of(s: &DriveState, azlin_id: &str) -> Option<String> {
     s.slots
         .iter()
-        .find(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == azlin_id))
+        .find(|slot| slot.entry.azlin().is_some_and(|id| id == azlin_id))
         .map(|slot| slot.entry.id.clone())
 }
 
 /// The Azlin id of AzDrive's drive `drive_id`.
 pub(crate) fn azlin_of(s: &DriveState, drive_id: &str) -> Option<String> {
     let index = s.slot_index(drive_id)?;
-    s.slots[index].entry.azlin().map(|(id, _)| id.to_string())
+    s.slots[index].entry.azlin().map(str::to_string)
 }
 
 /// What the looks saw of the drive in view: its AzDrive id, its Azlin id, its stage.

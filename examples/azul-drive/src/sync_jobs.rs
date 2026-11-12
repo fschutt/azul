@@ -1716,7 +1716,7 @@ pub(crate) fn drive_status_seen(s: &mut DriveState, azlin_id: &str, read_only: b
     let ids: Vec<String> = s
         .slots
         .iter()
-        .filter(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == azlin_id))
+        .filter(|slot| slot.entry.azlin().is_some_and(|id| id == azlin_id))
         .map(|slot| slot.entry.id.clone())
         .collect();
     for id in ids {
@@ -1741,7 +1741,7 @@ fn ask_drive_status(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, d
     let Some(index) = s.slot_index(drive_id) else {
         return;
     };
-    let Some(azlin_id) = s.slots[index].entry.azlin().map(|(id, _)| id.to_string()) else {
+    let Some(azlin_id) = s.slots[index].entry.azlin().map(str::to_string) else {
         return;
     };
     let now = crate::actions::now_secs();

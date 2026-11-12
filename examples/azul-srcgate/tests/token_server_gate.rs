@@ -1,6 +1,15 @@
 //! Gate: the token server an Azlin drive's credentials are SENT to is chosen in one place, and
 //! the address a drive entry carries (`account_url` in `drives.json`) is read only where this
-//! list says (X-DELTA-AZDRIVE-KEYS-9, AZ-K20, REVIEW K20, P7, ARCH28 RF39, ARCH29 C6d).
+//! list says (X-DELTA-AZDRIVE-KEYS-9, AZ-K20, REVIEW K20, P7, ARCH28 RF39, ARCH29 C6d,
+//! X-DELTA-STRUCT3-11). Two rules:
+//!
+//! - **`account-url`**: the identifier `account_url`, the address itself. `DriveEntry::azlin()` hands out the
+//!   drive's id and no address any more (it gave it to eight places), so the field and the resolver are all.
+//! - **`token-server-choice`**: every use of the function that turns an entry's address and the run's into one
+//!   server, `anchors::token_server_choice`, and of its twin `token_server_for` (deleted: it was a second way
+//!   in, asked by the account's own constructor). The kit's `azlin_target_choice` asks it once - THE resolver,
+//!   which `open_azlin` calls and whose answer the account takes - and AzMail's account (no entry) asks it
+//!   for its own rule. A third place that chooses is a finding, whatever spelling it uses.
 //!
 //! A drive token, the period tokens, a recovery key, a voucher and a lockdown go to the token
 //! server a run resolves; `drives.json` and `account.json` are files any process of the user can
@@ -20,7 +29,7 @@
 
 use std::path::{Path, PathBuf};
 
-use azul_srcgate::{idents, Allow, Budget, Gate, Orphans, Root, Rule};
+use azul_srcgate::{idents, Allow, Budget, Gate, Located, Orphans, Root, Rule};
 
 const ROOTS: &[Root] = &[Root {
     dir: "examples",
@@ -29,6 +38,21 @@ const ROOTS: &[Root] = &[Root {
 
 /// The rule's name.
 const READ: &str = "account-url";
+/// The rule that counts the choices of the token server.
+const CHOICE: &str = "token-server-choice";
+
+/// Every use of `token_server_choice` and `token_server_for` that is no definition (`fn ..`): a call under any
+/// path, an import under another name, a function value.
+fn choices(t: &[Located]) -> Vec<usize> {
+    t.iter()
+        .enumerate()
+        .filter(|(at, x)| {
+            (x.tok.is_ident("token_server_choice") || x.tok.is_ident("token_server_for"))
+                && !(*at > 0 && t[*at - 1].tok.is_ident("fn"))
+        })
+        .map(|(_, x)| x.line)
+        .collect()
+}
 
 /// Where the drive entry's token-server address is named today. The counts are exact: a new site
 /// is a failure, and so is one that went away.
@@ -37,8 +61,9 @@ const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azul-storage/src/config.rs",
         READ,
-        3,
-        "DriveAuth::Azlin's field and DriveEntry::azlin(), which hands it on",
+        1,
+        "DriveAuth::Azlin's field: `DriveEntry::azlin()` hands out the drive's id and no address any more \
+         (X-DELTA-STRUCT3-11; it was 3: the field, and the pattern and the value of that accessor)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/bundle.rs",
@@ -57,23 +82,55 @@ const ALLOWED: &[Allow] = &[
          asks the anchors which server a drive's credentials go to (a shipped build: the run's, whatever \
          the entry says); `open_azlin` and AzDrive's every look go through it (ARCH29 C6d)",
     ),
+    // ---- The choice: who asks the anchors which server an address becomes ----
+    Allow::exactly(
+        "examples/azcloud-kit/src/drive.rs",
+        CHOICE,
+        1,
+        "azlin_target_choice: the one call; `open_azlin` takes the account's server from its answer, and \
+         `AzlinAccount::new` no longer chooses again (X-DELTA-STRUCT3-11)",
+    ),
+    Allow::exactly(
+        "examples/azul-mail-core/src/azlin.rs",
+        CHOICE,
+        1,
+        "Endpoints::token_url_for_with: AzMail's account has no drive entry; a test build asks the same function \
+         a drive's entry is asked, a shipped one answers its own constant (ARCH29 C6d)",
+    ),
 ];
 
 fn rules() -> Vec<Rule> {
-    vec![Rule::new(
-        READ,
-        |t| idents(t, "account_url"),
-        &[
-            "let url = &entry.account_url;",
-            "let DriveAuth::Azlin { account_url, .. } = auth else { return };",
-            "send(token, account_url);",
-        ],
-        &[
-            "let account_urls = 1;",
-            "let url = entry.token_url;",
-            "println!(\"account_url is a file\");",
-        ],
-    )]
+    vec![
+        Rule::new(
+            READ,
+            |t| idents(t, "account_url"),
+            &[
+                "let url = &entry.account_url;",
+                "let DriveAuth::Azlin { account_url, .. } = auth else { return };",
+                "send(token, account_url);",
+            ],
+            &[
+                "let account_urls = 1;",
+                "let url = entry.token_url;",
+                "println!(\"account_url is a file\");",
+            ],
+        ),
+        Rule::new(
+            CHOICE,
+            choices,
+            &[
+                "let url = azul_appkit::anchors::token_server_choice(true, named, run);",
+                "let url = anchors::token_server_for(named, run);",
+                "use azul_appkit::anchors::token_server_choice as pick;",
+                "let pick = anchors::token_server_choice;",
+            ],
+            &[
+                "pub fn token_server_choice<'a>(honour: bool, named: &'a str, run: &'a str) -> &'a str {}",
+                "let token_server_choices = 1;",
+                "let url = azlin_target(entry, run);",
+            ],
+        ),
+    ]
 }
 
 fn gate(roots: &'static [Root], allowed: &'static [Allow]) -> Gate<'static> {
@@ -199,5 +256,59 @@ fn the_identifier_in_a_comment_a_string_or_a_test_is_no_site() {
         )],
     );
     assert_eq!(check(&base, &[]), Ok(0));
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// X-DELTA-STRUCT3-11. The account chose the token server again in its own constructor
+/// (`AzlinAccount::new` asked `token_server_for`), so a later change of the one choice did not reach the account's
+/// refresh. Every use of the function that chooses is a counted line now, whatever it is spelled: a third place is
+/// a finding with its line, the listed ones are counted, and a site that went away leaves a stale count. RED on the old
+/// gate: it read the identifier `account_url` only, and the account's constructor read none.
+#[test]
+fn a_third_place_that_chooses_the_token_server_is_caught_whatever_its_spelling() {
+    const CHOSEN: &[Allow] = &[Allow::exactly(
+        "core/src/choice.rs",
+        "token-server-choice",
+        1,
+        "the planted resolver",
+    )];
+    let planted = [
+        "pub fn resolver(entry: &DriveEntry, run: &str) -> String {",
+        "    azul_appkit::anchors::token_server_choice(true, \"\", run).to_string()",
+        "}",
+        "",
+    ]
+    .join("\n");
+    let account = [
+        "pub fn new(entry: &DriveEntry, run: &str) -> String {",
+        "    let url = azul_appkit::anchors::token_server_for(\"\", run);",
+        "    url.to_string()",
+        "}",
+        "use azul_appkit::anchors::token_server_choice as pick;",
+        "pub fn value() { let f = anchors::token_server_choice; }",
+        "",
+    ]
+    .join("\n");
+    let base = base_with(
+        "choice",
+        &[
+            ("core/src/lib.rs", "mod choice;\nmod account;\n"),
+            ("core/src/choice.rs", planted.as_str()),
+            ("core/src/account.rs", account.as_str()),
+        ],
+    );
+    let wrong = check(&base, CHOSEN).expect_err("three more places choose");
+    let at = |line: usize| {
+        wrong.iter().any(|w| {
+            w.starts_with(&format!("core/src/account.rs:{line}:"))
+                && w.contains("token-server-choice")
+        })
+    };
+    assert!(at(2), "the call of the twin: {wrong:?}");
+    assert!(at(5), "an import under another name: {wrong:?}");
+    assert!(at(6), "a function value: {wrong:?}");
+    // The resolver itself is the listed line; without the others the gate holds.
+    std::fs::write(base.join("core/src/account.rs"), "pub fn new() {}\n").unwrap();
+    assert_eq!(check(&base, CHOSEN), Ok(1));
     let _ = std::fs::remove_dir_all(base);
 }

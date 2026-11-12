@@ -31,7 +31,7 @@ use std::fmt;
 use crate::azlin_config::{Profile, UpdatesSection};
 
 /// The words a build made with the cargo feature `test-hooks` carries in its binary (a `#[used]`
-/// static that [`update_policy`] and [`token_server_for`] read): a test build takes the update
+/// static that [`update_policy`] and [`token_server_choice`] read): a test build takes the update
 /// anchor, the endpoints and the drive's token server from files, variables and switches, so
 /// nothing signed and shipped may be one. cargo unifies features across the packages of one build,
 /// and `cargo build --release --workspace --all-targets` turns a dev-dependency's `test-hooks` on
@@ -75,20 +75,19 @@ pub const fn layers_honoured() -> bool {
     cfg!(feature = "test-hooks")
 }
 
-/// The token server an Azlin drive's refreshes go to. A shipped build: [`TOKEN_SERVER`] (what the
-/// run resolved), whatever the drive's entry in `drives.json` names - a file a same-user process
-/// can write must not redirect where a rotated drive token is sent. A test build: the one the
-/// entry names, else the run's.
-#[must_use]
-pub fn token_server_for<'a>(named_by_entry: &'a str, resolved: &'a str) -> &'a str {
-    token_server_choice(layers_honoured(), named_by_entry, resolved)
-}
-
-/// [`token_server_for`] with the build's choice as an argument: `honour_entry` is whether this
-/// build may take the address from the drive's entry ([`layers_honoured`]). The callers that
-/// resolve a drive's token server through [`token_server_for`] test both choices with it - a
-/// build under test has appkit's `test-hooks` on, so only an explicit choice reaches the shipped
-/// branch.
+/// The token server an Azlin drive's refreshes go to. A shipped build: `resolved` (what the run
+/// resolved: [`TOKEN_SERVER`]), whatever the drive's entry in `drives.json` names - a file a
+/// same-user process can write must not redirect where a rotated drive token is sent. A test
+/// build: the one the entry names, else the run's. `honour_entry` is whether this build may take
+/// the address from the drive's entry ([`layers_honoured`]); the callers test both choices with
+/// it - a build under test has appkit's `test-hooks` on, so only an explicit choice reaches the
+/// shipped branch.
+///
+/// THE one function that chooses (X-DELTA-STRUCT3-11): azcloud-kit's `azlin_target` asks it for
+/// a drive's entry (`open_azlin` builds the account over its answer) and AzMail's account, which has
+/// no entry, asks it for its own rule; `token_server_gate` counts every use, so a third place that
+/// chooses is a finding. Its twin `token_server_for`, which the account's constructor asked
+/// again on its own, is gone.
 #[must_use]
 pub fn token_server_choice<'a>(
     honour_entry: bool,
@@ -331,10 +330,11 @@ mod tests {
         );
         // And what this build does.
         let named = "http://127.0.0.1:18081";
+        let chosen = token_server_choice(layers_honoured(), named, live);
         if layers_honoured() {
-            assert_eq!(token_server_for(named, live), named);
+            assert_eq!(chosen, named);
         } else {
-            assert_eq!(token_server_for(named, live), live);
+            assert_eq!(chosen, live);
         }
     }
 

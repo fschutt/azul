@@ -321,7 +321,7 @@ pub(crate) fn drive_written(
     drive_id: &str,
 ) {
     let Some(azlin_id) = s.slots.iter().find_map(|slot| {
-        let (azlin_id, _) = slot.entry.azlin()?;
+        let azlin_id = slot.entry.azlin()?;
         (slot.entry.id == drive_id || azlin_id == drive_id).then(|| azlin_id.to_string())
     }) else {
         return;
@@ -339,7 +339,7 @@ pub(crate) fn request_space(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
         .slots
         .iter()
         .filter_map(|slot| {
-            let (azlin_id, _) = slot.entry.azlin()?;
+            let azlin_id = slot.entry.azlin()?;
             let azlin = slot.azlin.clone()?;
             space_due(s.usage.get(azlin_id), now).then(|| (azlin_id.to_string(), azlin))
         })
@@ -355,14 +355,14 @@ pub(crate) fn request_space(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
 fn slot_id_of(s: &DriveState, azlin_id: &str) -> Option<String> {
     s.slots
         .iter()
-        .find(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == azlin_id))
+        .find(|slot| slot.entry.azlin().is_some_and(|id| id == azlin_id))
         .map(|slot| slot.entry.id.clone())
 }
 
 /// What AzDrive knows of the space of the drive in slot `slot_id` (an Azlin drive).
 pub(crate) fn usage_of_slot<'a>(s: &'a DriveState, slot_id: &str) -> Option<&'a DriveUsage> {
     let slot = s.slots.iter().find(|slot| slot.entry.id == slot_id)?;
-    let (azlin_id, _) = slot.entry.azlin()?;
+    let azlin_id = slot.entry.azlin()?;
     s.usage.get(azlin_id)
 }
 

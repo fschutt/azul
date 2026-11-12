@@ -123,6 +123,9 @@ struct Current {
 /// ```
 pub struct AzlinAccount {
     entry: DriveEntry,
+    /// The drive's id at the token server, as [`azlin_target`] resolved it: what its keys, its vault and its
+    /// grants are kept under.
+    drive_id: String,
     token_url: String,
     /// Held across a refresh's requests, so the UI thread never takes it.
     current: NetworkLock<Current>,
@@ -259,14 +262,16 @@ fn refused_credentials(e: &DriveError) -> bool {
 
 impl AzlinAccount {
     /// The Azlin drive `entry` (its location: the bucket), with the keyring's `session`. Its
-    /// refreshes go to `token_url` - in a TEST build to the token server the entry names, if it
-    /// names one (`drives.json` is a file any process of the user can write, and the rotated drive
-    /// token goes where the refresh goes: a shipped build never takes the address from it, REVIEW
-    /// K20) - and read and write the drive's entry of `keyring` under its lock. Sends nothing.
+    /// refreshes go to the token server of `target` - [`azlin_target`]'s answer, the one place that
+    /// chooses it (in a TEST build the server the entry names, if it names one: `drives.json` is a file any
+    /// process of the user can write, and the rotated drive token goes where the refresh goes, so a shipped
+    /// build never takes the address from it, REVIEW K20; X-DELTA-STRUCT3-11: the account chose it again
+    /// itself, and a later change of the one choice did not reach the refresh) - and read and write the
+    /// drive's entry of `keyring` under its lock. Sends nothing.
     pub(crate) fn new(
         entry: &DriveEntry,
         session: AzlinSession,
-        token_url: &str,
+        target: &AzlinTarget,
         keyring: SharedKeyring,
         transports: TransportFactory,
         on_rotated: OnRotated,
@@ -277,17 +282,10 @@ impl AzlinAccount {
                 entry.name
             )));
         };
-        let named = entry.azlin().map(|(_, url)| url).unwrap_or_default();
-        let token_url = azul_appkit::anchors::token_server_for(named, token_url);
-        if token_url.is_empty() {
-            return Err(DriveError::InvalidConfig(format!(
-                "\"{}\" names no token server to refresh its credentials at",
-                entry.name
-            )));
-        }
         Ok(AzlinAccount {
             entry: entry.clone(),
-            token_url: token_url.trim_end_matches('/').to_string(),
+            drive_id: target.drive_id.clone(),
+            token_url: target.token_url.trim_end_matches('/').to_string(),
             current: NetworkLock::new(Current {
                 session,
                 drive: None,
@@ -415,13 +413,11 @@ impl AzlinAccount {
     }
 
     /// The drive's id at the token server: what its keys, its vault and its grants are kept under. The
-    /// entry's own, derived here and nowhere else - a caller never names it for the account
-    /// (X-DELTA-STRUCT3-16).
+    /// resolver's ([`azlin_target`]), kept by the account and read from nowhere else - a caller never names it
+    /// for the account (X-DELTA-STRUCT3-16).
     #[must_use]
     pub fn drive_id(&self) -> &str {
-        self.entry
-            .azlin()
-            .map_or(self.entry.id.as_str(), |(drive_id, _)| drive_id)
+        &self.drive_id
     }
 
     /// The bucket with credentials that work now (refreshed first when they run out, or when
@@ -809,8 +805,9 @@ impl AzlinDrive {
         transports: TransportFactory,
         on_rotated: OnRotated,
     ) -> Result<AzlinDrive, DriveError> {
+        let target = target_of(entry, token_url)?;
         Ok(AzlinDrive::over(Arc::new(AzlinAccount::new(
-            entry, session, token_url, keyring, transports, on_rotated,
+            entry, session, &target, keyring, transports, on_rotated,
         )?)))
     }
 
@@ -997,7 +994,33 @@ azul_storage::delegate_drive!(AzlinDrive);
 
 /// An Azlin drive's id at the token server and the token server its credentials are SENT to (a drive
 /// token, a period token, a recovery key, a voucher, a lockdown): what [`azlin_target`] resolves.
+///
+/// Made by [`azlin_target`] and by no other crate: the struct is `#[non_exhaustive]`, so its fields are read and
+/// never written out, and [`open_azlin`] makes the account over one - the token server of an account is the
+/// resolver's answer and no other function's choice (X-DELTA-STRUCT3-11):
+///
+/// ```compile_fail,E0639
+/// use azcloud_kit::AzlinTarget;
+/// fn made_by_hand() -> AzlinTarget {
+///     AzlinTarget {
+///         drive_id: String::from("d_1"),
+///         token_url: String::from("https://token.example.test"),
+///     }
+/// }
+/// ```
+///
+/// ```no_run
+/// // The control of the one above: the resolver's answer is read.
+/// use azcloud_kit::{azlin_target, AzlinTarget};
+/// use azul_storage::config::DriveEntry;
+/// fn asked(entry: &DriveEntry) -> Option<AzlinTarget> {
+///     let target = azlin_target(entry, Some("https://token.example.test"))?;
+///     let (_drive, _server) = (target.drive_id.clone(), target.token_url.clone());
+///     Some(target)
+/// }
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AzlinTarget {
     /// The drive's id at the token server.
     pub drive_id: String,
@@ -1010,7 +1033,7 @@ pub struct AzlinTarget {
 /// entry carries (`account_url` in `drives.json`), and [`open_azlin`] asks this one. A shipped build
 /// answers `fallback` (the run's, the live server's), whatever the entry says: `drives.json` is a file any
 /// process of the user can write, and a hostile token server can seed the address of a drive it hands out.
-/// A test build answers the entry's, else `fallback` ([`azul_appkit::anchors::token_server_for`]). `None` for
+/// A test build answers the entry's, else `fallback` ([`azul_appkit::anchors::token_server_choice`]). `None` for
 /// every other drive, and for one with no server to name.
 #[must_use]
 pub fn azlin_target(entry: &DriveEntry, fallback: Option<&str>) -> Option<AzlinTarget> {
@@ -1047,6 +1070,24 @@ pub fn azlin_target_choice(
     Some(AzlinTarget {
         drive_id: drive_id.clone(),
         token_url: url.to_string(),
+    })
+}
+
+/// The target of the Azlin drive `entry` for a run whose token server is `run`: [`azlin_target`]'s answer, or
+/// why there is none - the entry is no Azlin drive (a folder, an S3 bucket of another provider: no token
+/// server is theirs to name, and the run's was no business of theirs), or nobody names a server to refresh its
+/// credentials at.
+///
+/// # Errors
+///
+/// [`DriveError::InvalidConfig`], with the drive's name.
+pub(crate) fn target_of(entry: &DriveEntry, run: &str) -> Result<AzlinTarget, DriveError> {
+    azlin_target(entry, Some(run)).ok_or_else(|| {
+        DriveError::InvalidConfig(if entry.azlin().is_none() {
+            format!("\"{}\" is not an Azlin drive: no token server refreshes its credentials", entry.name)
+        } else {
+            format!("\"{}\" names no token server to refresh its credentials at", entry.name)
+        })
     })
 }
 
@@ -1133,16 +1174,18 @@ impl EncryptionGate for AutoEncrypted {}
 ///
 /// # Errors
 ///
-/// An entry that is no bucket, or names no token server to refresh its credentials at.
+/// An entry that is no Azlin drive (a folder; a bucket of another provider), or names no token server to refresh
+/// its credentials at.
 pub fn open_azlin<G: EncryptionGate>(
     entry: &DriveEntry,
     open: AzlinOpen<'_>,
     gate: impl FnOnce(&Arc<AzlinAccount>, Arc<dyn Drive>) -> Arc<G>,
 ) -> Result<(Arc<AzlinAccount>, Arc<G>), DriveError> {
+    let target = target_of(entry, open.token_url)?;
     let mut account = AzlinAccount::new(
         entry,
         open.session,
-        open.token_url,
+        &target,
         open.keyring,
         open.transports,
         open.on_rotated,

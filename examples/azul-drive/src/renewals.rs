@@ -645,7 +645,7 @@ pub(crate) fn notice_drive_in(slots: &[crate::Slot], drive_id: &str) -> Option<N
     {
         slots
             .iter()
-            .find(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == drive_id))
+            .find(|slot| slot.entry.azlin().is_some_and(|id| id == drive_id))
             .and_then(|slot| slot.auto.clone())
     }
     // No Azlin drive opens without the encryption (`Slot::open` refuses it), so there is none to write to.

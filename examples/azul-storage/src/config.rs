@@ -499,20 +499,32 @@ impl DriveEntry {
         }
     }
 
-    /// The Azlin drive's id and the token server it came from (empty: the app's), for an
-    /// Azlin drive.
+    /// The Azlin drive's id at the token server, for an Azlin drive. The address the entry carries
+    /// (`account_url`) is not handed out here: the token server a drive's credentials are SENT to is chosen
+    /// by azcloud-kit's `azlin_target` and by no other function (X-DELTA-STRUCT3-11; this accessor gave the
+    /// address to eight places, and `drives.json` is a file any process of the user can write):
+    ///
+    /// ```compile_fail,E0308
+    /// use azul_storage::config::DriveEntry;
+    /// fn address(entry: &DriveEntry) {
+    ///     let Some((_id, _url)) = entry.azlin() else { return };
+    /// }
+    /// ```
+    ///
+    /// ```no_run
+    /// // The control of the one above: the id.
+    /// use azul_storage::config::DriveEntry;
+    /// fn id(entry: &DriveEntry) -> Option<&str> {
+    ///     entry.azlin()
+    /// }
+    /// ```
     #[must_use]
-    pub fn azlin(&self) -> Option<(&str, &str)> {
+    pub fn azlin(&self) -> Option<&str> {
         match &self.location {
             DriveLocation::S3 {
-                auth:
-                    DriveAuth::Azlin {
-                        drive_id,
-                        account_url,
-                        ..
-                    },
+                auth: DriveAuth::Azlin { drive_id, .. },
                 ..
-            } => Some((drive_id.as_str(), account_url.as_str())),
+            } => Some(drive_id.as_str()),
             _ => None,
         }
     }

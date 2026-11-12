@@ -97,7 +97,7 @@ pub(crate) fn copy_prefix(drive_name: &str) -> String {
 #[must_use]
 pub(crate) fn ban_of<'s>(s: &'s DriveState, drive_id: &str) -> Option<&'s Ban> {
     let index = s.slot_index(drive_id)?;
-    let (azlin_id, _) = s.slots[index].entry.azlin()?;
+    let azlin_id = s.slots[index].entry.azlin()?;
     s.bans.get(azlin_id)
 }
 

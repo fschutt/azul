@@ -78,7 +78,8 @@ fn a_bundle_without_its_token_servers_address_gets_the_one_it_came_from() {
         .replace(&format!("\"account_url\": \"{TOKEN}\""), "\"account_url\": \"\"");
     let drive = DriveBundle::parse(&text).unwrap();
     let entry = drive.entry_named("Cloud", "http://127.0.0.1:8081");
-    assert_eq!(entry.azlin(), Some(("d_1", "http://127.0.0.1:8081")));
+    // The id only: the address the entry carries is read by the one resolver (X-DELTA-STRUCT3-11).
+    assert_eq!(entry.azlin(), Some("d_1"));
 }
 
 #[test]

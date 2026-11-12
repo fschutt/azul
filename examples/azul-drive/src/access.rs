@@ -79,7 +79,7 @@ pub(crate) fn of(s: &DriveState, drive_id: &str) -> DriveAccess {
     }
     s.slot_index(drive_id)
         .and_then(|index| s.slots[index].entry.azlin())
-        .and_then(|(azlin_id, _)| s.access.get(azlin_id).copied())
+        .and_then(|azlin_id| s.access.get(azlin_id).copied())
         .unwrap_or(DriveAccess::Writable)
 }
 

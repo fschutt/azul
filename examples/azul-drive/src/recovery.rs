@@ -208,7 +208,7 @@ pub(crate) fn kit_of(s: &DriveState, drive_id: &str, code: &str) -> Kit {
     if let Some(index) = s.slot_index(drive_id) {
         let entry = &s.slots[index].entry;
         name = entry.name.clone();
-        if let Some((azlin_id, _)) = entry.azlin() {
+        if let Some(azlin_id) = entry.azlin() {
             hidden.push(azlin_id.to_string());
         }
         if let DriveLocation::S3 { bucket, .. } = &entry.location {

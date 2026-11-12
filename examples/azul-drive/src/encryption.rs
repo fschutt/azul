@@ -2015,7 +2015,7 @@ pub(crate) fn request_totals(info: &mut CallbackInfo, app: &RefAny, s: &mut Driv
         .slots
         .iter()
         .filter_map(|slot| {
-            let (azlin_id, _) = slot.entry.azlin()?;
+            let azlin_id = slot.entry.azlin()?;
             let auto = slot.auto.clone()?;
             (auto.state().has_drive_index()
                 && crate::usage_view::totals_due(s.usage.get(azlin_id), now))

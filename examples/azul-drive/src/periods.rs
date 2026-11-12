@@ -189,7 +189,7 @@ pub(crate) fn azlin_drives(s: &DriveState) -> HashMap<String, Arc<azcloud_kit::A
     s.slots
         .iter()
         .filter_map(|slot| {
-            let (drive_id, _) = slot.entry.azlin()?;
+            let drive_id = slot.entry.azlin()?;
             Some((drive_id.to_string(), slot.azlin.clone()?))
         })
         .collect()

@@ -881,11 +881,13 @@ fn x_delta_struct3_16_the_vault_of_an_account_is_opened_under_its_own_drive_id_a
     let fake = cloud(None);
     let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
     let (shared, _) = keyring_with(&first, &dir);
+    let entry = first.entry_named("Cloud", TOKEN);
+    let target = crate::drive::target_of(&entry, TOKEN).unwrap();
     let account = Arc::new(
         AzlinAccount::new(
-            &first.entry_named("Cloud", TOKEN),
+            &entry,
             first.session(),
-            TOKEN,
+            &target,
             shared,
             factory(&fake),
             Box::new(|_, _| {}),
@@ -1011,4 +1013,84 @@ fn x_delta_struct3_8_the_drive_below_the_bytes_refuses_every_request_and_answers
         .calls()
         .iter()
         .all(|c| !c.url.contains("127.0.0.1:19000")));
+}
+
+/// X-DELTA-STRUCT3-11. The token server of an account is the resolver's answer and no other function's choice:
+/// `open_azlin` asks `azlin_target` (it asked nothing, and `AzlinAccount::new` chose the server again itself, so a
+/// later change of the one choice - a pinned host, a normalised address - did not reach the account's refresh), and the
+/// account is built over what it answered: its server and its drive id. An entry that is no Azlin drive opens nothing:
+/// a folder, and an S3 bucket of ANOTHER provider (the user's own access key), which the old opener took for an Azlin
+/// drive and opened an account for against the run's server. Nothing is sent for any of it.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_and_refuses_what_is_no_azlin_drive() {
+    use crate::drive::{azlin_target, open_azlin, AzlinAccount, AzlinOpen};
+    use azul_storage::{
+        config::{DriveAuth, DriveEntry, DriveLocation},
+        AutoEncrypted,
+    };
+
+    fn gate(_: &Arc<AzlinAccount>, bytes: Arc<dyn Drive>) -> Arc<AutoEncrypted> {
+        Arc::new(AutoEncrypted::new(bytes, "d_1", Arc::new(MemoryKeyring::new()), None))
+    }
+    let dir = TempDir::new("struct3-11");
+    let fake = cloud_lasting();
+    let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
+    let open = |entry: &DriveEntry, run: &str| {
+        let (shared, _) = keyring_with(&first, &dir);
+        open_azlin(
+            entry,
+            AzlinOpen {
+                session: first.session(),
+                token_url: run,
+                keyring: shared,
+                transports: factory(&fake),
+                on_rotated: Box::new(|_, _| {}),
+                nodes_file: None,
+                iroh: None,
+            },
+            gate,
+        )
+    };
+
+    // An Azlin drive: the account's server and its drive id are the resolver's answer, whatever the entry names.
+    for named in [HOSTILE, LIVE, ""] {
+        let entry = azlin_entry(named);
+        let target = azlin_target(&entry, Some(LIVE)).expect("a drive that names a server, or the run's");
+        let (account, _) = open(&entry, LIVE).expect("an Azlin drive opens");
+        assert_eq!(account.token_url(), target.token_url, "the account chose its server itself ({named:?})");
+        assert_eq!(account.drive_id(), target.drive_id);
+    }
+    // No server named by the entry or the run: no account.
+    let refused = open(&azlin_entry(""), "").err().expect("no token server to name");
+    assert!(
+        matches!(&refused, DriveError::InvalidConfig(why) if why.contains("names no token server")),
+        "{refused:?}"
+    );
+    // A folder, and a bucket of another provider, are no Azlin drive.
+    let local = DriveEntry {
+        id: String::from("home"),
+        name: String::from("Home"),
+        location: DriveLocation::Local {
+            root: String::from("/tmp/home"),
+        },
+    };
+    assert!(open(&local, LIVE).is_err(), "a folder is no Azlin drive");
+    let other = DriveEntry {
+        id: String::from("b_1"),
+        name: String::from("Elsewhere"),
+        location: DriveLocation::S3 {
+            endpoint: String::from("https://s3.other.example"),
+            region: String::from("us-east-1"),
+            bucket: String::from("mine"),
+            path_style: true,
+            auth: DriveAuth::Keyring,
+        },
+    };
+    let refused = open(&other, LIVE).err().expect("a bucket of another provider is no Azlin drive");
+    assert!(
+        matches!(&refused, DriveError::InvalidConfig(why) if why.contains("not an Azlin drive")),
+        "{refused:?}"
+    );
+    assert!(fake.calls().is_empty(), "nothing was sent: {:?}", fake.calls());
 }
