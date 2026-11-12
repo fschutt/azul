@@ -134,11 +134,14 @@ fn copy_one(
         .map_err(BeneathError::from)
         .context(key)?;
     let (dir, name) = tree.parent_of_new(&admitted).context(key)?;
+    // Only into a name nothing holds at the moment of the write: the look at the top name was made
+    // before the copy began, and a file the sync brought down under this one meanwhile (or a name the
+    // source's own folder shares with it) is never overwritten (X-DELTA-SYNC4-23).
     durable::publish(
         &dir,
         name,
         &mut source,
-        Publish::new(Expect::Any, Mode::FromSource(mode), &Quiet),
+        Publish::new(Expect::Absent, Mode::FromSource(mode), &Quiet),
     )
     .map_err(BeneathError::from)
     .context(key)?;
@@ -262,6 +265,42 @@ mod tests {
             );
         }
         index
+    }
+
+    /// X-DELTA-SYNC4-23. The copy of a file of a moved folder was published with `Expect::Any` after a
+    /// look at the TOP name only: a file the sync brought down under the inner name since (or any file
+    /// there) was overwritten by the source's. The copy is made only into a name that is free at the
+    /// moment of the write; a taken one is an error, the file there stays, and the source waits. Pinned at
+    /// `copy_one`, the step every inner name of `move_in` goes through - the window between the look and
+    /// the write cannot be entered from outside. RED on the old code: the file is overwritten.
+    #[test]
+    fn x_delta_sync4_23_a_copy_never_overwrites_a_file_that_is_there_at_the_write() {
+        let root = TempDir::new("azcloud-movein-s23-root");
+        let outside = TempDir::new("azcloud-movein-s23-outside");
+        let source = outside.path().join("report.txt");
+        fs::write(&source, b"the source's report").unwrap();
+        // The sync brought a file down under the inner name meanwhile.
+        fs::create_dir_all(root.path().join("box")).unwrap();
+        fs::write(
+            root.path().join("box/report.txt"),
+            b"the file the sync brought down",
+        )
+        .unwrap();
+        let tree = Root::open(root.path()).unwrap();
+        let mut pending = PendingMoves::default();
+        let mut copied = Vec::new();
+        let result = copy_one(&tree, &source, "box/report.txt", &mut pending, &mut copied);
+        assert_eq!(
+            fs::read(root.path().join("box/report.txt")).unwrap(),
+            b"the file the sync brought down",
+            "the file there stays: {result:?}"
+        );
+        assert!(result.is_err(), "a taken name is an error");
+        assert!(
+            copied.is_empty() && pending.moves.is_empty(),
+            "nothing waits for a copy that was not made"
+        );
+        assert!(source.exists(), "the source is untouched");
     }
 
     #[test]
