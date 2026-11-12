@@ -865,3 +865,36 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
     );
     assert_eq!(asked.load(Ordering::SeqCst), 0, "the gate was not asked");
 }
+
+/// ARCH29 C6d. The bytes of an Azlin drive have no drive below: what falls to `below()` is refused
+/// (a method added to the trait and not written for the bytes is a refusal, not the trait's default for a
+/// drive nobody looked at), and the places stay what they were - a drive is the very object it is, two
+/// drives are two places, which the engine's overlap guards rest on.
+#[test]
+fn c6d_the_bytes_have_no_drive_below_and_each_drive_is_its_own_place() {
+    use azul_storage::ListRequest;
+    let (dir_a, dir_b) = (TempDir::new("c6d-below-a"), TempDir::new("c6d-below-b"));
+    let fake = cloud(None);
+    let (a, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir_a);
+    let (b, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir_b);
+    let below = azul_storage::DriveDelegate::below(&a);
+    assert!(matches!(below.get("k"), Err(DriveError::Unsupported(_))));
+    assert!(matches!(
+        below.put("k", b"v"),
+        Err(DriveError::Unsupported(_))
+    ));
+    assert!(matches!(below.delete("k"), Err(DriveError::Unsupported(_))));
+    assert!(matches!(
+        below.list(&ListRequest::folder("")),
+        Err(DriveError::Unsupported(_))
+    ));
+    assert_eq!(a.site(), a.site(), "the very object it is");
+    assert_ne!(a.site(), b.site(), "two drives are two places");
+    assert_eq!(a.local_path("k"), None);
+    assert!(a.conditional_writes());
+    // Nothing of the above reached the bucket.
+    assert!(fake
+        .calls()
+        .iter()
+        .all(|c| !c.url.contains("127.0.0.1:19000")));
+}

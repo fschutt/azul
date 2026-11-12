@@ -24,12 +24,12 @@ use super::{
 };
 use crate::{
     bucket::Bucket,
-    drive::TransportFactory,
+    drive::{AzlinDrive, TransportFactory},
     pending::{self, Abandoned, PendingCheckout},
     sync::retry::{classify_drive, Verdict},
     token::{CheckoutFor, IssueAnswer, TokenServer, VoucherRedeemed},
     user_errors::{Class, Code, Lang, UserError},
-    AzlinDrive, AzlinSession, ClaimKey, CloudError, DriveBundle, SharedKeyring,
+    AzlinSession, ClaimKey, CloudError, DriveBundle, SharedKeyring,
 };
 
 /// The token server's rate limit, as azlin-token answers it: 429 `rate_limited`, nothing spent,

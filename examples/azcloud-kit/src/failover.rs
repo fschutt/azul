@@ -42,7 +42,7 @@
 //! checked first: a completed multipart upload by the key's ETag.
 //!
 //! [`Failover`] is the [`Router`] the kit's [`crate::bucket::Bucket`] and
-//! [`crate::drive::AzlinDrive`] hand their S3 drive: every request - each part of an upload, each
+//! [`crate::drive::AzlinAccount`] hand their S3 drive: every request - each part of an upload, each
 //! range of a download - goes through it on its own.
 
 use std::{

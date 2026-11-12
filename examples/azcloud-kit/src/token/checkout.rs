@@ -351,7 +351,7 @@ pub enum CheckoutStatus {
 pub enum VoucherRedeemed {
     /// The drive's period grew by `days_added` (its months and its value pro rata, AZLINSEC17
     /// F29), to `period_until` (seconds since 1970).
-    /// The drive's credentials must follow: `grant` goes to its [`crate::AzlinDrive::apply`].
+    /// The drive's credentials must follow: `grant` goes to its [`crate::AzlinAccount::apply`].
     Extended {
         days_added: u32,
         period_until: Option<u64>,

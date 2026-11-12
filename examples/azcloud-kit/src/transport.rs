@@ -1,7 +1,7 @@
 //! Which transport a drive's requests take: iroh first when a node's iroh id is known, HTTPS
 //! as the fallback - one lane logic for every app. [`IrohLane`] is the drive's
 //! [`crate::failover::Failover`]'s layer before the block endpoint: AzDrive's
-//! [`crate::AzlinDrive::with_iroh`], the command line's [`CloudDrive`] and the bridge go through
+//! [`crate::AzlinOpen::iroh`], the command line's [`CloudDrive`] and the bridge go through
 //! it. A plain S3 bucket (AWS, R2, MinIO) has no node list and no lane: it is HTTPS only.
 //!
 //! - The nodes it dials: every ready node of the last credential refresh that names its

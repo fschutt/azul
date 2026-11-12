@@ -1,6 +1,9 @@
-//! An Azlin drive as an azul-storage [`Drive`]: an S3 bucket whose temporary credentials (12 h)
-//! are refreshed with the drive token before they run out, and once more when the bucket
-//! refuses them (a clock that is off, a revoked key). Every refresh spends the drive token and
+//! An Azlin drive in two halves (ARCH29 C6d): its [`AzlinAccount`] - the session, the token server, the
+//! keyring entry, the node list, the grant - and the bytes, an azul-storage [`Drive`] over an S3 bucket
+//! whose temporary credentials (12 h) the account refreshes with the drive token before they run out,
+//! and once more when the bucket refuses them (a clock that is off, a revoked key). [`open_azlin`] opens
+//! both: the account is handed out as it is, the bytes only as the drive the app's gate made of them,
+//! so a job that holds the account has nothing to write with. Every refresh spends the drive token and
 //! answers the next one; spending a spent one makes the token server revoke this device.
 //!
 //! So a refresh is one at a time across every process of the user (two AzDrive windows, two
@@ -8,15 +11,15 @@
 //! [`SharedKeyring::lock`]) and reads the keyring first - another process may have refreshed
 //! already: its session is the newest then, and is taken as it is unless its credentials need
 //! a refresh too (which spends ITS token) - and it stores the rotated session in the keyring
-//! before it lets go. [`AzlinDrive`] hands every session it switches to to the app's
+//! before it lets go. [`AzlinAccount`] hands every session it switches to to the app's
 //! `on_rotated`, with whether the keyring has it. Within the process the session is behind a
 //! lock as well, so two calls that find the credentials running out at once refresh ONCE - the
 //! second sees the first's answer. Blocking, like every drive: call it from an azul `Thread`.
 //!
 //! Every request goes through the drive's [`Failover`] (iroh to the nodes when the app plugs in
-//! a dialer - [`AzlinDrive::with_iroh`] -, then the block endpoint, a node's hint, the node
+//! a dialer - [`AzlinOpen::iroh`] -, then the block endpoint, a node's hint, the node
 //! list, the nodes' addresses; retries by the class of the answer): each refresh hands it
-//! the node list it answered with, and with a nodes file ([`AzlinDrive::with_nodes_file`]) the
+//! the node list it answered with, and with a nodes file ([`AzlinOpen::nodes_file`]) the
 //! list outlives the app - the next start fails over before its first refresh.
 
 use std::{
@@ -36,8 +39,7 @@ use azul_storage::{
     time::now_unix,
     ui_thread::NetworkLock,
     AzlinError, BatchDelete, BatchMove, BatchPut, BatchStream, BucketSpace, ByteRange, Ctl, Drive,
-    DriveError, Limit, ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError,
-    Transport,
+    DriveError, ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
 };
 
 use crate::{
@@ -73,8 +75,15 @@ struct Current {
     drive: Option<Arc<S3Drive>>,
 }
 
-/// An Azlin drive that refreshes its credentials by itself. `Debug` shows no secret.
-pub struct AzlinDrive {
+/// An Azlin drive's ACCOUNT: its session and the keyring entry it lives in, the token server it is
+/// refreshed at, the node list its requests fail over to, the grant and the restore announcement the
+/// token server last told - what a lockdown, a count of the stored bytes, a month bought and a sync
+/// session's restore notice are about. It refreshes the credentials of its bucket by itself and hands
+/// them to the bytes ([`AzlinDrive`], the store [`open_azlin`] gates). It has no `put` and no `get`: a
+/// job that holds one cannot write into the drive's bucket, which is how a price notice reached an
+/// encrypted drive's bucket in the clear, below the gate (X-DELTA-AZDRIVE-KEYS-4). `Debug` shows no
+/// secret.
+pub struct AzlinAccount {
     entry: DriveEntry,
     token_url: String,
     /// Held across a refresh's requests, so the UI thread never takes it.
@@ -93,12 +102,12 @@ pub struct AzlinDrive {
     /// never on every request.
     bodyless_refresh: Mutex<Option<u64>>,
     /// The token server changed the drive's grant (a month bought, a voucher): read-only
-    /// credentials are refreshed before the next request ([`AzlinDrive::apply`]).
+    /// credentials are refreshed before the next request ([`AzlinAccount::apply`]).
     grant_changed: AtomicBool,
     /// When (by `clock`) an answer naming an endpoint or a map the drive's view lacks last made
     /// it ask the token server for its view.
     view_refresh: Mutex<Option<u64>>,
-    /// The restore announcement of the last refresh ([`AzlinDrive::restore_notice`]).
+    /// The restore announcement of the last refresh ([`AzlinAccount::restore_notice`]).
     restore: Mutex<Option<crate::sync::RestoreNotice>>,
 }
 
@@ -133,9 +142,9 @@ fn bodyless_refusal(e: &DriveError) -> bool {
             && matches!(service.code.as_str(), "BadRequest" | "Forbidden"))
 }
 
-impl fmt::Debug for AzlinDrive {
+impl fmt::Debug for AzlinAccount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AzlinDrive")
+        f.debug_struct("AzlinAccount")
             .field("entry", &self.entry)
             .field("token_url", &self.token_url)
             .finish_non_exhaustive()
@@ -210,20 +219,20 @@ fn refused_credentials(e: &DriveError) -> bool {
             ))
 }
 
-impl AzlinDrive {
+impl AzlinAccount {
     /// The Azlin drive `entry` (its location: the bucket), with the keyring's `session`. Its
     /// refreshes go to `token_url` - in a TEST build to the token server the entry names, if it
     /// names one (`drives.json` is a file any process of the user can write, and the rotated drive
     /// token goes where the refresh goes: a shipped build never takes the address from it, REVIEW
     /// K20) - and read and write the drive's entry of `keyring` under its lock. Sends nothing.
-    pub fn new(
+    pub(crate) fn new(
         entry: &DriveEntry,
         session: AzlinSession,
         token_url: &str,
         keyring: SharedKeyring,
         transports: TransportFactory,
         on_rotated: OnRotated,
-    ) -> Result<AzlinDrive, DriveError> {
+    ) -> Result<AzlinAccount, DriveError> {
         let Some(config) = entry.s3_config() else {
             return Err(DriveError::InvalidConfig(format!(
                 "\"{}\" is not a bucket",
@@ -238,7 +247,7 @@ impl AzlinDrive {
                 entry.name
             )));
         }
-        Ok(AzlinDrive {
+        Ok(AzlinAccount {
             entry: entry.clone(),
             token_url: token_url.trim_end_matches('/').to_string(),
             current: NetworkLock::new(Current {
@@ -265,14 +274,14 @@ impl AzlinDrive {
     /// not decide ([`cached_nodes`]); the first refresh of this process brings the list
     /// itself.
     #[must_use]
-    pub fn with_nodes_file(self, path: &Path) -> Self {
+    pub(crate) fn with_nodes_file(self, path: &Path) -> Self {
         self.with_nodes_file_for(azul_appkit::anchors::layers_honoured(), path)
     }
 
-    /// [`AzlinDrive::with_nodes_file`] with the build's choice as an argument (the tests set
+    /// [`AzlinAccount::with_nodes_file`] with the build's choice as an argument (the tests set
     /// both).
     #[must_use]
-    pub fn with_nodes_file_for(mut self, honour: bool, path: &Path) -> Self {
+    pub(crate) fn with_nodes_file_for(mut self, honour: bool, path: &Path) -> Self {
         let kept = cached_nodes(read_nodes(path), honour);
         if !kept.is_empty() {
             self.failover.set_nodes(kept);
@@ -299,7 +308,7 @@ impl AzlinDrive {
     /// that fails rests for five minutes and the request goes on over HTTPS
     /// ([`crate::transport::IrohLane`]).
     #[must_use]
-    pub fn with_iroh(self, dialer: Arc<dyn IrohDialer>, relay: Option<&str>) -> Self {
+    pub(crate) fn with_iroh(self, dialer: Arc<dyn IrohDialer>, relay: Option<&str>) -> Self {
         self.failover
             .set_lane(Some(Arc::new(IrohLane::new(dialer, relay))));
         self
@@ -338,8 +347,9 @@ impl AzlinDrive {
     }
 
     /// Reads the time from `clock` (seconds since 1970) instead of the system's.
+    #[cfg(test)]
     #[must_use]
-    pub fn with_clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
+    pub(crate) fn with_clock(mut self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
         self.clock = Box::new(clock);
         self
     }
@@ -571,6 +581,36 @@ impl AzlinDrive {
         self.opened(&mut current)
     }
 
+    /// The token server this drive's credentials go to, as [`open_azlin`] resolved it
+    /// ([`azlin_target`]).
+    #[must_use]
+    pub fn token_url(&self) -> &str {
+        &self.token_url
+    }
+
+    /// The drive of `drive_id` with the key `keyring` holds (or this device's member wrap in the
+    /// bucket opens), for the vault in the drive: its bucket below the encryption and the drive key.
+    /// The vault is sealed under the drive key and lies where no listing of the drive shows it, so it
+    /// is written below the gate on purpose - by the vault's own code, in this crate, and nowhere
+    /// else: the bucket's bytes are handed to nothing but [`crate::UnlockedDrive`]. `None` when this
+    /// device has no key of the drive.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's or the keyring's refusal, a damaged wrap.
+    #[cfg(feature = "encryption")]
+    pub fn unlocked(
+        self: &Arc<Self>,
+        drive_id: &str,
+        keyring: &dyn azul_storage::keyring::KeyringStore,
+    ) -> crate::CloudResult<Option<crate::UnlockedDrive>> {
+        crate::UnlockedDrive::open(
+            drive_id,
+            Arc::new(AzlinDrive::over(Arc::clone(self))),
+            keyring,
+        )
+    }
+
     /// What the drive's node counts of its bucket (one HeadBucket, SRV17): the stored bytes -
     /// what the quota counts - and the quota of the drive's tier ([`S3Drive::space`]); `None`
     /// what an older node does not say.
@@ -659,94 +699,153 @@ impl AzlinDrive {
     }
 }
 
-impl Drive for AzlinDrive {
-    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        self.with_bucket(|b| b.list(request))
+// ==== The bytes (ARCH29 C6d) ====
+
+/// The bytes of an Azlin drive: its bucket, asked for every request with the credentials the
+/// [`AzlinAccount`] holds now (refreshed when they run out, once more when the bucket refuses them). The
+/// store [`open_azlin`] hands to the app's gate and to nothing else: crate-private, so no job, no window
+/// and no other app can name it, and nobody outside this crate can `put` or `get` on the plain store of an
+/// encrypted drive - the price notice that reached a bucket in the clear did so through this handle, below
+/// the gate (X-DELTA-AZDRIVE-KEYS-4). The drive's own vault is the one exception, and it is written by the
+/// vault's code in this crate ([`AzlinAccount::unlocked`]).
+pub(crate) struct AzlinDrive {
+    account: Arc<AzlinAccount>,
+}
+
+impl AzlinDrive {
+    /// The bytes of `account`'s bucket.
+    pub(crate) fn over(account: Arc<AzlinAccount>) -> AzlinDrive {
+        AzlinDrive { account }
     }
-    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        self.with_bucket(|b| b.get(key))
+}
+
+impl fmt::Debug for AzlinDrive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AzlinDrive")
+            .field("account", &self.account)
+            .finish()
     }
-    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        self.with_bucket(|b| b.get_range(key, range))
+}
+
+/// An account and its bytes in one object, for the tests that drive both the way they did before the split:
+/// the account's methods are the drive's through `Deref`, and the builders change the account the drive is
+/// made over (it is not shared yet).
+#[cfg(test)]
+impl AzlinDrive {
+    pub(crate) fn new(
+        entry: &DriveEntry,
+        session: AzlinSession,
+        token_url: &str,
+        keyring: SharedKeyring,
+        transports: TransportFactory,
+        on_rotated: OnRotated,
+    ) -> Result<AzlinDrive, DriveError> {
+        Ok(AzlinDrive::over(Arc::new(AzlinAccount::new(
+            entry, session, token_url, keyring, transports, on_rotated,
+        )?)))
     }
-    /// The bucket's `If-Match` on a ranged GET, sent again with fresh credentials like any read.
-    fn get_range_if(
+
+    /// The same drive over the account `change` made of its own.
+    fn rebuilt(self, change: impl FnOnce(AzlinAccount) -> AzlinAccount) -> AzlinDrive {
+        match Arc::try_unwrap(self.account) {
+            Ok(account) => AzlinDrive::over(Arc::new(change(account))),
+            Err(_) => panic!("a test changed an account that was shared already"),
+        }
+    }
+
+    pub(crate) fn with_clock(self, clock: impl Fn() -> u64 + Send + Sync + 'static) -> AzlinDrive {
+        self.rebuilt(|account| account.with_clock(clock))
+    }
+
+    pub(crate) fn with_nodes_file(self, path: &Path) -> AzlinDrive {
+        self.rebuilt(|account| account.with_nodes_file(path))
+    }
+
+    pub(crate) fn with_nodes_file_for(self, honour: bool, path: &Path) -> AzlinDrive {
+        self.rebuilt(|account| account.with_nodes_file_for(honour, path))
+    }
+
+    pub(crate) fn with_iroh(self, dialer: Arc<dyn IrohDialer>, relay: Option<&str>) -> AzlinDrive {
+        self.rebuilt(|account| account.with_iroh(dialer, relay))
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for AzlinDrive {
+    type Target = AzlinAccount;
+
+    fn deref(&self) -> &AzlinAccount {
+        &self.account
+    }
+}
+
+/// The drive below the bytes of an Azlin drive: none. The bucket they ask changes with the credentials
+/// (the account refreshes them), so a `pass` method of the trait that the bytes did not write has no
+/// drive to be handed on to; what it gets is this one, which refuses every call. A method added to
+/// [`Drive`] is a request (it goes through [`AzlinDrive`]'s `send`, with the credentials renewed) or a
+/// refusal here - never an answer of the trait's default for a drive nobody looked at.
+struct NoDriveBelow;
+
+fn nothing_below() -> DriveError {
+    DriveError::Unsupported(String::from(
+        "an Azlin drive has no drive below it: this call is not one its store was written for",
+    ))
+}
+
+impl Drive for NoDriveBelow {
+    fn list(&self, _: &ListRequest) -> Result<ListPage, DriveError> {
+        Err(nothing_below())
+    }
+    fn get(&self, _: &str) -> Result<Vec<u8>, DriveError> {
+        Err(nothing_below())
+    }
+    fn get_range(&self, _: &str, _: ByteRange) -> Result<Vec<u8>, DriveError> {
+        Err(nothing_below())
+    }
+    fn put(&self, _: &str, _: &[u8]) -> Result<(), DriveError> {
+        Err(nothing_below())
+    }
+    fn delete(&self, _: &str) -> Result<(), DriveError> {
+        Err(nothing_below())
+    }
+    fn head(&self, _: &str) -> Result<ObjectInfo, DriveError> {
+        Err(nothing_below())
+    }
+}
+
+impl azul_storage::DriveDelegate for AzlinDrive {
+    fn below(&self) -> &dyn Drive {
+        &NoDriveBelow
+    }
+
+    /// A request goes to the bucket with the credentials the account holds now; when the bucket refuses
+    /// them it asks for fresh ones and sends the request once more. What a bucket refuses a HEAD for is
+    /// said by [`AzlinAccount::with_bucket`].
+    fn send<T>(
         &self,
-        key: &str,
-        range: ByteRange,
-        condition: &Precondition,
-    ) -> Result<Vec<u8>, DriveError> {
-        self.with_bucket(|b| b.get_range_if(key, range, condition))
+        request: impl Fn(&dyn Drive) -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
+        self.account.with_bucket(|bucket| request(bucket))
     }
-    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
-        self.with_bucket(|b| b.get_limited(key, limit))
-    }
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        self.with_bucket(|b| b.put(key, bytes))
-    }
-    fn put_if(
-        &self,
-        key: &str,
-        bytes: &[u8],
-        condition: &Precondition,
-    ) -> Result<Option<String>, DriveError> {
-        self.with_bucket(|b| b.put_if(key, bytes, condition))
-    }
+
     /// The bucket's streamed (multipart) upload. A body is read once, so a refusal of the
     /// credentials half way is not tried again: the credentials are refreshed for the next
     /// call and the error is the caller's to retry.
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
-        let (bucket, access_key) = self.bucket()?;
+        let (bucket, access_key) = self.account.bucket()?;
         match bucket.put_from(key, body) {
             Err(e) if refused_credentials(&e) => {
-                self.after_refusal(&access_key)?;
+                self.account.after_refusal(&access_key)?;
                 Err(e)
             }
             other => other,
         }
     }
-    fn delete(&self, key: &str) -> Result<(), DriveError> {
-        self.with_bucket(|b| b.delete(key))
+    /// The place of the bucket needs its credentials (a call to the token server): the drive answers as
+    /// the very object it is, which two clones of one `Arc` are and nothing else is.
+    fn site(&self) -> azul_storage::xfer::Site {
+        azul_storage::xfer::Site::other_of(self)
     }
-    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
-        self.batch_with_bucket(items, |b, items| b.delete_many(items))
-    }
-    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
-        self.batch_with_bucket(items, |b, items| b.move_many(items))
-    }
-    /// The bucket's batch (an index of small files is written in a few requests, not one each).
-    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
-        self.batch_with_bucket(items, |b, items| b.put_many(items))
-    }
-    /// [`azul_storage::PARALLEL_FILES`] uploads at once, each through this drive's own
-    /// streamed upload (a refusal of the credentials refreshes them for the next one).
-    fn put_from_many(
-        &self,
-        items: &mut [BatchStream<'_>],
-    ) -> Vec<Result<Option<String>, DriveError>> {
-        ops::put_from_parallel(self, items)
-    }
-    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        self.with_bucket(|b| b.head(key))
-    }
-    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.with_bucket(|b| b.copy(from, to))
-    }
-    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.with_bucket(|b| b.create_folder(prefix))
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.with_bucket(|b| b.rename(from, to))
-    }
-    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.with_bucket(|b| b.delete_folder(prefix))
-    }
-    /// The bucket's own: the folder's markers go when nothing else is under it.
-    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
-        self.with_bucket(|b| b.remove_empty_folder(prefix))
-    }
-    // inherits: site - the bucket's place needs its credentials (a call to the token server): the
-    // drive answers as the very object it is, which two clones of one Arc are and nothing else is
     fn local_path(&self, _key: &str) -> Option<PathBuf> {
         None
     }
@@ -754,13 +853,10 @@ impl Drive for AzlinDrive {
     fn resume_folder(&self) -> Option<PathBuf> {
         azul_storage::multipart::resume_folder()
     }
-    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        self.with_bucket(|b| b.metadata(key))
-    }
     /// The bucket's resumable upload of a file: after a refusal of the credentials it is sent
     /// again with fresh ones (and resumes with the parts already up).
     fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
-        self.with_bucket(|b| b.put_file(key, path, ctl))
+        self.account.with_bucket(|b| b.put_file(key, path, ctl))
     }
     /// The bucket's resumable upload: a refusal of the credentials half way refreshes them and
     /// the upload goes on from its state file with the parts it lacks.
@@ -771,7 +867,25 @@ impl Drive for AzlinDrive {
         check: &azul_storage::checked::FileCheck,
         ctl: &dyn Ctl,
     ) -> Result<azul_storage::checked::CheckedUpload, DriveError> {
-        self.with_bucket(|b| b.put_file_checked(key, path, check, ctl))
+        self.account
+            .with_bucket(|b| b.put_file_checked(key, path, check, ctl))
+    }
+    /// The bucket's streamed conditional upload; like [`AzlinDrive::put_from`], a refusal of the
+    /// credentials half way refreshes them for the next call and is the caller's to retry.
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let (bucket, access_key) = self.account.bucket()?;
+        match bucket.put_from_if(key, body, condition) {
+            Err(e) if refused_credentials(&e) => {
+                self.account.after_refusal(&access_key)?;
+                Err(e)
+            }
+            other => other,
+        }
     }
     /// Its bucket is an S3 drive, which asks `If-None-Match` / `If-Match` when an upload completes.
     fn conditional_writes(&self) -> bool {
@@ -786,28 +900,35 @@ impl Drive for AzlinDrive {
         condition: &Precondition,
         ctl: &dyn Ctl,
     ) -> Result<Option<String>, DriveError> {
-        self.with_bucket(|b| b.put_file_if(key, path, condition, ctl))
+        self.account
+            .with_bucket(|b| b.put_file_if(key, path, condition, ctl))
     }
-    /// The bucket's streamed conditional upload; like [`AzlinDrive::put_from`], a refusal of the
-    /// credentials half way refreshes them for the next call and is the caller's to retry.
-    fn put_from_if(
+    /// The bucket's batch (an index of small files is written in a few requests, not one each).
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        self.account
+            .batch_with_bucket(items, |b, items| b.put_many(items))
+    }
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        self.account
+            .batch_with_bucket(items, |b, items| b.delete_many(items))
+    }
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        self.account
+            .batch_with_bucket(items, |b, items| b.move_many(items))
+    }
+    /// [`azul_storage::PARALLEL_FILES`] uploads at once, each through this drive's own
+    /// streamed upload (a refusal of the credentials refreshes them for the next one).
+    fn put_from_many(
         &self,
-        key: &str,
-        body: &mut dyn Read,
-        condition: &Precondition,
-    ) -> Result<Option<String>, DriveError> {
-        let (bucket, access_key) = self.bucket()?;
-        match bucket.put_from_if(key, body, condition) {
-            Err(e) if refused_credentials(&e) => {
-                self.after_refusal(&access_key)?;
-                Err(e)
-            }
-            other => other,
-        }
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        ops::put_from_parallel(self, items)
     }
 }
 
-// ==== The account of an Azlin drive, and the one place its token server is chosen (ARCH29 C6d) ====
+azul_storage::delegate_drive!(AzlinDrive);
+
+// ==== The token server's choice, and the opening of both halves (ARCH29 C6d) ====
 
 /// An Azlin drive's id at the token server and the token server its credentials are SENT to (a drive
 /// token, a period token, a recovery key, a voucher, a lockdown): what [`azlin_target`] resolves.
@@ -864,121 +985,6 @@ pub fn azlin_target_choice(
     })
 }
 
-/// An Azlin drive's ACCOUNT: its session and the keyring entry it lives in, the token server it is
-/// refreshed at, the node list its requests fail over to, the grant and the restore announcement the
-/// token server last told - what a lockdown, a look at the stored bytes, a month bought and a sync
-/// session's restore notice are about. It has no `put` and no `get`: a job that holds one cannot write
-/// into the drive's bucket, which is how a price notice reached an encrypted drive's bucket in the clear,
-/// below the gate (X-DELTA-AZDRIVE-KEYS-4). The bytes are the drive [`open_azlin`] hands out beside it.
-pub struct AzlinAccount {
-    drive: Arc<AzlinDrive>,
-}
-
-impl fmt::Debug for AzlinAccount {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AzlinAccount")
-            .field("entry", &self.drive.entry)
-            .field("token_url", &self.drive.token_url)
-            .finish_non_exhaustive()
-    }
-}
-
-impl AzlinAccount {
-    /// The token server this drive's credentials go to, as [`open_azlin`] resolved it.
-    #[must_use]
-    pub fn token_url(&self) -> &str {
-        &self.drive.token_url
-    }
-
-    /// Locks the drive down from this device ("I was hacked"): see [`AzlinDrive::lockdown`].
-    ///
-    /// # Errors
-    ///
-    /// No answer, the token server's refusal, a lock or keyring that cannot be used.
-    pub fn lockdown(&self) -> Result<(), DriveError> {
-        self.drive.lockdown()
-    }
-
-    /// What the drive's node counts of its bucket (one HeadBucket): see [`AzlinDrive::space`].
-    ///
-    /// # Errors
-    ///
-    /// The bucket's refusal or no answer.
-    pub fn space(&self) -> Result<BucketSpace, DriveError> {
-        self.drive.space()
-    }
-
-    /// The drive's node's signed count of the bytes its bucket holds: see [`AzlinDrive::usage_proof`].
-    ///
-    /// # Errors
-    ///
-    /// The bucket's refusal or no answer.
-    pub fn usage_proof(&self) -> Result<Option<String>, DriveError> {
-        self.drive.usage_proof()
-    }
-
-    /// The token server changed the drive's grant: see [`AzlinDrive::apply`].
-    pub fn apply(&self, changed: GrantChanged) {
-        self.drive.apply(changed);
-    }
-
-    /// The drive's newest restore announcement as the last refresh answered it: see
-    /// [`AzlinDrive::restore_notice`].
-    #[must_use]
-    pub fn restore_notice(&self) -> Option<crate::sync::RestoreNotice> {
-        self.drive.restore_notice()
-    }
-
-    /// Runs `look` on the session as it is now (after any refresh).
-    pub fn with_session<T>(&self, look: impl FnOnce(&AzlinSession) -> T) -> T {
-        self.drive.with_session(look)
-    }
-
-    /// The node list the requests fail over to.
-    #[must_use]
-    pub fn nodes(&self) -> Vec<Node> {
-        self.drive.nodes()
-    }
-
-    /// The failover every request of the drive goes through.
-    #[must_use]
-    pub fn failover(&self) -> &Arc<Failover> {
-        self.drive.failover()
-    }
-
-    /// The iroh lane, when the drive has one: what it did last.
-    #[must_use]
-    pub fn lane(&self) -> Option<Arc<IrohLane>> {
-        self.drive.lane()
-    }
-
-    /// The drive of `drive_id` with the key `keyring` holds (or this device's member wrap in the
-    /// bucket opens), for the vault in the drive: its bucket below the encryption and the drive key.
-    /// The vault is sealed under the drive key and lies where no listing of the drive shows it, so it
-    /// is written below the gate on purpose - by the vault's own code, in this crate, and nowhere else.
-    /// `None` when this device has no key of the drive.
-    ///
-    /// # Errors
-    ///
-    /// The bucket's or the keyring's refusal, a damaged wrap.
-    #[cfg(feature = "encryption")]
-    pub fn unlocked(
-        &self,
-        drive_id: &str,
-        keyring: &dyn azul_storage::keyring::KeyringStore,
-    ) -> crate::CloudResult<Option<crate::UnlockedDrive>> {
-        crate::UnlockedDrive::open(drive_id, self.drive.clone(), keyring)
-    }
-
-    /// The handle the signatures of AzDrive took before the split. TRANSITIONAL: it goes with the old
-    /// public surface once every signature takes an [`AzlinAccount`] (ARCH29 C6d).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn drive(&self) -> &Arc<AzlinDrive> {
-        &self.drive
-    }
-}
-
 /// What [`open_azlin`] needs to open an Azlin drive.
 pub struct AzlinOpen<'a> {
     /// The drive's session as the keyring has it.
@@ -1017,7 +1023,7 @@ pub fn open_azlin(
     open: AzlinOpen<'_>,
     gate: impl FnOnce(&Arc<AzlinAccount>, Arc<dyn Drive>) -> Arc<dyn Drive>,
 ) -> Result<(Arc<AzlinAccount>, Arc<dyn Drive>), DriveError> {
-    let mut drive = AzlinDrive::new(
+    let mut account = AzlinAccount::new(
         entry,
         open.session,
         open.token_url,
@@ -1026,16 +1032,13 @@ pub fn open_azlin(
         open.on_rotated,
     )?;
     if let Some(path) = open.nodes_file {
-        drive = drive.with_nodes_file(path);
+        account = account.with_nodes_file(path);
     }
     if let Some((dialer, relay)) = open.iroh {
-        drive = drive.with_iroh(dialer, relay);
+        account = account.with_iroh(dialer, relay);
     }
-    let drive = Arc::new(drive);
-    let account = Arc::new(AzlinAccount {
-        drive: Arc::clone(&drive),
-    });
-    let bytes: Arc<dyn Drive> = drive;
+    let account = Arc::new(account);
+    let bytes: Arc<dyn Drive> = Arc::new(AzlinDrive::over(Arc::clone(&account)));
     let gated = gate(&account, bytes);
     Ok((account, gated))
 }

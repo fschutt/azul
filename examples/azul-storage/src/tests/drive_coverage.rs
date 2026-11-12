@@ -14,9 +14,11 @@
 //! ARCH29 C6e: a wrapper made with `delegate_drive!` forwards every method of `drive_methods!`
 //! (THE list of the 27) unless it writes the method itself, so a new method of the trait is
 //! forwarded without touching the wrapper - provided the list says the same as the trait, which
-//! the first test below keeps true. The wrappers that must write every method on purpose (the
-//! encryption wrappers, `ScopedDrive`, `AzlinDrive`, the bridge's account drive) stay in
-//! `WRAPPERS` with their per-method census.
+//! the first test below keeps true. `AzlinDrive`, the bytes of an Azlin drive (ARCH29 C6d), is made with
+//! it too: a request goes through its `send` (the credentials renewed), and a method it does not write
+//! is refused - there is no drive below - never answered by the trait's default. The wrappers that must write every method on
+//! purpose (the encryption wrappers, `ScopedDrive`, the bridge's account drive) stay in `WRAPPERS`
+//! with their per-method census: forwarding as it is would be the bug for a method nobody looked at.
 
 /// The methods `LocalDrive` leaves to the trait's default, each with why that is right.
 const LOCAL_DEFAULTS: &[(&str, &str)] = &[
@@ -356,6 +358,7 @@ fn c6e_a_macro_made_wrapper_sends_its_requests_through_send_and_passes_the_rest_
 const DELEGATING: &[(&str, &str)] = &[
     ("RetryingDrive", "azcloud-kit/src/sync/retry.rs"),
     ("ObjectCache", "azcloud-kit/src/sync/objects.rs"),
+    ("AzlinDrive", "azcloud-kit/src/drive.rs"),
 ];
 
 /// The drives that sit on top of another drive and write every method themselves, on purpose (a
@@ -363,11 +366,6 @@ const DELEGATING: &[(&str, &str)] = &[
 /// credentials): `(type, file below examples/, the impl's header)`. Each defines every method of the
 /// trait or has an `// inherits:` comment for it.
 const WRAPPERS: &[(&str, &str, &str)] = &[
-    (
-        "AzlinDrive",
-        "azcloud-kit/src/drive.rs",
-        "impl Drive for AzlinDrive {",
-    ),
     (
         "AutoEncrypted",
         "azul-storage/src/encrypted.rs",
@@ -426,6 +424,12 @@ const OTHERS: &[(&str, &str)] = &[
         "the seven calls the copy of a locked drive reads through, failing with Cancelled once the \
          drive's removal raised its flag: an adapter of the few calls one caller makes, it forwards \
          no more (X-DELTA-AZDRIVE-KEYS-32)",
+    ),
+    (
+        "NoDriveBelow",
+        "the drive below an Azlin drive's bytes (azcloud-kit's `AzlinDrive`): none - the bucket changes \
+         with the credentials - so a method its store did not write is refused, by the six required \
+         methods answering `Unsupported` (ARCH29 C6d)",
     ),
     (
         "NoEncryption",

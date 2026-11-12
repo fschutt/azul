@@ -58,7 +58,7 @@
 //! - [`failover`]: the failover layers of a drive's requests (the iroh lane, the block
 //!   endpoint, a node's hint, the node list, the nodes' addresses - known before the first
 //!   request) and their retries by the class of the answer - the router of the bucket and of
-//!   [`AzlinDrive`].
+//!   [`AzlinAccount`]'s bytes (`open_azlin`).
 //! - [`transport`]: the iroh lane ([`IrohLane`]: every ready node's iroh id at its iroh sockets,
 //!   probed, each node with its own backoff) for every app that plugs in an [`IrohDialer`], and
 //!   [`CloudDrive`], the command line's bucket over the transport a run chose.
@@ -135,7 +135,7 @@ pub use bundle::{ClaimTicket, DriveBundle, PeriodTokens};
 pub use cash::{ActivationCode, CashError, ClaimCode};
 pub use claim::{ClaimError, ClaimKey};
 pub use drive::{
-    azlin_target, azlin_target_choice, open_azlin, AzlinAccount, AzlinDrive, AzlinOpen, AzlinTarget,
+    azlin_target, azlin_target_choice, open_azlin, AzlinAccount, AzlinOpen, AzlinTarget,
 };
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};

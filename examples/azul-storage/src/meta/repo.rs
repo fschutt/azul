@@ -65,7 +65,7 @@ const EPOCH_CONTEXT: &[u8] = b"azul-storage meta: the newest restore of the driv
 const EPOCH_FILE: &str = "restore-epoch";
 
 /// Where a repository learns that its drive was restored: the token server's announcement as the
-/// app last read it (`AzlinDrive::restore_notice`), NEVER the bucket - whoever controls the storage
+/// app last read it (`AzlinAccount::restore_notice`), NEVER the bucket - whoever controls the storage
 /// could announce a "restore" of its own to roll a device back (ARCH28 RF45). Without a source no
 /// restore is ever announced, and a bucket that serves an older manifest than the device saw is
 /// [`MetaError::Rollback`] for good: an app that opens a drive of the Azlin token server gives the

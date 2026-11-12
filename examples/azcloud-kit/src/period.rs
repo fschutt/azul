@@ -1014,11 +1014,11 @@ fn brings_months(state: &VaultState, grant: &VaultGrant) -> bool {
 }
 
 /// The grant a month buys was changed by the token server (a redemption, a voucher): the
-/// drive's credentials may be read-only ones from before. [`crate::AzlinDrive::apply`] takes it
+/// drive's credentials may be read-only ones from before. [`crate::AzlinAccount::apply`] takes it
 /// and refreshes them before the next request; nothing else can make it, so a month bought is
 /// never followed by writes the node refuses.
 #[derive(Debug, PartialEq, Eq)]
-#[must_use = "the drive must refresh its credentials: AzlinDrive::apply"]
+#[must_use = "the drive must refresh its credentials: AzlinAccount::apply"]
 pub struct GrantChanged {
     drive_id: String,
 }
@@ -1160,7 +1160,7 @@ pub struct Look {
     /// [`crate::token::RECOVERY_MEMBER`] for a use of the recovery code), never itself; none at
     /// the first look, which learns them ([`PeriodTokenStore::see_members`]).
     pub new_members: Vec<String>,
-    /// A month was bought: the drive's credentials must follow ([`crate::AzlinDrive::apply`]).
+    /// A month was bought: the drive's credentials must follow ([`crate::AzlinAccount::apply`]).
     pub grant_changed: Option<GrantChanged>,
 }
 

@@ -1212,9 +1212,10 @@ macro_rules! __drive_delegate_trait {
         /// Not for a wrapper whose forwarding as it is would be WRONG for a method nobody has
         /// looked at: the encryption wrappers (`AutoEncrypted`, `EncryptedDrive`: each method has
         /// its own `Op` and a plaintext call below them is the bug), `ScopedDrive` (every key is
-        /// rewritten and every write checked against the grant), `AzlinDrive` and the bridge's
-        /// account drive (no one drive below; the trait's defaults are deliberate). They write
-        /// every method, and `tests/drive_coverage.rs` counts them.
+        /// rewritten and every write checked against the grant) and the bridge's account drive (no
+        /// one drive below; the trait's defaults are deliberate). They write every method, and
+        /// `tests/drive_coverage.rs` counts them. (The bytes of an Azlin drive have no drive below
+        /// either: they write their own `pass` methods and hand `below` a drive that refuses.)
         pub trait DriveDelegate {
             /// The drive below.
             fn below(&self) -> &dyn $crate::Drive;
