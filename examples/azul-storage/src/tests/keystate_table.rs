@@ -1039,7 +1039,9 @@ fn every_failed_read_lands_in_unknown_and_never_in_active() {
     fn failed<T>() -> Read<T> {
         Read::Failed(String::from("the keyring refused"))
     }
-    let cases: [(&str, Box<dyn Fn(&mut Evidence<'_>)>); 4] = [
+    /// How a case makes its fact fail.
+    type Break = Box<dyn Fn(&mut Evidence<'_>)>;
+    let cases: [(&str, Break); 4] = [
         ("drive key", Box::new(|e| e.keyring.drive_key = failed())),
         ("new key", Box::new(|e| e.keyring.next_key = failed())),
         (

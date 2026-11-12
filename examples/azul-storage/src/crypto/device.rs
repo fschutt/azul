@@ -374,7 +374,6 @@ pub fn key_facts(keyring: &dyn KeyringStore, drive: &str) -> KeyringFacts {
 
 /// Whether `keyring` takes key material, as the key permit's evidence: what [`check_keeps_keys`]
 /// decides.
-#[must_use]
 pub fn keeps_keys_fact(keyring: &dyn KeyringStore) -> Read<Keeps> {
     let protection = keyring.protection();
     Read::Found(if protection.keeps_key_material() {

@@ -115,8 +115,7 @@ fn x_delta_struct_keystate_10_a_device_with_no_key_is_told_the_same_by_an_open_a
     let stranger = MemoryKeyring::new();
     let plain: Arc<dyn Drive> = bucket.clone();
     let opened = open_encrypted(plain, &stranger, DRIVE, &Provider::new())
-        .err()
-        .expect("no key, no drive");
+        .expect_err("no key, no drive");
     let asked = rotation::ask(bucket.as_ref(), &stranger, DRIVE)
         .err()
         .expect("no key, no key change");
@@ -1358,8 +1357,8 @@ fn an_open_drive() -> (
 }
 
 /// A pass asked in an Active drive runs; asked while a key change of this device is not over it is refused
-/// - the files would be written under the key the change replaces, and the guard of the old flow looked at
-/// nothing (the shadow's `known` finding of X-KEYSTATE-2) - and nothing is written.
+/// (the files would be written under the key the change replaces, and the guard of the old flow looked at
+/// nothing: the shadow's `known` finding of X-KEYSTATE-2) and nothing is written.
 #[test]
 fn a_reencryption_is_permitted_in_an_active_drive_and_refused_while_a_key_change_is_unfinished() {
     let (bucket, keyring, drive) = an_open_drive();
@@ -1491,9 +1490,9 @@ fn x_keystate_5_a_recovery_over_a_planned_or_unfinished_device_is_refused_before
     assert!(device::load_drive_key(&stranger, DRIVE).unwrap().is_some());
 }
 
-/// X-KEYSTATE-2: a code added, replaced or taken out while a key change is not over would open - or close
-/// - a way that the new key's code does not (the key change replaces the recovery wrap again): refused,
-/// nothing written. The restore as of a time and an invite follow the same table.
+/// X-KEYSTATE-2: a code added, replaced or taken out while a key change is not over would open, or close, a
+/// way that the new key's code does not (the key change replaces the recovery wrap again): refused, nothing
+/// written. The restore as of a time and an invite follow the same table.
 #[test]
 fn x_keystate_2_the_recovery_wraps_an_invite_and_a_restore_wait_for_an_unfinished_key_change() {
     let (bucket, keyring, _code) = a_drive_with_its_code();

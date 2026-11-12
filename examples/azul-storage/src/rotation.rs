@@ -495,7 +495,6 @@ pub struct Rotation {
 
 impl Rotation {
     /// The permit [`rotate`] takes.
-    #[must_use]
     pub fn permit(&self) -> &Permit {
         &self.rotate
     }

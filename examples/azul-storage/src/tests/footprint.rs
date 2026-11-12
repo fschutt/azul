@@ -2,6 +2,7 @@
 //! removal that tries every store and takes the drives-file entry last, the evidence a key needs
 //! before it is erased or a wrap published, and the plain file that takes no key.
 
+#[cfg(feature = "encryption")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::TempDir;
@@ -56,6 +57,7 @@ fn proof_for(drive: &str) -> RemovalProof {
 }
 
 /// Every kind of entry a drive has, filled for `drive`.
+#[cfg(feature = "encryption")]
 fn filled(keyring: &MemoryKeyring, drive: &str) {
     for entry in KeyEntry::ALL {
         keyring.set(&entry.name(drive), "a secret text").unwrap();
@@ -73,12 +75,14 @@ fn local_entry(id: &str) -> DriveEntry {
 }
 
 /// A keyring that refuses to delete one entry until it is told it may.
+#[cfg(feature = "encryption")]
 struct Stubborn {
     inner: MemoryKeyring,
     refuses: String,
     allowed: AtomicBool,
 }
 
+#[cfg(feature = "encryption")]
 impl Stubborn {
     fn refusing(entry: String) -> Stubborn {
         Stubborn {
@@ -89,6 +93,7 @@ impl Stubborn {
     }
 }
 
+#[cfg(feature = "encryption")]
 impl KeyringStore for Stubborn {
     fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
         self.inner.get(key)

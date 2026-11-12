@@ -1854,7 +1854,7 @@ fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Result<usize, String> 
     // Only where the restore goes on: the keyring is read here and nowhere before (a refusal of the
     // state's policy touches none). The key permit's RestoreAsOf cell: a key change that is not over
     // refuses it (the repository would be opened with the key the change replaces).
-    device::restore_permit(
+    let _permit = device::restore_permit(
         &azlin_keyring(Asking::User),
         auto.drive(),
         state.has_drive_index(),
@@ -1919,7 +1919,7 @@ pub(crate) fn restore_file_version(
     let bucket = versioned_bucket(auto)?;
     // The drive has an index of its own, so it is decided encrypted (`versioned_bucket`); the key
     // permit's RestoreAsOf cell refuses while a key change is not over.
-    device::restore_permit(keyring, auto.drive(), auto.state().has_drive_index())
+    let _permit = device::restore_permit(keyring, auto.drive(), auto.state().has_drive_index())
         .map_err(|e| e.to_string())?;
     let drive_key = device::unlock(bucket.as_ref(), keyring, auto.drive())
         .map_err(|e| e.to_string())?

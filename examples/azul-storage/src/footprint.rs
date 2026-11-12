@@ -259,7 +259,6 @@ impl RemovalProof {
 
     /// The permit it is.
     #[cfg(feature = "encryption")]
-    #[must_use]
     pub fn permit(&self) -> &crate::crypto::keystate::Permit {
         &self.permit
     }
