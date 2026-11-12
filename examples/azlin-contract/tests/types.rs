@@ -750,8 +750,8 @@ mod read_only_and_map {
 
 mod renewal {
     use azlin_contract::{
-        expiry, DeadlineKind, IssueSchedule, RedeemRefusal, RenewalSignup, Rfc3339,
-        INSTALMENT_SECS, READ_ONLY_SECS, WRITABLE_GRACE_SECS,
+        expiry, token_years_over, DeadlineKind, IssueSchedule, RedeemRefusal, RenewalSignup,
+        Rfc3339, INSTALMENT_SECS, READ_ONLY_SECS, TOKEN_VALID_YEARS, WRITABLE_GRACE_SECS,
     };
 
     const APPROVED: i64 = 1_791_255_600;
@@ -772,6 +772,24 @@ mod renewal {
         // a month paid and not issued yet is due as with a prepay
         let owed = IssueSchedule::recurring_at(3, 2, APPROVED, APPROVED + 70 * DAY);
         assert_eq!(owed, IssueSchedule::at(3, 2, APPROVED));
+    }
+
+    /// X-DELTA-MONEY2-11: a token is redeemable for three issuer years after its own, the rule
+    /// the token server's `redeem` and a client's own clock both ask.
+    #[test]
+    fn a_period_token_is_past_its_years_when_it_is_more_than_three_issuer_years_behind() {
+        assert_eq!(TOKEN_VALID_YEARS, 3);
+        // this year's, last year's and the three before it are redeemable
+        for token_year in [2026, 2025, 2024, 2023] {
+            assert!(!token_years_over(token_year, 2026), "{token_year}");
+        }
+        // the fourth year back is not
+        assert!(token_years_over(2022, 2026));
+        assert!(token_years_over(2000, 2026));
+        // a token of a LATER year than the issuer's is not "behind": no client can judge it
+        assert!(!token_years_over(2027, 2026));
+        // no overflow at the end of the number line
+        assert!(!token_years_over(u32::MAX, 2026));
     }
 
     #[test]

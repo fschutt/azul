@@ -261,8 +261,10 @@ impl VaultState {
             }
         }
         for request in &other.issues {
-            if !self.issues.iter().any(|r| r.id() == request.id()) {
-                self.issues.push(request.clone());
+            match self.issues.iter_mut().find(|r| r.id() == request.id()) {
+                // the same request: how often the token server refused it is the larger count
+                Some(kept) => kept.join_refusals(request),
+                None => self.issues.push(request.clone()),
             }
         }
         for id in &other.done {

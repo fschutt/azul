@@ -74,8 +74,9 @@ pub use read_only::{
 };
 pub use refresh::{BanWire, RefreshRefusal};
 pub use renewal::{
-    expiry, GrantKind, GrantWire, RedeemAnswer, RedeemRefusal, RenewalSignup, CHANGE_AHEAD_SECS,
-    READ_ONLY_SECS, REMIND_BEFORE_DAYS, USAGE_PROOF_HEADER, WRITABLE_GRACE_SECS,
+    expiry, token_years_over, GrantKind, GrantWire, RedeemAnswer, RedeemRefusal, RenewalSignup,
+    CHANGE_AHEAD_SECS, READ_ONLY_SECS, REMIND_BEFORE_DAYS, TOKEN_VALID_YEARS, USAGE_PROOF_HEADER,
+    WRITABLE_GRACE_SECS,
 };
 pub use ids::{
     minor_digits, BucketName, Cents, CheckoutId, Currency, DriveId, FamilyId, InvalidValue,

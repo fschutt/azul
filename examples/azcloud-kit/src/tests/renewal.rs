@@ -541,6 +541,51 @@ fn x_delta_azdrive_money_3_a_tier_change_keeps_a_token_refused_on_a_doubtful_wor
     );
 }
 
+/// X-DELTA-MONEY2-11: the move to a bigger tier redeems a token like a month does, and the rule
+/// that a token the server calls expired is gone when this computer's own clock agrees holds
+/// there too: a token of 2021 refused as `token_expired` is spent (it was kept as a doubt that
+/// counted), one of this year refused the same way is the server's doubt and stays.
+#[test]
+fn x_delta_money2_11_a_tier_change_spends_a_token_both_clocks_call_expired() {
+    let dir = TempDir::new("azcloud-renewal");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    let tokens = store.on_this_device("d_1").unwrap();
+    let mut grant = VaultGrant::new("ck_up", "1TB", 1, ISSUE_KEY);
+    grant.change_tier = true;
+    grant.issued = 1; // its one month is issued: the token below is the only one there is
+    tokens.keep_grant(grant).unwrap();
+    let expired = changing_server(|_| {
+        json(
+            400,
+            r#"{"error": "token_expired", "message": "the issuer year is not valid"}"#,
+        )
+    });
+    let transport = Shared(expired);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    // this year's token: the server's doubt, kept
+    tokens.add_tokens(&[token_of_tier("1TB", "cc")]).unwrap();
+    assert!(matches!(
+        change_due(&server, &shared, &tokens, || Some(proof_of(5)), NOW),
+        TierChanged::Kept(_)
+    ));
+    assert_eq!(
+        tokens.unspent("1TB").unwrap().len(),
+        1,
+        "this year's token stays"
+    );
+    // a token of 2021: expired by both clocks, spent
+    tokens.spend(&"cc".repeat(32)).unwrap();
+    let mut old = token_of_tier("1TB", "dd");
+    old.year = 2021;
+    tokens.add_tokens(&[old]).unwrap();
+    let _ = change_due(&server, &shared, &tokens, || Some(proof_of(5)), NOW);
+    assert!(
+        tokens.unspent("1TB").unwrap().is_empty(),
+        "the expired token is gone"
+    );
+}
+
 /// AD-02: the reminders come 30, 7 and 1 days before the period ends, before the drive turns
 /// read-only and before it is closed - each once, and none while months are kept for it.
 #[test]

@@ -19,6 +19,21 @@ pub const REMIND_BEFORE_DAYS: [i64; 3] = [30, 7, 1];
 /// A move to a smaller tier is taken this long before the period ends at the earliest: the paid
 /// period keeps the tier it was paid for.
 pub const CHANGE_AHEAD_SECS: i64 = 7 * 86_400;
+/// A period token stays redeemable for this many issuer years after the year it was issued in (it
+/// covers a prepay of 24 months): the token server refuses an older one as
+/// [`RedeemRefusal::TokenExpired`] - the rule is [`token_years_over`], which its `redeem` and a
+/// client that reads its own clock both ask.
+pub const TOKEN_VALID_YEARS: u32 = 3;
+
+/// Whether a period token issued in the issuer year `token_year` is past its years when the token
+/// server's issuer year is `issuer_year`: it is more than [`TOKEN_VALID_YEARS`] behind it. (The
+/// token server refuses a token of a LATER year than its own as well, which no client can judge
+/// by its clock.) A client whose own clock says the same of a token the server refused as
+/// expired knows the refusal is no fault of the server's issuer year.
+#[must_use]
+pub fn token_years_over(token_year: u32, issuer_year: u32) -> bool {
+    token_year.saturating_add(TOKEN_VALID_YEARS) < issuer_year
+}
 
 /// A node's HeadBucket header with its signed count of the bytes the bucket holds
 /// (`<node id>.<at>.<held>.<signature>`): an app hands it on unread as the redeem's

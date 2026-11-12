@@ -1285,3 +1285,283 @@ fn az_p17_a_look_replays_the_request_of_an_ended_grant_and_redeems_its_month() {
         .count();
     assert_eq!(asked, 1, "never asked again");
 }
+
+// ==== X-DELTA-MONEY2-10: a request the token server keeps refusing as one it cannot take ====
+
+/// The messages of an issue request's body.
+fn blinded_of(call: &azul_storage::HttpCall) -> Vec<String> {
+    let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+    body["blinded"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b.as_str().unwrap().to_string())
+        .collect()
+}
+
+/// X-DELTA-MONEY2-10: a kept issue request that the token server refuses as `bad_request` (a
+/// message it cannot sign, a proxy that keeps emptying the POST body) was sent again at every look
+/// and no fresh request was ever built - the grant never ended and never recovered (the old code,
+/// before X-DELTA-AZDRIVE-MONEY-4, ended the grant: no worse, but no better). Now the third
+/// identical refusal ends THAT request - the token server signed and counted nothing - and the same
+/// look blinds a new one, which the next look sends and the server signs when it can. The count is
+/// the request's, kept in every vault of the drive.
+#[test]
+fn x_delta_money2_10_a_request_refused_three_times_as_bad_request_is_given_up_and_a_new_one_is_blinded(
+) {
+    use crate::vault::TokenVault;
+    let dir = TempDir::new("azcloud-period");
+    let store = store_in(&dir);
+    let (tokens, in_drive) = super::tokens_in_drive(&store);
+    tokens
+        .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let listed = keys();
+    let issued = AtomicU64::new(0);
+    let healthy = Arc::new(AtomicUsize::new(0));
+    let well = healthy.clone();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        if well.load(Ordering::SeqCst) == 1 {
+            return Ok(signed(call, N1, D1, "100GB/2026", &issued));
+        }
+        Ok(json(
+            400,
+            r#"{"error": "bad_request", "message": "blind sign: no"}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let posts = || {
+        fake.calls()
+            .into_iter()
+            .filter(|c| c.url.ends_with("/v1/tokens/issue"))
+            .collect::<Vec<_>>()
+    };
+
+    // Looks one and two: the request is made, kept and refused; the same one goes again.
+    for look in 1..=2 {
+        assert!(
+            issue_next(&server, &tokens, "ck_1", NOW + look * DAY).is_err(),
+            "look {look}"
+        );
+        let state = in_drive.read().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1, "look {look}: the request is kept");
+        assert_eq!(
+            open[0].refusals(),
+            u32::try_from(look).unwrap(),
+            "in the drive's vault too"
+        );
+    }
+    assert_eq!(
+        blinded_of(&posts()[0]),
+        blinded_of(&posts()[1]),
+        "the same request again"
+    );
+
+    // Look three: the third identical refusal ends the request and the look blinds another.
+    assert!(issue_next(&server, &tokens, "ck_1", NOW + 3 * DAY).is_err());
+    let sent = posts();
+    assert_eq!(
+        sent.len(),
+        4,
+        "the kept one a third time, then a new one in the same look"
+    );
+    assert_eq!(
+        blinded_of(&sent[1]),
+        blinded_of(&sent[2]),
+        "the third try is the same request"
+    );
+    assert_ne!(
+        blinded_of(&sent[2]),
+        blinded_of(&sent[3]),
+        "its third refusal ended it: the next message is a new one"
+    );
+    let state = tokens.state().unwrap();
+    assert_eq!(state.done.len(), 1, "the refused request is marked done");
+    let open = state.open_issues("ck_1");
+    assert_eq!(open.len(), 1, "and the new one is kept");
+    assert_eq!(open[0].refusals(), 1, "with a count of its own");
+    assert!(
+        state
+            .grant("ck_1")
+            .is_some_and(|g| g.ended.is_none() && g.is_open()),
+        "the grant stays as it was"
+    );
+
+    // The token server can sign again: the next look sends the new request, and the month comes.
+    healthy.store(1, Ordering::SeqCst);
+    match issue_next(&server, &tokens, "ck_1", NOW + 4 * DAY).unwrap() {
+        Issued::Tokens(tokens) => assert_eq!(tokens.len(), 1),
+        other => panic!("the month did not come: {other:?}"),
+    }
+    let sent = posts();
+    assert_eq!(sent.len(), 5);
+    assert_eq!(
+        blinded_of(&sent[3]),
+        blinded_of(&sent[4]),
+        "the new request, as it was kept"
+    );
+}
+
+/// "Identical" refusals: the count is by the word of the refusal - a request refused as
+/// `bad_request` twice and as `key_id_required` twice is not given up (three different complaints
+/// are not three of one), and the third `bad_request` ends it.
+#[test]
+fn x_delta_money2_10_the_refusals_that_end_a_request_are_identical_ones() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let listed = keys();
+    let posted = AtomicUsize::new(0);
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        // the words, one per issue call
+        let word = [
+            "bad_request",
+            "bad_request",
+            "key_id_required",
+            "key_id_required",
+            "bad_request",
+        ][posted.fetch_add(1, Ordering::SeqCst).min(4)];
+        Ok(json(
+            400,
+            &format!(r#"{{"error": "{word}", "message": "no"}}"#),
+        ))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    for look in 1..=4 {
+        let _ = issue_next(&server, &tokens, "ck_1", NOW);
+        let state = tokens.state().unwrap();
+        assert_eq!(
+            state.done.len(),
+            0,
+            "look {look}: no word was said three times"
+        );
+        assert_eq!(
+            state.open_issues("ck_1")[0].refusals(),
+            if look == 1 { 1 } else { 2 }
+        );
+    }
+    // the third bad_request, whatever came between: that request is given up (and a new one kept)
+    let _ = issue_next(&server, &tokens, "ck_1", NOW);
+    let state = tokens.state().unwrap();
+    assert_eq!(state.done.len(), 1, "given up");
+    assert_eq!(
+        state.open_issues("ck_1")[0].refusals(),
+        1,
+        "a new request, a new count"
+    );
+}
+
+// ==== X-DELTA-MONEY2-11: tokens a healthy server calls expired ====
+
+/// A token of the issuer year `year`.
+fn of_year(nonce: &str, year: u32) -> PeriodToken {
+    PeriodToken {
+        year,
+        ..stored(nonce)
+    }
+}
+
+/// X-DELTA-MONEY2-11: three tokens older than the token server redeems (issued in 2021, it is
+/// 2026) sitting ahead of a good one were asked, kept as doubts and asked again at every look:
+/// three doubts end a look, so the good one was never reached - the old code spent them in turn.
+/// A token the server calls expired that this computer's own clock calls expired too (its issuer
+/// year is more than three years behind) is spent at once and does not count as a doubt.
+#[test]
+fn x_delta_money2_11_three_expired_tokens_ahead_of_a_good_one_do_not_end_the_look_before_it() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.0.first");
+    let store = store_in(&dir);
+    store
+        .add(
+            "d_1",
+            &[
+                of_year("aa", 2021),
+                of_year("bb", 2021),
+                of_year("cc", 2021),
+                stored("dd"),
+            ],
+        )
+        .unwrap();
+    let fake = redeeming_server(
+        shared.locks().clone(),
+        "dt_f.0.first",
+        NOW - 40 * DAY,
+        |nonce| (&nonce[..2] != "dd").then(|| refused_as("token_expired")),
+    );
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let redeemed = redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW);
+    assert!(
+        matches!(redeemed, Redeemed::Extended { count: 1, .. }),
+        "{redeemed:?}"
+    );
+    assert!(
+        store.tokens("d_1").unwrap().is_empty(),
+        "the three expired ones are gone and the good one bought its month"
+    );
+    let asked = fake
+        .calls()
+        .iter()
+        .filter(|c| c.url.ends_with("/redeem"))
+        .count();
+    assert_eq!(asked, 4, "each token was asked about once");
+}
+
+/// The negative controls of the same rule: a token that is NOT behind by more than three years
+/// and is refused as expired is still the server's doubt (its issuer year may be set wrong); an old
+/// token refused on a word that is not the year's (`unknown_issuer`) is a doubt too - only the
+/// year's refusal is judged by the clock - and one three years behind exactly is not yet expired.
+#[test]
+fn x_delta_money2_11_only_a_year_refusal_of_a_token_the_clock_calls_expired_is_given_up() {
+    let look = |tokens: &[PeriodToken], word: &'static str| {
+        let dir = TempDir::new("azcloud-period");
+        let shared = keyring_with_session(&dir, "dt_f.0.first");
+        let store = store_in(&dir);
+        store.add("d_1", tokens).unwrap();
+        let fake = redeeming_server(
+            shared.locks().clone(),
+            "dt_f.0.first",
+            NOW - 40 * DAY,
+            move |_| Some(refused_as(word)),
+        );
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let _ = redeem_due(&server, &shared, &store.on_this_device("d_1").unwrap(), NOW);
+        store.tokens("d_1").unwrap()
+    };
+    // 2023 + 3 = 2026: not behind by more than three years - the server may be wrong
+    assert_eq!(
+        look(&[of_year("aa", 2023)], "token_expired").len(),
+        1,
+        "three years: kept"
+    );
+    assert_eq!(
+        look(&[of_year("aa", 2026)], "token_expired").len(),
+        1,
+        "this year: kept"
+    );
+    // the issuer's key, not its year: only a token that is surely bad is spent
+    assert_eq!(
+        look(&[of_year("aa", 2021)], "unknown_issuer").len(),
+        1,
+        "another word: kept"
+    );
+    assert_eq!(
+        look(&[of_year("aa", 2021)], "bad_token").len(),
+        1,
+        "another word: kept"
+    );
+    // four years behind, and the server says so too: gone
+    assert!(
+        look(&[of_year("aa", 2022)], "token_expired").is_empty(),
+        "four years: spent"
+    );
+}

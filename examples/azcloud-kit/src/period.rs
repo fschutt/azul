@@ -27,6 +27,7 @@
 //! not get (support: a voucher).
 
 use std::{
+    collections::BTreeMap,
     fmt::{self, Write as _},
     fs,
     io::ErrorKind,
@@ -379,7 +380,21 @@ pub struct IssueRequest {
     key_id: String,
     public_key_pem: String,
     blindings: Vec<KeptBlinding>,
+    /// How often the token server refused THIS request as one it cannot take - `bad_request`, no
+    /// issue key, no issuer key: it signed and counted nothing - by the word of the refusal. A
+    /// word that reaches [`REFUSALS_BEFORE_A_NEW_REQUEST`] ends the request, and the next look
+    /// blinds a new one (X-DELTA-MONEY2-10). Kept with the request, in every vault; joined as the
+    /// larger count of each word ([`IssueRequest::join_refusals`]); not part of
+    /// [`IssueRequest::id`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    refusals: BTreeMap<String, u32>,
 }
+
+/// How many identical refusals of one kept issue request - the token server could not take it,
+/// signed and counted nothing - end the request: three looks (an hour apart after a failure), long
+/// enough for a proxy that empties a POST body for a while to recover, short enough that a request
+/// the server can never sign does not stand in the way of every later month.
+pub const REFUSALS_BEFORE_A_NEW_REQUEST: u32 = 3;
 
 impl fmt::Debug for IssueRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -387,6 +402,7 @@ impl fmt::Debug for IssueRequest {
             .field("checkout_id", &self.checkout_id)
             .field("key_id", &self.key_id)
             .field("messages", &self.blindings.len())
+            .field("refusals", &self.refusals)
             .finish_non_exhaustive()
     }
 }
@@ -414,7 +430,40 @@ impl IssueRequest {
             key_id: key.key_id.clone(),
             public_key_pem: key.public_key_pem.clone(),
             blindings,
+            refusals: BTreeMap::new(),
         })
+    }
+
+    /// This request refused once more with `word` (`bad_request`): a copy whose count of that
+    /// word is one higher - "identical" refusals are what end a request, whatever came between.
+    #[must_use]
+    fn refused_with_word(&self, word: &str) -> IssueRequest {
+        let mut counted = self.clone();
+        let count = counted.refusals.entry(word.to_string()).or_insert(0);
+        *count = count.saturating_add(1);
+        counted
+    }
+
+    /// The most often the token server refused it as one it cannot take with one and the same
+    /// word.
+    #[must_use]
+    pub fn refusals(&self) -> u32 {
+        self.refusals.values().copied().max().unwrap_or(0)
+    }
+
+    /// How often it was refused with `word`.
+    #[must_use]
+    fn refused_as(&self, word: &str) -> u32 {
+        self.refusals.get(word).copied().unwrap_or(0)
+    }
+
+    /// `other`'s counts of refusals joined in (the same request, as another vault holds it): the
+    /// larger count of each word stands - a count only grows.
+    pub(crate) fn join_refusals(&mut self, other: &IssueRequest) {
+        for (word, count) in &other.refusals {
+            let kept = self.refusals.entry(word.clone()).or_insert(0);
+            *kept = (*kept).max(*count);
+        }
     }
 
     #[must_use]
@@ -549,8 +598,9 @@ pub fn issue_next(
         match send_kept(server, tokens, &grant, kept)? {
             Sent::Tokens(tokens) => return Ok(Issued::Tokens(tokens)),
             Sent::Ended(why) => return Ok(Issued::Ended(grant.ended.clone().unwrap_or(why))),
-            // never signed (not due, a key that changed): given up, a fresh one below
-            Sent::NotDue | Sent::KeyChanged { .. } => {}
+            // never signed (not due, a key that changed, refused for good as unreadable): given
+            // up, a fresh one below
+            Sent::NotDue | Sent::KeyChanged { .. } | Sent::GivenUp(_) => {}
         }
     }
     let grant = tokens.state().map_err(not_kept)?.grant(checkout_id).cloned().unwrap_or(grant);
@@ -592,6 +642,9 @@ pub fn issue_next(
                     None => issuer_key(server, &grant.tier, Some(&key_id))?,
                 };
             }
+            // A request just made, refused for good: said as the refusal it is, the grant stays
+            // as it is, and the next look blinds another.
+            Sent::GivenUp(why) => return Err(TokenError::Protocol(why)),
         }
     }
     Err(TokenError::Protocol(format!(
@@ -609,6 +662,10 @@ enum Sent {
     /// Not signed: the messages must be blinded for the key `key_id` (`key`: with its public
     /// key, when the token server sent it).
     KeyChanged { key_id: String, key: Option<IssuerKey> },
+    /// The token server refused the request as one it cannot take, [`REFUSALS_BEFORE_A_NEW_REQUEST`]
+    /// times in a row with the same word: it signed and counted nothing, the request is marked
+    /// done, and a new one is blinded (X-DELTA-MONEY2-10).
+    GivenUp(String),
 }
 
 /// The kept issue request `kept` of `grant` sent again as it is.
@@ -687,8 +744,27 @@ fn answered(
         }
         // About the request, not the checkout (a proxy that empties a POST body, a server that
         // fails inside its signing): the grant stays as it is, its issue key and the kept request
-        // with it, and the same request goes again at the next look (X-DELTA-AZDRIVE-MONEY-4).
+        // with it, and the same request goes again at the next look (X-DELTA-AZDRIVE-MONEY-4) -
+        // [`REFUSALS_BEFORE_A_NEW_REQUEST`] times in a row with the same word: then the request is
+        // given up, the token server having signed and counted nothing, and the next look blinds a
+        // new one (X-DELTA-MONEY2-10). The count is the request's, kept in every vault.
         IssueAnswer::Refused(refusal) if refusal.is_about_the_request() => {
+            let counted = request.refused_with_word(refusal.as_str());
+            let times = counted.refused_as(refusal.as_str());
+            if times >= REFUSALS_BEFORE_A_NEW_REQUEST {
+                tokens.join(&done(None)).map_err(not_kept)?;
+                return Ok(Sent::GivenUp(format!(
+                    "the token server refused the request {times} times as {}: a new one is \
+                     blinded",
+                    refusal.as_str()
+                )));
+            }
+            tokens
+                .join(&VaultState {
+                    issues: vec![counted],
+                    ..VaultState::default()
+                })
+                .map_err(not_kept)?;
             Err(TokenError::answered(
                 refusal.status(),
                 refusal.as_str(),
@@ -1104,6 +1180,21 @@ pub fn look_at_drive(
 /// server's state, not the tokens', and each question costs a request.
 const DOUBTS_PER_LOOK: usize = 3;
 
+/// Whether `token`, refused on the doubt `doubt`, is as expired on this computer's own clock as
+/// the token server says: the doubt is the issuer YEAR's (`token_expired`) and the token's year
+/// is more than [`azlin_contract::TOKEN_VALID_YEARS`] behind the year `now` (seconds since 1970)
+/// is in ([`azlin_contract::token_years_over`], the rule the token server's redeem asks). Two
+/// clocks that agree - not a token server whose issuer year is set wrong: the refusal is the
+/// token's, and the token may go without another token to show it. A clock that cannot be read as
+/// a year (never) says nothing.
+fn known_expired(doubt: Doubt, token: &PeriodToken, now: u64) -> bool {
+    let this_year = azul_storage::time::iso8601(now)
+        .get(..4)
+        .and_then(|year| year.parse::<u32>().ok());
+    doubt == Doubt::IssuerYear
+        && this_year.is_some_and(|year| azlin_contract::token_years_over(token.year, year))
+}
+
 /// The tokens of `doubted` - refused on a word that may be the server's fault, and kept - that
 /// the server's taking of `redeemed` shows really bad ([`Doubt::is_settled_by`]) are spent in the
 /// vaults and leave `doubted`; the rest stay, for the next look.
@@ -1225,10 +1316,15 @@ fn redeem_with(
                 // A token server that lost an issuer key (or verifies with another, or has its
                 // year wrong) refuses every token alike, so the first such refusal gives nothing
                 // up: the token is kept. Another token of the same issuer taken in this look
-                // shows it is really bad (before or after); else all stay (AZ-P16).
+                // shows it is really bad (before or after); else all stay (AZ-P16). A token the
+                // server calls expired that this computer's own clock calls expired too is bad
+                // without another token to show it, and is not a doubt that counts: three of them
+                // ahead of a good token would end the look before it (X-DELTA-MONEY2-11).
                 Some(doubt) => {
                     last_doubt = e.said();
-                    if taken.iter().any(|t| doubt.is_settled_by(&candidate, t)) {
+                    if known_expired(doubt, &candidate, now)
+                        || taken.iter().any(|t| doubt.is_settled_by(&candidate, t))
+                    {
                         let _ = tokens.spend(&candidate.nonce);
                     } else {
                         doubted.push((candidate, doubt));
@@ -1425,7 +1521,11 @@ fn change_with(
                 None => {
                     let _ = tokens.spend(&candidate.nonce);
                 }
-                // Kept: the server may have lost the key of every token of the tier (AZ-P16).
+                // Kept: the server may have lost the key of every token of the tier (AZ-P16) -
+                // unless this computer's own clock calls the token as expired as the server does.
+                Some(doubt) if known_expired(doubt, &candidate, now) => {
+                    let _ = tokens.spend(&candidate.nonce);
+                }
                 Some(doubt) => {
                     doubted.push((candidate, doubt));
                     if doubted.len() >= DOUBTS_PER_LOOK {
