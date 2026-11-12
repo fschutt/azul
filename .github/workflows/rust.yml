@@ -1089,6 +1089,7 @@ jobs:
           cargo test -p azul-bridge --no-fail-fast 2>&1 | tee azul-bridge-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-bridge-tests.txt
           cargo check -p azul-bridge --tests --no-default-features
+          AZ_LINK_PATH="$RUNNER_TEMP/azul-cabi" cargo test -p azul-bridge --features os-keyring --no-fail-fast 2>&1 | tee azul-bridge-os-keyring-tests.txt
 
       # A binary made with the cargo feature `test-hooks` holds a marker (azul-appkit's
       # anchors::TEST_HOOKS_MARKER): cargo unifies features across one build, so a binary built
