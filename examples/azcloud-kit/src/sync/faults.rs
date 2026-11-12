@@ -13,6 +13,8 @@
 //! - **A folder that cannot be listed** for a number of scans ([`set_readdir_error`]): the
 //!   scan meets the error the system would give (an I/O error of a failing disk or a network
 //!   share, a folder swapped for a file, a permission), which `chmod` alone cannot play.
+//! - **A look at every folder the scan lists** ([`set_listing_hook`]): a test hears each listing
+//!   as it happens, to count what the scan holds open at that moment.
 //!
 //! Faults are kept per synced folder, the pairing's folder exactly as its setup names it, so a
 //! process that syncs several folders (AzDrive's E2E devices) faults each on its own. Nothing is
@@ -20,8 +22,9 @@
 
 use std::{
     collections::BTreeMap,
+    fmt,
     path::{Path, PathBuf},
-    sync::{Condvar, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
 
@@ -57,6 +60,15 @@ pub struct Crashed {
     pub point: String,
 }
 
+/// What a test hears of each folder a scan lists.
+struct Listing(Arc<dyn Fn(&str) + Send + Sync>);
+
+impl fmt::Debug for Listing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Listing(..)")
+    }
+}
+
 /// One folder's faults.
 #[derive(Debug, Default)]
 struct Faults {
@@ -82,6 +94,8 @@ struct Faults {
     readdir_errors: BTreeMap<String, (i32, u32)>,
     /// The folders whose listing fails in the scan running now (taken at its start).
     readdir_now: BTreeMap<String, i32>,
+    /// Told the key of every folder right before a scan lists it.
+    listing: Option<Listing>,
 }
 
 impl Faults {
@@ -95,6 +109,7 @@ impl Faults {
             && !self.disk_full
             && self.readdir_errors.is_empty()
             && self.readdir_now.is_empty()
+            && self.listing.is_none()
     }
 }
 
@@ -329,6 +344,29 @@ pub fn readdir_error(root: &Path, folder: &str) -> Option<std::io::Error> {
     all.get(root)
         .and_then(|f| f.readdir_now.get(folder.trim_matches('/')))
         .map(|errno| std::io::Error::from_raw_os_error(*errno))
+}
+
+/// Has `hook` told the key of every folder (`""` the top) the scans of `root` list, right before
+/// each is listed and on the scan's own thread; `None` takes it away.
+pub fn set_listing_hook(root: &Path, hook: Option<Arc<dyn Fn(&str) + Send + Sync>>) {
+    with(root, |f| f.listing = hook.map(Listing));
+}
+
+/// A scan of `root` is about to list `folder` (its key, `""` the top): tells the hook a test set.
+pub fn listing(root: &Path, folder: &str) {
+    let hook = {
+        let all = faults();
+        if all.is_empty() {
+            return;
+        }
+        all.get(root)
+            .and_then(|f| f.listing.as_ref())
+            .map(|l| Arc::clone(&l.0))
+    };
+    // Called without the lock: the hook may ask the seam for more.
+    if let Some(hook) = hook {
+        hook(folder);
+    }
 }
 
 /// Every fault of `root` gone (a crash count too).

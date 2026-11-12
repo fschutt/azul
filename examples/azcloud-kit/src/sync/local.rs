@@ -21,6 +21,7 @@ use std::{
     fs,
     io::{ErrorKind, Read},
     path::{Path, PathBuf},
+    rc::Rc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -33,7 +34,7 @@ use super::{
     clock::ClockRecord,
     guard::Guard,
     names::{self, System, Volume},
-    problems::{Code, Problem, Severity},
+    problems::{Code, Problem, Severity, Tally},
     rules::Rules,
 };
 use crate::{
@@ -419,11 +420,15 @@ pub struct Scan {
     /// The files the rules leave out, with their sizes: an app that saves a file writes it
     /// aside and renames the old one to such a name for a moment, which is no delete.
     pub temps: BTreeMap<String, u64>,
-    /// What the scan has to tell, file by file (links, special files, names, unreadable).
+    /// What the scan has to tell, file by file (links, special files, names, unreadable): the first
+    /// [`LISTED_PER_CODE`](super::problems::LISTED_PER_CODE) of each code, and one row of it that
+    /// says how many more there were ([`Problem::more`]; X-DELTA-EDGE-3).
     pub problems: Vec<Problem>,
     /// The local spelling of a key the drive spells otherwise (decomposed here, composed
     /// there, on a disk that takes both for one name): paths here use it.
     pub spelled: BTreeMap<String, String>,
+    /// How many problems of each code the scan told, kept or not: the pass counts them as its own.
+    pub(crate) told: Tally,
 }
 
 impl Scan {
@@ -444,7 +449,25 @@ impl Scan {
     }
 
     fn tell(&mut self, code: Code, key: &str, detail: impl Into<String>) {
-        self.problems.push(Problem::new(code, key, detail));
+        self.note(Problem::new(code, key, detail));
+    }
+
+    /// Keeps `problem` while its code has room in the list; past that it is only counted
+    /// ([`Tally`]).
+    fn note(&mut self, problem: Problem) {
+        if self.told.admit(problem.code) {
+            self.problems.push(problem);
+        }
+    }
+
+    /// An entry the scan refuses: said in `skipped` with `why` and in the problems with `detail`
+    /// while its code has room, only counted past that - a tree of a hundred thousand names no key
+    /// can be is no hundred thousand lines in memory (X-DELTA-EDGE-3).
+    fn refuse(&mut self, code: Code, key: &str, why: impl Into<String>, detail: impl Into<String>) {
+        if self.told.admit(code) {
+            self.skipped.push((key.to_string(), why.into()));
+            self.problems.push(Problem::new(code, key, detail));
+        }
     }
 
     /// The folder as the merge sees it: every entry the scan met, a file that could not be told
@@ -889,6 +912,41 @@ pub fn path_of(root: &Path, key: &str) -> PathBuf {
     azul_appkit::data::local_path(root, key)
 }
 
+/// The open files a process that syncs folders may hold: a pass holds a descriptor for each folder on
+/// the path of its scan and for each file it reads or uploads at once (X-DELTA-EDGE-2). macOS and
+/// Linux give a process 256 and 1,024 by default; macOS refuses a soft limit above its own 10,240.
+#[cfg(unix)]
+pub const OPEN_FILES: libc::rlim_t = 10_240;
+
+/// Raises this process's soft limit of open files to [`OPEN_FILES`], or to its hard limit when that
+/// is lower: called where an app or a command line starts. Best effort - the scan opens each folder
+/// when its turn comes and holds a descriptor for the folders on the path to the one it lists, so
+/// a limit that stays where it was costs depth, not breadth. Nothing happens where the system has
+/// no such limit.
+pub fn raise_open_files_limit() {
+    #[cfg(unix)]
+    {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: getrlimit only writes the struct it is given.
+        if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+            return;
+        }
+        let want = limit.rlim_max.min(OPEN_FILES);
+        if limit.rlim_cur < want {
+            let raised = libc::rlimit {
+                rlim_cur: want,
+                rlim_max: limit.rlim_max,
+            };
+            // SAFETY: setrlimit only reads the struct it is given. Refused (a hard limit lower than
+            // asked, a sandbox): the limit stays what it was.
+            let _ = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raised) };
+        }
+    }
+}
+
 /// Walks `root` and finds every file the `rules` let through, reusing the `base`'s hash of a
 /// file whose size, times and inode did not move since the scan at `base_scanned_ns`. A key
 /// of `json_merge` is synced as JSON without its machine-local keys.
@@ -953,12 +1011,22 @@ pub fn scan_settled(
     super::faults::scan_started(root);
     // The folders whose items carry attributes the sync does not carry: said once each.
     let mut noted: BTreeSet<String> = BTreeSet::new();
-    let mut stack: Vec<(beneath::Dir, String)> = vec![(top, String::new())];
-    while let Some((dir, prefix)) = stack.pop() {
+    // The folders still to be listed, an explicit stack: no recursion, whatever the depth. A
+    // sub-folder is opened when its turn comes, never when its parent is listed (X-DELTA-EDGE-2).
+    let mut stack: Vec<Visit> = vec![Visit::Top(top)];
+    while let Some(visit) = stack.pop() {
+        let (dir, prefix) = match visit {
+            Visit::Top(dir) => (Rc::new(dir), String::new()),
+            Visit::Folder(listed) => match open_listed(&tree, &mut out, listed) {
+                Some(opened) => opened,
+                None => continue,
+            },
+        };
         let folder = prefix.trim_end_matches('/').to_string();
         if !folder.is_empty() {
             note_attributes(&mut out, &mut noted, root, &folder, &folder);
         }
+        super::faults::listing(root, &folder);
         let listed = match super::faults::readdir_error(root, &folder) {
             Some(e) => Err(e),
             None => dir.names(),
@@ -970,11 +1038,10 @@ pub fn scan_settled(
             }
             Err(e) => {
                 out.unknown.insert(folder.clone(), Why::Unreadable);
-                out.skipped
-                    .push((folder.clone(), format!("cannot be read ({e})")));
-                out.tell(
+                out.refuse(
                     Code::Unreadable,
                     &folder,
+                    format!("cannot be read ({e})"),
                     format!("the folder cannot be read ({e}); nothing in it is taken for deleted"),
                 );
                 continue;
@@ -986,11 +1053,10 @@ pub fn scan_settled(
                 Ok(name) => name,
                 Err(raw) => {
                     let key = format!("{prefix}{}", raw.to_string_lossy());
-                    out.skipped
-                        .push((key.clone(), String::from("its name is not UTF-8")));
-                    out.tell(
+                    out.refuse(
                         Code::BadName,
                         &key,
+                        "its name is not UTF-8",
                         "its name is not UTF-8, so no other device could name it",
                     );
                     continue;
@@ -1004,17 +1070,19 @@ pub fn scan_settled(
                     // A name the walk refuses to open (a backslash) is a name no device can
                     // sync: said as such, not as a file that cannot be read.
                     if let Err(why) = super::remote::check_key(&key) {
-                        out.skipped
-                            .push((key.clone(), format!("its name cannot be a key ({why})")));
-                        out.tell(Code::BadName, &key, format!("not synced: {why}"));
+                        out.refuse(
+                            Code::BadName,
+                            &key,
+                            format!("its name cannot be a key ({why})"),
+                            format!("not synced: {why}"),
+                        );
                         continue;
                     }
                     out.unknown.insert(key.clone(), Why::Unreadable);
-                    out.skipped
-                        .push((key.clone(), format!("cannot be read ({e})")));
-                    out.tell(
+                    out.refuse(
                         Code::Unreadable,
                         &key,
+                        format!("cannot be read ({e})"),
                         "it cannot be read; it is not taken for deleted",
                     );
                     continue;
@@ -1056,11 +1124,12 @@ pub fn scan_settled(
                     let target = read
                         .map(|t| t.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    out.skipped.push((
-                        key.clone(),
-                        String::from("a symbolic link (never followed)"),
-                    ));
-                    out.tell(Code::SymlinkSkipped, &key, link_detail(&target));
+                    out.refuse(
+                        Code::SymlinkSkipped,
+                        &key,
+                        "a symbolic link (never followed)",
+                        link_detail(&target),
+                    );
                     out.links.insert(key, target);
                     continue;
                 }
@@ -1069,47 +1138,30 @@ pub fn scan_settled(
                         out.excluded += 1;
                         continue;
                     }
-                    match dir.child(&name, false) {
-                        Ok(child) if !tree.is_mount_point(child.rel()) => {
-                            out.dirs.insert(key.clone());
-                            out.folder_ids.insert(key.clone(), (st.ino, st.dev));
-                            stack.push((child, format!("{key}/")));
-                        }
-                        Ok(_) | Err(BeneathError::CrossesMount(_)) => {
-                            out.skipped.push((
-                                key.clone(),
-                                String::from("another disk mounted here (never walked into)"),
-                            ));
-                            out.tell(
-                                Code::MountPoint,
-                                &key,
-                                "another disk is mounted here; it is not synced, and unmounting \
-                                 it deletes nothing",
-                            );
-                            out.mounts.insert(key);
-                        }
-                        // Swapped for a link since it was listed.
-                        Err(BeneathError::ThroughLink(_)) => {
-                            out.skipped.push((
-                                key.clone(),
-                                String::from("a symbolic link (never followed)"),
-                            ));
-                            out.links.insert(key, String::new());
-                        }
-                        Err(e) => {
-                            out.skipped
-                                .push((key.clone(), format!("cannot be read ({e})")));
-                            out.tell(
-                                Code::Unreadable,
-                                &key,
-                                format!(
-                                    "the folder cannot be opened ({e}); nothing in it is taken \
-                                     for deleted"
-                                ),
-                            );
-                            out.unknown.insert(key, Why::Unreadable);
-                        }
+                    // A folder whose own key is longer than a key may be holds no file that can
+                    // sync: it is told once and nothing below it is walked - a tree ten thousand
+                    // levels deep is no ten thousand keys of ten thousand names in memory.
+                    if key.len() > names::PATH_MAX_BYTES {
+                        out.refuse(
+                            Code::BadName,
+                            &key,
+                            "its path is longer than a key may be",
+                            format!(
+                                "not synced: a path longer than {} bytes; nothing below it is \
+                                 walked",
+                                names::PATH_MAX_BYTES
+                            ),
+                        );
+                        continue;
                     }
+                    // Opened when it is popped, not now: a folder with a thousand sub-folders
+                    // holds one descriptor, its own.
+                    stack.push(Visit::Folder(Listed {
+                        parent: Rc::clone(&dir),
+                        name,
+                        key,
+                        id: (st.ino, st.dev),
+                    }));
                     continue;
                 }
                 Kind::File => {}
@@ -1120,11 +1172,10 @@ pub fn scan_settled(
                         Kind::Device => "a device file",
                         _ => "not a regular file",
                     };
-                    out.skipped
-                        .push((key.clone(), String::from("not a regular file")));
-                    out.tell(
+                    out.refuse(
                         Code::SpecialFile,
                         &key,
+                        "not a regular file",
                         format!("{what} is never opened or synced"),
                     );
                     continue;
@@ -1136,15 +1187,21 @@ pub fn scan_settled(
                 continue;
             }
             if let Err(e) = super::remote::check_key(&key) {
-                out.skipped
-                    .push((key.clone(), format!("its name cannot be a key ({e})")));
-                out.tell(Code::BadName, &key, format!("not synced: {e}"));
+                out.refuse(
+                    Code::BadName,
+                    &key,
+                    format!("its name cannot be a key ({e})"),
+                    format!("not synced: {e}"),
+                );
                 continue;
             }
             if let Some(why) = names::key_problem(&key) {
-                out.skipped
-                    .push((key.clone(), format!("its name cannot be a key ({why})")));
-                out.tell(Code::BadName, &key, format!("not synced: {why}"));
+                out.refuse(
+                    Code::BadName,
+                    &key,
+                    format!("its name cannot be a key ({why})"),
+                    format!("not synced: {why}"),
+                );
                 continue;
             }
             // A write sets the time to now: a time in the future (a file from a computer whose
@@ -1177,7 +1234,7 @@ pub fn scan_settled(
                     "it has other names (hard links); it syncs as its own copy",
                 );
                 note.severity = Severity::Warning;
-                out.problems.push(note);
+                out.note(note);
             }
             note_attributes(&mut out, &mut noted, root, &folder, &key);
             match scan_file(
@@ -1207,10 +1264,10 @@ pub fn scan_settled(
                 }
                 Err(Skip::Unreadable(why)) => {
                     out.unknown.insert(key.clone(), Why::Unreadable);
-                    out.skipped.push((key.clone(), why));
-                    out.tell(
+                    out.refuse(
                         Code::Unreadable,
                         &key,
+                        why,
                         "it cannot be read; it is not taken for deleted",
                     );
                 }
@@ -1218,8 +1275,7 @@ pub fn scan_settled(
                     // Not synced, and not gone: a file the base and the drive agree on that the
                     // scan refuses (grown past the size cap) is unknown, never a delete (AZ-S6).
                     out.unknown.insert(key.clone(), Why::Refused(code));
-                    out.skipped.push((key.clone(), why.clone()));
-                    out.tell(code, &key, why);
+                    out.refuse(code, &key, why.clone(), why);
                 }
                 Err(Skip::Locked) => {
                     out.unknown.insert(key.clone(), Why::Locked);
@@ -1232,7 +1288,87 @@ pub fn scan_settled(
             }
         }
     }
+    // The problems the list left out are one row each.
+    let told = out.told.clone();
+    told.close(&mut out.problems);
     Ok(out)
+}
+
+/// A sub-folder the scan listed in its parent and has not opened yet. The parent stays open for as
+/// long as one of its sub-folders waits - the scan holds one descriptor for each folder on the path
+/// to the one it is in, never one for each sibling it has seen (X-DELTA-EDGE-2: 600 sibling folders
+/// left the rest of them unreadable under a limit of 256 descriptors).
+struct Listed {
+    parent: Rc<beneath::Dir>,
+    name: String,
+    key: String,
+    /// Its inode and device as the parent's listing saw them.
+    id: (u64, u64),
+}
+
+/// A folder the scan has still to list.
+enum Visit {
+    /// The synced folder itself.
+    Top(beneath::Dir),
+    /// A sub-folder, not opened yet.
+    Folder(Listed),
+}
+
+/// Opens `listed` when its turn comes, the way the scan always opened a sub-folder - never through a
+/// link, never into another disk - and says what it met when it cannot: the folder and the prefix
+/// of its entries' keys, or `None` (listed, nothing below it taken for deleted). Its parent is let
+/// go of here, so its descriptor is closed with its last sub-folder's open.
+fn open_listed(
+    tree: &beneath::Root,
+    out: &mut Scan,
+    listed: Listed,
+) -> Option<(Rc<beneath::Dir>, String)> {
+    let Listed {
+        parent,
+        name,
+        key,
+        id,
+    } = listed;
+    match parent.child(&name, false) {
+        Ok(child) if !tree.is_mount_point(child.rel()) => {
+            out.dirs.insert(key.clone());
+            out.folder_ids.insert(key.clone(), id);
+            let prefix = format!("{key}/");
+            Some((Rc::new(child), prefix))
+        }
+        Ok(_) | Err(BeneathError::CrossesMount(_)) => {
+            out.refuse(
+                Code::MountPoint,
+                &key,
+                "another disk mounted here (never walked into)",
+                "another disk is mounted here; it is not synced, and unmounting it deletes \
+                 nothing",
+            );
+            out.mounts.insert(key);
+            None
+        }
+        // Swapped for a link since it was listed.
+        Err(BeneathError::ThroughLink(_)) => {
+            out.skipped.push((
+                key.clone(),
+                String::from("a symbolic link (never followed)"),
+            ));
+            out.links.insert(key, String::new());
+            None
+        }
+        Err(e) => {
+            out.refuse(
+                Code::Unreadable,
+                &key,
+                format!("cannot be read ({e})"),
+                format!(
+                    "the folder cannot be opened ({e}); nothing in it is taken for deleted"
+                ),
+            );
+            out.unknown.insert(key, Why::Unreadable);
+            None
+        }
+    }
 }
 
 /// What the problem list says of an entry the scan met as a link and does not follow: where it
@@ -1579,15 +1715,16 @@ pub fn skip_links(scan: &mut Scan) {
             continue;
         };
         let target = file.link.unwrap_or_default();
-        scan.skipped
-            .push((key.clone(), String::from("a symbolic link (never followed)")));
-        scan.tell(
+        scan.refuse(
             Code::SymlinkSkipped,
             &key,
+            "a symbolic link (never followed)",
             format!("a link to {target:?} is never followed"),
         );
         scan.links.insert(key, target);
     }
+    let told = scan.told.clone();
+    told.close(&mut scan.problems);
 }
 
 /// Removes the folders of `key` under `root` that a delete left empty, up to (not including)

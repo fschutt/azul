@@ -4015,6 +4015,9 @@ pub fn start() {
     // This thread runs the window: it never waits for a network answer, or every frame would
     // wait with it (debug builds assert it).
     azul_storage::ui_thread::mark_ui_thread();
+    // The folder sync's scan holds a descriptor for each folder on the path to the one it lists:
+    // the system's default soft limit (256 on macOS) is raised once, here (X-DELTA-EDGE-2).
+    azcloud_kit::sync::local::raise_open_files_limit();
     // Every request to the Azlin services says which app and contract sent it.
     if let Some(hello) = azcloud_kit::hello::of_app("azdrive", env!("CARGO_PKG_VERSION")) {
         azcloud_kit::hello::announce(hello);

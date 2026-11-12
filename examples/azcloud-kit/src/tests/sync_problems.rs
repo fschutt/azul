@@ -8,8 +8,7 @@ use crate::{
     sync::{
         problems::{
             code_of_error, code_of_sentence, escaped, from_report, harness_json, Code, Problem,
-            ProblemList,
-            Severity,
+            ProblemList, Severity, LISTED_PER_CODE,
         },
         MassDelete, SyncReport,
     },
@@ -238,4 +237,141 @@ fn x_delta_azdrive_files_33_an_unchecked_check_is_a_warning_of_the_pass() {
     assert_eq!(Code::Unchecked.severity(), Severity::Warning);
     assert!(!Code::Unchecked.holds_back());
     assert!(Code::Unchecked.is_pass_wide());
+}
+
+/// X-DELTA-EDGE-3 (E15a, T11). `ProblemList::publish` made the list one problem at a time and asked
+/// the list so far whether the problem was in it already: a pass with 100,000 refused names
+/// (symlinks pointing out, names past 4,096 bytes, a hostile index) took minutes and wrote a
+/// `problems.json` of tens of megabytes. 200,000 problems and the same 200,000 told twice: one row
+/// per (code, key), within two seconds, and a file the pass can write.
+#[test]
+fn publishing_two_hundred_thousand_problems_takes_linear_time() {
+    const N: usize = 200_000;
+    let pass: Vec<Problem> = (0..N)
+        .chain(0..N)
+        .map(|i| {
+            Problem::new(
+                Code::BadName,
+                &format!("deep/{i:06}"),
+                "not synced: a path longer than 4096 bytes",
+            )
+        })
+        .collect();
+    // On a thread of its own: the quadratic list takes minutes, and the test says so after the
+    // limit instead of waiting for it.
+    let (sent, done) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let mut list = ProblemList::default();
+        list.publish(pass, true, 100);
+        let _ = sent.send((list, started.elapsed()));
+    });
+    let (list, took) = done
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("publishing 400,000 problems takes more than two seconds: the dedupe is a scan of the growing list");
+    assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+    let mut seen = std::collections::HashSet::new();
+    for p in &list.problems {
+        assert!(
+            seen.insert((p.code, p.key.clone())),
+            "{:?} {:?} is listed twice",
+            p.code,
+            p.key
+        );
+    }
+    let bytes = serde_json::to_vec(&list).expect("the list serialises");
+    assert!(
+        bytes.len() < 1 << 20,
+        "problems.json is {} bytes: a list that long is written every pass",
+        bytes.len()
+    );
+    // What is not listed is counted, not lost: the rows and the row that says "and N more" are the
+    // 200,000 distinct problems, the 200,000 repeats told for nothing.
+    let listed = list.problems.iter().filter(|p| p.more == 0).count();
+    assert_eq!(listed, LISTED_PER_CODE, "the first thousand by key");
+    let summary: Vec<&Problem> = list.problems.iter().filter(|p| p.more > 0).collect();
+    assert_eq!(summary.len(), 1, "one row says the rest: {summary:?}");
+    assert_eq!(summary[0].code, Code::BadName);
+    assert_eq!(summary[0].key, "", "it names no file");
+    assert_eq!(listed as u64 + summary[0].more, N as u64);
+    assert_eq!(list.total(), N as u64);
+    assert_eq!(summary[0].since, 100);
+    assert!(
+        !list.up_to_date(),
+        "a row of errors left out is still errors"
+    );
+}
+
+/// X-DELTA-EDGE-3 (E15a), the other writer of the list: a check outside a pass (the read-back, a
+/// free-up, a disk too full) adds its problems one at a time to the list on disk, and each was a scan
+/// of the list so far and a write of the whole file - a read-back that found a hundred thousand
+/// damaged files wrote the list a hundred thousand times, each time longer. A problem told twice is
+/// one row, the first thousand of a code are rows, and the rest are counted in one row that says so.
+#[test]
+fn problems_a_check_notes_between_passes_are_capped_like_a_pass_s() {
+    let damaged = |i: usize| {
+        Problem::new(
+            Code::HashMismatch,
+            &format!("big/{i:04}.bin"),
+            "its bytes rotted",
+        )
+    };
+    let mut list = ProblemList::default();
+    for i in 0..1_200 {
+        list.note(damaged(i), 500);
+    }
+    // A file told again that has its row is no second row.
+    for i in 0..10 {
+        list.note(damaged(i), 600);
+    }
+    list.note(
+        Problem::new(Code::DiskReserve, "other.bin", "the disk is full"),
+        700,
+    );
+    let rows = |code: Code| {
+        list.problems
+            .iter()
+            .filter(|p| p.code == code && p.more == 0)
+            .count()
+    };
+    assert_eq!(rows(Code::HashMismatch), LISTED_PER_CODE);
+    assert_eq!(rows(Code::DiskReserve), 1, "another code has its own room");
+    let more: Vec<&Problem> = list.problems.iter().filter(|p| p.more > 0).collect();
+    assert_eq!(more.len(), 1, "{more:?}");
+    assert_eq!(
+        (more[0].code, more[0].more, more[0].key.as_str()),
+        (Code::HashMismatch, 200, "")
+    );
+    assert_eq!(more[0].since, 500, "since the first one past the cap");
+    assert_eq!(list.total(), 1_201);
+}
+
+/// The same through the function a check calls (`evict::note_problem`: the list is read from the state
+/// folder, the problem noted, the list written): a list that holds a thousand rows of a code takes the
+/// next problem of it into its "and N more" row, and the file is what the next look reads.
+#[test]
+fn evict_note_problem_counts_a_problem_past_the_cap_in_the_row_that_says_so() {
+    use crate::sync::evict::note_problem;
+    let dir = TempDir::new("problems-noted");
+    let mut list = ProblemList::default();
+    for i in 0..LISTED_PER_CODE {
+        list.note(
+            Problem::new(Code::HashMismatch, &format!("big/{i:04}.bin"), "rotted"),
+            500,
+        );
+    }
+    list.save(dir.path()).unwrap();
+    for i in 0..3 {
+        note_problem(
+            dir.path(),
+            Problem::new(Code::HashMismatch, &format!("more/{i}.bin"), "rotted"),
+        );
+    }
+    let again = ProblemList::load(dir.path()).unwrap();
+    assert_eq!(again.problems.len(), LISTED_PER_CODE + 1);
+    assert_eq!(again.total(), LISTED_PER_CODE as u64 + 3);
+    assert!(again
+        .problems
+        .iter()
+        .any(|p| p.more == 3 && p.key.is_empty()));
 }

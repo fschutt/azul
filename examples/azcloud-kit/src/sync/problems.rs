@@ -8,7 +8,10 @@
 //! files). The codes are the sync test harness's vocabulary, so the same scenario checks the
 //! engine and the reference.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    path::Path,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +24,12 @@ use crate::{
 
 /// The list's file in a pairing's state folder.
 pub const PROBLEMS_FILE: &str = "problems.json";
+
+/// The most problems of one code a list names one by one (X-DELTA-EDGE-3): a folder with a hundred
+/// thousand names no drive takes, or a hostile index with that many bad keys, is no hundred thousand
+/// rows in a scan, a report and `problems.json` - the first of them are listed and one row of the
+/// code says how many more there are ([`Problem::more`], [`Tally`]).
+pub const LISTED_PER_CODE: usize = 1_000;
 
 /// What kind of problem a file has. Serialized in kebab case (`symlink-skipped`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -233,6 +242,14 @@ pub struct Problem {
     /// When a pass first listed it (seconds), carried while it stays listed; 0 until published.
     #[serde(default)]
     pub since: i64,
+    /// More than 0: this row names no file (its `key` is empty) and stands for that many other
+    /// problems of its code that are not listed one by one ([`LISTED_PER_CODE`]).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub more: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 impl Problem {
@@ -245,6 +262,16 @@ impl Problem {
             detail: detail.into(),
             severity: code.severity(),
             since: 0,
+            more: 0,
+        }
+    }
+
+    /// The row that says `more` other problems of `code` are not listed one by one.
+    #[must_use]
+    pub fn left_out(code: Code, more: u64) -> Problem {
+        Problem {
+            more,
+            ..Problem::new(code, "", more_sentence(more))
         }
     }
 
@@ -260,6 +287,80 @@ impl Problem {
     #[must_use]
     pub fn shown_key(&self) -> String {
         escaped(&self.key)
+    }
+}
+
+/// What the row of `more` problems left out says.
+fn more_sentence(more: u64) -> String {
+    format!(
+        "and {more} more of this kind: only the first {LISTED_PER_CODE} of them are listed one by one"
+    )
+}
+
+/// How many problems of each code a producer has told - a scan, a pass's report - so that its list
+/// keeps the first [`LISTED_PER_CODE`] of a code and only counts the rest (X-DELTA-EDGE-3). The
+/// producer asks [`Tally::admit`] before it keeps a problem, and [`Tally::close`]s its list at the
+/// end with one row per code that overflowed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tally {
+    /// Problems told per code, kept or not.
+    told: BTreeMap<Code, u64>,
+    /// Problems another list already left out ([`Problem::more`]), per code.
+    left: BTreeMap<Code, u64>,
+}
+
+impl Tally {
+    /// Counts one more problem of `code`; whether it is kept (the code has room left).
+    pub fn admit(&mut self, code: Code) -> bool {
+        let told = self.told.entry(code).or_default();
+        *told += 1;
+        *told <= LISTED_PER_CODE as u64
+    }
+
+    /// Counts `more` problems of `code` that were left out before they came here.
+    pub fn leave_out(&mut self, code: Code, more: u64) {
+        *self.left.entry(code).or_default() += more;
+    }
+
+    /// Counts everything `other` told as told here too (a scan's problems in its pass's).
+    pub fn absorb(&mut self, other: &Tally) {
+        for (code, told) in &other.told {
+            *self.told.entry(*code).or_default() += told;
+        }
+        for (code, more) in &other.left {
+            self.leave_out(*code, *more);
+        }
+    }
+
+    /// How many problems of `code` are not kept.
+    #[must_use]
+    pub fn left_out(&self, code: Code) -> u64 {
+        let over = self
+            .told
+            .get(&code)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(LISTED_PER_CODE as u64);
+        over + self.left.get(&code).copied().unwrap_or(0)
+    }
+
+    /// Puts into `list` one row per code that left problems out: its [`Problem::left_out`] row,
+    /// set to the whole count when `list` has one already (so closing twice says the same).
+    pub fn close(&self, list: &mut Vec<Problem>) {
+        let codes: BTreeSet<Code> = self.told.keys().chain(self.left.keys()).copied().collect();
+        for code in codes {
+            let more = self.left_out(code);
+            if more == 0 {
+                continue;
+            }
+            match list.iter_mut().find(|p| p.code == code && p.more > 0) {
+                Some(row) => {
+                    row.more = more;
+                    row.detail = more_sentence(more);
+                }
+                None => list.push(Problem::left_out(code, more)),
+            }
+        }
     }
 }
 
@@ -388,16 +489,24 @@ pub fn code_of_sentence(why: &str) -> Code {
 #[must_use]
 pub fn from_report(report: &SyncReport) -> Vec<Problem> {
     let mut out: Vec<Problem> = report.problems.clone();
-    let named = |out: &[Problem], key: &str| out.iter().any(|p| !key.is_empty() && p.key == key);
+    // The keys the problems name, asked for once each: a pass with a hundred thousand skipped or
+    // failed files asked the list so far for every one (X-DELTA-EDGE-3).
+    let mut named: HashSet<String> = out
+        .iter()
+        .filter(|p| !p.key.is_empty())
+        .map(|p| p.key.clone())
+        .collect();
+    // A whole-pass row (no key) is never "named"; any other key is told once.
+    let mut first = |key: &str| key.is_empty() || named.insert(key.to_string());
     for (key, why) in report.skipped.iter().chain(report.file_errors.iter()) {
-        if !named(&out, key) {
+        if first(key) {
             out.push(Problem::new(code_of_sentence(why), key, why.clone()));
         }
     }
     for line in &report.changed_during_sync {
         // `key: why` - the reason has no ": " of its own, the key may.
         let key = line.rfind(": ").map_or(line.as_str(), |i| &line[..i]);
-        if !named(&out, key) {
+        if first(key) {
             out.push(Problem::new(Code::ChangedDuringSync, key, line.clone()));
         }
     }
@@ -488,31 +597,114 @@ impl ProblemList {
     /// pass that did not get to its files (`complete` false: offline, refused, held) keeps
     /// the files' problems of the last one that did, so a skipped file never drops out of
     /// the list just because the drive could not be reached.
+    ///
+    /// One row per (code, key), the first told winning; at most [`LISTED_PER_CODE`] rows of a
+    /// code - the first by key - and one row of it that says how many more there were
+    /// ([`Problem::more`]): sorted and deduplicated, never a scan of the list so far for every
+    /// problem (X-DELTA-EDGE-3: 200,000 problems took minutes).
     pub fn publish(&mut self, pass: Vec<Problem>, complete: bool, now: i64) {
-        let before: BTreeMap<(Code, String), i64> = self
-            .problems
-            .iter()
-            .map(|p| ((p.code, p.key.clone()), p.since))
-            .collect();
-        let mut next: Vec<Problem> = Vec::new();
-        if !complete {
-            next.extend(
-                self.problems
-                    .iter()
-                    .filter(|p| !p.code.is_pass_wide())
-                    .cloned(),
-            );
-        }
-        for mut p in pass {
-            if next.iter().any(|q| q.code == p.code && q.key == p.key) {
-                continue;
+        let next = {
+            let first_listed: HashMap<(Code, &str), i64> = self
+                .problems
+                .iter()
+                .map(|p| ((p.code, p.key.as_str()), p.since))
+                .collect();
+            let mut rows: Vec<Problem> = Vec::new();
+            // Problems a row of "and N more" stands for, per code: the first count told of a code
+            // is the one kept (a pass that could not look again keeps the last pass's row).
+            let mut left: BTreeMap<Code, u64> = BTreeMap::new();
+            let mut kept_row: BTreeSet<Code> = BTreeSet::new();
+            if !complete {
+                for p in self.problems.iter().filter(|p| !p.code.is_pass_wide()) {
+                    if p.more > 0 {
+                        left.insert(p.code, p.more);
+                        kept_row.insert(p.code);
+                    } else {
+                        rows.push(p.clone());
+                    }
+                }
             }
-            p.since = before.get(&(p.code, p.key.clone())).copied().unwrap_or(now);
-            next.push(p);
-        }
-        next.sort_by(|a, b| (a.key.as_str(), a.code).cmp(&(b.key.as_str(), b.code)));
+            for mut p in pass {
+                if p.more > 0 {
+                    if !kept_row.contains(&p.code) {
+                        *left.entry(p.code).or_default() += p.more;
+                    }
+                    continue;
+                }
+                p.since = first_listed
+                    .get(&(p.code, p.key.as_str()))
+                    .copied()
+                    .unwrap_or(now);
+                rows.push(p);
+            }
+            // By key, then code; the sort is stable, so of two rows for one (code, key) the one
+            // told first (a kept one, then the pass's first) stays.
+            rows.sort_by(|a, b| (a.key.as_str(), a.code).cmp(&(b.key.as_str(), b.code)));
+            rows.dedup_by(|later, first| later.code == first.code && later.key == first.key);
+            let mut tally = Tally::default();
+            let mut next: Vec<Problem> = rows.into_iter().filter(|p| tally.admit(p.code)).collect();
+            for (code, more) in left {
+                tally.leave_out(code, more);
+            }
+            tally.close(&mut next);
+            for row in next.iter_mut().filter(|p| p.more > 0) {
+                row.since = first_listed
+                    .get(&(row.code, row.key.as_str()))
+                    .copied()
+                    .unwrap_or(now);
+            }
+            // The rows that stand for others come last.
+            next.sort_by(|a, b| {
+                (a.more > 0, a.key.as_str(), a.code).cmp(&(b.more > 0, b.key.as_str(), b.code))
+            });
+            next
+        };
         self.problems = next;
         self.updated_at = now;
+    }
+
+    /// Adds `problem` to the list at `now`, outside a pass (a check found it): one row per (code,
+    /// key), and past [`LISTED_PER_CODE`] rows of its code the problem is counted in the code's
+    /// "and N more" row instead - a read-back that finds a hundred thousand damaged files adds one
+    /// row to the list for each of the first thousand only. (A problem past the cap has no row to
+    /// be told twice by: every call of it counts.)
+    pub fn note(&mut self, mut problem: Problem, now: i64) {
+        let named = |p: &Problem| p.code == problem.code && p.key == problem.key;
+        if self.problems.iter().any(named) {
+            return;
+        }
+        let rows = self
+            .problems
+            .iter()
+            .filter(|p| p.code == problem.code && p.more == 0)
+            .count();
+        self.updated_at = now;
+        if rows < LISTED_PER_CODE {
+            problem.since = now;
+            self.problems.push(problem);
+            return;
+        }
+        match self
+            .problems
+            .iter_mut()
+            .find(|p| p.code == problem.code && p.more > 0)
+        {
+            Some(row) => {
+                row.more += 1;
+                row.detail = more_sentence(row.more);
+            }
+            None => {
+                let mut row = Problem::left_out(problem.code, 1);
+                row.since = now;
+                self.problems.push(row);
+            }
+        }
+    }
+
+    /// How many problems the list holds, those its "and N more" rows stand for included.
+    #[must_use]
+    pub fn total(&self) -> u64 {
+        self.problems.iter().map(|p| p.more.max(1)).sum()
     }
 
     /// Whether nothing blocks "up to date" (warnings only, or nothing).
@@ -580,12 +772,17 @@ pub fn harness_json(list: &ProblemList) -> serde_json::Value {
         list.problems
             .iter()
             .map(|p| {
-                serde_json::json!({
+                let mut row = serde_json::json!({
                     "code": p.code.as_str(),
                     "key": p.shown_key(),
                     "detail": p.detail,
                     "severity": p.severity,
-                })
+                });
+                // A row that stands for others says how many (X-DELTA-EDGE-3).
+                if p.more > 0 {
+                    row["more"] = serde_json::json!(p.more);
+                }
+                row
             })
             .collect(),
     )

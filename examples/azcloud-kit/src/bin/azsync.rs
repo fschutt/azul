@@ -378,6 +378,8 @@ fn watch(flags: &BTreeMap<String, String>) -> i32 {
 }
 
 fn main() {
+    // The scan holds a descriptor for each folder on the path to the one it lists.
+    azcloud_kit::sync::local::raise_open_files_limit();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(command) = args.first() else { usage() };
     let flags = flags(&args[1..]);

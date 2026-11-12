@@ -88,18 +88,8 @@ fn checked<R: SyncRemote + ?Sized>(
 
 /// Adds `problem` to the pairing's problem list in `state_dir` now (a check outside a pass
 /// found it); the next pass publishes the list afresh.
-pub fn note_problem(state_dir: &Path, mut problem: Problem) {
+pub fn note_problem(state_dir: &Path, problem: Problem) {
     let mut list = ProblemList::load(state_dir).unwrap_or_default();
-    if list
-        .problems
-        .iter()
-        .any(|p| p.code == problem.code && p.key == problem.key)
-    {
-        return;
-    }
-    let now = crate::now();
-    problem.since = now;
-    list.problems.push(problem);
-    list.updated_at = now;
+    list.note(problem, crate::now());
     let _ = list.save(state_dir);
 }

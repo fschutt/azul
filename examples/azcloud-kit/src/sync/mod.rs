@@ -423,9 +423,14 @@ pub struct SyncReport {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub held_back: Vec<String>,
     /// The files' problems the run recorded with their codes (the problem list's source;
-    /// [`problems::from_report`] adds what the sentences above say).
+    /// [`problems::from_report`] adds what the sentences above say): the first
+    /// [`problems::LISTED_PER_CODE`] of each code, and one row of it that says how many more there
+    /// were ([`problems::Problem::more`]; X-DELTA-EDGE-3).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<problems::Problem>,
+    /// How many problems of each code the run told, kept or not (the scan's counted in).
+    #[serde(skip)]
+    pub(crate) told: problems::Tally,
     /// The files a delete from the drive moved into the folder's trash here, and where to
     /// (from the folder's root).
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -440,10 +445,20 @@ pub struct SyncReport {
 }
 
 impl SyncReport {
-    /// Records the problem `code` of `key`.
+    /// Records the problem `code` of `key`, while its code has room in the list
+    /// ([`problems::Tally`]): a hostile index with a hundred thousand bad keys is no hundred
+    /// thousand problems in memory (X-DELTA-EDGE-3).
     fn tell(&mut self, code: problems::Code, key: &str, detail: impl Into<String>) {
-        self.problems
-            .push(problems::Problem::new(code, key, detail));
+        if self.told.admit(code) {
+            self.problems
+                .push(problems::Problem::new(code, key, detail));
+        }
+    }
+
+    /// Puts into the problems the one row per code that says how many it left out.
+    fn close_problems(&mut self) {
+        let told = self.told.clone();
+        told.close(&mut self.problems);
     }
 
     /// The run changes nothing anywhere, and says why.
@@ -3930,8 +3945,22 @@ fn check_remote(
     frozen
 }
 
-/// The loop of a run against any drive side.
+/// The loop of a run against any drive side: [`run_pass`], and the problems it left out said in
+/// one row per code.
 fn run<R: SyncRemote + ?Sized>(
+    remote_side: &R,
+    root: &LocalRoot,
+    index_path: &Path,
+    opts: &SyncOptions,
+    hooks: &RunHooks<'_>,
+) -> CloudResult<SyncReport> {
+    run_pass(remote_side, root, index_path, opts, hooks).map(|mut report| {
+        report.close_problems();
+        report
+    })
+}
+
+fn run_pass<R: SyncRemote + ?Sized>(
     remote_side: &R,
     root: &LocalRoot,
     index_path: &Path,
@@ -4103,9 +4132,15 @@ fn run<R: SyncRemote + ?Sized>(
     report.hashed = scanned.hashed;
     report.excluded = scanned.excluded;
     report.skipped = scanned.skipped.clone();
-    report.problems.extend(scanned.problems.iter().cloned());
+    // The scan's rows that name a file; the ones that say "and N more" are made again at the end
+    // from the count the report keeps.
+    report
+        .problems
+        .extend(scanned.problems.iter().filter(|p| p.more == 0).cloned());
+    report.told.absorb(&scanned.told);
     // What an attempt tells is told again by the next one (another device committed first).
     let told = report.problems.len();
+    let told_counts = report.told.clone();
     let date = today();
     let mut cached = load_cache(index_path, &index);
     let mut pause = None;
@@ -4119,6 +4154,7 @@ fn run<R: SyncRemote + ?Sized>(
     let (committed, actions, folder_actions, merged, etag, scan, base_after, restore_epoch) = loop {
         attempt += 1;
         report.problems.truncate(told);
+        report.told.clone_from(&told_counts);
         let (remote, etag) = remote_side.read(cached.as_ref())?;
         // D43: an index this version does not read whole is left as it is (read-only here).
         let newer = remote.unknown_features();

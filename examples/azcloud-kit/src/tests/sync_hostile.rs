@@ -297,3 +297,127 @@ fn a_folder_whose_files_carry_attributes_is_noted_once_as_a_warning_and_its_cont
     assert!(list.up_to_date(), "a note leaves the folder up to date");
     assert_eq!(remote_keys(&store).len(), 3, "the content syncs");
 }
+
+/// X-DELTA-EDGE-3 (E15a, T12). A hostile (or just broken) drive whose index holds a hundred thousand
+/// keys no folder can hold (20,000 here, see below): every one was a problem in the pass's report, a line in the list and a
+/// row in `problems.json`, and the list was made by a scan of itself for each - minutes of one core
+/// and a file of tens of megabytes every pass. The index below has one good file and 20,000 keys with
+/// a name of 260 bytes (the brief's 5,000-byte keys of 10,000 levels are half a gigabyte of JSON: a
+/// name past 255 bytes is as much a name no folder holds): one pass on the engine, which publishes
+/// the list. The good file arrives, no folder is made, the report names the first thousand and says
+/// how many more there are in one row, the list does the same, and the pass ends within a minute.
+#[test]
+fn a_hostile_index_with_tens_of_thousands_of_over_long_keys_is_listed_once_per_code_and_never_written(
+) {
+    use super::sync::{Device, PREFIX};
+    use crate::sync::{
+        engine::Engine, local::hash_bytes, problems::LISTED_PER_CODE, quarantine::OwnDevices,
+        remote::blob_key, sync_to, LocalRoot, RemoteFile, RunHooks, SyncOptions, Target,
+    };
+    // The brief's hundred thousand: a pass over that many takes 22 s unoptimised, and the counts below
+    // fail on the old code at any size past a thousand.
+    const BAD: usize = 20_000;
+    let store = Arc::new(S3Bucket::new());
+    let good = b"the one good file";
+    let hash = hash_bytes(good);
+    store.write(&blob_key(PREFIX, &hash), good.to_vec());
+    let entry = |gen: u64| RemoteFile {
+        hash: hash.clone(),
+        size: good.len() as u64,
+        mtime: 1_700_000_000,
+        mtime_ns: 0,
+        gen,
+        device: String::from("someone"),
+        exec: false,
+        link: None,
+    };
+    let mut index = RemoteIndex::empty();
+    index.generation = 1;
+    index.files.insert(String::from("good.txt"), entry(1));
+    let long = "x".repeat(260);
+    for i in 0..BAD {
+        index.files.insert(format!("deep/{i:06}-{long}"), entry(1));
+    }
+    store.write(&index_key(PREFIX), index.to_bytes());
+    drop(index);
+
+    let device = Device::new("hostile-index");
+    let folder = device.path().to_path_buf();
+    let state = TempDir::new("azcloud-hostile-index-state");
+    let state_dir = state.path().to_path_buf();
+    let (sent, done) = std::sync::mpsc::channel();
+    {
+        let store = Arc::clone(&store);
+        let folder = folder.clone();
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let engine = Engine::new(
+                &state_dir,
+                &folder,
+                Box::new(OwnDevices(vec![String::from("dev")])),
+            );
+            let root = LocalRoot::folder(&folder);
+            let opts = SyncOptions::new(PREFIX, "d-test", "dev").unwrap();
+            let index_path = state_dir.join("index.json");
+            let (result, summary) = engine.pass(RunHooks::default(), |hooks| {
+                sync_to(
+                    Target::Index(&*store as &dyn RemoteStore),
+                    &root,
+                    &index_path,
+                    &opts,
+                    hooks,
+                )
+            });
+            let _ = sent.send((result, summary, started.elapsed()));
+        });
+    }
+    let (result, summary, took) = done
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("the pass over a hostile index takes more than a minute");
+    let report = result.expect("the pass succeeds");
+    assert_eq!(
+        fs::read(folder.join("good.txt")).unwrap(),
+        good,
+        "the good file arrives"
+    );
+    assert!(
+        !folder.join("deep").exists(),
+        "no folder is made for a key no folder holds"
+    );
+    // The report: the first thousand by name, and one row for the rest.
+    let named = |p: &&crate::sync::problems::Problem| p.code == Code::BadRemoteName && p.more == 0;
+    assert_eq!(
+        report.problems.iter().filter(named).count(),
+        LISTED_PER_CODE
+    );
+    let more: Vec<_> = report.problems.iter().filter(|p| p.more > 0).collect();
+    assert_eq!(more.len(), 1, "{more:?}");
+    assert_eq!(
+        (more[0].code, more[0].more),
+        (Code::BadRemoteName, (BAD - LISTED_PER_CODE) as u64)
+    );
+    assert!(report.problems.len() <= 1_100, "{}", report.problems.len());
+    // The list the pass published: the same, and a file a pass can write.
+    let list = &summary.problems;
+    assert_eq!(list.problems.iter().filter(named).count(), LISTED_PER_CODE);
+    assert_eq!(
+        list.total(),
+        BAD as u64,
+        "every one is counted, listed or not"
+    );
+    let bytes = serde_json::to_vec(list).unwrap();
+    assert!(
+        bytes.len() < 1 << 20,
+        "problems.json is {} bytes",
+        bytes.len()
+    );
+    let saved = crate::sync::problems::ProblemList::load(state.path()).unwrap();
+    assert_eq!(
+        saved.total(),
+        BAD as u64,
+        "and it is what the state folder holds"
+    );
+    assert!(took < std::time::Duration::from_secs(60), "{took:?}");
+    // The drive is as it was: nothing of the hostile entries is touched.
+    assert_eq!(super::sync::index_of(&store).files.len(), BAD + 1);
+}

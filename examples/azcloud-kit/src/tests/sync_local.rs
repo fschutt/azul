@@ -1,7 +1,11 @@
 //! This device's side of a synced folder: the scan, the racy files, the shared config without
 //! its endpoints, the checks before a download overwrites or a delete removes a file.
 
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 use azul_storage::testing::TempDir;
 use serde_json::Value;
@@ -699,4 +703,327 @@ fn x_delta_azdrive_files_32_a_link_into_a_protected_name_is_not_made_in_any_spel
         assert!(link_stays_inside("links/l", target), "{target:?}");
     }
     assert!(link_stays_inside("l", "x/.azlin/y"));
+}
+
+/// Lowers this process's soft limit of open files to `soft` (the hard limit stays): the scan of a
+/// folder with more sibling folders than that is what the next test plays.
+#[cfg(unix)]
+fn lower_open_files_to(soft: libc::rlim_t) {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit and setrlimit only read and write the struct they are given.
+    unsafe {
+        assert_eq!(libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit), 0);
+        limit.rlim_cur = soft.min(limit.rlim_max);
+        assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &limit), 0);
+    }
+}
+
+/// X-DELTA-EDGE-2 (E15a, T9). The scan opened a directory descriptor for every sub-folder of the
+/// folder it listed and kept all of them on its stack until each was popped, and the client never
+/// raised the limit: a folder with a few hundred sub-folders (macOS' soft limit is 256) failed the
+/// `openat` of the rest with EMFILE - those folders were listed Unreadable, never uploaded, never
+/// taken for deleted, a problem line every pass. 600 sibling folders with one file each, and three
+/// more levels of 40 folders, under a limit of 256 descriptors: every file is found, and at the
+/// listing of each folder the process holds at most 64 descriptors (the scan opens a sub-folder when
+/// its turn comes). The limit is the process's, and the other tests of this binary open files
+/// beside this one, so the scan runs in a child process (this test again, told by its environment).
+#[cfg(unix)]
+#[test]
+fn a_folder_with_more_sibling_folders_than_the_fd_limit_allows_is_scanned_whole() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use crate::sync::{faults, problems::Code};
+    const CHILD: &str = "AZCLOUD_KIT_FD_LIMIT_CHILD";
+    const NAME: &str =
+        "a_folder_with_more_sibling_folders_than_the_fd_limit_allows_is_scanned_whole";
+    if std::env::var_os(CHILD).is_none() {
+        let path = module_path!().split_once("::").map_or("", |(_, rest)| rest);
+        let me = std::env::current_exe().expect("the test binary");
+        let out = std::process::Command::new(me)
+            .args([
+                &format!("{path}::{NAME}"),
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("the child process starts");
+        assert!(
+            out.status.success(),
+            "the scan under 256 descriptors failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return;
+    }
+    let dir = TempDir::new("azcloud-fd-limit");
+    let root = dir.path();
+    let mut made = 0;
+    for i in 0..600 {
+        write(root, &format!("wide/f{i:03}/a.txt"), b"a");
+        made += 1;
+    }
+    // Three levels, 40 folders at each, one file in each: wide below a depth, not only at the top.
+    let mut at = String::from("levels");
+    for level in 0..3 {
+        for i in 0..40 {
+            write(
+                root,
+                &format!("{at}/s{i:02}/b.txt"),
+                format!("{level}-{i}").as_bytes(),
+            );
+            made += 1;
+        }
+        at = format!("{at}/s00");
+    }
+    lower_open_files_to(256);
+    // The descriptors the process holds as each folder is listed (/dev/fd names one for each).
+    let peak = Arc::new(AtomicUsize::new(0));
+    let heard = Arc::clone(&peak);
+    faults::set_listing_hook(
+        root,
+        Some(Arc::new(move |_folder: &str| {
+            let open = fs::read_dir("/dev/fd").map_or(0, Iterator::count);
+            heard.fetch_max(open, Ordering::SeqCst);
+        })),
+    );
+    let scan = scan(root, &Rules::none(), &BTreeMap::new(), 0, &[], u64::MAX).unwrap();
+    faults::clear(root);
+    assert_eq!(
+        scan.files.len(),
+        made,
+        "every file is found; unreadable: {:?}",
+        scan.problems
+            .iter()
+            .filter(|p| p.code == Code::Unreadable)
+            .take(3)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !scan.problems.iter().any(|p| p.code == Code::Unreadable),
+        "no folder is unreadable: {:?}",
+        scan.problems.iter().take(3).collect::<Vec<_>>()
+    );
+    assert!(
+        scan.unknown.is_empty(),
+        "{:?}",
+        scan.unknown.keys().take(3).collect::<Vec<_>>()
+    );
+    let peak = peak.load(Ordering::SeqCst);
+    assert!(
+        peak > 0,
+        "the listing hook heard the scan and /dev/fd answered"
+    );
+    assert!(
+        peak <= 64,
+        "{peak} descriptors were open at once: the scan held one for every sibling folder"
+    );
+}
+
+/// The bytes a scan holds in its keys and sentences: what a tree with long names costs in memory.
+fn held_bytes(scan: &local::Scan) -> usize {
+    let text = |s: &String| s.len();
+    scan.files.keys().map(text).sum::<usize>()
+        + scan.dirs.iter().map(text).sum::<usize>()
+        + scan.folder_ids.keys().map(text).sum::<usize>()
+        + scan
+            .links
+            .iter()
+            .map(|(k, t)| k.len() + t.len())
+            .sum::<usize>()
+        + scan.mounts.iter().map(text).sum::<usize>()
+        + scan.unknown.keys().map(text).sum::<usize>()
+        + scan.temps.keys().map(text).sum::<usize>()
+        + scan
+            .spelled
+            .iter()
+            .map(|(k, v)| k.len() + v.len())
+            .sum::<usize>()
+        + scan
+            .skipped
+            .iter()
+            .map(|(k, why)| k.len() + why.len())
+            .sum::<usize>()
+        + scan
+            .problems
+            .iter()
+            .map(|p| p.key.len() + p.detail.len())
+            .sum::<usize>()
+}
+
+/// Makes the chain `levels` deep of folders called `name` under `top` with `openat` (the path of
+/// the deep ones is past what a path-based call takes), calling `each(level, folder)` on the way
+/// down.
+#[cfg(unix)]
+fn chain(
+    top: &Path,
+    name: &str,
+    levels: usize,
+    mut each: impl FnMut(usize, &azul_storage::beneath::Dir),
+) {
+    let tree = azul_storage::beneath::Root::open(top).unwrap();
+    let mut at = tree.top().unwrap();
+    for level in 1..=levels {
+        at = at.child(name, true).unwrap();
+        each(level, &at);
+    }
+}
+
+/// Removes a tree `std::fs::remove_dir_all` would meet with a recursion of its own, and a test that
+/// made one waits for.
+#[cfg(unix)]
+fn remove_tree(path: &Path) {
+    let removed = std::process::Command::new("rm")
+        .arg("-rf")
+        .arg(path)
+        .status();
+    assert!(removed.is_ok_and(|s| s.success()), "the tree is removed");
+}
+
+/// X-DELTA-EDGE-2 and -3 (E15a, T10, the depth half). The scan walks with an explicit stack, so a deep
+/// tree overflows no stack - but it opened a descriptor for every folder of a level, kept the key of
+/// every folder (a hundred megabytes of keys for ten thousand levels) and went on down a folder no
+/// file of which can sync, its key being past 4,096 bytes. A chain of 500 levels of eight-letter
+/// folders (the key of the folder at level n is 9n - 1 bytes: 456 is the first past a key; the
+/// brief's 10,000 levels of one letter took minutes to make and longer to remove on APFS, where every
+/// operation costs the depth, and the walk never goes below the first folder past a key), a file in
+/// each of the first 100 and one at the bottom, scanned on a thread with a stack of 128 KiB (a
+/// recursion of a frame a level overflows it within a few hundred levels): Ok within ten seconds, the
+/// 100 files are found, the one folder past the longest key is told once and nothing below it is
+/// walked, and what the scan holds in keys and sentences is megabytes.
+#[cfg(unix)]
+#[test]
+fn a_tree_ten_thousand_levels_deep_is_walked_without_recursion_and_the_refused_names_are_summarised(
+) {
+    use crate::sync::problems::Code;
+    let dir = TempDir::new("azcloud-deep");
+    let root = dir.path().to_path_buf();
+    let folder = "d".repeat(8);
+    chain(&root, &folder, 500, |level, at| {
+        if level <= 100 || level == 500 {
+            at.create_new(if level == 500 { "bottom" } else { "f" }, 0o644)
+                .unwrap();
+        }
+    });
+    let started = std::time::Instant::now();
+    let scanned = {
+        let root = root.clone();
+        std::thread::Builder::new()
+            .stack_size(128 << 10)
+            .spawn(move || scan(&root, &Rules::none(), &BTreeMap::new(), 0, &[], u64::MAX))
+            .unwrap()
+            .join()
+            .expect("the scan overflowed a stack of 128 KiB: it recurses")
+    };
+    let took = started.elapsed();
+    remove_tree(&root);
+    let scan = scanned.expect("the scan of a deep tree is Ok");
+    assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+    assert_eq!(
+        scan.files.len(),
+        100,
+        "{:?}",
+        scan.files.keys().map(String::len).max()
+    );
+    assert!(scan.files.keys().all(|k| k.len() <= 4_096));
+    assert!(
+        scan.dirs.iter().all(|k| k.len() <= 4_096),
+        "no folder past a key is kept"
+    );
+    assert_eq!(scan.dirs.len(), 455, "the folders a key can be");
+    let past_a_key = vec![folder.as_str(); 456].join("/");
+    assert_eq!(past_a_key.len(), 4_103);
+    // A path of 260 characters is told to be too long for Windows: a note on a file, not a refusal.
+    assert!(
+        scan.problems
+            .iter()
+            .all(|p| matches!(p.code, Code::BadName | Code::Portability)),
+        "{:?}",
+        scan.problems
+            .iter()
+            .map(|p| p.code)
+            .collect::<BTreeSet<_>>()
+    );
+    let told: Vec<_> = scan
+        .problems
+        .iter()
+        .filter(|p| p.code == Code::BadName)
+        .collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0].key, past_a_key);
+    assert!(
+        !scan.files.keys().any(|k| k.ends_with("bottom")),
+        "nothing below the folder past a key was walked"
+    );
+    assert!(
+        held_bytes(&scan) < 16 << 20,
+        "{} bytes of keys and sentences",
+        held_bytes(&scan)
+    );
+}
+
+/// X-DELTA-EDGE-3 (E15a, T10, the width half). A folder whose files have names no key can be - a path
+/// past 4,096 bytes - was told with one `skipped` line and one problem for each: 5,000 of them were
+/// 10,000 lines of 4 KB in the scan (the brief's 20,000 are 170 MB), in the report and in
+/// `problems.json`. A chain of 40 folders of a hundred letters (a key of 4,039 bytes) with 5,000
+/// empty files of a hundred letters in the last: every file is refused, the first thousand are listed
+/// and one row says there are 4,000 more, the scan holds megabytes, and the folders above are all
+/// found.
+#[cfg(unix)]
+#[test]
+fn five_thousand_names_that_cannot_be_keys_are_listed_a_thousand_and_summarised() {
+    use crate::sync::problems::{Code, LISTED_PER_CODE};
+    let dir = TempDir::new("azcloud-wide-refused");
+    let root = dir.path().to_path_buf();
+    let folder = "d".repeat(100);
+    chain(&root, &folder, 40, |level, at| {
+        if level == 40 {
+            for i in 0..5_000 {
+                at.create_new(&format!("{i:05}{}", "n".repeat(95)), 0o644)
+                    .unwrap();
+            }
+        }
+    });
+    let scanned = scan(&root, &Rules::none(), &BTreeMap::new(), 0, &[], u64::MAX);
+    remove_tree(&root);
+    let scan = scanned.unwrap();
+    assert!(
+        scan.files.is_empty(),
+        "every name is past a key: {:?}",
+        scan.files.keys().map(String::len).max()
+    );
+    assert_eq!(scan.dirs.len(), 40, "the folders are all found");
+    let listed = scan
+        .problems
+        .iter()
+        .filter(|p| p.code == Code::BadName && p.more == 0)
+        .count();
+    assert_eq!(listed, LISTED_PER_CODE);
+    let summary: Vec<_> = scan.problems.iter().filter(|p| p.more > 0).collect();
+    assert_eq!(summary.len(), 1, "{summary:?}");
+    assert_eq!((summary[0].code, summary[0].more), (Code::BadName, 4_000));
+    assert_eq!(scan.problems.len(), LISTED_PER_CODE + 1);
+    assert_eq!(
+        scan.skipped.len(),
+        LISTED_PER_CODE,
+        "the sentences are capped with the problems"
+    );
+    // The problem that is listed first is a name, the one that stands for the rest names none.
+    assert!(scan
+        .problems
+        .iter()
+        .filter(|p| p.more == 0)
+        .all(|p| p.key.len() > 4_096));
+    assert!(
+        held_bytes(&scan) < 16 << 20,
+        "{} bytes of keys and sentences",
+        held_bytes(&scan)
+    );
 }
