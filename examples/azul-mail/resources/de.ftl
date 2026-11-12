@@ -250,6 +250,7 @@ azmail-notice-send-receive-first = Zuerst Senden/Empfangen (F9): AzMail meldet s
 azmail-error-azlin-only = Diese Nachricht ist nur im Azlin-Laufwerk: Senden/Empfangen (F9) meldet an, dann öffnet sie sich.
 azmail-error-write-sending = Die Sendeeinstellungen konnten nicht geschrieben werden: { $why }
 azmail-error-write-account = Die Kontodatei konnte nicht geschrieben werden: { $why }
+azmail-error-read-marks = Die Lesemarkierungen dieses Ordners konnten nicht gelesen werden ({ $why }): Sie bleiben, wie sie sind, und es wird nichts darüber gespeichert, bis sie sich lesen lassen.
 azmail-error-save-marks = Die Lesemarkierungen konnten nicht gespeichert werden: { $why }
 azmail-error-write = { $key } konnte nicht geschrieben werden: { $why }
 azmail-bridge-no-password = Der Schlüsselbund des Systems hat kein Kennwort der Brücke ({ $outcome }): azul-bridge password erstellt ein neues.

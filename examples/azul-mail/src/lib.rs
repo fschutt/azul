@@ -92,6 +92,8 @@ mod sync_cancel_tests;
 mod compose_address_tests;
 #[cfg(test)]
 mod test_switch_tests;
+#[cfg(test)]
+mod marks_tests;
 mod ui_account;
 mod ui_backstage;
 mod ui_bridge;
@@ -610,7 +612,22 @@ impl MailApp {
                 self.outbox_waiting = states;
                 (index, LocalFlags::create())
             }
-            (Some(store), Some(folder)) => (read_index(&store, folder), read_flags(&store, folder)),
+            (Some(store), Some(folder)) => {
+                let flags = match read_flags(&store, folder) {
+                    Ok(flags) => flags,
+                    // The marks of this folder cannot be READ: they are not "none". The list shows
+                    // everything unread, the file stays as it is, and a mark made now is merged
+                    // into it only once it can be read again (X-DELTA-APPS3-6).
+                    Err(why) => {
+                        self.notice = t_args(
+                            "azmail-error-read-marks",
+                            &[("why", Arg::from(why.as_str()))],
+                        );
+                        LocalFlags::create()
+                    }
+                };
+                (read_index(&store, folder), flags)
+            }
             _ => (Vec::new(), LocalFlags::create()),
         };
         self.entries = entries;
@@ -788,14 +805,44 @@ pub(crate) fn read_index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
         .unwrap_or_default()
 }
 
-/// A folder's local flags; none when there is no file.
-pub(crate) fn read_flags(store: &MailStore, folder: &str) -> LocalFlags {
+/// A folder's local flags: none when there is no file - and ONLY then. A file that cannot be read,
+/// or is none this AzMail reads, is an error: the marks it holds are not "no marks", and a save of
+/// one mark made on that reading would replace them all (X-DELTA-APPS3-6; `azlin_sync` reads the
+/// same file the same way).
+pub(crate) fn read_flags(store: &MailStore, folder: &str) -> Result<LocalFlags, String> {
+    let key = listing::flags_key(folder);
+    match store.get(&key) {
+        Ok(bytes) => String::from_utf8(bytes)
+            .ok()
+            .and_then(|text| LocalFlags::from_json(&text))
+            .ok_or_else(|| format!("{key} is no marks file this AzMail reads")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(LocalFlags::create()),
+        Err(e) => Err(format!("{key}: {e}")),
+    }
+}
+
+/// Writes the marks `flags` of the folder `folder` into its flags.json - MERGED into what the file
+/// holds now, never over it: the file may hold marks made since the window read it (a thread's), and
+/// a file that cannot be read stops the write (X-DELTA-APPS3-6).
+///
+/// # Errors
+///
+/// The sentence for a file that cannot be read, or written.
+pub(crate) fn save_marks(
+    store: &MailStore,
+    folder: &str,
+    flags: &LocalFlags,
+) -> Result<(), String> {
+    let mut current = read_flags(store, folder)?;
+    current
+        .read
+        .extend(flags.read.iter().map(|(uid, on)| (*uid, *on)));
+    current
+        .flagged
+        .extend(flags.flagged.iter().map(|(uid, on)| (*uid, *on)));
     store
-        .get(&listing::flags_key(folder))
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|text| LocalFlags::from_json(&text))
-        .unwrap_or_else(LocalFlags::create)
+        .put(&listing::flags_key(folder), current.to_json().as_bytes())
+        .map_err(|e| e.to_string())
 }
 
 /// The synced folders of `store` with their unread counts.
@@ -810,7 +857,9 @@ fn folder_infos(store: &MailStore) -> Vec<FolderInfo> {
                 .and_then(|bytes| String::from_utf8(bytes).ok())
                 .and_then(|text| FolderState::from_json(&text));
             let entries = read_index(store, &key);
-            let flags = read_flags(store, &key);
+            // collapse-ok: an unread count to show; nothing is written on it (a window that cannot read
+            // the marks says so when the folder is opened).
+            let flags = read_flags(store, &key).unwrap_or_else(|_| LocalFlags::create());
             FolderInfo {
                 display: state
                     .map(|s| s.display)
@@ -2107,12 +2156,11 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
         } => {
             // An Azlin account's local copy is one Thread's at a time.
             let _cache = azlin.as_ref().map(|_| azlin_sync::lock_cache());
-            match MailStore::new(store_root).put(
-                &listing::flags_key(&folder),
-                flags.to_json().as_bytes(),
-            ) {
-                Err(e) => IoDone::Failed(
-                    Phrase::new("azmail-error-save-marks").arg("why", e.to_string()).into(),
+            match save_marks(&MailStore::new(store_root), &folder, &flags) {
+                Err(why) => IoDone::Failed(
+                    Phrase::new("azmail-error-save-marks")
+                        .arg("why", why)
+                        .into(),
                 ),
                 Ok(()) => match azlin {
                     None => IoDone::FlagsSaved,

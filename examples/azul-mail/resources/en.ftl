@@ -250,6 +250,7 @@ azmail-notice-send-receive-first = Send/Receive (F9) first: AzMail signs in to t
 azmail-error-azlin-only = This message is in the Azlin drive only: Send/Receive (F9) signs in, then it opens.
 azmail-error-write-sending = Could not write the sending settings: { $why }
 azmail-error-write-account = Could not write the account file: { $why }
+azmail-error-read-marks = The read marks of this folder could not be read ({ $why }): they stay as they are, and nothing is saved over them until they can be read.
 azmail-error-save-marks = Could not save the read marks: { $why }
 azmail-error-write = Could not write { $key }: { $why }
 azmail-bridge-no-password = The system keyring has no password of the bridge ({ $outcome }): azul-bridge password makes a new one.
