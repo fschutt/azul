@@ -5,7 +5,7 @@
 //! a removed drive left the rest behind, readable by every program of the user. `KeyEntry`
 //! (`azul-storage/src/footprint.rs`) is the one place that writes an entry's name, a golden test
 //! pins the names (users' keys are in them), and `forget_drive` takes the drive off the device
-//! through the stores. Four rules keep it so:
+//! through the stores. Six rules keep it so:
 //!
 //! - a string that starts with `azul-storage/` is the first half of an entry name written by hand:
 //!   it belongs to `KeyEntry::name` (or `contact_key_entry`), nowhere else (one allowance, below:
@@ -21,12 +21,21 @@
 //!   on a disk must not be left with it by a copy of another store's impl (no allowance);
 //! - `AzulKeyring::new(` and `::quiet(` are called in `azlin_keyring` only - the one place the
 //!   Azlin apps' keyring is built, where its locks and its policy are applied (no other
-//!   allowance: AzMail's five went over to it).
+//!   allowance: AzMail's five went over to it);
+//! - the witnesses of a removal are implemented in two places and made into evidence in the same two
+//!   (two rules, X-DELTA-INTEGRITY3-1): `impl RecoveryRecord for X` (what the app that keeps the record says of the
+//!   drive's recovery code) and `impl PaidMonths for X` (the drive's vault's answer), and the calls that make
+//!   them evidence - `TokenFacts::of(` and `VaultFacts::of(` - and the proof - `RemovalProof::from_permit(` -
+//!   all in azul-drive's `recovery_health.rs` and `encryption.rs` (the allowances below, each counted).
 //!
-//! The proof a removal needs is no rule of this gate any more: a `RemovalProof` is made from a key
-//! permit's Permit of a removal (`RemovalProof::from_permit`), a Permit is made by the judge
-//! (`keystate::ask`) and nowhere else, and the registry gate (`key_consumers_gate`) holds the places that
-//! use the drive key. It was `from_checked_code(&str)` - a name - protected by a count of its callers.
+//! Why the last two rules are here. A `RemovalProof` is made from a key permit's Permit of a removal
+//! (`RemovalProof::from_permit`) and a Permit by the judge (`keystate::ask`) and nowhere else: the type stops a
+//! proof made from a NAME (it was `from_checked_code(&str)`, protected by a count of its callers, which went with
+//! the function). It does not stop a witness that lies: `impl RecoveryRecord for X { fn code_checked(..) ->
+//! Read::Found(0) .. }`, `TokenFacts::of(&X)` and `ask(Op::Remove, ..)` give the judge a code that was "typed back
+//! right", the judge permits and the keys and the paid months go. The old rule's purpose - one audited place
+//! that turns "the code was checked" into the authority to erase a drive's keys - is what these rules count
+//! now: a new removal path (AzMail, the kit) is a finding until its witness is read and listed.
 //!
 //! Comments and test items are not read.
 
@@ -87,9 +96,14 @@ const KIND_WORDS: &[&str] = &[
 ];
 const NO_PROTECTION: &str = "keyring-store-without-protection";
 const BUILT_BY_HAND: &str = "azul-keyring-built-by-hand";
+const WITNESS_BY_HAND: &str = "removal-witness-implemented";
+const EVIDENCE_BY_HAND: &str = "removal-evidence-made";
 
-/// Where an `AzulKeyring` is built by hand, and the one string that starts like an entry's name and is
-/// none. TO SHRINK.
+/// The traits a removal's evidence is read from (`keystate::RecoveryRecord`, `keystate::PaidMonths`).
+const WITNESS_TRAITS: &[&str] = &["RecoveryRecord", "PaidMonths"];
+
+/// Where an `AzulKeyring` is built by hand, where the witnesses of a removal are implemented and made into
+/// evidence, and the one string that starts like an entry's name and is none. TO SHRINK.
 const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azul-storage/src/crypto/blob.rs",
@@ -105,6 +119,34 @@ const ALLOWED: &[Allow] = &[
         BUILT_BY_HAND,
         2,
         "azlin_keyring: the one place (`new` for a keyring that may ask, `quiet` for one that never does)",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/recovery_health.rs",
+        WITNESS_BY_HAND,
+        1,
+        "`impl RecoveryRecord for RecoveryState`: the one record of a drive's recovery code - AzDrive's own \
+         settings, which say when the code was typed back right and whether the token server holds its key",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/encryption.rs",
+        WITNESS_BY_HAND,
+        1,
+        "`impl PaidMonths for VaultCheck`: the one vault witness - it writes what the drive lacks, reads it \
+         back and says whether months paid are only on this computer",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/recovery_health.rs",
+        EVIDENCE_BY_HAND,
+        1,
+        "`token_facts`: the record's witness taken from the click - the one place the code's evidence is made \
+         (`TokenFacts::no_record` makes none and is not counted)",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/encryption.rs",
+        EVIDENCE_BY_HAND,
+        2,
+        "`removal_proof`: `VaultFacts::of` (the vault's evidence, asked only when it is the one fact missing) and \
+         the one `RemovalProof::from_permit`, made from the Permit the judge gave for a removal",
     ),
 ];
 
@@ -154,6 +196,33 @@ fn stores_without_protection(t: &[Located]) -> Vec<usize> {
             .windows(2)
             .any(|w| w[0].tok.is_ident("fn") && w[1].tok.is_ident("protection"));
         if !says {
+            found.push(x.line);
+        }
+    }
+    found
+}
+
+/// The lines of the `impl RecoveryRecord for X` and `impl PaidMonths for X` headers (a trait named by a path
+/// as well; a bound, `impl<T: PaidMonths> Show for T`, is no impl of it): a witness of a removal.
+fn witnesses_implemented(t: &[Located]) -> Vec<usize> {
+    let mut found = Vec::new();
+    for (i, x) in t.iter().enumerate() {
+        if !x.tok.is_ident("impl") {
+            continue;
+        }
+        let Some(open) = (i..t.len()).find(|&k| t[k].tok.is_punct('{') || t[k].tok.is_punct(';'))
+        else {
+            break;
+        };
+        let header: Vec<&str> = t[i + 1..open]
+            .iter()
+            .filter_map(|y| y.tok.ident())
+            .collect();
+        let is_witness = header
+            .iter()
+            .enumerate()
+            .any(|(p, word)| WITNESS_TRAITS.contains(word) && header.get(p + 1) == Some(&"for"));
+        if is_witness {
             found.push(x.line);
         }
     }
@@ -227,6 +296,42 @@ fn rules() -> Vec<Rule> {
                 "let k = azlin_keyring(Asking::User);",
                 "let k = AzulKeyringStub::new();",
                 "let k = Keyring::new(ns);",
+            ],
+        ),
+        Rule::new(
+            WITNESS_BY_HAND,
+            witnesses_implemented,
+            &[
+                "impl RecoveryRecord for Liar { fn code_checked(&self) -> Read<u64> { Read::Found(0) } }",
+                "impl azul_storage::crypto::keystate::PaidMonths for Rich { fn held_elsewhere(&self, d: &str) -> Read<bool> { Read::Found(true) } }",
+            ],
+            &[
+                "impl Debug for RecoveryRecordName { fn fmt(&self) {} }",
+                "impl<T: PaidMonths> Show for T { fn show(&self) {} }",
+                "fn judge(record: &dyn RecoveryRecord) -> TokenFacts { x }",
+                "impl Drop for PaidMonthsGuard { fn drop(&mut self) {} }",
+            ],
+        ),
+        Rule::new(
+            EVIDENCE_BY_HAND,
+            |t| {
+                let mut lines = calls(t, "TokenFacts::of");
+                lines.extend(calls(t, "VaultFacts::of"));
+                lines.extend(calls(t, "RemovalProof::from_permit"));
+                lines.sort_unstable();
+                lines
+            },
+            &[
+                "e.token = TokenFacts::of(&record);",
+                "e.vault = azul_storage::crypto::keystate::VaultFacts::of(&vault, drive);",
+                "let proof = RemovalProof::from_permit(permit).ok();",
+            ],
+            &[
+                "e.token = TokenFacts::no_record();",
+                "e.vault = VaultFacts::no_vault();",
+                "pub fn of(record: &dyn RecoveryRecord) -> TokenFacts { x }",
+                "let facts = MyTokenFacts::of(&record);",
+                "let kept = RemovalProof::drive(&proof);",
             ],
         ),
     ]
@@ -306,4 +411,52 @@ pub fn keyring() -> AzulKeyring {\n\
             .any(|w| w.contains("lib.rs:10") && w.contains(BUILT_BY_HAND)),
         "{wrong:?}"
     );
+}
+
+/// X-DELTA-INTEGRITY3-1: the type of `RemovalProof` stops a proof made from a name, not a witness that lies. A
+/// `RecoveryRecord` that always says "checked", a vault that always says "kept elsewhere", the calls that make
+/// them evidence and the call that makes the proof of the Permit they bought are each a finding with its line
+/// - and the same text in a test module is not read.
+#[test]
+fn x_delta_integrity3_1_a_lying_witness_and_the_calls_that_turn_it_into_a_proof_are_caught() {
+    let planted = "impl RecoveryRecord for Liar {\n\
+    fn code_checked(&self) -> Read<u64> { Read::Found(0) }\n\
+}\n\
+impl azul_storage::crypto::keystate::PaidMonths for Rich {\n\
+    fn held_elsewhere(&self, _drive: &str) -> Read<bool> { Read::Found(true) }\n\
+}\n\
+pub fn proof(permit: Permit) -> Option<RemovalProof> {\n\
+    let mut e = Evidence::new(\"d_1\", 1);\n\
+    e.token = TokenFacts::of(&Liar);\n\
+    e.vault = VaultFacts::of(&Rich, \"d_1\");\n\
+    RemovalProof::from_permit(permit).ok()\n\
+}\n";
+    let base = base_with("liar", &[("examples/azul-storage/src/lib.rs", planted)]);
+    let wrong = check(&base).expect_err("the lying witness and its calls are findings");
+    let _ = std::fs::remove_dir_all(&base);
+    assert_eq!(wrong.len(), 5, "{wrong:?}");
+    for (line, rule) in [
+        (1, WITNESS_BY_HAND),
+        (4, WITNESS_BY_HAND),
+        (9, EVIDENCE_BY_HAND),
+        (10, EVIDENCE_BY_HAND),
+        (11, EVIDENCE_BY_HAND),
+    ] {
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.contains(&format!("lib.rs:{line}")) && w.contains(rule)),
+            "line {line} ({rule}): {wrong:?}"
+        );
+    }
+
+    // The same text in a test module is a test's stand-in, not a witness of a removal: not read.
+    let in_tests = format!("#[cfg(test)]\nmod tests {{\n{planted}}}\n");
+    let base = base_with(
+        "liar-in-tests",
+        &[("examples/azul-storage/src/lib.rs", &in_tests)],
+    );
+    let checked = check(&base);
+    let _ = std::fs::remove_dir_all(&base);
+    assert_eq!(checked, Ok(0), "test items are not read");
 }
