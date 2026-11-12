@@ -56,7 +56,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     bucket::{Bucket, DriveBucket},
-    index::to_drive,
+    // The member record is opened with a candidate key: its errors keep their kinds (`to_drive_untyped`).
+    index::to_drive_untyped as to_drive,
     merge::{Conflict, Resolution, Side},
     objects::{is_valid_name, Mode, ObjectId},
     repo::{CommitOutcome, MetaRepo, RepoOptions},

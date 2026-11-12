@@ -59,6 +59,7 @@ fn sealed_error(key: &str, e: &super::SealError) -> MetaError {
     MetaError::Sealed {
         key: key.to_string(),
         reason: e.reason.clone(),
+        other_key: e.other_key,
     }
 }
 

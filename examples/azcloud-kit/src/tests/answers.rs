@@ -598,3 +598,48 @@ fn an_index_commit_refused_a_minute_after_the_freeze_says_the_drive_is_read_only
     let user = UserError::from_cloud_error(&error).expect("an error the user sees");
     assert_eq!(user.code, Code::ReadOnlyUnpaid);
 }
+
+/// X-TESTEDGE-A-1: a key this computer holds that no longer opens the drive is the key to ask for - the table's
+/// `KeyRefused`: the user is told that this computer's key no longer opens the drive and what to do (join again or
+/// unlock), and the sync's problem list files it under "sign in" and no longer under "the drive's bytes are
+/// damaged". A changed byte of the drive is still damage: `Corrupt` keeps its meaning.
+#[test]
+fn a_key_that_no_longer_opens_the_drive_is_the_key_to_ask_for_and_no_damage() {
+    use crate::sync::problems::{code_of_error, Code as Problem};
+    use azul_storage::DriveError;
+
+    let replaced = DriveError::KeyRefused {
+        drive: String::from("d_1"),
+        reason: String::from(
+            "its files are sealed under another key than the one this device holds",
+        ),
+    };
+    let user = UserError::from_drive_error(&replaced).expect("the errors table words it");
+    assert_eq!(user.code, Code::KeyRefused);
+    assert_eq!(user.class(), Class::ReAuth);
+    let en = user.message(Lang::En);
+    assert!(en.contains("no longer opens it"), "{en}");
+    assert!(en.contains("Ask for the new key"), "{en}");
+    let de = user.message(Lang::De);
+    assert!(de.contains("nicht mehr"), "{de}");
+    assert!(de.contains("neuen Schlüssel"), "{de}");
+    assert_eq!(
+        code_of_error(&CloudError::Drive(replaced)),
+        Problem::SignInNeeded
+    );
+
+    let damaged = DriveError::Corrupt {
+        key: String::from("x"),
+        reason: String::from("it does not open with this drive's key: the object does not authenticate in this place"),
+    };
+    assert_eq!(
+        UserError::from_drive_error(&damaged)
+            .expect("the table words it")
+            .code,
+        Code::Integrity
+    );
+    assert_eq!(
+        code_of_error(&CloudError::Drive(damaged)),
+        Problem::HashMismatch
+    );
+}

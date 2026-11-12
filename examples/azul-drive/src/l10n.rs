@@ -135,3 +135,26 @@ pub(crate) fn in_english() {
 pub(crate) fn cloud_error_text(e: &CloudError) -> Text {
     UserError::from_cloud_error(e).map_or_else(|| Text::plain(e.to_string()), |u| error_text(&u))
 }
+
+#[cfg(test)]
+mod tests {
+    use azul_storage::DriveError;
+
+    use super::*;
+
+    /// X-TESTEDGE-A-1: what AzDrive says of a drive whose key this computer holds no longer opens it - another
+    /// device changed the drive's keys - is the table's sentence for the key to ask for, not a damaged file's.
+    #[test]
+    fn a_key_that_no_longer_opens_the_drive_is_said_as_the_key_to_ask_for() {
+        in_english();
+        let said = azul_appkit::l10n::t_text(&drive_error_text(&DriveError::KeyRefused {
+            drive: String::from("d_1"),
+            reason: String::from(
+                "its files are sealed under another key than the one this device holds",
+            ),
+        }));
+        assert!(said.contains("no longer opens it"), "{said}");
+        assert!(said.contains("Ask for the new key"), "{said}");
+        assert!(!said.contains("damaged"), "{said}");
+    }
+}

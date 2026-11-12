@@ -438,13 +438,16 @@ pub const ROWS: &[Row] = &[
         code: Code::KeyRefused,
         class: Class::ReAuth,
         behaviour: Behaviour::Unlock,
-        en: "The server offered this computer another key for the drive than the one it knows - \
-             someone may have changed it. Nothing was read or uploaded with it. Unlock the drive \
-             with its recovery code, or join it from a device that has it.",
-        de: "Der Server hat diesem Computer einen anderen Schlüssel für das Laufwerk angeboten \
-             als den, den er kennt - jemand könnte ihn geändert haben. Damit wurde nichts gelesen \
-             oder hochgeladen. Entsperre das Laufwerk mit seinem Wiederherstellungscode oder tritt \
-             ihm von einem Gerät aus bei, das es hat.",
+        en: "This computer's key for the drive no longer opens it: the drive is sealed under another \
+             key now - another device changed the drive's keys, or someone offered this computer a \
+             key it does not know. Nothing was read or uploaded with it. Ask for the new key: join \
+             the drive again from a device that has it, or unlock it with its recovery code.",
+        de: "Der Schlüssel dieses Computers öffnet das Laufwerk nicht mehr: es ist jetzt mit einem \
+             anderen Schlüssel versiegelt - ein anderes Gerät hat die Schlüssel des Laufwerks \
+             gewechselt, oder jemand hat diesem Computer einen Schlüssel angeboten, den er nicht \
+             kennt. Damit wurde nichts gelesen oder hochgeladen. Frage nach dem neuen Schlüssel: \
+             Tritt dem Laufwerk von einem Gerät aus erneut bei, das ihn hat, oder entsperre es mit \
+             seinem Wiederherstellungscode.",
     },
     Row {
         code: Code::ObjectTooLarge,

@@ -137,6 +137,28 @@ mod drive_key {
         assert_ne!(key.name_hash(b"pack"), other.name_hash(b"pack"));
     }
 
+    /// X-TESTEDGE-A-1: an object sealed under another drive key says so (`other_key`); a changed byte, an
+    /// object of another place and bytes that are no sealed object do not - the wrong key was a sentence, and
+    /// read as a damaged file.
+    #[test]
+    fn a_seal_of_another_key_is_told_from_a_changed_byte() {
+        let key = DriveKey::generate().unwrap();
+        let other = DriveKey::generate().unwrap();
+        let sealed = key.seal(b"ctx", b"x").unwrap();
+        let wrong_key = other.open(b"ctx", &sealed).unwrap_err();
+        assert!(wrong_key.other_key, "{wrong_key}");
+        let mut changed = sealed.clone();
+        let last = changed.len() - 1;
+        changed[last] ^= 1;
+        assert!(!key.open(b"ctx", &changed).unwrap_err().other_key);
+        assert!(!key.open(b"another place", &sealed).unwrap_err().other_key);
+        assert!(
+            !key.open(b"ctx", b"not a sealed object")
+                .unwrap_err()
+                .other_key
+        );
+    }
+
     #[test]
     fn a_repository_sealed_with_the_drive_key_opens_on_another_device_holding_it() {
         let key = DriveKey::generate().unwrap();
@@ -159,7 +181,10 @@ mod drive_key {
         assert_eq!(phone.state(), laptop.state());
         assert!(matches!(
             MetaStore::open(bucket.clone(), DriveKey::generate().unwrap(), "stranger"),
-            Err(MetaError::Sealed { .. })
+            Err(MetaError::Sealed {
+                other_key: true,
+                ..
+            })
         ));
         for (name, bytes) in bucket.objects() {
             assert!(name.starts_with(keys::ROOT));

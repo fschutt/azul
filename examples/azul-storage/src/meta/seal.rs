@@ -25,6 +25,11 @@ use sha2::Sha256;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SealError {
     pub reason: String,
+    /// The object is sealed under ANOTHER drive key than the one that tried to open it (the key's id
+    /// in its header is not this key's): what a device that was not told of a key change meets, as
+    /// against a changed byte or an object moved to another place. It was a sentence, and a wrong key
+    /// read as "a file is damaged" (X-TESTEDGE-A-1).
+    pub other_key: bool,
 }
 
 impl SealError {
@@ -32,6 +37,16 @@ impl SealError {
     pub fn new(reason: impl Into<String>) -> Self {
         SealError {
             reason: reason.into(),
+            other_key: false,
+        }
+    }
+
+    /// The error of an object sealed under another drive key ([`SealError::other_key`]).
+    #[must_use]
+    pub fn of_another_key(reason: impl Into<String>) -> Self {
+        SealError {
+            reason: reason.into(),
+            other_key: true,
         }
     }
 }
@@ -293,7 +308,7 @@ mod drive_key {
             }
             let id = self.id();
             if sealed[4..4 + KEY_ID_LEN] != id.0 {
-                return Err(SealError::new("sealed under another drive key"));
+                return Err(SealError::of_another_key("sealed under another drive key"));
             }
             let key = self.derive(SEAL_CONTEXT);
             XChaCha20Poly1305::new(Key::from_slice(&key[..]))

@@ -254,8 +254,13 @@ pub enum MetaError {
     OutcomeUnknown { key: String },
     /// The bucket's own error.
     Drive(DriveError),
-    /// The object does not open with this drive key (another key, or a changed byte).
-    Sealed { key: String, reason: String },
+    /// The object does not open with this drive key: `other_key` when it is sealed under another key
+    /// (a key change this device was not told of), else a changed byte or another place's object.
+    Sealed {
+        key: String,
+        reason: String,
+        other_key: bool,
+    },
     /// The object opened but makes no sense.
     Corrupt { key: String, reason: String },
     /// The bucket cannot do what the repository needs (conditional writes, versions).
@@ -299,7 +304,7 @@ impl fmt::Display for MetaError {
                  not be read after it"
             ),
             MetaError::Drive(e) => write!(f, "{e}"),
-            MetaError::Sealed { key, reason } => {
+            MetaError::Sealed { key, reason, .. } => {
                 write!(f, "\"{key}\" does not open with this drive's key: {reason}")
             }
             MetaError::Corrupt { key, reason } => write!(f, "\"{key}\" is damaged: {reason}"),

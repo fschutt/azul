@@ -320,6 +320,65 @@ pub trait IndexProvider: Send + Sync {
 /// gate - not the provider - decides: a standing is evidence, never a verdict.
 pub type ReclaimStanding = Arc<dyn Fn(u64) -> Option<Standing> + Send + Sync>;
 
+/// `error` with the drive it is about: a `KeyRefused` that names no drive (the metadata repository below an
+/// index sees objects, not drives - a key that does not open its manifest is that error, X-TESTEDGE-A-1) is
+/// `drive`'s; every other error is as it was.
+pub(crate) fn named(error: DriveError, drive: &str) -> DriveError {
+    match error {
+        DriveError::KeyRefused {
+            drive: none,
+            reason,
+        } if none.is_empty() => DriveError::KeyRefused {
+            drive: drive.to_string(),
+            reason,
+        },
+        other => other,
+    }
+}
+
+/// An index whose errors name the drive they are about ([`named`]): what an app that opens a drive through
+/// [`open_encrypted`] reads from a device that holds the key from before a key change - the key to ask for -
+/// says which drive it is.
+struct NamedIndex {
+    inner: Arc<dyn NameIndex>,
+    drive: String,
+}
+
+impl NamedIndex {
+    fn of(inner: Arc<dyn NameIndex>, drive: &str) -> Arc<dyn NameIndex> {
+        Arc::new(NamedIndex {
+            inner,
+            drive: drive.to_string(),
+        })
+    }
+}
+
+impl NameIndex for NamedIndex {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get(path).map_err(|e| named(e, &self.drive))
+    }
+
+    fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner
+            .get_fresh(path)
+            .map_err(|e| named(e, &self.drive))
+    }
+
+    fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        self.inner
+            .live_objects(now)
+            .map_err(|e| named(e, &self.drive))
+    }
+
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request).map_err(|e| named(e, &self.drive))
+    }
+
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        self.inner.apply(changes).map_err(|e| named(e, &self.drive))
+    }
+}
+
 /// A drive index that is read and never changed: the drive of a device whose own key change stopped between
 /// its R4 and its Members step is opened through it ([`own_rotation_window`]). Every change is refused with
 /// the sentence of the state, before the index could be asked to take it, so nothing is written under a key
@@ -382,7 +441,7 @@ fn own_rotation_window(
         .open_index_in_window(drive, Arc::clone(bucket), &next, previous)
         .ok()?;
     let index: Arc<dyn NameIndex> = Arc::new(ReadOnlyIndex {
-        inner: index,
+        inner: NamedIndex::of(index, drive),
         drive: drive.to_string(),
     });
     Some(EncryptedDrive::new(Arc::clone(bucket), next, index))
@@ -417,13 +476,14 @@ pub fn open_encrypted(
     // The key a window reads the file keys of the key before it with, besides the key chain's.
     let mut window_of = None;
     let opened = match provider.open_index(drive, Arc::clone(&bucket), &drive_key) {
-        Ok(index) => EncryptedDrive::new(bucket, drive_key, index),
+        Ok(index) => EncryptedDrive::new(bucket, drive_key, NamedIndex::of(index, drive)),
         // The first error stands when there is nothing to catch up from.
         Err(e) => match device::catch_up(bucket.as_ref(), keyring, drive) {
             Ok(Some((current, previous))) => {
-                let index =
-                    provider.open_index_in_window(drive, Arc::clone(&bucket), &current, &previous)?;
-                EncryptedDrive::new(bucket, current, index)
+                let index = provider
+                    .open_index_in_window(drive, Arc::clone(&bucket), &current, &previous)
+                    .map_err(|e| named(e, drive))?;
+                EncryptedDrive::new(bucket, current, NamedIndex::of(index, drive))
             }
             // A wrap of a key this device does not take says more than the index's error.
             Err(refused @ DriveError::KeyRefused { .. }) => return Err(refused),
@@ -436,7 +496,7 @@ pub fn open_encrypted(
                         window_of = Some(drive_key);
                         window
                     }
-                    None => return Err(e),
+                    None => return Err(named(e, drive)),
                 }
             }
         },

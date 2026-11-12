@@ -721,27 +721,22 @@ fn a_device_with_the_old_key_cannot_commit_after_a_rotation() {
     assert_eq!(a_drive.get("notes/plan.txt").unwrap(), b"the plan");
 }
 
-/// X-DELTA-EDGE (E16b, T16, the storage half, what the lagging device is TOLD). The same device is to
-/// be told to ask for the key - `Denied`, `KeyRefused` or `Locked` - so the pass says "sign in again"
-/// and not "a file is damaged". RED today, found by this test (X-TESTEDGE-A-1): the manifest "does
-/// not open with this drive's key: sealed under another drive key" is `MetaError::Sealed` and the index
-/// turns every `Sealed` into `DriveError::Corrupt`, which the kit's problem list files under
-/// `hash-mismatch` ("the drive's bytes do not match their hash"). The cause is a `SealError` that is
-/// a sentence: the wrong-key case (`meta/seal.rs` open: "sealed under another drive key") has no type
-/// of its own to tell it from a changed byte; the fix is a typed `WrongKey` carried to a
-/// `KeyRefused`, a key-state decision (ARCH29-KEYSTATE) this lane does not make. Ignored with the id
-/// until then; the first assertion is the one that fails.
+/// X-DELTA-EDGE (E16b, T16, the storage half, what the lagging device is TOLD). The same device is told to
+/// ask for the key - `KeyRefused`, naming the drive - so the pass says "ask for the new key" and not "a file
+/// is damaged". It was red (X-TESTEDGE-A-1, closed with the typed `SealError::of_another_key`): the
+/// manifest "does not open with this drive's key: sealed under another drive key" was `MetaError::Sealed`
+/// and the index turned every `Sealed` into `DriveError::Corrupt`, which the kit's problem list files under
+/// `hash-mismatch` ("the drive's bytes do not match their hash"). A key that opens nothing has its own type
+/// now and is carried to `KeyRefused`; a changed byte stays `Corrupt` (`a_changed_byte_in_the_drives_index...`).
 #[test]
-#[ignore = "X-TESTEDGE-A-1: a lagging device's put on a rotated drive is Corrupt, not KeyRefused (meta Sealed -> Corrupt)"]
 fn a_device_with_the_old_key_is_told_to_ask_for_the_key_after_a_rotation() {
     let w = world();
     let (lagging, _a, _) = lagging_behind_a_rotation(&w);
     let asks_for_the_key = |result: &Result<(), DriveError>| {
         matches!(
             result,
-            Err(DriveError::Denied { .. }
-                | DriveError::KeyRefused { .. }
-                | DriveError::Locked { .. })
+            Err(DriveError::KeyRefused { drive, reason })
+                if drive == DRIVE && reason.contains("sealed under another key")
         )
     };
     let put = lagging
@@ -757,4 +752,43 @@ fn a_device_with_the_old_key_is_told_to_ask_for_the_key_after_a_rotation() {
         .map(|r| r.map(|_| ()))
         .collect();
     assert!(asks_for_the_key(&many[0]), "put_many: {:?}", many[0]);
+}
+
+/// X-TESTEDGE-A-1: the same device, restarted - it OPENS the rotated drive with the key it holds and meets
+/// an index sealed under another key - is told the same: the key to ask for, naming the drive, not damage.
+#[test]
+fn a_device_that_opens_a_rotated_drive_with_its_old_key_is_told_to_ask_for_the_key() {
+    let w = world();
+    let (_lagging, _a, _) = lagging_behind_a_rotation(&w);
+    match open_encrypted(w.plain.clone(), &w.keyring, DRIVE, &w.provider) {
+        Err(DriveError::KeyRefused { drive, reason }) => {
+            assert_eq!(drive, DRIVE);
+            assert!(reason.contains("sealed under another key"), "{reason}");
+        }
+        other => panic!("the key to ask for, not damage: {other:?}"),
+    }
+}
+
+/// X-TESTEDGE-A-1: what is NOT a wrong key stays damage. A changed byte of the drive's manifest - the key's
+/// id in its header untouched - does not authenticate under the right key: `Corrupt`, as before, and no
+/// key to ask for (a caller that matches `Corrupt` keeps its meaning).
+#[test]
+fn a_changed_byte_in_the_drives_index_is_damage_and_no_key_to_ask_for() {
+    let w = world();
+    let (_lagging, a, _) = lagging_behind_a_rotation(&w);
+    open_encrypted(w.plain.clone(), &a, DRIVE, &w.provider)
+        .expect("the key of the device that rotated opens the drive");
+    let mut bytes = w.mem.get(keys::MANIFEST).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    w.mem.put(keys::MANIFEST, &bytes).unwrap();
+    match open_encrypted(w.plain.clone(), &a, DRIVE, &w.provider) {
+        Err(DriveError::Corrupt { reason, .. }) => {
+            assert!(
+                reason.contains("does not open with this drive's key"),
+                "{reason}"
+            );
+        }
+        other => panic!("a changed byte is damage: {other:?}"),
+    }
 }

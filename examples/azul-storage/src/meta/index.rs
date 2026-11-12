@@ -86,8 +86,31 @@ fn reserved(path: &str) -> bool {
         || path.split('/').any(|segment| segment.starts_with(SHARD_PREFIX))
 }
 
-/// The drive's error for an index error.
+/// The drive's error for an index error: the drive's own index and its upkeep. An object sealed under another
+/// key than the one this device holds is the key to ask for (`KeyRefused`; the layer that knows the drive names
+/// it), not a damaged file (X-TESTEDGE-A-1); a changed byte stays `Corrupt`.
 pub(super) fn to_drive(e: MetaError) -> DriveError {
+    match e {
+        MetaError::Sealed {
+            reason,
+            other_key: true,
+            ..
+        } => DriveError::KeyRefused {
+            drive: String::new(),
+            reason: format!(
+                "its files are sealed under another key than the one this device holds ({reason})"
+            ),
+        },
+        other => to_drive_untyped(other),
+    }
+}
+
+/// [`to_drive`] where the repository is opened with a CANDIDATE key - the member record (`MemberRecord`): "it
+/// does not open with this key" stays `Corrupt` there, as it was, and what it means is the caller's to say
+/// (`device::catch_up` and the rotation decide on the key they hold: a device whose own key change stopped
+/// halfway is told by the kind of this error to look at its next key, and a `KeyRefused` is the answer of a
+/// wrap that names another key).
+pub(super) fn to_drive_untyped(e: MetaError) -> DriveError {
     match e {
         MetaError::Conflict { key } => DriveError::Conflict { key },
         MetaError::Drive(e) => e,
@@ -96,7 +119,7 @@ pub(super) fn to_drive(e: MetaError) -> DriveError {
         // A change whose landing is not known is a request that got no answer: a caller never
         // takes it for a refusal (`Conflict`), which lets it undo what the change may have named.
         e @ MetaError::OutcomeUnknown { .. } => DriveError::Transport(e.to_string()),
-        MetaError::Sealed { key, reason } => DriveError::Corrupt {
+        MetaError::Sealed { key, reason, .. } => DriveError::Corrupt {
             key,
             reason: format!("it does not open with this drive's key: {reason}"),
         },
