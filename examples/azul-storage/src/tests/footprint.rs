@@ -193,6 +193,73 @@ fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof(
     store.forget(DRIVE, Some(&proof)).unwrap();
 }
 
+/// K6, on the removal's own path (`device::forget_keys`, which took every entry and asked no permit, is gone):
+/// one entry the keyring refuses to delete does not keep the others - every one is tried, and the refusal is
+/// the answer, with the entry's name; the drive stays listed for another try.
+#[cfg(feature = "encryption")]
+#[test]
+fn k6_a_removal_tries_every_entry_and_reports_the_refusal() {
+    struct RefusesTheMemberKey(MemoryKeyring);
+    impl KeyringStore for RefusesTheMemberKey {
+        fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+            self.0.get(key)
+        }
+        fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+            self.0.set(key, secret)
+        }
+        fn delete(&self, key: &str) -> Result<(), KeyringError> {
+            if key == KeyEntry::MemberKey.name(DRIVE) {
+                return Err(KeyringError::Denied);
+            }
+            self.0.delete(key)
+        }
+    }
+    let keyring = RefusesTheMemberKey(MemoryKeyring::new());
+    filled(&keyring.0, DRIVE);
+    let store = KeyringFootprint::new(&keyring);
+    let proof = proof_for(DRIVE);
+
+    let failed = store.forget(DRIVE, Some(&proof)).unwrap_err();
+    assert!(
+        failed
+            .to_string()
+            .contains(&KeyEntry::MemberKey.name(DRIVE)),
+        "{failed}"
+    );
+    assert_eq!(
+        store.residue(DRIVE).unwrap(),
+        [KeyEntry::MemberKey.name(DRIVE)],
+        "every other entry went; the refused one is the residue"
+    );
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-7: the removal's keys go through the registry's forget, which is for the permit of
+/// a removal of ONE drive. A proof for another drive handed straight to the keyring's store - not through
+/// `forget_drive`, which drops it - erases no key of this one: the credentials go (they need no permit), every
+/// key entry is refused and named, and stays.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_struct_keystate_7_a_proof_for_another_drive_handed_to_the_keyring_store_erases_no_key() {
+    let keyring = MemoryKeyring::new();
+    filled(&keyring, DRIVE);
+    let store = KeyringFootprint::new(&keyring);
+    let proof = proof_for("d_other");
+
+    let failed = store.forget(DRIVE, Some(&proof)).unwrap_err();
+    let mut keys: Vec<String> = KeyEntry::ALL
+        .iter()
+        .filter(|entry| entry.goes_with_proof())
+        .map(|entry| entry.name(DRIVE))
+        .collect();
+    keys.sort();
+    for key in &keys {
+        assert!(failed.to_string().contains(key), "{key} is named: {failed}");
+    }
+    let mut left = store.residue(DRIVE).unwrap();
+    left.sort();
+    assert_eq!(left, keys, "the credentials went, every key stayed");
+}
+
 /// X-DELTA-AZDRIVE-KEYS-32 (a): the device key's entry (azcloud-kit built its name by suffixing
 /// the session's) was in no list of a drive's entries, so a removal never found it. It is a kind of
 /// `KeyEntry`, named below the session's, and it goes with the proof like the keys: it is what

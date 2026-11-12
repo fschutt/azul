@@ -66,6 +66,10 @@
 //!
 //! Every step can be run again: a rotation that stopped (a crash, no network) resumes from the
 //! journal on the device that started it (the one with K2), with the same call.
+//!
+//! The steps are the registry's: each consumer of the drive key reseals itself
+//! ([`keystate::CONSUMERS`], run by [`keystate::Consumer::reseal_for`]), and [`rotate`] is the order they
+//! run in and the journal that says how far it got - there is no second copy of a step.
 
 // panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
 // unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
@@ -88,12 +92,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     crypto::{
         device,
-        drops::{self, DropPublic},
-        keys::{
-            load_key_chain, store_key_chain, KeyChain, RecoveryCode, RecoveryKdf, RecoveryWrap,
-            KEYS_PREFIX,
-        },
-        keystate::{self, BucketFacts, Op, Permit, Read, Verdict, Way},
+        drops::DropPublic,
+        keys::{load_key_chain, store_key_chain, KeyChain, RecoveryCode, RecoveryKdf, KEYS_PREFIX},
+        keystate::{self, BucketFacts, Done, Op, Permit, Read, Verdict, Way},
         DriveKey, KeyId,
     },
     encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex, Rewrite},
@@ -103,7 +104,6 @@ use crate::{
         wal,
     },
     ops::list_all,
-    sharing::revoke_all_shares,
     Drive, DriveError, ListRequest,
 };
 
@@ -381,7 +381,7 @@ fn index_opens_with(bucket: &dyn Drive, keys: &[&DriveKey]) -> Result<bool, Driv
     Ok(false)
 }
 
-/// [`index_opens_with`] that notes its answer in `seen` (the key permit's shadow, as
+/// [`index_opens_with`] that notes its answer in `seen`, the facts the key permit is asked on (as
 /// [`resumable_seen`]).
 fn index_opens_seen(
     bucket: &dyn Drive,
@@ -875,43 +875,55 @@ pub fn rotate(
     if way_of(&started) != permit.way() {
         return Err(changed_since_asked());
     }
-    let (old, new, stashed, mut journal) = match started {
+    let (old, new, mut journal) = match started {
         Start::Fresh { old } => {
             let new = DriveKey::generate().map_err(|e| e.for_key(drive))?;
             device::store_key_at(keyring, &previous_entry, &old)?;
             // The keyring must give K2 back before anything is wrapped with it.
-            let stashed = device::stash(keyring, &next_entry, &new)?;
+            let _stashed = device::stash(keyring, &next_entry, &new)?;
             let mut journal = Journal::new(drive, &old, &new);
             save(bucket.as_ref(), drive, &new, &mut journal)?;
-            (old, new, stashed, journal)
+            (old, new, journal)
         }
         Start::Adopt { old, new } => {
             // The old key is the keyring's drive key (the new one is not before the Members step);
             // `drive-key-previous` says so again, K2 stays where it is.
             device::store_key_at(keyring, &previous_entry, &old)?;
-            let (_, stashed) = device::held(keyring, &next_entry)?
+            let (_, _kept) = device::held(keyring, &next_entry)?
                 .filter(|(k, _)| *k == new)
                 .ok_or_else(|| missing("new"))?;
             let mut journal = Journal::new(drive, &old, &new);
             save(bucket.as_ref(), drive, &new, &mut journal)?;
-            (old, new, stashed, journal)
+            (old, new, journal)
         }
         Start::Resume(journal) => {
-            let (new, stashed) = device::held(keyring, &next_entry)?
+            let (new, _) = device::held(keyring, &next_entry)?
                 .filter(|(k, _)| k.id().to_hex() == journal.new)
                 .ok_or_else(|| missing("new"))?;
             let old = device::load_key_at(keyring, &previous_entry)?
                 .filter(|k| k.id().to_hex() == journal.old)
                 .ok_or_else(|| missing("old"))?;
-            (old, new, stashed, journal)
+            (old, new, journal)
         }
     };
     // The keys from before K1, from the key chain of earlier rotations: the history can hold
     // file keys they wrapped.
     let older: Vec<DriveKey> = chain_of(bucket.as_ref())?.open(drive, &old);
+    // The steps are the registry's ([`keystate::CONSUMERS`]): every consumer of the drive key reseals
+    // itself, and this function is the order they run in and the journal that says how far it got.
+    let change = keystate::Change {
+        drive,
+        bucket: &bucket,
+        keyring,
+        provider,
+        old: &old,
+        new: &new,
+        older: &older,
+        kdf,
+    };
     if journal.phase < Phase::Rekeyed {
-        match provider.rekey(drive, Arc::clone(&bucket), &old, &new) {
-            Ok(()) => {}
+        match keystate::INDEX.reseal_for(permit, &change) {
+            Ok(_) => {}
             Err(DriveError::Unsupported(why)) => {
                 // Nothing changed yet: the drive stays as it was, K2 goes.
                 // collapse-ok: the journal is inert without K2 (its MAC is keyed with it) and the
@@ -925,14 +937,13 @@ pub fn rotate(
         }
         // K1 into the key chain, sealed under K2, before anything lets go of K1: the history
         // and the versions a restore puts back hold file keys it wrapped.
-        chain_old_key(bucket.as_ref(), drive, &old, &new)?;
+        let _chain = keystate::CHAIN.reseal_for(permit, &change)?;
         journal.phase = Phase::Rekeyed;
         save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
     let mut rewrapped = 0;
     if journal.phase < Phase::Rewrapped {
-        let index = provider.open_index(drive, Arc::clone(&bucket), &new)?;
-        rewrapped = rewrap_index_with(index.as_ref(), &old, &older, &new)?;
+        rewrapped = keystate::FILE_KEYS.reseal_for(permit, &change)?.count();
         journal.phase = Phase::Rewrapped;
         save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
@@ -940,9 +951,7 @@ pub fn rotate(
     if journal.phase < Phase::Members {
         // A new member key for this device, its wrap sealed to K2; K2 becomes the keyring's
         // drive key.
-        device::delete_key_at(keyring, &device::member_key_entry(drive))?;
-        let me = device::enroll(bucket.as_ref(), keyring, drive, &new)?;
-        (members_removed, codes_removed) = remove_other_members(bucket.as_ref(), &new, &me)?;
+        (members_removed, codes_removed) = keystate::MEMBERS.reseal_for(permit, &change)?.removed();
         journal.phase = Phase::Members;
         save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
@@ -950,20 +959,18 @@ pub fn rotate(
     // leaves the old wrap and its code as they were (K31): K1 in the chain once more (the bucket's
     // writers can delete the file, and the keyring's copy of K1 goes below), the drop key, the
     // shares.
-    chain_old_key(bucket.as_ref(), drive, &old, &new)?;
-    let drop_key = drops::rotate_drop_key(bucket.as_ref(), &old, &new, drive)?;
-    let shares_revoked = revoke_all_shares(bucket.as_ref())?;
+    let _chain = keystate::CHAIN.reseal_for(permit, &change)?;
+    let drop_key = keystate::DROPS.reseal_for(permit, &change)?.into_drop_key();
+    let shares_revoked = keystate::SHARES.reseal_for(permit, &change)?.count();
     // Again on every resume: the code returned last is the one the wrap holds. The last step that
     // can fail; from the wrap on the code is the drive's and must reach the user, so nothing below
     // returns an error.
-    let recovery_code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
-    let wrap = RecoveryWrap::seal(&new, drive, &recovery_code, kdf).map_err(|e| e.for_key(drive))?;
-    device::publish_recovery_wrap(
-        bucket.as_ref(),
-        &stashed,
-        &wrap,
-        device::Publish::FirstReplace,
-    )?;
+    let Done::Code(recovery_code) = keystate::RECOVERY_WRAP.reseal_for(permit, &change)? else {
+        // The consumer's step gives the code or an error: this is not reached.
+        return Err(DriveError::Io(String::from(
+            "the recovery wrap's step gave no recovery code",
+        )));
+    };
     // Done: the journal goes and K1 leaves the keyring (the key chain keeps it, sealed under
     // K2); K2 is the keyring's drive key (step 4). What stays is said, not raised: the keys are
     // changed. Both entries are tried even when the journal stays, for a journal that stays

@@ -1325,6 +1325,35 @@ pub enum Done {
     Removed { members: usize, codes: usize },
 }
 
+impl Done {
+    /// How many entries, files or links the step changed: none for a step that counts nothing.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        match self {
+            Done::Count(n) => *n,
+            Done::Nothing | Done::Code(_) | Done::DropKey(_) | Done::Removed { .. } => 0,
+        }
+    }
+
+    /// The members (invites included) and the further recovery codes' wraps a step removed.
+    #[must_use]
+    pub fn removed(&self) -> (usize, usize) {
+        match self {
+            Done::Removed { members, codes } => (*members, *codes),
+            Done::Nothing | Done::Count(_) | Done::Code(_) | Done::DropKey(_) => (0, 0),
+        }
+    }
+
+    /// The new drop key's public half, when the step made one.
+    #[must_use]
+    pub fn into_drop_key(self) -> Option<drops::DropPublic> {
+        match self {
+            Done::DropKey(key) => key,
+            Done::Nothing | Done::Count(_) | Done::Code(_) | Done::Removed { .. } => None,
+        }
+    }
+}
+
 impl fmt::Debug for Done {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1384,6 +1413,26 @@ pub struct Consumer {
     pub functions: &'static [&'static str],
 }
 
+impl Consumer {
+    /// Reseals this consumer for the key change `c`, for the permit of a rotation of the drive: the
+    /// consumer's own function when it has one, nothing for a consumer that another consumer's pass
+    /// reseals or whose data is not sealed under the drive key (the permit is looked at all the same).
+    /// A rotation runs the steps of [`CONSUMERS`] through this - the order and the journal are its own -
+    /// so there is one implementation of each step, and no copy that could drift.
+    ///
+    /// # Errors
+    ///
+    /// A permit that is not a rotation of this drive (`Denied`), and what the step says.
+    pub fn reseal_for(&self, permit: &Permit, c: &Change<'_>) -> Result<Done, DriveError> {
+        match self.reseal {
+            Reseal::Fn(reseal) => reseal(permit, c),
+            Reseal::Within(_) | Reseal::Nothing(_) => {
+                permitted(permit, Op::Rotate, c.drive).map(|()| Done::Nothing)
+            }
+        }
+    }
+}
+
 impl fmt::Debug for Consumer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Consumer")
@@ -1398,13 +1447,20 @@ fn permitted(permit: &Permit, op: Op, drive: &str) -> Result<(), DriveError> {
     permit.allows(op, drive)
 }
 
-/// Steps 2 and 3 of a rotation: the index sealed under the new key (an index that cannot be rekeyed
-/// stops the rotation before anything else changed), then every entry's file key re-wrapped from the
-/// old key (or an older one of the chain) to the new. `rotate` puts the chain's step between the two.
+/// Step 2 of a rotation: the index sealed under the new key. An index that cannot be rekeyed
+/// (`Unsupported`) stops the rotation before anything else changed.
 fn reseal_index(permit: &Permit, c: &Change<'_>) -> Result<Done, DriveError> {
     permitted(permit, Op::Rotate, c.drive)?;
     c.provider
-        .rekey(c.drive, Arc::clone(c.bucket), c.old, c.new)?;
+        .rekey(c.drive, Arc::clone(c.bucket), c.old, c.new)
+        .map(|()| Done::Nothing)
+}
+
+/// Step 3: every entry's file key re-wrapped from the old key (or an older one of the chain) to the new,
+/// in the index the new key opens. The old key is in the key chain before this runs (`rotate` puts the
+/// chain's step between the two), and the journal says it was done.
+fn reseal_file_keys(permit: &Permit, c: &Change<'_>) -> Result<Done, DriveError> {
+    permitted(permit, Op::Rotate, c.drive)?;
     let index = c
         .provider
         .open_index(c.drive, Arc::clone(c.bucket), c.new)?;
@@ -1491,9 +1547,36 @@ fn forget_device_key(permit: &Permit, e: &Erase<'_>) -> Result<Done, DriveError>
     forget_entry(permit, e, KeyEntry::DeviceKey)
 }
 
+/// Takes the keyring entry `entry` of the drive away, for the permit of a removal of it: the consumer that
+/// owns the entry forgets it, and the drive's own keys go through the one function that deletes a keyring
+/// entry for a permit. The removal ([`crate::footprint::KeyringFootprint`]) calls this for every entry that
+/// goes with its proof, so there is no second list of what a removal erases and no second way to do it.
+///
+/// # Errors
+///
+/// A permit that is not a removal of this drive (`Denied`), the keyring's refusal, and a registry that gives
+/// an entry to a consumer that forgets nothing (`Io`: the entry is left where it is and the removal says so).
+pub fn forget(permit: &Permit, e: &Erase<'_>, entry: KeyEntry) -> Result<Done, DriveError> {
+    match owner(entry) {
+        Owner::Consumer(name) => match CONSUMERS.iter().find(|c| c.name == name) {
+            Some(Consumer {
+                forget: Forget::Fn(forget),
+                ..
+            }) => forget(permit, e),
+            Some(_) => Err(DriveError::Io(format!(
+                "{name} owns the keyring entry {entry:?} and forgets nothing: it stays"
+            ))),
+            None => Err(DriveError::Io(format!(
+                "{entry:?} is owned by {name}, which is no consumer: it stays"
+            ))),
+        },
+        Owner::TheKey | Owner::Credential => forget_entry(permit, e, entry),
+    }
+}
+
 /// The drive's index: sealed under keys derived from the drive key (the sealing key and the names
-/// key: `seal`, `open` and `name_hash` of the drive key's `Sealer`), and every entry holds a file
-/// key the drive key wraps.
+/// key: `seal`, `open` and `name_hash` of the drive key's `Sealer`). A key change seals it anew first
+/// (`IndexProvider::rekey`); the file keys its entries hold are [`FILE_KEYS`].
 pub const INDEX: Consumer = Consumer {
     name: "INDEX",
     entries: &[],
@@ -1503,11 +1586,22 @@ pub const INDEX: Consumer = Consumer {
          app's stores (azul-drive footprint::Places::of)",
     ),
     functions: &[
-        "examples/azul-storage/src/rotation.rs#rewrap_index_with",
         "examples/azul-storage/src/meta/seal.rs#seal",
         "examples/azul-storage/src/meta/seal.rs#open",
         "examples/azul-storage/src/meta/seal.rs#name_hash",
     ],
+};
+
+/// The file key every entry of the index holds, wrapped by the drive key: a key change wraps each anew
+/// (the objects stay under the key they were written with, which the key chain opens). A consumer of its
+/// own - not part of [`INDEX`] - because the rotation's journal says whether the index was sealed anew and
+/// whether the file keys were wrapped anew, and a stop between the two is a state the next call goes on from.
+pub const FILE_KEYS: Consumer = Consumer {
+    name: "FILE_KEYS",
+    entries: &[],
+    reseal: Reseal::Fn(reseal_file_keys),
+    forget: Forget::Nothing("the file keys are in the index, which is in the bucket"),
+    functions: &["examples/azul-storage/src/rotation.rs#rewrap_index_with"],
 };
 
 /// This device's member key and wrap, and every other member's wrap and invite.
@@ -1531,7 +1625,6 @@ pub const RECOVERY_WRAP: Consumer = Consumer {
     forget: Forget::Fn(forget_request_key),
     functions: &[
         "examples/azul-storage/src/crypto/device.rs#setup_new_drive_reporting",
-        "examples/azul-storage/src/rotation.rs#rotate",
         "examples/azul-storage/src/crypto/keystate.rs#reseal_recovery_wrap",
         "examples/azul-drive/src/encryption.rs#run",
     ],
@@ -1640,6 +1733,7 @@ pub const DEVICE_KEY: Consumer = Consumer {
 /// Everything a drive key touches, in the order of C7.
 pub const CONSUMERS: &[Consumer] = &[
     INDEX,
+    FILE_KEYS,
     MEMBERS,
     RECOVERY_WRAP,
     KITS,
@@ -1655,7 +1749,7 @@ pub const CONSUMERS: &[Consumer] = &[
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Owner {
     /// The key itself: the drive key, the two keys of a rotation, the key planned before the setup.
-    /// `device::forget_keys` and `footprint::forget_drive` take them.
+    /// [`forget`] takes them, for the permit of a removal (`footprint::forget_drive`).
     TheKey,
     /// A credential for the drive's server side, not a key: the session and the drive token.
     Credential,

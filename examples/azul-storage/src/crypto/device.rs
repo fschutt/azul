@@ -625,27 +625,14 @@ fn member_secret_held(keyring: &dyn KeyringStore, drive: &str) -> Result<MemberS
 /// Every keyring entry a drive has on this device ([`KeyEntry::ALL`]): its session and drive
 /// token, the drive key, this device's member key (with its pin), a key made before the drive's
 /// setup finished, the two keys of a rotation under way, and the recovery request's key. A removed
-/// drive leaves none of them behind ([`forget_keys`], and `footprint::forget_drive` for the rest
-/// of its footprint).
+/// drive leaves none of them behind (`footprint::forget_drive` for the permit of a removal, through
+/// [`keystate::forget`]).
 #[must_use]
 pub fn key_entries(drive: &str) -> Vec<String> {
     KeyEntry::ALL
         .iter()
         .map(|entry| entry.name(drive))
         .collect()
-}
-
-/// Removes the drive's keys from this device ([`key_entries`]; the device signs out). Every entry
-/// is tried; the first refusal is the answer. A drive taken off a device goes through
-/// `footprint::forget_drive`, which asks for a `RemovalProof` before it deletes a key.
-pub fn forget_keys(keyring: &dyn KeyringStore, drive: &str) -> Result<(), DriveError> {
-    let mut first = None;
-    for entry in key_entries(drive) {
-        if let Err(e) = keyring.delete(&entry) {
-            first.get_or_insert(keyring_error(&entry, e));
-        }
-    }
-    first.map_or(Ok(()), Err)
 }
 
 /// The drive's members (their ids, sorted) as a device that holds the drive key reads them:

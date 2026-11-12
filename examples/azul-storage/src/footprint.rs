@@ -515,7 +515,7 @@ impl Footprint for KeyringFootprint<'_> {
                 }
                 continue;
             }
-            match self.keyring.delete(&name) {
+            match self.erase(entry, drive, proof) {
                 Ok(()) => done.removed.push(name),
                 Err(e) => failures.push(format!("{name}: {e}")),
             }
@@ -525,6 +525,33 @@ impl Footprint for KeyringFootprint<'_> {
         } else {
             Err(FootprintError::new(failures.join("; ")))
         }
+    }
+}
+
+impl KeyringFootprint<'_> {
+    /// Takes `entry` out of the keyring. An entry that goes with the proof goes through the key permit's
+    /// registry, for the permit the proof is: the consumer that owns it forgets it. A credential has no
+    /// permit to wait for and goes by itself.
+    fn erase(
+        &self,
+        entry: KeyEntry,
+        drive: &str,
+        proof: Option<&RemovalProof>,
+    ) -> Result<(), String> {
+        #[cfg(feature = "encryption")]
+        if let (true, Some(proof)) = (entry.goes_with_proof(), proof) {
+            let erase = crate::crypto::keystate::Erase {
+                drive,
+                keyring: self.keyring,
+            };
+            return crate::crypto::keystate::forget(proof.permit(), &erase, entry)
+                .map(drop)
+                .map_err(|e| e.to_string());
+        }
+        let _ = proof;
+        self.keyring
+            .delete(&entry.name(drive))
+            .map_err(|e| e.to_string())
     }
 }
 

@@ -26,8 +26,8 @@ use crate::{
         },
         keys::{load_key_chain, RecoveryKdf},
         keystate::{
-            ask, owner, Change, Done, Erase, Evidence, Forget, Journal, Op, Owner, Permit, Read,
-            RecoveryRecord, Refusal, Reseal, TokenFacts, VaultFacts, Verdict, Way, CONSUMERS,
+            ask, forget, owner, Change, Done, Erase, Evidence, Forget, Journal, Op, Owner, Permit,
+            Read, RecoveryRecord, Refusal, Reseal, TokenFacts, VaultFacts, Verdict, Way, CONSUMERS,
             MEMBERS,
         },
         DriveKey,
@@ -143,13 +143,18 @@ fn every_refusal_says_the_drive_or_what_to_do() {
     }
 }
 
+/// The design lists ten things a drive key touches. The registry has eleven: the index is two of them
+/// because a rotation seals the index anew (a step an index that cannot be rekeyed stops, before anything
+/// changed) and wraps the entries' file keys anew (a step of its own in the journal) - two functions the
+/// rotation runs with a checkpoint between, and a stop between them is a state the next call goes on from.
 #[test]
-fn a_drive_key_touches_ten_things_in_the_order_of_the_design() {
+fn a_drive_key_touches_eleven_things_the_designs_ten_with_the_index_in_two_steps() {
     let names: Vec<&str> = CONSUMERS.iter().map(|c| c.name).collect();
     assert_eq!(
         names,
         [
             "INDEX",
+            "FILE_KEYS",
             "MEMBERS",
             "RECOVERY_WRAP",
             "KITS",
@@ -162,7 +167,7 @@ fn a_drive_key_touches_ten_things_in_the_order_of_the_design() {
         ]
     );
     let unique: BTreeSet<&str> = names.iter().copied().collect();
-    assert_eq!(unique.len(), 10);
+    assert_eq!(unique.len(), 11);
 }
 
 /// One list of what a drive leaves in the keyring: every kind of entry has an owner, the consumers'
@@ -251,10 +256,10 @@ fn a_consumers_functions_are_files_and_names_listed_once_and_a_reseal_within_nam
     }
 }
 
-/// What a rotation reseals: six consumers do it here, one in another consumer's pass, three are not
+/// What a rotation reseals: seven consumers do it here, one in another consumer's pass, three are not
 /// sealed under the drive key or are resealed by what the app does.
 #[test]
-fn six_consumers_reseal_here_and_four_forget_a_keyring_entry() {
+fn seven_consumers_reseal_here_and_four_forget_a_keyring_entry() {
     let resealed: Vec<&str> = CONSUMERS
         .iter()
         .filter(|c| matches!(c.reseal, Reseal::Fn(_)))
@@ -264,6 +269,7 @@ fn six_consumers_reseal_here_and_four_forget_a_keyring_entry() {
         resealed,
         [
             "INDEX",
+            "FILE_KEYS",
             "MEMBERS",
             "RECOVERY_WRAP",
             "SHARES",
@@ -406,6 +412,60 @@ fn a_forget_takes_the_keyring_entry_only_for_a_permit_of_a_removal_of_this_drive
     );
 }
 
+/// `forget` is the one way a removal takes an entry of the drive out of the keyring, for the permit of a
+/// removal of this drive: every kind of entry of [`KeyEntry::ALL`] goes through it - the keys, the
+/// consumers' entries by their own function - and no entry of another drive does; for a permit of another
+/// operation or drive nothing goes.
+#[test]
+fn the_registry_forgets_every_kind_of_entry_for_a_removal_permit_and_for_no_other() {
+    let keyring = MemoryKeyring::new();
+    for drive in [DRIVE, "d_other"] {
+        for entry in KeyEntry::ALL {
+            keyring.set(&entry.name(drive), "a secret text").unwrap();
+        }
+    }
+    let erase = Erase {
+        drive: DRIVE,
+        keyring: &keyring,
+    };
+    let enrol = permit_of(Op::Enroll);
+    let removal = permit_of(Op::Remove);
+
+    for entry in KeyEntry::ALL {
+        assert!(
+            matches!(
+                forget(&enrol, &erase, entry),
+                Err(DriveError::Denied { .. })
+            ),
+            "{entry:?}: a permit of another operation"
+        );
+        assert!(
+            keyring.get(&entry.name(DRIVE)).unwrap().is_some(),
+            "{entry:?}"
+        );
+    }
+    let other_drive = Erase {
+        drive: "d_other",
+        keyring: &keyring,
+    };
+    assert!(matches!(
+        forget(&removal, &other_drive, KeyEntry::DriveKey),
+        Err(DriveError::Denied { .. })
+    ));
+
+    for entry in KeyEntry::ALL {
+        assert!(forget(&removal, &erase, entry).is_ok(), "{entry:?}");
+        assert!(
+            keyring.get(&entry.name(DRIVE)).unwrap().is_none(),
+            "{entry:?} is still there"
+        );
+        assert!(
+            keyring.get(&entry.name("d_other")).unwrap().is_some(),
+            "{entry:?} of another drive"
+        );
+    }
+}
+
 /// The reseals run for a permit of a rotation of this drive; each is the existing step of the
 /// rotation, called through the registry.
 #[test]
@@ -466,12 +526,47 @@ fn the_reseals_run_for_a_rotation_permit_only_and_do_the_existing_steps() {
         }
     }
 
-    // the index: the provider seals it under the new key, the empty index has nothing to re-wrap
+    // the index: the provider seals it under the new key; then the entries' file keys, of which the empty
+    // index has none to re-wrap
     let index = CONSUMERS.iter().find(|c| c.name == "INDEX").unwrap();
     let Reseal::Fn(reseal_index) = index.reseal else {
         panic!("INDEX is resealed here");
     };
-    assert!(matches!(reseal_index(&rotate, &change), Ok(Done::Count(0))));
+    assert!(matches!(
+        reseal_index(&enrol, &change),
+        Err(DriveError::Denied { .. })
+    ));
+    assert!(matches!(reseal_index(&rotate, &change), Ok(Done::Nothing)));
+    let file_keys = CONSUMERS.iter().find(|c| c.name == "FILE_KEYS").unwrap();
+    let Reseal::Fn(reseal_file_keys) = file_keys.reseal else {
+        panic!("FILE_KEYS is resealed here");
+    };
+    assert!(matches!(
+        reseal_file_keys(&enrol, &change),
+        Err(DriveError::Denied { .. })
+    ));
+    assert!(matches!(
+        reseal_file_keys(&rotate, &change),
+        Ok(Done::Count(0))
+    ));
+
+    // what a rotation calls is `reseal_for`: the function above for a consumer that has one, and for one
+    // that is resealed in another's pass or is not sealed under the drive key nothing - but the permit is
+    // looked at all the same
+    for name in ["KITS", "PERIOD_VAULT", "REENCRYPT_STATE", "DEVICE_KEY"] {
+        let consumer = CONSUMERS.iter().find(|c| c.name == name).unwrap();
+        assert!(
+            matches!(
+                consumer.reseal_for(&enrol, &change),
+                Err(DriveError::Denied { .. })
+            ),
+            "{name}: a permit of another operation"
+        );
+        assert!(
+            matches!(consumer.reseal_for(&rotate, &change), Ok(Done::Nothing)),
+            "{name}"
+        );
+    }
 
     // the recovery wrap is sealed to the key the keyring holds: still the old one here
     let wrap = CONSUMERS

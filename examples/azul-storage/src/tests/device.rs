@@ -15,10 +15,10 @@ use crate::{
     crypto::{
         device::{
             add_recovery_code, adopt_invite, adopt_invite_reporting, drive_key_entry, enroll,
-            forget_keys, invite_from_text, invite_text, is_encrypted, key_entries, load_drive_key,
-            load_key_at, load_member_secret, member_key_entry, plan_drive_key, planned_key_entry,
-            recover, request_key, rotation_key_entries, seal_invite, setup_new_drive,
-            setup_new_drive_reporting, setup_pending, unlock, withdraw_invite,
+            invite_from_text, invite_text, is_encrypted, load_drive_key, load_key_at,
+            load_member_secret, member_key_entry, plan_drive_key, planned_key_entry, recover,
+            seal_invite, setup_new_drive, setup_new_drive_reporting, setup_pending, unlock,
+            withdraw_invite,
         },
         keys::{RecoveryCode, RecoveryKdf, RECOVERY_KEY_FILE},
         keystate::Refusal,
@@ -85,10 +85,6 @@ fn a_device_unlocks_from_its_keyring_or_from_its_member_wrap() {
 
     // A device that was never enrolled has nothing to unlock with.
     assert_eq!(unlock(&bucket, &MemoryKeyring::new(), DRIVE).unwrap(), None);
-
-    forget_keys(&keyring, DRIVE).unwrap();
-    assert!(keyring.get(&drive_key_entry(DRIVE)).unwrap().is_none());
-    assert!(keyring.get(&member_key_entry(DRIVE)).unwrap().is_none());
 }
 
 #[test]
@@ -464,102 +460,6 @@ fn a_planned_key_meets_a_drive_that_another_key_set_up() {
         "the planned key stays"
     );
     assert_eq!(load_drive_key(&keyring, DRIVE).unwrap(), None);
-}
-
-// ==== K6: a removed drive's keys leave the keyring ====
-
-/// K6: "Remove drive" deleted the session only; the drive key, the member key and the rest of what
-/// a device keeps for a drive stayed in the keyring for ever. `forget_keys` takes out every entry
-/// of the drive (and of no other).
-#[test]
-fn forgetting_a_drives_keys_leaves_no_entry_of_it_and_none_of_another_drives() {
-    let keyring = MemoryKeyring::new();
-    setup_new_drive(&MemBucket::new(), &keyring, DRIVE, cheap()).unwrap();
-    setup_new_drive(&MemBucket::new(), &keyring, "d_other", cheap()).unwrap();
-    // The rest of what a device keeps for a drive.
-    plan_drive_key(
-        &keyring,
-        DRIVE,
-        &crate::crypto::DriveKey::generate().unwrap(),
-    )
-    .unwrap();
-    let (previous, next) = rotation_key_entries(DRIVE);
-    keyring
-        .set(&previous, "a key of a rotation under way")
-        .unwrap();
-    keyring.set(&next, "another").unwrap();
-    request_key(&keyring, DRIVE).unwrap();
-    // The session, the drive token, the key of the period vault (RF53 / AZ-K13) and this computer's
-    // device key (X-DELTA-AZDRIVE-KEYS-32): a drive has ten kinds of entry, not six.
-    keyring
-        .set(&crate::footprint::KeyEntry::Session.name(DRIVE), "a session")
-        .unwrap();
-    keyring
-        .set(&crate::footprint::KeyEntry::AzlinToken.name(DRIVE), "a drive token")
-        .unwrap();
-    keyring
-        .set(&crate::footprint::KeyEntry::VaultKey.name(DRIVE), "a vault key")
-        .unwrap();
-    keyring
-        .set(
-            &crate::footprint::KeyEntry::DeviceKey.name(DRIVE),
-            "a device key",
-        )
-        .unwrap();
-    assert_eq!(key_entries(DRIVE).len(), 10);
-    for entry in key_entries(DRIVE) {
-        assert!(
-            keyring.get(&entry).unwrap().is_some(),
-            "{entry} is kept before"
-        );
-    }
-
-    forget_keys(&keyring, DRIVE).unwrap();
-    for entry in key_entries(DRIVE) {
-        assert!(
-            keyring.get(&entry).unwrap().is_none(),
-            "{entry} is still there"
-        );
-    }
-    assert!(
-        load_drive_key(&keyring, "d_other").unwrap().is_some(),
-        "another drive's key stays"
-    );
-    assert!(load_member_secret(&keyring, "d_other").unwrap().is_some());
-    // Nothing there: nothing to refuse.
-    forget_keys(&keyring, DRIVE).unwrap();
-}
-
-/// One entry the keyring refuses to delete does not keep the others: every one is tried, and the
-/// refusal is the answer.
-#[test]
-fn forgetting_tries_every_entry_and_reports_the_first_refusal() {
-    struct RefusesTheMemberKey(MemoryKeyring);
-    impl KeyringStore for RefusesTheMemberKey {
-        fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
-            self.0.get(key)
-        }
-        fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
-            self.0.set(key, secret)
-        }
-        fn delete(&self, key: &str) -> Result<(), KeyringError> {
-            if key == member_key_entry(DRIVE) {
-                return Err(KeyringError::Denied);
-            }
-            self.0.delete(key)
-        }
-    }
-    let keyring = RefusesTheMemberKey(MemoryKeyring::new());
-    setup_new_drive(&MemBucket::new(), &keyring, DRIVE, cheap()).unwrap();
-    assert!(matches!(
-        forget_keys(&keyring, DRIVE),
-        Err(DriveError::Denied { .. })
-    ));
-    assert!(
-        keyring.get(&drive_key_entry(DRIVE)).unwrap().is_none(),
-        "the drive key went"
-    );
-    assert!(keyring.get(&member_key_entry(DRIVE)).unwrap().is_some());
 }
 
 // ==== K19: the member key is made once ====
