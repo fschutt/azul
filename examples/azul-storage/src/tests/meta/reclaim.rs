@@ -2487,6 +2487,72 @@ fn x_delta_sync6_1_a_purge_confirmed_before_the_re_encryption_erases_the_objects
     assert_eq!(lab.drive.get("b.txt").unwrap(), b"b, edited after the pass");
 }
 
+/// X-DELTA-SYNC6-3: what the account and the command line call is the provider's trait method, not
+/// the concrete provider's `purge`: through `&dyn IndexProvider` the same confirmed purge erases the
+/// same objects, and the confirmation is the one a pass recorded. RED on the old code: the trait had
+/// no such method - `purge` had no caller outside tests.
+#[test]
+fn x_delta_sync6_3_the_provider_trait_runs_the_confirmed_purge() {
+    use crate::{encrypted::IndexProvider, rotation::ReencryptState};
+
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 30 * DAY, |drive| drive);
+    lab.bucket.set_server_clock(crate::time::now_unix);
+    lab.drive.put("a.txt", b"version one").unwrap();
+    let one = lab.object_of("a.txt");
+    lab.at(now - 20 * DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    let two = lab.object_of("a.txt");
+    let mut state = ReencryptState::new(now);
+    state.confirm_purge(now - 10 * DAY);
+    let confirmation = state.purge_confirmation().expect("they confirmed");
+    let concrete = provider_with(90, ServerClock::Required);
+    let provider: &dyn IndexProvider = &concrete;
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider
+        .purge_confirmed("drive-1", bucket, &lab.key, &confirmation)
+        .unwrap();
+    let left = lab.data_objects();
+    assert!(!left.contains(&one), "erased ({left:?}): {}", report.line());
+    assert!(left.contains(&two), "the head stays ({left:?})");
+    assert_eq!((report.deleted, report.failed), (1, 0), "{}", report.line());
+}
+
+/// X-DELTA-SYNC6-3: a provider that keeps no history has nothing to erase, and says so - it never
+/// answers as if it had erased (the default of the trait method). Nothing is touched.
+#[test]
+fn x_delta_sync6_3_a_provider_without_history_refuses_the_erase() {
+    use crate::{
+        encrypted::{IndexProvider, NameIndex},
+        rotation::ReencryptState,
+    };
+    struct NoHistory;
+    impl IndexProvider for NoHistory {
+        fn open_index(
+            &self,
+            _drive: &str,
+            _bucket: Arc<dyn Drive>,
+            _drive_key: &crate::crypto::DriveKey,
+        ) -> Result<Arc<dyn NameIndex>, crate::DriveError> {
+            Err(crate::DriveError::Unsupported(String::from("not opened here")))
+        }
+    }
+    let lab = Lab::starting_at(crate::time::now_unix() - DAY, |drive| drive);
+    lab.drive.put("a.txt", b"version one").unwrap();
+    let mut state = ReencryptState::new(crate::time::now_unix());
+    state.confirm_purge(crate::time::now_unix());
+    let confirmation = state.purge_confirmation().expect("they confirmed");
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let refused = NoHistory
+        .purge_confirmed("drive-1", bucket, &lab.key, &confirmation)
+        .unwrap_err();
+    assert!(
+        matches!(refused, crate::DriveError::Unsupported(_)),
+        "{refused:?}"
+    );
+    assert_eq!(lab.drive.get("a.txt").unwrap(), b"version one");
+}
+
 /// X-DELTA-SYNC6-1: the purge's window is the confirmation's own time, carried as it is - not a
 /// span measured from a clock read before the repository was opened (that one started late by the
 /// time the open takes, and was zero for a confirmation dated ahead of the purge's clock: the

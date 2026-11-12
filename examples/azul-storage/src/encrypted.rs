@@ -71,7 +71,7 @@ use crate::{
     limits::named,
     meta::reclaim::{
         ask_retired_delete, delete_released, drop_new_object_after, Gate, History, LiveObjects,
-        ReclaimMode, Released, Standing, DEFAULT_MODE,
+        PurgeConfirmation, ReclaimMode, ReclaimReport, Released, Standing, DEFAULT_MODE,
     },
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
@@ -310,6 +310,29 @@ pub trait IndexProvider: Send + Sync {
     fn reclaim_standing(&self, drive: &str) -> Option<ReclaimStanding> {
         let _ = drive;
         None
+    }
+
+    /// Erases the old versions of the drive `drive` that the user confirmed (X-DELTA-SYNC6-3): after
+    /// a key change and a re-encryption the objects the old key still opens are the drive's history,
+    /// and only the confirmation a re-encryption pass recorded
+    /// ([`crate::rotation::ReencryptState::purge_confirmation`]) erases them. The provider that keeps
+    /// the history runs the purge ([`crate::meta::MetaIndexProvider::purge`]); by default there is
+    /// none, and the answer is `Unsupported` - nothing was erased.
+    ///
+    /// # Errors
+    ///
+    /// `Unsupported` for a provider that keeps no history to erase; the drive's error otherwise.
+    fn purge_confirmed(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        confirmation: &PurgeConfirmation,
+    ) -> Result<ReclaimReport, DriveError> {
+        let _ = (drive, bucket, drive_key, confirmation);
+        Err(DriveError::Unsupported(String::from(
+            "this drive index keeps no history of old versions to erase",
+        )))
     }
 }
 

@@ -1542,6 +1542,16 @@ impl IndexProvider for MetaIndexProvider {
         }))
     }
 
+    fn purge_confirmed(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        confirmation: &PurgeConfirmation,
+    ) -> Result<ReclaimReport, DriveError> {
+        self.purge(drive, bucket, drive_key, confirmation)
+    }
+
     fn packing(&self, drive: &str) -> Option<crate::packing::PackOptions> {
         if !self.packing {
             return None;

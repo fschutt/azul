@@ -808,6 +808,117 @@ fn i_was_hacked_locks_the_drive_down_then_rotates_its_key() {
     assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
 }
 
+/// A provider that keeps the history of its drive, as far as this test needs: it records what the
+/// account asks it to erase and answers with an empty report (the purge itself is the storage
+/// crate's: `x_delta_sync6_3_the_provider_trait_runs_the_confirmed_purge`).
+struct Erasing {
+    index: Arc<MemoryIndex>,
+    asked: Mutex<Vec<(String, u64)>>,
+}
+
+impl IndexProvider for Erasing {
+    fn open_index(
+        &self,
+        _drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _drive_key: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        Ok(self.index.clone())
+    }
+
+    fn rekey(
+        &self,
+        _drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _old: &DriveKey,
+        _new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        Ok(())
+    }
+
+    fn purge_confirmed(
+        &self,
+        drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _drive_key: &DriveKey,
+        confirmation: &azul_storage::meta::reclaim::PurgeConfirmation,
+    ) -> Result<azul_storage::meta::reclaim::ReclaimReport, DriveError> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push((drive.to_string(), confirmation.at));
+        Ok(azul_storage::meta::reclaim::ReclaimReport::none(
+            azul_storage::meta::reclaim::ReclaimMode::Delete,
+        ))
+    }
+}
+
+/// X-DELTA-SYNC6-3: the account's last step of "re-encrypt everything and erase the old versions"
+/// asks the provider only with the confirmation a pass recorded and only once the pass is over, and
+/// a provider that keeps no history refuses (nothing is erased, nothing said as if it were). RED on
+/// the old code: no such step existed - the purge had no caller outside tests.
+#[test]
+fn x_delta_sync6_3_erase_old_versions_needs_the_confirmation_and_the_end_of_the_pass() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-erase");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let index = Arc::new(MemoryIndex::new());
+    let provider = Erasing {
+        index: Arc::clone(&index),
+        asked: Mutex::new(Vec::new()),
+    };
+    a.open_encrypted(&keys, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+
+    let mut state = azul_storage::rotation::ReencryptState::new(u64::MAX);
+    // Nothing was confirmed: refused, and the provider is not asked.
+    let refused = a
+        .erase_old_versions(&keys, &provider, &state)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("not confirmed"), "{refused}");
+    // Confirmed, the pass has not run: refused too - what it replaces later would stay.
+    state.confirm_purge(azul_storage::time::now_unix());
+    let refused = a
+        .erase_old_versions(&keys, &provider, &state)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("not over"), "{refused}");
+    assert!(provider.asked.lock().unwrap().is_empty());
+
+    // The pass is over: the provider is asked, for this drive, with the confirmation's own time.
+    assert!(a
+        .reencrypt(&keys, &provider, &mut state, &mut |_| Ok(()), &|| false)
+        .unwrap());
+    let report = a.erase_old_versions(&keys, &provider, &state).unwrap();
+    assert_eq!(report.deleted, 0);
+    assert_eq!(
+        *provider.asked.lock().unwrap(),
+        vec![(String::from("d_1"), state.purge_confirmed_at.unwrap())]
+    );
+
+    // A provider that keeps no history says so; nothing is erased.
+    let plain = SharedIndex(index);
+    let refused = a
+        .erase_old_versions(&keys, &plain, &state)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("no history"), "{refused}");
+    assert_eq!(
+        a.open_encrypted(&keys, &plain)
+            .unwrap()
+            .get("notes/plan.txt")
+            .unwrap(),
+        b"the plan"
+    );
+}
+
 /// K2: whoever can write to the bucket can plant a rotation journal. It must not make "I was
 /// hacked" skip the account's lockdown (the attacker's tokens would stay valid) or fail the
 /// rotation on a key nobody has: the journal of a rotation that stopped on this device is the

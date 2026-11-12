@@ -42,7 +42,7 @@ use azul_storage::{
     },
     encrypted::{EncryptedDrive, Recorded},
     keyring::KeyringStore,
-    meta::{git, DriveBucket},
+    meta::{git, reclaim::ReclaimReport, DriveBucket},
     rotation::{self, ReencryptState, Rotated},
     trust::EncState,
     Drive, DriveError, S3Config, S3Drive,
@@ -418,6 +418,49 @@ impl Account {
         Ok(rotation::reencrypt_pass(
             &permit, &drive, state, save, stop,
         )?)
+    }
+
+    /// The last step of "re-encrypt everything and erase the old versions" (X-DELTA-SYNC6-3): once
+    /// [`Account::reencrypt`] has written every file into a new object, erases the old versions the
+    /// user confirmed with it - the objects the old drive key still opens, which a drive that keeps
+    /// its history holds as the files' history ([`IndexProvider::purge_confirmed`]). The user's
+    /// answer is the one `state` records ([`ReencryptState::confirm_purge`], taken before the pass:
+    /// what the pass replaces after the click is what it is for); nothing else erases them. The
+    /// report says what was erased and what a cap or a refusal left.
+    ///
+    /// # Errors
+    ///
+    /// `state` records no confirmation, or the pass is not over - nothing is erased (what a pass has
+    /// not replaced yet is the file itself, and what it replaces later would stay); no key on this
+    /// device; the provider's refusal (`Unsupported` for an index that keeps no history) or the
+    /// bucket's.
+    pub fn erase_old_versions(
+        &self,
+        keyring: &dyn KeyringStore,
+        provider: &dyn IndexProvider,
+        state: &ReencryptState,
+    ) -> CloudResult<ReclaimReport> {
+        let Some(confirmation) = state.purge_confirmation() else {
+            fail!(
+                "nothing was erased: the old versions of drive {} were not confirmed to go",
+                self.record().id
+            );
+        };
+        if !state.packs_done {
+            fail!(
+                "nothing was erased: the re-encryption of drive {} is not over, and what it \
+                 replaces later would stay",
+                self.record().id
+            );
+        }
+        let Some(drive_key) = self.unlock_key(keyring)? else {
+            fail!(
+                "nothing was erased: this device has no key for drive {}",
+                self.record().id
+            );
+        };
+        let bucket: Arc<dyn Drive> = Arc::new(self.bucket_drive()?);
+        Ok(provider.purge_confirmed(&self.record().id, bucket, &drive_key, &confirmation)?)
     }
 
     /// Turns incoming mail on for the encrypted drive: its drop key (the bucket's, else a new
