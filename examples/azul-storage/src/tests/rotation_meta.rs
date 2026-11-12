@@ -539,3 +539,112 @@ fn x_delta_keys2_1_a_rotation_has_begun_once_its_keys_are_in_the_keyring() {
         "a finished rotation took them away"
     );
 }
+
+// ==== X-DELTA-EDGE (E16b, T16): a device that lags behind a rotation ====
+
+/// The drive of [`world`] while a device that opened it with K1 is still running and another device,
+/// enrolled with K1, rotates it: the lagging device's open drive, the rotating device's keyring, and
+/// the manifest's ETag after the rotation.
+fn lagging_behind_a_rotation(w: &World) -> (Arc<dyn Drive>, MemoryKeyring, crate::ObjectInfo) {
+    // The lagging device opens the drive while it is K1's ...
+    let lagging: Arc<dyn Drive> = Arc::new(
+        open_encrypted(w.plain.clone(), &w.keyring, DRIVE, &w.provider)
+            .expect("the drive opens with K1"),
+    );
+    // ... and another device, enrolled with K1, rotates it.
+    let a = MemoryKeyring::new();
+    enroll(w.mem.as_ref(), &a, DRIVE, &w.old_key).unwrap();
+    rotate(w.plain.clone(), &a, DRIVE, &w.provider, cheap()).expect("the rotation runs");
+    let manifest = w.mem.head(keys::MANIFEST).expect("the manifest is there");
+    (lagging, a, manifest)
+}
+
+/// X-DELTA-EDGE (E16b, T16, the storage half, what the lagging device must NOT do). A device that
+/// opened the drive with K1 and is still running when another device rotates it: its `put` and
+/// `put_many` write the data object and then meet an index that is K2's. No commit lands - the manifest
+/// is as it was, the file is in nobody's index - and the error is no `Transport`, which a pass retries
+/// inside its budget as a network fault. A characterization test: green on the first run. What the
+/// error IS is the next test's.
+#[test]
+fn a_device_with_the_old_key_cannot_commit_after_a_rotation() {
+    let w = world();
+    let (lagging, a, manifest) = lagging_behind_a_rotation(&w);
+    let put = lagging.put("notes/late.txt", b"written with the old key");
+    assert!(put.is_err(), "a put with the old key lands nowhere");
+    assert!(
+        !matches!(put, Err(DriveError::Transport(_))),
+        "no network fault: {put:?}"
+    );
+    let items = [
+        crate::BatchPut::new("notes/late-1.txt", b"one"),
+        crate::BatchPut::new("notes/late-2.txt", b"two"),
+    ];
+    let many = lagging.put_many(&items);
+    assert_eq!(many.len(), 2);
+    for result in &many {
+        assert!(
+            result.is_err(),
+            "a put_many with the old key lands nowhere: {result:?}"
+        );
+        assert!(
+            !matches!(result, Err(DriveError::Transport(_))),
+            "{result:?}"
+        );
+    }
+    // No commit landed: the manifest is as it was, and the rotated drive lists none of the files.
+    assert_eq!(
+        w.mem
+            .head(keys::MANIFEST)
+            .expect("the manifest is there")
+            .etag,
+        manifest.etag,
+        "the manifest did not move"
+    );
+    let a_drive =
+        open_encrypted(w.plain.clone(), &a, DRIVE, &w.provider).expect("A opens the drive");
+    for key in ["notes/late.txt", "notes/late-1.txt", "notes/late-2.txt"] {
+        assert!(
+            matches!(a_drive.get(key), Err(DriveError::NotFound { .. })),
+            "{key} is in no index"
+        );
+    }
+    assert_eq!(a_drive.get("notes/plan.txt").unwrap(), b"the plan");
+}
+
+/// X-DELTA-EDGE (E16b, T16, the storage half, what the lagging device is TOLD). The same device is to
+/// be told to ask for the key - `Denied`, `KeyRefused` or `Locked` - so the pass says "sign in again"
+/// and not "a file is damaged". RED today, found by this test (X-TESTEDGE-A-1): the manifest "does
+/// not open with this drive's key: sealed under another drive key" is `MetaError::Sealed` and the index
+/// turns every `Sealed` into `DriveError::Corrupt`, which the kit's problem list files under
+/// `hash-mismatch` ("the drive's bytes do not match their hash"). The cause is a `SealError` that is
+/// a sentence: the wrong-key case (`meta/seal.rs` open: "sealed under another drive key") has no type
+/// of its own to tell it from a changed byte; the fix is a typed `WrongKey` carried to a
+/// `KeyRefused`, a key-state decision (ARCH29-KEYSTATE) this lane does not make. Ignored with the id
+/// until then; the first assertion is the one that fails.
+#[test]
+#[ignore = "X-TESTEDGE-A-1: a lagging device's put on a rotated drive is Corrupt, not KeyRefused (meta Sealed -> Corrupt)"]
+fn a_device_with_the_old_key_is_told_to_ask_for_the_key_after_a_rotation() {
+    let w = world();
+    let (lagging, _a, _) = lagging_behind_a_rotation(&w);
+    let asks_for_the_key = |result: &Result<(), DriveError>| {
+        matches!(
+            result,
+            Err(DriveError::Denied { .. }
+                | DriveError::KeyRefused { .. }
+                | DriveError::Locked { .. })
+        )
+    };
+    let put = lagging
+        .put("notes/late.txt", b"written with the old key")
+        .map(|_| ());
+    assert!(
+        asks_for_the_key(&put),
+        "put: told to ask for the key, not that a file is damaged: {put:?}"
+    );
+    let many: Vec<Result<(), DriveError>> = lagging
+        .put_many(&[crate::BatchPut::new("notes/late-1.txt", b"one")])
+        .into_iter()
+        .map(|r| r.map(|_| ()))
+        .collect();
+    assert!(asks_for_the_key(&many[0]), "put_many: {:?}", many[0]);
+}

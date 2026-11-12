@@ -665,3 +665,87 @@ fn a_file_unlinked_and_renamed_back_while_the_folder_is_read_is_held_by_the_seco
     assert_eq!(reads, 2, "the torn read is read again");
     assert!(scan.files.contains_key("x"), "{:?}", scan.files.keys());
 }
+
+/// X-DELTA-EDGE (E16b, T16, the sync half). A device that still holds the old key after a rotation:
+/// the drive answers every write with `KeyRefused` (the rotated drive's index is another key's). The
+/// pass fails with the table's `sign-in-needed`, nothing local is touched - the file is where it was
+/// with its bytes, no conflict copy, nothing trashed - and the backoff GROWS: a refusal the user must
+/// act on waits the ceiling, and each pass that fails again counts, so a device that lags behind is a
+/// slow poll and not a tight loop. A pass with the key (a good store) ends it. A characterization test:
+/// green on the first run.
+#[test]
+fn a_store_that_refuses_the_devices_old_key_keeps_the_folder_as_it_is_and_the_backoff_grows() {
+    use crate::sync::{problems::Code, retry::PassBackoff};
+    let bucket = Arc::new(S3Bucket::new());
+    let folder = TempDir::new("azcloud-chaos-old-key");
+    let state = TempDir::new("azcloud-chaos-old-key-state");
+    fs::write(folder.path().join("work.txt"), b"the user's work").unwrap();
+    session_over(bucket.clone(), &folder, &state)
+        .pass(&AtomicBool::new(false), &mut |_| {})
+        .expect("the first pass, with the key");
+    fs::write(
+        folder.path().join("work.txt"),
+        b"an edit made after the rotation",
+    )
+    .unwrap();
+    let store: Arc<dyn RemoteStore> = Arc::new(Refusing {
+        inner: bucket.clone(),
+        refusal: DriveError::KeyRefused {
+            drive: String::from("d_1"),
+            reason: String::from("the key of the drive's index is another's"),
+        },
+    });
+    let session = session_over(store, &folder, &state);
+    let mut waited = Vec::new();
+    for _ in 0..3 {
+        assert!(session.pass(&AtomicBool::new(false), &mut |_| {}).is_err());
+        let backoff = PassBackoff::load(session.dir());
+        waited.push((backoff.failures, backoff.not_before));
+    }
+    assert_eq!(
+        waited
+            .iter()
+            .map(|(failures, _)| *failures)
+            .collect::<Vec<_>>(),
+        [1, 2, 3],
+        "each failed pass counts"
+    );
+    assert!(
+        waited[2].1 > crate::now() as f64,
+        "the next pass waits: {waited:?}"
+    );
+    let problem = session
+        .states()
+        .last_problem
+        .expect("the errors table's word is kept");
+    assert_ne!(
+        problem.code, "network",
+        "a refused key is no network trouble: {problem:?}"
+    );
+    assert_eq!(
+        fs::read(folder.path().join("work.txt")).unwrap(),
+        b"an edit made after the rotation",
+        "the local file is as the user left it"
+    );
+    let names: Vec<String> = fs::read_dir(folder.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n != ".azlin")
+        .collect();
+    assert_eq!(names, ["work.txt"], "no copy, nothing moved");
+    assert!(
+        session
+            .problems()
+            .problems
+            .iter()
+            .any(|p| p.code == Code::SignInNeeded),
+        "{:?}",
+        session.problems().problems
+    );
+    // With the key again the pass goes through, sends the edit and clears the backoff.
+    let good = session_over(bucket.clone(), &folder, &state);
+    good.pass(&AtomicBool::new(false), &mut |_| {})
+        .expect("the pass with the key");
+    assert_eq!(PassBackoff::load(good.dir()).failures, 0);
+}
