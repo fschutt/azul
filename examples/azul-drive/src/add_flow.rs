@@ -1503,6 +1503,18 @@ pub(crate) fn abandoned(
             s.in_flight.retain(|c| c.checkout_id != checkout_id);
             AbandonOutcome::Ended
         }
+        // Over for the buyer, who may order again; the entry and its claim secret stay on the
+        // list for the day the token server puts the payment back, and the claims ask once a day
+        // (X-DELTA-MONEY5-1).
+        Abandoned::TakenBack => {
+            eprintln!(
+                "[azdrive] the payment of the checkout {checkout_id} was taken back: it stays on \
+                 the list"
+            );
+            s.in_flight.retain(|c| c.checkout_id != checkout_id);
+            start_claims(info, app, s);
+            AbandonOutcome::Ended
+        }
         Abandoned::Kept { paid, why } => {
             println!(
                 "AZDRIVE_ABANDONED {checkout_id} {}",

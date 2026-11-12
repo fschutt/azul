@@ -2998,7 +2998,7 @@ fn not_shown(
     mut why: StartFailed,
 ) -> StartFailed {
     match pending::abandon_unshown(server, keyring, posting_id, &checkout.checkout_id) {
-        Abandoned::Ended | Abandoned::Settled => why,
+        Abandoned::Ended | Abandoned::Settled | Abandoned::TakenBack => why,
         Abandoned::Kept { paid, why: kept } => {
             eprintln!(
                 "[azdrive] the checkout {} was not shown and stays on the list: {kept}",

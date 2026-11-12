@@ -28,7 +28,8 @@
 //! - a poll's answer that ends the checkout ([`Settled::ended_by`]): declined, expired, gone, the
 //!   hand-over purged - NOT a payment taken back, which the token server puts back when its
 //!   refund failed or a dispute was won;
-//! - an abandon's answer that ended it (`Settled::abandoned`, called by [`super::abandon`] only).
+//! - an abandon's answer that ended it (`Settled::abandoned`, called by [`super::abandon`] only) -
+//!   not `reversed`: a payment taken back may be put back, whoever asked.
 //!
 //! `money_gate` reads the sources: `Settled(` and `SettledBy::` stand in this file only.
 
@@ -193,7 +194,7 @@ impl NotMade {
     pub(super) fn unshown(abandoned: &Abandoned) -> Option<NotMade> {
         match abandoned {
             Abandoned::Ended | Abandoned::Settled => Some(NotMade(())),
-            Abandoned::Kept { .. } => None,
+            Abandoned::Kept { .. } | Abandoned::TakenBack => None,
         }
     }
 
@@ -204,6 +205,16 @@ impl NotMade {
         (entry.is_posting() && now.saturating_sub(entry.started_at) >= POSTING_LIFE_SECS)
             .then_some(NotMade(()))
     }
+}
+
+/// What an abandon's answer says of the checkout ([`Settled::abandoned`]).
+pub(super) enum Verdict {
+    /// Over for good: the proof that lets its claim key go.
+    Over(Settled),
+    /// Paid and taken back: over for the buyer, not for the claim key.
+    TakenBack,
+    /// It may still be paid, or the answer is none this build reads: the entry stays in flight.
+    Open,
 }
 
 impl Settled {
@@ -275,15 +286,24 @@ impl Settled {
         Settled(SettledBy::Receipted)
     }
 
-    /// The abandon's answer, when it ended the checkout ([`AbandonAnswer::is_over`]); `None`
-    /// when the checkout may still be paid. Made by [`super::abandon`] from the answer the token
-    /// server gave it and nowhere else: the answer is a public enum, so a caller that could call
-    /// this would end any checkout with one it made up (X-DELTA-AZDRIVE-MONEY-11).
+    /// What the abandon's answer says of the checkout: ONE total match over the contract's
+    /// answers, no wildcard arm - a word added to it is a decision made here. Over for good
+    /// ([`AbandonAnswer::is_over`]) it is the proof that lets the claim key go; a payment TAKEN
+    /// BACK is not: the contract calls `reversed` over, and the token server's restore approves it
+    /// again, so the claim key of its drive is not let go on the word (X-DELTA-MONEY5-1); a payment
+    /// that may still come, or an answer this build does not know, leaves the checkout in flight.
+    /// Made by [`super::abandon`] from the answer the token server gave it and nowhere else: the
+    /// answer is a public enum, so a caller that could call this would end any checkout with one it
+    /// made up (X-DELTA-AZDRIVE-MONEY-11).
     #[must_use]
-    pub(super) fn abandoned(answer: AbandonAnswer) -> Option<Settled> {
-        answer
-            .is_over()
-            .then_some(Settled(SettledBy::Abandoned(answer)))
+    pub(super) fn abandoned(answer: AbandonAnswer) -> Verdict {
+        match answer {
+            AbandonAnswer::Expired | AbandonAnswer::Declined | AbandonAnswer::Rejected => {
+                Verdict::Over(Settled(SettledBy::Abandoned(answer)))
+            }
+            AbandonAnswer::Reversed => Verdict::TakenBack,
+            AbandonAnswer::StillPending | AbandonAnswer::Unknown => Verdict::Open,
+        }
     }
 
     /// A proof for the tests of the list itself: a checkout whose abandon the token server
@@ -336,23 +356,65 @@ impl Settled {
 mod tests {
     use azlin_contract::AbandonAnswer;
 
-    use super::Settled;
+    use super::{Settled, Verdict};
 
-    /// An abandon's answer ends a checkout only when the token server says it is over; a pending
-    /// one (a letter of cash in the post) or a word this build does not know never does. (Only
+    /// An abandon's answer ends a checkout only when the token server says it is over for good; a
+    /// pending one (a letter of cash in the post), a word this build does not know and a payment
+    /// taken back (`reversed`: the token server's restore approves it again, X-DELTA-MONEY5-1)
+    /// never do. The total match agrees with the contract's own `is_over` on every word but that one
+    /// (a pair test: a word the contract calls over that this build does not decide fails it). (Only
     /// `abandon` calls `Settled::abandoned`: the answer is a public enum.)
     #[test]
-    fn an_abandon_ends_a_checkout_only_with_an_answer_that_says_it_is_over() {
+    fn an_abandon_ends_a_checkout_only_with_an_answer_that_says_it_is_over_for_good() {
         for over in [
             AbandonAnswer::Expired,
             AbandonAnswer::Declined,
-            AbandonAnswer::Reversed,
             AbandonAnswer::Rejected,
         ] {
-            assert!(Settled::abandoned(over).is_some(), "{over:?}");
+            assert!(
+                matches!(Settled::abandoned(over), Verdict::Over(_)),
+                "{over:?}"
+            );
         }
+        assert!(matches!(
+            Settled::abandoned(AbandonAnswer::Reversed),
+            Verdict::TakenBack
+        ));
         for open in [AbandonAnswer::StillPending, AbandonAnswer::Unknown] {
-            assert!(Settled::abandoned(open).is_none(), "{open:?}");
+            assert!(
+                matches!(Settled::abandoned(open), Verdict::Open),
+                "{open:?}"
+            );
         }
+        for answer in [
+            AbandonAnswer::Expired,
+            AbandonAnswer::StillPending,
+            AbandonAnswer::Declined,
+            AbandonAnswer::Reversed,
+            AbandonAnswer::Rejected,
+            AbandonAnswer::Unknown,
+        ] {
+            let ends = matches!(Settled::abandoned(answer), Verdict::Over(_));
+            assert_eq!(
+                ends,
+                answer.is_over() && answer != AbandonAnswer::Reversed,
+                "{answer:?}: the contract's `is_over`, but for a payment taken back"
+            );
+        }
+    }
+
+    /// A poll's answer ends a checkout only when it says it is over for good: declined, gone, its
+    /// hand-over purged. A payment taken back (`CheckoutStatus::Reversed`) ends nothing - the
+    /// token server puts it back when its refund failed or a dispute was won (X-DELTA-MONEY5-1).
+    #[test]
+    fn a_payment_taken_back_ends_nothing_and_a_decline_a_gone_checkout_and_a_purged_hand_over_do() {
+        use crate::token::CheckoutStatus;
+
+        let said = |status: CheckoutStatus| Settled::ended_by(&status, "ck_1");
+        assert!(said(CheckoutStatus::Reversed(String::from("a refund"))).is_none());
+        assert!(said(CheckoutStatus::Declined(String::from("no funds"))).is_some());
+        assert!(said(CheckoutStatus::Gone(String::from("expired"))).is_some());
+        assert!(said(CheckoutStatus::HandoverGone).is_some());
+        assert!(said(CheckoutStatus::Pending).is_none());
     }
 }

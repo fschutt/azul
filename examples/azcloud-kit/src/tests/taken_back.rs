@@ -18,9 +18,9 @@ use super::{bundle, json, period::ISSUE_KEY, Fake, Shared, TOKEN};
 use crate::{
     claim::seal,
     pending::{
-        self, AddError, Begun, Final, PendingCheckout, PendingTokens, Polled, ReceiptDue,
-        TakenBack, Transient, CASH_HANDOVER_KEPT_SECS, GRANT_WAIT_SECS, HANDOVER_KEPT_SECS,
-        TAKEN_BACK_ASK_SECS,
+        self, Abandoned, AddError, Begun, Final, PendingCheckout, PendingTokens, Polled,
+        ReceiptDue, TakenBack, Transient, CASH_HANDOVER_KEPT_SECS, GRANT_WAIT_SECS,
+        HANDOVER_KEPT_SECS, TAKEN_BACK_ASK_SECS,
     },
     token::CheckoutStatus,
     ClaimKey, SharedKeyring, TokenServer,
@@ -573,4 +573,64 @@ fn x_delta_money5_1_the_hand_over_s_life_is_one_number_the_token_server_s() {
     assert_eq!(ck.handover_life_secs(), 30 * DAY);
     ck.method = String::from("cash");
     assert_eq!(ck.handover_life_secs(), 120 * DAY);
+}
+
+/// The twin of the poll (X-DELTA-MONEY5-1): the abandon of an unclaimed checkout - the buyer
+/// starts another order, or closes the popover - that the token server answers `reversed`. The
+/// contract calls that answer "over" (`AbandonAnswer::is_over`), and the old kit let the claim
+/// secret go on it: the token server's restore then approved a drive nobody could open, through
+/// this door too. Now the entry and its secret stay, the buyer is told it is over for them
+/// (`Abandoned::TakenBack`: a new order may follow), and the restore's drive is claimed by the next
+/// poll. On the old code the first assertion fails (`Abandoned::Ended`, the entry gone).
+#[test]
+fn x_delta_money5_1_the_abandon_of_a_checkout_whose_payment_was_taken_back_keeps_its_entry_and_secret(
+) {
+    // a list of its own for each negative control (`shared` is this test's list below)
+    let list_in = |dir: &TempDir| shared(dir).0;
+    let dir = TempDir::new("azcloud-taken-back");
+    let (shared, keyring) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    pending::add(&shared, &unclaimed(&claim)).unwrap();
+    let abandoning = Fake::new(|call, _| {
+        assert!(
+            call.url.ends_with("/v1/checkout/ck_1/abandon"),
+            "{}",
+            call.url
+        );
+        Ok(json(
+            200,
+            r#"{"checkout_id": "ck_1", "status": "reversed"}"#,
+        ))
+    });
+    let transport = Shared(abandoning);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert_eq!(
+        pending::abandon(&server, &shared, "ck_1"),
+        Abandoned::TakenBack,
+        "over for the buyer, not for the claim key"
+    );
+    assert_eq!(pending::list(&shared).unwrap().len(), 1, "the entry stays");
+    assert!(secret_is_kept(&keyring, &claim), "and its claim secret");
+    // the other answers that are over still end it (the negative controls)
+    for status in ["expired", "declined", "rejected"] {
+        let dir = TempDir::new("azcloud-taken-back");
+        let other = list_in(&dir);
+        pending::add(&other, &unclaimed(&ClaimKey::generate().unwrap())).unwrap();
+        let body = format!(r#"{{"checkout_id": "ck_1", "status": "{status}"}}"#);
+        let transport = Shared(Fake::new(move |_, _| Ok(json(200, &body))));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        assert_eq!(
+            pending::abandon(&server, &other, "ck_1"),
+            Abandoned::Ended,
+            "{status}"
+        );
+        assert!(pending::list(&other).unwrap().is_empty(), "{status}");
+    }
+    // the token server restores the payment: the next poll claims the drive with the kept secret
+    let restored = Shared(saying(vec![approved(&claim)]));
+    let server = TokenServer::new(TOKEN, &restored).unwrap();
+    match pending::poll(&server, &shared, &listed(&shared)) {
+        Polled::Final(Final::Claimed(claimed)) => assert_eq!(claimed.bundle.drive_id(), "d_1"),
+        other => panic!("the restored drive was not claimed: {other:?}"),
+    }
 }

@@ -82,7 +82,7 @@ pub use paid::{PaidList, PaidRecord};
 pub use proof::Settled;
 use proof::{
     ClaimsEnded, GrantKept, GrantKeptEarlier, HandoverOver, NeverIssued, NoSuchCheckout, NotMade,
-    Strikes,
+    Strikes, Verdict,
 };
 
 /// The keyring entry of the unfinished checkouts.
@@ -1034,8 +1034,14 @@ pub enum Abandoned {
     Ended,
     /// Off the list already: another window dealt with it - and the token server's answer was
     /// the one that ends a checkout ([`Settled::abandoned`]); an answer that does not end it is
-    /// [`Abandoned::Kept`] whether or not an entry is left.
+    /// [`Abandoned::Kept`] (or [`Abandoned::TakenBack`]) whether or not an entry is left.
     Settled,
+    /// Its payment was paid and TAKEN BACK (a refund, a returned debit, a chargeback): nobody can
+    /// pay it, so the buyer may order again - but the token server puts a reversed payment back
+    /// when its refund failed or a dispute was won, and the drive then comes with the claim key
+    /// this entry keeps. The entry STAYS on the list, and the claims ask about it once a day
+    /// ([`Transient::TakenBack`], X-DELTA-MONEY5-1).
+    TakenBack,
     /// It stays on the list, its payment possibly under way ([`PendingCheckout::in_flight_since`]):
     /// it was paid meanwhile (`paid`: its drive comes with the payment's confirmation), or the
     /// token server could not end it (no answer, the provider did not answer, an answer this app
@@ -1075,8 +1081,10 @@ pub fn abandon(server: &TokenServer<'_>, shared: &SharedKeyring, checkout_id: &s
     };
     match server.abandon_checkout(checkout_id) {
         Ok(answer) => match Settled::abandoned(answer) {
-            Some(proof) => settled(proof),
-            None => kept(false, format!("the token server keeps it open ({answer:?})")),
+            Verdict::Over(proof) => settled(proof),
+            // Over for the buyer, not for the claim key: the token server may put the payment back.
+            Verdict::TakenBack => Abandoned::TakenBack,
+            Verdict::Open => kept(false, format!("the token server keeps it open ({answer:?})")),
         },
         Err(e) if e.is_checkout_paid() => kept(true, e.said()),
         // The token server's own word: it has no such checkout. A bare 404 is not it - the
