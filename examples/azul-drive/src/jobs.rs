@@ -3219,7 +3219,7 @@ pub(crate) fn finish_is_quiet(finished: &Finished) -> bool {
         finished,
         Finished::Kept(_)
             | Finished::Waits { count: 0, .. }
-            | Finished::Receipt(pending::Receipted::Waits(_))
+            | Finished::Receipt(pending::Receipted::Waits(_) | pending::Receipted::LateWaits(_))
     )
 }
 

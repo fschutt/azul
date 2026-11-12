@@ -752,3 +752,201 @@ fn x_delta_money2_3_a_checkout_that_waits_for_its_receipt_only_gives_its_place_t
         "the newest stays"
     );
 }
+
+// ==== X-DELTA-MONEY5-5: a look that could not be made is not an answer ====
+
+/// What the token server does with one question about `ck_1`.
+#[derive(Clone, Copy)]
+enum Step {
+    /// Approved, and the sale is booked: the receipt.
+    Receipt,
+    /// Approved, no sale booked yet.
+    NoReceipt,
+    /// The connection drops: no answer.
+    Down,
+    /// A 503: the token server is busy.
+    Busy,
+}
+
+/// The token server of `ck_1`: its n-th answer about the checkout is `steps[n]` (the last goes
+/// on); it issues `ck_1`'s months as the period tests' server does. What it was asked about the
+/// checkout is counted.
+fn scripted(sealed: String, steps: &'static [Step]) -> (Arc<Fake>, Arc<AtomicUsize>) {
+    let issuing = issuing_server(keys(), N1, D1, "100GB/2026");
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counted = asked.clone();
+    let fake = Fake::new(move |call, _| {
+        if call.url.contains("/v1/checkout/ck_1") {
+            let n = counted.fetch_add(1, Ordering::SeqCst);
+            let approved = |receipt: &str| {
+                json(
+                    200,
+                    &format!(
+                        r#"{{"checkout_id": "ck_1", "status": "approved", "sealed_signup": "{sealed}",
+                            "tier": "100GB", "months": 12, "months_paid": 12{receipt}}}"#
+                    ),
+                )
+            };
+            return match steps[n.min(steps.len() - 1)] {
+                Step::Receipt => Ok(approved(&format!(r#", "receipt": {RECEIPT}"#))),
+                Step::NoReceipt => Ok(approved("")),
+                Step::Down => Err(String::from("connection reset by peer")),
+                Step::Busy => Ok(json(
+                    503,
+                    r#"{"error": "busy", "message": "try again in a moment"}"#,
+                )),
+            };
+        }
+        issuing.send(call)
+    });
+    (fake, asked)
+}
+
+/// A claimed entry whose grant is kept and that waits for its receipt only; `steps` are what the
+/// token server answers - the claim's poll and the finish's look are the first two.
+fn waiting_for_a_receipt(
+    steps: &'static [Step],
+) -> (TempDir, SharedKeyring, Arc<Fake>, Arc<AtomicUsize>) {
+    let dir = TempDir::new("azcloud-receipt");
+    let shared = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    let ck = PendingCheckout::new("ck_1", &claim, "100GB", TOKEN, "Photos");
+    pending::add(&shared, &ck).unwrap();
+    let (fake, asked) = scripted(drive_signup(&claim), steps);
+    {
+        let transport = Shared(fake.clone());
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        assert_eq!(poll_claimed(&server, &shared, &ck), Recorded::Kept);
+        let ck = claimed_entry(&shared);
+        let owed = ck.period.clone().unwrap();
+        let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+        let (tokens, _) = tokens_in_drive(&store);
+        assert!(matches!(
+            pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW),
+            Finished::AwaitsReceipt(_)
+        ));
+    }
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        2,
+        "the poll and the finish's look"
+    );
+    (dir, shared, fake, asked)
+}
+
+/// X-DELTA-MONEY5-5. A laptop that was shut for three days is "over" at its first look after the
+/// start, and that look was the one the wait gave up on: a connection that dropped after the wake,
+/// a 503 - and the entry left the list with a record that never named its receipt; nothing asked
+/// again, and the sale the token server books a day later never reached it. A look that could not
+/// be made is not an answer: the wait goes on, a day apart, and the receipt that is booked after
+/// all reaches the record. On the old code the first look after the three days ends it (`GaveUp`,
+/// the entry gone).
+#[test]
+fn x_delta_money5_5_a_failed_look_after_the_three_days_is_not_the_end_of_the_wait() {
+    let (_dir, shared, fake, asked) = waiting_for_a_receipt(&[
+        Step::NoReceipt,
+        Step::NoReceipt,
+        Step::Down,
+        Step::Busy,
+        Step::Receipt,
+    ]);
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = |days: i64| {
+        let listed = pending::list(&shared).unwrap();
+        pending::await_receipt(
+            &server,
+            &shared,
+            &listed[0],
+            NOW + u64::try_from(days * DAY).unwrap(),
+        )
+    };
+    // day 4: the wait is over - and the connection drops: no answer, no end
+    match look(4) {
+        Finished::Receipt(Receipted::LateWaits(why)) => {
+            assert!(why.contains("connection reset"), "{why}");
+        }
+        other => panic!("a look that got no answer ended the wait: {other:?}"),
+    }
+    assert_eq!(pending::list(&shared).unwrap().len(), 1, "the entry stays");
+    // day 5: a busy token server is no answer either
+    assert!(matches!(
+        look(5),
+        Finished::Receipt(Receipted::LateWaits(_))
+    ));
+    assert_eq!(pending::list(&shared).unwrap().len(), 1, "and stays");
+    assert!(
+        record_of(&shared).is_some_and(|r| r.receipt.is_none()),
+        "a record, no sale yet"
+    );
+    // day 6: the sale is booked after all, and reaches the record
+    assert!(matches!(look(6), Finished::Receipt(Receipted::Kept)));
+    assert_eq!(asked.load(Ordering::SeqCst), 5);
+    assert!(
+        record_of(&shared)
+            .is_some_and(|r| r.receipt.as_ref().map(|r| r.rate_permille) == Some(190)),
+        "the sale is recorded"
+    );
+    assert!(pending::list(&shared).unwrap().is_empty());
+}
+
+/// The failed look is not "over" before the three days either, and the retry has an end: a token
+/// server that never answers is asked once a day for a week more, and then the entry goes with its
+/// record as it is. An ANSWER of "no sale booked" after the three days ends the wait at once, as it
+/// always did (the negative control).
+#[test]
+fn x_delta_money5_5_the_retry_of_a_look_that_cannot_be_made_ends_after_a_week_and_an_answer_ends_the_wait_at_once(
+) {
+    // never an answer: LateWaits from day 4, the end at day 10 (three days and a week)
+    let (_dir, shared, fake, _) =
+        waiting_for_a_receipt(&[Step::NoReceipt, Step::NoReceipt, Step::Down]);
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let look = |days: i64| {
+        let listed = pending::list(&shared).unwrap();
+        pending::await_receipt(
+            &server,
+            &shared,
+            &listed[0],
+            NOW + u64::try_from(days * DAY).unwrap(),
+        )
+    };
+    // within the three days: a look that cannot be made is the plain wait
+    assert!(matches!(look(2), Finished::Receipt(Receipted::Waits(_))));
+    for days in 4..10 {
+        assert!(
+            matches!(look(days), Finished::Receipt(Receipted::LateWaits(_))),
+            "day {days}"
+        );
+    }
+    assert_eq!(
+        pending::list(&shared).unwrap().len(),
+        1,
+        "day 9: still waiting"
+    );
+    assert!(
+        matches!(look(10), Finished::Receipt(Receipted::GaveUp)),
+        "three days and a week: the end"
+    );
+    assert!(pending::list(&shared).unwrap().is_empty());
+    assert!(
+        record_of(&shared).is_some_and(|r| r.receipt.is_none()),
+        "the record stays as it is"
+    );
+
+    // an answer, "no sale booked": the end at the first look after the three days
+    let (_dir, shared, fake, _) = waiting_for_a_receipt(&[Step::NoReceipt]);
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let listed = pending::list(&shared).unwrap();
+    assert!(matches!(
+        pending::await_receipt(
+            &server,
+            &shared,
+            &listed[0],
+            NOW + 4 * u64::try_from(DAY).unwrap()
+        ),
+        Finished::Receipt(Receipted::GaveUp)
+    ));
+    assert!(pending::list(&shared).unwrap().is_empty());
+}

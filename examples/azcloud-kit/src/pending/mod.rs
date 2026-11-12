@@ -49,7 +49,10 @@
 //! or a record that could not be kept - is marked ([`PendingCheckout::receipt_due`]) and stays on
 //! the list past its grant, for [`RECEIPT_WAIT_SECS`], until an answer names the receipt and the
 //! record keeps it ([`finish`], then [`await_receipt`] once its grant is kept elsewhere): the
-//! receipt is the only invoice data the customer has (ENT27-B06, X-DELTA-MONEY2-3). A checkout that
+//! receipt is the only invoice data the customer has (ENT27-B06, X-DELTA-MONEY2-3). The wait ends
+//! on an ANSWER after its three days - the receipt, or "no sale booked" -: a look that could not be
+//! made (a dropped connection, a busy token server) is no answer, and the wait goes on a day apart
+//! for [`RECEIPT_RETRY_SECS`] more ([`Receipted::LateWaits`], X-DELTA-MONEY5-5). A checkout that
 //! waits for nothing but its receipt gives its place on the list to a new order that would not fit
 //! otherwise, the oldest first.
 //!
@@ -1873,8 +1876,16 @@ pub enum Receipted {
     /// The token server names no receipt yet, or the paid list could not take it - why: the
     /// checkout stays on the list and the next look asks again.
     Waits(String),
-    /// [`RECEIPT_WAIT_SECS`] have been seen pass without one: the record stays as it is (the
-    /// receipt of that sale is not on this computer) and the checkout is off the list.
+    /// The wait's three days ([`RECEIPT_WAIT_SECS`]) are over and the last look could not be
+    /// made - no answer from the token server, a busy one, a paid list that could not be
+    /// written -, why: that is no answer, so it is not the end. The checkout stays and the next
+    /// look is a day on ([`RECEIPT_RETRY_EVERY_SECS`]), for [`RECEIPT_RETRY_SECS`] more at most
+    /// (X-DELTA-MONEY5-5).
+    LateWaits(String),
+    /// [`RECEIPT_WAIT_SECS`] have been seen pass and the token server ANSWERED with no sale
+    /// booked - or [`RECEIPT_RETRY_SECS`] more have, in which no look could be made: the record
+    /// stays as it is (the receipt of that sale is not on this computer) and the checkout is off
+    /// the list.
     GaveUp,
 }
 
@@ -1885,6 +1896,17 @@ pub enum Receipted {
 /// such a sale does not reach this computer, and the record says so ("no sale was booked") -
 /// the bound keeps a checkout's claim secret and issue key from sitting on the list for it.
 pub const RECEIPT_WAIT_SECS: i64 = 3 * 86_400;
+
+/// How much longer than [`RECEIPT_WAIT_SECS`] a paid checkout whose looks cannot be made waits for
+/// its receipt: a week. The three days end on an ANSWER - the token server names the sale, or says
+/// it booked none -; a look that got no answer (a connection that dropped after a wake, a 503) is
+/// no answer, and the wait goes on, [`RECEIPT_RETRY_EVERY_SECS`] apart, until this is gone too
+/// (X-DELTA-MONEY5-5).
+pub const RECEIPT_RETRY_SECS: i64 = 7 * 86_400;
+
+/// How often a look for the receipt that could not be made after the three days is made again: a
+/// day ([`Receipted::LateWaits`]).
+pub const RECEIPT_RETRY_EVERY_SECS: u64 = 86_400;
 
 /// How long the token server keeps the sealed sign-up of a paid checkout - the hand-over its
 /// claim secret opens: 30 days from the payment (CLAIM CONTRACT v1; azlin-token's
@@ -1907,20 +1929,12 @@ pub const CASH_HANDOVER_KEPT_SECS: i64 = 4 * HANDOVER_KEPT_SECS;
 /// on this computer and the keyring's goes.
 pub const GRANT_WAIT_SECS: i64 = HANDOVER_KEPT_SECS;
 
-/// What a round of a wait counted from the claim found.
-enum Wait {
-    /// The wait's span has been seen pass since the claim.
-    Over,
-    /// Not yet.
-    On,
-}
-
 /// Counts the wait of the claimed checkout `checkout_id` (its `period` as the list has it) to
-/// `now` (seconds since 1970): whether `span` seconds - [`GRANT_WAIT_SECS`] for the drive's
-/// vault, [`RECEIPT_WAIT_SECS`] for the receipt - have been seen pass since the claim, with what
-/// was counted written into the list - when a step of the clock moved the claim moment, or an
-/// hour after the last write (a round every few seconds does not write the keyring every few
-/// seconds).
+/// `now` (seconds since 1970): how many seconds have been seen pass since the claim - the caller
+/// compares them with its span, [`GRANT_WAIT_SECS`] for the drive's vault, [`RECEIPT_WAIT_SECS`]
+/// (and [`RECEIPT_RETRY_SECS`] more) for the receipt -, with what was counted written into the
+/// list - when a step of the clock moved the claim moment, or an hour after the last write (a
+/// round every few seconds does not write the keyring every few seconds).
 ///
 /// # Errors
 ///
@@ -1930,10 +1944,10 @@ fn count_wait(
     checkout_id: &str,
     period: &PendingTokens,
     now: u64,
-    span: i64,
-) -> CloudResult<Wait> {
+) -> CloudResult<i64> {
     let Ok(now) = i64::try_from(now) else {
-        return Ok(Wait::On);
+        // a time no clock reaches: nothing is seen pass
+        return Ok(0);
     };
     let (claimed_at, counted_at) = period.counted_to(now);
     let moved = claimed_at != period.claimed_at || period.counted_at <= 0;
@@ -1945,11 +1959,7 @@ fn count_wait(
             }
         })?;
     }
-    Ok(if now.saturating_sub(claimed_at) >= span {
-        Wait::Over
-    } else {
-        Wait::On
-    })
+    Ok(now.saturating_sub(claimed_at))
 }
 
 /// The lock under which one checkout's period tokens are issued (a second window waits, then
@@ -2074,8 +2084,8 @@ pub fn finish(
         Some(proof) => (proof, None),
         None => {
             let period = listed.period.as_ref().unwrap_or(owed);
-            match count_wait(shared, id, period, now, GRANT_WAIT_SECS) {
-                Ok(Wait::Over) => match tokens.keep_second_copy() {
+            match count_wait(shared, id, period, now) {
+                Ok(seen) if seen >= GRANT_WAIT_SECS => match tokens.keep_second_copy() {
                     Ok(second) => match GrantKept::of(&second) {
                         Some(proof) => (proof, Some(in_vaults.why_not_redundant())),
                         None => {
@@ -2090,7 +2100,7 @@ pub fn finish(
                         ))
                     }
                 },
-                Ok(Wait::On) => {
+                Ok(_) => {
                     return Finished::Waits {
                         drive_id,
                         count,
@@ -2120,7 +2130,9 @@ pub fn finish(
     // on the list, its grant being in two places, until the receipt comes or the wait is over
     // (ENT27-B06, X-DELTA-MONEY2-3).
     if listed.receipt_due.is_some() && !checkout.picked_up {
-        if let Receipted::Waits(_) = look_for_receipt(server, shared, &listed, now) {
+        if let Receipted::Waits(_) | Receipted::LateWaits(_) =
+            look_for_receipt(server, shared, &listed, now)
+        {
             return match mark_grant_kept(shared, id, &proof) {
                 Ok(()) => Finished::AwaitsReceipt(Box::new(finished)),
                 Err(e) => Finished::Kept(format!(
@@ -2190,7 +2202,7 @@ fn await_receipt_listed(
         ));
     };
     match look_for_receipt(server, shared, listed, now) {
-        Receipted::Waits(why) => Finished::Receipt(Receipted::Waits(why)),
+        waits @ (Receipted::Waits(_) | Receipted::LateWaits(_)) => Finished::Receipt(waits),
         done @ (Receipted::Kept | Receipted::GaveUp) => {
             match settle(shared, &listed.checkout_id, Settled::receipted(&kept)) {
                 Ok(_) => Finished::Receipt(done),
@@ -2200,10 +2212,29 @@ fn await_receipt_listed(
     }
 }
 
+/// What one look for the receipt came to.
+enum Looked {
+    /// The paid list names the receipt now.
+    Receipt,
+    /// The token server ANSWERED, and there is no receipt to keep: it booked no sale yet, or does
+    /// not call the checkout paid. Why.
+    Answered(String),
+    /// The look could not be made: no answer from the token server, a busy one, a paid list that
+    /// could not be read or written. Why. No answer is not an answer: it ends no wait
+    /// (X-DELTA-MONEY5-5).
+    Failed(String),
+}
+
 /// One look for the receipt of the claimed checkout `listed` (as the list has it): the wait
 /// counted to `now` first (a look that finds nothing moves it on), then the token server asked
 /// ([`TokenServer::checkout_paid`]) and the paid list kept or improved from its answer
 /// ([`keep_receipt`]). Changes nothing on the list but the wait's stamps.
+///
+/// The wait ends on an ANSWER after [`RECEIPT_WAIT_SECS`]: the receipt, or "no sale booked" - and
+/// with no answer at all not before a week more ([`RECEIPT_RETRY_SECS`]) has been seen pass:
+/// [`Receipted::LateWaits`], a day apart. A laptop that was shut for three days is over at its first
+/// look after the start, and a dropped connection at that look must not be the end of it
+/// (X-DELTA-MONEY5-5).
 fn look_for_receipt(
     server: &TokenServer<'_>,
     shared: &SharedKeyring,
@@ -2211,10 +2242,9 @@ fn look_for_receipt(
     now: u64,
 ) -> Receipted {
     let id = listed.checkout_id.as_str();
-    let over = match &listed.period {
-        Some(period) => match count_wait(shared, id, period, now, RECEIPT_WAIT_SECS) {
-            Ok(Wait::Over) => true,
-            Ok(Wait::On) => false,
+    let seen = match &listed.period {
+        Some(period) => match count_wait(shared, id, period, now) {
+            Ok(seen) => seen,
             Err(e) => {
                 return Receipted::Waits(format!(
                     "the wait for its receipt could not be counted: {e}"
@@ -2222,53 +2252,57 @@ fn look_for_receipt(
             }
         },
         // Not claimed: nothing counts from a claim yet.
-        None => false,
+        None => 0,
     };
+    let over = seen >= RECEIPT_WAIT_SECS;
     let looked = match server.checkout_paid(id) {
         Ok(Some(paid)) => keep_receipt(shared, listed, &paid),
-        Ok(None) => Err(String::from("the token server does not call it paid")),
-        Err(e) => Err(e.to_string()),
+        Ok(None) => Looked::Answered(String::from("the token server does not call it paid")),
+        Err(e) => Looked::Failed(e.to_string()),
     };
     match looked {
-        Ok(()) => Receipted::Kept,
-        Err(_) if over => Receipted::GaveUp,
-        Err(why) => Receipted::Waits(why),
+        Looked::Receipt => Receipted::Kept,
+        Looked::Answered(_) if over => Receipted::GaveUp,
+        Looked::Answered(why) => Receipted::Waits(why),
+        Looked::Failed(_) if seen >= RECEIPT_WAIT_SECS.saturating_add(RECEIPT_RETRY_SECS) => {
+            Receipted::GaveUp
+        }
+        Looked::Failed(why) if over => Receipted::LateWaits(why),
+        Looked::Failed(why) => Receipted::Waits(why),
     }
 }
 
 /// Keeps the record of the payment of the claimed checkout `listed` from `paid`, the token
-/// server's answer now: `Ok` when the paid list names the receipt, `Err` why not - the answer
-/// names none yet, or the list could not be kept. A record the first claim could not keep is made
-/// here (without a receipt when the answer has none): the next look after the way is free.
-fn keep_receipt(
-    shared: &SharedKeyring,
-    listed: &PendingCheckout,
-    paid: &Paid,
-) -> Result<(), String> {
+/// server's answer now: [`Looked::Receipt`] when the paid list names the receipt, [`Looked::Answered`]
+/// when the answer names none yet, [`Looked::Failed`] when the list could not be kept. A record the
+/// first claim could not keep is made here (without a receipt when the answer has none): the next
+/// look after the way is free.
+fn keep_receipt(shared: &SharedKeyring, listed: &PendingCheckout, paid: &Paid) -> Looked {
     let Some(period) = &listed.period else {
-        return Err(String::from("it is not claimed"));
+        return Looked::Failed(String::from("it is not claimed"));
     };
-    let list = shared.paid().map_err(|e| e.to_string())?;
+    let list = match shared.paid() {
+        Ok(list) => list,
+        Err(e) => return Looked::Failed(e.to_string()),
+    };
     // A failed read is no "no record": keeping sets a list that does not parse aside, or says
     // why it cannot.
     let recorded = matches!(list.of_checkout(&listed.checkout_id), Ok(Some(_)));
+    let no_sale = || Looked::Answered(String::from("the token server has booked no sale for it yet"));
     if paid.receipt.is_none() && recorded {
-        return Err(String::from(
-            "the token server has booked no sale for it yet",
-        ));
+        return no_sale();
     }
     let at = if period.claimed_at > 0 {
         period.claimed_at
     } else {
         crate::now()
     };
-    list.keep(&paid_record(listed, &period.drive_id, None, paid, at))
-        .map_err(|e| e.to_string())?;
+    if let Err(e) = list.keep(&paid_record(listed, &period.drive_id, None, paid, at)) {
+        return Looked::Failed(e.to_string());
+    }
     if paid.receipt.is_some() {
-        Ok(())
+        Looked::Receipt
     } else {
-        Err(String::from(
-            "the token server has booked no sale for it yet",
-        ))
+        no_sale()
     }
 }

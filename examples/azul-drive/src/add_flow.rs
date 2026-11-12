@@ -2187,6 +2187,13 @@ pub(crate) fn checkout_finished(
             Receipted::Waits(why) => {
                 eprintln!("[azdrive] the receipt of the checkout {checkout_id} is awaited: {why}");
             }
+            Receipted::LateWaits(why) => {
+                eprintln!(
+                    "[azdrive] the three days for the receipt of the checkout {checkout_id} are \
+                     over and the look at the token server could not be made, so the wait goes on: \
+                     {why}"
+                );
+            }
             Receipted::GaveUp => {
                 eprintln!(
                     "[azdrive] the token server named no receipt for the checkout {checkout_id} \
