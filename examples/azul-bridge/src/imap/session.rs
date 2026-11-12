@@ -142,6 +142,16 @@ enum Next {
     Close,
 }
 
+/// How a mailbox name a client sends is matched against the mailboxes
+/// ([`Session::resolve`], [`Session::resolve_exact`]).
+#[derive(Clone, Copy)]
+enum Spelling {
+    /// By its path, else the mailbox that differs only in case.
+    AnyCase,
+    /// By its path alone.
+    Exact,
+}
+
 pub(super) struct Session<'s, C: Conn> {
     imap: &'s Imap,
     conn: C,
@@ -647,18 +657,44 @@ impl<'s, C: Conn> Session<'s, C> {
         }
     }
 
+    /// The mailbox a command that only READS or ADDS names (SELECT, EXAMINE, STATUS, APPEND, the
+    /// target of COPY and MOVE): by its path, else the one that differs in case (INBOX alone is
+    /// case-insensitive; a program that lower-cases names still finds its mailbox).
     fn resolve(&self, raw: &[u8]) -> Result<Option<MailboxInfo>, StoreError> {
+        self.find_mailbox(raw, Spelling::AnyCase)
+    }
+
+    /// The mailbox a command that REMOVES or MOVES a mailbox with its mail names (DELETE, the
+    /// source of RENAME): by its exact path only - IMAP's names are case-sensitive, and `work` is
+    /// not `Work`, which holds the mail. INBOX stays case-insensitive (it is refused anyway).
+    /// The store checks the exact name again, but it is handed the real spelling [`resolve`]
+    /// found, so only this lookup can refuse it (X-DELTA-APPS3-1).
+    ///
+    /// [`resolve`]: Session::resolve
+    fn resolve_exact(&self, raw: &[u8]) -> Result<Option<MailboxInfo>, StoreError> {
+        self.find_mailbox(raw, Spelling::Exact)
+    }
+
+    /// The one lookup of a mailbox by the name a client sends ([`Spelling`]).
+    fn find_mailbox(
+        &self,
+        raw: &[u8],
+        spelling: Spelling,
+    ) -> Result<Option<MailboxInfo>, StoreError> {
         let name = self.name_from(raw);
         let name = name.trim_end_matches('/');
         let boxes = self.imap.store.mailboxes()?;
         if name.eq_ignore_ascii_case("INBOX") {
             return Ok(boxes.into_iter().find(|b| b.role == Role::Inbox));
         }
-        Ok(boxes
-            .iter()
-            .find(|b| b.path == name)
-            .or_else(|| boxes.iter().find(|b| b.path.eq_ignore_ascii_case(name)))
-            .cloned())
+        let exact = boxes.iter().find(|b| b.path == name);
+        Ok(match spelling {
+            Spelling::Exact => exact,
+            Spelling::AnyCase => {
+                exact.or_else(|| boxes.iter().find(|b| b.path.eq_ignore_ascii_case(name)))
+            }
+        }
+        .cloned())
     }
 
     /// A new mailbox's path from the name a client gives.
@@ -835,7 +871,8 @@ impl<'s, C: Conn> Session<'s, C> {
     }
 
     fn delete(&mut self, tag: &str, raw: &[u8]) -> Next {
-        let info = match self.resolve(raw) {
+        // The exact name: `DELETE work` is not `DELETE Work` and removes nothing (X-DELTA-APPS3-1).
+        let info = match self.resolve_exact(raw) {
             Ok(Some(info)) => info,
             Ok(None) => return self.no(tag, "[NONEXISTENT] No such mailbox"),
             Err(e) => return self.store_no(tag, &e),
@@ -850,7 +887,9 @@ impl<'s, C: Conn> Session<'s, C> {
     }
 
     fn rename(&mut self, tag: &str, from: &[u8], to: &[u8]) -> Next {
-        let info = match self.resolve(from) {
+        // The source by its exact name, as DELETE's; the target may not differ from a mailbox
+        // that exists in case alone (the store refuses it: "exists already").
+        let info = match self.resolve_exact(from) {
             Ok(Some(info)) => info,
             Ok(None) => return self.no(tag, "[NONEXISTENT] No such mailbox"),
             Err(e) => return self.store_no(tag, &e),

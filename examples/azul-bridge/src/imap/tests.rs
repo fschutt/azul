@@ -433,6 +433,150 @@ fn mailboxes_are_created_renamed_and_deleted_and_bad_names_refused() {
     assert!(client.run("m7", "DELETE INBOX").last().unwrap().starts_with("m7 NO"));
 }
 
+/// A drive whose mailbox `Work` holds three messages and nothing else is in the mailbox.
+fn work_with_three_mails() -> Arc<MemoryDrive> {
+    let drive = Arc::new(MemoryDrive::new());
+    drive.set_now(OCT_1);
+    for (at, subject) in ["one", "two", "three"].into_iter().enumerate() {
+        let bytes = mail(subject, "Kept.");
+        let name = azlin::object_name(&bytes, OCT_1 + at as u64);
+        drive
+            .put(&azlin::message_key("Work", &name), &bytes)
+            .unwrap();
+    }
+    drive
+}
+
+/// X-DELTA-APPS3-1, RED on `47c0de7b2`: the store was made to match a mailbox by its exact name,
+/// but the session found `Work` for `work` BEFORE the store saw the name and handed it the real
+/// spelling, so the check never fired: `DELETE work` removed `Work` with every message in it and
+/// `RENAME work Play` moved it. Here the program speaks through the socket: a name in another
+/// case names no mailbox for a command that destroys or moves one, the drive stays byte for
+/// byte as it was, and the exact name still works.
+#[test]
+fn x_delta_apps3_1_delete_and_rename_find_a_mailbox_by_its_exact_name_only() {
+    let drive = work_with_three_mails();
+    let kept = drive.keys();
+    assert_eq!(kept.len(), 3, "{kept:?}");
+    let mut client = Client::signed_in(bridge(drive.clone()));
+    for (tag, command) in [
+        ("d1", "DELETE work"),
+        ("d2", "DELETE WORK"),
+        ("d3", "DELETE work/"),
+        ("d4", "RENAME work Play"),
+        ("d5", "RENAME WORK Play"),
+        ("d6", "RENAME work/ Play"),
+    ] {
+        let refused = client.run(tag, command);
+        assert!(
+            refused
+                .last()
+                .unwrap()
+                .starts_with(&format!("{tag} NO [NONEXISTENT]")),
+            "{command}: {refused:?}"
+        );
+        assert_eq!(
+            drive.keys(),
+            kept,
+            "{command}: the mailbox and every message are as they were"
+        );
+    }
+    // The mail is still served under its name.
+    assert!(has(&client.ok("d7", "SELECT Work"), "* 3 EXISTS"));
+    client.ok("d8", "CLOSE");
+    // INBOX alone is case-insensitive, and refused as before (DELETE and RENAME).
+    let inbox = client.run("d9", "DELETE inbox");
+    assert!(
+        inbox.last().unwrap().starts_with("d9 NO [CANNOT]"),
+        "{inbox:?}"
+    );
+    let inbox = client.run("da", "RENAME inbox Elsewhere");
+    assert!(
+        inbox.last().unwrap().starts_with("da NO [CANNOT]"),
+        "{inbox:?}"
+    );
+    // A target that differs from a mailbox that exists in case alone is refused, as before.
+    let same = client.run("db", "RENAME Work work");
+    assert!(
+        same.last().unwrap().starts_with("db NO [ALREADYEXISTS]"),
+        "{same:?}"
+    );
+    assert_eq!(drive.keys(), kept);
+    // The exact names work: the mail moves with the mailbox, and the delete takes it all.
+    client.ok("dc", "RENAME Work Play");
+    let moved = drive.keys();
+    assert_eq!(moved.len(), 3, "{moved:?}");
+    assert!(
+        moved.iter().all(|k| k.starts_with("mail/Play/")),
+        "{moved:?}"
+    );
+    client.ok("dd", "DELETE Play");
+    assert!(drive.keys().is_empty(), "{:?}", drive.keys());
+}
+
+/// The sweep of X-DELTA-APPS3-1 over every verb that resolves a name: what a name in another case
+/// does where it still finds the mailbox. STATUS, SELECT, APPEND and the target of COPY and MOVE
+/// look the mailbox up leniently, and none of them destroys or makes a second mailbox: the mail is
+/// added to `Work` (a MOVE removes its source only after the copy landed), and CREATE refuses a
+/// name that differs from a mailbox that exists in case alone.
+#[test]
+fn x_delta_apps3_1_the_lenient_lookups_add_to_the_mailbox_and_never_make_a_second_one() {
+    let drive = work_with_three_mails();
+    for (at, subject) in ["lunch", "plans"].into_iter().enumerate() {
+        let bytes = mail(subject, "In the inbox.");
+        let name = azlin::object_name(&bytes, OCT_1 + 100 + at as u64);
+        drive
+            .put(&azlin::message_key("Inbox", &name), &bytes)
+            .unwrap();
+    }
+    let in_work = |drive: &MemoryDrive| {
+        drive
+            .keys()
+            .iter()
+            .filter(|k| k.starts_with("mail/Work/"))
+            .count()
+    };
+    let mut client = Client::signed_in(bridge(drive.clone()));
+    assert!(has(
+        &client.ok("e1", "STATUS work (MESSAGES)"),
+        "MESSAGES 3"
+    ));
+    let message = mail("four", "Appended.");
+    client.send(format!("e2 APPEND work {{{}+}}\r\n", message.len()).as_bytes());
+    client.send(&message);
+    client.send(b"\r\n");
+    let appended = client.until("e2");
+    assert!(
+        appended.last().unwrap().starts_with("e2 OK"),
+        "{appended:?}"
+    );
+    assert_eq!(in_work(&drive), 4);
+    assert!(has(&client.ok("e3", "SELECT Inbox"), "* 2 EXISTS"));
+    client.ok("e4", "COPY 1 work");
+    assert_eq!(in_work(&drive), 5, "the copy landed in Work");
+    client.ok("e5", "MOVE 2 work");
+    assert_eq!(in_work(&drive), 6, "the moved message landed in Work");
+    let inbox = drive
+        .keys()
+        .iter()
+        .filter(|k| k.starts_with("mail/Inbox/"))
+        .count();
+    assert_eq!(
+        inbox, 1,
+        "the move removed its source after the copy landed"
+    );
+    let created = client.run("e6", "CREATE work");
+    assert!(
+        created.last().unwrap().starts_with("e6 NO [ALREADYEXISTS]"),
+        "{created:?}"
+    );
+    let keys = drive.keys();
+    assert!(
+        keys.iter().all(|k| !k.starts_with("mail/work/")),
+        "no second mailbox: {keys:?}"
+    );
+}
+
 #[test]
 fn idle_tells_about_new_mail_and_ends_with_done() {
     let drive = seeded();
