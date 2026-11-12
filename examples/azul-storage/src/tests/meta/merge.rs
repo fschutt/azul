@@ -371,3 +371,39 @@ fn the_merge_base_is_the_newest_common_state_not_an_older_one() {
     let theirs = commit(&mut objects, tree, &[side2, old], 6);
     assert_eq!(merge_base(&objects, &mine, &theirs).unwrap(), Some(newer));
 }
+
+/// X-DELTA-EDGE-4, the twin in the encrypted drive's metadata merge: a copy's name never ended - each
+/// copy of a copy added its label to the first one's - and a name past 255 bytes is none a folder
+/// holds. A stem of 120 accented letters and a device named by 100 bytes, the result fed back six
+/// times: one label in every name, 255 bytes at most, the extension kept; and the numbered names the
+/// merge gives a second copy are cut the same way.
+#[test]
+fn a_conflict_name_is_cut_to_a_name_a_folder_holds_and_a_copy_of_a_copy_folds_the_label() {
+    let device = "d".repeat(100);
+    let mut name = format!("{}.md", "\u{e9}".repeat(120));
+    for level in 0..6 {
+        let copy = conflict_name(&name, &device);
+        assert!(copy.len() <= 255, "level {level}: {} bytes", copy.len());
+        assert!(copy.ends_with(").md"), "{copy}");
+        assert_eq!(copy.matches("(conflict, ").count(), 1, "one label: {copy}");
+        assert!(copy.starts_with('\u{e9}'), "the stem is cut, not dropped");
+        name = copy;
+    }
+    // A copy of a copy by another device takes the first copy's place in the name.
+    assert_eq!(
+        conflict_name("report (conflict, Laptop).docx", "Phone"),
+        "report (conflict, Phone).docx"
+    );
+    // A numbered copy ("Phone 2") is folded the same way.
+    assert_eq!(
+        conflict_name("report (conflict, Phone 2).docx", "Phone 3"),
+        "report (conflict, Phone 3).docx"
+    );
+    // A name that is nothing but a label stays as it is, and a long "extension" is no extension.
+    assert_eq!(
+        conflict_name(" (conflict, X)", "Y"),
+        " (conflict, X) (conflict, Y)"
+    );
+    let odd = conflict_name(&format!("a.{}", "x".repeat(300)), "Laptop");
+    assert!(odd.len() <= 255, "{} bytes", odd.len());
+}

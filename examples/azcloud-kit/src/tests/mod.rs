@@ -94,6 +94,8 @@ mod sync_hostile;
 /// The base as a SQLite state database.
 #[cfg(feature = "state-db")]
 mod sync_base;
+/// Conflicts between devices that were offline, run until every device is quiet.
+mod sync_cascade;
 /// The engine around real passes: loops, the operations log, problems, recovery, marks.
 mod sync_engine;
 /// The sync test harness's drive folder as a drive side.

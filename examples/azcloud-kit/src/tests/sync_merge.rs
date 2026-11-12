@@ -1,12 +1,13 @@
 //! The three-way merge: every row of its table, the conflict copies' names, the JSON merge.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 
 use crate::sync::{
     local::{BaseEntry, Content, LocalFile, LocalView},
-    merge::{conflict_name, deleted_elsewhere, merge_json, plan, Action, PlanInput},
+    merge::{conflict_name, copy_name, deleted_elsewhere, merge_json, plan, Action, PlanInput},
+    names,
     remote::{RemoteFile, RemoteIndex, Tombstone},
 };
 
@@ -583,4 +584,148 @@ fn rf46_the_three_way_table_keeps_its_invariants_over_75_cases() {
         }
     }
     assert_eq!(cases, 75);
+}
+
+/// X-DELTA-EDGE-4 (E2b, T4, the name). A copy's name never ended: `copy_name` added its label to the
+/// stem as it was, 33 to 60 bytes a level, and a copy of a copy added a second label to the first
+/// one's. A name past 255 bytes is no name a folder holds. A stem of 120 accented letters and a
+/// device name of 60 bytes, and the result fed to `conflict_name` again six times: every name is a
+/// key the name table accepts, one name is 255 bytes at most, the extension and the date are kept,
+/// the label of the copy it was made from is folded into the new one (one `(conflict` in a name),
+/// and a name that is taken - the key itself and the copies made so far - is not given twice. RED on
+/// the old code: the second name is 326 bytes.
+#[test]
+fn a_conflict_copy_of_a_conflict_copy_gets_a_valid_name_and_never_a_second_label() {
+    let device = "d".repeat(60);
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut key = format!("p/{}.md", "\u{e9}".repeat(120));
+    seen.insert(key.clone());
+    for level in 0..6 {
+        let copy = conflict_name(&key, &device, "2026-11-11", &|name| seen.contains(name));
+        assert_eq!(names::key_problem(&copy), None, "level {level}: {copy}");
+        let name = copy.rsplit('/').next().unwrap();
+        assert!(name.len() <= 255, "level {level}: {} bytes", name.len());
+        assert!(
+            copy.ends_with(").md") && copy.contains(" 2026-11-11"),
+            "{copy}"
+        );
+        assert!(
+            copy.starts_with("p/\u{e9}"),
+            "the stem is cut, not dropped: {copy}"
+        );
+        assert_eq!(copy.matches("(conflict ").count(), 1, "one label: {copy}");
+        assert_ne!(copy, key, "level {level}: the copy is another name");
+        assert!(
+            seen.insert(copy.clone()),
+            "level {level}: {copy} was given before"
+        );
+        key = copy;
+    }
+    // The cut is at a character: a stem of four-byte letters has a budget that falls inside one.
+    let emoji = conflict_name(
+        &format!("{}.md", "\u{1f600}".repeat(120)),
+        &device,
+        "2026-11-11",
+        &|_| false,
+    );
+    assert!(
+        emoji.len() <= 255 && names::key_problem(&emoji).is_none(),
+        "{emoji}"
+    );
+    assert!(emoji.starts_with('\u{1f600}'));
+    // A copy for a device whose name is long: most of the stem goes, and the result is still a name.
+    let wide = "w".repeat(200);
+    let copy = conflict_name("a.md", &wide, "2026-11-11", &|_| false);
+    assert!(copy.len() <= 255, "{} bytes", copy.len());
+    // The same cut holds for the second copy shape the sync makes, a trashed version put back.
+    let put_back = copy_name(
+        &format!("{}.txt", "s".repeat(300)),
+        "restored 2026-11-11",
+        &|_| false,
+    );
+    assert!(put_back.len() <= 255, "{} bytes", put_back.len());
+    assert!(
+        put_back.ends_with("(restored 2026-11-11).txt"),
+        "{put_back}"
+    );
+}
+
+/// X-DELTA-EDGE-4: the copy a pass cut short committed is found again by the same cut. A conflict
+/// copy of a long-named file is on the drive with this side's bytes under the name `conflict_name`
+/// gave it on another day; the next pass finishes that conflict (key -> that copy) and makes no
+/// second copy - which it did not when the search prefix was cut differently from the name.
+#[test]
+fn a_cut_conflict_of_a_long_name_is_finished_and_not_copied_a_second_time() {
+    let key = format!("big/{}.md", "s".repeat(250));
+    let copy = conflict_name(&key, "laptop", "2026-11-11", &|_| false);
+    assert!(copy.rsplit('/').next().unwrap().len() <= 255, "{copy}");
+    let base: BTreeMap<String, BaseEntry> = [(
+        key.clone(),
+        BaseEntry {
+            hash: h('1'),
+            size: 1,
+            ..BaseEntry::default()
+        },
+    )]
+    .into();
+    // Here: edited ('2'). On the drive: the other device's edit ('3') under the name, and this
+    // device's own version ('2') under the copy's name, committed by the pass that was cut.
+    let locals: BTreeMap<String, LocalFile> = [(key.clone(), local('2'))].into();
+    let mut remote = RemoteIndex::empty();
+    remote.files.insert(key.clone(), remote_file('3'));
+    remote.files.insert(copy.clone(), remote_file('2'));
+    let never = |_: &str| false;
+    let actions = plan(&PlanInput {
+        base: &base,
+        local: &LocalView::of_files(&locals),
+        remote: &remote,
+        excluded: &never,
+        device: "laptop",
+        // Another day: the copy is found by its device, whatever date it carries.
+        date: "2026-11-12",
+    });
+    assert_eq!(
+        actions,
+        vec![Action::Conflict { key, copy }],
+        "the cut conflict is finished under the copy's own name"
+    );
+}
+
+/// X-DELTA-EDGE-4: a conflict whose copy would have a name no key can be - the folder's path is 4,080
+/// bytes and leaves no room - is not committed: the action is taken out of the plan, the key changes
+/// on neither side, and the pass lists it as a bad name. The pass's other actions stay.
+#[test]
+fn a_conflict_whose_copy_no_key_can_be_is_held_and_listed_and_the_rest_goes_on() {
+    use crate::sync::{hold_unnameable_copies, problems::Code, SyncReport};
+    let key = format!("{}a.md", format!("{}/", "d".repeat(101)).repeat(40));
+    assert_eq!(names::key_problem(&key), None, "the file itself is a key");
+    let copy = conflict_name(&key, "B", "2026-11-12", &|_| false);
+    assert!(
+        names::key_problem(&copy).is_some(),
+        "its copy cannot be one: {} bytes",
+        copy.len()
+    );
+    let mut actions = vec![
+        Action::Upload {
+            key: String::from("x.md"),
+        },
+        Action::Conflict {
+            key: key.clone(),
+            copy,
+        },
+        Action::Conflict {
+            key: String::from("fine.md"),
+            copy: String::from("fine (conflict B 2026-11-12).md"),
+        },
+    ];
+    let mut report = SyncReport::default();
+    hold_unnameable_copies(&mut actions, &mut report);
+    assert_eq!(actions.len(), 2, "{actions:?}");
+    assert!(actions.iter().all(|a| a.key() != key));
+    let told: Vec<_> = report.problems.iter().collect();
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(
+        (told[0].code, told[0].key.as_str()),
+        (Code::BadName, key.as_str())
+    );
 }

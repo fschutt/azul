@@ -7,6 +7,13 @@
 //! [`LoopDetector::applied`] once it did. A file whose state returns [`REPEATS`] times within
 //! [`WINDOW_SECS`] is frozen. A growing file (a log) never repeats a state, so it never trips.
 //! The memory lives in the pairing's state folder (`loops.json`).
+//!
+//! A conflict copy is a state that never repeats - each is a new name - so a file two devices edit
+//! against each other for ever would make a copy at every round, each one a new file on every
+//! device and in the quota. They are counted apart ([`LoopDetector::copies_frozen`],
+//! [`LoopDetector::copied`]): the fourth copy of one key within [`WINDOW_SECS`] is frozen and
+//! listed, and the folder goes on syncing everything else (EDGE.md E2c; the owner's decision, taken
+//! as recommended: at most [`MAX_COPIES`] an hour).
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -23,6 +30,8 @@ pub const LOOPS_FILE: &str = "loops.json";
 pub const REPEATS: usize = 3;
 /// How far back the detector looks (seconds).
 pub const WINDOW_SECS: f64 = 3600.0;
+/// How many conflict copies of one file may be made within [`WINDOW_SECS`] before it is frozen.
+pub const MAX_COPIES: usize = 3;
 
 /// What a file is here after a step: its content (and executable bit), or `None` for gone.
 pub type State = Option<String>;
@@ -33,6 +42,9 @@ pub struct LoopDetector {
     /// Per key, the states a pass left it in within the window, oldest first.
     #[serde(default)]
     pub history: BTreeMap<String, Vec<(f64, State)>>,
+    /// Per key, when a pass made a conflict copy of it within the window, oldest first.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub copies: BTreeMap<String, Vec<f64>>,
 }
 
 impl LoopDetector {
@@ -74,9 +86,26 @@ impl LoopDetector {
         self.history.insert(key.to_string(), kept);
     }
 
-    /// The user chose what `key` should be: it is no loop any more, its history starts afresh.
+    /// Whether one more conflict copy of `key` would be the fourth within the window.
+    #[must_use]
+    pub fn copies_frozen(&self, key: &str, now: f64) -> bool {
+        self.copies.get(key).is_some_and(|times| {
+            times.iter().filter(|t| now - **t < WINDOW_SECS).count() >= MAX_COPIES
+        })
+    }
+
+    /// A pass made a conflict copy of `key` at `now`. Older entries than the window are dropped.
+    pub fn copied(&mut self, key: &str, now: f64) {
+        let times = self.copies.entry(key.to_string()).or_default();
+        times.retain(|t| now - *t < WINDOW_SECS);
+        times.push(now);
+    }
+
+    /// The user chose what `key` should be: it is no loop any more, its history starts afresh, and
+    /// so does the count of its copies.
     pub fn release(&mut self, key: &str) {
         self.history.remove(key);
+        self.copies.remove(key);
     }
 
     /// Drops every key with nothing left in the window (the memory stays small).
@@ -84,6 +113,10 @@ impl LoopDetector {
         self.history.retain(|_, states| {
             states.retain(|(t, _)| now - *t < WINDOW_SECS);
             !states.is_empty()
+        });
+        self.copies.retain(|_, times| {
+            times.retain(|t| now - *t < WINDOW_SECS);
+            !times.is_empty()
         });
     }
 

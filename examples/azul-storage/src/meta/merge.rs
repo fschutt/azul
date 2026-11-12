@@ -79,12 +79,52 @@ pub fn keep_both(_: &Conflict) -> Resolution {
     Resolution::KeepBoth
 }
 
+/// The longest a device's name is in a copy's name, in bytes.
+const DEVICE_MAX: usize = 64;
+
+/// The longest an extension may be: what follows the last dot of a longer name is part of its stem.
+const EXTENSION_MAX: usize = 32;
+
+/// `text` cut to at most `budget` bytes, at a character.
+fn cut_to(text: &str, budget: usize) -> &str {
+    let mut end = budget.min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// `stem` without the label of a conflict copy at its end (` (conflict, Laptop)`), as often as there
+/// is one: a copy of a copy is made from the name of the file the first copy was made of. A stem that
+/// is nothing but a label stays as it is.
+fn without_conflict_label(mut stem: &str) -> &str {
+    const OPEN: &str = " (conflict, ";
+    while let Some(inner) = stem.strip_suffix(')') {
+        match inner.rfind(OPEN) {
+            Some(at) if at > 0 => stem = &inner[..at],
+            _ => break,
+        }
+    }
+    stem
+}
+
 /// `report (conflict, Laptop).docx` for `report.docx`; `notes (conflict,
 /// Laptop)` for `notes`; a leading dot is not an extension (`.profile
 /// (conflict, Laptop)`). Characters a name cannot hold are dropped from the
-/// device's name.
+/// device's name. A copy of a copy is made from the name of the file the first copy was made of
+/// (`report (conflict, Phone).docx`, never `report (conflict, Laptop) (conflict, Phone).docx`), and
+/// the name is cut at a character to one name's length, 255 bytes, at most: a name past it is none
+/// a folder holds (X-DELTA-EDGE-4: the folder sync's copies grew a label a level and failed their
+/// rename here).
 #[must_use]
 pub fn conflict_name(name: &str, device: &str) -> String {
+    numbered_conflict_name(name, device, 1)
+}
+
+/// [`conflict_name`] for the `n`th copy of the same name: from the second on, ` n` follows the
+/// device (`report (conflict, Laptop 2).docx`). The number is no part of the device's name, so the
+/// cut of a long device name never takes it.
+fn numbered_conflict_name(name: &str, device: &str, n: u32) -> String {
     let device: String = device
         .chars()
         .filter(|c| !matches!(c, '/' | '\0' | '\\'))
@@ -92,22 +132,31 @@ pub fn conflict_name(name: &str, device: &str) -> String {
     let device = if device.trim().is_empty() {
         "another device".to_string()
     } else {
-        device.trim().to_string()
+        cut_to(device.trim(), DEVICE_MAX).to_string()
     };
-    match name.rfind('.') {
-        Some(dot) if dot > 0 => format!("{} (conflict, {device}){}", &name[..dot], &name[dot..]),
-        _ => format!("{name} (conflict, {device})"),
-    }
+    let device = if n > 1 {
+        format!("{device} {n}")
+    } else {
+        device
+    };
+    let (stem, ext) = match name.rfind('.') {
+        Some(dot) if dot > 0 && name.len() - dot <= EXTENSION_MAX => (&name[..dot], &name[dot..]),
+        _ => (name, ""),
+    };
+    let stem = without_conflict_label(stem);
+    let label = format!(" (conflict, {device})");
+    let room = crate::key::NAME_MAX_BYTES.saturating_sub(label.len() + ext.len());
+    format!("{}{label}{ext}", cut_to(stem, room))
 }
 
 /// A name for the copy that no entry of the folder has: the conflict name,
 /// then with ` 2`, ` 3`, ... after the device.
 fn free_copy_name(name: &str, device: &str, taken: &mut HashSet<String>) -> String {
-    let mut candidate = conflict_name(name, device);
-    let mut n = 2;
+    let mut n = 1;
+    let mut candidate = numbered_conflict_name(name, device, n);
     while taken.contains(&candidate) {
-        candidate = conflict_name(name, &format!("{device} {n}"));
         n += 1;
+        candidate = numbered_conflict_name(name, device, n);
     }
     taken.insert(candidate.clone());
     candidate

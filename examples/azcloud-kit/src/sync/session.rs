@@ -1962,6 +1962,9 @@ impl SyncSession {
         else {
             fail!("{key} has no conflict to answer");
         };
+        // The user chose what the file should be: the unattended bound on its copies and its loop
+        // are let go (an answer is never frozen out by what was done without one).
+        self.engine().release_loop(key)?;
         match choice {
             // Recorded with the answer below.
             Resolution::KeepBoth => {}

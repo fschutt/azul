@@ -33,6 +33,7 @@ use serde_json::{Map, Value};
 
 use super::{
     local::{BaseEntry, Content, Local, LocalView},
+    names::{COMPONENT_MAX_BYTES, PATH_MAX_BYTES},
     remote::{RemoteFile, RemoteIndex},
 };
 
@@ -112,20 +113,55 @@ pub struct PlanInput<'a> {
     pub date: &'a str,
 }
 
+/// The room a number (` 2` to ` 999999`) may take at the end of a copy's label: a stem is cut for it
+/// once, so one prefix finds a copy of a key whatever its number ([`cut_conflicts`]).
+const NUMBER_ROOM: usize = 7;
+
+/// The longest an extension may be: what follows the last dot of a longer name is no extension but a
+/// part of its stem, so a name is never all extension.
+const EXTENSION_MAX: usize = 32;
+
 /// The name of this side's copy of a conflicting `key`: `notes/a (conflict
-/// laptop 2026-10-08).md` in the same folder, `... 2)`, `... 3)` when that is
-/// taken.
+/// laptop 2026-10-08).md` in the same folder, `... 2)`, `... 3)` when that is taken. A copy of a copy
+/// is made from the name of the file the first copy was made of - `notes/a (conflict phone
+/// 2026-10-09).md`, never `notes/a (conflict laptop 2026-10-08) (conflict phone 2026-10-09).md` -
+/// and the name is cut at a character so that it is a name a folder holds, one name's length and one
+/// key's at most (X-DELTA-EDGE-4: the copy's key is committed before the rename here, and a name
+/// past 255 bytes failed the rename and stayed on the drive for every device to list as unreadable).
 #[must_use]
 pub fn conflict_name(key: &str, device: &str, date: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    copy_name(key, &format!("conflict {device} {date}"), taken)
+    let (dir, stem, ext) = name_parts(key);
+    let stem = without_conflict_label(stem);
+    let label = format!("conflict {device} {date}");
+    copy_from(
+        dir,
+        stem_for(dir, stem, ext, &label),
+        ext,
+        &label,
+        key,
+        taken,
+    )
 }
 
 /// The name of a second copy of `key` that says what it is, `notes/a (label).md` in the same
-/// folder, `(label 2)`, `(label 3)` when that is taken: a conflict's copy ([`conflict_name`]) and
-/// a trashed version put back beside a file that has its name now ([`super::trash`]).
+/// folder, `(label 2)`, `(label 3)` when that is taken: a trashed version put back beside a file that
+/// has its name now ([`super::trash`]), and the shape of a conflict's copy ([`conflict_name`]). The
+/// name is cut at a character to one name's length and one key's at most.
 #[must_use]
 pub fn copy_name(key: &str, label: &str, taken: &dyn Fn(&str) -> bool) -> String {
     let (dir, stem, ext) = name_parts(key);
+    copy_from(dir, stem_for(dir, stem, ext, label), ext, label, key, taken)
+}
+
+/// `{dir}{stem} ({label}[ n]){ext}` for the first number that is neither `key` nor `taken`.
+fn copy_from(
+    dir: &str,
+    stem: &str,
+    ext: &str,
+    label: &str,
+    key: &str,
+    taken: &dyn Fn(&str) -> bool,
+) -> String {
     let mut n = 1u32;
     loop {
         let suffix = if n == 1 {
@@ -134,11 +170,29 @@ pub fn copy_name(key: &str, label: &str, taken: &dyn Fn(&str) -> bool) -> String
             format!(" {n}")
         };
         let candidate = format!("{dir}{stem} ({label}{suffix}){ext}");
-        if !taken(&candidate) {
+        if candidate != key && !taken(&candidate) {
             return candidate;
         }
         n += 1;
     }
+}
+
+/// `text` cut to at most `budget` bytes, at a character.
+fn cut_to(text: &str, budget: usize) -> &str {
+    let mut end = budget.min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// The stem to put before ` (label)` in a copy of a file of `dir` that ends in `ext`: `stem` cut so
+/// that the copy's name is one name's length at most and its key one key's, a number's room kept.
+fn stem_for<'s>(dir: &str, stem: &'s str, ext: &str, label: &str) -> &'s str {
+    let labelled = " (".len() + label.len() + NUMBER_ROOM + ")".len() + ext.len();
+    let name_room = COMPONENT_MAX_BYTES.saturating_sub(labelled);
+    let key_room = PATH_MAX_BYTES.saturating_sub(dir.len() + labelled);
+    cut_to(stem, name_room.min(key_room))
 }
 
 /// `key`'s folder (with its slash), its name's stem and its extension (with its dot).
@@ -148,18 +202,67 @@ fn name_parts(key: &str) -> (&str, &str, &str) {
         None => ("", key),
     };
     let (stem, ext) = match name.rfind('.') {
-        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        Some(i) if i > 0 && name.len() - i <= EXTENSION_MAX => (&name[..i], &name[i..]),
         _ => (name, ""),
     };
     (dir, stem, ext)
 }
 
+/// Whether `text` is a date as a copy's name has it, `2026-10-08`.
+fn is_date(text: &str) -> bool {
+    text.len() == 10
+        && text.bytes().enumerate().all(|(i, b)| {
+            if i == 4 || i == 7 {
+                b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        })
+}
+
+/// `stem` without the label of a conflict copy at its end (` (conflict laptop 2026-10-08)`, `... 2)`),
+/// as often as there is one: a copy of a copy is made from the name of the file the first copy was
+/// made of. A stem that is nothing but a label stays as it is.
+fn without_conflict_label(mut stem: &str) -> &str {
+    const OPEN: &str = " (conflict ";
+    while let Some(inner) = stem.strip_suffix(')') {
+        let Some(at) = inner.rfind(OPEN) else { break };
+        let tokens: Vec<&str> = inner[at + OPEN.len()..].split(' ').collect();
+        let n = tokens.len();
+        let is_number = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+        // `<device> <date>` or `<device> <date> <number>`, a device of one name or several.
+        let date_at = if n >= 3 && is_number(tokens[n - 1]) && is_date(tokens[n - 2]) {
+            n - 2
+        } else if n >= 2 && is_date(tokens[n - 1]) {
+            n - 1
+        } else {
+            break;
+        };
+        if date_at == 0 || at == 0 {
+            break;
+        }
+        stem = &inner[..at];
+    }
+    stem
+}
+
+/// The name every copy of `key` that `device` made begins with (`notes/a (conflict laptop `), up to
+/// its date and number, and `key`'s extension: the same cut and fold as [`conflict_name`], whose date
+/// has a fixed length, so the prefix does not depend on it.
+fn conflict_prefix<'k>(key: &'k str, device: &str) -> (String, &'k str) {
+    let (dir, stem, ext) = name_parts(key);
+    let stem = without_conflict_label(stem);
+    let label = format!("conflict {device} 0000-00-00");
+    let cut = stem_for(dir, stem, ext, &label);
+    (format!("{dir}{cut} (conflict {device} "), ext)
+}
+
 /// Whether `name` is a copy [`conflict_name`] makes of `key` for `device`, of any date and
 /// number.
 fn is_conflict_copy_of(name: &str, key: &str, device: &str) -> bool {
-    let (dir, stem, ext) = name_parts(key);
+    let (prefix, ext) = conflict_prefix(key, device);
     let Some(middle) = name
-        .strip_prefix(&format!("{dir}{stem} (conflict {device} "))
+        .strip_prefix(&prefix)
         .and_then(|rest| rest.strip_suffix(&format!("){ext}")))
     else {
         return false;
@@ -168,12 +271,7 @@ fn is_conflict_copy_of(name: &str, key: &str, device: &str) -> bool {
         Some((date, number)) => (date, Some(number)),
         None => (middle, None),
     };
-    let is_date = date.len() == 10
-        && date
-            .bytes()
-            .enumerate()
-            .all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() });
-    is_date && number.is_none_or(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    is_date(date) && number.is_none_or(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The conflicts a pass cut short already settled on the drive: a pass commits this side's
@@ -201,8 +299,7 @@ fn cut_conflicts(input: &PlanInput<'_>) -> BTreeMap<String, String> {
         {
             continue;
         }
-        let (dir, stem, _) = name_parts(key);
-        let prefix = format!("{dir}{stem} (conflict {} ", input.device);
+        let (prefix, _) = conflict_prefix(key, input.device);
         let copy = input
             .remote
             .files

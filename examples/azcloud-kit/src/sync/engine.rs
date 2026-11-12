@@ -514,16 +514,30 @@ impl Observer for Engine {
                 Action::DeleteLocal { key } => (key, None),
                 _ => return true,
             };
-            if !loops.frozen(key, &next, now) {
-                return true;
+            if loops.frozen(key, &next, now) {
+                problems.push(Problem::new(
+                    Code::LoopFrozen,
+                    key,
+                    "it keeps changing back and forth between the same versions; it is left as \
+                     it is until you choose",
+                ));
+                return false;
             }
-            problems.push(Problem::new(
-                Code::LoopFrozen,
-                key,
-                "it keeps changing back and forth between the same versions; it is left as \
-                 it is until you choose",
-            ));
-            false
+            // A copy is a new name each time, so no state repeats: the copies are counted.
+            if matches!(action, Action::Conflict { .. }) && loops.copies_frozen(key, now) {
+                problems.push(Problem::new(
+                    Code::LoopFrozen,
+                    key,
+                    format!(
+                        "it was kept as a conflict copy {} times within the hour and both devices \
+                         changed it again; it is left as it is, here and on the drive, until you \
+                         choose",
+                        super::loops::MAX_COPIES
+                    ),
+                ));
+                return false;
+            }
+            true
         });
     }
 
@@ -554,6 +568,12 @@ impl Observer for Engine {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .applied(&key, state, now);
+        }
+        if let Step::Conflict { key, .. } = step {
+            self.loops
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .copied(key, now);
         }
         if let (Step::Download { key, writer, .. }, Some(path)) = (step, path) {
             if quarantine::supported() && !self.writers.is_own(writer) {

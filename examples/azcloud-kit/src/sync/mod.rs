@@ -621,9 +621,11 @@ pub enum Target<'a> {
     Named(&'a dyn azul_storage::Drive),
 }
 
-/// Today, `2026-10-08` (UTC), for conflict copies.
-fn today() -> String {
-    let stamp = crate::rfc3339(crate::now());
+/// Today, `2026-10-08` (UTC), for conflict copies: by this computer's clock as the run reads it, the
+/// `clock_offset` of its options (a device whose clock is a day ahead names its copies with that
+/// day).
+fn today(clock_offset: i64) -> String {
+    let stamp = crate::rfc3339(crate::now().saturating_add(clock_offset));
     stamp.get(..10).unwrap_or(&stamp).to_string()
 }
 
@@ -3676,6 +3678,30 @@ fn keep_saves(
     });
 }
 
+/// A conflict whose copy would have a name no key can be - the folder's own path leaves no room for
+/// it - is not made: the copy would be committed to the drive and then refused here, and every
+/// device would list it as unreadable (X-DELTA-EDGE-4). Nothing of the key changes on either side,
+/// and the pass lists it.
+pub(crate) fn hold_unnameable_copies(actions: &mut Vec<Action>, report: &mut SyncReport) {
+    actions.retain(|action| {
+        let Action::Conflict { key, copy } = action else {
+            return true;
+        };
+        let Some(why) = names::key_problem(copy) else {
+            return true;
+        };
+        report.tell(
+            problems::Code::BadName,
+            key,
+            format!(
+                "it changed here and on the drive, and the copy that keeps this version would \
+                 have a name no key can be ({why}); it is left as it is on both sides"
+            ),
+        );
+        false
+    });
+}
+
 /// Checks every file of the drive before the plan (M1, S2, P1-P5): a name this system or disk
 /// cannot hold, two names this disk takes for one, a file whose folder here is a link, another
 /// disk or a file, a folder here where the drive has a file. Each is listed and frozen: the
@@ -4141,7 +4167,7 @@ fn run_pass<R: SyncRemote + ?Sized>(
     // What an attempt tells is told again by the next one (another device committed first).
     let told = report.problems.len();
     let told_counts = report.told.clone();
-    let date = today();
+    let date = today(opts.clock_offset);
     let mut cached = load_cache(index_path, &index);
     let mut pause = None;
     // The clock the expiries of this pass are judged by, looked at once the drive has answered.
@@ -4401,6 +4427,7 @@ fn run_pass<R: SyncRemote + ?Sized>(
             );
         }
         let mut actions = merge::plan(&input);
+        hold_unnameable_copies(&mut actions, &mut report);
         keep_saves(&mut actions, &scan, base, &root.path, &mut report);
         // A backup's one-way answers first: a conflict there is no question for the user.
         if hooks.backup {
