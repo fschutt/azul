@@ -370,6 +370,7 @@ azmail-acct-summary-sending = Senden: { $how }
 azmail-acct-new-drive-encrypted = Das neue Laufwerk { $drive } ist bereit und verschlüsselt: „Fertig stellen“ fügt es als dieses Konto hinzu. Sein WIEDERHERSTELLUNGSCODE, nur dieses eine Mal angezeigt und nirgends gespeichert – schreib ihn auf und bewahre ihn getrennt von diesem Computer auf (Azlin kann ihn nicht zurücksetzen): { $code }
 azmail-acct-new-drive = Das neue Laufwerk { $drive } ist bereit: „Fertig stellen“ fügt es als dieses Konto hinzu.
 azmail-pending-code = Das neue Laufwerk { $drive } wurde angelegt und verschlüsselt, aber sein Wiederherstellungscode wurde nie angezeigt: AzMail wurde beendet, bevor die Seite ihn zeigen konnte. Das Laufwerk ist leer, seine Schlüssel liegen auf diesem Computer; lege für dieses Konto ein neues Laufwerk an.
+azmail-pending-code-shown = Der Wiederherstellungscode des Azlin-Laufwerks { $drive } wurde beim Anlegen angezeigt, aber AzMail weiß nicht, ob du ihn gesichert hast. Wenn du ihn aufgeschrieben hast, ist alles in Ordnung. Wenn nicht, lege in AzDrive einen weiteren Wiederherstellungscode für dieses Laufwerk an.
 azmail-pending-code-unreadable = Eine Notiz zum Wiederherstellungscode eines neuen Laufwerks konnte nicht gelesen werden ({ $why }): das Laufwerk, das sie nennt, ist vielleicht mit einem Code verschlüsselt, den niemand gesehen hat. Lege für dieses Konto ein neues Laufwerk an.
 azmail-acct-no-drive = Es wurde kein Laufwerk erstellt: { $why }
 azmail-route-direct = Direkt

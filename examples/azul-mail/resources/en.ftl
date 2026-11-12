@@ -370,6 +370,7 @@ azmail-acct-summary-sending = Sending: { $how }
 azmail-acct-new-drive-encrypted = The new drive { $drive } is ready and encrypted: Finish adds it as this account. Its RECOVERY CODE, shown this once and stored nowhere - write it down and keep it apart from this computer (Azlin cannot reset it): { $code }
 azmail-acct-new-drive = The new drive { $drive } is ready: Finish adds it as this account.
 azmail-pending-code = The new drive { $drive } was made and encrypted, but its recovery code was never shown: AzMail was stopped before the page could. The drive is empty and its keys are on this computer; make a new drive for this account.
+azmail-pending-code-shown = The recovery code of the Azlin drive { $drive } was shown when it was made, but AzMail was not told that you saved it. If you wrote it down, nothing is wrong. If you did not, make another recovery code for this drive in AzDrive.
 azmail-pending-code-unreadable = A note about a new drive's recovery code could not be read ({ $why }): the drive it names may be encrypted with a code nobody saw. Make a new drive for this account.
 azmail-acct-no-drive = No drive was made: { $why }
 azmail-route-direct = Directly

@@ -366,8 +366,16 @@ fn pending_code_notice(root: &DriveFolder) -> Option<String> {
         Ok(Some(pending)) => {
             // collapse-ok: a marker that stays costs the same notice at the next start.
             let _ = pending_code::clear(&root.path());
+            // What is true depends on whether the page had the code: a code that was shown and not
+            // confirmed is no code that was "never shown", and its drive is no empty one to replace
+            // (X-DELTA-APPS3-5).
+            let key = if pending.shown {
+                "azmail-pending-code-shown"
+            } else {
+                "azmail-pending-code"
+            };
             Some(t_args(
-                "azmail-pending-code",
+                key,
                 &[("drive", Arg::from(pending.drive_id.as_str()))],
             ))
         }
@@ -2071,6 +2079,9 @@ pub(crate) enum IoJob {
     /// The user said they saved the new drive's recovery code ("I saved the code"): the marker that
     /// said it might not have been shown is taken away (X-DELTA-SYNC4-15).
     ClearPendingCode { root: DriveFolder },
+    /// The account page has the new drive's recovery code: the marker says so and stays, for the
+    /// next start to tell a code that was shown from one that never was (X-DELTA-APPS3-5).
+    MarkCodeShown { root: DriveFolder, drive_id: String },
     /// A new DKIM key for the account editor (making an RSA key takes a moment).
     DkimKey,
     /// The DKIM / DMARC / SPF records in DNS, for the account editor.
@@ -2109,6 +2120,8 @@ pub(crate) enum IoDone {
     DriveCreated(Result<(azlin::AzlinSession, Option<String>), String>),
     /// The marker of a recovery code that may not have been shown is taken away (or why not).
     PendingCodeCleared(Result<(), String>),
+    /// The marker of a recovery code now says the page showed it (or why not).
+    PendingCodeMarked(Result<(), String>),
     DkimKey(Result<dkim::KeyPair, String>),
     DkimChecked(dkim::DnsReport),
     /// The PDF of File > Print is written: its key and its file.
@@ -2223,6 +2236,9 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
         IoJob::ClearPendingCode { root } => {
             IoDone::PendingCodeCleared(pending_code::clear(&root.path()))
         }
+        IoJob::MarkCodeShown { root, drive_id } => {
+            IoDone::PendingCodeMarked(pending_code::shown(&root.path(), &drive_id))
+        }
         IoJob::DkimKey => IoDone::DkimKey(dkim::generate_key()),
         IoJob::DkimCheck {
             selector,
@@ -2320,9 +2336,18 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
             // The page has the code now, but the marker that says it may not have been shown is the
             // proof that somebody wrote it down, and only the user gives that ("I saved the code":
             // `ui_account::on_code_saved`). A window closed or an app killed before that leaves the
-            // marker, and the next start says so (X-DELTA-SYNC4-15).
-            ui_account::drive_created(s, result);
+            // marker, and the next start says so (X-DELTA-SYNC4-15). The one job the receipt starts
+            // writes into it that the code was shown - never takes it away (X-DELTA-APPS3-10).
+            if let Some(job) = ui_account::drive_created(s, result) {
+                spawn_io(&mut info, app, job);
+            }
             Update::RefreshDom
+        }
+        IoDone::PendingCodeMarked(result) => {
+            if let Err(why) = result {
+                println!("AZMAIL_PENDING_CODE_NOT_MARKED {why}");
+            }
+            Update::DoNothing
         }
         IoDone::PendingCodeCleared(result) => {
             if let Err(why) = result {

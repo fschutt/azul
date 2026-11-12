@@ -18,12 +18,50 @@ fn x_delta_keys2_4_a_drive_whose_code_was_never_shown_is_found_by_the_next_start
     assert_eq!(
         read(root).unwrap(),
         Some(Pending {
-            drive_id: String::from("d_made")
+            drive_id: String::from("d_made"),
+            shown: false,
         })
     );
     clear(root).unwrap();
     assert_eq!(read(root), Ok(None), "the page took it away");
     clear(root).unwrap();
+}
+
+/// X-DELTA-APPS3-5. The page says it HAS the code by a field of the marker; the marker stays (only
+/// the user's confirmation takes it away); a marker nobody wrote and one of another drive are not
+/// made; and a marker of the old kind (no field) reads as "never shown".
+#[test]
+fn x_delta_apps3_5_the_marker_says_whether_the_page_showed_the_code() {
+    let dir = TempDir::new("pending-shown");
+    let root = dir.path();
+    // Nothing pending: nothing is made.
+    shown(root, "d_made").unwrap();
+    assert_eq!(read(root), Ok(None), "no marker is made by the page");
+    note(root, "d_made").unwrap();
+    assert_eq!(read(root).unwrap().map(|p| p.shown), Some(false));
+    // Another drive's page does not touch it.
+    shown(root, "d_other").unwrap();
+    assert_eq!(read(root).unwrap().map(|p| p.shown), Some(false));
+    shown(root, "d_made").unwrap();
+    assert_eq!(
+        read(root).unwrap(),
+        Some(Pending {
+            drive_id: String::from("d_made"),
+            shown: true
+        }),
+        "the marker stays, now saying the code was shown"
+    );
+    // The user's "I saved the code" takes it away; a late `shown` does not bring it back.
+    clear(root).unwrap();
+    shown(root, "d_made").unwrap();
+    assert_eq!(read(root), Ok(None));
+    // A marker written before the field existed is "never shown".
+    std::fs::write(root.join(FILE), br#"{"drive_id":"d_old"}"#).unwrap();
+    assert_eq!(read(root).unwrap().map(|p| p.shown), Some(false));
+    // A marker that cannot be read is an error of `shown` too, and is left as it is.
+    std::fs::write(root.join(FILE), b"{ not json").unwrap();
+    assert!(shown(root, "d_old").is_err());
+    assert_eq!(std::fs::read(root.join(FILE)).unwrap(), b"{ not json");
 }
 
 /// A marker nobody can read is a marker, not "nothing pending": the start says there is something
@@ -148,7 +186,8 @@ mod setup {
         assert_eq!(
             read(dir.path()).unwrap(),
             Some(Pending {
-                drive_id: String::from("d_made")
+                drive_id: String::from("d_made"),
+                shown: false,
             }),
             "the page has not taken it yet"
         );

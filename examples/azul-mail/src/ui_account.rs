@@ -1368,23 +1368,27 @@ extern "C" fn on_code_saved(mut data: RefAny, mut info: CallbackInfo) -> Update 
     .unwrap_or(Update::DoNothing)
 }
 
+/// "Create a new drive" is answered: the job the answer starts, if any ([`editor_got_drive`]).
 pub(crate) fn drive_created(
     s: &mut MailApp,
     result: Result<(azlin::AzlinSession, Option<String>), String>,
-) {
-    let Some(editor) = s.editor.as_mut() else {
-        return;
-    };
-    editor_got_drive(editor, result);
+) -> Option<IoJob> {
+    let root = s.root.clone();
+    let editor = s.editor.as_mut()?;
+    editor_got_drive(editor, result, &root)
 }
 
 /// What "Create a new drive"'s answer does to the editor: the drive, its session and - encrypted as
-/// it was made - its recovery code, shown on the page. Nothing here touches the marker of that code
-/// ([`AccountEditor::take_marker_job`]).
+/// it was made - its recovery code, shown on the page. It never takes the marker of that code away
+/// ([`AccountEditor::take_marker_job`]: only the user's "I saved the code" does); the one job it
+/// returns, when the page has a code, writes into the marker that the page showed it
+/// (X-DELTA-APPS3-5), and the caller starts it - so what the receipt starts is this function's
+/// return value and a test asserts it (X-DELTA-APPS3-10).
 fn editor_got_drive(
     editor: &mut AccountEditor,
     result: Result<(azlin::AzlinSession, Option<String>), String>,
-) {
+    root: &crate::store::DriveFolder,
+) -> Option<IoJob> {
     editor.azlin_busy = false;
     match result {
         Ok((session, recovery)) => {
@@ -1400,9 +1404,20 @@ fn editor_got_drive(
             editor.azlin_code_saved = false;
             editor.azlin_marker_sent = false;
             editor.error.clear();
+            editor
+                .azlin_recovery
+                .is_some()
+                .then(|| IoJob::MarkCodeShown {
+                    root: root.clone(),
+                    drive_id: session.drive_id.clone(),
+                })
         }
         Err(e) => {
-            editor.error = t_args("azmail-acct-no-drive", &[("why", Arg::from(l10n::t_label(&e)))]);
+            editor.error = t_args(
+                "azmail-acct-no-drive",
+                &[("why", Arg::from(l10n::t_label(&e)))],
+            );
+            None
         }
     }
 }
@@ -1577,17 +1592,32 @@ mod tests {
         pending_code::note(&dir.0, "d_1").unwrap();
         let session = crate::azlin::AzlinSession::with_token("d_1", "dt_token");
         let code = String::from("0123A-4567B-89CDE-FGHJK-MNPQRS");
-        editor_got_drive(&mut editor, Ok((session, Some(code))));
+        let started = editor_got_drive(&mut editor, Ok((session, Some(code))), &root);
         // The page has the code. Nobody has written it down yet.
         assert!(
             editor.take_marker_job(&root).is_none(),
             "the receipt of the code takes nothing away"
         );
+        // The ONE job the receipt starts says in the marker that the page showed the code; it never
+        // takes the marker away (X-DELTA-APPS3-10: the old spawn of `ClearPendingCode` in the
+        // receipt's handler was pinned by no test - what the receipt starts is this return value).
+        let Some(IoJob::MarkCodeShown {
+            root: marked,
+            drive_id,
+        }) = started
+        else {
+            panic!(
+                "the receipt of the code starts the job that marks the code shown, and no other"
+            );
+        };
+        pending_code::shown(&marked.path(), &drive_id).unwrap();
         assert_eq!(
             pending_code::read(&dir.0),
             Ok(Some(Pending {
-                drive_id: String::from("d_1")
-            }))
+                drive_id: String::from("d_1"),
+                shown: true,
+            })),
+            "the marker stays, and now says the page showed the code"
         );
         // The window is closed here, or the app is killed: the marker is what the next start finds.
         // The user says they saved it: the one job that takes the marker away.
@@ -1615,8 +1645,51 @@ mod tests {
         let mut editor =
             AccountEditor::create(AccountForm::default(), false, SendSettings::default());
         let session = crate::azlin::AzlinSession::with_token("d_2", "dt_token");
-        editor_got_drive(&mut editor, Ok((session, None)));
+        let started = editor_got_drive(&mut editor, Ok((session, None)), &root);
+        assert!(started.is_none(), "no code on the page: no marker to write");
         editor.code_saved();
         assert!(editor.take_marker_job(&root).is_none());
+    }
+
+    /// X-DELTA-APPS3-5. After 78c14d7ee the marker also survives a code the page SHOWED and a user who
+    /// wrote it down and pressed Finish without the button, and the next start told that user the code
+    /// "was never shown", that AzMail "was stopped" and that the drive "is empty: make a new drive" -
+    /// all false, the last advice that points an account at an empty drive. The sentence is chosen by
+    /// the marker's `shown`: each case is told what is true of it.
+    #[test]
+    fn x_delta_apps3_5_the_start_says_what_is_true_of_a_code_that_was_shown_and_of_one_that_never_was(
+    ) {
+        use crate::{
+            pending_code,
+            testutil::{MailFolder, TempDir},
+        };
+        crate::l10n::in_english();
+        let dir = TempDir::new("pending-notice");
+        let root = dir.folder();
+        // The page never had the code (the app was stopped before it could).
+        pending_code::note(&dir.0, "d_1").unwrap();
+        let never = crate::pending_code_notice(&root).expect("a marker is a notice");
+        assert!(
+            never.contains("never shown") && never.contains("make a new drive"),
+            "{never}"
+        );
+        assert!(
+            crate::pending_code_notice(&root).is_none(),
+            "said once: the marker went"
+        );
+        // The page showed it and nobody confirmed it.
+        pending_code::note(&dir.0, "d_2").unwrap();
+        pending_code::shown(&dir.0, "d_2").unwrap();
+        let shown = crate::pending_code_notice(&root).expect("a marker is a notice");
+        assert!(
+            shown.contains("d_2") && shown.contains("was shown"),
+            "{shown}"
+        );
+        for lie in ["never shown", "make a new drive", "is empty", "stopped"] {
+            assert!(
+                !shown.contains(lie),
+                "{lie:?} is false of a code that was shown: {shown}"
+            );
+        }
     }
 }

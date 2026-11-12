@@ -28,10 +28,17 @@ use azul_storage::{crypto::keys::RecoveryKdf, keyring::KeyringStore, Drive};
 pub const FILE: &str = "pending-recovery-code.json";
 
 /// What the marker says: the drive whose recovery code may not have been shown.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pending {
     /// The drive the token server made.
     pub drive_id: String,
+    /// The account page showed the code ([`shown`]): the marker also outlives a user who wrote the
+    /// code down and pressed Finish without saying so, and what the next start says must then be
+    /// true of THAT case - the code was shown and nobody confirmed it - not "was never shown"
+    /// (X-DELTA-APPS3-5). A marker without the field (written before it existed, when the page took
+    /// the marker away at once) says the code was never shown.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shown: bool,
 }
 
 fn path_of(root: &Path) -> PathBuf {
@@ -47,6 +54,7 @@ fn path_of(root: &Path) -> PathBuf {
 pub fn note(root: &Path, drive_id: &str) -> Result<(), String> {
     let text = serde_json::to_vec(&Pending {
         drive_id: drive_id.to_string(),
+        shown: false,
     })
     .map_err(|e| e.to_string())?;
     durable::replace(&path_of(root), &text, Mode::Private)
@@ -89,6 +97,28 @@ pub fn encrypt_new_drive(
             let _ = clear(root);
             Err(format!("the drive was made but not encrypted: {e}"))
         }
+    }
+}
+
+/// Records that the account page now HAS the code of `drive_id` (the marker stays: only the user's
+/// "I saved the code" takes it away, [`clear`]). A marker that is not there is left not there - the
+/// user said so already - and so is one of another drive. Written like the marker itself.
+///
+/// # Errors
+///
+/// The sentence for a marker that cannot be read or written.
+pub fn shown(root: &Path, drive_id: &str) -> Result<(), String> {
+    match read(root)? {
+        Some(pending) if pending.drive_id == drive_id => {
+            let text = serde_json::to_vec(&Pending {
+                shown: true,
+                ..pending
+            })
+            .map_err(|e| e.to_string())?;
+            durable::replace(&path_of(root), &text, Mode::Private)
+                .map_err(|e| format!("{}: {e}", path_of(root).display()))
+        }
+        _ => Ok(()),
     }
 }
 
