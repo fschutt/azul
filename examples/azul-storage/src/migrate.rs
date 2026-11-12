@@ -49,7 +49,7 @@ use crate::{
     key::check_key,
     ops::list_all,
     transfer::CHUNK,
-    ByteRange, Drive, DriveError, ObjectInfo,
+    BatchDelete, ByteRange, Drive, DriveError, ObjectInfo,
 };
 
 /// The `format` of a saved state.
@@ -200,6 +200,25 @@ fn unchanged(bucket: &dyn Drive, object: &ObjectInfo) -> Result<bool, DriveError
     Ok(now.size == object.size && now.etag == object.etag && now.modified == object.modified)
 }
 
+/// Deletes the plaintext object `object` only while it is still the version the listing showed (its
+/// entity tag; a drive that tells none has only the HEAD of [`unchanged`] before it): a file another
+/// device saved under the name since the look beats the delete (X-DELTA-SYNC4-16). `Ok(false)`: it
+/// changed, and stays.
+fn delete_unchanged(bucket: &dyn Drive, object: &ObjectInfo) -> Result<bool, DriveError> {
+    let item = match object.etag.as_deref() {
+        Some(etag) => BatchDelete::new(&object.key).of_version(etag),
+        None => BatchDelete::new(&object.key),
+    };
+    match bucket.delete_many(&[item]).into_iter().next() {
+        Some(Ok(())) => Ok(true),
+        Some(Err(DriveError::Conflict { .. })) => Ok(false),
+        Some(Err(e)) => Err(e),
+        None => Err(DriveError::Protocol(String::from(
+            "the storage answered for fewer deletes than were asked",
+        ))),
+    }
+}
+
 /// Moves one plaintext file.
 fn move_one<D: Drive>(
     encrypted: &EncryptedDrive<D>,
@@ -238,10 +257,9 @@ fn move_one<D: Drive>(
                     "the encrypted drive has other contents under this name: both are kept",
                 )));
             }
-            if !unchanged(bucket, object)? {
+            if !unchanged(bucket, object)? || !delete_unchanged(bucket, object)? {
                 return Ok(Outcome::Again);
             }
-            bucket.delete(key)?;
             Ok(Outcome::Moved(object.size))
         }
         Err(DriveError::NotFound { .. }) => {
@@ -265,13 +283,14 @@ fn move_one<D: Drive>(
             let read = reader.hasher.finalize();
             let stored = encrypted.entry(key)?.object;
             let checked = stored.as_ref().is_some_and(|stored| read == stored.blake3);
-            if !checked || !unchanged(bucket, object)? {
+            // The delete names the version the listing showed: a plaintext object saved by another
+            // device between the HEAD and the DELETE is not deleted.
+            if !checked || !unchanged(bucket, object)? || !delete_unchanged(bucket, object)? {
                 // Not the bytes the bucket holds now: the encrypted copy goes, the plaintext
                 // stays for the next run.
                 encrypted.delete(key)?;
                 return Ok(Outcome::Again);
             }
-            bucket.delete(key)?;
             Ok(Outcome::Moved(object.size))
         }
         Err(DriveError::InvalidKey { reason, .. }) => Ok(Outcome::Skipped(format!(

@@ -274,3 +274,88 @@ fn only_a_drives_own_files_are_plaintext() {
     assert!(!is_plaintext_key(&id.bucket_key()));
     assert!(MigrationState::from_json("{\"format\": \"other\", \"moved\": 0, \"bytes\": 0}").is_err());
 }
+
+/// A bucket where another device saves a new version of the mail right after the migration looked
+/// at it for the last time: the window between its HEAD and its DELETE.
+struct SavedAfterTheLook {
+    inner: Arc<MemBucket>,
+    saved: AtomicBool,
+}
+
+impl Drive for SavedAfterTheLook {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let info = self.inner.head(key)?;
+        // The look that decides says "unchanged"; right after it the other device saves.
+        if key == "mail/inbox/1.eml" && !self.saved.swap(true, Ordering::SeqCst) {
+            self.inner.set(
+                key,
+                b"Subject: hello\r\n\r\nwritten by another device".to_vec(),
+            );
+        }
+        Ok(info)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.inner.put_if(key, bytes, condition)
+    }
+}
+
+/// X-DELTA-SYNC4-16. The migration deleted the plaintext object by name after a HEAD that compared
+/// its tag, size and date: a file another device saved under the name inside the round trip between
+/// the HEAD and the DELETE was deleted. The DELETE names the version the listing showed; a changed
+/// object stays, the encrypted copy of the old bytes goes, and the next run moves what is there. RED
+/// on the old code: the bytes the other device wrote are gone from the bucket.
+#[test]
+fn x_delta_sync4_16_a_file_saved_between_the_last_look_and_the_delete_is_not_deleted() {
+    let bucket = plaintext_bucket();
+    let key = drive_key(&bucket);
+    let drive = EncryptedDrive::new(
+        SavedAfterTheLook {
+            inner: bucket.clone(),
+            saved: AtomicBool::new(false),
+        },
+        key,
+        Arc::new(MemoryIndex::new()),
+    );
+    let mut state = MigrationState::default();
+    let done = run(&drive, &mut state);
+    assert_eq!(
+        bucket
+            .object("mail/inbox/1.eml")
+            .expect("the plaintext object the other device saved stays"),
+        b"Subject: hello\r\n\r\nwritten by another device"
+    );
+    assert!(!done, "not done: the mail changed");
+    assert!(
+        matches!(
+            drive.get("mail/inbox/1.eml"),
+            Err(DriveError::NotFound { .. })
+        ),
+        "the encrypted copy of the old bytes was taken back"
+    );
+    // The next run moves what is there now.
+    assert!(run(&drive, &mut state));
+    assert_eq!(
+        drive.get("mail/inbox/1.eml").unwrap(),
+        b"Subject: hello\r\n\r\nwritten by another device"
+    );
+}
