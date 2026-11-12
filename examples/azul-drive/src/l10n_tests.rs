@@ -213,3 +213,23 @@ fn x_delta_azdrive_keys_31_the_re_encrypted_message_does_not_claim_that_nothing_
     }
     set_locale("en-US");
 }
+
+/// X-DELTA-KEYS2-6: a key change that never finished (a new key kept, no journal written) keeps the drive's keys
+/// when it is removed for good, and the removal cannot tell it is dead without reading the bucket: only a new key
+/// change ends it. The dialog that says the keys stay names that button by its own label, in both languages - a
+/// label that is renamed breaks this, and the dialog is not left pointing at a button that is not there.
+#[test]
+fn x_delta_keys2_6_the_dialog_of_kept_keys_names_the_button_of_a_new_key_change() {
+    for (lang, ftl) in [("en", EN), ("de", DE)] {
+        let line = |key: &str| {
+            ftl.lines()
+                .find_map(|l| l.strip_prefix(&format!("{key} = ")))
+                .unwrap_or_else(|| panic!("{lang}: {key} is missing"))
+        };
+        let label = line("azdrive-side-rotate").trim_end_matches('…');
+        assert!(
+            line("azdrive-forget-keys-kept").contains(label),
+            "{lang}: the dialog of kept keys does not name {label:?}"
+        );
+    }
+}
