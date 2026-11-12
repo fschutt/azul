@@ -343,11 +343,21 @@ pub fn sync_folder(
     // Mail written here (a sent mail SEND filed, a draft) has a LOCAL UID, not one of the
     // server's numbering: it is carried across a renumbering instead of going to stale/.
     let local: Vec<(IndexEntry, Vec<u8>)> = if plan.renumbered.is_some() {
-        read_index(store, key)?
+        let mut carried = Vec::new();
+        for entry in read_index(store, key)?
             .into_values()
             .filter(|e| e.uid >= crate::send::LOCAL_UID_FLOOR)
-            .filter_map(|e| store.get(&e.path).ok().map(|bytes| (e, bytes)))
-            .collect()
+        {
+            match store.get(&entry.path) {
+                Ok(bytes) => carried.push((entry, bytes)),
+                // A line without a file carries nothing.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // A read that FAILED ends the sync before anything is moved: the mail filed here
+                // would be left out of the new index and hidden in stale/ (X-DELTA-SYNC4-21).
+                Err(e) => return Err(storage(e)),
+            }
+        }
+        carried
     } else {
         Vec::new()
     };
@@ -731,10 +741,46 @@ mod tests {
         let failed = run(&mut server, &store);
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
-        assert_eq!(std::fs::read(&file).unwrap(), before, "the index was not written from nothing");
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            before,
+            "the index was not written from nothing"
+        );
         // Readable again: the message comes, the other lines stay.
         run(&mut server, &store).unwrap();
         assert_eq!(index(&store, "inbox").len(), 3);
+    }
+
+    /// X-DELTA-SYNC4-21. RED on the code before: the renumbering carried the mail filed here with
+    /// `store.get().ok()`: a file that could not be READ was left out of the new index and moved into
+    /// stale/ with the old numbering - hidden from the folder.
+    #[test]
+    fn x_delta_sync4_21_an_unreadable_local_mail_ends_a_renumbering_before_anything_is_moved() {
+        let dir = TempDir::new("imap-renumber-unreadable");
+        let store = MailStore::new(dir.folder());
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1, 2]);
+        run(&mut server, &store).unwrap();
+        let flags = [String::from("\\Seen")];
+        let filed =
+            crate::send::file_message(&dir.folder(), "inbox", &message(9), &flags, SEP_30).unwrap();
+        // The server renumbers the folder.
+        server.folders.get_mut("INBOX").unwrap().uidvalidity = 2;
+        let file = dir.0.join(&filed.path);
+        if !crate::testutil::make_unreadable(&file) {
+            return;
+        }
+        let failed = run(&mut server, &store);
+        crate::testutil::make_readable(&file);
+        assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
+        assert!(
+            store.get(&filed.path).is_ok(),
+            "the file is where it was, not in stale/"
+        );
+        // Readable again: the renumbering carries the mail.
+        run(&mut server, &store).unwrap();
+        assert!(index(&store, "inbox")
+            .iter()
+            .any(|e| e.uid >= crate::send::LOCAL_UID_FLOOR));
     }
 
     #[test]
@@ -751,7 +797,11 @@ mod tests {
         let failed = run(&mut server, &store);
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
-        assert_eq!(std::fs::read(&file).unwrap(), before, "the state was not started anew");
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            before,
+            "the state was not started anew"
+        );
     }
 
     fn state(store: &MailStore, folder: &str) -> FolderState {
