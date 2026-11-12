@@ -20,6 +20,8 @@ fn enough() -> GoEvidence {
         devices: 3,
         drive_devices: 3,
         rederived_live_equal: Some(true),
+        window_rederived: Some(true),
+        clock_agrees: Some(true),
         byte_budget_ok: true,
         floor_known: true,
         restore_source: true,
@@ -77,6 +79,26 @@ fn x_delta_azdrive_sync_6_go_truth_table() {
             Hold::Differs,
         ),
         (
+            "what the restore dialog still offers was not derived again",
+            lacking(|e| e.window_rederived = None),
+            Hold::WindowNotRederived,
+        ),
+        (
+            "the restore dialog still offers what the window does not name",
+            lacking(|e| e.window_rederived = Some(false)),
+            Hold::WindowDiffers,
+        ),
+        (
+            "the bucket does not say the time",
+            lacking(|e| e.clock_agrees = None),
+            Hold::ClockNotChecked,
+        ),
+        (
+            "this device's clock and the bucket's disagree",
+            lacking(|e| e.clock_agrees = Some(false)),
+            Hold::ClockDiffers,
+        ),
+        (
             "one clean round short",
             lacking(|e| e.clean_rounds = GO_CLEAN_ROUNDS - 1),
             Hold::Rounds {
@@ -105,6 +127,29 @@ fn x_delta_azdrive_sync_6_go_truth_table() {
             "{what}"
         );
     }
+
+    // The window of the restore dialog is said before the clock, and both before the rounds.
+    assert_eq!(
+        go(
+            ReclaimMode::Delete,
+            &lacking(|e| {
+                e.window_rederived = Some(false);
+                e.clock_agrees = Some(false);
+                e.clean_rounds = 0;
+            })
+        ),
+        Go::Shadow(Hold::WindowDiffers)
+    );
+    assert_eq!(
+        go(
+            ReclaimMode::Delete,
+            &lacking(|e| {
+                e.clock_agrees = None;
+                e.clean_rounds = 0;
+            })
+        ),
+        Go::Shadow(Hold::ClockNotChecked)
+    );
 
     // The order: when two things are lacking the earlier one is said.
     assert_eq!(
@@ -208,6 +253,8 @@ fn footing() -> Footing {
     Footing {
         drive_devices: 3,
         rederived_live_equal: Some(true),
+        window_rederived: Some(true),
+        clock_agrees: Some(true),
         byte_budget_ok: true,
         floor_known: true,
         restore_source: true,
@@ -372,4 +419,52 @@ fn x_delta_azdrive_sync_6_a_ledger_that_does_not_open_starts_again_and_is_replac
         .expect("replaced");
     assert_eq!(after.rounds.len(), 1);
     assert_eq!(Ledger::read(&bucket, &sealer).unwrap().0, after);
+}
+
+/// X-DELTA-SYNC2-2. A round the analysis called clean is written as NOT clean first and made clean only
+/// by [`Ledger::confirm`], once the bucket's clock has vouched for its stamp: found by what it says,
+/// on the ledger as other devices left it, and nothing else on it changes. A round that is not there
+/// (or was changed) is left as it is.
+#[test]
+fn x_delta_sync2_2_a_round_is_made_clean_only_by_confirming_the_round_that_was_written_unverified()
+{
+    use crate::meta::shadow::UNVERIFIED;
+    let bucket = MemoryBucket::new();
+    let sealer = TestSealer::new([7; 32]);
+    let mut mine = round(0, "a", true);
+    mine.clean = false;
+    mine.unclean = String::from(UNVERIFIED);
+    Ledger::append(&bucket, &sealer, &mine)
+        .unwrap()
+        .expect("recorded");
+    let e = ledger_of(&[mine.clone()]).evidence(T0 + DAY, &footing());
+    assert_eq!(
+        e.clean_rounds, 0,
+        "written unverified, it counts for nothing"
+    );
+
+    // Another device's round lands between the write and the confirmation.
+    Ledger::append(&bucket, &sealer, &round(1, "b", true))
+        .unwrap()
+        .expect("recorded");
+    let confirmed = Ledger::confirm(&bucket, &sealer, &mine)
+        .unwrap()
+        .expect("found and written");
+    assert_eq!(
+        confirmed.rounds.len(),
+        2,
+        "the other device's round is still there"
+    );
+    assert!(confirmed.rounds[0].clean && confirmed.rounds[0].unclean.is_empty());
+    assert_eq!(confirmed.rounds[1], round(1, "b", true), "and untouched");
+    let (read, _) = Ledger::read(&bucket, &sealer).unwrap();
+    assert_eq!(read, confirmed);
+
+    // Said again, there is nothing unverified to find: nothing is written.
+    assert!(Ledger::confirm(&bucket, &sealer, &mine).unwrap().is_none());
+    // A round that says something else is not this one.
+    let mut other = round(5, "a", true);
+    other.clean = false;
+    other.unclean = String::from(UNVERIFIED);
+    assert!(Ledger::confirm(&bucket, &sealer, &other).unwrap().is_none());
 }

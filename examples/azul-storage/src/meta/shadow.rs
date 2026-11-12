@@ -81,10 +81,18 @@ pub struct Ledger {
 pub struct Footing {
     pub drive_devices: u32,
     pub rederived_live_equal: Option<bool>,
+    pub window_rederived: Option<bool>,
+    pub clock_agrees: Option<bool>,
     pub byte_budget_ok: bool,
     pub floor_known: bool,
     pub restore_source: bool,
 }
+
+/// What a round that was clean by the analysis says until the bucket's clock has vouched for its
+/// stamp ([`Ledger::confirm`]): it is written NOT clean first, so a stop or a lost write between the
+/// two leaves a round that does not count - never one that does (X-DELTA-SYNC2-2: the stamp of a round
+/// is the writing device's clock, and one past-dated clean round stretched `days`).
+pub const UNVERIFIED: &str = "the bucket's clock has not vouched for this round's time";
 
 impl Ledger {
     /// Whether a round is due at `now`: none was run in the last [`EVERY_SECS`]. A round stamped in
@@ -131,6 +139,8 @@ impl Ledger {
             devices: u32::try_from(devices.len()).unwrap_or(u32::MAX),
             drive_devices: footing.drive_devices.max(1),
             rederived_live_equal: footing.rederived_live_equal,
+            window_rederived: footing.window_rederived,
+            clock_agrees: footing.clock_agrees,
             byte_budget_ok: footing.byte_budget_ok,
             floor_known: footing.floor_known,
             restore_source: footing.restore_source,
@@ -200,6 +210,42 @@ impl Ledger {
         for _ in 0..WRITE_ATTEMPTS {
             let (mut ledger, version) = Ledger::read(bucket, sealer)?;
             ledger.record(round.clone());
+            if ledger.write(bucket, sealer, version.as_deref())? {
+                return Ok(Some(ledger));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Makes the round `written` - appended by [`Ledger::append`] as not clean, with
+    /// [`UNVERIFIED`] for its reason - the clean round it was: the bucket's clock vouched for its
+    /// stamp. It is found by what it says (device, time, revision, digest), read again when another
+    /// device was first (up to [`WRITE_ATTEMPTS`] times); a round that is not on the ledger any more
+    /// (more than [`KEEP_ROUNDS`] later) or was changed stays as it is. The ledger as written, or
+    /// `None` when nothing was changed - which only means the round does not count.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's.
+    pub fn confirm<B: Bucket + ?Sized, S: Sealer + ?Sized>(
+        bucket: &B,
+        sealer: &S,
+        written: &Round,
+    ) -> Result<Option<Ledger>, MetaError> {
+        for _ in 0..WRITE_ATTEMPTS {
+            let (mut ledger, version) = Ledger::read(bucket, sealer)?;
+            let Some(round) = ledger.rounds.iter_mut().rev().find(|round| {
+                !round.clean
+                    && round.unclean == UNVERIFIED
+                    && round.device == written.device
+                    && round.at == written.at
+                    && round.revision == written.revision
+                    && round.digest == written.digest
+            }) else {
+                return Ok(None);
+            };
+            round.clean = true;
+            round.unclean.clear();
             if ledger.write(bucket, sealer, version.as_deref())? {
                 return Ok(Some(ledger));
             }

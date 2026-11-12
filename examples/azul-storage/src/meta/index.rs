@@ -30,7 +30,7 @@ use std::{
 
 use super::{
     bucket::{Bucket, DriveBucket},
-    hex,
+    hex, keys,
     objects::{Commit, Mode, ObjectId},
     pack::PackWriter,
     pointer,
@@ -39,7 +39,7 @@ use super::{
     },
     retention::RETENTION,
     seal::{KeyWindow, Sealer},
-    shadow::{Footing, Ledger, Round},
+    shadow::{Footing, Ledger, Round, UNVERIFIED},
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
     wal::{reseal, Maintained, Maintenance, MetaStore, Packs, Publish, RefUpdate},
@@ -50,9 +50,10 @@ use crate::{
     encrypted::{EncryptedDrive, IndexChange, IndexEntry, IndexPage, IndexProvider, NameIndex},
     key::folder_of,
     meta::reclaim::{
-        analyse, go, manifest_pack_bytes, pack_bytes_of, purge_options, reclaim, reclaim_judged,
-        Analysis, Caps, Go, GoEvidence, Hold, LiveObjects, NotYet, PurgeConfirmation, ReclaimMode,
-        ReclaimOptions, ReclaimReport, Released,
+        analyse, ask_retired_delete, manifest_pack_bytes, pack_bytes_of, purge_options, reclaim,
+        reclaim_judged, Analysis, Caps, DeleteLicence, GoEvidence, History, Hold, LiveObjects,
+        NotYet, PurgeConfirmation, ReclaimMode, ReclaimOptions, ReclaimReport, Released,
+        ServerClock, Standing, SKEW_SECS,
     },
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
 };
@@ -841,24 +842,11 @@ pub struct MetaIndexProvider {
     /// cannot keep the ledger (a refused write, an unreadable object) - without it such a drive
     /// would be read whole at every maintenance round again.
     rounds_at: Mutex<BTreeMap<String, u64>>,
-    /// What the last judged round of each drive decided ([`go`]; the key of a round with no drive
-    /// id is empty): the proof the drives' pack upkeep deletes by - the evidence gate stops every
-    /// deleter, not only the reclaimer's own round (X-DELTA-SYNC2-2).
-    verdicts: Arc<Mutex<BTreeMap<String, Verdict>>>,
+    /// What the last judged round of each drive came to (the key of a round with no drive id is
+    /// empty): the standing the drives' pack upkeep asks [`ask_retired_delete`] with - the one gate
+    /// stops every deleter, not only the reclaimer's own round (X-DELTA-SYNC2-2).
+    standings: Arc<Mutex<BTreeMap<String, Standing>>>,
 }
-
-/// What [`go`] decided at the last judged round of a drive, and when (seconds since 1970).
-#[derive(Clone, Copy, Debug)]
-struct Verdict {
-    at: u64,
-    /// The evidence was there: the round was run in [`ReclaimMode::Delete`] and deleted.
-    delete: bool,
-}
-
-/// How long a round's verdict that the evidence is there lets the pack upkeep delete (seconds):
-/// rounds are a day apart ([`super::shadow::EVERY_SECS`]), and a process that has not judged the
-/// drive for two days has no proof - the upkeep then reports and deletes nothing.
-pub(crate) const VERDICT_FRESH_SECS: u64 = 2 * super::shadow::EVERY_SECS;
 
 impl MetaIndexProvider {
     /// The provider `profile` describes: the one way to make one (the old `new(name)` and its five
@@ -874,19 +862,26 @@ impl MetaIndexProvider {
             reclaim: profile.reclaim,
             last_reclaim: Mutex::new(None),
             rounds_at: Mutex::new(BTreeMap::new()),
-            verdicts: Arc::new(Mutex::new(BTreeMap::new())),
+            standings: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
-    /// Notes what the round of `drive` decided at `now`.
-    pub(crate) fn note_verdict(&self, drive: Option<&str>, now: u64, delete: bool) {
-        self.verdicts
+    /// Notes what the round of `drive` came to: its standing, for the pack upkeep and the next
+    /// question of the gate.
+    pub(crate) fn note_standing(&self, drive: Option<&str>, standing: Standing) {
+        self.standings
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(
-                drive.unwrap_or_default().to_string(),
-                Verdict { at: now, delete },
-            );
+            .insert(drive.unwrap_or_default().to_string(), standing);
+    }
+
+    /// A round that proved nothing (it stopped before it judged anything): no standing - the
+    /// upkeep then asks with none, and the gate says [`Hold::NotJudged`].
+    pub(crate) fn forget_standing(&self, drive: Option<&str>) {
+        self.standings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(drive.unwrap_or_default());
     }
 
     /// What the reclaimer round at the end of the last [`MetaIndexProvider::maintain`] came to:
@@ -949,7 +944,13 @@ impl MetaIndexProvider {
             Err(MetaError::NoRepository) => return Ok(ReclaimReport::none(options.mode)),
             Err(e) => return Err(to_drive(e)),
         };
-        reclaim(&mut repo, &options).map_err(to_drive)
+        // The user confirmed: the shadow rounds' evidence is not asked (see `purge`'s doc).
+        reclaim(
+            &mut repo,
+            &options,
+            Ok(DeleteLicence::confirmed(confirmation)),
+        )
+        .map_err(to_drive)
     }
 
     /// The automatic round after a maintenance round of the drive `drive`: when one is due - the
@@ -1016,9 +1017,15 @@ impl MetaIndexProvider {
         let floor = cache
             .as_deref()
             .map_or(0, |dir| super::repo::cached_floor(dir, drive_key));
-        let footing = |drive_devices: u32, rederived: Option<bool>, byte_budget_ok: bool| Footing {
+        let footing = |drive_devices: u32,
+                       rederived: Option<bool>,
+                       window: Option<bool>,
+                       byte_budget_ok: bool| Footing {
             drive_devices,
             rederived_live_equal: rederived,
+            window_rederived: window,
+            // Asked of the bucket when the round is written ([`MetaIndexProvider::record_round`]).
+            clock_agrees: None,
             byte_budget_ok,
             floor_known: floor > 0,
             restore_source: self.restore.is_set(),
@@ -1060,11 +1067,12 @@ impl MetaIndexProvider {
                 &before,
                 round,
                 now,
-                &footing(1, None, false),
+                footing(1, None, None, false),
             );
             report.evidence = Some(evidence);
             report.held = (mode == ReclaimMode::Delete).then_some(Hold::TooBig);
-            self.note_verdict(drive, now, false);
+            // The standing of a drive too big to judge: its evidence says so, and the gate holds.
+            self.note_standing(drive, Standing { at: now, evidence });
             return Ok(report);
         }
         drop(sized);
@@ -1097,7 +1105,11 @@ impl MetaIndexProvider {
                     judged = true;
                     let rederived = rederive(listed.as_ref(), analysis);
                     report.rederived = rederived;
-                    let clean = rederived == Some(true);
+                    // The head listed again AND what the restore dialog still offers derived its
+                    // own way: the first can fail only on a defect of the tree walk, the second on
+                    // a window that is not the one the user was promised (X-DELTA-SYNC2-2).
+                    let window = analysis.window_agrees;
+                    let clean = rederived == Some(true) && window == Some(true);
                     let round = Round {
                         at: now,
                         device: device.clone(),
@@ -1110,7 +1122,7 @@ impl MetaIndexProvider {
                         unclean: if clean {
                             String::new()
                         } else {
-                            unclean_why(rederived)
+                            unclean_why(rederived, window)
                         },
                     };
                     let evidence = self.record_round(
@@ -1119,29 +1131,35 @@ impl MetaIndexProvider {
                         &before,
                         round,
                         now,
-                        &footing(
+                        footing(
                             u32::try_from(analysis.devices).unwrap_or(u32::MAX),
                             rederived,
+                            window,
                             true,
                         ),
                     );
                     report.evidence = Some(evidence);
-                    let decided = go(mode, &evidence);
-                    self.note_verdict(drive, now, decided == Go::Delete);
-                    match decided {
-                        Go::Delete => ReclaimMode::Delete,
-                        Go::Off => ReclaimMode::Off,
-                        Go::Shadow(hold) => {
-                            report.held = (mode == ReclaimMode::Delete).then_some(hold);
-                            ReclaimMode::Shadow
-                        }
+                    // The round's standing is what the pack upkeep asks the same gate with; the
+                    // run asks it now, with the standing it has just made.
+                    let standing = Standing { at: now, evidence };
+                    self.note_standing(drive, standing);
+                    let gate = ask_retired_delete(
+                        History::Kept {
+                            mode,
+                            standing: Some(&standing),
+                        },
+                        now,
+                    );
+                    if let (Err(hold), ReclaimMode::Delete) = (&gate, mode) {
+                        report.held = Some(*hold);
                     }
+                    gate
                 })
             })
             .map_err(to_drive)?;
         if !judged {
             // Nothing was proven: the pack upkeep waits for a round that is.
-            self.note_verdict(drive, now, false);
+            self.forget_standing(drive);
             // The run stopped before there was anything to judge: a tree or a pointer that does not
             // read is a round that was not clean, and counts against the streak; a drive with no
             // commit yet has nothing to record.
@@ -1163,12 +1181,21 @@ impl MetaIndexProvider {
                     &before,
                     round,
                     now,
-                    &footing(1, None, true),
+                    footing(1, None, None, true),
                 );
                 report.evidence = Some(evidence);
-                report.held = (mode == ReclaimMode::Delete).then(|| match go(mode, &evidence) {
-                    Go::Shadow(hold) => hold,
-                    Go::Delete | Go::Off => Hold::NotRederived,
+                let standing = Standing { at: now, evidence };
+                report.held = (mode == ReclaimMode::Delete).then(|| {
+                    match ask_retired_delete(
+                        History::Kept {
+                            mode,
+                            standing: Some(&standing),
+                        },
+                        now,
+                    ) {
+                        Err(hold) => hold,
+                        Ok(_) => Hold::NotRederived,
+                    }
                 });
             }
         }
@@ -1186,19 +1213,59 @@ impl MetaIndexProvider {
         before: &Ledger,
         mut round: Round,
         now: u64,
-        footing: &Footing,
+        mut footing: Footing,
     ) -> GoEvidence {
-        let ledger = match Ledger::append(bucket, drive_key, &round) {
+        // The stamp of a round is this device's clock. When the bucket must vouch for it (the run's
+        // clock policy), a round the analysis called clean is written as NOT clean first and made
+        // clean only after the bucket's own time has agreed with the stamp: a stop in between, a lost
+        // write, a bucket that does not say the time or a device whose clock is off leave a round
+        // that does not count - a past-dated clean round used to stretch the days (X-DELTA-SYNC2-2).
+        let vouching = round.clean && self.reclaim.server_clock == ServerClock::Required;
+        let mut written = round.clone();
+        if vouching {
+            written.clean = false;
+            written.unclean = String::from(UNVERIFIED);
+        }
+        let mut ledger = match Ledger::append(bucket, drive_key, &written) {
             Ok(Some(ledger)) => ledger,
             Ok(None) | Err(_) => {
                 round.clean = false;
                 round.unclean = String::from("it could not be recorded");
                 let mut ledger = before.clone();
                 ledger.record(round);
-                ledger
+                // Nothing was written: no time was vouched for.
+                return ledger.evidence(now, &footing);
             }
         };
-        ledger.evidence(now, footing)
+        footing.clock_agrees = self.bucket_clock_agrees(bucket, written.at);
+        if vouching && footing.clock_agrees == Some(true) {
+            // collapse-ok: a round that could not be made clean stays what it was written as, not
+            // clean: the failure only holds the switch back.
+            if let Ok(Some(confirmed)) = Ledger::confirm(bucket, drive_key, &written) {
+                ledger = confirmed;
+            }
+        }
+        ledger.evidence(now, &footing)
+    }
+
+    /// Whether the bucket's own time agrees with `stamp` (a time this device's clock gave a round):
+    /// `Some(true)` when it is within [`SKEW_SECS`] of it - or when the run's policy takes the
+    /// device's clock alone ([`ServerClock::Unchecked`]: a folder on disk, the tests) -,
+    /// `Some(false)` when it is not, `None` when the bucket does not say.
+    fn bucket_clock_agrees(
+        &self,
+        bucket: &DriveBucket<Arc<dyn Drive>>,
+        stamp: u64,
+    ) -> Option<bool> {
+        match self.reclaim.server_clock {
+            ServerClock::Unchecked => Some(true),
+            ServerClock::Required => match bucket.modified_of(keys::SHADOW) {
+                Ok(Some(server)) => Some(server.abs_diff(stamp) <= SKEW_SECS),
+                // collapse-ok: a bucket that cannot say the time is not believed: `None` holds the
+                // switch back, as it does for the run that deletes.
+                Ok(None) | Err(_) => None,
+            },
+        }
     }
 
     /// The index over `repo`, with what the upkeep of the drive may ask of its history: the whole of
@@ -1369,16 +1436,27 @@ pub(crate) fn rederive(
     Some(named.iter().all(|id| analysis.live.contains_key(id)))
 }
 
-/// Why a round whose re-derivation was `rederived` was not clean.
-fn unclean_why(rederived: Option<bool>) -> String {
-    match rederived {
-        Some(true) => String::new(),
-        Some(false) => NotYet::Unreadable {
+/// Why a round whose re-derivations were `rederived` (the head listed again) and `window` (what the
+/// restore dialog still offers) was not clean: the first thing that did not agree.
+fn unclean_why(rederived: Option<bool>, window: Option<bool>) -> String {
+    match (rederived, window) {
+        (Some(true), Some(true)) => String::new(),
+        (Some(false), _) => NotYet::Unreadable {
             what: String::from("the live set"),
             reason: String::from("the head's listing names an object it lacks"),
         }
         .to_string(),
-        None => String::from("the head was not listed at the revision the analysis read"),
+        (None, _) => String::from("the head was not listed at the revision the analysis read"),
+        (Some(true), Some(false)) => NotYet::Unreadable {
+            what: String::from("the live set"),
+            reason: String::from(
+                "the restore dialog still offers a version the window of the run does not name",
+            ),
+        }
+        .to_string(),
+        (Some(true), None) => {
+            String::from("what the restore dialog still offers could not be derived again")
+        }
     }
 }
 
@@ -1387,18 +1465,18 @@ impl IndexProvider for MetaIndexProvider {
         self.reclaim.mode
     }
 
-    /// The pack upkeep of `drive` deletes while the last round this provider judged for it said the
-    /// evidence was there ([`go`]) and not longer ago than [`VERDICT_FRESH_SECS`]: no round, a round
-    /// that held back, or an old verdict, and the upkeep reports (X-DELTA-SYNC2-2).
-    fn reclaim_proof(&self, drive: &str) -> Option<crate::encrypted::ReclaimProof> {
-        let verdicts = Arc::clone(&self.verdicts);
+    /// What the last round this provider judged for `drive` came to: the standing the pack upkeep of
+    /// the drive asks [`ask_retired_delete`] with - the same gate as the reclaimer's own run, with
+    /// the evidence the round recorded. No round, and the upkeep has none to ask with (X-DELTA-SYNC2-2).
+    fn reclaim_standing(&self, drive: &str) -> Option<crate::encrypted::ReclaimStanding> {
+        let standings = Arc::clone(&self.standings);
         let drive = drive.to_string();
-        Some(Arc::new(move |now| {
-            verdicts
+        Some(Arc::new(move |_now| {
+            standings
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .get(&drive)
-                .is_some_and(|v| v.delete && v.at <= now && now - v.at <= VERDICT_FRESH_SECS)
+                .copied()
         }))
     }
 

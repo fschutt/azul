@@ -16,11 +16,13 @@ use crate::{
         keys,
         merge::keep_both,
         pointer,
-        reclaim::{analyse, reclaim, reclaim_judged},
+        reclaim::{
+            analyse, reclaim, reclaim_judged, DeleteLicence, GO_CLEAN_ROUNDS, GO_DAYS, GO_DEVICES,
+        },
         shadow::Ledger,
-        Caps, Change, DriveBucket, Hold, IndexProfile, Maintenance, MemoryBucket, MetaError,
-        MetaIndex, MetaIndexProvider, MetaRepo, NotYet, ReclaimMode, ReclaimOptions, RepoOptions,
-        ServerClock, RETENTION,
+        Caps, Change, DriveBucket, GoEvidence, Hold, IndexProfile, Maintenance, MemoryBucket,
+        MetaError, MetaIndex, MetaIndexProvider, MetaRepo, NotYet, ReclaimMode, ReclaimOptions,
+        ReclaimReport, RepoOptions, Retention, ServerClock, Standing, RETENTION,
     },
     packing::PackOptions,
     BatchPut, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
@@ -146,7 +148,7 @@ fn az_m2_the_reclaimer_in_shadow_mode_says_what_it_would_delete_and_deletes_noth
     lab.drive.put("a.txt", b"version two").unwrap();
     lab.at(T0 + 100 * DAY);
 
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
     assert_eq!(
         (report.candidates, report.deleted),
         (1, 0),
@@ -178,7 +180,7 @@ fn az_m2_a_version_inside_the_window_stays_and_one_past_it_goes_and_the_drive_st
 
     // Fifty days on, version one can still be restored: both commits are inside the window.
     lab.at(T0 + 50 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!(
         (report.candidates, report.deleted),
         (0, 0),
@@ -189,7 +191,7 @@ fn az_m2_a_version_inside_the_window_stays_and_one_past_it_goes_and_the_drive_st
 
     // A hundred days on, nothing can ask for it any more: it goes, and the quota frees.
     lab.at(T0 + 100 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!((report.deleted, report.failed), (1, 0), "{}", report.line());
     assert_eq!(lab.data_objects().len(), 1);
     assert_eq!(lab.drive.get("a.txt").unwrap(), b"version two");
@@ -204,7 +206,7 @@ fn az_m2_a_version_inside_the_window_stays_and_one_past_it_goes_and_the_drive_st
     );
 
     // The next run starts after what was dealt with.
-    let again = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let again = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!((again.candidates, again.scanned, again.deleted), (0, 0, 0));
 }
 
@@ -216,7 +218,7 @@ fn az_m2_an_object_the_head_still_names_under_another_path_is_never_deleted() {
     lab.at(T0 + DAY);
     lab.drive.put("a.txt", b"replaced").unwrap();
     lab.at(T0 + 100 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!(
         (report.candidates, report.deleted),
         (0, 0),
@@ -243,7 +245,7 @@ fn x_ar5a_14_a_pack_lives_while_any_file_of_it_is_named_and_goes_when_none_is() 
 
     // The head still names the pack through p2: it stays however old the commits are.
     lab.at(T0 + 100 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!(
         (report.candidates, report.deleted),
         (0, 0),
@@ -254,7 +256,7 @@ fn x_ar5a_14_a_pack_lives_while_any_file_of_it_is_named_and_goes_when_none_is() 
 
     // The last file leaves; its commit is inside the window: the history still names the pack.
     lab.drive.delete("p2.txt").unwrap();
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!(
         (report.candidates, report.deleted),
         (0, 0),
@@ -265,7 +267,7 @@ fn x_ar5a_14_a_pack_lives_while_any_file_of_it_is_named_and_goes_when_none_is() 
 
     // Past the retention nothing names it: the pack goes.
     lab.at(T0 + 300 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!(report.deleted, 1, "{}", report.line());
     assert_eq!(lab.data_objects().len(), 0);
 }
@@ -289,7 +291,7 @@ fn az_m2_a_pointer_the_reclaimer_cannot_read_stops_it_and_nothing_is_deleted() {
     )
     .unwrap();
     lab.at(T0 + 100 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert!(
         matches!(report.stopped, Some(NotYet::Unreadable { .. })),
         "{}",
@@ -339,12 +341,12 @@ fn az_m2_a_drive_that_moved_between_the_read_and_the_fence_loses_nothing() {
             )
             .unwrap();
     });
-    let report = reclaim(&mut repo, &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut repo, &options(ReclaimMode::Delete)).unwrap();
     assert_eq!(report.stopped, Some(NotYet::Moved), "{}", report.line());
     assert_eq!(report.deleted, 0);
     assert_eq!(lab.data_objects().len(), 2);
     // The next run, from fresh reads, goes through.
-    let again = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let again = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!(again.deleted, 1, "{}", again.line());
 }
 
@@ -361,7 +363,7 @@ fn az_m2_a_clock_the_storage_does_not_agree_with_deletes_nothing() {
     };
 
     // The storage does not tell the time: the device's word alone is not believed.
-    let report = reclaim(&mut lab.maintainer(), &required).unwrap();
+    let report = run(&mut lab.maintainer(), &required).unwrap();
     assert!(
         matches!(report.stopped, Some(NotYet::Clock { server: None, .. })),
         "{}",
@@ -372,7 +374,7 @@ fn az_m2_a_clock_the_storage_does_not_agree_with_deletes_nothing() {
     // The storage's clock is a week off this device's.
     lab.bucket
         .set_server_clock(move || T0 + 100 * DAY + 7 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &required).unwrap();
+    let report = run(&mut lab.maintainer(), &required).unwrap();
     assert!(
         matches!(
             report.stopped,
@@ -388,7 +390,7 @@ fn az_m2_a_clock_the_storage_does_not_agree_with_deletes_nothing() {
 
     // The two agree: it goes.
     lab.bucket.set_server_clock(move || T0 + 100 * DAY + 5);
-    let report = reclaim(&mut lab.maintainer(), &required).unwrap();
+    let report = run(&mut lab.maintainer(), &required).unwrap();
     assert_eq!(report.deleted, 1, "{}", report.line());
 }
 
@@ -404,7 +406,7 @@ fn az_u22_a_delete_the_bucket_refuses_stops_the_mark_and_the_next_run_deletes_it
         &doomed,
         MetaError::Drive(crate::DriveError::Transport(String::from("reset"))),
     );
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!((report.deleted, report.failed), (0, 1), "{}", report.line());
     assert!(
         lab.maintainer()
@@ -415,7 +417,7 @@ fn az_u22_a_delete_the_bucket_refuses_stops_the_mark_and_the_next_run_deletes_it
             .is_none(),
         "the mark did not move past an object that is still there"
     );
-    let again = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let again = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert_eq!((again.deleted, again.failed), (1, 0), "{}", again.line());
     assert_eq!(lab.data_objects().len(), 1);
 }
@@ -437,10 +439,10 @@ fn az_m2_the_caps_end_a_run_and_the_kill_switch_stops_it() {
         },
         ..options(ReclaimMode::Shadow)
     };
-    let report = reclaim(&mut lab.maintainer(), &capped).unwrap();
+    let report = run(&mut lab.maintainer(), &capped).unwrap();
     assert!(report.capped, "{}", report.line());
     assert_eq!(report.scanned, 2);
-    let off = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Off)).unwrap();
+    let off = run(&mut lab.maintainer(), &options(ReclaimMode::Off)).unwrap();
     assert_eq!(off.stopped, Some(NotYet::Off));
     assert_eq!(off.line(), "reclaim: switched off");
 }
@@ -456,7 +458,7 @@ fn az_m2_a_commit_stamped_in_the_future_does_not_make_a_history_look_older() {
     lab.at(T0 + 2 * DAY);
     lab.drive.put("a.txt", b"version three").unwrap();
     lab.at(T0 + 100 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     // Version two's commit counts as dated a day ahead of now, and version three's is never
     // earlier than its parent's: both are inside the window, so version one (the state the window
     // began with) stays too.
@@ -650,7 +652,11 @@ impl Drive for GetLog {
 /// the app's own listing agreed with the live set.
 #[test]
 fn x_delta_azdrive_sync_5_a_maintenance_round_runs_the_reclaimer_once_a_day_per_drive() {
-    let bucket: Arc<dyn Drive> = Arc::new(MemoryBucket::new());
+    // A bucket that tells the time, as every bucket the apps open does: the provider's clock policy
+    // wants the bucket's word before a round counts (X-DELTA-SYNC2-2).
+    let memory = MemoryBucket::new();
+    memory.set_server_clock(crate::time::now_unix);
+    let bucket: Arc<dyn Drive> = Arc::new(memory);
     let key = DriveKey::generate().unwrap();
     let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
     let index = provider
@@ -863,7 +869,7 @@ fn x_delta_azdrive_sync_5_the_clock_check_is_made_against_the_clock_of_the_momen
     let report = reclaim_judged(&mut lab.maintainer(), &options, &mut |_, _| {
         // The analysis took two hours (the bucket's clock and the device's both went on).
         slow.fetch_add(2 * 3_600, Ordering::SeqCst);
-        ReclaimMode::Delete
+        Ok(DeleteLicence::lab())
     })
     .unwrap();
     assert_eq!(
@@ -901,7 +907,7 @@ fn x_delta_azdrive_sync_6_a_pointer_with_a_line_the_reclaimer_does_not_know_stop
     )
     .unwrap();
     lab.at(T0 + 100 * DAY);
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
     assert!(
         matches!(&report.stopped, Some(NotYet::Unreadable { reason, .. }) if reason.contains("does not know")),
         "{}",
@@ -939,14 +945,14 @@ fn x_delta_azdrive_sync_6_a_report_carries_the_digest_the_releasing_commits_and_
             &mut keep_both,
         )
         .unwrap();
-    let report = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
     assert_eq!(report.devices, 2, "the laptop and the maintenance device");
     assert_eq!(report.candidates, 0, "everything is inside the window");
     assert_eq!(report.releasing, None);
 
     lab.at(T0 + 100 * DAY);
-    let one = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
-    let two = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    let one = run(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    let two = run(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
     assert_eq!(one.candidates, 1, "{}", one.line());
     assert_eq!(
         one.digest, two.digest,
@@ -968,7 +974,7 @@ fn x_delta_azdrive_sync_6_a_report_carries_the_digest_the_releasing_commits_and_
     lab.at(T0 + 101 * DAY);
     lab.drive.put("a.txt", b"version three").unwrap();
     lab.at(T0 + 300 * DAY);
-    let three = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    let three = run(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
     assert_eq!(three.candidates, 2, "{}", three.line());
     assert_ne!(one.digest, three.digest);
 }
@@ -1042,7 +1048,7 @@ fn x_delta_azdrive_sync_6_a_run_stops_at_the_commit_that_passes_its_byte_budget(
     lab.at(T0 + 2 * DAY);
     lab.drive.put("a.txt", &vec![3u8; 4_000]).unwrap();
     lab.at(T0 + 300 * DAY);
-    let whole = reclaim(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    let whole = run(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
     assert_eq!(
         (whole.candidates, whole.capped),
         (2, false),
@@ -1057,7 +1063,7 @@ fn x_delta_azdrive_sync_6_a_run_stops_at_the_commit_that_passes_its_byte_budget(
         },
         ..options(ReclaimMode::Shadow)
     };
-    let capped = reclaim(&mut lab.maintainer(), &small).unwrap();
+    let capped = run(&mut lab.maintainer(), &small).unwrap();
     assert_eq!(
         (capped.candidates, capped.capped),
         (1, true),
@@ -1210,11 +1216,40 @@ fn x_ar5a_14_re_encrypting_the_packs_of_a_drive_that_keeps_its_history_deletes_n
     );
 }
 
-/// The proof of a drive whose shadow rounds showed everything the switch to deleting asks for: what
-/// the provider's own answer ([`crate::meta::MetaIndexProvider`]: its last judged round's verdict)
-/// is, stood in for. A drive configured to delete deletes only with one (X-DELTA-SYNC2-2).
-fn proven() -> crate::encrypted::ReclaimProof {
-    Arc::new(|_| true)
+/// The standing of a drive whose shadow rounds showed everything the switch to deleting asks for,
+/// judged at the very time the upkeep asks: what the provider's own answer
+/// ([`crate::meta::MetaIndexProvider`]: the evidence of its last judged round) is, stood in for. A
+/// drive configured to delete deletes only when the one gate says so of one (X-DELTA-SYNC2-2).
+fn proven() -> crate::encrypted::ReclaimStanding {
+    Arc::new(|now| {
+        Some(Standing {
+            at: now,
+            evidence: GoEvidence {
+                clean_rounds: GO_CLEAN_ROUNDS,
+                days: GO_DAYS,
+                devices: GO_DEVICES,
+                drive_devices: GO_DEVICES,
+                rederived_live_equal: Some(true),
+                window_rederived: Some(true),
+                clock_agrees: Some(true),
+                byte_budget_ok: true,
+                floor_known: true,
+                restore_source: true,
+            },
+        })
+    })
+}
+
+/// A run of the reclaimer as the machinery's own tests make it - the fences, the batches, the lease,
+/// the caps: one configured to delete is handed a licence of the test's own, one that is not is
+/// handed what holds it back. WHEN a licence is made is the gate's tests' (`ask_retired_delete`).
+fn run(repo: &mut Repo, options: &ReclaimOptions) -> Result<ReclaimReport, MetaError> {
+    let gate = if options.mode == ReclaimMode::Delete {
+        Ok(DeleteLicence::lab())
+    } else {
+        Err(Hold::Configured)
+    };
+    reclaim(repo, options, gate)
 }
 
 /// A drive that packs, deletes by its upkeep, and has retired the pack of two small files that were
@@ -1229,7 +1264,7 @@ fn lab_with_a_retired_pack(grace: u64) -> (Lab, String) {
         drive
             .with_packing(options)
             .with_reclaim(ReclaimMode::Delete)
-            .with_reclaim_proof(proven())
+            .with_reclaim_standing(proven())
     });
     let small: [(&str, &[u8]); 2] = [
         ("p1.txt", b"first small file"),
@@ -1289,7 +1324,7 @@ fn x_delta_azdrive_sync_7_the_first_pack_due_does_not_take_the_list_of_the_later
         drive
             .with_packing(options)
             .with_reclaim(ReclaimMode::Delete)
-            .with_reclaim_proof(proven())
+            .with_reclaim_standing(proven())
     });
     let put_pair = |a: (&str, &[u8]), b: (&str, &[u8])| {
         let items = [BatchPut::new(a.0, a.1), BatchPut::new(b.0, b.1)];
@@ -1400,7 +1435,7 @@ fn az_m10_an_object_whose_change_may_have_landed_is_cleared_up_from_the_drive_no
     let lab = Lab::with(|drive| {
         drive
             .with_reclaim(ReclaimMode::Delete)
-            .with_reclaim_proof(proven())
+            .with_reclaim_standing(proven())
     });
     lab.bucket.fail_next_write(
         keys::MANIFEST,
@@ -1432,7 +1467,7 @@ fn az_m10_an_object_the_drive_names_after_all_is_never_deleted_by_the_upkeep() {
     let lab = Lab::with(|drive| {
         drive
             .with_reclaim(ReclaimMode::Delete)
-            .with_reclaim_proof(proven())
+            .with_reclaim_standing(proven())
     });
     lab.drive.put("a.txt", b"the file").unwrap();
     let object = lab.drive.entry("a.txt").unwrap().object.unwrap().id;
@@ -1758,10 +1793,11 @@ fn x_delta_sync2_2_a_provider_configured_to_delete_keeps_every_due_pack_without_
     let pack = retired[0].0.bucket_key();
     let far = crate::time::now_unix() + 200 * DAY;
     assert!(
-        !provider
-            .reclaim_proof("d_sync2_2")
-            .expect("the provider offers a proof")(far),
-        "no round has judged the drive: no proof"
+        provider
+            .reclaim_standing("d_sync2_2")
+            .expect("the provider offers its standings")(far)
+        .is_none(),
+        "no round has judged the drive: no standing to ask the gate with"
     );
     assert_eq!(
         drive.collect_retired(far).unwrap(),
@@ -1798,12 +1834,125 @@ fn x_delta_sync2_2_a_provider_configured_to_delete_clears_no_object_in_flight_wi
     );
 }
 
-/// X-DELTA-SYNC2-2 (a). The proof is the verdict of the provider's last judged round: a round that
-/// held back, no round, another drive's round and a verdict older than the rounds' schedule allows
-/// prove nothing; one that said Delete proves it for [`VERDICT_FRESH_SECS`].
+/// X-DELTA-SYNC2-2. THE gate every deleter of data the history may still name asks: a table of its
+/// answers. An index with no history has no window; a shadow run and the kill switch never delete; a
+/// run configured to delete needs a standing - none is "not judged", one older than the rounds'
+/// schedule or stamped in the future is "stale" - and then the evidence's own table (`go`): the first
+/// thing it lacks holds the delete back, and only evidence in which nothing is lacking gives the
+/// licence. The reclaimer's own run and the pack upkeep both end here.
 #[test]
-fn x_delta_sync2_2_the_providers_proof_is_its_last_judged_rounds_verdict_and_it_goes_stale() {
-    use crate::meta::index::VERDICT_FRESH_SECS;
+fn x_delta_sync2_2_the_one_gate_answers_every_deleter_from_the_standing_and_the_evidence_table() {
+    use crate::meta::reclaim::{ask_retired_delete, History, STANDING_FRESH_SECS};
+    let at = T0;
+    let standing = |change: &dyn Fn(&mut GoEvidence)| {
+        let mut evidence = (proven())(at).expect("a standing").evidence;
+        change(&mut evidence);
+        Standing { at, evidence }
+    };
+    let ask = |mode: ReclaimMode, standing: Option<&Standing>, now: u64| {
+        ask_retired_delete(History::Kept { mode, standing }, now)
+    };
+    let full = standing(&|_| {});
+    // An index that keeps no history: nothing is retired, the head's word is all there is.
+    assert!(ask_retired_delete(History::None, at).is_ok());
+    // The kill switch and the shadow run never delete, whatever stands behind them.
+    assert_eq!(
+        ask(ReclaimMode::Off, Some(&full), at).unwrap_err(),
+        Hold::Off
+    );
+    assert_eq!(
+        ask(ReclaimMode::Shadow, Some(&full), at).unwrap_err(),
+        Hold::Configured
+    );
+    // A run configured to delete, with evidence in which nothing is lacking: the licence.
+    assert!(ask(ReclaimMode::Delete, Some(&full), at).is_ok());
+    assert!(ask(ReclaimMode::Delete, Some(&full), at + STANDING_FRESH_SECS).is_ok());
+    // None, old, future: the rounds are not there to be believed.
+    assert_eq!(
+        ask(ReclaimMode::Delete, None, at).unwrap_err(),
+        Hold::NotJudged
+    );
+    assert_eq!(
+        ask(
+            ReclaimMode::Delete,
+            Some(&full),
+            at + STANDING_FRESH_SECS + 1
+        )
+        .unwrap_err(),
+        Hold::Stale
+    );
+    assert_eq!(
+        ask(ReclaimMode::Delete, Some(&full), at - 1).unwrap_err(),
+        Hold::Stale,
+        "a standing stamped in the future is stale, not fresh"
+    );
+    // The evidence's own table, through the gate: one thing lacking, that thing is said.
+    let rows: Vec<(&str, Standing, Hold)> = vec![
+        (
+            "one clean round short",
+            standing(&|e| e.clean_rounds = GO_CLEAN_ROUNDS - 1),
+            Hold::Rounds {
+                have: GO_CLEAN_ROUNDS - 1,
+                need: GO_CLEAN_ROUNDS,
+            },
+        ),
+        (
+            "one day short",
+            standing(&|e| e.days = GO_DAYS - 1),
+            Hold::Days {
+                have: GO_DAYS - 1,
+                need: GO_DAYS,
+            },
+        ),
+        (
+            "two of three devices",
+            standing(&|e| e.devices = GO_DEVICES - 1),
+            Hold::Devices {
+                have: GO_DEVICES - 1,
+                need: GO_DEVICES,
+            },
+        ),
+        (
+            "the head was not listed again",
+            standing(&|e| e.rederived_live_equal = None),
+            Hold::NotRederived,
+        ),
+        (
+            "the head's listing names what the live set lacks",
+            standing(&|e| e.rederived_live_equal = Some(false)),
+            Hold::Differs,
+        ),
+        (
+            "no restore source",
+            standing(&|e| e.restore_source = false),
+            Hold::NoRestoreSource,
+        ),
+        (
+            "no floor",
+            standing(&|e| e.floor_known = false),
+            Hold::NoFloor,
+        ),
+        (
+            "over the budget",
+            standing(&|e| e.byte_budget_ok = false),
+            Hold::TooBig,
+        ),
+    ];
+    for (what, lacking, hold) in &rows {
+        assert_eq!(
+            ask(ReclaimMode::Delete, Some(lacking), at).unwrap_err(),
+            *hold,
+            "{what}"
+        );
+    }
+}
+
+/// X-DELTA-SYNC2-2. The provider keeps the standing of the last round it judged of each drive and
+/// hands it out per drive; a round that proved nothing leaves none. The gate - not the provider -
+/// decides what a standing is worth.
+#[test]
+fn x_delta_sync2_2_the_provider_holds_one_standing_per_drive_and_forgets_it_with_a_round_that_proved_nothing(
+) {
     let provider = MetaIndexProvider::new(IndexProfile {
         reclaim: ReclaimOptions {
             mode: ReclaimMode::Delete,
@@ -1811,60 +1960,48 @@ fn x_delta_sync2_2_the_providers_proof_is_its_last_judged_rounds_verdict_and_it_
         },
         ..IndexProfile::in_memory("Laptop")
     });
-    let proof = |drive: &str, now: u64| provider.reclaim_proof(drive).expect("a proof")(now);
-    let at = T0;
-    assert!(!proof("d_a", at), "no round yet");
-    provider.note_verdict(Some("d_a"), at, true);
-    assert!(proof("d_a", at));
-    assert!(proof("d_a", at + VERDICT_FRESH_SECS));
+    let standing_of = |drive: &str| provider.reclaim_standing(drive).expect("offered")(T0);
+    assert!(standing_of("d_a").is_none(), "no round yet");
+    let said = (proven())(T0).expect("a standing");
+    provider.note_standing(Some("d_a"), said);
+    assert_eq!(standing_of("d_a"), Some(said));
     assert!(
-        !proof("d_a", at + VERDICT_FRESH_SECS + 1),
-        "a drive nobody judged for two days has no proof"
+        standing_of("d_b").is_none(),
+        "another drive's round is not this one's"
     );
     assert!(
-        !proof("d_a", at - 1),
-        "a verdict stamped in the future is stale, not fresh"
+        standing_of("").is_none(),
+        "the round of no drive is no drive's"
     );
+    provider.forget_standing(Some("d_a"));
     assert!(
-        !proof("d_b", at),
-        "another drive's round proves nothing here"
+        standing_of("d_a").is_none(),
+        "a round that proved nothing leaves none"
     );
-    assert!(
-        !provider.reclaim_proof("").expect("a proof")(at),
-        "the round of no drive proves no drive"
-    );
-    // The next round held back: the proof is gone at once.
-    provider.note_verdict(Some("d_a"), at + 100, false);
-    assert!(!proof("d_a", at + 100));
 }
 
-/// The drive configured to delete AND given the proof deletes (the pack lifecycle the other tests
-/// rely on), and one whose proof stops saying yes keeps the pack again.
+/// X-DELTA-SYNC2-2. The boundary the brief names, through the drive's own upkeep and the gate it
+/// asks: with the evidence one clean round short (6 of 7) a drive configured to delete deletes
+/// nothing - its due pack stays retired and in the bucket - and with the 7th it deletes. Nothing but
+/// the count of clean rounds changes between the two.
 #[test]
-fn x_delta_sync2_2_a_drive_deletes_while_its_proof_says_so_and_not_after() {
+fn x_delta_sync2_2_the_pack_upkeep_deletes_with_seven_clean_rounds_and_nothing_with_six() {
     let options = PackOptions {
         retired_grace_secs: 0,
         ..PackOptions::default()
     };
-    let (open_until, calls) = {
-        let calls = Arc::new(AtomicU64::new(0));
-        let seen = Arc::clone(&calls);
-        let until = Arc::new(AtomicU64::new(u64::MAX));
-        let limit = Arc::clone(&until);
-        (
-            until,
-            (calls, move |now: u64| {
-                seen.fetch_add(1, Ordering::SeqCst);
-                now <= limit.load(Ordering::SeqCst)
-            }),
-        )
-    };
-    let (calls, proof) = calls;
+    let rounds = Arc::new(AtomicU64::new(u64::from(GO_CLEAN_ROUNDS) - 1));
+    let counted = Arc::clone(&rounds);
     let lab = Lab::with(|drive| {
         drive
             .with_packing(options)
             .with_reclaim(ReclaimMode::Delete)
-            .with_reclaim_proof(Arc::new(proof))
+            .with_reclaim_standing(Arc::new(move |now| {
+                let mut standing = (proven())(now)?;
+                standing.evidence.clean_rounds =
+                    u32::try_from(counted.load(Ordering::SeqCst)).unwrap_or(u32::MAX);
+                Some(standing)
+            }))
     });
     let items = [
         BatchPut::new("p1.txt", b"first small file"),
@@ -1878,16 +2015,263 @@ fn x_delta_sync2_2_a_drive_deletes_while_its_proof_says_so_and_not_after() {
     lab.drive.delete("p1.txt").unwrap();
     lab.drive.delete("p2.txt").unwrap();
     lab.drive.repack(T0 + 2 * DAY).unwrap();
-    // The proof is withdrawn: the pack, due and named by no state in the window, stays.
-    open_until.store(0, Ordering::SeqCst);
-    assert_eq!(lab.drive.collect_retired(T0 + 200 * DAY).unwrap(), 0);
-    assert!(lab.data_objects().contains(&pack));
-    assert!(
-        calls.load(Ordering::SeqCst) >= 1,
-        "the drive asked its proof"
+    let far = T0 + 200 * DAY;
+    assert_eq!(
+        lab.drive.collect_retired(far).unwrap(),
+        0,
+        "six clean rounds are one short: the due pack stays"
     );
-    // Given again, it goes.
-    open_until.store(u64::MAX, Ordering::SeqCst);
-    assert_eq!(lab.drive.collect_retired(T0 + 200 * DAY).unwrap(), 1);
+    assert!(lab.data_objects().contains(&pack));
+    assert_eq!(lab.drive.retired_packs().len(), 1, "and it stays retired");
+    rounds.store(u64::from(GO_CLEAN_ROUNDS), Ordering::SeqCst);
+    assert_eq!(
+        lab.drive.collect_retired(far).unwrap(),
+        1,
+        "the seventh clean round: the same drive, the same pack, and it goes"
+    );
     assert!(!lab.data_objects().contains(&pack));
+}
+
+/// The other deleter of the upkeep, at the same boundary: an object in flight is cleared up from the
+/// bucket only with the evidence the gate wants.
+#[test]
+fn x_delta_sync2_2_an_object_in_flight_is_cleared_up_with_seven_clean_rounds_and_not_with_six() {
+    let rounds = Arc::new(AtomicU64::new(u64::from(GO_CLEAN_ROUNDS) - 1));
+    let counted = Arc::clone(&rounds);
+    let lab = Lab::with(|drive| {
+        drive
+            .with_packing(PackOptions::default())
+            .with_reclaim(ReclaimMode::Delete)
+            .with_reclaim_standing(Arc::new(move |now| {
+                let mut standing = (proven())(now)?;
+                standing.evidence.clean_rounds =
+                    u32::try_from(counted.load(Ordering::SeqCst)).unwrap_or(u32::MAX);
+                Some(standing)
+            }))
+    });
+    // An object whose writer stopped between the upload and the journal's end: written down as in
+    // flight, named by no state.
+    let id = crate::crypto::ObjectId::generate().unwrap();
+    lab.bucket.put(&id.bucket_key(), b"an orphan").unwrap();
+    lab.drive.note_in_flight(&id);
+    let far = crate::time::now_unix() + 3_600;
+    assert_eq!(
+        lab.drive.recover_packs(far).unwrap(),
+        0,
+        "six clean rounds: it stays"
+    );
+    assert!(lab.data_objects().contains(&id.bucket_key()));
+    rounds.store(u64::from(GO_CLEAN_ROUNDS), Ordering::SeqCst);
+    assert_eq!(lab.drive.recover_packs(far).unwrap(), 1, "seven: it goes");
+    assert!(!lab.data_objects().contains(&id.bucket_key()));
+}
+
+// ==== X-DELTA-SYNC2-2: the evidence that can see the failures that matter ====
+
+/// A provider whose reclaimer window is `versions` days and whose clock policy is `server_clock`,
+/// configured to delete (what a release after the first would ship): the lab's drives on a bucket the
+/// test sets the clock of.
+fn provider_with(versions_days: u64, server_clock: ServerClock) -> MetaIndexProvider {
+    MetaIndexProvider::new(IndexProfile {
+        reclaim: ReclaimOptions {
+            mode: ReclaimMode::Delete,
+            server_clock,
+            retention: Retention {
+                versions: std::time::Duration::from_secs(versions_days * DAY),
+                ..RETENTION
+            },
+            ..ReclaimOptions::shadow()
+        },
+        ..IndexProfile::in_memory("Laptop")
+    })
+}
+
+/// a.txt: version one made 40 days ago, replaced by version two 39 days ago. The restore dialog
+/// (RETENTION: 90 days) still offers version one; a reclaimer whose window is 30 days calls it released
+/// past its retention.
+fn a_file_replaced_forty_days_ago() -> (Lab, String) {
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 40 * DAY, |drive| drive);
+    lab.drive.put("a.txt", b"version one").unwrap();
+    let first = lab.object_of("a.txt");
+    lab.at(now - 39 * DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    (lab, first)
+}
+
+/// X-DELTA-SYNC2-2 (b). A clean round proved only that the app's own listing of the HEAD names nothing
+/// the live set lacks - which `live` contains by construction: it could fail on a defect of the tree
+/// walk and never on a mistake of the WINDOW, the one that deletes a version the user can still ask for.
+/// The round now also derives what the restore dialog still offers its own way (the first parents,
+/// the time each commit says, the dialog's own retention) and a live set that lacks any of it is a
+/// round that was not clean. RED on the old code: the window of 30 days (not the 90 the dialog
+/// promises) released version one, the head listing agreed, and the round was clean - one more toward
+/// the switch to deleting.
+#[test]
+fn x_delta_sync2_2_a_window_shorter_than_the_restore_dialogs_is_not_a_clean_round() {
+    let (lab, first) = a_file_replaced_forty_days_ago();
+    let provider = provider_with(30, ServerClock::Unchecked);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    assert_eq!(
+        report.candidates,
+        1,
+        "by a window of 30 days version one is released past its retention: {}",
+        report.line()
+    );
+    assert_eq!(
+        report.rederived,
+        Some(true),
+        "the head listing cannot see it"
+    );
+    assert_eq!(
+        report.window_rederived,
+        Some(false),
+        "the restore dialog still offers version one: {}",
+        report.line()
+    );
+    assert!(report.line().contains("DISAGREES"), "{}", report.line());
+    let (ledger, _) = Ledger::read(&DriveBucket::new(Arc::clone(&bucket)), &lab.key).unwrap();
+    let round = ledger.rounds.last().expect("the round is written down");
+    assert!(
+        !round.clean && round.unclean.contains("restore dialog"),
+        "{round:?}"
+    );
+    let evidence = report.evidence.expect("the evidence");
+    assert_eq!(
+        evidence.clean_rounds, 0,
+        "it does not count toward the switch"
+    );
+    assert_eq!(evidence.window_rederived, Some(false));
+    assert_eq!(report.deleted, 0);
+    assert!(lab.data_objects().contains(&first), "version one stays");
+}
+
+/// The same history with the window the dialog promises: the restore dialog's own derivation agrees,
+/// the round is clean, and version one is live (the window began with the state that names it).
+#[test]
+fn x_delta_sync2_2_a_window_that_agrees_with_the_restore_dialog_is_a_clean_round() {
+    let (lab, first) = a_file_replaced_forty_days_ago();
+    let provider = provider_with(90, ServerClock::Unchecked);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    assert_eq!(report.candidates, 0, "{}", report.line());
+    assert_eq!(report.window_rederived, Some(true), "{}", report.line());
+    let (ledger, _) = Ledger::read(&DriveBucket::new(Arc::clone(&bucket)), &lab.key).unwrap();
+    assert!(ledger.rounds.last().expect("written").clean);
+    assert!(lab.data_objects().contains(&first));
+}
+
+/// What a restore can still bring back, derived its own way, is what the dialog offers: a version is
+/// offered while the commit that REPLACED it is inside the dialog's retention, the head's objects
+/// always, and a version replaced longer ago than that is not - it is what the reclaimer may take.
+#[test]
+fn x_delta_sync2_2_what_a_restore_can_bring_back_is_the_versions_replaced_inside_the_window() {
+    use crate::meta::reclaim::restorable;
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 200 * DAY, |drive| drive);
+    let mut objects = Vec::new();
+    for (days_ago, text) in [
+        (200, "version one"),
+        (100, "version two"),
+        (50, "version three"),
+        (10, "version four"),
+    ] {
+        lab.at(now - days_ago * DAY);
+        lab.drive.put("a.txt", text.as_bytes()).unwrap();
+        objects.push(lab.object_of("a.txt"));
+    }
+    // The run is judged by the lab's clock: the present, as the dialog's derivation is.
+    lab.at(now);
+    let repo = lab.maintainer();
+    let head = repo.head().expect("a head");
+    let offered: std::collections::BTreeSet<String> = restorable(repo.objects(), &head, now)
+        .unwrap()
+        .keys()
+        .map(|id| id.bucket_key())
+        .collect();
+    let expected: std::collections::BTreeSet<String> = objects[1..].iter().cloned().collect();
+    assert_eq!(
+        offered, expected,
+        "versions two (replaced 50 days ago), three (10 days ago) and the head's four; not version one"
+    );
+    // The reclaimer, with the window the dialog promises, takes exactly the one the dialog does not
+    // offer.
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Shadow)).unwrap();
+    assert_eq!(report.candidates, 1, "{}", report.line());
+    assert_eq!(report.window_rederived, Some(true));
+}
+
+/// X-DELTA-SYNC2-2 (b). The stamp of a round is the writing device's clock, and a past-dated clean
+/// round stretched `days`. When the bucket must vouch for the time ([`ServerClock::Required`]) a round
+/// the analysis called clean is written NOT clean first and is made clean only after the bucket's own
+/// time agreed with the stamp: a bucket whose clock is days off the device's leaves a round that does not
+/// count (and the evidence says the clocks differ). RED on the old code: the round was clean.
+#[test]
+fn x_delta_sync2_2_a_round_whose_stamp_the_buckets_clock_does_not_agree_with_does_not_count() {
+    use crate::meta::shadow::UNVERIFIED;
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    let now = crate::time::now_unix();
+    lab.bucket.set_server_clock(move || now - 3 * DAY);
+    let provider = provider_with(90, ServerClock::Required);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    let evidence = report.evidence.expect("the evidence");
+    assert_eq!(evidence.clock_agrees, Some(false), "{}", report.line());
+    assert_eq!(evidence.clean_rounds, 0);
+    let (ledger, _) = Ledger::read(&DriveBucket::new(Arc::clone(&bucket)), &lab.key).unwrap();
+    let round = ledger.rounds.last().expect("written");
+    assert!(!round.clean && round.unclean == UNVERIFIED, "{round:?}");
+    // And the standing the upkeep asks the gate with says so: a drive whose clock is off deletes nothing.
+    let standing = provider.reclaim_standing("").expect("offered")(now).expect("a standing");
+    assert_eq!(
+        crate::meta::go(ReclaimMode::Delete, &standing.evidence),
+        crate::meta::Go::Shadow(Hold::NoRestoreSource),
+        "(the first thing lacking in a test's provider)"
+    );
+    assert_eq!(standing.evidence.clock_agrees, Some(false));
+}
+
+/// A bucket that agrees with the device's clock vouches for the round: it is made clean (the second
+/// write), the evidence says the clocks agree and the round counts.
+#[test]
+fn x_delta_sync2_2_a_round_the_buckets_clock_agrees_with_is_made_clean() {
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    let now = crate::time::now_unix();
+    lab.bucket.set_server_clock(move || now + 30);
+    let provider = provider_with(90, ServerClock::Required);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    let evidence = report.evidence.expect("the evidence");
+    assert_eq!(evidence.clock_agrees, Some(true), "{}", report.line());
+    assert_eq!(evidence.clean_rounds, 1, "{}", report.line());
+    let (ledger, _) = Ledger::read(&DriveBucket::new(Arc::clone(&bucket)), &lab.key).unwrap();
+    assert_eq!(ledger.rounds.len(), 1, "one round, made clean in place");
+    assert!(ledger.rounds[0].clean && ledger.rounds[0].unclean.is_empty());
+}
+
+/// A bucket that says no time cannot vouch for one: under the policy that wants the bucket's word the
+/// round stays unverified, and the evidence says the clock was not checked; a run whose policy takes the
+/// device's clock alone ([`ServerClock::Unchecked`]: a folder, a test) is as it was - one write, clean.
+#[test]
+fn x_delta_sync2_2_a_bucket_that_says_no_time_vouches_for_nothing_and_an_unchecked_policy_needs_no_word(
+) {
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let required = provider_with(90, ServerClock::Required);
+    let report = required.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    let evidence = report.evidence.expect("the evidence");
+    assert_eq!(evidence.clock_agrees, None, "{}", report.line());
+    assert_eq!(evidence.clean_rounds, 0, "the round stays unverified");
+    let unchecked = provider_with(90, ServerClock::Unchecked);
+    let report = unchecked.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    let evidence = report.evidence.expect("the evidence");
+    assert_eq!(evidence.clock_agrees, Some(true), "by policy");
+    assert_eq!(
+        evidence.clean_rounds, 1,
+        "the first (unverified) round ended no streak, this one is clean"
+    );
 }

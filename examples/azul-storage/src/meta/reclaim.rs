@@ -27,7 +27,7 @@ use super::{
     objects::{Mode, ObjectId as GitId, Objects, TreeEntry},
     pointer,
     repo::MetaRepo,
-    retention::Retention,
+    retention::{Retention, RETENTION},
     seal::Sealer,
     shard,
     wal::{LeaseGuard, ReclaimMark, MAINTENANCE},
@@ -308,6 +308,15 @@ pub struct GoEvidence {
     /// names nothing the live set lacks, `Some(false)` it does, `None` it was not made (or was made
     /// at another revision than the analysis).
     pub rederived_live_equal: Option<bool>,
+    /// What the restore dialog still offers (derived its own way: [`restorable`]) is named by the
+    /// run's window: `Some(true)` it is, `Some(false)` it is not, `None` it was not derived. The
+    /// listing of the head cannot see a mistake of the WINDOW; this can (X-DELTA-SYNC2-2).
+    pub window_rederived: Option<bool>,
+    /// This device's clock agrees with the bucket's at the round that made the evidence:
+    /// `Some(true)` the bucket told its time and it is within [`SKEW_SECS`] of ours (or the run's
+    /// policy takes the device's clock alone), `Some(false)` it is not, `None` the bucket does not
+    /// say. The age of every commit, and the days of the clean rounds, rest on it.
+    pub clock_agrees: Option<bool>,
     /// The drive's index fits the budget of a run ([`Caps::pack_bytes`]).
     pub byte_budget_ok: bool,
     /// This device's copy of the drive knows the highest revision it has seen: a rolled-back
@@ -338,6 +347,24 @@ pub enum Hold {
     NoFloor,
     /// The app knows no restore source.
     NoRestoreSource,
+    /// The reclaimer is switched off.
+    Off,
+    /// No round of this drive was judged by this process: nothing shows what its shadow rounds
+    /// came to (X-DELTA-SYNC2-2: the pack upkeep deleted with none).
+    NotJudged,
+    /// The last judged round is older than the rounds' schedule allows (or stamped in the future):
+    /// what it showed is not what the drive shows now.
+    Stale,
+    /// What the restore dialog still offers was not derived again beside the analysis's window.
+    WindowNotRederived,
+    /// What the restore dialog still offers names an object the analysis's window does not: the
+    /// window of the run is not the one the user was promised.
+    WindowDiffers,
+    /// The bucket's clock was not asked, or the bucket does not say the time.
+    ClockNotChecked,
+    /// This device's clock and the bucket's disagree: the round's own time, and the age of every
+    /// commit it judged, are not believed.
+    ClockDiffers,
 }
 
 impl fmt::Display for Hold {
@@ -356,6 +383,23 @@ impl fmt::Display for Hold {
             Hold::TooBig => f.write_str("the drive's index is over the budget of a run"),
             Hold::NoFloor => f.write_str("this device's copy has seen no revision of the drive"),
             Hold::NoRestoreSource => f.write_str("the app knows no restore announcement"),
+            Hold::Off => f.write_str("the reclaimer is switched off"),
+            Hold::NotJudged => f.write_str("no shadow round of the drive was judged lately"),
+            Hold::Stale => {
+                f.write_str("the last judged shadow round of the drive is too old to be trusted")
+            }
+            Hold::WindowNotRederived => f.write_str(
+                "what the restore dialog still offers was not derived again beside the window",
+            ),
+            Hold::WindowDiffers => f.write_str(
+                "the restore dialog still offers what the window of the run does not name",
+            ),
+            Hold::ClockNotChecked => {
+                f.write_str("the storage does not tell the time to check this device's clock by")
+            }
+            Hold::ClockDiffers => {
+                f.write_str("this device's clock and the storage's disagree about the time of day")
+            }
         }
     }
 }
@@ -371,10 +415,10 @@ pub enum Go {
     Off,
 }
 
-/// Whether a run configured as `mode` deletes, from the evidence `e`: pure and total. `Delete` is
-/// reachable only here: the kill switch is `Off`, a shadow run is a shadow run, and a run configured
-/// to delete is held back by the first thing the evidence lacks, in the order of the table in the
-/// tests.
+/// Whether a run configured as `mode` deletes, from the evidence `e`: pure and total. The table of
+/// the evidence, and the one rule [`ask_retired_delete`] applies to it (with the standing's age):
+/// the kill switch is `Off`, a shadow run is a shadow run, and a run configured to delete is held
+/// back by the first thing the evidence lacks, in the order of the table in the tests.
 #[must_use]
 pub fn go(mode: ReclaimMode, e: &GoEvidence) -> Go {
     match mode {
@@ -394,6 +438,16 @@ pub fn go(mode: ReclaimMode, e: &GoEvidence) -> Go {
                 Some(true) => {}
                 Some(false) => return Go::Shadow(Hold::Differs),
                 None => return Go::Shadow(Hold::NotRederived),
+            }
+            match e.window_rederived {
+                Some(true) => {}
+                Some(false) => return Go::Shadow(Hold::WindowDiffers),
+                None => return Go::Shadow(Hold::WindowNotRederived),
+            }
+            match e.clock_agrees {
+                Some(true) => {}
+                Some(false) => return Go::Shadow(Hold::ClockDiffers),
+                None => return Go::Shadow(Hold::ClockNotChecked),
             }
             if e.clean_rounds < GO_CLEAN_ROUNDS {
                 return Go::Shadow(Hold::Rounds {
@@ -416,6 +470,119 @@ pub fn go(mode: ReclaimMode, e: &GoEvidence) -> Go {
             }
             Go::Delete
         }
+    }
+}
+
+// ==== The one gate of every deleter of data the history may still name ====
+//
+// Four things take a data object out of the bucket: the reclaimer's own delete run, the pack upkeep
+// (the retired packs past their grace, the objects whose writer stopped), the objects an index that
+// keeps no history released, and a user's confirmed purge. Each used to decide for itself whether it
+// may - the run asked [`go`], the upkeep took the configured mode - and the one that did not ask
+// deleted whatever the evidence said (X-DELTA-SYNC2-2). Now `ask_retired_delete` is the ONE function
+// that answers, and the deleters take its answer: [`delete_reclaimable`] and [`remove_reclaimable`]
+// delete only for a [`DeleteLicence`], which only this module makes and only from that answer (or the
+// two documented others: an index with no history, a purge the user confirmed). A source gate
+// (`azul-srcgate/tests/retired_delete_gate.rs`) finds every function that deletes a data object and
+// every place a licence is made.
+
+/// What the last judged round of a drive came to, and when: the standing the pack upkeep and the
+/// reclaimer's own run ask [`ask_retired_delete`] with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Standing {
+    /// When the round was judged (seconds since 1970, this device's clock).
+    pub at: u64,
+    /// What the ledger of the drive's shadow rounds and the round's own footing showed.
+    pub evidence: GoEvidence,
+}
+
+/// How long a [`Standing`] lets the pack upkeep delete (seconds): rounds are a day apart
+/// ([`super::shadow::EVERY_SECS`]), and a process that has not judged the drive for two days has no
+/// standing to ask with - the upkeep then reports and deletes nothing.
+pub const STANDING_FRESH_SECS: u64 = 2 * super::shadow::EVERY_SECS;
+
+/// What the index of a drive keeps, as far as a deleter's question goes.
+#[derive(Clone, Copy, Debug)]
+pub enum History<'a> {
+    /// The index keeps no history (an index in memory): what the head does not name is named by
+    /// nobody, and nothing is retired.
+    None,
+    /// The index keeps its history: data objects only it names are deleted in the mode the drive is
+    /// configured with, and only with the evidence of its judged shadow rounds.
+    Kept {
+        mode: ReclaimMode,
+        standing: Option<&'a Standing>,
+    },
+}
+
+/// The licence to delete data objects the history may still name: made by [`ask_retired_delete`]
+/// (from the evidence of a drive's shadow rounds), by [`DeleteLicence::of_an_index_without_history`]
+/// and by [`DeleteLicence::confirmed`] (a purge the user confirmed), and by nothing else - no field
+/// is public, it cannot be copied, defaulted or read from a file.
+#[derive(Debug)]
+pub struct DeleteLicence {
+    _sealed: (),
+}
+
+/// A deleter's answer from [`ask_retired_delete`]: the licence, or what holds the delete back.
+pub type Gate = Result<DeleteLicence, Hold>;
+
+impl DeleteLicence {
+    /// The licence of a drive whose index keeps no history ([`History::None`]).
+    fn of_an_index_without_history() -> DeleteLicence {
+        DeleteLicence { _sealed: () }
+    }
+
+    /// The licence of a purge the user confirmed ([`PurgeConfirmation`]): the user said so, the
+    /// shadow rounds are not asked.
+    pub(crate) fn confirmed(_confirmation: &PurgeConfirmation) -> DeleteLicence {
+        DeleteLicence { _sealed: () }
+    }
+
+    /// A licence for a test of the deleting machinery itself (the fences, the batches, the lease):
+    /// what the tests of the gate say about WHEN one is made is in `ask_retired_delete`'s own.
+    #[cfg(test)]
+    pub(crate) fn lab() -> DeleteLicence {
+        DeleteLicence { _sealed: () }
+    }
+}
+
+/// THE question every deleter of data the history may still name asks before it deletes, at `now`
+/// (the clock of this device): the licence, or why not.
+///
+/// - an index that keeps no history ([`History::None`]) has no window: the licence;
+/// - a drive configured as a shadow run or switched off never deletes;
+/// - a drive configured to delete deletes only while the standing of its last judged round is fresh
+///   ([`STANDING_FRESH_SECS`]; none, or one stamped in the future, is [`Hold::NotJudged`] or
+///   [`Hold::Stale`]) and [`go`] says [`Go::Delete`] of the evidence in it: the clean rounds, the
+///   days, the devices and the footing the switch to deleting promises.
+///
+/// The reclaimer's own run asks it with the standing of the round it has just judged, the pack upkeep
+/// with the standing its provider recorded of the last one: one rule, not a copy of it.
+///
+/// # Errors
+///
+/// What holds the delete back.
+pub(crate) fn ask_retired_delete(history: History<'_>, now: u64) -> Gate {
+    let (mode, standing) = match history {
+        History::None => return Ok(DeleteLicence::of_an_index_without_history()),
+        History::Kept { mode, standing } => (mode, standing),
+    };
+    match mode {
+        ReclaimMode::Off => return Err(Hold::Off),
+        ReclaimMode::Shadow => return Err(Hold::Configured),
+        ReclaimMode::Delete => {}
+    }
+    let Some(standing) = standing else {
+        return Err(Hold::NotJudged);
+    };
+    if standing.at > now || now - standing.at > STANDING_FRESH_SECS {
+        return Err(Hold::Stale);
+    }
+    match go(mode, &standing.evidence) {
+        Go::Delete => Ok(DeleteLicence { _sealed: () }),
+        Go::Shadow(hold) => Err(hold),
+        Go::Off => Err(Hold::Off),
     }
 }
 
@@ -571,34 +738,35 @@ pub enum Deleted {
 }
 
 /// The ONE delete of a data object that is not the compensation of a refused change: `proof` says
-/// the history released it and its retention is over. In [`ReclaimMode::Shadow`] nothing is
-/// deleted.
+/// the history released it and its retention is over, and `gate` is the answer of
+/// [`ask_retired_delete`]: with a licence the object is deleted, with what holds it back nothing is
+/// (`Deleted::Would`). A caller that did not ask has no gate to give.
 ///
 /// # Errors
 ///
 /// The bucket's.
 pub(crate) fn delete_reclaimable<D: Drive + ?Sized>(
     drive: &D,
-    mode: ReclaimMode,
+    gate: &Gate,
     proof: Reclaimable,
 ) -> Result<Deleted, DriveError> {
-    match mode {
-        ReclaimMode::Delete => drive.delete(&proof.id.bucket_key()).map(|()| Deleted::Gone),
-        ReclaimMode::Shadow | ReclaimMode::Off => Ok(Deleted::Would),
+    match gate {
+        Ok(_licence) => drive.delete(&proof.id.bucket_key()).map(|()| Deleted::Gone),
+        Err(_held) => Ok(Deleted::Would),
     }
 }
 
 /// [`delete_reclaimable`] for the repository's own bucket.
 fn remove_reclaimable<B: Bucket>(
     bucket: &B,
-    mode: ReclaimMode,
+    gate: &Gate,
     proof: Reclaimable,
 ) -> Result<Deleted, MetaError> {
-    match mode {
-        ReclaimMode::Delete => bucket
+    match gate {
+        Ok(_licence) => bucket
             .remove(&proof.id.bucket_key())
             .map(|()| Deleted::Gone),
-        ReclaimMode::Shadow | ReclaimMode::Off => Ok(Deleted::Would),
+        Err(_held) => Ok(Deleted::Would),
     }
 }
 
@@ -667,6 +835,9 @@ pub(crate) struct Analysis {
     pub(crate) stopped_by_cap: bool,
     /// The devices that committed inside the window (distinct committers).
     pub(crate) devices: usize,
+    /// Whether everything a restore could still bring back ([`restorable`]) is in `live`
+    /// (set by whoever read: it needs the repository's objects at the head).
+    pub(crate) window_agrees: Option<bool>,
 }
 
 /// One commit of the graph.
@@ -991,6 +1162,7 @@ pub(crate) fn analyse(
             .filter_map(|id| nodes.get(id).map(|node| node.device))
             .collect::<HashSet<usize>>()
             .len(),
+        window_agrees: None,
     };
     if live_only {
         return Ok(analysis);
@@ -1045,6 +1217,53 @@ pub(crate) fn analyse(
         analysis.cursor = Some(mark);
     }
     Ok(analysis)
+}
+
+/// What a restore of the drive could still bring back at `now`, derived the way the restore dialog
+/// derives it (azcloud-kit `restore::file_versions`) and NOT the way [`analyse`] derives its window
+/// (X-DELTA-SYNC2-2): along the drive's own history - the first parent of each commit, newest first -
+/// and by the time each commit says it was made at, not the effective time of the whole graph. A
+/// version is offered while the commit that REPLACED it is inside [`RETENTION`]`.versions` (the
+/// dialog's own constant, never the options of the run), and the head's objects always are. The
+/// answer is every object so offered, with its bytes.
+///
+/// The `live` set of a correct analysis holds all of it: every such commit is inside the analysis's
+/// window by its effective time (which is never earlier than its own time), and so is the state it
+/// replaced or the state the window began with. One that does not is a window that is not the one the
+/// user was promised - a retention that drifted, a frontier that lost a state - and a delete from it
+/// would take a version the dialog still offers. What the two share is the reading of a tree
+/// ([`Walk`]); the choice of the commits, the clock they are judged by and the walk of the graph are
+/// each one's own.
+///
+/// # Errors
+///
+/// [`NotYet::Unreadable`] when a commit or a tree cannot be read: nothing is decided from it.
+pub(crate) fn restorable(
+    objects: &Objects,
+    head: &GitId,
+    now: u64,
+) -> Result<HashMap<ObjectId, u64>, NotYet> {
+    let window_start =
+        i64::try_from(now.saturating_sub(RETENTION.versions.as_secs())).unwrap_or(i64::MAX);
+    let mut walk = Walk::new(objects);
+    let mut offered: HashMap<ObjectId, u64> = HashMap::new();
+    let mut commit = objects
+        .commit(head)
+        .map_err(|e| NotYet::unreadable("the head", e))?;
+    // What the head names is the current version of every file: always offered.
+    walk.refs(&commit.tree, &mut offered)?;
+    while let Some(parent) = commit.parents.first().copied() {
+        let before = objects
+            .commit(&parent)
+            .map_err(|e| NotYet::unreadable(format!("commit {}", parent.to_hex()), e))?;
+        // What this commit replaced or deleted was a version of a file until it did: offered while
+        // the commit is inside the window.
+        if commit.committer.time >= window_start {
+            walk.dropped(&before.tree, &commit.tree, &mut offered)?;
+        }
+        commit = before;
+    }
+    Ok(offered)
 }
 
 impl Analysis {
@@ -1214,6 +1433,9 @@ pub struct ReclaimReport {
     pub pack_bytes: u64,
     /// What an independent listing of the head said of the live set ([`GoEvidence::rederived_live_equal`]).
     pub rederived: Option<bool>,
+    /// What the restore dialog's own derivation of the window said of the live set
+    /// ([`GoEvidence::window_rederived`]).
+    pub window_rederived: Option<bool>,
     /// The devices that committed inside the window.
     pub devices: u32,
     /// What the shadow rounds recorded, when the run asked ([`go`]).
@@ -1248,6 +1470,7 @@ impl ReclaimReport {
             releasing: None,
             pack_bytes: 0,
             rederived: None,
+            window_rederived: None,
             devices: 0,
             evidence: None,
             held: None,
@@ -1282,6 +1505,7 @@ impl ReclaimReport {
                 Some((lo, hi)) => Some((lo.min(at), hi.max(at))),
             });
         self.devices = u32::try_from(analysis.devices).unwrap_or(u32::MAX);
+        self.window_rederived = analysis.window_agrees;
     }
 
     /// The report as one line: what the log says.
@@ -1322,6 +1546,11 @@ impl ReclaimReport {
             Some(false) => line.push_str(", the head listed again: DISAGREES"),
             None => {}
         }
+        match self.window_rederived {
+            Some(true) => line.push_str(", the restore's own window: agrees"),
+            Some(false) => line.push_str(", the restore's own window: DISAGREES"),
+            None => {}
+        }
         if let Some(e) = &self.evidence {
             line.push_str(&format!(
                 ", clean rounds {} over {} days by {} of {} devices",
@@ -1349,13 +1578,14 @@ fn digest_of<'a>(ids: impl Iterator<Item = &'a ObjectId>) -> String {
     hex(&hasher.finalize())
 }
 
-/// One run of the reclaimer over `repo`'s drive. The copy is read fresh and whole first. In
-/// [`ReclaimMode::Shadow`] that is all: the report says what would go. In [`ReclaimMode::Delete`]
-/// the run takes the maintenance lease, checks the bucket's clock against this device's, and for
-/// each batch of proven objects (1) fences - the manifest is swapped, and only while it is still
-/// the revision the reads were made at, so nobody published since -, (2) deletes, and when every
-/// delete went through (3) records how far it got. A delete the bucket refuses stops the mark: the
-/// next run finds the object again and tries again. Nothing is deleted from reads that are old.
+/// One run of the reclaimer over `repo`'s drive. The copy is read fresh and whole first. Without a
+/// licence in `gate` (the answer of [`ask_retired_delete`]) that is all: the report says what would
+/// go. With one, in a run configured as [`ReclaimMode::Delete`], the run takes the maintenance
+/// lease, checks the bucket's clock against this device's, and for each batch of proven objects (1)
+/// fences - the manifest is swapped, and only while it is still the revision the reads were made at,
+/// so nobody published since -, (2) deletes, and when every delete went through (3) records how far
+/// it got. A delete the bucket refuses stops the mark: the next run finds the object again and tries
+/// again. Nothing is deleted from reads that are old.
 ///
 /// # Errors
 ///
@@ -1364,18 +1594,21 @@ fn digest_of<'a>(ids: impl Iterator<Item = &'a ObjectId>) -> String {
 pub fn reclaim<B: Bucket, S: Sealer>(
     repo: &mut MetaRepo<B, S>,
     options: &ReclaimOptions,
+    gate: Gate,
 ) -> Result<ReclaimReport, MetaError> {
-    reclaim_judged(repo, options, &mut |_, _| options.mode)
+    let mut asked = Some(gate);
+    reclaim_judged(repo, options, &mut |_, _| {
+        asked.take().unwrap_or(Err(Hold::NotJudged))
+    })
 }
 
-/// What a run asks after its analysis: in which mode does it go on? It sees the analysis (and may
-/// write what it found into the report) and answers [`ReclaimMode::Delete`] only from [`go`]; the
-/// answer is the mode the report carries.
-pub(crate) type Judge<'a> = dyn FnMut(&Analysis, &mut ReclaimReport) -> ReclaimMode + 'a;
+/// What a run asks after its analysis: may it delete? It sees the analysis (and may write what it
+/// found into the report) and answers with the gate - the licence only from [`ask_retired_delete`]
+/// (or a purge the user confirmed), else what holds the delete back.
+pub(crate) type Judge<'a> = dyn FnMut(&Analysis, &mut ReclaimReport) -> Gate + 'a;
 
-/// [`reclaim`], with `judge` deciding the mode after the analysis: how the automatic round of a
-/// provider asks the evidence of the drive's shadow rounds ([`go`]) before it deletes anything. A
-/// purge and the tests give the mode as it is.
+/// [`reclaim`], with `judge` asking after the analysis: how the automatic round of a provider asks
+/// the evidence of the drive's shadow rounds before it deletes anything ([`ask_retired_delete`]).
 pub(crate) fn reclaim_judged<B: Bucket, S: Sealer>(
     repo: &mut MetaRepo<B, S>,
     options: &ReclaimOptions,
@@ -1415,11 +1648,23 @@ pub(crate) fn reclaim_judged<B: Bucket, S: Sealer>(
         }
     };
     analysis.revision = revision;
+    // What the restore dialog still offers, derived its own way, against the window just analysed.
+    // collapse-ok: a derivation that cannot be made is "not checked" (`None`), and a round that was
+    // not checked is not clean: the failure only holds the switch back.
+    analysis.window_agrees = restorable(repo.objects(), &head, now)
+        .ok()
+        .map(|offered| offered.keys().all(|id| analysis.live.contains_key(id)));
     report.take(&analysis);
     report.pack_bytes = pack_bytes_of(repo);
-    let mode = judge(&analysis, &mut report);
-    report.mode = mode;
-    if mode != ReclaimMode::Delete {
+    let gate = judge(&analysis, &mut report);
+    // A licence deletes in a run configured to delete, and in none other.
+    let deletes = options.mode == ReclaimMode::Delete && gate.is_ok();
+    report.mode = match &gate {
+        _ if deletes => ReclaimMode::Delete,
+        Err(Hold::Off) => ReclaimMode::Off,
+        _ => ReclaimMode::Shadow,
+    };
+    if !deletes {
         return Ok(report);
     }
     let mut guard = match repo.store_mut().acquire_lease(MAINTENANCE, LEASE_SECS) {
@@ -1437,6 +1682,7 @@ pub(crate) fn reclaim_judged<B: Bucket, S: Sealer>(
         after.as_ref(),
         options,
         &mut report,
+        &gate,
     );
     let released = repo.store_mut().release_lease(guard);
     done?;
@@ -1470,6 +1716,7 @@ fn delete_under<B: Bucket, S: Sealer>(
     after: Option<&Mark>,
     options: &ReclaimOptions,
     report: &mut ReclaimReport,
+    gate: &Gate,
 ) -> Result<(), MetaError> {
     // The clock NOW: the analysis took the time it took (a big drive's takes minutes), and the lease
     // this run wrote just now is compared with the device's clock of this moment, not with the one
@@ -1500,7 +1747,7 @@ fn delete_under<B: Bucket, S: Sealer>(
                     return Ok(());
                 }
             };
-            match remove_reclaimable(repo.store().bucket(), ReclaimMode::Delete, proof) {
+            match remove_reclaimable(repo.store().bucket(), gate, proof) {
                 Ok(_) => {
                     report.deleted += 1;
                     report.deleted_bytes += analysis.candidates.get(id).map_or(0, |c| c.bytes);

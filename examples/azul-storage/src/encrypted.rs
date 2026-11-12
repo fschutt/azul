@@ -70,7 +70,8 @@ use crate::{
     keyring::KeyringStore,
     limits::named,
     meta::reclaim::{
-        delete_released, drop_new_object, LiveObjects, ReclaimMode, Refusal, Released, DEFAULT_MODE,
+        ask_retired_delete, delete_released, drop_new_object, Gate, History, LiveObjects,
+        ReclaimMode, Refusal, Released, Standing, DEFAULT_MODE,
     },
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
@@ -301,22 +302,23 @@ pub trait IndexProvider: Send + Sync {
         DEFAULT_MODE
     }
 
-    /// Whether the evidence of the drive `drive`'s shadow rounds lets its upkeep delete at the time
-    /// it is asked ([`ReclaimProof`]): a drive configured to delete ([`IndexProvider::reclaim_mode`])
-    /// deletes only while this says yes. By default there is none, and such a drive deletes nothing
-    /// (X-DELTA-SYNC2-2: the upkeep deleted in the configured mode with no evidence at all).
-    fn reclaim_proof(&self, drive: &str) -> Option<ReclaimProof> {
+    /// What the last judged shadow round of the drive `drive` came to ([`ReclaimStanding`]): the
+    /// evidence the upkeep of a drive configured to delete ([`IndexProvider::reclaim_mode`]) asks the
+    /// one gate with ([`crate::meta::reclaim::Standing`]). By default there is none, and such a drive
+    /// deletes nothing (X-DELTA-SYNC2-2: the upkeep deleted in the configured mode with no evidence
+    /// at all).
+    fn reclaim_standing(&self, drive: &str) -> Option<ReclaimStanding> {
         let _ = drive;
         None
     }
 }
 
-/// Whether the shadow rounds of a drive show, at the time given (seconds since 1970), that what its
-/// history alone still names may be deleted: the one question the upkeep asks before it deletes in
-/// [`ReclaimMode::Delete`] ([`EncryptedDrive::with_reclaim_proof`]). The provider that runs the
-/// rounds answers it from the rounds' own verdict ([`crate::meta::reclaim::go`]), never a second
-/// judgement.
-pub type ReclaimProof = Arc<dyn Fn(u64) -> bool + Send + Sync>;
+/// What the shadow rounds of a drive last showed at the time given, as the provider that runs them
+/// holds it ([`Standing`]: the evidence and when it was judged), or none: the input of the one question the
+/// upkeep asks before it deletes data only the history still names
+/// ([`crate::meta::reclaim::ask_retired_delete`]; [`EncryptedDrive::with_reclaim_standing`]). The
+/// gate - not the provider - decides: a standing is evidence, never a verdict.
+pub type ReclaimStanding = Arc<dyn Fn(u64) -> Option<Standing> + Send + Sync>;
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
 /// its member wrap in the bucket, [`crate::crypto::device::unlock`]), the index from
@@ -359,8 +361,8 @@ pub fn open_encrypted(
     let opened = opened.with_key_chain(drive)?;
     let opened = opened.counting_pack_reads_as(drive);
     let opened = opened.with_reclaim(provider.reclaim_mode(drive));
-    let opened = match provider.reclaim_proof(drive) {
-        Some(proof) => opened.with_reclaim_proof(proof),
+    let opened = match provider.reclaim_standing(drive) {
+        Some(standing) => opened.with_reclaim_standing(standing),
         None => opened,
     };
     Ok(match provider.packing(drive) {
@@ -1694,9 +1696,10 @@ pub struct EncryptedDrive<D: Drive> {
     /// What the upkeep does with an object only the drive's history can still name: with an index
     /// that keeps history, [`ReclaimMode::Shadow`] reports and deletes nothing.
     pub(crate) reclaim: ReclaimMode,
-    /// Whether the evidence of the drive's shadow rounds lets the upkeep delete now: a drive
-    /// configured for [`ReclaimMode::Delete`] without one deletes nothing ([`EncryptedDrive::upkeep_mode`]).
-    reclaim_proof: Option<ReclaimProof>,
+    /// What the drive's shadow rounds last showed: the evidence a drive configured for
+    /// [`ReclaimMode::Delete`] asks the one gate with ([`EncryptedDrive::retired_delete_gate`]); a
+    /// drive without one deletes nothing of what only its history names.
+    reclaim_standing: Option<ReclaimStanding>,
 }
 
 impl<D: Drive> fmt::Debug for EncryptedDrive<D> {
@@ -1721,41 +1724,44 @@ impl<D: Drive> EncryptedDrive<D> {
             packs: PackState::new(None),
             undeleted: Mutex::new(BTreeSet::new()),
             reclaim: DEFAULT_MODE,
-            reclaim_proof: None,
+            reclaim_standing: None,
         }
     }
 
     /// The upkeep of this drive is configured by `mode` for the objects only its history can still
     /// name ([`IndexProvider::reclaim_mode`]); a drive whose index keeps no history is not affected.
-    /// [`ReclaimMode::Delete`] is a configuration, not a licence: the upkeep deletes only while the
-    /// drive's proof ([`EncryptedDrive::with_reclaim_proof`]) says the evidence is there.
+    /// [`ReclaimMode::Delete`] is a configuration, not a licence: the upkeep deletes only when the
+    /// one gate ([`ask_retired_delete`]) says so of the drive's standing
+    /// ([`EncryptedDrive::with_reclaim_standing`]).
     #[must_use]
     pub fn with_reclaim(mut self, mode: ReclaimMode) -> EncryptedDrive<D> {
         self.reclaim = mode;
         self
     }
 
-    /// The upkeep of this drive may delete, in [`ReclaimMode::Delete`], while `proof` says the
-    /// evidence of the drive's shadow rounds is there at the time it asks ([`ReclaimProof`]).
+    /// What the drive's shadow rounds last showed, as the upkeep asks it ([`ReclaimStanding`]).
     #[must_use]
-    pub fn with_reclaim_proof(mut self, proof: ReclaimProof) -> EncryptedDrive<D> {
-        self.reclaim_proof = Some(proof);
+    pub fn with_reclaim_standing(mut self, standing: ReclaimStanding) -> EncryptedDrive<D> {
+        self.reclaim_standing = Some(standing);
         self
     }
 
-    /// What the upkeep does with an object only the drive's history names at `now`: the configured
-    /// mode, but a drive configured to delete deletes only while its proof says the evidence of its
-    /// shadow rounds is there - else it reports (X-DELTA-SYNC2-2). The one way the upkeep gets to
-    /// [`ReclaimMode::Delete`] for a drive that keeps history.
-    #[must_use]
-    pub(crate) fn upkeep_mode(&self, now: u64) -> ReclaimMode {
-        match self.reclaim {
-            ReclaimMode::Delete => match &self.reclaim_proof {
-                Some(proof) if proof(now) => ReclaimMode::Delete,
-                _ => ReclaimMode::Shadow,
+    /// The answer of the one gate ([`ask_retired_delete`]) for the upkeep of a drive that keeps
+    /// history, at `now`: its configured mode and the standing its provider holds of the last judged
+    /// shadow round. A licence only for a drive configured to delete whose evidence is there -
+    /// else what holds the delete back (X-DELTA-SYNC2-2).
+    pub(crate) fn retired_delete_gate(&self, now: u64) -> Gate {
+        let standing = self
+            .reclaim_standing
+            .as_ref()
+            .and_then(|standing| standing(now));
+        ask_retired_delete(
+            History::Kept {
+                mode: self.reclaim,
+                standing: standing.as_ref(),
             },
-            other => other,
-        }
+            now,
+        )
     }
 
     /// Writes with these options (segment size, compression) from now on.

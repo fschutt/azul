@@ -136,7 +136,8 @@ pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use reclaim::{
     go, gone_objects, Caps, Deleted, Go, GoEvidence, Hold, LiveObjects, NotYet, PurgeConfirmation,
-    ReclaimMode, ReclaimOptions, ReclaimReport, Reclaimable, Released, ServerClock,
+    ReclaimMode, ReclaimOptions, ReclaimReport, Reclaimable, Released, ServerClock, Standing,
+    STANDING_FRESH_SECS,
 };
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
 pub use retention::{Retention, RETENTION};

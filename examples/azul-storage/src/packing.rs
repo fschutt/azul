@@ -78,7 +78,8 @@ use crate::{
     limits::{Declared, Limit, LimitError},
     local::write_atomically,
     meta::reclaim::{
-        delete_reclaimable, drop_new_object, Deleted, LiveObjects, ReclaimMode, Refusal, Released,
+        ask_retired_delete, delete_reclaimable, drop_new_object, Deleted, Gate, History,
+        LiveObjects, Refusal, Released,
     },
     time::now_unix,
     BatchPut, ByteRange, Drive, DriveError, ObjectInfo,
@@ -1545,16 +1546,17 @@ impl<D: Drive> EncryptedDrive<D> {
     /// What names a bucket object now, and what the upkeep may do about one nothing names. An index
     /// that keeps history answers from the drive itself, read fresh and whole - the head and every
     /// state inside the retention window, never a copy that answered because the drive could not
-    /// be reached - and the drive's [`ReclaimMode`] decides whether an object nothing names is
-    /// deleted or only reported: a drive configured to delete deletes only while the evidence of
-    /// its shadow rounds is there ([`EncryptedDrive::upkeep_mode`]). An index without history has its head and nothing else: what the
-    /// head does not name is named by nobody, and goes (as it always did).
-    fn live_objects(&self, now: u64) -> Result<(LiveObjects, ReclaimMode, bool), DriveError> {
+    /// be reached - and the ONE gate ([`ask_retired_delete`]) decides whether an object nothing
+    /// names is deleted or only reported: a drive configured to delete deletes only while the
+    /// evidence of its shadow rounds is there ([`EncryptedDrive::retired_delete_gate`]). An index
+    /// without history has its head and nothing else: what the head does not name is named by
+    /// nobody, and goes (as it always did) - on the licence the same gate gives it.
+    fn live_objects(&self, now: u64) -> Result<(LiveObjects, Gate, bool), DriveError> {
         match self.index.live_objects(now)? {
-            Some(live) => Ok((live, self.upkeep_mode(now), true)),
+            Some(live) => Ok((live, self.retired_delete_gate(now), true)),
             None => Ok((
                 LiveObjects::of(self.named_objects()?, now),
-                ReclaimMode::Delete,
+                ask_retired_delete(History::None, now),
                 false,
             )),
         }
@@ -1630,7 +1632,7 @@ impl<D: Drive> EncryptedDrive<D> {
         let old: Vec<ObjectId> = selected.iter().map(|u| u.pack.id).collect();
         let report = self.repack_selected(selected, now)?;
         if !old.is_empty() {
-            let (live, mode, history) = self.live_objects(now)?;
+            let (live, gate, history) = self.live_objects(now)?;
             if !history {
                 let mut retired = self.packs.journal.retired()?;
                 let mut deleted = Vec::new();
@@ -1639,7 +1641,7 @@ impl<D: Drive> EncryptedDrive<D> {
                         continue;
                     };
                     if matches!(
-                        delete_reclaimable(&self.inner, mode, proof),
+                        delete_reclaimable(&self.inner, &gate, proof),
                         Ok(Deleted::Gone)
                     ) {
                         self.forget_pack(id);
@@ -1799,7 +1801,7 @@ impl<D: Drive> EncryptedDrive<D> {
         if !retired.iter().any(|(_, at)| at.saturating_add(grace) <= now) {
             return Ok(0);
         }
-        let (live, mode, _) = self.live_objects(now)?;
+        let (live, gate, _) = self.live_objects(now)?;
         let mut keep = Vec::new();
         let mut deleted = Vec::new();
         for (id, at) in retired {
@@ -1815,7 +1817,7 @@ impl<D: Drive> EncryptedDrive<D> {
                 keep.push((id, at));
                 continue;
             };
-            match delete_reclaimable(&self.inner, mode, proof) {
+            match delete_reclaimable(&self.inner, &gate, proof) {
                 Ok(Deleted::Gone) => {
                     self.forget_pack(&id);
                     deleted.push(id);
@@ -1847,7 +1849,7 @@ impl<D: Drive> EncryptedDrive<D> {
         if stale.is_empty() {
             return Ok(0);
         }
-        let (live, mode, _) = self.live_objects(now)?;
+        let (live, gate, _) = self.live_objects(now)?;
         let mut cleared = 0;
         for id in &stale {
             if live.names(id) {
@@ -1858,7 +1860,10 @@ impl<D: Drive> EncryptedDrive<D> {
             let Ok(proof) = live.prove_unnamed(id) else {
                 continue;
             };
-            if matches!(delete_reclaimable(&self.inner, mode, proof)?, Deleted::Gone) {
+            if matches!(
+                delete_reclaimable(&self.inner, &gate, proof)?,
+                Deleted::Gone
+            ) {
                 self.forget_pack(id);
                 self.packs.journal.end(id);
                 cleared += 1;

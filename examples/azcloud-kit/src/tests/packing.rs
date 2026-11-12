@@ -13,7 +13,11 @@ use std::{
 use azul_storage::{
     crypto::{DriveKey, ObjectId},
     encrypted::{EncryptedDrive, MemoryIndex},
-    meta::{open_encrypted_drive, MemoryBucket, ReclaimMode},
+    meta::{
+        open_encrypted_drive,
+        reclaim::{GO_CLEAN_ROUNDS, GO_DAYS, GO_DEVICES},
+        GoEvidence, MemoryBucket, ReclaimMode, Standing,
+    },
     ops::list_all,
     packing::{PackOptions, RETIRED_GRACE_SECS},
     testing::TempDir,
@@ -144,9 +148,26 @@ fn packing_drive(
         .with_packing(options.with_journal(cache.join("packs")))
         // The drive's upkeep deletes the packs it retired (a drive ships in shadow mode: it only
         // reports; the test is about the pack lifecycle itself): configured to delete, with the
-        // evidence of its shadow rounds given (X-DELTA-SYNC2-2: a drive deletes only with it).
+        // evidence of its shadow rounds given (X-DELTA-SYNC2-2: the one gate gives the licence only
+        // to a drive whose rounds showed everything the switch to deleting asks for).
         .with_reclaim(ReclaimMode::Delete)
-        .with_reclaim_proof(Arc::new(|_| true))
+        .with_reclaim_standing(Arc::new(|now| {
+            Some(Standing {
+                at: now,
+                evidence: GoEvidence {
+                    clean_rounds: GO_CLEAN_ROUNDS,
+                    days: GO_DAYS,
+                    devices: GO_DEVICES,
+                    drive_devices: GO_DEVICES,
+                    rederived_live_equal: Some(true),
+                    window_rederived: Some(true),
+                    clock_agrees: Some(true),
+                    byte_budget_ok: true,
+                    floor_known: true,
+                    restore_source: true,
+                },
+            })
+        }))
 }
 
 #[test]
