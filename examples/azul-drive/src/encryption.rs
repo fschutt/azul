@@ -6093,6 +6093,256 @@ mod tests {
         assert!(!rotation::unfinished(&keyring, KEYS_DRIVE).unwrap());
     }
 
+    /// [`MemoryProvider`] whose rekey takes (the stand-in for a repository that can be sealed under a
+    /// new drive key): what a rotation needs of its provider.
+    struct RekeyingProvider;
+
+    impl IndexProvider for RekeyingProvider {
+        fn open_index(
+            &self,
+            drive: &str,
+            bucket: Arc<dyn Drive>,
+            drive_key: &azul_storage::crypto::DriveKey,
+        ) -> Result<Arc<dyn azul_storage::encrypted::NameIndex>, azul_storage::DriveError> {
+            MemoryProvider.open_index(drive, bucket, drive_key)
+        }
+
+        fn rekey(
+            &self,
+            _drive: &str,
+            _bucket: Arc<dyn Drive>,
+            _old: &azul_storage::crypto::DriveKey,
+            _new: &azul_storage::crypto::DriveKey,
+        ) -> Result<(), azul_storage::DriveError> {
+            Ok(())
+        }
+    }
+
+    /// A bucket that refuses every write of one key: the network went exactly there.
+    struct RefusesWritesOf(Arc<azul_storage::meta::MemoryBucket>, &'static str);
+
+    impl Drive for RefusesWritesOf {
+        fn list(
+            &self,
+            request: &azul_storage::ListRequest,
+        ) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+            self.0.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.0.get(key)
+        }
+        fn get_range(
+            &self,
+            key: &str,
+            range: azul_storage::ByteRange,
+        ) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.0.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+            if key == self.1 {
+                return Err(azul_storage::DriveError::Transport(String::from(
+                    "the connection was cut",
+                )));
+            }
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+            self.0.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+            self.0.head(key)
+        }
+        fn put_if(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            condition: &azul_storage::Precondition,
+        ) -> Result<Option<String>, azul_storage::DriveError> {
+            if key == self.1 {
+                return Err(azul_storage::DriveError::Transport(String::from(
+                    "the connection was cut",
+                )));
+            }
+            self.0.put_if(key, bytes, condition)
+        }
+    }
+
+    /// A keyring that refuses to write one entry once armed (a prompt answered "No").
+    struct RefusesOneEntry {
+        inner: azul_storage::keyring::MemoryKeyring,
+        entry: String,
+        armed: std::sync::atomic::AtomicBool,
+    }
+
+    impl KeyringStore for RefusesOneEntry {
+        fn get(&self, key: &str) -> Result<Option<String>, azul_storage::keyring::KeyringError> {
+            self.inner.get(key)
+        }
+        fn set(&self, key: &str, secret: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            if key == self.entry && self.armed.load(Ordering::SeqCst) {
+                return Err(azul_storage::keyring::KeyringError::Denied);
+            }
+            self.inner.set(key, secret)
+        }
+        fn delete(&self, key: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            self.inner.delete(key)
+        }
+    }
+
+    /// What a removal with a perfect proof kept, by entry.
+    fn kept_by_a_removal(
+        keyring: &dyn KeyringStore,
+        months: Option<Result<bool, String>>,
+    ) -> Vec<String> {
+        let report = forget_job(
+            keyring,
+            KEYS_DRIVE,
+            &no_places(),
+            true,
+            Some(removal_proof_of_a_checked_code()),
+            months,
+        );
+        assert!(report.complete());
+        report.kept().iter().map(|k| k.what.clone()).collect()
+    }
+
+    /// X-DELTA-STRUCT-KEYSTATE-1 (reopens X-DELTA-AZDRIVE-KEYS-2): "Remove drive" after a rotation that
+    /// stopped AFTER its Members step. The keyring's drive key IS the new key (and `drive-key-next`
+    /// holds it too), `drive-key-previous` is still there, the index is sealed under K2, the recovery
+    /// wrap still seals K1: the guard compared the two entries, found them equal and called the rotation
+    /// finished, and the removal with a code that was checked before erased the only copy of K2. The
+    /// rotation here is the real `rotate`, whose recovery wrap is refused by the bucket.
+    #[test]
+    fn x_delta_struct_keystate_1_a_removal_after_a_rotation_past_its_members_step_keeps_every_key()
+    {
+        use azul_storage::{
+            crypto::keys::RECOVERY_KEY_FILE, keyring::MemoryKeyring, meta::MemoryBucket,
+        };
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let bucket = Arc::new(MemoryBucket::new());
+        let keyring = MemoryKeyring::new();
+        let (k1, _code) =
+            device::setup_new_drive(bucket.as_ref(), &keyring, KEYS_DRIVE, kdf.clone()).unwrap();
+        let refusing: Arc<dyn Drive> =
+            Arc::new(RefusesWritesOf(Arc::clone(&bucket), RECOVERY_KEY_FILE));
+        let stopped = rotation::rotate(
+            refusing,
+            &keyring,
+            KEYS_DRIVE,
+            &RekeyingProvider,
+            kdf.clone(),
+        );
+        assert!(
+            stopped.is_err(),
+            "the recovery wrap is the step that is refused"
+        );
+
+        // The keyring a stopped rotation leaves: K2 is the drive key and the next key, K1 the previous.
+        let (previous_entry, next_entry) = device::rotation_key_entries(KEYS_DRIVE);
+        let k2 = device::load_drive_key(&keyring, KEYS_DRIVE)
+            .unwrap()
+            .unwrap();
+        assert_ne!(k2, k1);
+        let held = |entry: &str| device::held(&keyring, entry).unwrap().map(|(key, _)| key);
+        assert_eq!(held(&next_entry), Some(k2.clone()));
+        assert_eq!(held(&previous_entry), Some(k1));
+        assert!(rotation::unfinished(&keyring, KEYS_DRIVE).unwrap());
+
+        let kept = kept_by_a_removal(&keyring, None);
+        for entry in [
+            KeyEntry::DriveKey,
+            KeyEntry::RotationPrevious,
+            KeyEntry::RotationNext,
+            KeyEntry::MemberKey,
+        ] {
+            assert!(
+                kept.contains(&entry.name(KEYS_DRIVE)),
+                "{entry:?} stays: {kept:?}"
+            );
+        }
+        assert_eq!(
+            device::load_drive_key(&keyring, KEYS_DRIVE).unwrap(),
+            Some(k2.clone()),
+            "the only copy of the key the index is sealed under"
+        );
+    }
+
+    /// The same keyring as an ORDINARY OPEN makes it: the rotation stopped when the keyring refused
+    /// the drive key (the member wrap of the new key was in the bucket already), and the next open's
+    /// `catch_up` brought the new key in as the drive key. `drive-key-previous` is there, the new key
+    /// is the drive key and the next key: the removal keeps every key (second-round review, KEYS2).
+    #[test]
+    fn x_delta_struct_keystate_1_a_removal_after_an_ordinary_open_of_a_stopped_rotation_keeps_every_key(
+    ) {
+        use azul_storage::{keyring::MemoryKeyring, meta::MemoryBucket};
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let bucket = Arc::new(MemoryBucket::new());
+        let keyring = RefusesOneEntry {
+            inner: MemoryKeyring::new(),
+            entry: device::drive_key_entry(KEYS_DRIVE),
+            armed: std::sync::atomic::AtomicBool::new(false),
+        };
+        let (k1, _code) =
+            device::setup_new_drive(bucket.as_ref(), &keyring, KEYS_DRIVE, kdf.clone()).unwrap();
+        // From here the keyring refuses to make the new key the drive key.
+        keyring.armed.store(true, Ordering::SeqCst);
+        let arc_bucket: Arc<dyn Drive> = bucket.clone();
+        assert!(
+            rotation::rotate(arc_bucket, &keyring, KEYS_DRIVE, &RekeyingProvider, kdf).is_err()
+        );
+        keyring.armed.store(false, Ordering::SeqCst);
+        assert_eq!(
+            device::load_drive_key(&keyring, KEYS_DRIVE).unwrap(),
+            Some(k1.clone()),
+            "stopped before the drive key changed"
+        );
+
+        // An ordinary open.
+        let (k2, before) = device::catch_up(bucket.as_ref(), &keyring, KEYS_DRIVE)
+            .unwrap()
+            .expect("the member wrap of the new key brings it in");
+        assert_eq!(before, k1);
+        assert_ne!(k2, k1);
+        assert!(rotation::unfinished(&keyring, KEYS_DRIVE).unwrap());
+
+        let kept = kept_by_a_removal(&keyring, None);
+        for entry in [
+            KeyEntry::DriveKey,
+            KeyEntry::RotationPrevious,
+            KeyEntry::RotationNext,
+            KeyEntry::MemberKey,
+        ] {
+            assert!(
+                kept.contains(&entry.name(KEYS_DRIVE)),
+                "{entry:?} stays: {kept:?}"
+            );
+        }
+        assert_eq!(
+            device::load_drive_key(&keyring, KEYS_DRIVE).unwrap(),
+            Some(k2),
+            "the only copy of the new key"
+        );
+    }
+
+    /// The control: a rotation that RAN TO THE END (it deletes both of its entries itself) leaves a
+    /// removal with a checked code to take every key.
+    #[test]
+    fn x_delta_struct_keystate_1_a_removal_after_a_finished_rotation_takes_every_key() {
+        use azul_storage::{keyring::MemoryKeyring, meta::MemoryBucket};
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let bucket = Arc::new(MemoryBucket::new());
+        let keyring = MemoryKeyring::new();
+        device::setup_new_drive(bucket.as_ref(), &keyring, KEYS_DRIVE, kdf.clone()).unwrap();
+        let arc_bucket: Arc<dyn Drive> = bucket.clone();
+        let done =
+            rotation::rotate(arc_bucket, &keyring, KEYS_DRIVE, &RekeyingProvider, kdf).unwrap();
+        assert!(done.left_over.is_empty(), "{:?}", done.left_over);
+        assert!(!rotation::unfinished(&keyring, KEYS_DRIVE).unwrap());
+        let kept = kept_by_a_removal(&keyring, None);
+        assert!(kept.is_empty(), "{kept:?}");
+        assert_eq!(device::load_drive_key(&keyring, KEYS_DRIVE).unwrap(), None);
+    }
+
     /// X-DELTA-AZDRIVE-KEYS-8: months paid that only this computer's vault holds (the drive's own
     /// could not take them, or the drive has none) go with the drive's keys and the vault's key
     /// only when the drive holds them too; a question that could not be answered is no "yes".

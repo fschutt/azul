@@ -68,6 +68,7 @@ fn shadow_sign_up(keyring: &dyn KeyringStore, kept: bool) {
     evidence.keyring = KeyringFacts {
         drive_key: Read::Absent,
         next_key: Read::Absent,
+        previous_key: Read::Absent,
         planned_key: Read::Absent,
         keeps_keys: device::keeps_keys_fact(keyring),
     };

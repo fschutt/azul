@@ -325,19 +325,51 @@ pub fn check_keeps_keys(keyring: &dyn KeyringStore, what: &str) -> Result<(), Dr
     )))
 }
 
+/// The keys under a drive's four key entries, read ONCE: the drive key, the two of a rotation and the
+/// one planned before the setup. A read that failed is its `Err`, never an entry that is not there.
+/// A guard decides from these values and the key permit's judge from [`KeyEntries::facts`] of the same
+/// reads - the evidence is what the guard saw, not a second look (X-DELTA-STRUCT-KEYSTATE-6).
+pub(crate) struct KeyEntries {
+    pub drive: Result<Option<DriveKey>, DriveError>,
+    pub previous: Result<Option<DriveKey>, DriveError>,
+    pub next: Result<Option<DriveKey>, DriveError>,
+    pub planned: Result<Option<DriveKey>, DriveError>,
+}
+
+/// Reads the drive's four key entries ([`KeyEntries`]): four local reads, nothing written.
+pub(crate) fn read_entries(keyring: &dyn KeyringStore, drive: &str) -> KeyEntries {
+    let (previous_entry, next_entry) = rotation_key_entries(drive);
+    KeyEntries {
+        drive: load_drive_key(keyring, drive),
+        previous: load_key_at(keyring, &previous_entry),
+        next: load_key_at(keyring, &next_entry),
+        planned: load_key_at(keyring, &planned_key_entry(drive)),
+    }
+}
+
+impl KeyEntries {
+    /// What these reads say, as the key permit's evidence ([`keystate`], C7): the ids, each as the read
+    /// it was - one that failed is [`Read::Failed`]. The keyring's protection is not among them
+    /// ([`keeps_keys_fact`]): only a flow that consults it says so.
+    pub(crate) fn facts(&self) -> KeyringFacts {
+        KeyringFacts {
+            drive_key: keystate::key_id(&self.drive),
+            next_key: keystate::key_id(&self.next),
+            previous_key: keystate::key_id(&self.previous),
+            planned_key: keystate::key_id(&self.planned),
+            keeps_keys: Read::Unasked,
+        }
+    }
+}
+
 /// What the keyring says of the drive's keys, as the key permit's evidence ([`keystate`], C7): the
-/// ids under `drive-key`, `drive-key-next` and `drive-key-planned`, each a read of its own - one that
-/// fails is [`Read::Failed`], never an entry that is not there. Three local reads, nothing written.
-/// The keyring's protection is not asked ([`keeps_keys_fact`]): only a guard that consults it says so.
+/// ids under `drive-key`, `drive-key-next`, `drive-key-previous` and `drive-key-planned`, each a read
+/// of its own - one that fails is [`Read::Failed`], never an entry that is not there. Four local
+/// reads, nothing written. The keyring's protection is not asked ([`keeps_keys_fact`]): only a flow
+/// that consults it says so.
 #[must_use]
 pub fn key_facts(keyring: &dyn KeyringStore, drive: &str) -> KeyringFacts {
-    let (_, next_entry) = rotation_key_entries(drive);
-    KeyringFacts {
-        drive_key: keystate::key_id(&load_drive_key(keyring, drive)),
-        next_key: keystate::key_id(&load_key_at(keyring, &next_entry)),
-        planned_key: keystate::key_id(&load_key_at(keyring, &planned_key_entry(drive))),
-        keeps_keys: Read::Unasked,
-    }
+    read_entries(keyring, drive).facts()
 }
 
 /// Whether `keyring` takes key material, as the key permit's evidence: what [`check_keeps_keys`]

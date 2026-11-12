@@ -116,6 +116,9 @@ fn spec(state: &KeyState, op: Op) -> Cell {
         // never a second new key (KEYS-1)
         (S::Rotating(Start::Resume), Op::Rotate) => Cell::Permit(Way::Resume, NO_STAYS),
         (S::Rotating(Start::Adopt), Op::Rotate) => Cell::Permit(Way::Adopt, NO_STAYS),
+        // the new key is the drive key and the previous one is still kept (X-DELTA-STRUCT-KEYSTATE-1):
+        // `rotation::start` answers a new rotation
+        (S::Rotating(Start::Again), Op::Rotate) => Cell::Permit(Way::New, NO_STAYS),
         // the recovery wrap may change (KEYS-7)
         (S::Rotating(_), Op::AddCode | Op::RemoveCode) => Cell::Refuse(Refusal::WrapMayChange),
         // the keyring's new key may be the only copy (KEYS-2)
@@ -124,7 +127,9 @@ fn spec(state: &KeyState, op: Op) -> Cell {
         }
         // a rotation of this device has had its lockdown; a journal that is not its own has not
         (S::Rotating(Start::Resume), Op::Lockdown) => Cell::Refuse(Refusal::AlreadyLockedDown),
-        (S::Rotating(Start::Adopt), Op::Lockdown) => Cell::Permit(Way::Plain, NO_STAYS),
+        (S::Rotating(Start::Adopt | Start::Again), Op::Lockdown) => {
+            Cell::Permit(Way::Plain, NO_STAYS)
+        }
 
         // ---- Torn: the keys here cannot start or finish anything
         (S::Torn(_), Op::Setup) => Cell::Refuse(Refusal::EncryptedAlready),
@@ -182,6 +187,7 @@ fn states() -> Vec<KeyState> {
         KeyState::Active,
         KeyState::Rotating(Start::Resume),
         KeyState::Rotating(Start::Adopt),
+        KeyState::Rotating(Start::Again),
         KeyState::Torn(Why::OpensNothing),
         KeyState::Torn(Why::OldKeyGone),
         KeyState::Locked,
@@ -262,7 +268,11 @@ fn the_ten_operations_are_all_listed_once() {
 fn x_delta_azdrive_keys_1_a_rotation_that_is_under_way_goes_on_with_its_key_and_makes_no_second_one(
 ) {
     let e = Evidence::new(DRIVE, NOW);
-    for (start, way) in [(Start::Resume, Way::Resume), (Start::Adopt, Way::Adopt)] {
+    for (start, way) in [
+        (Start::Resume, Way::Resume),
+        (Start::Adopt, Way::Adopt),
+        (Start::Again, Way::New),
+    ] {
         match judge(&KeyState::Rotating(start), Op::Rotate, &e) {
             Verdict::Permit(permit) => assert_eq!(permit.way(), way),
             Verdict::Refuse(reason) => panic!("{start:?}: {reason}"),
@@ -383,7 +393,7 @@ fn x_delta_azdrive_keys_8_remove_is_permitted_only_with_a_checked_registered_cod
 fn x_delta_azdrive_keys_2_and_3_nothing_is_erased_while_a_key_change_is_unfinished_or_a_key_only_planned(
 ) {
     let e = all_good();
-    for start in [Start::Resume, Start::Adopt] {
+    for start in [Start::Resume, Start::Adopt, Start::Again] {
         assert_eq!(
             removal_verdict(&KeyState::Rotating(start), &e),
             Err(Refusal::KeyChangeUnfinished)
@@ -399,7 +409,7 @@ fn x_delta_azdrive_keys_2_and_3_nothing_is_erased_while_a_key_change_is_unfinish
 #[test]
 fn x_delta_azdrive_keys_7_a_recovery_code_waits_for_an_unfinished_key_change() {
     let e = all_good();
-    for start in [Start::Resume, Start::Adopt] {
+    for start in [Start::Resume, Start::Adopt, Start::Again] {
         for op in [Op::AddCode, Op::RemoveCode] {
             match judge(&KeyState::Rotating(start), op, &e) {
                 Verdict::Refuse(reason) => assert_eq!(reason.kind, Refusal::WrapMayChange),
@@ -441,13 +451,14 @@ fn x_delta_azdrive_keys_6_a_failed_read_stops_no_lockdown_and_every_other_operat
 /// none, before anything is done at a server.
 #[test]
 fn x_delta_azdrive_keys_25_a_keyring_that_keeps_no_key_refuses_every_operation_that_writes_one() {
-    let writes: [(KeyState, Op); 9] = [
+    let writes: [(KeyState, Op); 10] = [
         (KeyState::Fresh, Op::Setup),
         (KeyState::Planned, Op::Setup),
         (KeyState::Active, Op::Enroll),
         (KeyState::Active, Op::Rotate),
         (KeyState::Rotating(Start::Resume), Op::Rotate),
         (KeyState::Rotating(Start::Adopt), Op::Rotate),
+        (KeyState::Rotating(Start::Again), Op::Rotate),
         (KeyState::Locked, Op::Recover),
         (KeyState::Fresh, Op::Recover),
         (KeyState::Torn(Why::OpensNothing), Op::Recover),
@@ -515,9 +526,17 @@ fn keyring(drive: Option<u8>, next: Option<u8>, planned: Option<u8>) -> Evidence
     e.keyring = KeyringFacts {
         drive_key: drive.map_or(Read::Absent, |n| Read::Found(id(n))),
         next_key: next.map_or(Read::Absent, |n| Read::Found(id(n))),
+        previous_key: Read::Absent,
         planned_key: planned.map_or(Read::Absent, |n| Read::Found(id(n))),
         keeps_keys: Read::Found(Keeps::Yes),
     };
+    e
+}
+
+/// [`keyring`] with the key under `drive-key-previous` named too.
+fn keyring_of_a_key_change(drive: u8, next: u8, previous: Option<u8>) -> Evidence<'static> {
+    let mut e = keyring(Some(drive), Some(next), None);
+    e.keyring.previous_key = previous.map_or(Read::Absent, |n| Read::Found(id(n)));
     e
 }
 
@@ -708,6 +727,7 @@ fn the_evidence_says_which_facts_were_asked() {
         vec![
             "drive key",
             "new key",
+            "previous key",
             "planned key",
             "keeps keys",
             "encrypted"
@@ -1458,4 +1478,344 @@ fn x_delta_azdrive_keys_6_lockdown_needed_stops_on_a_failed_read_and_the_shadow_
         }),
         "{noted:?}"
     );
+}
+
+// ==== X-DELTA-STRUCT-KEYSTATE-1: a rotation that stopped after its Members step ====
+
+/// Evidence of a drive whose recovery code was checked and registered, built on `e`'s keyring and
+/// bucket facts: what a Remove of it is judged on.
+fn with_a_good_proof(mut e: Evidence<'static>) -> Evidence<'static> {
+    let good = all_good();
+    e.token = good.token;
+    e.vault = good.vault;
+    e
+}
+
+/// A rotation whose Members step ran has the new key as the drive key (K2 in `drive-key` and in
+/// `drive-key-next`) and the key it replaces still in `drive-key-previous`: the recovery wrap in the
+/// bucket still seals K1, and K2 is in no other place than this keyring. That is a key change that is
+/// not over, whether or not its journal is in the bucket.
+#[test]
+fn x_delta_struct_keystate_1_a_new_key_that_is_the_drive_key_with_the_previous_key_kept_is_a_key_change_not_over(
+) {
+    let mut e = keyring_of_a_key_change(2, 2, Some(1));
+    e.bucket.journal = Read::Found(Journal::Own);
+    assert_eq!(observe(&e), KeyState::Rotating(Start::Resume));
+
+    // Deleted, planted, nobody's: the next key change starts over.
+    for journal in [Read::Absent, Read::Found(Journal::NotOwn)] {
+        e.bucket.journal = journal.clone();
+        assert_eq!(observe(&e), KeyState::Rotating(Start::Again), "{journal:?}");
+    }
+
+    // Not looked at: the journal is what tells a rotation of this device from a finished one that
+    // left its entry, and nothing is erased on a guess.
+    e.bucket.journal = Read::Unasked;
+    assert_eq!(
+        observe(&e),
+        KeyState::Unknown(Why::NotAsked("the key change's journal"))
+    );
+    e.bucket.journal = Read::Failed(String::from("no answer"));
+    assert_eq!(
+        observe(&e),
+        unreadable("the key change's journal", "no answer")
+    );
+
+    // The index opens with none of the keys this device holds: torn, as for any other key change.
+    e.bucket.journal = Read::Absent;
+    e.bucket.index_opens = Read::Found(false);
+    assert_eq!(observe(&e), KeyState::Torn(Why::OpensNothing));
+    e.bucket.index_opens = Read::Found(true);
+    assert_eq!(observe(&e), KeyState::Rotating(Start::Again));
+
+    // The previous key is a fact the state rests on once the new key is the drive key.
+    e.keyring.previous_key = Read::Failed(String::from("the keyring refused"));
+    assert_eq!(
+        observe(&e),
+        unreadable("the key a key change replaces", "the keyring refused")
+    );
+    e.keyring.previous_key = Read::Unasked;
+    assert_eq!(
+        observe(&e),
+        KeyState::Unknown(Why::NotAsked("the key a key change replaces"))
+    );
+}
+
+/// The other two configurations of `drive-key-next == drive-key`: a finished rotation whose cleanup took
+/// the previous key and not the new key's entry (nothing under way: it is Active, as before), and the
+/// previous key alone, which says nothing.
+#[test]
+fn x_delta_struct_keystate_1_a_finished_rotations_leftover_and_a_previous_key_alone_are_no_key_change_under_way(
+) {
+    let finished = keyring_of_a_key_change(2, 2, None);
+    assert_eq!(observe(&finished), KeyState::Active);
+
+    let mut alone = keyring(Some(1), None, None);
+    alone.keyring.previous_key = Read::Found(id(1));
+    assert_eq!(observe(&alone), KeyState::Active);
+    alone.keyring.drive_key = Read::Absent;
+    alone.bucket.encrypted = Read::Found(true);
+    assert_eq!(observe(&alone), KeyState::Locked);
+}
+
+/// The Remove cell of that state: not even a perfect proof lets the keys go (the judge's side of the
+/// finding; `forget_job` and `KeyringFootprint::forget` are the production entries below).
+#[test]
+fn x_delta_struct_keystate_1_remove_is_refused_for_a_key_change_past_its_members_step_whatever_the_proof_says(
+) {
+    for journal in [
+        Read::Found(Journal::Own),
+        Read::Found(Journal::NotOwn),
+        Read::Absent,
+    ] {
+        let mut e = with_a_good_proof(keyring_of_a_key_change(2, 2, Some(1)));
+        e.bucket.journal = journal.clone();
+        match judge(&observe(&e), Op::Remove, &e) {
+            Verdict::Refuse(reason) => {
+                assert_eq!(reason.kind, Refusal::KeyChangeUnfinished, "{journal:?}");
+            }
+            Verdict::Permit(_) => panic!("{journal:?}: the keys were let go"),
+        }
+    }
+    // the same keyring without the previous key is a finished rotation: the proof decides
+    let finished = with_a_good_proof(keyring_of_a_key_change(2, 2, None));
+    assert!(matches!(
+        judge(&observe(&finished), Op::Remove, &finished),
+        Verdict::Permit(_)
+    ));
+}
+
+/// A bucket whose n-th write (a put, a conditional put or a delete, counted from 1) is refused, as a
+/// network that went at that moment: every write before it lands, every read answers. `0`: none fails.
+struct NthWrite {
+    inner: Arc<MemBucket>,
+    nth: usize,
+    seen: AtomicUsize,
+}
+
+impl NthWrite {
+    fn new(inner: Arc<MemBucket>, nth: usize) -> NthWrite {
+        NthWrite {
+            inner,
+            nth,
+            seen: AtomicUsize::new(0),
+        }
+    }
+
+    fn writes(&self) -> usize {
+        self.seen.load(Ordering::SeqCst)
+    }
+
+    fn write(&self) -> Result<(), DriveError> {
+        let n = self.seen.fetch_add(1, Ordering::SeqCst) + 1;
+        if n == self.nth {
+            Err(DriveError::Transport(String::from("the network went")))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Drive for NthWrite {
+    fn list(&self, request: &crate::ListRequest) -> Result<crate::ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: crate::ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.write()?;
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.write()?;
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<crate::ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &crate::Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.write()?;
+        self.inner.put_if(key, bytes, condition)
+    }
+}
+
+/// A drive set up on a device: its bucket and its keyring.
+fn a_drive_set_up() -> (Arc<MemBucket>, MemoryKeyring) {
+    let bucket = Arc::new(MemBucket::new());
+    let keyring = MemoryKeyring::new();
+    setup_new_drive(bucket.as_ref(), &keyring, DRIVE, cheap()).unwrap();
+    (bucket, keyring)
+}
+
+/// What a Remove of the drive with a perfect proof is judged to be, on the evidence of the keyring and
+/// the bucket as they are now.
+fn removal_now(bucket: &MemBucket, keyring: &dyn KeyringStore) -> Verdict {
+    let e = with_a_good_proof(gathered(bucket, keyring));
+    judge(&observe(&e), Op::Remove, &e)
+}
+
+/// The window after EVERY write of a rotation: the network goes at the n-th write, for each n. The
+/// rotation that stopped is unfinished for the guard and refused by the judge, in the keyring it
+/// leaves and in the one an ordinary open makes of it (the member wrap of the new key brings the new
+/// key in as the drive key: the state after a stop at the Members step), with its journal in the
+/// bucket and without; the same call finishes it, and then the keys may go. This is the production
+/// function `rotate`, stopped in each of its windows (X-DELTA-STRUCT-KEYSTATE-1, X-DELTA-AZDRIVE-KEYS-2).
+#[test]
+fn x_delta_struct_keystate_1_a_rotation_stopped_at_any_write_keeps_every_key_until_it_is_over() {
+    let (bucket, keyring) = a_drive_set_up();
+    let counting = Arc::new(NthWrite::new(bucket.clone(), 0));
+    let counted: Arc<dyn Drive> = counting.clone();
+    rotate(counted, &keyring, DRIVE, &Provider::new(), cheap()).unwrap();
+    let writes = counting.writes();
+    assert!(
+        writes >= 6,
+        "a rotation writes its journal, the chain, the member wrap and the recovery wrap: {writes}"
+    );
+
+    let mut windows = 0;
+    for nth in 1..=writes {
+        for (opened, journal_gone) in [(false, false), (true, false), (true, true)] {
+            let (bucket, keyring) = a_drive_set_up();
+            let failing: Arc<dyn Drive> = Arc::new(NthWrite::new(bucket.clone(), nth));
+            let stopped = rotate(failing, &keyring, DRIVE, &Provider::new(), cheap());
+            let finished_anyway = match stopped {
+                // The last steps are said, not raised: the keys are changed.
+                Ok(done) => {
+                    assert!(
+                        !done.left_over.is_empty(),
+                        "write {nth} failed and the rotation says nothing was left"
+                    );
+                    true
+                }
+                Err(_) => false,
+            };
+            if finished_anyway {
+                assert!(
+                    !rotation::unfinished(&keyring, DRIVE).unwrap(),
+                    "write {nth}"
+                );
+                assert!(
+                    matches!(removal_now(&bucket, &keyring), Verdict::Permit(_)),
+                    "write {nth}: a finished rotation leaves the removal to its proof"
+                );
+                continue;
+            }
+            windows += 1;
+            if opened {
+                // An ordinary open: the member wrap of the new key (when the rotation got that far)
+                // makes the new key the keyring's drive key.
+                let _ = device::catch_up(bucket.as_ref(), &keyring, DRIVE);
+            }
+            if journal_gone {
+                let _ = bucket.delete(JOURNAL_FILE);
+            }
+            let what = format!("write {nth} failed (opened {opened}, journal gone {journal_gone})");
+            assert!(rotation::unfinished(&keyring, DRIVE).unwrap(), "{what}");
+            match removal_now(&bucket, &keyring) {
+                Verdict::Refuse(_) => {}
+                Verdict::Permit(_) => panic!("{what}: the judge let the keys go"),
+            }
+
+            // The same call finishes it.
+            let again: Arc<dyn Drive> = bucket.clone();
+            rotate(again, &keyring, DRIVE, &Provider::new(), cheap())
+                .unwrap_or_else(|e| panic!("{what}: the rotation does not go on: {e}"));
+            assert!(!rotation::unfinished(&keyring, DRIVE).unwrap(), "{what}");
+            assert!(
+                matches!(removal_now(&bucket, &keyring), Verdict::Permit(_)),
+                "{what}: nothing is under way any more"
+            );
+        }
+    }
+    assert!(
+        windows >= 6,
+        "the windows of a rotation were reached: {windows}"
+    );
+}
+
+/// A keyring that refuses to write the drive key once it is told to (the entry's own write, after
+/// the rotation's other entries were written): the keychain's prompt answered "No" at the step that
+/// makes the new key the drive key.
+struct RefusesTheDriveKey<'a> {
+    inner: &'a MemoryKeyring,
+    entry: String,
+    armed: std::sync::atomic::AtomicBool,
+}
+
+impl KeyringStore for RefusesTheDriveKey<'_> {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        self.inner.get(key)
+    }
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        if key == self.entry && self.armed.load(Ordering::SeqCst) {
+            return Err(KeyringError::Denied);
+        }
+        self.inner.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        self.inner.delete(key)
+    }
+}
+
+/// The stop after the member wrap of the new key went into the bucket and before the keyring's drive
+/// key became the new one (R9e), and what an ordinary open makes of it: `catch_up` takes the new key
+/// from the member wrap and writes it as the drive key, and `drive-key-previous` is still there. That
+/// keyring is the one the first version of the guard called finished (X-DELTA-STRUCT-KEYSTATE-1: the
+/// review's second round noted that an open reaches it as well as a stopped `rotate`).
+#[test]
+fn x_delta_struct_keystate_1_an_ordinary_open_after_the_member_wrap_leaves_the_keyring_of_a_key_change_not_over(
+) {
+    let (bucket, keyring) = a_drive_set_up();
+    let old = device::load_drive_key(&keyring, DRIVE).unwrap().unwrap();
+    let refusing = RefusesTheDriveKey {
+        inner: &keyring,
+        entry: device::drive_key_entry(DRIVE),
+        armed: std::sync::atomic::AtomicBool::new(true),
+    };
+    let arc_bucket: Arc<dyn Drive> = bucket.clone();
+    assert!(rotate(arc_bucket, &refusing, DRIVE, &Provider::new(), cheap()).is_err());
+
+    // Stopped: the drive key is still K1, the new key and the previous are kept, the member wrap of
+    // the new key is in the bucket.
+    assert_eq!(
+        device::load_drive_key(&keyring, DRIVE).unwrap(),
+        Some(old.clone())
+    );
+    assert!(rotation::unfinished(&keyring, DRIVE).unwrap());
+
+    // An ordinary open: the keyring's drive key becomes the new key.
+    let (new, before) = device::catch_up(bucket.as_ref(), &keyring, DRIVE)
+        .unwrap()
+        .expect("the wrap holds the new key, which the keyring did not");
+    assert_eq!(before, old);
+    let (_, next_entry) = device::rotation_key_entries(DRIVE);
+    assert_eq!(
+        device::load_key_at(&keyring, &next_entry).unwrap(),
+        Some(new.clone()),
+        "drive-key == drive-key-next now"
+    );
+    assert!(
+        rotation::unfinished(&keyring, DRIVE).unwrap(),
+        "the old guard called this finished: the drive key IS the next key"
+    );
+    for journal_gone in [false, true] {
+        if journal_gone {
+            bucket.delete(JOURNAL_FILE).unwrap();
+        }
+        match removal_now(&bucket, &keyring) {
+            Verdict::Refuse(reason) => assert_eq!(reason.kind, Refusal::KeyChangeUnfinished),
+            Verdict::Permit(_) => {
+                panic!("journal gone {journal_gone}: the only copy of the new key went")
+            }
+        }
+    }
 }

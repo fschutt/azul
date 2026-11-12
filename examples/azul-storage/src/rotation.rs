@@ -250,19 +250,21 @@ pub fn resumable(
     keyring: &dyn KeyringStore,
     drive: &str,
 ) -> Result<Option<Journal>, DriveError> {
-    resumable_seen(bucket, keyring, drive, &mut BucketFacts::default())
+    let (_, next_entry) = device::rotation_key_entries(drive);
+    let next = device::load_key_at(keyring, &next_entry);
+    resumable_seen(bucket, &next, drive, &mut BucketFacts::default())
 }
 
-/// [`resumable`] that notes what it read of the bucket's journal in `seen`: the key permit's
-/// shadow ([`keystate`]) is judged on the facts the guard itself read, never on a second read.
+/// [`resumable`] over the read of `drive-key-next` that the caller made, noting what it read of the
+/// bucket's journal in `seen`: the key permit's judge is told the facts the guard itself read, never a
+/// second look.
 fn resumable_seen(
     bucket: &dyn Drive,
-    keyring: &dyn KeyringStore,
+    next: &Result<Option<DriveKey>, DriveError>,
     drive: &str,
     seen: &mut BucketFacts,
 ) -> Result<Option<Journal>, DriveError> {
-    let (_, next_entry) = device::rotation_key_entries(drive);
-    let Some(new) = device::load_key_at(keyring, &next_entry)? else {
+    let Some(new) = next.clone()? else {
         return Ok(None);
     };
     let journal = match pending(bucket) {
@@ -293,14 +295,31 @@ fn resumable_seen(
 /// (`drive-key-next`) and it is not the drive key yet, so the index may be sealed under a key
 /// the drive key does not open, and the keyring's copy of K2 is the only one. Nothing of such a
 /// drive is deleted on the word of a flag that was made before: a removal of the drive keeps its
-/// keys (X-DELTA-AZDRIVE-KEYS-2). A rotation that went past its Members step and left its keyring
-/// entries behind has the drive key in `drive-key-next` and is finished.
+/// keys (X-DELTA-AZDRIVE-KEYS-2).
+///
+/// The new key may be the drive key already (step 4 of [`rotate`] makes it so) and the change still
+/// not over: the keys it replaces (`drive-key-previous`) leave the keyring only with the last step,
+/// after the recovery wrap was replaced. A new key that is the drive key WITH the previous key still
+/// there is a rotation that went past its Members step - its journal may be gone, and the recovery
+/// wrap in the bucket still seals the old key - and is unfinished; one WITHOUT it is a finished
+/// rotation whose cleanup took the previous key and not the new key's entry (X-DELTA-STRUCT-KEYSTATE-1).
 pub fn unfinished(keyring: &dyn KeyringStore, drive: &str) -> Result<bool, DriveError> {
-    let (_, next_entry) = device::rotation_key_entries(drive);
-    let Some(next) = device::load_key_at(keyring, &next_entry)? else {
+    unfinished_in(&device::read_entries(keyring, drive))
+}
+
+/// [`unfinished`] over entries read already: the guard and the key permit's evidence are the same
+/// reads ([`device::KeyEntries::facts`]).
+pub(crate) fn unfinished_in(entries: &device::KeyEntries) -> Result<bool, DriveError> {
+    let Some(next) = entries.next.clone()? else {
         return Ok(false);
     };
-    Ok(device::load_drive_key(keyring, drive)?.as_ref() != Some(&next))
+    let Some(current) = entries.drive.clone()? else {
+        return Ok(true);
+    };
+    if current != next {
+        return Ok(true);
+    }
+    Ok(entries.previous.clone()?.is_some())
 }
 
 /// Whether a rotation of this device got as far as the keyring: `drive-key-previous` or
@@ -382,17 +401,19 @@ pub fn start(
     keyring: &dyn KeyringStore,
     drive: &str,
 ) -> Result<Start, DriveError> {
+    let entries = device::read_entries(keyring, drive);
     let mut seen = BucketFacts::default();
-    let started = start_seen(bucket, keyring, drive, &mut seen);
-    // The key permit's shadow (C7 step 2): the judge is asked beside this guard, on what it read
-    // and the keyring's entries. This guard decides; the shadow changes nothing.
+    let started = start_seen(bucket, &entries, drive, &mut seen);
+    // The key permit's shadow (C7 step 2): the judge is asked beside this guard, on what it read -
+    // the keyring's entries and the bucket's facts, the same reads. This guard decides; the shadow
+    // changes nothing.
     let guard = match &started {
         Ok(Start::Resume(_)) => Guard::PermitsAs(Way::Resume),
         Ok(Start::Adopt { .. }) => Guard::PermitsAs(Way::Adopt),
         Ok(Start::Fresh { .. }) => Guard::PermitsAs(Way::New),
         Err(_) => Guard::Refuses,
     };
-    let evidence = shadow_evidence(drive, keyring, seen);
+    let evidence = shadow_evidence(drive, keyring, &entries, seen);
     crate::key_shadow!("rotation::start", Op::Rotate, evidence, guard);
     // After the shadow: the key permit's judge knows nothing of the writer's cap.
     if let Ok(Start::Fresh { old }) = &started {
@@ -424,23 +445,24 @@ fn index_is_resealable(bucket: &dyn Drive, key: &DriveKey) -> Result<(), DriveEr
     Ok(())
 }
 
-/// What `start` and `lockdown_needed` decide on, and what they read of the bucket on the way.
+/// What `start` and `lockdown_needed` decide on, from the keyring's entries (read once by the
+/// caller) and what they read of the bucket on the way (`seen`).
 fn start_seen(
     bucket: &dyn Drive,
-    keyring: &dyn KeyringStore,
+    entries: &device::KeyEntries,
     drive: &str,
     seen: &mut BucketFacts,
 ) -> Result<Start, DriveError> {
-    if let Some(journal) = resumable_seen(bucket, keyring, drive, seen)? {
+    if let Some(journal) = resumable_seen(bucket, &entries.next, drive, seen)? {
         return Ok(Start::Resume(journal));
     }
-    let Some(current) = device::load_drive_key(keyring, drive)? else {
+    let Some(current) = entries.drive.clone()? else {
         return Err(missing("old"));
     };
-    let (_, next_entry) = device::rotation_key_entries(drive);
-    match device::load_key_at(keyring, &next_entry)? {
+    match entries.next.clone()? {
         // The drive key itself in `drive-key-next` is a rotation that went past its Members step
-        // and left its keyring entries behind: nothing to protect, a new rotation starts.
+        // (its previous key still kept: `Again` for the key permit) or a finished one that left its
+        // entry behind: nothing of it is resumed, a new rotation starts.
         Some(next) if next != current => {
             if !index_opens_seen(bucket, &[&current, &next], seen)? {
                 return Err(opens_nothing());
@@ -459,17 +481,18 @@ fn start_seen(
     }
 }
 
-/// The evidence a guard of this file hands the key permit's judge: the keyring's entries read now
-/// (three local reads) and what the guard itself read of the bucket. The keyring's protection is
-/// not asked: neither guard of this file consults it (`rotate_drive_key` and the first key written
-/// do).
+/// The evidence a guard of this file hands the key permit's judge: the keyring's entries the guard
+/// read (the same reads: nothing is read again), the keyring's protection (no read: a property of the
+/// keyring), and what the guard itself read of the bucket.
 fn shadow_evidence<'a>(
     drive: &'a str,
     keyring: &dyn KeyringStore,
+    entries: &device::KeyEntries,
     seen: BucketFacts,
 ) -> keystate::Evidence<'a> {
     let mut evidence = keystate::Evidence::new(drive, crate::time::now_unix());
-    evidence.keyring = device::key_facts(keyring, drive);
+    evidence.keyring = entries.facts();
+    evidence.keyring.keeps_keys = device::keeps_keys_fact(keyring);
     evidence.bucket = seen;
     evidence
 }
@@ -483,15 +506,16 @@ pub fn lockdown_needed(
     keyring: &dyn KeyringStore,
     drive: &str,
 ) -> Result<bool, DriveError> {
+    let entries = device::read_entries(keyring, drive);
     let mut seen = BucketFacts::default();
-    let started = start_seen(bucket, keyring, drive, &mut seen);
+    let started = start_seen(bucket, &entries, drive, &mut seen);
     // The shadow of the lockdown (C7 step 2). The guard stops on any read that failed, and the table
     // permits the lockdown in the state of a failed read (X-DELTA-AZDRIVE-KEYS-6): see the finding.
     let guard = match &started {
         Ok(Start::Resume(_)) | Err(_) => Guard::Refuses,
         Ok(Start::Adopt { .. } | Start::Fresh { .. }) => Guard::Permits,
     };
-    let evidence = shadow_evidence(drive, keyring, seen);
+    let evidence = shadow_evidence(drive, keyring, &entries, seen);
     crate::key_shadow!(
         "rotation::lockdown_needed",
         Op::Lockdown,

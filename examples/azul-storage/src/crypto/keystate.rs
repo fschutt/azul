@@ -159,6 +159,13 @@ pub enum Start {
     /// again, a journal is written anew, every step runs again, and the lockdown is not skipped. No
     /// second new key is made: the first may seal the drive's index already.
     Adopt,
+    /// The new key IS the drive key and the key it replaced is still in the keyring: a rotation of
+    /// this device went past its Members step (the drive key became the new one, the recovery wrap
+    /// still seals the old) and its journal is not the device's own any more - or a finished one
+    /// whose cleanup took neither entry away. Nothing here is erased while it stands (the keyring's
+    /// copy of the new key may be the only one), and a key change from here is a new one - a new key
+    /// made, the lockdown run again - exactly as `rotation::start` answers `Fresh` for it.
+    Again,
 }
 
 /// A drive's key on this device, as observed when an operation runs. Never stored.
@@ -206,6 +213,7 @@ impl KeyState {
             KeyState::Active => "active",
             KeyState::Rotating(Start::Resume) => "rotating (resume)",
             KeyState::Rotating(Start::Adopt) => "rotating (adopt)",
+            KeyState::Rotating(Start::Again) => "rotating (again)",
             KeyState::Torn(_) => "torn",
             KeyState::Locked => "locked",
             KeyState::Unknown(_) => "unknown",
@@ -231,6 +239,11 @@ pub struct KeyringFacts {
     pub drive_key: Read<KeyId>,
     /// The id of the key under `drive-key-next`: the new key of a rotation.
     pub next_key: Read<KeyId>,
+    /// The id of the key under `drive-key-previous`: the drive key a rotation replaces, kept until its
+    /// last step. With the new key it tells a rotation that went past its Members step (the drive key
+    /// IS the new key and this entry is still there) from a finished one that left its new key's
+    /// entry behind.
+    pub previous_key: Read<KeyId>,
     /// The id of the key under `drive-key-planned`: a key made before the drive's setup finished.
     pub planned_key: Read<KeyId>,
     /// Whether the keyring takes key material at all (a plain file the user did not allow does
@@ -315,9 +328,10 @@ impl<'a> Evidence<'a> {
     pub fn asked(&self) -> Vec<&'static str> {
         let k = &self.keyring;
         let b = &self.bucket;
-        let facts: [(&'static str, bool); 11] = [
+        let facts: [(&'static str, bool); 12] = [
             ("drive key", k.drive_key.is_asked()),
             ("new key", k.next_key.is_asked()),
+            ("previous key", k.previous_key.is_asked()),
             ("planned key", k.planned_key.is_asked()),
             ("keeps keys", k.keeps_keys.is_asked()),
             ("encrypted", b.encrypted.is_asked()),
@@ -428,7 +442,20 @@ pub fn observe(e: &Evidence<'_>) -> KeyState {
     match drive {
         None => KeyState::Torn(Why::OldKeyGone),
         Some(drive) if drive != next => if_the_index_opens(e, KeyState::Rotating(Start::Adopt)),
-        Some(_) => if_the_index_opens(e, KeyState::Active),
+        // The new key IS the drive key (the Members step made it so). The key it replaced is deleted
+        // just before the new key's own entry, so: still there - the key change went past that step
+        // and is not over (the recovery wrap seals the old key until its step), and the journal says
+        // whose it is; gone - a finished key change that left its entry behind (X-DELTA-STRUCT-KEYSTATE-1).
+        Some(_) => match entry(&k.previous_key, "the key a key change replaces") {
+            Err(state) => state,
+            Ok(None) => if_the_index_opens(e, KeyState::Active),
+            Ok(Some(_)) => match &e.bucket.journal {
+                // Not looked at: this is a rotation of this device or a finished one, and the journal
+                // is what tells (nothing is erased on a guess).
+                Read::Unasked => KeyState::Unknown(Why::NotAsked("the key change's journal")),
+                _ => if_the_index_opens(e, KeyState::Rotating(Start::Again)),
+            },
+        },
     }
 }
 
@@ -875,6 +902,8 @@ fn rotating(start: Start, op: Op, e: &Evidence<'_>) -> Verdict {
         Op::Rotate => match start {
             Start::Resume => permit_keeping(op, e, Way::Resume),
             Start::Adopt => permit_keeping(op, e, Way::Adopt),
+            // `rotation::start` answers `Fresh` here: a new key, a new journal, the lockdown again.
+            Start::Again => permit_keeping(op, e, Way::New),
         },
         Op::AddCode | Op::RemoveCode => refuse(Refusal::WrapMayChange, e),
         Op::Remove | Op::Recover | Op::Reencrypt | Op::RestoreAsOf => {
@@ -882,7 +911,7 @@ fn rotating(start: Start, op: Op, e: &Evidence<'_>) -> Verdict {
         }
         Op::Lockdown => match start {
             Start::Resume => refuse(Refusal::AlreadyLockedDown, e),
-            Start::Adopt => permit_plain(op, e),
+            Start::Adopt | Start::Again => permit_plain(op, e),
         },
     }
 }
