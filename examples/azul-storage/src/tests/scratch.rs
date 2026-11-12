@@ -12,7 +12,7 @@ use std::{
 use super::TempDir;
 use crate::scratch::{self, Scratch};
 #[cfg(unix)]
-use crate::testing::{age_to, age_tree_to, days_ago, note_made_long_ago};
+use crate::testing::{age_record_to, age_to, age_tree_to, days_ago};
 
 /// A pid no process has (`kill(pid, 0)` says "no such process" on every system we run on).
 #[cfg(unix)]
@@ -450,7 +450,8 @@ fn x_testfix_azul2_5_the_shared_ageing_helper_makes_a_copy_that_time_aged_not_on
     let folder = scratch.keep("aged").unwrap();
     fs::write(folder.join("a.txt"), b"cloud bytes").unwrap();
     age_tree_to(&folder, days_ago(3));
-    note_made_long_ago(&folder, "a.txt", days_ago(3));
+    Scratch::note_made(&folder, "a.txt").unwrap();
+    age_record_to(&folder, "a.txt", days_ago(3));
     let age_of = |path: &Path| {
         std::time::SystemTime::now()
             .duration_since(fs::metadata(path).unwrap().modified().unwrap())
@@ -515,12 +516,14 @@ fn x_delta_azdrive_files_7_the_sweep_leaves_a_kept_folder_that_holds_the_users_w
     fs::write(unrecorded.join("d.txt"), b"x").unwrap();
     // Three days go by. The two copies nobody has touched are noted as they are then: ageing a
     // file after it was noted changes the time its record names, and the sweep would take it for a
-    // file somebody wrote (`note_made_long_ago`).
+    // file somebody wrote (`age_record_to`).
     for folder in [&plain, &beside, &over, &unrecorded] {
         age_tree_to(folder, days_ago(3));
     }
-    note_made_long_ago(&plain, "a.txt", days_ago(3));
-    note_made_long_ago(&beside, "b.txt", days_ago(3));
+    Scratch::note_made(&plain, "a.txt").unwrap();
+    age_record_to(&plain, "a.txt", days_ago(3));
+    Scratch::note_made(&beside, "b.txt").unwrap();
+    age_record_to(&beside, "b.txt", days_ago(3));
     assert_eq!(
         Scratch::made_state(&over, "c.txt"),
         crate::scratch::MadeState::Changed,
@@ -941,7 +944,8 @@ mod open_copy {
         // what they are.
         for (folder, name) in [(&mine_folder, "report.docx"), (&other_folder, "other.docx")] {
             age_tree_to(folder, days_ago(4));
-            note_made_long_ago(folder, name, days_ago(4));
+            Scratch::note_made(folder, name).unwrap();
+            age_record_to(folder, name, days_ago(4));
         }
         let removed = copies.sweep(OPEN_COPY_KEPT);
         assert_eq!(removed, 1, "only the untouched copy's folder went");

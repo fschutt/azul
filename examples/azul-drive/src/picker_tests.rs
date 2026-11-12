@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
-use azul_storage::testing::{age_tree_to, days_ago, note_made_long_ago};
+use azul_storage::testing::{age_record_to, age_tree_to, days_ago};
 
 use super::*;
 
@@ -342,7 +342,8 @@ fn x_delta_sync2_4_a_picked_copy_is_an_open_copy_and_an_edit_saved_over_it_survi
     // it was aged, its record and folder aged last); a's folder holds the edit.
     age_tree_to(copies.dir(), days_ago(4));
     let b_folder = b.parent().unwrap();
-    note_made_long_ago(b_folder, "b.docx", days_ago(4));
+    Scratch::note_made(b_folder, "b.docx").unwrap();
+    age_record_to(b_folder, "b.docx", days_ago(4));
     assert_eq!(
         Scratch::made_state(b_folder, "b.docx"),
         MadeState::Untouched

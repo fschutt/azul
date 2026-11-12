@@ -135,24 +135,24 @@ pub fn age_tree_to(path: &Path, time: std::time::SystemTime) {
     age_to(path, time);
 }
 
-/// Notes the copy `name` of the kept `folder` as made AFTER everything in the folder was aged to `time`
-/// ([`age_tree_to`] first): what a copy that was made then and has not been touched since looks like. A
-/// record names the time of the file it describes, so a file aged after it was noted is "another file" to
-/// it (`MadeState::Changed`) and its folder the user's work - which is what a sweep must see only of a file
-/// somebody really wrote -; and writing the record changes the folder, which makes it young again, so the
-/// record and the folder are aged last. The ONE helper of the sweep tests of storage, the kit and AzDrive
-/// (X-TESTFIX-AZUL2-5: it was written four times, and the first versions of three of the tests aged the
-/// files after the record and went red for it).
+/// What is left to age once the copy `name` of the kept `folder` was noted as made (the caller's own
+/// `Scratch::note_made`, AFTER everything in the folder was aged to `time` by [`age_tree_to`]: a piece of the
+/// open-copy procedure belongs at the line that makes it, `scratch_gate`): its record and its folder - writing
+/// the record changes the folder, which makes it young again - and the check that the copy is still the file
+/// that was written. A record names the time of the file it describes, so a file aged after it was noted is
+/// "another file" to it (`MadeState::Changed`) and its folder the user's work, which is what a sweep must see
+/// only of a file somebody really wrote. The ONE helper of the sweep tests of storage, the kit and AzDrive
+/// (X-TESTFIX-AZUL2-5: it was written four times, and the first versions of three of the tests aged the files
+/// after the record and went red for it).
 ///
 /// # Panics
 ///
-/// As [`age_to`], and when the copy is not `Untouched` afterwards: the fixture is then no copy that time
-/// has aged.
+/// As [`age_to`], and when the copy is not `Untouched` afterwards: the fixture is then no copy that time has
+/// aged.
 #[cfg(unix)]
-pub fn note_made_long_ago(folder: &Path, name: &str, time: std::time::SystemTime) {
+pub fn age_record_to(folder: &Path, name: &str, time: std::time::SystemTime) {
     use crate::scratch::{MadeState, Scratch};
 
-    Scratch::note_made(folder, name).expect("the copy is noted as made");
     age_to(&folder.join(".made.json"), time);
     age_to(folder, time);
     assert_eq!(

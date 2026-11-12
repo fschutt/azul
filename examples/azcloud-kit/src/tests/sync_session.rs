@@ -804,7 +804,7 @@ mod encrypted_copies {
     use std::sync::{atomic::AtomicBool, Arc};
 
     #[cfg(unix)]
-    use azul_storage::testing::{age_tree_to, days_ago, note_made_long_ago};
+    use azul_storage::testing::{age_record_to, age_tree_to, days_ago};
     use azul_storage::{
         crypto::DriveKey,
         encrypted::{EncryptedDrive, MemoryIndex},
@@ -1040,14 +1040,16 @@ mod encrypted_copies {
         // it has now: only the user's file tells the folder from an untouched copy's (a folder
         // that was young would be left for its age, and the test would not need the record).
         age_tree_to(&folder, days_ago(4));
-        note_made_long_ago(&folder, "diary.txt", days_ago(4));
+        azul_storage::scratch::Scratch::note_made(&folder, "diary.txt").unwrap();
+        age_record_to(&folder, "diary.txt", days_ago(4));
         let removed = t.copies().sweep(azul_storage::scratch::OPEN_COPY_KEPT);
         assert_eq!(removed, 0, "a folder that holds the user's file is not swept");
         assert_eq!(std::fs::read(&mine).unwrap(), b"my version");
         // The folder of an untouched copy of the same age goes, as before.
         std::fs::remove_file(&mine).unwrap();
         age_tree_to(&folder, days_ago(4));
-        note_made_long_ago(&folder, "diary.txt", days_ago(4));
+        azul_storage::scratch::Scratch::note_made(&folder, "diary.txt").unwrap();
+        age_record_to(&folder, "diary.txt", days_ago(4));
         assert_eq!(t.copies().sweep(azul_storage::scratch::OPEN_COPY_KEPT), 1);
         assert!(!folder.exists());
     }

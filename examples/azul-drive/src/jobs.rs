@@ -4429,7 +4429,7 @@ pub(crate) extern "C" fn job_thread(
 #[cfg(test)]
 mod tests {
     #[cfg(unix)]
-    use azul_storage::testing::{age_to, note_made_long_ago};
+    use azul_storage::testing::{age_record_to, age_to};
     use azul_storage::testing::TempDir;
 
     use super::*;
@@ -6131,7 +6131,7 @@ mod tests {
     /// the same age takes an untouched copy's folder (and one no record names) away.
     ///
     /// The copies are aged the way time ages them: every file of both folders is made three days
-    /// old, and the two copies nobody touched are noted AFTER that (`note_made_long_ago`). The
+    /// old, and the two copies nobody touched are noted AFTER that (`Scratch::note_made`, then `age_record_to`). The
     /// first version of this test aged the files after the copies were noted, so each record named
     /// a time its file no longer had, both folders held "a file that is no longer what was
     /// written", and the sweep took none (left 0, right 1) - the sweep was right, and the fixture
@@ -6157,8 +6157,10 @@ mod tests {
                 age_to(&entry.unwrap().path(), long_ago);
             }
         }
-        note_made_long_ago(&folder, "report.docx", long_ago);
-        note_made_long_ago(&other_folder, "other.docx", long_ago);
+        Scratch::note_made(&folder, "report.docx").unwrap();
+        age_record_to(&folder, "report.docx", long_ago);
+        Scratch::note_made(&other_folder, "other.docx").unwrap();
+        age_record_to(&other_folder, "other.docx", long_ago);
         let swept = copies.sweep(OPEN_COPY_KEPT);
         assert_eq!(swept, 1, "only the untouched copy's folder went");
         assert!(!other_folder.exists());
