@@ -1407,6 +1407,9 @@ pub struct Change<'a> {
     pub new: &'a DriveKey,
     pub older: &'a [DriveKey],
     pub kdf: RecoveryKdf,
+    /// Whether the chain step starts a chain anew over a file that is no chain ([`rotation::Damaged`]): the
+    /// first one of a rotation does, the one after its Members step never does.
+    pub chain_start_over: bool,
 }
 
 /// What a removal hands each consumer to forget.
@@ -1422,6 +1425,8 @@ pub enum Done {
     Nothing,
     /// How many entries, files or links were changed.
     Count(usize),
+    /// The file keys of the index re-wrapped, and the entries nobody could unwrap and that were left as they were.
+    Rewrapped { count: usize, unwrapped: usize },
     /// The new recovery code, for the recovery sheet: stored nowhere.
     Code(RecoveryCode),
     /// The new drop key's public half, when incoming mail is on.
@@ -1435,8 +1440,22 @@ impl Done {
     #[must_use]
     pub fn count(&self) -> usize {
         match self {
-            Done::Count(n) => *n,
+            Done::Count(n) | Done::Rewrapped { count: n, .. } => *n,
             Done::Nothing | Done::Code(_) | Done::DropKey(_) | Done::Removed { .. } => 0,
+        }
+    }
+
+    /// The entries a re-wrap left as they were because no key opens their file key: none for a step that
+    /// is no re-wrap.
+    #[must_use]
+    pub fn unwrapped(&self) -> usize {
+        match self {
+            Done::Rewrapped { unwrapped, .. } => *unwrapped,
+            Done::Nothing
+            | Done::Count(_)
+            | Done::Code(_)
+            | Done::DropKey(_)
+            | Done::Removed { .. } => 0,
         }
     }
 
@@ -1445,7 +1464,11 @@ impl Done {
     pub fn removed(&self) -> (usize, usize) {
         match self {
             Done::Removed { members, codes } => (*members, *codes),
-            Done::Nothing | Done::Count(_) | Done::Code(_) | Done::DropKey(_) => (0, 0),
+            Done::Nothing
+            | Done::Count(_)
+            | Done::Rewrapped { .. }
+            | Done::Code(_)
+            | Done::DropKey(_) => (0, 0),
         }
     }
 
@@ -1454,7 +1477,11 @@ impl Done {
     pub fn into_drop_key(self) -> Option<drops::DropPublic> {
         match self {
             Done::DropKey(key) => key,
-            Done::Nothing | Done::Count(_) | Done::Code(_) | Done::Removed { .. } => None,
+            Done::Nothing
+            | Done::Count(_)
+            | Done::Rewrapped { .. }
+            | Done::Code(_)
+            | Done::Removed { .. } => None,
         }
     }
 }
@@ -1464,6 +1491,9 @@ impl fmt::Debug for Done {
         match self {
             Done::Nothing => f.write_str("Nothing"),
             Done::Count(n) => write!(f, "Count({n})"),
+            Done::Rewrapped { count, unwrapped } => {
+                write!(f, "Rewrapped {{ count: {count}, unwrapped: {unwrapped} }}")
+            }
             Done::Code(_) => f.write_str("Code(***)"),
             Done::DropKey(key) => write!(
                 f,
@@ -1569,7 +1599,12 @@ fn reseal_file_keys(permit: &Permit, c: &Change<'_>) -> Result<Done, DriveError>
     let index = c
         .provider
         .open_index(c.drive, Arc::clone(c.bucket), c.new)?;
-    rotation::rewrap_index_with(index.as_ref(), c.old, c.older, c.new).map(Done::Count)
+    rotation::rewrap_index_with(index.as_ref(), c.old, c.older, c.new).map(|rewrapped| {
+        Done::Rewrapped {
+            count: rewrapped.done,
+            unwrapped: rewrapped.unwrapped,
+        }
+    })
 }
 
 /// Step 4: this device gets a NEW member key (the old one may have leaked with the old drive key)
@@ -1627,7 +1662,13 @@ fn reseal_drops(permit: &Permit, c: &Change<'_>) -> Result<Done, DriveError> {
 /// The key chain: the old key sealed under the new one, read back before anything lets go of it.
 fn reseal_chain(permit: &Permit, c: &Change<'_>) -> Result<Done, DriveError> {
     permitted(permit, Op::Rotate, c.drive)?;
-    rotation::chain_old_key(c.bucket.as_ref(), c.drive, c.old, c.new).map(|()| Done::Nothing)
+    let damaged = if c.chain_start_over {
+        rotation::Damaged::StartOver
+    } else {
+        rotation::Damaged::Refuse
+    };
+    rotation::chain_old_key(c.bucket.as_ref(), c.drive, c.old, c.new, damaged)
+        .map(|()| Done::Nothing)
 }
 
 /// Takes the keyring entry `entry` of the drive away, for a permit of a removal.

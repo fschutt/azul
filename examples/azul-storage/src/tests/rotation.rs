@@ -711,6 +711,190 @@ fn x_delta_azdrive_keys_6_a_chain_file_that_is_garbage_stops_no_open_and_no_rota
     assert_eq!(chain.open(DRIVE, &new_key), vec![s.old_key.clone()]);
 }
 
+/// An index entry whose file key is wrapped by a key nobody here holds: what a restore as of a time before
+/// an earlier rotation puts back at the head of a drive whose key chain is gone. The object and the entry
+/// are the file's own; only the wrap of its file key is another key's (`k0`).
+fn wrapped_by_a_key_nobody_holds(
+    s: &Setup,
+    path: &str,
+) -> (DriveKey, crate::encrypted::IndexEntry) {
+    let k0 = DriveKey::generate().unwrap();
+    let entry = s
+        .provider
+        .index
+        .get(path)
+        .unwrap()
+        .expect("the file is in the index");
+    let object = entry.object.clone().expect("a file");
+    let bound = object.bucket_object();
+    let file_key = s
+        .old_key
+        .unwrap_file_key(&object.wrapped_key, &bound)
+        .unwrap();
+    let mut planted = entry.clone();
+    planted.object.as_mut().unwrap().wrapped_key = k0.wrap_file_key(&file_key, &bound).unwrap();
+    s.provider
+        .index
+        .apply(vec![IndexChange::Put {
+            path: path.to_string(),
+            entry: planted.clone(),
+            expect: Expect::Object(object.id),
+        }])
+        .unwrap();
+    (k0, planted)
+}
+
+/// X-DELTA-KEYS3-7: a drive rotated before whose head holds a pointer wrapped by an older key (a restore as
+/// of a time before the earlier rotation puts such pointers back) and whose key chain is gone - nobody can
+/// open that pointer. The re-wrap returned an error for it, AFTER the index was sealed under the new key,
+/// and so did every retry: DK = K1 on this device, the index K2's, the other devices locked out. An entry
+/// nobody can unwrap is unreadable either way: it is left exactly as it is, counted, said in `left_over`, and
+/// the rotation goes on and ends.
+#[test]
+fn x_delta_keys3_7_an_entry_no_key_opens_is_left_as_it_is_and_counted_and_the_rotation_ends() {
+    let s = set_up();
+    let bucket: Arc<dyn Drive> = s.bucket.clone();
+    let (_k0, planted) = wrapped_by_a_key_nobody_holds(&s, "photos/a.jpg");
+    assert!(
+        s.bucket.object(CHAIN_KEY_FILE).is_none(),
+        "premise: no key chain"
+    );
+
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap())
+        .expect("one entry nobody can read does not stop the key change");
+    assert_eq!(rotated.unwrapped, 1);
+    assert_eq!(rotated.rewrapped, 2, "the other two entries");
+    assert!(
+        rotated
+            .left_over
+            .iter()
+            .any(|left| left.contains("1 file(s)") && left.contains("stay as they were")),
+        "{:?}",
+        rotated.left_over
+    );
+    // Never deleted, never rewritten: the entry is the one the planting left, byte for byte.
+    assert_eq!(s.provider.index.get("photos/a.jpg").unwrap(), Some(planted));
+    // The key change is over: the keyring holds the new key, and the other files read with it.
+    let new_key = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(new_key.id(), rotated.drive_key);
+    assert!(
+        pending(bucket.as_ref()).unwrap().is_none(),
+        "the journal is gone"
+    );
+    let drive = open_encrypted(bucket, &s.keyring, DRIVE, &s.provider).unwrap();
+    assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
+    assert!(
+        drive.get("photos/a.jpg").is_err(),
+        "and the one nobody can open stays unreadable"
+    );
+}
+
+/// X-DELTA-KEYS3-7: the same on a resume - the rotation that stopped after the index was sealed under the new
+/// key (the journal's `Rekeyed` write refused) goes on past the entry, counts it, and ends. On the old code
+/// this is the stuck state of the review: the index is K2's, DK is K1, and every retry stops at the entry.
+#[test]
+fn x_delta_keys3_7_a_stopped_rotation_resumes_past_an_entry_no_key_opens() {
+    let s = set_up();
+    wrapped_by_a_key_nobody_holds(&s, "backup/plan.txt");
+    let faulty = Arc::new(Faulty::new(s.bucket.clone()));
+    let bucket: Arc<dyn Drive> = faulty.clone();
+    // The journal is written twice before the re-wrap (Started, then Rekeyed): the second is refused.
+    faulty.fail_nth_write_ending("_rotation.key", 2, Fail::Refused);
+    assert!(rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).is_err());
+    assert_eq!(
+        pending(bucket.as_ref()).unwrap().unwrap().phase,
+        Phase::Started
+    );
+    assert!(
+        s.bucket.object(CHAIN_KEY_FILE).is_some(),
+        "premise: the index is the new key's and K1 is in the chain"
+    );
+
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap())
+        .expect("the resume goes on past the entry nobody can open");
+    assert_eq!(rotated.unwrapped, 1);
+    assert_eq!(rotated.rewrapped, 2);
+    let new_key = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(new_key.id(), rotated.drive_key);
+    assert!(pending(bucket.as_ref()).unwrap().is_none());
+}
+
+/// X-DELTA-KEYS3-7: the helper itself, on the index: every entry the re-wrap could not open is counted, and
+/// the ones it could are done.
+#[test]
+fn x_delta_keys3_7_the_rewrap_counts_what_it_could_not_unwrap_and_changes_nothing_of_it() {
+    let s = set_up();
+    let (_k0, planted) = wrapped_by_a_key_nobody_holds(&s, "photos/a.jpg");
+    let new_key = DriveKey::generate().unwrap();
+    let done =
+        crate::rotation::rewrap_index(s.provider.index.as_ref(), &s.old_key, &new_key).unwrap();
+    assert_eq!(
+        done,
+        crate::rotation::Rewrapped {
+            done: 2,
+            unwrapped: 1
+        }
+    );
+    assert_eq!(s.provider.index.get("photos/a.jpg").unwrap(), Some(planted));
+    // Again: nothing left to do, the same one counted.
+    let again =
+        crate::rotation::rewrap_index(s.provider.index.as_ref(), &s.old_key, &new_key).unwrap();
+    assert_eq!(
+        again,
+        crate::rotation::Rewrapped {
+            done: 0,
+            unwrapped: 1
+        }
+    );
+}
+
+/// X-DELTA-KEYS3-7: the key chain file of a rotation that is committed is never started over. The rotation
+/// stopped after its Members step and a chain file that is no chain was planted: its last chain step finds a
+/// file it cannot read, says so in words that tell what to do, and writes nothing over it; with the file
+/// removed the same call goes on and ends. (Its FIRST chain step still starts a chain over a damaged file:
+/// `x_delta_azdrive_keys_6_...`, which a planted file must not be able to stop.)
+#[test]
+fn x_delta_keys3_7_a_chain_file_damaged_after_the_members_step_is_not_written_over() {
+    let s = set_up();
+    let faulty = Arc::new(Faulty::new(s.bucket.clone()));
+    let bucket: Arc<dyn Drive> = faulty.clone();
+    // The drop key step stops the rotation after its first chain step and the Members step.
+    faulty.fail_write(DROP_KEY_FILE, Fail::Refused, 1);
+    assert!(rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).is_err());
+    assert_eq!(
+        pending(bucket.as_ref()).unwrap().unwrap().phase,
+        Phase::Members
+    );
+    let planted = b"{ a chain that is none".to_vec();
+    s.bucket.set(CHAIN_KEY_FILE, planted.clone());
+
+    let refused = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap());
+    match &refused {
+        Err(DriveError::Corrupt { key, reason }) => {
+            assert_eq!(key, CHAIN_KEY_FILE);
+            assert!(reason.contains("remove the file"), "{reason}");
+            assert!(reason.contains("nothing of it was changed"), "{reason}");
+        }
+        other => {
+            panic!("a chain file nobody can read is refused after the Members step: {other:?}")
+        }
+    }
+    assert_eq!(
+        s.bucket.object(CHAIN_KEY_FILE).unwrap(),
+        planted,
+        "byte-identical"
+    );
+    assert!(s.bucket.object(RECOVERY_KEY_FILE).is_some());
+
+    // Removed, the file is no chain: the rotation starts one with its link and ends.
+    s.bucket.delete(CHAIN_KEY_FILE).unwrap();
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    let new_key = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert_eq!(new_key.id(), rotated.drive_key);
+    let chain = load_key_chain(bucket.as_ref()).unwrap().expect("a chain");
+    assert_eq!(chain.open(DRIVE, &new_key), vec![s.old_key.clone()]);
+}
+
 /// X-DELTA-AZDRIVE-KEYS-6: the chain takes the first link of a key it finds; a link somebody
 /// planted for the same key, ahead of the genuine one, ended the walk and hid K1.
 #[test]

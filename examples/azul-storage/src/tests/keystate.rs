@@ -558,6 +558,7 @@ fn the_reseals_run_for_a_rotation_permit_only_and_do_the_existing_steps() {
         new: &new,
         older: &[],
         kdf: cheap(),
+        chain_start_over: true,
     };
     let rotate = permit_of(Op::Rotate);
     let enrol = permit_of(Op::Enroll);
@@ -621,7 +622,10 @@ fn the_reseals_run_for_a_rotation_permit_only_and_do_the_existing_steps() {
     ));
     assert!(matches!(
         reseal_file_keys(&rotate, &change),
-        Ok(Done::Count(0))
+        Ok(Done::Rewrapped {
+            count: 0,
+            unwrapped: 0
+        })
     ));
 
     // what a rotation calls is `reseal_for`: the function above for a consumer that has one, and for one

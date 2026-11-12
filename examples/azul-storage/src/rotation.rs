@@ -95,7 +95,7 @@ use crate::{
         drops::DropPublic,
         keys::{load_key_chain, store_key_chain, KeyChain, RecoveryCode, RecoveryKdf, KEYS_PREFIX},
         keystate::{self, BucketFacts, Done, Op, Permit, Read, Verdict, Way},
-        DriveKey, KeyId,
+        CryptoError, DriveKey, KeyId,
     },
     encrypted::{EncryptedDrive, Expect, IndexChange, IndexEntry, IndexProvider, NameIndex, Rewrite},
     keyring::KeyringStore,
@@ -612,6 +612,10 @@ pub struct Rotated {
     pub drive_key: KeyId,
     /// Index entries re-wrapped.
     pub rewrapped: usize,
+    /// Index entries left as they were because no key this device holds opens their file key: wrapped by
+    /// a key from before a key chain that is gone, or damaged. Nobody can read them with or without this
+    /// rotation; they are neither deleted nor rewritten, and `left_over` says so (X-DELTA-KEYS3-7).
+    pub unwrapped: usize,
     /// Member wraps and invites removed (the other devices).
     pub members_removed: usize,
     /// Further recovery codes' wraps removed (`recovery-<id>.key`, the kits made with
@@ -634,6 +638,7 @@ impl std::fmt::Debug for Rotated {
         f.debug_struct("Rotated")
             .field("drive_key", &self.drive_key)
             .field("rewrapped", &self.rewrapped)
+            .field("unwrapped", &self.unwrapped)
             .field("members_removed", &self.members_removed)
             .field("codes_removed", &self.codes_removed)
             .field("drop_key", &self.drop_key)
@@ -671,9 +676,26 @@ pub(crate) fn rewrap_batch() -> usize {
         .max(1)
 }
 
+/// What a re-wrap did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rewrapped {
+    /// Entries whose file key now has the new key's wrap.
+    pub done: usize,
+    /// Entries left as they were because no key opens their file key (the last pass's count): the key
+    /// that wrapped them is none the rotation holds - not the old one, not one of the key chain's - or the
+    /// wrap does not open with the key it names. An entry nobody can read is unreadable either way, and
+    /// it is never deleted or rewritten here (X-DELTA-KEYS3-7: it used to stop the rotation, after the
+    /// index was sealed under the new key, on every retry).
+    pub unwrapped: usize,
+}
+
 /// Step 2: every entry's file key from `old` to `new`, in batches ([`rewrap_batch`]); again while
-/// files change under it. Returns how many entries were re-wrapped.
-pub fn rewrap_index(index: &dyn NameIndex, old: &DriveKey, new: &DriveKey) -> Result<usize, DriveError> {
+/// files change under it. Returns how many entries were re-wrapped and how many nobody could unwrap.
+pub fn rewrap_index(
+    index: &dyn NameIndex,
+    old: &DriveKey,
+    new: &DriveKey,
+) -> Result<Rewrapped, DriveError> {
     rewrap_index_with(index, old, &[], new)
 }
 
@@ -685,11 +707,12 @@ pub fn rewrap_index_with(
     old: &DriveKey,
     older: &[DriveKey],
     new: &DriveKey,
-) -> Result<usize, DriveError> {
+) -> Result<Rewrapped, DriveError> {
     let (old_id, new_id) = (old.id(), new.id());
     let mut total = 0;
     for _ in 0..REWRAP_ATTEMPTS {
         let mut changes = Vec::new();
+        let mut unwrapped = 0;
         for (path, entry) in all_entries(index)? {
             let Some(object) = entry.object.as_ref() else {
                 continue;
@@ -704,19 +727,23 @@ pub fn rewrap_index_with(
                     .iter()
                     .find(|key| key.id() == object.wrapped_key.key_id)
             };
+            // No key this device holds wrapped it: nobody here can read the file, with or without the
+            // rotation. It stays as it is.
             let Some(wrapper) = wrapper else {
-                return Err(DriveError::Corrupt {
-                    key: path,
-                    reason: String::from(
-                        "its key is wrapped by neither the old nor the new drive key",
-                    ),
-                });
+                unwrapped += 1;
+                continue;
             };
             // A packed file's key is its pack's, wrapped for the pack.
             let bound = object.bucket_object();
-            let file_key = wrapper
-                .unwrap_file_key(&object.wrapped_key, &bound)
-                .map_err(|e| e.for_key(&path))?;
+            let file_key = match wrapper.unwrap_file_key(&object.wrapped_key, &bound) {
+                Ok(file_key) => file_key,
+                // The wrap names a key this device holds and does not open with it: damaged. The same.
+                Err(CryptoError::WrongKey | CryptoError::KeyMismatch | CryptoError::Damaged(_)) => {
+                    unwrapped += 1;
+                    continue;
+                }
+                Err(e) => return Err(e.for_key(&path)),
+            };
             let wrapped = new
                 .wrap_file_key(&file_key, &bound)
                 .map_err(|e| e.for_key(&path))?;
@@ -732,7 +759,10 @@ pub fn rewrap_index_with(
             });
         }
         if changes.is_empty() {
-            return Ok(total);
+            return Ok(Rewrapped {
+                done: total,
+                unwrapped,
+            });
         }
         // One change (one pack) per batch: a batch that lands is final, a batch whose entry changed
         // under it (`Conflict`: nothing of it changed) is seen again by the next pass, and a stop
@@ -755,15 +785,39 @@ pub fn rewrap_index_with(
     })
 }
 
+/// What a rotation does with a key chain file that is there and cannot be read as one (damaged, or too big to
+/// be one: whoever can write to the bucket can put either there).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Damaged {
+    /// Read it as no chain: nothing it holds can be opened or trusted, and what is written from it - the
+    /// link of a rotation that is starting - begins the chain anew. A read that only helps (the keys
+    /// before the old one, to unwrap an entry) takes this; so does the rotation's first chain step, which
+    /// must not let a planted file stop "I was hacked" (X-DELTA-AZDRIVE-KEYS-6).
+    StartOver,
+    /// An error: the chain the rotation has written is not written over again by a file it cannot read -
+    /// the last step of a rotation that is committed never starts over (X-DELTA-KEYS3-7).
+    Refuse,
+}
+
 /// The drive's key chain in `bucket` as a rotation takes it: the chain there is, a new one where
-/// there is none - and where the file is damaged or too big to be one (whoever can write to the
-/// bucket can put either there): nothing a damaged file holds can be opened or trusted, so the
-/// rotation does not stop on it and the link it adds starts the chain anew. A file of a newer
-/// version, and a bucket that cannot be read, stop it.
-fn chain_of(bucket: &dyn Drive) -> Result<KeyChain, DriveError> {
+/// there is none - and where the file is damaged or too big to be one: `damaged` says whether that starts
+/// a chain anew ([`Damaged::StartOver`]) or is an error that tells what to do ([`Damaged::Refuse`]). A file
+/// of a newer version, and a bucket that cannot be read, stop it either way.
+fn chain_of(bucket: &dyn Drive, damaged: Damaged) -> Result<KeyChain, DriveError> {
     match load_key_chain(bucket) {
         Ok(Some(chain)) => Ok(chain),
-        Ok(None) | Err(DriveError::Corrupt { .. }) => Ok(KeyChain::new()),
+        Ok(None) => Ok(KeyChain::new()),
+        Err(DriveError::Corrupt { key, reason }) => match damaged {
+            Damaged::StartOver => Ok(KeyChain::new()),
+            Damaged::Refuse => Err(DriveError::Corrupt {
+                key,
+                reason: format!(
+                    "{reason}; the rotation does not write over a key chain it cannot read, and nothing \
+                     of it was changed: remove the file from the drive's bucket to let it start a new \
+                     chain, then run the rotation again"
+                ),
+            }),
+        },
         Err(e) => Err(e),
     }
 }
@@ -771,21 +825,28 @@ fn chain_of(bucket: &dyn Drive) -> Result<KeyChain, DriveError> {
 /// Seals the old drive key under the new one into the drive's key chain in `bucket` (a chain
 /// that is there already keeps its links), and reads the chain back: the old key opens from it
 /// with the new one, or this fails. Again for the same pair: one link. It is the one copy of K1
-/// that outlives the keyring's, so nothing lets go of K1 on the word of a `put` alone.
+/// that outlives the keyring's, so nothing lets go of K1 on the word of a `put` alone. `damaged` is
+/// what a chain file that cannot be read means BEFORE the write ([`Damaged`]); the read-back after it only
+/// verifies, and a file that is no chain then is a chain without K1.
 pub(crate) fn chain_old_key(
     bucket: &dyn Drive,
     drive: &str,
     old: &DriveKey,
     new: &DriveKey,
+    damaged: Damaged,
 ) -> Result<(), DriveError> {
-    let mut chain = chain_of(bucket)?;
+    let mut chain = chain_of(bucket, damaged)?;
     if chain.open(drive, new).contains(old) {
         // Already there, and it opens: the file as it is was just read, nothing to write.
         return Ok(());
     }
     chain.add(drive, old, new).map_err(|e| e.for_key(drive))?;
     store_key_chain(bucket, &chain)?;
-    if chain_of(bucket)?.open(drive, new).contains(old) {
+    // The read-back only verifies: a file that is no chain after our own write holds no K1, and says so.
+    if chain_of(bucket, Damaged::StartOver)?
+        .open(drive, new)
+        .contains(old)
+    {
         Ok(())
     } else {
         Err(DriveError::Io(String::from(
@@ -922,10 +983,10 @@ pub fn rotate(
     };
     // The keys from before K1, from the key chain of earlier rotations: the history can hold
     // file keys they wrapped.
-    let older: Vec<DriveKey> = chain_of(bucket.as_ref())?.open(drive, &old);
+    let older: Vec<DriveKey> = chain_of(bucket.as_ref(), Damaged::StartOver)?.open(drive, &old);
     // The steps are the registry's ([`keystate::CONSUMERS`]): every consumer of the drive key reseals
     // itself, and this function is the order they run in and the journal that says how far it got.
-    let change = keystate::Change {
+    let mut change = keystate::Change {
         drive,
         bucket: &bucket,
         keyring,
@@ -934,6 +995,9 @@ pub fn rotate(
         new: &new,
         older: &older,
         kdf,
+        // The first chain step starts a chain anew where the file there is no chain; the one after the
+        // Members step never does.
+        chain_start_over: true,
     };
     if journal.phase < Phase::Rekeyed {
         match keystate::INDEX.reseal_for(permit, &change) {
@@ -955,9 +1019,10 @@ pub fn rotate(
         journal.phase = Phase::Rekeyed;
         save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
-    let mut rewrapped = 0;
+    let (mut rewrapped, mut unwrapped) = (0, 0);
     if journal.phase < Phase::Rewrapped {
-        rewrapped = keystate::FILE_KEYS.reseal_for(permit, &change)?.count();
+        let done = keystate::FILE_KEYS.reseal_for(permit, &change)?;
+        (rewrapped, unwrapped) = (done.count(), done.unwrapped());
         journal.phase = Phase::Rewrapped;
         save(bucket.as_ref(), drive, &new, &mut journal)?;
     }
@@ -972,7 +1037,8 @@ pub fn rotate(
     // Everything that can fail and be run again comes BEFORE the recovery wrap, so a failure
     // leaves the old wrap and its code as they were (K31): K1 in the chain once more (the bucket's
     // writers can delete the file, and the keyring's copy of K1 goes below), the drop key, the
-    // shares.
+    // shares. The rotation is committed: a chain file that cannot be read is no longer started over.
+    change.chain_start_over = false;
     let _chain = keystate::CHAIN.reseal_for(permit, &change)?;
     let drop_key = keystate::DROPS.reseal_for(permit, &change)?.into_drop_key();
     let shares_revoked = keystate::SHARES.reseal_for(permit, &change)?.count();
@@ -999,10 +1065,18 @@ pub fn rotate(
             left_over.push(format!("{entry}: {e}"));
         }
     }
+    if unwrapped > 0 {
+        left_over.push(format!(
+            "{unwrapped} file(s) of the drive were not re-wrapped for the new key: no key this device \
+             holds opens their file key (wrapped by a key from before the key chain, or damaged), so they \
+             stay as they were - nobody can read them either way"
+        ));
+    }
     Ok(Rotated {
         recovery_code,
         drive_key: new.id(),
         rewrapped,
+        unwrapped,
         members_removed,
         codes_removed,
         drop_key,
