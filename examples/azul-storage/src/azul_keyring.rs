@@ -24,6 +24,15 @@
 //! tests reach the keyring and nowhere else (`examples/azul-srcgate/tests/memory_keyring_gate.rs`
 //! reads every manifest for it): a build that ships would lose every drive key at exit.
 //!
+//! The manifests are the first line of defence and the artifact is the second. With resolver 2 a plain
+//! `cargo build --release` leaves a dev-dependency's features out, but `cargo build --release
+//! --all-targets` (or `--workspace --all-targets`, or `--bins --tests`) builds azul-storage once for every
+//! target of the invocation, with the feature on, and the AzMail or bridge binary that ships links that
+//! one (X-DELTA-STRUCT3-5). So a build with the feature holds `MEMORY_KEYRING_MARKER` in its binary - a
+//! `#[used]` static that [`azlin_keyring`] and every op of the map read, so the linker keeps it - and
+//! `scripts/check_no_test_hooks.py` and `scripts/sign-release.sh release` refuse any binary that holds an
+//! `AZLIN-BUILD-MARKER:` string, as they refuse azul-appkit's `test-hooks` build.
+//!
 //! One map for the process, the entries of every namespace apart in it, as the system keeps them.
 //! Nothing in memory needs the user, so a quiet keyring ([`Asking::Never`]) answers what a user's
 //! keyring does - the system's quiet ops answer [`KeyringError::Denied`] only where the system
@@ -92,6 +101,18 @@ impl AzulKeyring {
     }
 }
 
+/// The words a build with the cargo feature `memory-keyring` carries in its binary: the Azlin apps'
+/// keyring is then a map of the process and every drive key is gone at exit, so nothing signed and
+/// shipped may be one - and cargo unifies features across one build, so `cargo build --release
+/// --all-targets` can turn the feature on for a binary that ships (X-DELTA-STRUCT3-5). A `#[used]`
+/// static that [`azlin_keyring`] and every op of the map read holds them. The prefix is the one
+/// `scripts/sign-release.sh release` and `scripts/check_no_test_hooks.py` refuse, as they refuse
+/// azul-appkit's `anchors::TEST_HOOKS_MARKER`. A build without the feature has no such constant and
+/// no such static, so its binary does not hold the bytes.
+#[cfg(feature = "memory-keyring")]
+pub const MEMORY_KEYRING_MARKER: &str =
+    "AZLIN-BUILD-MARKER:memory-keyring:the-azlin-keyring-of-this-build-is-a-map-of-the-process";
+
 /// The keyring of the Azlin apps - AzDrive, AzMail, the bridge - in their shared namespace: the
 /// ONE place such a keyring is built (the K5/K7 policy of what a keyring is, and the locks its
 /// entries are changed under, are applied here and nowhere else). `asking` says whether it may
@@ -99,9 +120,12 @@ impl AzulKeyring {
 /// background work. Its entries are held under the locks every process of this user shares
 /// (`<config dir>/azlin/locks/<namespace>`) when the system names a configuration folder. In a
 /// test build (cargo feature `memory-keyring`, see the module's doc) it is a map of this process,
-/// held under this process's locks.
+/// held under this process's locks, and the binary holds `MEMORY_KEYRING_MARKER`.
 #[must_use]
 pub fn azlin_keyring(asking: Asking) -> AzulKeyring {
+    // A binary that builds the Azlin keyring in a build with the feature keeps the marker.
+    #[cfg(feature = "memory-keyring")]
+    backing::keep_marker();
     let namespace = KeyringNamespace::azlin_shared();
     let keyring = match asking {
         Asking::User => AzulKeyring::new(namespace),
@@ -263,8 +287,20 @@ mod backing {
     /// The memory of this process: nothing is kept for the next run.
     pub(super) const PROTECTION: Protection = Protection::Memory;
 
+    /// The marker in this build's binary.
+    #[used]
+    static MARKER_IN_THIS_BINARY: &str = super::MEMORY_KEYRING_MARKER;
+
+    /// Keeps the marker in every binary that reaches the map (a linker that drops what nothing
+    /// reads would drop it otherwise): [`entries`], the one door of every op, and
+    /// [`azlin_keyring`](super::azlin_keyring) call it.
+    pub(super) fn keep_marker() {
+        std::hint::black_box(MARKER_IN_THIS_BINARY);
+    }
+
     /// The map; a test that panicked while it held it leaves it as it was, for the tests after it.
     fn entries() -> MutexGuard<'static, Entries> {
+        keep_marker();
         ENTRIES.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -361,6 +397,93 @@ mod tests {
         other.delete(entry).unwrap();
         never.delete(entry).unwrap();
         assert_eq!(user.get(entry), Ok(None));
+    }
+
+    /// Whether the file at `path` holds `needle` (read in chunks; a needle cut by a chunk's end is
+    /// found).
+    fn file_holds(path: &std::path::Path, needle: &[u8]) -> std::io::Result<bool> {
+        use std::io::Read;
+        let keep = needle.len() - 1;
+        let mut buf = vec![0_u8; (1 << 20) + keep];
+        let mut carried = 0;
+        let mut file = std::fs::File::open(path)?;
+        loop {
+            let read = file.read(&mut buf[carried..])?;
+            if read == 0 {
+                return Ok(false);
+            }
+            let end = carried + read;
+            let mut from = 0;
+            while let Some(at) = buf[from..end].iter().position(|b| *b == needle[0]) {
+                let start = from + at;
+                if buf[start..end].starts_with(needle) {
+                    return Ok(true);
+                }
+                from = start + 1;
+            }
+            // What may be the start of a needle that the next read finishes: the last `keep` bytes.
+            carried = keep.min(end);
+            buf.copy_within(end - carried..end, 0);
+        }
+    }
+
+    /// X-DELTA-STRUCT3-5: a build with the feature holds the marker the release script refuses, in its
+    /// binary - this test binary is such a build, and the marker is looked for in the file the process
+    /// runs from. The needle is the marker's prefix read backwards, so that the test holds no copy of the
+    /// bytes it looks for and never names the constant (either would put them into this binary whatever
+    /// the linker kept: the test would pass on a build whose static was dropped). The prefix is what
+    /// `scripts/check_no_test_hooks.py` refuses; `scripts/test_sign_release.py` reads the constant's
+    /// text from this file and sees both scripts refuse it.
+    #[test]
+    fn x_delta_struct3_5_a_build_with_the_feature_holds_the_marker_in_its_binary() {
+        // What every binary that builds the Azlin keyring does; the map's own ops call it as well.
+        let keyring = azlin_keyring(Asking::User);
+        assert_eq!(keyring.protection(), Protection::Memory);
+        let needle: Vec<u8> = ":gniryek-yromem:REKRAM-DLIUB-NILZA".bytes().rev().collect();
+        let exe = std::env::current_exe().expect("the path of the test binary");
+        assert!(
+            file_holds(&exe, &needle).expect("the test binary is readable"),
+            "{} is a build with the feature `memory-keyring` and holds no marker: \
+             `scripts/check_no_test_hooks.py` could not tell a shipped binary that has the feature from \
+             one that has not",
+            exe.display()
+        );
+    }
+
+    /// The reader's own cases: a needle at the start, the middle and the very end of a file, one cut
+    /// by the end of a chunk, and none.
+    #[test]
+    fn the_marker_reader_finds_a_needle_wherever_it_is_and_none_where_there_is_none() {
+        let dir = std::env::temp_dir().join(format!("azul-keyring-marker-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let needle = b"needle-bytes";
+        let chunk = 1_usize << 20;
+        let cases: [(&str, Vec<u8>, bool); 6] = [
+            ("empty", Vec::new(), false),
+            ("start", [&needle[..], b"tail"].concat(), true),
+            ("end", [&b"head"[..], needle].concat(), true),
+            (
+                "cut",
+                [vec![b'n'; chunk - 5], needle.to_vec()].concat(),
+                true,
+            ),
+            (
+                "cut-at-the-edge",
+                [vec![b'x'; chunk - 1], needle.to_vec()].concat(),
+                true,
+            ),
+            (
+                "partial",
+                [vec![b'x'; chunk + 9], needle[..needle.len() - 1].to_vec()].concat(),
+                false,
+            ),
+        ];
+        for (name, bytes, holds) in cases {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            assert_eq!(file_holds(&path, needle).unwrap(), holds, "{name}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Held in this process only: the keyring `azlin_keyring` builds names no lock folder of the

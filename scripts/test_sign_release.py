@@ -469,6 +469,141 @@ class SignReleaseScript(unittest.TestCase):
         self.assertEqual(check("/no/such/file").returncode, 1)
         self.assertEqual(check().returncode, 2)
 
+    # -- X-DELTA-STRUCT3-5: ANY build marker is refused, not the test-hooks one only -------------------------
+    #
+    # `memory-keyring` (azul-storage's `azlin_keyring()` as a map of the process) is a dev-dependency feature of
+    # AzDrive, AzMail and the bridge; resolver 2 leaves it out of a plain release build, and `cargo build --release
+    # --all-targets` turns it on for the binaries that ship, which then lose every drive key at exit. It leaves the
+    # same kind of marker as `test-hooks`, and both scripts refuse the shared prefix `AZLIN-BUILD-MARKER:`.
+
+    def marker_in(self, relative_path, const):
+        """The marker the `pub const <const>: &str` of a source file holds."""
+        source = read(os.path.join(REPO, *relative_path.split("/")))
+        m = re.search(r'pub const %s: &str =\s*"([^"]+)";' % const, source)
+        self.assertIsNotNone(m, "%s names %s" % (relative_path, const))
+        return m.group(1)
+
+    def memory_keyring_marker(self):
+        """The marker azul-storage's `azul_keyring::MEMORY_KEYRING_MARKER` puts in a build with `memory-keyring`."""
+        return self.marker_in("examples/azul-storage/src/azul_keyring.rs", "MEMORY_KEYRING_MARKER")
+
+    def check(self, *args):
+        return subprocess.run([sys.executable, CHECK, *args], capture_output=True, text=True)
+
+    def blob(self, name, *parts):
+        """A file of the sandbox that holds `parts`, and its path."""
+        path = os.path.join(self.sb.work, name)
+        with open(path, "wb") as f:
+            f.write(b"".join(parts))
+        return path
+
+    def test_x_delta_struct3_5_an_artifact_that_holds_the_memory_keyring_marker_is_not_signed(self):
+        self.keyed()
+        marker = self.memory_keyring_marker()
+        self.assertTrue(marker.startswith("AZLIN-BUILD-MARKER:memory-keyring:"), marker)
+        with open(self.artifact, "wb") as f:
+            f.write(b"\x7fELF....." + marker.encode() + b".....more bytes")
+        signed_before = len(self.sb.calls())
+        r = self.sb.run(*self.release_args())
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("test build", r.stderr)
+        self.assertIn("memory-keyring", r.stderr, "the refusal names the feature")
+        self.assertFalse(os.path.exists(self.out), "no manifest")
+        self.assertEqual(len(self.sb.calls()), signed_before, "nothing was signed")
+        # The same release of an artifact without any marker goes through (the negative control).
+        with open(self.artifact, "wb") as f:
+            f.write(self.artifact_bytes)
+        r = self.sb.run(*self.release_args())
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_x_delta_struct3_5_the_test_hooks_marker_is_still_refused_and_so_is_one_nobody_has_written_yet(self):
+        self.keyed()
+        for marker in (
+            self.marker().encode(),
+            b"AZLIN-BUILD-MARKER:a-test-seam-of-the-future:why",
+            b"AZLIN-BUILD-MARKER:",
+        ):
+            with open(self.artifact, "wb") as f:
+                f.write(b"\x7fELF....." + marker + b".....more bytes")
+            r = self.sb.run(*self.release_args())
+            self.assertNotEqual(r.returncode, 0, marker)
+            self.assertIn("test build", r.stderr)
+            self.assertFalse(os.path.exists(self.out), "no manifest for %r" % marker)
+
+    def test_x_delta_struct3_5_an_artifact_that_cannot_be_read_is_not_taken_for_one_without_a_marker(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads a file that is mode 000")
+        self.keyed()
+        os.chmod(self.artifact, 0)
+        self.addCleanup(os.chmod, self.artifact, 0o644)
+        r = self.sb.run(*self.release_args())
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("cannot read", r.stderr)
+        self.assertFalse(os.path.exists(self.out), "no manifest")
+        self.assertEqual(self.check(self.artifact).returncode, 1, "the check script fails on it too")
+
+    def test_x_delta_struct3_5_the_check_script_refuses_every_build_marker_and_names_it(self):
+        prefix = b"AZLIN-BUILD-MARKER:"
+        memory = self.memory_keyring_marker().encode()
+        hooks = self.marker().encode()
+        clean = self.blob("clean.bin", b"a shipped binary" * 1000)
+        with_memory = self.blob("memory.bin", b"x" * 100, memory, b"y" * 100)
+        with_hooks = self.blob("hooks.bin", b"x" * 100, hooks, b"y" * 100)
+        with_both = self.blob("both.bin", b"x" * 100, hooks, b"\x00" * 9, memory, b"y" * 100)
+        future = self.blob("future.bin", b"x" * 100, b"AZLIN-BUILD-MARKER:a-test-seam-of-the-future:why", b"y")
+        bare = self.blob("bare.bin", b"x" * 10, prefix, b"\x00 and no readable name")
+        # A marker that straddles the end of a read (1 MiB chunks): inside its prefix, and with the prefix at the
+        # end of one chunk and its name in the next - the name is read whole all the same.
+        cut_in_prefix = self.blob("cut-prefix.bin", b"z" * ((1 << 20) - 7), memory, b"z" * 50)
+        cut_after_prefix = self.blob("cut-name.bin", b"z" * ((1 << 20) - len(prefix)), memory, b"z" * 50)
+
+        self.assertEqual(self.check(clean).returncode, 0, "no marker, no refusal (the negative control)")
+        for path in (with_memory, with_hooks, with_both, future, bare, cut_in_prefix, cut_after_prefix):
+            r = self.check(path)
+            self.assertEqual(r.returncode, 1, "%s: %s" % (path, r.stdout))
+            self.assertIn("test build", r.stderr)
+        self.assertIn("memory-keyring", self.check(with_memory).stderr)
+        self.assertIn("test-hooks", self.check(with_hooks).stderr)
+        both = self.check(with_both).stderr
+        self.assertIn("memory-keyring", both)
+        self.assertIn("test-hooks", both)
+        self.assertIn("a-test-seam-of-the-future", self.check(future).stderr)
+        self.assertIn("memory-keyring", self.check(cut_after_prefix).stderr, "a name cut by a read's end is read whole")
+        self.assertEqual(self.check(clean, with_memory).returncode, 1, "one bad file is enough")
+        self.assertEqual(self.check(with_memory, clean).returncode, 1, "and the order of the files does not matter")
+
+    def test_x_delta_struct3_5_expect_marker_asks_for_a_marker_or_for_one_feature_and_can_fail(self):
+        memory = self.memory_keyring_marker().encode()
+        hooks = self.marker().encode()
+        clean = self.blob("clean.bin", b"a shipped binary" * 1000)
+        with_memory = self.blob("memory.bin", b"x" * 100, memory, b"y" * 100)
+        with_hooks = self.blob("hooks.bin", b"x" * 100, hooks, b"y" * 100)
+        # any marker: the CI step's negative control for a test build
+        self.assertEqual(self.check("--expect-marker", with_memory).returncode, 0)
+        self.assertEqual(self.check("--expect-marker", with_hooks).returncode, 0)
+        self.assertEqual(self.check("--expect-marker", clean).returncode, 1, "the negative control can fail")
+        # one feature: a build with another marker is not the one that was asked for
+        self.assertEqual(self.check("--expect-marker=memory-keyring", with_memory).returncode, 0)
+        self.assertEqual(self.check("--expect-marker=test-hooks", with_hooks).returncode, 0)
+        self.assertEqual(self.check("--expect-marker=memory-keyring", with_hooks).returncode, 1)
+        self.assertEqual(self.check("--expect-marker=test-hooks", with_memory).returncode, 1)
+        self.assertEqual(self.check("--expect-marker=memory-keyring", clean).returncode, 1)
+        self.assertEqual(self.check("--expect-marker=", with_memory).returncode, 2, "an empty name is no request")
+
+    def test_x_delta_struct3_5_the_markers_of_the_source_are_the_ones_the_scripts_refuse(self):
+        # Every marker the source can put in a binary has the shared prefix and the name of its feature: a marker
+        # spelt another way would pass both scripts.
+        for path, const, feature in (
+            ("examples/azul-appkit/src/anchors.rs", "TEST_HOOKS_MARKER", "test-hooks"),
+            ("core/src/run_mode.rs", "TEST_HOOKS_MARKER", "test-hooks"),
+            ("examples/azul-storage/src/azul_keyring.rs", "MEMORY_KEYRING_MARKER", "memory-keyring"),
+        ):
+            marker = self.marker_in(path, const)
+            self.assertTrue(marker.startswith("AZLIN-BUILD-MARKER:%s:" % feature), "%s %s: %s" % (path, const, marker))
+            built = self.blob("source-marker.bin", b"\x7fELF", marker.encode(), b"\x00")
+            self.assertEqual(self.check(built).returncode, 1, "%s %s is refused" % (path, const))
+            self.assertEqual(self.check("--expect-marker=" + feature, built).returncode, 0, "%s %s" % (path, const))
+
     def test_help_prints_the_usage_and_exits_cleanly(self):
         r = self.sb.run("--help")
         self.assertEqual(r.returncode, 0)

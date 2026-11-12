@@ -17,6 +17,15 @@
 //! read; a name in a key, a string or an array element counts alike. A table is a dev table when one
 //! of the names of its header is `dev-dependencies` (`[dev-dependencies]`,
 //! `[target.'cfg(unix)'.dev-dependencies]`, `[dev-dependencies.azul-storage]`).
+//!
+//! Second rule (X-DELTA-STRUCT3-5): the root manifest's `[workspace]` names `resolver = "2"` (or
+//! `"3"`, which resolves features the same way). That is what leaves a dev-dependency's features out
+//! of a build that makes no test target - `cargo build --release` of AzMail or the bridge - and
+//! under resolver 1 the feature would be on in the shipped binary in every build. The build that
+//! DOES make test targets in the same run (`cargo build --release --all-targets`) turns the feature
+//! on for the binaries that ship even so; there the net is the artifact's marker (`azul_keyring`'s
+//! `MEMORY_KEYRING_MARKER`, which `scripts/check_no_test_hooks.py` and `scripts/sign-release.sh`
+//! refuse), not this gate.
 
 use std::path::{Path, PathBuf};
 
@@ -163,6 +172,43 @@ fn findings(named: &[Named]) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// The workspace's root manifest, from the workspace's root.
+const ROOT_MANIFEST: &str = "Cargo.toml";
+
+/// The `resolver` the `[workspace]` table of `manifest` names, its quotes taken off; `None` when that
+/// table names none, or one that is no string (cargo takes only a string). A comment is not read, and
+/// a `resolver` key of another table (a package's) is not the workspace's.
+fn workspace_resolver(manifest: &str) -> Option<String> {
+    let mut table = String::new();
+    for raw in manifest.lines() {
+        let text = without_comment(raw).trim();
+        if text.starts_with('[') {
+            if let Some(names) = header_names(text) {
+                table = names.join(".");
+                continue;
+            }
+        }
+        if table != "workspace" {
+            continue;
+        }
+        if let Some((key, value)) = text.split_once('=') {
+            if key.trim() == "resolver" {
+                let value = value.trim();
+                let quoted = |quote: char| value.strip_prefix(quote)?.strip_suffix(quote);
+                return quoted('"').or_else(|| quoted('\'')).map(str::to_string);
+            }
+        }
+    }
+    None
+}
+
+/// Whether a resolver leaves a dev-dependency's features out of a build that makes no test target:
+/// resolver 2, and 3, which resolves features the same way. Resolver 1 (what a virtual workspace gets
+/// when it names none) unifies them into every build.
+fn keeps_dev_features_out(resolver: Option<&str>) -> bool {
+    matches!(resolver, Some("2" | "3"))
 }
 
 /// The manifests below `dir`, from `base` (relative paths with `/`).
@@ -423,4 +469,67 @@ fn a_header_is_told_from_a_line_of_an_array() {
         without_comment("a = \"# not a comment\" # a comment"),
         "a = \"# not a comment\" "
     );
+}
+
+/// X-DELTA-STRUCT3-5: the workspace's resolver is the one under which `cargo build --release` of
+/// AzMail or the bridge leaves `memory-keyring` (a dev-dependency's feature) out of the binary.
+#[test]
+fn the_workspace_resolves_features_with_resolver_2() {
+    let manifest = std::fs::read_to_string(workspace().join(ROOT_MANIFEST))
+        .unwrap_or_else(|e| panic!("{ROOT_MANIFEST}: {e}"));
+    let resolver = workspace_resolver(&manifest);
+    assert!(
+        keeps_dev_features_out(resolver.as_deref()),
+        "the [workspace] of {ROOT_MANIFEST} names `resolver = {resolver:?}`: it must be \"2\" (or \"3\"), \
+         or `cargo build --release` of a shipped app builds it with the dev-dependencies' features, \
+         `memory-keyring` among them"
+    );
+}
+
+/// The resolvers, planted: none, 1, one in a comment, one in a package's table, one in a table of
+/// the workspace that is not its own are findings; 2 and 3, with their quotes and a comment, are not.
+#[test]
+fn a_planted_resolver_that_is_not_2_or_3_is_caught_and_those_are_not() {
+    let unsafe_ones = [
+        ("none", "[workspace]\nmembers = []\n"),
+        ("one", "[workspace]\nresolver = \"1\"\nmembers = []\n"),
+        (
+            "a comment",
+            "[workspace]\n# resolver = \"2\"\nmembers = []\n",
+        ),
+        (
+            "a package's",
+            "[package]\nresolver = \"2\"\n[workspace]\nmembers = []\n",
+        ),
+        (
+            "the workspace's package table",
+            "[workspace]\nmembers = []\n[workspace.package]\nresolver = \"2\"\n",
+        ),
+        ("a bare number", "[workspace]\nresolver = 2\n"),
+    ];
+    for (what, manifest) in unsafe_ones {
+        assert!(
+            !keeps_dev_features_out(workspace_resolver(manifest).as_deref()),
+            "{what}: {manifest:?}"
+        );
+    }
+    let safe_ones = [
+        ("two", "[workspace]\nresolver = \"2\"\nmembers = []\n"),
+        ("two, single quotes", "[workspace]\nresolver = '2'\n"),
+        (
+            "two, a comment after it",
+            "[workspace]\nresolver = \"2\" # why\n",
+        ),
+        (
+            "two, after the members",
+            "[workspace]\nmembers = []\nresolver=\"2\"\n",
+        ),
+        ("three", "[workspace]\nresolver = \"3\"\n"),
+    ];
+    for (what, manifest) in safe_ones {
+        assert!(
+            keeps_dev_features_out(workspace_resolver(manifest).as_deref()),
+            "{what}: {manifest:?}"
+        );
+    }
 }

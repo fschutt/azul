@@ -170,7 +170,11 @@ test-hooks = []
 # reached `azlin_keyring()` wrote the owner's real keychain. Named in the `[dev-dependencies]` of a crate whose
 # tests reach the keyring (azul-drive, azul-mail, azul-bridge) and NOWHERE else - never in a `[dependencies]` table
 # or the feature list of a build that ships (a shipped AzDrive would lose every drive key at exit):
-# `examples/azul-srcgate/tests/memory_keyring_gate.rs` reads every manifest for it.
+# `examples/azul-srcgate/tests/memory_keyring_gate.rs` reads every manifest for it. The manifests are the first
+# line of defence: `cargo build --release --all-targets` builds azul-storage once for every target and turns a
+# dev-dependency's feature on for the binaries that ship, so the artifact is the second - a build with the feature
+# holds the marker `AZLIN-BUILD-MARKER:memory-keyring:` (azul_keyring::MEMORY_KEYRING_MARKER) and
+# scripts/check_no_test_hooks.py and scripts/sign-release.sh refuse it (X-DELTA-STRUCT3-5).
 memory-keyring = []
 # Data sources through Apache OpenDAL (OpendalDrive; the catalog's OpenDAL entries).
 opendal = ["dep:opendal", "dep:http", "dep:futures", "dep:tokio"]

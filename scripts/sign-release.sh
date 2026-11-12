@@ -315,13 +315,25 @@ keys_dir_is_safe
 [ -n "$APP" ]      || die "--app is required (the app's key, e.g. azwriter: the release statement names it)"
 [ -n "$ARTIFACT" ] || die "--artifact is required"
 [ -f "$ARTIFACT" ] || die "artifact not found: $ARTIFACT"
-# A build made with the cargo feature `test-hooks` takes its update anchor, its endpoints and the token
-# server a drive token goes to from files, variables and switches: nothing signed and shipped may be
-# one (cargo unifies features across a workspace build, so a binary can be one by accident). Such a
-# build holds this marker (azul-appkit's anchors::TEST_HOOKS_MARKER; scripts/check_no_test_hooks.py).
-if grep -a -q -F 'AZLIN-BUILD-MARKER:test-hooks:' "$ARTIFACT"; then
-  die "$ARTIFACT is a test build (it holds the test-hooks marker): build it without the feature test-hooks"
-fi
+# A build made with a cargo feature that is for tests only is no build to sign: `test-hooks` takes its
+# update anchor, its endpoints and the token server a drive token goes to from files, variables and
+# switches, and `memory-keyring` keeps the Azlin keyring in a map of the process, so every drive key is
+# gone at exit. cargo unifies features across a workspace build, so a binary can be one by accident.
+# Such a build holds a marker, `AZLIN-BUILD-MARKER:<feature>:` (azul-appkit's and libazul's
+# TEST_HOOKS_MARKER, azul-storage's MEMORY_KEYRING_MARKER; scripts/check_no_test_hooks.py): ANY string
+# that starts with `AZLIN-BUILD-MARKER:` is refused, so a feature that gets its marker tomorrow needs
+# no change here.
+# grep answers 1 for "no such string" and 2 for a file it could not read: only the first is "no marker".
+MARKED=0
+grep -a -q -F 'AZLIN-BUILD-MARKER:' "$ARTIFACT" || MARKED=$?
+case "$MARKED" in
+  0)
+    KIND="$(grep -a -o -E 'AZLIN-BUILD-MARKER:[A-Za-z0-9._-]*' "$ARTIFACT" | head -n 1 || true)"
+    die "$ARTIFACT is a test build (it holds the build marker ${KIND:-AZLIN-BUILD-MARKER:}): build it without the cargo features that are for tests only (test-hooks, memory-keyring)"
+    ;;
+  1) ;;
+  *) die "cannot read $ARTIFACT to look for a build marker" ;;
+esac
 [ -n "$VERSION" ]  || die "--version is required"
 [ -n "$URL" ]      || die "--url is required (where clients download the artifact)"
 if [ -z "$PLATFORM" ]; then
