@@ -1760,6 +1760,7 @@ azdrive-add-checkout-taken-back = Die Bestellung { $checkout }: { $why }. Sie ka
 azdrive-add-picked-up = Abgeholt. AzDrive fragt jetzt nach dem Laufwerk, dann einmal am Tag, bis das Geld angekommen ist: Bargeld per Post braucht eine Weile.
 azdrive-add-claim-not-kept = Der Abholcode wurde nicht gespeichert: { $why }
 azdrive-add-months-not-fetched = Die bezahlten Monate der Bestellung { $checkout } konnten nicht abgerufen werden: { $why }.
+azdrive-add-months-stopped = Die bezahlten Monate der Bestellung { $checkout } kommen nicht mehr: { $why }. Setzt der Token-Server die Zahlung wieder ein - eine Rückerstattung kann scheitern, ein Widerspruch kann gewonnen werden -, kommen sie doch: AzDrive behält, was die Bestellung bezahlt hat, beim Laufwerk und fragt { $days } Tage lang einmal in der Woche nach den Monaten.
 azdrive-add-checkout-unfinished = Die Bestellung { $checkout } konnte in der Liste des Schlüsselbunds nicht abgeschlossen werden ({ $why }); AzDrive fragt beim nächsten Start erneut danach.
 azdrive-receipt-not-kept = Der Beleg Ihrer Zahlung konnte auf diesem Computer nicht gespeichert werden: { $why }. Das Laufwerk gehört Ihnen trotzdem. Bewahren Sie die Bestätigung Ihrer Zahlung auf.
 azdrive-add-options-failed = Die Zahlungsoptionen konnten nicht geladen werden: { $why }

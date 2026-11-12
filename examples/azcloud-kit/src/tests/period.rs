@@ -222,12 +222,30 @@ pub(crate) fn issuing_server(
 
 /// The token server's answer to an issue request `call` for `key_id`, signed with `n`/`d`, with
 /// `ck_1`'s schedule after it (`issued` counts its months).
-fn signed(call: &azul_storage::HttpCall, n: &str, d: &str, key_id: &str, issued: &AtomicU64) -> HttpReply {
+pub(crate) fn signed(
+    call: &azul_storage::HttpCall,
+    n: &str,
+    d: &str,
+    key_id: &str,
+    issued: &AtomicU64,
+) -> HttpReply {
+    signed_for(call, "ck_1", n, d, key_id, issued)
+}
+
+/// [`signed`] for the checkout `checkout_id` (its issue key is `ISSUE_KEY` too).
+fn signed_for(
+    call: &azul_storage::HttpCall,
+    checkout_id: &str,
+    n: &str,
+    d: &str,
+    key_id: &str,
+    issued: &AtomicU64,
+) -> HttpReply {
     assert_eq!(call.method, Method::Post);
     assert_eq!(call.url, format!("{TOKEN}/v1/tokens/issue"));
     assert_eq!(header(call, "authorization"), None, "no drive token");
     let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
-    assert_eq!(body["checkout_id"], "ck_1");
+    assert_eq!(body["checkout_id"], checkout_id);
     assert_eq!(body["issue_key"], ISSUE_KEY);
     assert_eq!(body["key_id"], key_id, "the key the messages were blinded for");
     let signatures: Vec<String> = body["blinded"]
@@ -1695,12 +1713,12 @@ fn x_delta_money3_1_a_revivable_end_that_is_refused_again_is_asked_again_a_week_
     ));
 }
 
-/// Only a payment taken back is asked again: a stopped mandate, every month issued, a wrong key and
-/// a checkout the token server does not have end the grant for good - never asked, a week or a
-/// year on.
+/// Only a payment taken back and a mandate stopped for it (X-DELTA-MONEY6-1: the restore lifts
+/// both) are asked again: every month issued, a wrong key and a checkout the token server does not
+/// have end the grant for good - never asked, a week or a year on.
 #[test]
 fn x_delta_money3_1_any_other_final_refusal_is_never_asked_again() {
-    for mode_word in [3, 4, 5, 6] {
+    for mode_word in [4, 5, 6] {
         let dir = TempDir::new("azcloud-period");
         let tokens = granted(&dir);
         let mode = Arc::new(AtomicUsize::new(mode_word));
@@ -1794,8 +1812,10 @@ fn x_delta_money3_1_a_not_due_answer_proves_the_checkout_is_paid_again_and_clear
     assert_eq!(grant.issued, 1, "the schedule the token server names");
 }
 
-/// A final word said to an end that was asked again - the restore made it a paid checkout whose
-/// mandate was stopped - makes the end final from then on.
+/// A final word no restore lifts said to an end that was asked again - the checkout is paid again
+/// and every month of it was issued meanwhile to a request this computer does not hold - makes the
+/// end final from then on. (A stopped mandate is no such word since X-DELTA-MONEY6-1: it is
+/// revivable too, and re-arms the week.)
 #[test]
 fn x_delta_money3_1_a_revivable_end_that_is_answered_with_another_final_word_becomes_final() {
     let dir = TempDir::new("azcloud-period");
@@ -1808,7 +1828,7 @@ fn x_delta_money3_1_a_revivable_end_that_is_answered_with_another_final_word_bec
         issue_next(&server, &tokens, "ck_1", NOW),
         Ok(Issued::Ended(_))
     ));
-    mode.store(3, Ordering::SeqCst);
+    mode.store(4, Ordering::SeqCst);
     assert!(matches!(
         issue_next(&server, &tokens, "ck_1", NOW + 8 * DAY),
         Ok(Issued::Ended(_))
@@ -1819,7 +1839,7 @@ fn x_delta_money3_1_a_revivable_end_that_is_answered_with_another_final_word_bec
         grant
             .ended
             .as_deref()
-            .is_some_and(|why| why.contains("mandate")),
+            .is_some_and(|why| why.contains("issued already")),
         "{grant:?}"
     );
     mode.store(1, Ordering::SeqCst);
@@ -2287,3 +2307,321 @@ fn x_delta_money5_8_the_mark_is_additive_and_joins_as_an_or() {
         assert!(a.issues[0].may_have_been_counted());
     }
 }
+
+// ==== X-DELTA-MONEY6-1: a mandate stopped for a reversal the restore lifts ====
+
+/// The token server of `ck_1` and `ck_2`: `keys`, and each issue request answered by the word its
+/// checkout stands at - `stop` (the mandate a repeat reversal stopped: `mandate_stopped`), `back`
+/// (the payment was taken back: `not_paid`) or paid (it signs). `ck_1` is paid when `paid.0` is
+/// set, `ck_2` when `paid.1` is. `asked` counts the issue requests.
+fn stopped_server(
+    word_of: [&'static str; 2],
+    paid: &Arc<[std::sync::atomic::AtomicBool; 2]>,
+    asked: &Arc<AtomicUsize>,
+) -> Arc<Fake> {
+    let listed = keys();
+    let (paid, asked) = (paid.clone(), asked.clone());
+    let issued = AtomicU64::new(0);
+    Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        asked.fetch_add(1, Ordering::SeqCst);
+        let body: serde_json::Value = serde_json::from_slice(&call.body).unwrap();
+        let at = usize::from(body["checkout_id"] == "ck_2");
+        if paid[at].load(Ordering::SeqCst) {
+            return Ok(signed_for(
+                call,
+                body["checkout_id"].as_str().unwrap(),
+                N1,
+                D1,
+                "100GB/2026",
+                &issued,
+            ));
+        }
+        Ok(match word_of[at] {
+            "stop" => json(409, r#"{"error": "mandate_stopped", "message": "stopped"}"#),
+            _ => json(
+                409,
+                r#"{"error": "not_paid", "message": "the checkout is not approved"}"#,
+            ),
+        })
+    })
+}
+
+fn nobody_paid() -> Arc<[std::sync::atomic::AtomicBool; 2]> {
+    Arc::new([
+        std::sync::atomic::AtomicBool::new(false),
+        std::sync::atomic::AtomicBool::new(false),
+    ])
+}
+
+/// X-DELTA-MONEY6-1, the finding's scenario: a payer's second reversal stops the mandate, every issue
+/// on it is answered `mandate_stopped`, an app asks inside that window - the grant ended, and the
+/// old client had it end for good: `IssueRefusal::is_revivable` named `not_paid` only. Then the
+/// operator's restore (or the refund that failed at the provider) lifts the stop, and the months
+/// were never asked for again. Now the end is a revivable one: the looks of the week ask nothing, a
+/// week on the ask is signed, the grant lives, the sentence goes and the month is issued. On the old
+/// code the first assertion on the grant fails (`revivable` is false) and the month never comes.
+#[test]
+fn x_delta_money6_1_a_grant_ended_by_a_stopped_mandate_issues_its_month_after_the_restore() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let paid = nobody_paid();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let transport = Shared(stopped_server(["stop", "stop"], &paid, &asked));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    // the look that learns the stop ends the grant and says why
+    match issue_next(&server, &tokens, "ck_1", NOW) {
+        Ok(Issued::Ended(why)) => assert!(why.contains("mandate was stopped"), "{why}"),
+        other => panic!("not ended: {other:?}"),
+    }
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    let state = tokens.state().unwrap();
+    let grant = state.grant("ck_1").unwrap();
+    assert!(
+        grant.is_ended() && grant.revivable,
+        "a restore lifts the stop: the end is revivable: {grant:?}"
+    );
+    assert!(!grant.is_open());
+    // the restore comes; the looks of the week ask nothing
+    paid[0].store(true, Ordering::SeqCst);
+    for day in [1, 3, 6] {
+        assert!(
+            matches!(
+                issue_next(&server, &tokens, "ck_1", NOW + day * DAY),
+                Ok(Issued::Ended(_))
+            ),
+            "day {day}"
+        );
+    }
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "not asked within the week");
+    // a week on: asked, signed - the month comes, the grant lives, its sentence is gone
+    match issue_next(&server, &tokens, "ck_1", NOW + 8 * DAY) {
+        Ok(Issued::Tokens(issued)) => assert_eq!(issued.len(), 1),
+        other => panic!("the month did not come: {other:?}"),
+    }
+    let state = tokens.state().unwrap();
+    let grant = state.grant("ck_1").unwrap();
+    assert!(
+        grant.ended.is_none() && !grant.revivable && grant.is_open(),
+        "{grant:?}"
+    );
+    assert_eq!(grant.issued, 1);
+    assert_eq!(state.tokens.len(), 1, "the month's token is kept");
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+}
+
+/// X-DELTA-MONEY6-1, the stop that stands: asked a week apart for 90 days, refused each time (the
+/// next ask is counted from the last one), and then - nothing is asked any more, a restore a day
+/// after the 90 days included: the grant ends for good with its sentence. With a look every day the
+/// asks fall on days 7, 14, ..., 84 (the 12th week ends on day 84; day 91 is past the 90 days).
+#[test]
+fn x_delta_money6_1_a_stop_that_stands_for_ninety_days_ends_the_grant_for_good_with_its_sentence() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let paid = nobody_paid();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let transport = Shared(stopped_server(["stop", "stop"], &paid, &asked));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW),
+        Ok(Issued::Ended(_))
+    ));
+    // a look a day, the stop stands: asked on days 7, 14, ..., 84 and on no day after
+    let mut last_ask_day = 0;
+    for day in 1..=95_u64 {
+        let before = asked.load(Ordering::SeqCst);
+        assert!(
+            matches!(
+                issue_next(&server, &tokens, "ck_1", NOW + day * DAY),
+                Ok(Issued::Ended(_))
+            ),
+            "day {day}"
+        );
+        if asked.load(Ordering::SeqCst) > before {
+            last_ask_day = day;
+            assert!(
+                day < 90 && day % 7 == 0,
+                "asked on day {day}: a week after the last ask, never from the 90th day on"
+            );
+        }
+    }
+    assert_eq!(last_ask_day, 84, "the last ask of the 90 days");
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        13,
+        "the first ask at the end, then one a week"
+    );
+    // the restore a day after the 90 days is too late: the grant is ended for good, sentence and all
+    paid[0].store(true, Ordering::SeqCst);
+    match issue_next(&server, &tokens, "ck_1", NOW + 91 * DAY) {
+        Ok(Issued::Ended(why)) => assert!(why.contains("mandate was stopped"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        13,
+        "never asked after the 90 days"
+    );
+    let grant = tokens.state().unwrap().grant("ck_1").unwrap().clone();
+    assert!(
+        grant.is_ended() && !grant.revive_pending(NOW + 91 * DAY),
+        "{grant:?}"
+    );
+}
+
+/// X-DELTA-MONEY6-1 (e): a grant ended by `not_paid` and one ended by `mandate_stopped`, in one
+/// drive's vault, are each its own record. The restore lifts the mandate's stop and not the other's
+/// reversal: the first ask of the week revives the one grant, refuses the other and re-arms ITS week,
+/// and neither end's sentence, kind or day is written over by the other's.
+#[test]
+fn x_delta_money6_1_an_end_by_not_paid_and_an_end_by_a_stopped_mandate_keep_their_own_records() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = store_in(&dir).on_this_device("d_1").unwrap();
+    for id in ["ck_1", "ck_2"] {
+        tokens
+            .keep_grant(VaultGrant::new(id, "100GB", 3, ISSUE_KEY))
+            .unwrap();
+    }
+    let paid = nobody_paid();
+    let asked = Arc::new(AtomicUsize::new(0));
+    // ck_1: the payment was taken back; ck_2: the mandate was stopped for a reversal
+    let transport = Shared(stopped_server(["back", "stop"], &paid, &asked));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    for id in ["ck_1", "ck_2"] {
+        assert!(
+            matches!(issue_next(&server, &tokens, id, NOW), Ok(Issued::Ended(_))),
+            "{id}"
+        );
+    }
+    let state = tokens.state().unwrap();
+    let (first, second) = (state.grant("ck_1").unwrap(), state.grant("ck_2").unwrap());
+    assert!(first.revivable && second.revivable);
+    assert!(
+        first
+            .ended
+            .as_deref()
+            .is_some_and(|w| w.contains("taken back")),
+        "{first:?}"
+    );
+    assert!(
+        second
+            .ended
+            .as_deref()
+            .is_some_and(|w| w.contains("mandate was stopped")),
+        "{second:?}"
+    );
+    assert_eq!((first.ended_at, second.ended_at), (Some(NOW), Some(NOW)));
+    // the restore lifts the stop of ck_2 only
+    paid[1].store(true, Ordering::SeqCst);
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW + 8 * DAY),
+        Ok(Issued::Ended(_))
+    ));
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_2", NOW + 8 * DAY),
+        Ok(Issued::Tokens(_))
+    ));
+    let state = tokens.state().unwrap();
+    let (first, second) = (state.grant("ck_1").unwrap(), state.grant("ck_2").unwrap());
+    assert!(
+        second.ended.is_none() && second.is_open(),
+        "revived: {second:?}"
+    );
+    assert!(
+        first.is_ended() && first.revivable && first.ended_at == Some(NOW),
+        "ck_1 keeps its own end: {first:?}"
+    );
+    assert!(
+        first
+            .ended
+            .as_deref()
+            .is_some_and(|w| w.contains("taken back")),
+        "{first:?}"
+    );
+    assert_eq!(
+        first.next_issue_at,
+        Some(NOW + 8 * DAY + 7 * DAY),
+        "its week is counted from its own ask"
+    );
+    // and the second vault of the drive agrees, joined in either order
+    let mut joined = VaultState::default();
+    joined.join(&state);
+    assert!(
+        joined.grant("ck_1").unwrap().is_ended() && joined.grant("ck_2").unwrap().ended.is_none()
+    );
+}
+
+/// X-DELTA-MONEY6-1, the looks: a drive whose vault holds a grant that a stopped mandate ended is
+/// looked at when its period is due and the end's week is over - and once the stop is lifted the
+/// month is signed and bought. The end is learned by the production path (`issue_next` at the
+/// claim), not planted: on the old code the grant is final, the look finds nothing held and asks
+/// nothing, and the first assertion after the restore fails.
+#[test]
+fn x_delta_money6_1_a_look_asks_a_stopped_mandate_again_and_buys_the_month_after_the_restore() {
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    let tokens = store.on_this_device("d_1").unwrap();
+    tokens
+        .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let paid = nobody_paid();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let (listed, issued, until) = (keys(), AtomicU64::new(0), AtomicU64::new(NOW + 9 * DAY));
+    let (restored, counted) = (paid.clone(), asked.clone());
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        if call.url.ends_with("/v1/tokens/issue") {
+            counted.fetch_add(1, Ordering::SeqCst);
+            return Ok(if restored[0].load(Ordering::SeqCst) {
+                signed(call, N1, D1, "100GB/2026", &issued)
+            } else {
+                json(409, r#"{"error": "mandate_stopped", "message": "stopped"}"#)
+            });
+        }
+        if call.method == Method::Get {
+            let answer = serde_json::json!({
+                "id": "d_1", "tier": "100GB", "period_until": rfc3339(until.load(Ordering::SeqCst)),
+            });
+            return Ok(json(200, &answer.to_string()));
+        }
+        assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/redeem"));
+        let later = until.fetch_add(30 * DAY, Ordering::SeqCst) + 30 * DAY;
+        Ok(json(
+            200,
+            &serde_json::json!({"period_until": rfc3339(later)}).to_string(),
+        ))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    // the claim's first month is asked while the stop stands
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW),
+        Ok(Issued::Ended(_))
+    ));
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    // a look a day on: nothing is due, nothing asked
+    let look = look_at_drive(&server, &shared, &store, &tokens, NOW + DAY);
+    assert_eq!(look.redeemed, Redeemed::Nothing, "{:?}", look.redeemed);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    // the restore; eight days on the period is due, the end's week is over: asked, signed, bought
+    paid[0].store(true, Ordering::SeqCst);
+    let look = look_at_drive(&server, &shared, &store, &tokens, NOW + 8 * DAY);
+    assert!(
+        matches!(look.redeemed, Redeemed::Extended { count: 1, .. }),
+        "{:?}",
+        look.redeemed
+    );
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+    let state = tokens.state().unwrap();
+    assert!(
+        state.grant("ck_1").unwrap().ended.is_none(),
+        "the grant lives again"
+    );
+    assert!(state.tokens.is_empty(), "issued and redeemed");
+}
+

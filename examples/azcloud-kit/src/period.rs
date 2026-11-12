@@ -638,9 +638,9 @@ pub fn issue_next(
     }
     let grant = tokens.state().map_err(not_kept)?.grant(checkout_id).cloned().unwrap_or(grant);
     // A payment taken back may be put back - the token server's restore of a wrong reversal
-    // approves the checkout again -, so a grant ended for that is asked again, a week apart, for
-    // 90 days after its end ([`VaultGrant::revive_due`]); every other end is final for good
-    // (X-DELTA-MONEY3-1).
+    // approves the checkout again and lifts the stop it put on its mandate -, so a grant ended for
+    // either is asked again, a week apart, for 90 days after its end ([`VaultGrant::revive_due`]);
+    // every other end is final for good (X-DELTA-MONEY3-1, X-DELTA-MONEY6-1).
     let reviving = grant.revive_due(now);
     if let Some(why) = &grant.ended {
         if !reviving {
@@ -858,15 +858,16 @@ fn answered(
             let why = ended_words(&refusal);
             let mut ended = grant.clone();
             if !ended.is_ended() {
-                // the first end of a grant that lived: `NotPaid` only is asked again later
+                // the first end of a grant that lived: a payment taken back and a mandate stopped
+                // are asked again later ([`IssueRefusal::is_revivable`])
                 ended.end(why.clone(), refusal.is_revivable(), now);
             } else if refusal.is_revivable() {
                 // a revivable end asked again and refused again: the next ask is a week on
                 ended.asked_again(now);
             } else {
-                // asked again, and the token server says another final word (a stopped mandate,
-                // every month issued): the end is final from now on - a new end, which wins
-                // over the one every vault holds
+                // asked again, and the token server says a final word no restore lifts (a wrong
+                // key, a checkout gone, every month issued): the end is final from now on - a new
+                // end, which wins over the one every vault holds
                 ended.revive();
                 ended.end(why.clone(), false, now);
             }
@@ -1112,10 +1113,11 @@ fn holds_months(state: &VaultState) -> bool {
     !state.tokens.is_empty() || state.grants.iter().any(|g| brings_months(state, g))
 }
 
-/// Whether a grant of `state` was ended because a payment was taken back and is due to be asked
-/// again at `now` ([`VaultGrant::revive_due`]): the token server's restore of a wrong reversal
-/// approves the checkout again, and this is how a look learns it (X-DELTA-MONEY3-1). Not a month
-/// held: the reminders of an unpaid drive go on until one comes.
+/// Whether a grant of `state` was ended because a payment was taken back (or the mandate it rides
+/// on stopped for it) and is due to be asked again at `now` ([`VaultGrant::revive_due`]): the token
+/// server's restore of a wrong reversal approves the checkout again, and this is how a look learns
+/// it (X-DELTA-MONEY3-1, X-DELTA-MONEY6-1). Not a month held: the reminders of an unpaid drive go
+/// on until one comes.
 fn asks_again(state: &VaultState, now: u64) -> bool {
     state.grants.iter().any(|g| g.revive_due(now))
 }

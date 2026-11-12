@@ -2261,6 +2261,22 @@ pub(crate) fn checkout_finished(
                 .arg("checkout", checkout_id)
                 .arg("why", why.as_str()),
         ),
+        // The token server's restore of a wrong reversal puts the payment back and the months
+        // come: the grant is kept with the drive, its looks ask again a week apart, and the buyer
+        // is told so once - by the call that took the entry off the list (X-DELTA-MONEY6-1).
+        Ok(Some(Finished::Stopped {
+            drive_id,
+            why,
+            days,
+        })) => {
+            println!("AZDRIVE_PERIOD_STOPPED {checkout_id} {drive_id}");
+            s.warn(
+                Phrase::new("azdrive-add-months-stopped")
+                    .arg("checkout", checkout_id)
+                    .arg("why", why.as_str())
+                    .arg("days", days),
+            );
+        }
         Ok(Some(Finished::Kept(why))) => {
             eprintln!(
                 "[azdrive] the period tokens of the checkout {checkout_id} wait for the next \

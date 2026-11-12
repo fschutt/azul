@@ -70,9 +70,10 @@ pub struct VaultGrant {
     /// is final.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<u64>,
-    /// The end is a payment taken back (`NotPaid`, [`azlin_contract::IssueRefusal::is_revivable`]):
-    /// the token server's restore of a wrong reversal approves the checkout again, so a look asks
-    /// again once a week for [`REVIVE_FOR_SECS`]. Every other end is final.
+    /// The end is one a restore lifts ([`azlin_contract::IssueRefusal::is_revivable`]: a payment
+    /// taken back, `NotPaid`, or the stop a repeat reversal put on its mandate, `MandateStopped`):
+    /// the token server's restore of a wrong reversal approves the checkout again and lifts that
+    /// stop, so a look asks again once a week for [`REVIVE_FOR_SECS`]. Every other end is final.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub revivable: bool,
     /// A monthly plan: each payment adds a month to `months`, issued with the same key.
@@ -138,8 +139,8 @@ impl VaultGrant {
     }
 
     /// Records the end `why` at `at` (seconds since 1970, this computer's clock): `revivable` for
-    /// a payment taken back, which is asked again from a week on ([`VaultGrant::revive_due`]).
-    /// A grant that is ended already keeps its first end.
+    /// a payment taken back or a stopped mandate, which is asked again from a week on
+    /// ([`VaultGrant::revive_due`]). A grant that is ended already keeps its first end.
     pub(crate) fn end(&mut self, why: String, revivable: bool, at: u64) {
         if self.ended.is_some() {
             return;
@@ -156,8 +157,9 @@ impl VaultGrant {
 
     /// A look found the checkout paid again - the token server answered what it answers a paid
     /// one: the end, and the sentence that said the payment was taken back, are cleared. Only a
-    /// revivable end (a payment taken back) is: every other end is final, and a month a replayed
-    /// request brings does not undo it (AZ-P17). Whether there was an end to clear.
+    /// revivable end (a payment taken back, a stopped mandate) is: every other end is final, and a
+    /// month a replayed request brings does not undo it (AZ-P17). Whether there was an end to
+    /// clear.
     pub(crate) fn revive(&mut self) -> bool {
         if self.ended.is_none() || !self.revivable {
             return false;
@@ -170,18 +172,27 @@ impl VaultGrant {
         true
     }
 
-    /// A revivable end whose months a look asks for again at `now`: it is within
-    /// [`REVIVE_FOR_SECS`] of its end, a week or more since it was recorded or last asked
-    /// (`next_issue_at`), and months remain to issue.
+    /// The grant's end may still be lifted by the token server's restore at `now`: it is a
+    /// revivable end ([`VaultGrant::revivable`]) within [`REVIVE_FOR_SECS`] of when it was
+    /// recorded, and months remain to issue. The weekly gate is not asked here: the grant is
+    /// asked again by [`VaultGrant::revive_due`], and kept - its issue key with it, wherever the
+    /// copy of it is ([`crate::pending::finish`]) - for as long as this holds.
     #[must_use]
-    pub fn revive_due(&self, now: u64) -> bool {
+    pub fn revive_pending(&self, now: u64) -> bool {
         self.ended.is_some()
             && self.revivable
             && (self.issued < self.months || self.recurring)
-            && self.next_issue_at.is_none_or(|at| at <= now)
             && self
                 .ended_at
                 .is_some_and(|at| now < at.saturating_add(REVIVE_FOR_SECS))
+    }
+
+    /// A revivable end whose months a look asks for again at `now`: it may still be lifted
+    /// ([`VaultGrant::revive_pending`]: within [`REVIVE_FOR_SECS`] of its end, months remain to
+    /// issue) and a week or more has gone since it was recorded or last asked (`next_issue_at`).
+    #[must_use]
+    pub fn revive_due(&self, now: u64) -> bool {
+        self.revive_pending(now) && self.next_issue_at.is_none_or(|at| at <= now)
     }
 
     /// A revivable end asked again at `now` and refused again: the next ask is a week on.

@@ -75,7 +75,7 @@ use crate::{
     period::{issue_next, Issued, PeriodTokenStore},
     shared::SharedKeyring,
     token::{CheckoutStatus, Paid, TokenError, TokenServer, MAX_BLINDED},
-    vault::{DriveTokens, RenewalLock, VaultGrant, VaultState},
+    vault::{DriveTokens, RenewalLock, VaultGrant, VaultState, REVIVE_FOR_SECS},
 };
 
 mod paid;
@@ -1838,10 +1838,23 @@ pub enum Finished {
     /// Its grant is kept with the drive; its first month comes with the drive's next look
     /// (why it did not come now). The checkout is off the list.
     Granted { drive_id: String, why: String },
-    /// Off the list without tokens: why - to be said once (a payment taken back, the token
-    /// server takes no issue key of a checkout from before period tokens, the payment mandate
-    /// was stopped, every month issued to a request this computer does not hold).
+    /// Off the list without tokens: why - to be said once (the token server takes no issue key of
+    /// a checkout from before period tokens, every month issued to a request this computer does
+    /// not hold, a payment taken back or a mandate stopped that no restore lifted in time). A
+    /// payment taken back and a stopped mandate that a restore may still lift are
+    /// [`Finished::Stopped`].
     Dropped(String),
+    /// The token server issues no more of it for now - a payment taken back, a mandate stopped
+    /// for it - and its restore of a wrong reversal lifts both (X-DELTA-MONEY6-1): the grant stays
+    /// with the drive, its end in the vaults, and the drive's looks ask for the months again a
+    /// week apart for `days` days ([`VaultGrant::revive_due`]); a restore brings them. Why - to be
+    /// said once, by the call that takes the checkout off the list, which waits (as
+    /// [`Finished::Waits`]) until the grant is in two places like every paid grant.
+    Stopped {
+        drive_id: String,
+        why: String,
+        days: u32,
+    },
     /// It stays on the list, issue key and all, for the next try: why (its grant could not be
     /// kept with the drive).
     Kept(String),
@@ -2073,9 +2086,25 @@ pub fn finish(
     // The first month, whether or not the drive's vault has the grant yet: the tokens land in
     // every vault there is.
     let issued = issue_next(server, tokens, id, now);
-    if let Ok(over) = &issued {
-        if let Some((never, why)) = NeverIssued::ended(over) {
-            return taken_off(Settled::never_issued(&never), Finished::Dropped(why));
+    // An end the token server's restore may still lift - a payment taken back, a mandate stopped
+    // for it - is not the end of the grant: it stays in the vaults with that end, asked again a
+    // week apart by the drive's looks ([`VaultGrant::revive_due`]), and goes the way of a grant
+    // whose month is not due yet below: this entry stays until the grant is in two places, as
+    // every paid grant's does - its issue key is the second copy of what the revival is asked
+    // with. Only an end no restore lifts takes the entry off at once (X-DELTA-MONEY6-1).
+    let mut may_be_lifted = false;
+    if let Ok(over @ Issued::Ended(_)) = &issued {
+        let state = match tokens.state() {
+            Ok(state) => state,
+            Err(e) => {
+                return Finished::Kept(format!("its grant's end could not be read back: {e}"))
+            }
+        };
+        match NeverIssued::ended(over, state.grant(id), now) {
+            Some((never, why)) => {
+                return taken_off(Settled::never_issued(&never), Finished::Dropped(why));
+            }
+            None => may_be_lifted = true,
         }
     }
     let (count, why) = match issued {
@@ -2128,6 +2157,12 @@ pub fn finish(
             why: no_vault,
         },
         None if count > 0 => Finished::Issued { drive_id, count },
+        // the months are on hold, not lost: said once, by the call that lets the entry go
+        None if may_be_lifted => Finished::Stopped {
+            drive_id,
+            why,
+            days: u32::try_from(REVIVE_FOR_SECS / 86_400).unwrap_or(u32::MAX),
+        },
         None => Finished::Granted { drive_id, why },
     };
     // The record of its payment names no receipt yet (the answer that brought the drive had

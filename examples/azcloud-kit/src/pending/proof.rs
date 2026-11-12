@@ -17,8 +17,9 @@
 //!   the drive's own vault has it, or a second copy was written here;
 //! - [`GrantKeptEarlier`]: the same, said by the entry itself ([`ReceiptDue::GrantKept`], written
 //!   on a [`GrantKept`] only) - what a checkout that waited for its receipt only is ended with;
-//! - [`NeverIssued`]: the token server will never issue the rest (a final refusal, or a grant no
-//!   server issues);
+//! - [`NeverIssued`]: the token server will never issue the rest (a final refusal that no restore
+//!   lifts - not a payment taken back or a mandate stopped, which may be put back
+//!   ([`crate::vault::REVIVE_FOR_SECS`]) -, or a grant no server issues);
 //! - [`NotMade`]: an order whose entry was made before its `POST /v1/checkout` (state `Posting`)
 //!   and that made no checkout anyone was shown - the token server refused it, or a day is gone
 //!   without an answer;
@@ -39,7 +40,7 @@ use super::{Abandoned, Final, PendingCheckout, ReceiptDue, POSTING_LIFE_SECS, UN
 use crate::{
     period::Issued,
     token::{CheckoutStatus, TokenError},
-    vault::Kept,
+    vault::{Kept, VaultGrant},
 };
 
 /// What the token server said that ends a checkout: the only thing that takes one off the list
@@ -167,12 +168,23 @@ impl NeverIssued {
         (!months_ok || issue_key.trim().is_empty()).then_some(NeverIssued(()))
     }
 
-    /// An issue that ended the grant at the token server (a reversed payment, a wrong issue
-    /// key, every month issued to another request), with why.
-    pub(super) fn ended(issued: &Issued) -> Option<(NeverIssued, String)> {
-        match issued {
-            Issued::Ended(why) => Some((NeverIssued(()), why.clone())),
-            Issued::Tokens(_) | Issued::NotDue { .. } => None,
+    /// An issue that ended the grant at the token server for good (a wrong issue key, a
+    /// checkout gone, every month issued to another request, a payment taken back or a mandate
+    /// stopped that no restore lifted in [`crate::vault::REVIVE_FOR_SECS`]), with why. `grant`
+    /// is the grant as the vaults hold it after the issue: an end the token server's restore can
+    /// still lift ([`VaultGrant::revive_pending`]) is not the end of it - the grant is kept, and
+    /// asked again - and a grant that cannot be told (`None`) is no proof either
+    /// (X-DELTA-MONEY6-1).
+    pub(super) fn ended(
+        issued: &Issued,
+        grant: Option<&VaultGrant>,
+        now: u64,
+    ) -> Option<(NeverIssued, String)> {
+        match (issued, grant) {
+            (Issued::Ended(why), Some(grant)) if !grant.revive_pending(now) => {
+                Some((NeverIssued(()), why.clone()))
+            }
+            (Issued::Ended(_), _) | (Issued::Tokens(_) | Issued::NotDue { .. }, _) => None,
         }
     }
 }

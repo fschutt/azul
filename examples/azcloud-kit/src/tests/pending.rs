@@ -2,7 +2,10 @@
 //! each other's), polled into the drive (its session kept once, by drive id: a rotated one is
 //! never replaced by the sign-up's spent token) or dropped (said once).
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, AtomicUsize, Ordering},
+    Arc,
+};
 
 use azul_storage::{
     keyring::KeyringNamespace,
@@ -13,7 +16,7 @@ use azul_storage::{
 
 use super::{
     bundle, json,
-    period::{issuing_server, keys, pem, D1, ISSUE_KEY, N1, NOW},
+    period::{issuing_server, keys, pem, signed, D1, ISSUE_KEY, N1, NOW},
     tokens_in_drive, DownVault, Fake, Shared, TOKEN,
 };
 use crate::{
@@ -627,8 +630,9 @@ fn a_drive_without_period_tokens_takes_its_checkout_off_the_list_once_it_is_save
 }
 
 /// PT4: a first month without an answer waits with the drive (the grant is kept there, the
-/// checkout leaves the list); a payment taken back after the approval, or a checkout from before
-/// period tokens, is said once with its words and never asked again.
+/// checkout leaves the list); a payment taken back after the approval is said once with its words
+/// and kept with the drive for the restore (`Finished::Stopped`, X-DELTA-MONEY6-1); a checkout
+/// from before period tokens is said once with its words and never asked again.
 #[test]
 fn a_first_month_without_an_answer_waits_with_the_drive_and_a_reversed_payment_is_said_once() {
     let dir = TempDir::new("azcloud-pending");
@@ -674,11 +678,14 @@ fn a_first_month_without_an_answer_waits_with_the_drive_and_a_reversed_payment_i
     let state = tokens.state().unwrap();
     assert!(state.grant("ck_1").is_some_and(|g| g.is_open()));
     assert_eq!(state.open_issues("ck_1").len(), 1);
-    // A payment taken back: said once, in its words.
+    // A payment taken back: said once, in its words - and kept with the drive: a restore lifts it.
     let (ck, owed) = claimed("ck_2");
     match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
-        Finished::Dropped(why) => assert!(why.contains("taken back"), "{why}"),
-        other => panic!("not dropped: {other:?}"),
+        Finished::Stopped { why, days, .. } => {
+            assert!(why.contains("taken back"), "{why}");
+            assert_eq!(days, 90);
+        }
+        other => panic!("not stopped: {other:?}"),
     }
     assert!(pending::list(&shared).unwrap().is_empty());
     assert!(tokens.state().unwrap().grant("ck_2").is_some_and(|g| !g.is_open()));
@@ -1452,4 +1459,256 @@ fn az_p10_a_rate_limited_poll_carries_the_wait_the_token_server_asked_for() {
         1,
         "the checkout stays"
     );
+}
+
+// ==== X-DELTA-MONEY6-1: a stop the token server's restore lifts, at the claim ====
+
+/// The token server of `ck_1` at the claim: `keys`, and each issue request answered by `word` while
+/// `lifted` is false (`mandate_stopped` or `not_paid`), signed once it is true; `asked` counts the
+/// issue requests.
+fn refusing_until_lifted(
+    word: &'static str,
+    lifted: &Arc<std::sync::atomic::AtomicBool>,
+    asked: &Arc<AtomicUsize>,
+) -> Arc<Fake> {
+    let (listed, issued) = (keys(), AtomicU64::new(0));
+    let (lifted, asked) = (lifted.clone(), asked.clone());
+    Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        asked.fetch_add(1, Ordering::SeqCst);
+        if lifted.load(Ordering::SeqCst) {
+            return Ok(signed(call, N1, D1, "100GB/2026", &issued));
+        }
+        Ok(json(
+            409,
+            &format!(r#"{{"error": "{word}", "message": "refused"}}"#),
+        ))
+    })
+}
+
+/// X-DELTA-MONEY6-1 (a, c, d), the claim: the first month of a paid grant is asked while the stop
+/// stands (a mandate a repeat reversal stopped, or a payment taken back). The old client took the
+/// entry and its issue key off the list on the answer - for `not_paid` too - and the grant's end
+/// was final for a stopped mandate: the restore never reached the months. Now the grant stays with
+/// the drive with a revivable end, and the entry stays on the list, issue key and all, until the
+/// grant is in two places like every paid grant (here the drive has no vault yet: this computer's
+/// is the only one); a restart changes nothing; the drive's vault comes, the entry goes and the
+/// stop is said once; the restore, and the first ask of the next week issues the month. On the old
+/// code the first round answers `Finished::Dropped` and takes the entry off.
+#[test]
+fn x_delta_money6_1_the_first_month_asked_while_a_stop_stands_keeps_the_entry_and_the_restore_reaches_the_months(
+) {
+    for (word, said) in [
+        ("mandate_stopped", "mandate was stopped"),
+        ("not_paid", "taken back"),
+    ] {
+        let dir = TempDir::new("azcloud-pending");
+        let (shared, keyring) = shared(&dir);
+        let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+        let lifted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let asked = Arc::new(AtomicUsize::new(0));
+        let transport = Shared(refusing_until_lifted(word, &lifted, &asked));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+
+        // round 1: the drive has no vault yet - the entry stays, the grant is kept with its end
+        let local_only = store.on_this_device("d_1").unwrap();
+        match pending::finish(&server, &shared, &store, &local_only, &ck, &owed, NOW) {
+            Finished::Waits { count: 0, why, .. } => {
+                assert!(why.contains("no key"), "{word}: {why}");
+            }
+            other => panic!("{word}: the entry was not kept: {other:?}"),
+        }
+        let listed = pending::list(&shared).unwrap();
+        assert_eq!(listed.len(), 1, "{word}: the entry stays");
+        assert_eq!(
+            listed[0].period.as_ref().map(|p| p.issue_key.as_str()),
+            Some(ISSUE_KEY),
+            "{word}: and its issue key"
+        );
+        let state = local_only.state().unwrap();
+        let grant = state.grant("ck_1").expect("kept with the drive");
+        assert!(
+            grant.is_ended() && grant.revivable,
+            "{word}: the end is one a restore lifts: {grant:?}"
+        );
+        assert!(
+            grant.ended.as_deref().is_some_and(|w| w.contains(said)),
+            "{word}: {grant:?}"
+        );
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+
+        // a restart: new handles over the same list and vault; the next round asks nothing (the
+        // week), keeps both and is quiet
+        drop(local_only);
+        let restarted = store.on_this_device("d_1").unwrap();
+        let (ck, owed) = {
+            let ck = pending::list(&shared).unwrap().remove(0);
+            let owed = ck.period.clone().expect("still claimed");
+            (ck, owed)
+        };
+        match pending::finish(&server, &shared, &store, &restarted, &ck, &owed, NOW + 10) {
+            Finished::Waits { count: 0, .. } => {}
+            other => panic!("{word}: after a restart: {other:?}"),
+        }
+        assert_eq!(pending::list(&shared).unwrap().len(), 1, "{word}: kept");
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            1,
+            "{word}: not asked within the week"
+        );
+        assert!(restarted
+            .state()
+            .unwrap()
+            .grant("ck_1")
+            .is_some_and(|g| g.revivable));
+
+        // the drive's key arrives, its vault takes the grant: the entry goes, the stop is said once
+        let (with_key, in_drive) = tokens_in_drive(&store);
+        match pending::finish(&server, &shared, &store, &with_key, &ck, &owed, NOW + 20) {
+            Finished::Stopped {
+                drive_id,
+                why,
+                days,
+            } => {
+                assert_eq!((drive_id.as_str(), days), ("d_1", 90), "{word}");
+                assert!(why.contains(said), "{word}: {why}");
+            }
+            other => panic!("{word}: not said: {other:?}"),
+        }
+        assert!(pending::list(&shared).unwrap().is_empty(), "{word}");
+        assert!(
+            keyring.get(pending::PENDING_KEY).unwrap().is_none(),
+            "{word}"
+        );
+        let held = in_drive.read().unwrap();
+        let grant = held.grant("ck_1").expect("in the drive's vault");
+        assert!(grant.is_ended() && grant.revivable, "{word}: {grant:?}");
+        drop(held);
+
+        // the restore; a week on, the drive's look asks again and the month comes
+        lifted.store(true, Ordering::SeqCst);
+        match crate::period::issue_next(&server, &with_key, "ck_1", NOW + 8 * 86_400) {
+            Ok(crate::period::Issued::Tokens(issued)) => assert_eq!(issued.len(), 1, "{word}"),
+            other => panic!("{word}: the restore did not reach the months: {other:?}"),
+        }
+        let state = with_key.state().unwrap();
+        assert!(state.grant("ck_1").unwrap().ended.is_none(), "{word}");
+        assert_eq!(state.tokens.len(), 1, "{word}");
+        assert_eq!(asked.load(Ordering::SeqCst), 2, "{word}");
+    }
+}
+
+/// X-DELTA-MONEY6-1, the claim with the drive's vault at hand (the usual case): the grant is in
+/// two places at once, so the entry goes at the first finish, the stop is said once by that call -
+/// `Stopped`, not `Dropped` - and the grant waits in both vaults with its revivable end.
+#[test]
+fn x_delta_money6_1_a_stop_at_the_claim_with_the_drive_vault_is_said_once_and_the_grant_waits_for_the_restore(
+) {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let lifted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let asked = Arc::new(AtomicUsize::new(0));
+    let transport = Shared(refusing_until_lifted("mandate_stopped", &lifted, &asked));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let (tokens, in_drive) = tokens_in_drive(&store);
+    match pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW) {
+        Finished::Stopped { why, days, .. } => {
+            assert!(why.contains("mandate was stopped"), "{why}");
+            assert_eq!(days, 90);
+        }
+        other => panic!("not said once: {other:?}"),
+    }
+    assert!(pending::list(&shared).unwrap().is_empty());
+    for (place, grant) in [
+        (
+            "this computer's",
+            tokens.state().unwrap().grant("ck_1").cloned(),
+        ),
+        (
+            "the drive's",
+            in_drive.read().unwrap().grant("ck_1").cloned(),
+        ),
+    ] {
+        let grant = grant.unwrap_or_else(|| panic!("{place} vault holds the grant"));
+        assert!(grant.is_ended() && grant.revivable, "{place}: {grant:?}");
+    }
+    // another window finishing the same checkout afterwards says and asks nothing
+    assert!(matches!(
+        pending::finish(&server, &shared, &store, &tokens, &ck, &owed, NOW + 5),
+        Finished::Settled
+    ));
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+}
+
+/// X-DELTA-MONEY6-1, the negative controls: an end no restore lifts takes the entry off at once and
+/// says it as it always did - a wrong issue key, every month issued - even when the drive has no
+/// vault; and a revivable end whose 90 days are over is final (a claim that sat on the list that
+/// long finds the stop still standing): the entry goes with the sentence.
+#[test]
+fn x_delta_money6_1_an_end_no_restore_lifts_takes_the_entry_off_at_once() {
+    for (word, status) in [("issue_key_wrong", 403), ("already_issued", 409)] {
+        let dir = TempDir::new("azcloud-pending");
+        let (shared, _) = shared(&dir);
+        let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+        let (listed, asked) = (keys(), Arc::new(AtomicUsize::new(0)));
+        let counted = asked.clone();
+        let transport = Shared(Fake::new(move |call, _| {
+            if call.url.ends_with("/v1/tokens/keys") {
+                return Ok(json(200, &listed));
+            }
+            counted.fetch_add(1, Ordering::SeqCst);
+            Ok(json(
+                status,
+                &format!(r#"{{"error": "{word}", "message": "final"}}"#),
+            ))
+        }));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+        let local_only = store.on_this_device("d_1").unwrap();
+        match pending::finish(&server, &shared, &store, &local_only, &ck, &owed, NOW) {
+            Finished::Dropped(_) => {}
+            other => panic!("{word}: not dropped: {other:?}"),
+        }
+        assert!(pending::list(&shared).unwrap().is_empty(), "{word}");
+        let state = local_only.state().unwrap();
+        assert!(
+            state
+                .grant("ck_1")
+                .is_some_and(|g| g.is_ended() && !g.revivable),
+            "{word}"
+        );
+    }
+
+    // a stop that stood for 90 days: the claim finds the end older than its life
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let lifted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let asked = Arc::new(AtomicUsize::new(0));
+    let transport = Shared(refusing_until_lifted("mandate_stopped", &lifted, &asked));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let local_only = store.on_this_device("d_1").unwrap();
+    assert!(matches!(
+        pending::finish(&server, &shared, &store, &local_only, &ck, &owed, NOW),
+        Finished::Waits { count: 0, .. }
+    ));
+    match pending::finish(
+        &server,
+        &shared,
+        &store,
+        &local_only,
+        &ck,
+        &owed,
+        NOW + 91 * 86_400,
+    ) {
+        Finished::Dropped(why) => assert!(why.contains("mandate was stopped"), "{why}"),
+        other => panic!("the end is final after 90 days: {other:?}"),
+    }
+    assert!(pending::list(&shared).unwrap().is_empty());
 }

@@ -1762,6 +1762,7 @@ azdrive-add-checkout-taken-back = The checkout { $checkout }: { $why }. It may c
 azdrive-add-picked-up = Picked up. AzDrive asks for the drive now, then once a day until the money arrived: postal cash takes a while.
 azdrive-add-claim-not-kept = The claim code was not kept: { $why }
 azdrive-add-months-not-fetched = The paid months of the checkout { $checkout } could not be fetched: { $why }.
+azdrive-add-months-stopped = The paid months of the checkout { $checkout } stopped coming: { $why }. If the token server puts the payment back - a refund can fail, a dispute can be won - they come after all: AzDrive keeps what the checkout paid for with the drive and asks about the months once a week for { $days } days.
 azdrive-add-checkout-unfinished = The checkout { $checkout } could not be finished in the keyring's list ({ $why }); AzDrive asks about it again at its next start.
 azdrive-receipt-not-kept = The receipt of your payment could not be saved on this computer: { $why }. The drive is yours all the same. Keep the confirmation of your payment.
 azdrive-add-options-failed = The payment options could not be loaded: { $why }
