@@ -42,11 +42,20 @@ fn az_u12_the_words_of_a_delete_from_a_drive_with_history_promise_the_way_back_o
     let cannot = t("azdrive-delete-cannot-undo");
     assert!(cannot.contains("cannot be undone"), "{cannot}");
 
+    // The days the words promise are the days the drive keeps what it released: the versions of an
+    // encrypted drive's files, ninety (the owner's decision of 2026-10-24), and - in a build
+    // without encrypted drives - the fourteen its node keeps (D38). The one `Retention` owns the
+    // span since X-AR5a-21 (1a9e92feb; the dialog's own number was fourteen, shorter than the
+    // ninety the drive keeps), so the literal here is that decided span, and a window that moves
+    // fails this line and has the words read again.
+    let days: u64 = if cfg!(feature = "encryption") { 90 } else { 14 };
+    assert_eq!(RESTORE_DAYS, days, "the span the way back is promised for");
+
     let can = t_args(
         "azdrive-delete-can-restore",
         &[("days", Arg::from(RESTORE_DAYS))],
     );
-    assert!(can.contains("14 days"), "{can}");
+    assert!(can.contains(&format!("last {days} days")), "{can}");
     assert!(can.contains("Restore as of"), "{can}");
     assert!(!can.contains("cannot be undone"), "{can}");
 
@@ -56,7 +65,10 @@ fn az_u12_the_words_of_a_delete_from_a_drive_with_history_promise_the_way_back_o
             .arg("days", RESTORE_DAYS),
     );
     assert!(one.starts_with("Deleted one item."), "{one}");
-    assert!(one.contains("brings it back for 14 days"), "{one}");
+    assert!(
+        one.contains(&format!("brings it back for {days} days")),
+        "{one}"
+    );
     assert!(!one.contains("for good"), "{one}");
     let three = t_phrase(
         &Phrase::new("azdrive-deleted-with-history")
@@ -64,7 +76,10 @@ fn az_u12_the_words_of_a_delete_from_a_drive_with_history_promise_the_way_back_o
             .arg("days", RESTORE_DAYS),
     );
     assert!(three.starts_with("Deleted 3 items."), "{three}");
-    assert!(three.contains("brings them back for 14 days"), "{three}");
+    assert!(
+        three.contains(&format!("brings them back for {days} days")),
+        "{three}"
+    );
 
     // The older notice stays for a drive that keeps nothing.
     let for_good = t_phrase(&Phrase::new("azdrive-deleted-for-good").arg("count", 2usize));
