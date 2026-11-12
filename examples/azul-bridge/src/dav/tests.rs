@@ -1023,3 +1023,45 @@ fn x_delta_sync4_17_a_swap_step_that_fails_puts_the_old_destination_back() {
         assert_eq!(drive.inner.get("src/one.txt").unwrap(), b"one");
     }
 }
+
+/// RED on the code before: PUT and DELETE ignored `If-Match`, so a save another client made after
+/// this one's PROPFIND was overwritten or deleted without a word.
+#[test]
+fn x_delta_sync4_21_put_and_delete_ask_if_match_and_if_none_match_before_they_change_a_file() {
+    let drive = drive();
+    let dav = dav_on(drive.clone(), 0);
+    let etag = dav
+        .respond(&head("GET", "/docs/a.txt", &[]), b"")
+        .header("ETag")
+        .unwrap()
+        .to_string();
+    let stale = [("If-Match", "\"stale\"")];
+    assert_eq!(dav.respond(&head("PUT", "/docs/a.txt", &stale), b"mine").status, Status::PRECONDITION_FAILED);
+    assert_eq!(drive.get("docs/a.txt").unwrap(), b"hello world", "not overwritten");
+    assert_eq!(dav.respond(&head("DELETE", "/docs/a.txt", &stale), b"").status, Status::PRECONDITION_FAILED);
+    assert!(drive.get("docs/a.txt").is_ok(), "not deleted");
+    assert_eq!(
+        dav.respond(&head("PUT", "/docs/a.txt", &[("If-None-Match", "*")]), b"mine").status,
+        Status::PRECONDITION_FAILED,
+        "the name is taken"
+    );
+    assert_eq!(
+        dav.respond(&head("PUT", "/docs/new.txt", &[("If-None-Match", "*")]), b"new").status,
+        Status::CREATED
+    );
+    assert_eq!(
+        dav.respond(&head("PUT", "/docs/a.txt", &[("If-Match", etag.as_str())]), b"mine").status,
+        Status::NO_CONTENT
+    );
+    assert_eq!(drive.get("docs/a.txt").unwrap(), b"mine");
+    let etag = dav
+        .respond(&head("GET", "/docs/a.txt", &[]), b"")
+        .header("ETag")
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        dav.respond(&head("DELETE", "/docs/a.txt", &[("If-Match", etag.as_str())]), b"").status,
+        Status::NO_CONTENT
+    );
+    assert!(drive.get("docs/a.txt").is_err());
+}

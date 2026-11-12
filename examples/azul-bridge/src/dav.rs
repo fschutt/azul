@@ -1020,13 +1020,21 @@ impl Dav {
         if key.is_empty() || folder_syntax {
             return Ok(Err(Response::text(Status::METHOD_NOT_ALLOWED, "A folder is made with MKCOL.")));
         }
-        let existed = match self.resource(key, false)? {
+        let current = match self.resource(key, false)? {
             Resource::Folder => {
                 return Ok(Err(Response::text(Status::METHOD_NOT_ALLOWED, "A folder has this name.")));
             }
-            Resource::File(_) => true,
-            Resource::Missing => false,
+            Resource::File(info) => Some(info),
+            Resource::Missing => None,
         };
+        // The client writes what it saw: a save made after its PROPFIND is not overwritten
+        // (`If-Match`), a name that is taken is not made again (`If-None-Match: *`)
+        // (X-DELTA-SYNC4-21).
+        let version = current.as_ref().map(crate::pim::version_of);
+        if let Some(refusal) = crate::pim::precondition(head, version.as_deref()) {
+            return Ok(Err(refusal));
+        }
+        let existed = current.is_some();
         if !self.parent_exists(key)? {
             return Ok(Err(Response::text(
                 Status::CONFLICT,
@@ -1058,6 +1066,14 @@ impl Dav {
         let resource = self.resource(key, folder_syntax)?;
         if resource == Resource::Missing {
             return Ok(Response::text(Status::NOT_FOUND, "Not there."));
+        }
+        // A file is deleted as the client saw it (`If-Match`): one saved since goes with it
+        // otherwise (X-DELTA-SYNC4-21).
+        if let Resource::File(info) = &resource {
+            let version = crate::pim::version_of(info);
+            if let Some(refusal) = crate::pim::precondition(head, Some(version.as_str())) {
+                return Ok(refusal);
+            }
         }
         if self.locked_out(key, head) {
             return Ok(Response::text(Status::LOCKED, "Locked."));

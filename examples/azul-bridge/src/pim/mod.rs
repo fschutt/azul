@@ -558,8 +558,13 @@ fn listed(value: &str, version: &str) -> bool {
 
 /// `If-None-Match` (`*`: only a new resource) and `If-Match` (only that version) against the
 /// version there is (`None`: nothing yet); `Some` is the 412 to answer.
-fn precondition(head: &Head, current: Option<&str>) -> Option<Response> {
-    let failed = || Some(Response::text(Status::PRECONDITION_FAILED, "It changed, or it is there already."));
+pub(crate) fn precondition(head: &Head, current: Option<&str>) -> Option<Response> {
+    let failed = || {
+        Some(Response::text(
+            Status::PRECONDITION_FAILED,
+            "It changed, or it is there already.",
+        ))
+    };
     if let (Some(value), Some(version)) = (head.header("If-None-Match"), current) {
         if listed(value, version) {
             return failed();
