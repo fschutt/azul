@@ -719,7 +719,11 @@ fn a_conflict_whose_copy_no_key_can_be_is_held_and_listed_and_the_rest_goes_on()
         },
     ];
     let mut report = SyncReport::default();
-    hold_unnameable_copies(&mut actions, &mut report);
+    hold_unnameable_copies(
+        &mut actions,
+        &names::Policy::here(names::Volume::default()),
+        &mut report,
+    );
     assert_eq!(actions.len(), 2, "{actions:?}");
     assert!(actions.iter().all(|a| a.key() != key));
     let told: Vec<_> = report.problems.iter().collect();

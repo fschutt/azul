@@ -15,13 +15,17 @@ use std::{
 use azul_storage::{testing::TempDir, Drive};
 
 use super::{
-    fake_s3::FakeS3,
+    fake_s3::{FakeS3, S3Bucket},
+    sync::{index_of, Device},
     sync_named::{s3_drive, NamesHashes},
 };
 use crate::sync::{
     faults,
+    local::{BaseEntry, Scan, Temp},
+    merge::Action,
+    problems::Code,
     session::{SyncSession, SyncSetup},
-    SyncReport,
+    sync_to, SyncReport, Target,
 };
 
 const PREFIX: &str = "relook/";
@@ -319,4 +323,260 @@ fn x_delta_sync4_28_a_pass_killed_after_the_commit_of_an_undone_rename_loses_no_
     );
     assert_eq!(tree(p.b.path()), here);
     faults::clear(p.a.path());
+}
+
+/// Whether the problem list of `report` names `code` for `key`.
+fn lists(report: &SyncReport, code: Code, key: &str) -> bool {
+    report
+        .problems
+        .iter()
+        .any(|p| p.code == code && p.key == key)
+}
+
+/// X-DELTA-SYNC4-29. `not_gone` (the look at the planned deletes right before the commit) opened a
+/// folder by NAME: a disk that takes `Docs` and `docs` for one folder (APFS, NTFS, exFAT) opened the
+/// renamed folder for the old spelling, found every file in it and held every `DeleteRemote(Docs/..)`
+/// while the uploads under `docs/` went: the drive held both spellings and the next pass froze one
+/// direction as a name collision. A folder counts as there only when its parent's listing names it
+/// exactly as the key spells it. A disk without folder identity (the fault seam blanks it: FAT, exFAT,
+/// SMB) makes the rename travel as file deletes and uploads. Played on a disk that folds case only
+/// (it stops where this one does not). RED on the old code: the drive holds `Docs/a.txt` and
+/// `docs/a.txt`.
+#[test]
+fn x_delta_sync4_29_a_folder_renamed_by_its_case_has_its_old_spelling_deleted_on_the_drive() {
+    let store = S3Bucket::new();
+    let a = Device::new("relook-case-a");
+    faults::set_blank_folder_ids(a.path(), true);
+    a.write("Docs/a.txt", b"the first file");
+    a.write("Docs/b.txt", b"the second file");
+    a.write("keep.txt", b"a file that stays");
+    a.sync(&store);
+    if !a.path().join("docs").exists() {
+        // A disk that keeps `Docs` and `docs` apart cannot play this.
+        faults::clear(a.path());
+        return;
+    }
+    a.rename_folder("Docs", "docs");
+    let report = a.sync(&store);
+    faults::clear(a.path());
+    let index = index_of(&store);
+    let names: Vec<&str> = index.files.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        ["docs/a.txt", "docs/b.txt", "keep.txt"],
+        "the old spelling is deleted on the drive, not held beside the new one: {}",
+        report.summary()
+    );
+    assert!(
+        report.changed_during_sync.is_empty(),
+        "{:?}",
+        report.changed_during_sync
+    );
+}
+
+/// X-DELTA-SYNC4-3 (a). The window rule of `keep_saves` held every delete of a folder while ANY
+/// rule-excluded file in it was written within the window: a database's `-wal` an app writes all day,
+/// a `.DS_Store` Finder rewrites seconds after a delete, a log. None is a save of a document, and the
+/// sentence ("an app is saving it") was false. Only a file an app saves through (a temp, a lock) is a
+/// save in progress. RED on the old code: the delete is held, `deleted_there` is 0 and the problem
+/// list names SaveInProgress.
+#[test]
+fn x_delta_sync4_3_a_database_side_file_and_the_systems_bookkeeping_hold_no_delete_of_the_folder() {
+    let store = S3Bucket::new();
+    let a = Device::new("relook-wal-a");
+    a.write("old-report.pdf", b"the report");
+    a.write("app.db", b"the database");
+    a.sync(&store);
+    // The app's journal is written all day, Finder has just rewritten its bookkeeping.
+    a.write("app.db-wal", b"frames written a moment ago");
+    a.write(".DS_Store", b"finder");
+    a.remove("old-report.pdf");
+    let mut opts = a.opts();
+    opts.file_settle = Duration::from_secs(3600);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        !lists(&report, Code::SaveInProgress, "old-report.pdf"),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(report.deleted_there, 1, "{}", report.summary());
+    assert!(!index_of(&store).files.contains_key("old-report.pdf"));
+}
+
+/// X-DELTA-SYNC4-3 (a), the sentence. A temp written moments ago holds the folder's deletes - the
+/// app may be saving whatever it writes - and says so: the folder is not quiet, not "an app is
+/// saving it". Green on the old code in effect, red on its words (the old text said an app saves
+/// the deleted file).
+#[test]
+fn x_delta_sync4_3_a_hold_for_a_busy_folder_says_the_folder_is_not_quiet() {
+    let store = S3Bucket::new();
+    let a = Device::new("relook-busy-a");
+    a.write("old-report.pdf", b"the report");
+    a.sync(&store);
+    a.write("~WRD0003.tmp", b"another file the app is writing");
+    a.remove("old-report.pdf");
+    let mut opts = a.opts();
+    opts.file_settle = Duration::from_secs(3600);
+    let report = a.sync_with(&store, &opts).unwrap();
+    let held = report
+        .problems
+        .iter()
+        .find(|p| p.code == Code::SaveInProgress && p.key == "old-report.pdf")
+        .unwrap_or_else(|| panic!("the delete is held: {:?}", report.problems));
+    assert!(
+        held.detail.contains("quiet folder") && held.detail.contains("~WRD0003.tmp"),
+        "{}",
+        held.detail
+    );
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+}
+
+/// X-DELTA-SYNC4-3 (a). The rule for a temp with the deleted file's size that cannot be read had
+/// no age: the old version an app renamed aside and holds open - and a file nobody can read for
+/// good (mode 000, another account's) held the delete for ever. Held while it changed within the
+/// window or ten minutes, then the delete goes. The temp's times are those the scan recorded; its
+/// bytes are unreadable here. RED on the old code (`keep_saves` knew no age): the stale temp holds.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync4_3_an_unreadable_same_size_temp_that_has_not_changed_for_ages_holds_no_longer() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = azul_storage::testing::TempDir::new("azcloud-relook-stale");
+    fs::create_dir_all(dir.path().join("docs")).unwrap();
+    let held = dir.path().join("docs/~WRL0002.tmp");
+    fs::write(&held, "0123456789").unwrap();
+    fs::set_permissions(&held, fs::Permissions::from_mode(0o000)).unwrap();
+    // A user who reads a file of mode 000 (root) cannot play this.
+    if fs::read(&held).is_ok() {
+        fs::set_permissions(&held, fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+    let mut base = BTreeMap::new();
+    base.insert(
+        String::from("docs/report.docx"),
+        BaseEntry {
+            size: 10,
+            hash: String::from("not the temp's"),
+            ..BaseEntry::default()
+        },
+    );
+    let ns = |ago: Duration| crate::now_ns() - u64::try_from(ago.as_nanos()).unwrap();
+    for (ago, holds) in [
+        (Duration::from_secs(5), true),
+        (Duration::from_secs(300), true),
+        (Duration::from_secs(3 * 3600), false),
+    ] {
+        let mut scan = Scan::default();
+        scan.temps.insert(
+            String::from("docs/~WRL0002.tmp"),
+            Temp {
+                size: 10,
+                mtime_ns: ns(ago),
+                ctime_ns: ns(ago),
+                saves: true,
+            },
+        );
+        let mut actions = vec![Action::DeleteRemote {
+            key: String::from("docs/report.docx"),
+        }];
+        let mut report = SyncReport::default();
+        crate::sync::keep_saves(
+            &mut actions,
+            &scan,
+            &base,
+            dir.path(),
+            Duration::from_secs(2),
+            &mut report,
+        );
+        assert_eq!(
+            actions.is_empty(),
+            holds,
+            "an unreadable temp of the size, last changed {ago:?} ago: {actions:?}"
+        );
+        assert_eq!(
+            lists(&report, Code::SaveInProgress, "docs/report.docx"),
+            holds,
+            "{:?}",
+            report.problems
+        );
+    }
+    fs::set_permissions(&held, fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+/// X-DELTA-SYNC4-30 (a), the disk's own rows. A copy name that the rows every system refuses accept
+/// but this DISK refuses (a device name with a colon on an exFAT volume) was committed to the drive
+/// and then failed its rename here: every device listed the copy as unreadable. The hold asks the
+/// name policy of this disk. RED on the old code (`key_problem` only): the conflict goes on.
+#[test]
+fn x_delta_sync4_30_a_copy_name_this_disk_refuses_is_held_and_listed() {
+    use crate::sync::{hold_unnameable_copies, names};
+    let exfat = names::Policy::here(names::Volume {
+        windows_names: true,
+        ..names::Volume::default()
+    });
+    let key = String::from("notes/plan.md");
+    let copy = String::from("notes/plan (conflict studio: B 2026-11-12).md");
+    assert_eq!(
+        names::key_problem(&copy),
+        None,
+        "no system refuses it outright"
+    );
+    let mut actions = vec![
+        Action::Conflict {
+            key: key.clone(),
+            copy: copy.clone(),
+        },
+        Action::Upload {
+            key: String::from("other.md"),
+        },
+    ];
+    let mut report = SyncReport::default();
+    // A disk that takes the name keeps the conflict.
+    hold_unnameable_copies(
+        &mut actions,
+        &names::Policy::here(names::Volume::default()),
+        &mut report,
+    );
+    assert_eq!(actions.len(), 2, "{actions:?}");
+    // The exFAT volume refuses it: the conflict is held, the rest goes on.
+    hold_unnameable_copies(&mut actions, &exfat, &mut report);
+    assert_eq!(actions.len(), 1, "{actions:?}");
+    assert!(lists(&report, Code::BadName, &key), "{:?}", report.problems);
+}
+
+/// X-DELTA-SYNC4-30 (b), the order. The hold ran right after the plan, before a backup's one-way
+/// answers: a file that changed here and on the drive is only an upload in a backup (this folder
+/// wins) and needs no copy, but its conflict was dropped for its copy's name first and it was never
+/// backed up. A device name with a control character makes every copy name a refused key. RED on the
+/// old code: the drive keeps the old version and the problem list names a bad name.
+#[test]
+fn x_delta_sync4_30_a_backup_sends_the_file_whose_conflict_copy_would_have_no_name() {
+    let store = S3Bucket::new();
+    let a = Device::new("relook-backup-a");
+    let b = Device::new("relook-backup-b");
+    a.write("plan.md", b"the first version");
+    a.sync(&store);
+    b.sync(&store);
+    // Another device changes it on the drive; this folder changes it too.
+    b.write("plan.md", b"the other device's version");
+    b.sync(&store);
+    a.write("plan.md", b"this folder's version");
+    let mut opts = a.opts();
+    opts.device = String::from("studio\u{7}mac");
+    let hooks = crate::sync::RunHooks {
+        backup: true,
+        ..crate::sync::RunHooks::default()
+    };
+    let report = sync_to(Target::Index(&store), &a.root(), &a.index(), &opts, &hooks).unwrap();
+    assert!(
+        !lists(&report, Code::BadName, "plan.md"),
+        "a backup needs no copy: {:?}",
+        report.problems
+    );
+    let index = index_of(&store);
+    assert_eq!(
+        index.files["plan.md"].hash,
+        crate::sync::local::hash_bytes(b"this folder's version"),
+        "the folder's version is backed up: {}",
+        report.summary()
+    );
 }

@@ -397,6 +397,14 @@ pub struct Temp {
     pub size: u64,
     /// Its modification time (nanoseconds): a temp written moments ago is an app saving now.
     pub mtime_ns: u64,
+    /// Its status change time (nanoseconds): a file an app renamed aside as its old version keeps
+    /// its old modification time and changes this one.
+    pub ctime_ns: u64,
+    /// Whether the rule that took it names a file an app saves through ([`rules::TEMP`], a swap or
+    /// a backup file; [`rules::LOCK`], an owner file) and not the operating system's bookkeeping, a
+    /// database's side file, a log or a line of the folder's own ignore file: only such a file is
+    /// a save in progress (X-DELTA-SYNC4-3).
+    pub saves: bool,
 }
 
 /// What a scan found.
@@ -1190,13 +1198,16 @@ pub fn scan_settled(
                     continue;
                 }
             }
-            if rules.excluded(&key).is_some() {
+            if let Some(reason) = rules.excluded(&key) {
                 out.excluded += 1;
+                let saves = matches!(reason, super::rules::TEMP | super::rules::LOCK);
                 out.temps.insert(
                     key,
                     Temp {
                         size: st.size,
                         mtime_ns: st.mtime_ns,
+                        ctime_ns: st.ctime_ns,
+                        saves,
                     },
                 );
                 continue;
@@ -1622,33 +1633,82 @@ pub fn stat_now(root: &Path, key: &str) -> Result<Option<Stat>, BeneathError> {
     }
 }
 
+/// What the look of [`not_gone`] says of one folder, by the name the key spells it.
+enum Folder {
+    /// The folder is there under exactly that spelling: the names it lists.
+    Names(BTreeSet<std::ffi::OsString>),
+    /// No folder of that spelling is there (it was removed or renamed), or one of its parents
+    /// is not.
+    Gone,
+    /// A folder of its path is a link or another disk, or cannot be read or opened.
+    Unknown,
+}
+
+/// A folder the look cannot tell anything of.
+static UNKNOWN: Folder = Folder::Unknown;
+
+/// The listing of the folder `key` (`""`: the root), read once: a folder counts as there only when
+/// its parent's listing holds its name exactly as the key spells it - a disk that folds case or
+/// accents opens `Docs` for `docs`, and a folder renamed by its case is gone under the old spelling
+/// (X-DELTA-SYNC4-29).
+fn folder_listing<'m>(
+    tree: &beneath::Root,
+    folders: &'m mut BTreeMap<String, Folder>,
+    key: &str,
+) -> &'m Folder {
+    if !folders.contains_key(key) {
+        let found = if key.is_empty() {
+            listed(tree.dir_existing(""))
+        } else {
+            let (parent, name) = beneath::split_key(key);
+            match folder_listing(tree, folders, parent) {
+                Folder::Gone => Folder::Gone,
+                Folder::Unknown => Folder::Unknown,
+                Folder::Names(names) if !names.contains(std::ffi::OsStr::new(name)) => Folder::Gone,
+                Folder::Names(_) => listed(tree.dir_existing(key)),
+            }
+        };
+        folders.insert(key.to_string(), found);
+    }
+    folders.get(key).unwrap_or(&UNKNOWN)
+}
+
+/// The names of the opened folder, or what stops the look.
+fn listed(opened: Result<beneath::Dir, BeneathError>) -> Folder {
+    match opened {
+        Ok(dir) => match dir.names() {
+            Ok(names) => Folder::Names(names.into_iter().collect()),
+            Err(_) => Folder::Unknown,
+        },
+        Err(e) if e.is_not_found() => Folder::Gone,
+        Err(_) => Folder::Unknown,
+    }
+}
+
 /// Of the files `keys` (the plan deletes them on the drive because they are gone here), the ones
 /// that are NOT known to be gone now: back (an app that unlinked a file and renames its new one in
 /// later), or not to be told - a folder of the path is a link or another disk or cannot be read, or
 /// the folder cannot be opened at all. A name nobody could look at is no delete (X-DELTA-EDGE-5).
 /// Asked as the scan asked: of the listing of the folder, by the name as it is spelled - a disk that
 /// takes `File.txt` for `file.txt` finds a file by the one name that is the other's rename, and a
-/// delete of the old spelling stands. One listing for all the keys of a folder.
+/// delete of the old spelling stands - and so for every folder of the path, each found in its
+/// parent's listing by the spelling the key has (X-DELTA-SYNC4-29: a folder renamed by its case is
+/// gone under the old spelling, and its files' deletes stand beside the uploads under the new one).
+/// One listing for all the keys of a folder.
 #[must_use]
 pub fn not_gone(root: &Path, keys: &[String]) -> BTreeSet<String> {
     let Ok(tree) = beneath::Root::open(root) else {
         return keys.iter().cloned().collect();
     };
-    // Per folder: its names, `Some(none)` when the folder is gone, `None` when it cannot be told.
-    let mut listings: BTreeMap<&str, Option<BTreeSet<std::ffi::OsString>>> = BTreeMap::new();
+    let mut folders: BTreeMap<String, Folder> = BTreeMap::new();
     let mut back = BTreeSet::new();
     for key in keys {
         let (folder, name) = beneath::split_key(key);
-        let listing = listings
-            .entry(folder)
-            .or_insert_with(|| match tree.dir_existing(folder) {
-                Ok(dir) => dir.names().ok().map(|names| names.into_iter().collect()),
-                Err(e) if e.is_not_found() => Some(BTreeSet::new()),
-                Err(_) => None,
-            });
-        let gone = listing
-            .as_ref()
-            .is_some_and(|names| !names.contains(std::ffi::OsStr::new(name)));
+        let gone = match folder_listing(&tree, &mut folders, folder) {
+            Folder::Names(names) => !names.contains(std::ffi::OsStr::new(name)),
+            Folder::Gone => true,
+            Folder::Unknown => false,
+        };
         if !gone {
             back.insert(key.clone());
         }

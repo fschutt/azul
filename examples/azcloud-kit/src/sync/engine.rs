@@ -519,7 +519,7 @@ impl Observer for Engine {
                     Code::LoopFrozen,
                     key,
                     "it keeps changing back and forth between the same versions; it is left as \
-                     it is until you choose",
+                     it is for an hour, or until you choose",
                 ));
                 return false;
             }
@@ -530,8 +530,8 @@ impl Observer for Engine {
                     key,
                     format!(
                         "it was kept as a conflict copy {} times within the hour and both devices \
-                         changed it again; it is left as it is, here and on the drive, until you \
-                         choose",
+                         changed it again; it is left as it is, here and on the drive, for an hour \
+                         from the first copy or until you choose",
                         super::loops::MAX_COPIES
                     ),
                 ));
