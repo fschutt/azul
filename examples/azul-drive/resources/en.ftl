@@ -675,6 +675,10 @@ azdrive-sync-trash-restored = { $count ->
         [one] 1 file is back where it was.
        *[other] { $count } files are back where they were.
     }
+azdrive-sync-trash-refused = { $count ->
+        [one] 1 file stays in the trash: { $why }
+       *[other] { $count } files stay in the trash: { $why }
+    }
 azdrive-sync-trash-more = …and { $count } more.
 azdrive-sync-auto-everything = Everything
 azdrive-sync-auto-new-under = New files under { $mb } MB

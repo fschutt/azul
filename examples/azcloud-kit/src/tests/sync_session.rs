@@ -350,7 +350,9 @@ fn az_s23_take_theirs_keeps_this_computers_version_in_the_trash() {
         ["note.md"],
         "the trash offers it: {listed:?}"
     );
-    let back = crate::sync::trash::untrash(b.folder.path(), b.state.path(), "note.md").unwrap();
+    let back = crate::sync::trash::untrash(b.folder.path(), b.state.path(), "note.md")
+        .unwrap()
+        .back;
     assert_eq!(back.len(), 1, "{back:?}");
     assert_eq!(
         b.read(&back[0]).as_deref(),

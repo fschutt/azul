@@ -673,6 +673,10 @@ azdrive-sync-trash-restored = { $count ->
         [one] 1 Datei ist wieder an ihrem Platz.
        *[other] { $count } Dateien sind wieder an ihrem Platz.
     }
+azdrive-sync-trash-refused = { $count ->
+        [one] 1 Datei bleibt im Papierkorb: { $why }
+       *[other] { $count } Dateien bleiben im Papierkorb: { $why }
+    }
 azdrive-sync-trash-more = …und { $count } weitere.
 azdrive-sync-auto-everything = Alles
 azdrive-sync-auto-new-under = Neue Dateien unter { $mb } MB

@@ -255,17 +255,32 @@ fn stamp_time(path: &str) -> Option<i64> {
     ))
 }
 
+/// What [`untrash`] did: the keys it put back, and what it left in the trash because the name the file
+/// goes back to is one a synced folder refuses.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Untrashed {
+    /// The keys put back (a copy's key as it is now), in order.
+    pub back: Vec<String>,
+    /// What stays in the trash and in the list ([`trashed`]): each key and why its name is refused (a
+    /// protected name in any spelling - a log line, a copied folder or an older build can put one into the
+    /// trash). The restore goes on with the rest: one refused name is no block for "restore all"
+    /// (X-DELTA-STRUCT-DRIVE-5).
+    pub refused: Vec<(String, String)>,
+}
+
 /// Puts back what the passes of the pairing whose state folder is `state_dir` trashed of `key`
 /// (a file, or a folder with everything in it; `""` the whole folder) in the synced folder
 /// `root`: the newest trashed version of each file. A file whose place is free goes back to it;
 /// one whose place holds another file comes back beside it, as `name (deleted 2026-10-24).ext`
 /// (AZ-U19) - never over a file that is there, never skipped. A file whose place holds its bytes
-/// already is left in the trash. The keys put back (a copy's key as it is now).
+/// already is left in the trash. A file whose name the rows of a synced name refuse is left in the trash
+/// too, with its reason, and the restore goes on with the rest. The keys put back (a copy's key as it is
+/// now) and the items left.
 ///
 /// # Errors
 ///
-/// When a file cannot be moved back.
-pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<String>> {
+/// When a file cannot be moved back (a refused name is no error: it is in [`Untrashed::refused`]).
+pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Untrashed> {
     let folder = key.trim_end_matches('/');
     let under = |k: &str| {
         folder.is_empty()
@@ -273,7 +288,8 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
             || k.strip_prefix(folder)
                 .is_some_and(|rest| rest.starts_with('/'))
     };
-    let mut out = Vec::new();
+    let mut back = Vec::new();
+    let mut refused = Vec::new();
     // Both names are reached from the folder's root without a link: a file never goes back
     // into a folder that a link below the synced folder points at.
     let tree = Root::open(root).with_context(|| root.display())?;
@@ -289,6 +305,12 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
         let Ok((source, from)) = names::walk_entry(&tree, &item.path) else {
             continue;
         };
+        // A name the rows refuse stays in the trash with its reason, and the restore goes on with the rest:
+        // it fails nowhere and makes no folder (X-DELTA-STRUCT-DRIVE-5).
+        if let Err(refusal) = policy.admit(&item.key, names::Purpose::Sync) {
+            refused.push((item.key.clone(), refusal.why));
+            continue;
+        }
         let (target, to) =
             names::make_parent_of(&tree, &policy, &item.key).with_context(|| item.key.clone())?;
         let (name, restored) = if target.lstat(&to).is_err() {
@@ -308,10 +330,10 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Vec<Stri
             .with_context(|| item.path.clone())?;
         target.sync();
         source.sync();
-        out.push(restored);
+        back.push(restored);
     }
-    out.sort();
-    Ok(out)
+    back.sort();
+    Ok(Untrashed { back, refused })
 }
 
 #[cfg(test)]
@@ -341,14 +363,62 @@ mod tests {
         };
         let poisoned = put("GIT~1/hooks/post-commit", "x");
         let plain = put("docs/2026/a.txt", "a");
-        let refused = untrash(root.path(), state.path(), "GIT~1/hooks/post-commit");
-        assert!(refused.is_err(), "{refused:?}");
+        let refused = untrash(root.path(), state.path(), "GIT~1/hooks/post-commit").unwrap();
+        assert!(refused.back.is_empty(), "{refused:?}");
+        assert_eq!(refused.refused.len(), 1, "{refused:?}");
+        assert_eq!(refused.refused[0].0, "GIT~1/hooks/post-commit");
+        assert!(
+            refused.refused[0]
+                .1
+                .contains("a version-control name (GIT~1)"),
+            "{refused:?}"
+        );
         assert!(!root.path().join("GIT~1").exists(), "a folder was made");
         assert_eq!(fs::read(&poisoned).unwrap(), b"x", "it stays in the trash");
-        let back = untrash(root.path(), state.path(), "docs/2026/a.txt").unwrap();
+        let back = untrash(root.path(), state.path(), "docs/2026/a.txt")
+            .unwrap()
+            .back;
         assert_eq!(back, vec![String::from("docs/2026/a.txt")]);
         assert_eq!(fs::read(root.path().join("docs/2026/a.txt")).unwrap(), b"a");
         assert!(!plain.exists(), "the file moved out of the trash");
+    }
+
+    /// X-DELTA-STRUCT-DRIVE-5: "restore all" of a trash that holds one name the rows refuse and three good
+    /// ones puts the three back and reports the one with its reason; the refused one stays in the trash and in
+    /// the list. The restore returned on the FIRST item whose name was refused: it moved the items before it,
+    /// failed, failed at the same item at every later click, and the dialog showed only the error.
+    #[test]
+    fn x_delta_struct_drive_5_one_refused_name_does_not_stop_restore_all_and_stays_listed_with_its_reason(
+    ) {
+        let root = TempDir::new("azcloud-untrash-sd5");
+        let state = TempDir::new("azcloud-untrash-sd5-state");
+        let put = |key: &str, text: &str| {
+            let to = format!(".azlin/sync/trash/20261024-110000-aaaaaa/{key}");
+            let path = path_of(root.path(), &to);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, text).unwrap();
+            path
+        };
+        let poisoned = put("GIT~1/hooks/post-commit", "x");
+        put("docs/a.txt", "a");
+        put("docs/b.txt", "b");
+        put("photos/c.jpg", "c");
+        assert_eq!(trashed(root.path(), state.path()).len(), 4);
+        let done = untrash(root.path(), state.path(), "").expect("restore all finishes");
+        assert_eq!(done.back, vec!["docs/a.txt", "docs/b.txt", "photos/c.jpg"]);
+        assert_eq!(done.refused.len(), 1, "one reported: {done:?}");
+        assert_eq!(done.refused[0].0, "GIT~1/hooks/post-commit");
+        assert_eq!(fs::read(root.path().join("photos/c.jpg")).unwrap(), b"c");
+        // The refused one stays where it was and in the list, and no folder of its name was made.
+        assert_eq!(fs::read(&poisoned).unwrap(), b"x");
+        assert!(!root.path().join("GIT~1").exists(), "a folder was made");
+        let left = trashed(root.path(), state.path());
+        assert_eq!(left.len(), 1, "{left:?}");
+        assert_eq!(left[0].key, "GIT~1/hooks/post-commit");
+        // The next click is the same: nothing fails at the refused item, nothing more comes back.
+        let again = untrash(root.path(), state.path(), "").expect("and again");
+        assert!(again.back.is_empty(), "{again:?}");
+        assert_eq!(again.refused.len(), 1, "{again:?}");
     }
 
     #[test]
@@ -380,7 +450,7 @@ mod tests {
         );
         fs::create_dir_all(root.path().join("photos")).unwrap();
         fs::write(root.path().join("photos/b.jpg"), "made again here").unwrap();
-        let back = untrash(root.path(), state.path(), "photos").unwrap();
+        let back = untrash(root.path(), state.path(), "photos").unwrap().back;
         // AZ-U19: this test pinned "a file whose name is taken is skipped"; it comes back beside
         // the file that has the name now.
         assert_eq!(
@@ -509,7 +579,7 @@ mod tests {
         assert_eq!(list[1].bytes, 1);
         // A forgotten drive: its state folder is gone, the trash in the folder is not.
         let gone = TempDir::new("azcloud-trash-s20-forgotten");
-        let back = untrash(root.path(), gone.path(), "").unwrap();
+        let back = untrash(root.path(), gone.path(), "").unwrap().back;
         assert_eq!(back, ["notes/b.txt", "photos/a.jpg"]);
         assert_eq!(
             fs::read_to_string(root.path().join("photos/a.jpg")).unwrap(),
@@ -560,7 +630,7 @@ mod tests {
             .map(|t| t.key)
             .collect();
         assert_eq!(keys, ["docs/plan.txt"]);
-        let back = untrash(root.path(), state.path(), "docs").unwrap();
+        let back = untrash(root.path(), state.path(), "docs").unwrap().back;
         assert_eq!(back, ["docs/plan (deleted 2026-10-24).txt"]);
         assert_eq!(
             fs::read_to_string(root.path().join("docs/plan.txt")).unwrap(),
@@ -578,7 +648,9 @@ mod tests {
             "docs/plan.txt",
             "plan, third version",
         );
-        let again = untrash(root.path(), state.path(), "docs/plan.txt").unwrap();
+        let again = untrash(root.path(), state.path(), "docs/plan.txt")
+            .unwrap()
+            .back;
         assert_eq!(again, ["docs/plan (deleted 2026-10-25).txt"]);
     }
 }

@@ -963,9 +963,24 @@ fn restore_trashed(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, ke
     let result = azcloud_kit::sync::trash::untrash(&folder, &state_dir, key.unwrap_or(""));
     let items = azcloud_kit::sync::trash::trashed(&folder, &state_dir);
     let said = match &result {
-        Ok(back) => {
-            println!("AZDRIVE_SYNC_UNTRASHED {drive_id} {}", back.len());
-            Text::from(Phrase::new("azdrive-sync-trash-restored").arg("count", back.len()))
+        Ok(done) => {
+            println!("AZDRIVE_SYNC_UNTRASHED {drive_id} {}", done.back.len());
+            let restored = Phrase::new("azdrive-sync-trash-restored").arg("count", done.back.len());
+            // What a synced folder refuses stays in the trash and in the list: said with the first reason
+            // (X-DELTA-STRUCT-DRIVE-5: it used to stop the restore and the dialog showed only the error).
+            match done.refused.first() {
+                None => Text::from(restored),
+                Some((_, why)) => {
+                    let refused = Phrase::new("azdrive-sync-trash-refused")
+                        .arg("count", done.refused.len())
+                        .arg("why", why.as_str());
+                    if done.back.is_empty() {
+                        Text::from(refused)
+                    } else {
+                        restored.then(refused)
+                    }
+                }
+            }
         }
         Err(e) => Text::plain(e.to_string()),
     };
@@ -973,7 +988,7 @@ fn restore_trashed(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, ke
         *shown = items;
         *note = said;
     }
-    if result.is_ok_and(|back| !back.is_empty()) {
+    if result.is_ok_and(|done| !done.back.is_empty()) {
         sync_jobs::request_pass(info, app, s, &drive_id);
     }
 }

@@ -548,7 +548,7 @@ knows), so a cloud-only file's new size and time can be checked without a downlo
 | `drive_settings` | `device`, `set` (an object of name: value, optional) | `settings` |
 | `drive_cancel` | `device` | `cancelled` (a pass was running) |
 | `drive_ops` | `device` | `ops`: `[{at, op, key, to, hash, reason}]`, oldest first |
-| `drive_untrash` | `device`, `path` (a file or folder; absent: everything) | `restored` (keys) |
+| `drive_untrash` | `device`, `path` (a file or folder; absent: everything) | `restored` (keys), `refused` (`key`, `why`: names a synced folder refuses stay in the trash) |
 | `drive_network` | `metered`, `constrained`, `hotspot` (bools, default false), `connected` (default true) | the same |
 | `drive_wake` | - | `passes` (drives asked) |
 | `drive_lock` | `device`, `path` (optional) | `locked` (the key), or `key_here: false` |

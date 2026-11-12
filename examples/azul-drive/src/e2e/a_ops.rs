@@ -74,16 +74,26 @@ pub(super) fn ops(args: &Args) -> Answer {
 }
 
 /// `drive_untrash`: what the device's passes trashed of `path` (a file or a folder) put back
-/// where it was; the next pass sends it up again. Answers `restored` (keys).
+/// where it was; the next pass sends it up again. Answers `restored` (keys) and `refused` (each name the
+/// rows of a synced name refuse stays in the trash: `key` and `why`).
 pub(super) fn untrash(args: &Args) -> Answer {
     let (root, state_dir) = with_harness(|h| {
         let d = h.device(args)?;
         let dir = d.state_dir.clone().ok_or("the device is not paired")?;
         Ok((d.root.clone(), dir))
     })?;
-    let key = str_arg(args, "path").unwrap_or("").trim_matches('/').to_string();
-    let restored = azcloud_kit::sync::trash::untrash(&root, &state_dir, &key).map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "restored": restored }))
+    let key = str_arg(args, "path")
+        .unwrap_or("")
+        .trim_matches('/')
+        .to_string();
+    let done =
+        azcloud_kit::sync::trash::untrash(&root, &state_dir, &key).map_err(|e| e.to_string())?;
+    let refused: Vec<_> = done
+        .refused
+        .iter()
+        .map(|(key, why)| serde_json::json!({ "key": key, "why": why }))
+        .collect();
+    Ok(serde_json::json!({ "restored": done.back, "refused": refused }))
 }
 
 /// Sets one of a pairing's settings, by the name the settings file uses (`auto_download`,
