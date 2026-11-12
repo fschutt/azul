@@ -22,8 +22,12 @@
 //! - [`NotMade`]: an order whose entry was made before its `POST /v1/checkout` (state `Posting`)
 //!   and that made no checkout anyone was shown - the token server refused it, or a day is gone
 //!   without an answer;
+//! - [`HandoverOver`]: a checkout that was paid and then TAKEN BACK stayed unclaimed for as long
+//!   as the token server keeps the sealed sign-up of a paid checkout - a payment that is put
+//!   back after that brings no drive anyone's claim key could open (X-DELTA-MONEY5-1);
 //! - a poll's answer that ends the checkout ([`Settled::ended_by`]): declined, expired, gone, the
-//!   hand-over purged;
+//!   hand-over purged - NOT a payment taken back, which the token server puts back when its
+//!   refund failed or a dispute was won;
 //! - an abandon's answer that ended it (`Settled::abandoned`, called by [`super::abandon`] only).
 //!
 //! `money_gate` reads the sources: `Settled(` and `SettledBy::` stand in this file only.
@@ -53,10 +57,12 @@ enum SettledBy {
     Receipted,
     /// The token server will never issue the rest of its grant.
     NeverIssued,
-    /// The payment did not go through, or went back.
+    /// The payment did not go through (declined, the cash refused).
     Declined,
     /// The token server no longer has it, or its drive's hand-over is gone.
     Gone,
+    /// It was taken back and not put back while the token server kept its hand-over.
+    HandoverOver,
     /// The token server refused the drive's pick-up for good.
     ClaimsEnded,
     /// Its abandon ended it at the token server.
@@ -127,6 +133,27 @@ impl GrantKeptEarlier {
     }
 }
 
+/// An unclaimed checkout whose payment was taken back stayed taken back for the whole life of the
+/// hand-over the token server keeps for it.
+#[derive(Debug)]
+pub struct HandoverOver(());
+
+impl HandoverOver {
+    /// What the entry's own count says at `now` (seconds since 1970, this computer's clock):
+    /// `checkout` is not claimed - an entry with a period is [`super::finish`]'s, whose claim
+    /// secret is dead and whose issue key is a paid month's - and its wait since the first look
+    /// that found the payment taken back, counted in the time this computer saw pass
+    /// ([`super::TakenBack`]), has reached [`PendingCheckout::handover_life_secs`]. That first
+    /// look is not earlier than the payment, so it is not earlier than the hand-over's own start
+    /// either: the token server has purged the hand-over by then (X-DELTA-MONEY5-1).
+    pub(super) fn of(checkout: &PendingCheckout, now: i64) -> Option<HandoverOver> {
+        let taken_back = checkout.taken_back.as_ref()?;
+        (checkout.period.is_none()
+            && now.saturating_sub(taken_back.since) >= checkout.handover_life_secs())
+        .then_some(HandoverOver(()))
+    }
+}
+
 /// The token server will never issue the rest of a grant.
 #[derive(Debug)]
 pub struct NeverIssued(());
@@ -189,6 +216,9 @@ impl Settled {
             SettledBy::NeverIssued => "the token server will issue no more of its grant",
             SettledBy::Declined => "its payment did not go through",
             SettledBy::Gone => "the token server no longer has it",
+            SettledBy::HandoverOver => {
+                "its payment stayed taken back until its hand-over was purged"
+            }
             SettledBy::ClaimsEnded => "the drive can be picked up here no more",
             SettledBy::Abandoned(answer) => {
                 return format!("ending the checkout: its abandon answered {answer:?}")
@@ -213,6 +243,11 @@ impl Settled {
     /// The drive can be picked up here no more.
     pub(super) fn claims_ended(_: &ClaimsEnded) -> Settled {
         Settled(SettledBy::ClaimsEnded)
+    }
+
+    /// Its payment was taken back for as long as the token server kept its hand-over.
+    pub(super) fn handover_over(_: &HandoverOver) -> Settled {
+        Settled(SettledBy::HandoverOver)
     }
 
     /// Its sign-up did not open, often enough.
@@ -258,9 +293,12 @@ impl Settled {
         Settled(SettledBy::Abandoned(AbandonAnswer::Expired))
     }
 
-    /// What a poll's answer `status` ends - the payment declined or taken back, the checkout
-    /// gone (expired, or the token server's own `no_such_checkout`), its drive's hand-over
-    /// purged - with what is said of it, once; `None` for an answer that ends nothing.
+    /// What a poll's answer `status` ends - the payment declined (or its cash refused), the
+    /// checkout gone (expired, or the token server's own `no_such_checkout`), its drive's
+    /// hand-over purged - with what is said of it, once; `None` for an answer that ends nothing.
+    /// A payment TAKEN BACK ([`CheckoutStatus::Reversed`]) ends nothing: the token server puts
+    /// it back when its refund failed or a dispute was won, and an app that threw its claim secret
+    /// away on the word could never open the drive it then approves again (X-DELTA-MONEY5-1).
     ///
     /// [`CheckoutStatus::Declined`], [`CheckoutStatus::Gone`] and [`CheckoutStatus::HandoverGone`]
     /// are made by [`crate::token::TokenServer::checkout_status`] from those words of the token
@@ -285,6 +323,7 @@ impl Settled {
             )),
             CheckoutStatus::Pending
             | CheckoutStatus::Approved(..)
+            | CheckoutStatus::Reversed(_)
             | CheckoutStatus::Unopenable(_)
             | CheckoutStatus::Unreadable(_)
             | CheckoutStatus::Renewal(..)

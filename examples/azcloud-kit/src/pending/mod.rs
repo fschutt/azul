@@ -14,6 +14,16 @@
 //! its own (a closed popover, a timeout) takes one off. The proofs and their evidence are in
 //! `proof.rs`, the only file that makes a [`Settled`].
 //!
+//! A payment TAKEN BACK ([`CheckoutStatus::Reversed`]: a refund, a returned debit, a chargeback)
+//! is not an end: the token server's restore approves the checkout again - the refund failed at
+//! the provider, the dispute was won, the operator said so - and the drive it then hands over is
+//! sealed to the claim key that only this entry holds, because the approval nulled the server's
+//! own copy. A poll that finds an unclaimed checkout taken back therefore keeps it and its secret
+//! ([`Transient::TakenBack`]), asks again once a day ([`TAKEN_BACK_ASK_SECS`]), and lets go only
+//! when the token server's hand-over is over - [`HANDOVER_KEPT_SECS`] seen pass since the first
+//! look that found it taken back, a cash buyer's four times as long - with [`Final::Gone`]
+//! (X-DELTA-MONEY5-1).
+//!
 //! A new order goes on the list BEFORE its `POST /v1/checkout` is sent ([`begin`], [`place_order`]:
 //! the entry is a "posting", [`PendingCheckout::is_posting`]), under the list's lock: an answer
 //! that is lost leaves a record, the same order asked again goes out under the same claim key
@@ -71,7 +81,8 @@ mod proof;
 pub use paid::{PaidList, PaidRecord};
 pub use proof::Settled;
 use proof::{
-    ClaimsEnded, GrantKept, GrantKeptEarlier, NeverIssued, NoSuchCheckout, NotMade, Strikes,
+    ClaimsEnded, GrantKept, GrantKeptEarlier, HandoverOver, NeverIssued, NoSuchCheckout, NotMade,
+    Strikes,
 };
 
 /// The keyring entry of the unfinished checkouts.
@@ -169,7 +180,50 @@ pub struct PendingCheckout {
     /// recorded for a drive picked up with a claim code).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receipt_due: Option<ReceiptDue>,
+    /// A poll found its payment taken back ([`CheckoutStatus::Reversed`]) while it was not
+    /// claimed: since when, counted in the time this computer saw pass, and when it was last
+    /// asked ([`TakenBack`]). The entry stays, claim secret and all, until the token server
+    /// puts the payment back (the next poll claims the drive, [`claimed`] clears this) or its
+    /// hand-over is over ([`HANDOVER_KEPT_SECS`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taken_back: Option<TakenBack>,
 }
+
+/// How long an unclaimed checkout's payment has been seen taken back ([`PendingCheckout::taken_back`]):
+/// the two stamps of the same count the receipt's and the vault's waits make
+/// ([`PendingTokens::claimed_at`]), so the wall clock alone never decides that a claim secret is
+/// useless (AZ-P5): a step of the clock counts at most [`WAIT_STEP_MAX_SECS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakenBack {
+    /// The moment of this computer's clock a look first found the payment taken back (seconds
+    /// since 1970), moved forward by the steps of the clock that did not happen: `now - since` is
+    /// the time this computer saw pass since.
+    pub since: i64,
+    /// The moment of this computer's clock the count was last made to, which is the last look that
+    /// found the payment still taken back: the next look is a day on ([`TAKEN_BACK_ASK_SECS`]).
+    pub counted_at: i64,
+}
+
+impl TakenBack {
+    /// The count made to `now` (seconds since 1970, this computer's clock).
+    #[must_use]
+    fn counted_to(self, now: i64) -> TakenBack {
+        let (since, counted_at) = count_step(self.since, self.counted_at, now);
+        TakenBack { since, counted_at }
+    }
+
+    /// Whether the daily look at the checkout is due at `now`: a day gone since the last one. A
+    /// stamp in the future - a clock set back - is stale, never fresh: the look is due.
+    #[must_use]
+    pub fn look_is_due(&self, now: i64) -> bool {
+        self.counted_at > now || now.saturating_sub(self.counted_at) >= TAKEN_BACK_ASK_SECS
+    }
+}
+
+/// How often an unclaimed checkout whose payment was taken back is asked about: once a day. A
+/// restore is the operator's decision or a provider's late word, not a thing that happens by the
+/// minute, and every window that holds the entry asks.
+pub const TAKEN_BACK_ASK_SECS: i64 = 86_400;
 
 /// What a checkout whose paid record is not complete waits for ([`PendingCheckout::receipt_due`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,6 +297,7 @@ impl fmt::Debug for PendingCheckout {
             .field("drive_key", &self.drive_key.as_ref().map(|_| "<hidden>"))
             .field("key_id", &self.key_id)
             .field("receipt_due", &self.receipt_due)
+            .field("taken_back", &self.taken_back)
             .finish()
     }
 }
@@ -300,25 +355,29 @@ pub const WAIT_STEP_MAX_SECS: i64 = 7 * 86_400;
 /// leaves the list as it is.
 const WAIT_WRITE_EVERY_SECS: i64 = 3_600;
 
+/// A wait that starts at `since` and was last counted to `counted_at` (0: not counted yet),
+/// counted to `now` (seconds since 1970, this computer's clock): the moment it starts at and the
+/// moment counted to as they stand after the round - the ONE derivation every wait of this
+/// module makes ([`PendingTokens::claimed_at`] for the drive's vault and the receipt,
+/// [`TakenBack`]). A step of the clock - from the last moment counted to (else the start) to `now`
+/// - counts for itself up to [`WAIT_STEP_MAX_SECS`]; what is more, and a step back, moves the
+/// start along, so `now - since` is the time this computer saw pass, not the time the clock says.
+/// Not recorded yet (`since` of 0 or less): the wait starts at `now`.
+fn count_step(since: i64, counted_at: i64, now: i64) -> (i64, i64) {
+    if since <= 0 || now <= 0 {
+        return (now, now);
+    }
+    let from = if counted_at > 0 { counted_at } else { since };
+    let step = now.saturating_sub(from);
+    let credit = step.clamp(0, WAIT_STEP_MAX_SECS);
+    (since.saturating_add(step - credit), now)
+}
+
 impl PendingTokens {
     /// This wait counted to `now` (seconds since 1970, this computer's clock): the claim moment
-    /// and the moment counted to as they stand after the round. A step of the clock - from the
-    /// last moment counted to (else the claim) to `now` - counts for itself up to
-    /// [`WAIT_STEP_MAX_SECS`]; what is more, and a step back, moves the claim moment along, so
-    /// `now - claimed_at` is the time this computer saw pass, not the time the clock says.
-    /// Not recorded yet: the wait starts at `now`.
+    /// and the moment counted to as they stand after the round ([`count_step`]).
     fn counted_to(&self, now: i64) -> (i64, i64) {
-        if self.claimed_at <= 0 || now <= 0 {
-            return (now, now);
-        }
-        let from = if self.counted_at > 0 {
-            self.counted_at
-        } else {
-            self.claimed_at
-        };
-        let step = now.saturating_sub(from);
-        let credit = step.clamp(0, WAIT_STEP_MAX_SECS);
-        (self.claimed_at.saturating_add(step - credit), now)
+        count_step(self.claimed_at, self.counted_at, now)
     }
 
     /// The grant of the checkout `checkout_id` these are the tokens of.
@@ -379,6 +438,7 @@ impl PendingCheckout {
             drive_key: None,
             key_id: None,
             receipt_due: None,
+            taken_back: None,
         }
     }
 
@@ -387,6 +447,18 @@ impl PendingCheckout {
     #[must_use]
     pub fn is_cash(&self) -> bool {
         self.method == crate::cash::CASH_METHOD
+    }
+
+    /// How long the token server keeps the sealed sign-up of this checkout once it is paid: the
+    /// life of the hand-over its claim secret opens ([`HANDOVER_KEPT_SECS`], a cash buyer's, and
+    /// a drive picked up with a claim code is one, [`CASH_HANDOVER_KEPT_SECS`]).
+    #[must_use]
+    pub fn handover_life_secs(&self) -> i64 {
+        if self.is_cash() {
+            CASH_HANDOVER_KEPT_SECS
+        } else {
+            HANDOVER_KEPT_SECS
+        }
     }
 
     /// An order whose answer has not come yet: its entry was made before `POST /v1/checkout` was
@@ -430,10 +502,13 @@ impl PendingCheckout {
     /// An order of this computer that may still be paid and has not brought its drive (or
     /// months) yet - the kind that a second order of the same intent would pay twice. Not a
     /// claimed one (its months wait for the vault), not one picked up with a claim code (bought
-    /// elsewhere), not a cash order (posted money is the buyer's own act).
+    /// elsewhere), not a cash order (posted money is the buyer's own act), and not one whose
+    /// payment was taken back: nobody can pay it, so it stands in nobody's way - the entry stays
+    /// only for the day the token server puts the payment back, and then its drive is a second
+    /// one the buyer may ask a refund for ([`PendingCheckout::taken_back`]).
     #[must_use]
     pub fn is_open_order(&self) -> bool {
-        self.period.is_none() && !self.picked_up && !self.is_cash()
+        self.period.is_none() && !self.picked_up && !self.is_cash() && self.taken_back.is_none()
     }
 
     /// The claim key the checkout named.
@@ -1097,10 +1172,12 @@ pub enum Final {
         months: u32,
         record: Recorded,
     },
-    /// Off the list: the payment did not go through (declined, taken back, the cash refused).
+    /// Off the list: the payment did not go through (declined, the cash refused). A payment
+    /// taken back is not here: it stays ([`Transient::TakenBack`]).
     Declined(String),
     /// Off the list: the token server no longer has it (expired, unknown), the drive can no
-    /// longer be picked up here, or its drive's hand-over is gone. Why.
+    /// longer be picked up here, its drive's hand-over is gone, or its payment stayed taken back
+    /// until the hand-over was purged ([`HANDOVER_KEPT_SECS`]). Why.
     Gone(String),
     /// Off the list: its sealed sign-up did not OPEN with its claim key, [`UNOPENABLE_AFTER`]
     /// times (sealed to another key or for another checkout; a sign-up that opens and does not
@@ -1140,6 +1217,12 @@ pub enum Transient {
     /// An answer this app cannot act on: a status or a refusal it does not know (a newer token
     /// server - an update helps), a renewal's sign-up (claimed by the renewal, not here).
     Unread(String),
+    /// Its payment was taken back (a refund, a returned debit, a chargeback), as the sentence says
+    /// it - and it MAY COME BACK: the token server puts a reversed checkout back when its refund
+    /// failed or a dispute was won, and the drive is then there for the claim key this entry
+    /// keeps. Asked again once a day ([`TAKEN_BACK_ASK_SECS`], [`TakenBack::look_is_due`]) until
+    /// the hand-over's life is over ([`HANDOVER_KEPT_SECS`]), then [`Final::Gone`].
+    TakenBack(String),
 }
 
 impl Transient {
@@ -1151,7 +1234,8 @@ impl Transient {
             | Transient::NoAnswer(why)
             | Transient::Unopened(why)
             | Transient::NotKept(why)
-            | Transient::Unread(why) => why,
+            | Transient::Unread(why)
+            | Transient::TakenBack(why) => why,
         }
     }
 
@@ -1163,7 +1247,8 @@ impl Transient {
             Transient::NoAnswer(_)
             | Transient::Unopened(_)
             | Transient::NotKept(_)
-            | Transient::Unread(_) => None,
+            | Transient::Unread(_)
+            | Transient::TakenBack(_) => None,
         }
     }
 }
@@ -1211,29 +1296,112 @@ pub fn poll(
         }
         Err(e) => return Polled::Transient(Transient::Unread(e.to_string())),
     };
-    // Declined, taken back, gone, the hand-over purged: the token server's own words end it.
+    // Declined, gone, the hand-over purged: the token server's own words end it.
     if let Some((proof, said)) = Settled::ended_by(&status, &checkout.checkout_id) {
         return end(shared, checkout, proof, said);
     }
+    // ONE total match over what the token server said, no wildcard arm: a status added to
+    // `CheckoutStatus` is a decision made here. A payment TAKEN BACK is NOT an end - the token
+    // server puts it back when its refund failed or a dispute was won, and the drive it then
+    // approves again is sealed to the claim secret only this entry holds (X-DELTA-MONEY5-1); every
+    // other answer says the payment is not taken back, whatever else it says.
     match status {
-        CheckoutStatus::Pending => Polled::Pending,
+        CheckoutStatus::Reversed(why) => taken_back(shared, checkout, &why),
+        CheckoutStatus::Pending => {
+            not_taken_back(shared, checkout);
+            Polled::Pending
+        }
         CheckoutStatus::Approved(bundle, paid) => {
+            not_taken_back(shared, checkout);
             claim_drive(server, shared, checkout, *bundle, &paid)
         }
-        CheckoutStatus::Unopenable(why) => unopenable(shared, checkout, why),
+        CheckoutStatus::Unopenable(why) => {
+            not_taken_back(shared, checkout);
+            unopenable(shared, checkout, why)
+        }
         // Opens, or is no sealed text, and does not read: kept, never counted. The sealed text is
         // intact for 30 days; an update of the app may read it.
-        CheckoutStatus::Unreadable(why) => Polled::Transient(Transient::Unread(format!(
-            "its sign-up does not read ({why}): update the app"
-        ))),
-        CheckoutStatus::Renewal(signup, paid) => claim_months(shared, checkout, &signup, &paid),
-        CheckoutStatus::Unknown(why) => Polled::Transient(Transient::Unread(why)),
+        CheckoutStatus::Unreadable(why) => {
+            not_taken_back(shared, checkout);
+            Polled::Transient(Transient::Unread(format!(
+                "its sign-up does not read ({why}): update the app"
+            )))
+        }
+        CheckoutStatus::Renewal(signup, paid) => {
+            not_taken_back(shared, checkout);
+            claim_months(shared, checkout, &signup, &paid)
+        }
+        CheckoutStatus::Unknown(why) => {
+            not_taken_back(shared, checkout);
+            Polled::Transient(Transient::Unread(why))
+        }
         // Ended above.
         CheckoutStatus::Declined(why) | CheckoutStatus::Gone(why) => {
             Polled::Transient(Transient::Unread(why))
         }
         CheckoutStatus::HandoverGone => Polled::Transient(Transient::Unread(String::from(
             "its drive's hand-over is gone",
+        ))),
+    }
+}
+
+/// The token server's answer about `checkout` says its payment is not taken back (any more): the
+/// daily wait a mark of an earlier look stands for is over, and what the answer brings - the drive,
+/// its months - is not made to wait for it.
+fn not_taken_back(shared: &SharedKeyring, checkout: &PendingCheckout) {
+    if checkout.taken_back.is_some() {
+        // collapse-ok: a mark that stays costs the next ask a day's wait and never the drive: the
+        // entry and its claim secret are untouched
+        let _ = change(shared, &checkout.checkout_id, |c| c.taken_back = None);
+    }
+}
+
+/// A poll found the payment of `checkout` taken back (`why`, as the token server said it): the
+/// look is counted in the entry ([`TakenBack`]) and the entry STAYS, claim secret and all -
+/// [`Transient::TakenBack`] - unless the token server's hand-over for it is over by now, which is
+/// the one thing that ends it ([`HandoverOver`], [`Final::Gone`]). An entry that is claimed
+/// already is [`finish`]'s and only said so: its claim secret is dead and its issue key is a paid
+/// month's, whatever this count says. A list that cannot take the count says so and keeps the
+/// entry (X-DELTA-MONEY5-1).
+fn taken_back(shared: &SharedKeyring, checkout: &PendingCheckout, why: &str) -> Polled {
+    let said = format!("its payment was taken back ({why})");
+    if checkout.period.is_some() {
+        return Polled::Transient(Transient::TakenBack(said));
+    }
+    let now = crate::now();
+    let counted = change(shared, &checkout.checkout_id, |c| {
+        // the list's own entry is the one that counts: a claim another window made meanwhile
+        // has no use for it
+        if c.period.is_none() {
+            c.taken_back = Some(match c.taken_back {
+                Some(earlier) => earlier.counted_to(now),
+                None => TakenBack {
+                    since: now,
+                    counted_at: now,
+                },
+            });
+        }
+    });
+    match counted {
+        Ok(Some(listed)) => match HandoverOver::of(&listed, now) {
+            Some(over) => end(
+                shared,
+                &listed,
+                Settled::handover_over(&over),
+                Final::Gone(format!(
+                    "its payment was taken back ({why}) and not put back: the token server keeps \
+                     the sign-up of a paid checkout {} days ({} for cash) and has none left to \
+                     open with this computer's key - support can help with the checkout {}",
+                    HANDOVER_KEPT_SECS / 86_400,
+                    CASH_HANDOVER_KEPT_SECS / 86_400,
+                    listed.checkout_id
+                )),
+            ),
+            None => Polled::Transient(Transient::TakenBack(said)),
+        },
+        Ok(None) => Polled::Settled,
+        Err(e) => Polled::Transient(Transient::NotKept(format!(
+            "{said}; the list could not count it: {e}"
         ))),
     }
 }
@@ -1627,9 +1795,11 @@ pub fn claimed(
         owed.counted_at = earlier.counted_at;
     }
     checkout.period = Some(owed);
-    // Claimed: neither in flight nor unopened any more, and their room is the tokens' now.
+    // Claimed: neither in flight nor unopened nor taken back any more, and their room is the
+    // tokens' now.
     checkout.in_flight_since = None;
     checkout.open_failures = 0;
+    checkout.taken_back = None;
     // Its drive key went into the keyring's drive entries with the claim: no second copy.
     checkout.drive_key = None;
     let text = text_of(checkouts)?;
@@ -1708,13 +1878,26 @@ pub enum Receipted {
 /// the bound keeps a checkout's claim secret and issue key from sitting on the list for it.
 pub const RECEIPT_WAIT_SECS: i64 = 3 * 86_400;
 
+/// How long the token server keeps the sealed sign-up of a paid checkout - the hand-over its
+/// claim secret opens: 30 days from the payment (CLAIM CONTRACT v1; azlin-token's
+/// `HANDOFF_KEPT_DAYS`, which purges it). The approval nulls the server's own copy of the claim
+/// key, so a hand-over that is purged cannot be sealed again: a drive nobody claimed by then has
+/// no way in.
+pub const HANDOVER_KEPT_SECS: i64 = 30 * 86_400;
+
+/// How long the token server keeps a CASH buyer's hand-over: four times as long (azlin-token's
+/// `CASH_HANDOFF_FACTOR`, 120 days) - the operator activates a cash order when the post is
+/// opened, up to 60 days after it was made, and the buyer's app asks once a day, only while it
+/// runs. A drive picked up with a claim code is a cash buyer's.
+pub const CASH_HANDOVER_KEPT_SECS: i64 = 4 * HANDOVER_KEPT_SECS;
+
 /// How long a paid checkout waits in the keyring for the drive's vault to take its grant: 30
-/// days, as long as the token server keeps the sealed sign-up - counted from the payment's
-/// claim on this computer ([`PendingTokens::claimed_at`]), not from the order (a cash order is
-/// paid weeks after it was made), and in the time this computer saw pass
+/// days, as long as the token server keeps the sealed sign-up ([`HANDOVER_KEPT_SECS`]) - counted
+/// from the payment's claim on this computer ([`PendingTokens::claimed_at`]), not from the order
+/// (a cash order is paid weeks after it was made), and in the time this computer saw pass
 /// ([`WAIT_STEP_MAX_SECS`]), not in what its clock says. After that it is kept in a second copy
 /// on this computer and the keyring's goes.
-pub const GRANT_WAIT_SECS: i64 = 30 * 86_400;
+pub const GRANT_WAIT_SECS: i64 = HANDOVER_KEPT_SECS;
 
 /// What a round of a wait counted from the claim found.
 enum Wait {

@@ -234,9 +234,11 @@ fn a_checkout_names_its_claim_key_and_its_status_opens_the_sealed_signup_every_t
         server.checkout_status("ck_2", &claim).unwrap(),
         CheckoutStatus::Declined(String::from("insufficient funds"))
     );
+    // a reversed payment is its own answer, not a decline: the token server may put it back
+    // (X-DELTA-MONEY5-1)
     assert!(matches!(
         server.checkout_status("ck_3", &claim).unwrap(),
-        CheckoutStatus::Declined(_)
+        CheckoutStatus::Reversed(_)
     ));
     assert_eq!(fake.calls()[1].method, Method::Get);
     assert_eq!(fake.calls()[1].url, format!("{TOKEN}/v1/checkout/ck_1"));

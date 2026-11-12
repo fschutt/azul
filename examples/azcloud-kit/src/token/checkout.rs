@@ -322,8 +322,16 @@ pub enum CheckoutStatus {
     /// claim key (it answers it to every poll for 30 days), and what the answer says of the
     /// payment.
     Approved(Box<DriveBundle>, Paid),
-    /// The payment was declined, reversed, or the cash refused: why.
+    /// The payment was declined, or the cash refused: why. Nothing was paid, or what was paid
+    /// is not coming back: the checkout is over.
     Declined(String),
+    /// Paid, then the money went back (a refund, a returned debit, a chargeback): why, as the
+    /// token server said it. NOT an end: the token server's restore approves the checkout again
+    /// when the refund failed at the provider, a dispute was won, or the operator's `payments
+    /// restore` says so - and its drive is then there for whoever holds the claim key. A checkout
+    /// that has not been claimed yet stays on the list with its secret
+    /// ([`crate::pending::poll`], X-DELTA-MONEY5-1).
+    Reversed(String),
     /// The token server no longer has the checkout (it expired, or it answered the contract's
     /// `no_such_checkout`): why. Made by [`TokenServer::checkout_status`] from those two words
     /// of the server and from nothing else.
@@ -674,8 +682,10 @@ impl<'a> TokenServer<'a> {
                 let text = decline.and_then(|d| d.text.or(d.reason));
                 CheckoutStatus::Declined(said(reason.or(text), "the payment was declined"))
             }
+            // Not the end of the checkout: the token server puts a reversed one back when the
+            // refund failed or the dispute was won (X-DELTA-MONEY5-1).
             CheckoutStatusWire::Reversed { reason } => {
-                CheckoutStatus::Declined(said(reason, "the payment was taken back"))
+                CheckoutStatus::Reversed(said(reason, "a refund or a chargeback"))
             }
             // The operator did not take the letter's cash (the amount, the slip).
             CheckoutStatusWire::Rejected { reason } => {

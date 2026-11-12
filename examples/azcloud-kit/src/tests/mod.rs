@@ -48,6 +48,9 @@ mod pending;
 mod period;
 /// The receipt of a paid checkout: awaited on the list past its grant, until an answer names it.
 mod receipt_wait;
+/// A payment taken back is not the end of an unclaimed checkout: its claim secret stays until the
+/// token server's hand-over is over, so a restore's drive can be opened (X-DELTA-MONEY5-1).
+mod taken_back;
 mod recovery;
 mod recovery_keys;
 /// A refusal of the token server read once, as the contract's typed value (RF51).
