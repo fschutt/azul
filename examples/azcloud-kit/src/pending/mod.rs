@@ -39,7 +39,9 @@
 //! or a record that could not be kept - is marked ([`PendingCheckout::receipt_due`]) and stays on
 //! the list past its grant, for [`RECEIPT_WAIT_SECS`], until an answer names the receipt and the
 //! record keeps it ([`finish`], then [`await_receipt`] once its grant is kept elsewhere): the
-//! receipt is the only invoice data the customer has (ENT27-B06, X-DELTA-MONEY2-3).
+//! receipt is the only invoice data the customer has (ENT27-B06, X-DELTA-MONEY2-3). A checkout that
+//! waits for nothing but its receipt gives its place on the list to a new order that would not fit
+//! otherwise, the oldest first.
 //!
 //! Blocking (the keyring, the token server): call it from an azul `Thread`.
 
@@ -702,7 +704,11 @@ fn insert(
     place(shared, checkouts, checkout).map(|()| Begun::Fresh)
 }
 
-/// `checkouts` and `checkout` as the list's one entry, if they fit.
+/// `checkouts` and `checkout` as the list's one entry, if they fit. A checkout that waits for
+/// nothing but its receipt (its period grant is in two places elsewhere,
+/// [`ReceiptDue::GrantKept`]) gives its place to a new order that would not fit otherwise, the
+/// oldest first: the receipt is a courtesy and an order is not, and a few purchases in three days
+/// must not fill the list with checkouts nobody needs a secret of (X-DELTA-MONEY2-3).
 fn place(
     shared: &SharedKeyring,
     mut checkouts: Vec<PendingCheckout>,
@@ -711,13 +717,36 @@ fn place(
     let waiting = checkouts.len();
     let mut kept = checkout.clone();
     kept.name = short_name(&kept.name);
-    checkouts.push(kept);
-    let unclaimed = checkouts.iter().filter(|c| c.period.is_none()).count();
-    let text = text_of(checkouts).map_err(AddError::Keyring)?;
-    if text.len() + unclaimed * PERIOD_ROOM > MAX_PENDING_BYTES {
-        return Err(AddError::NoRoom { waiting });
+    loop {
+        let mut all = checkouts.clone();
+        all.push(kept.clone());
+        let unclaimed = all.iter().filter(|c| c.period.is_none()).count();
+        let text = text_of(all).map_err(AddError::Keyring)?;
+        if text.len() + unclaimed * PERIOD_ROOM <= MAX_PENDING_BYTES {
+            return shared.set(PENDING_KEY, &text).map_err(AddError::Keyring);
+        }
+        if !evict_receipt_waiter(&mut checkouts) {
+            return Err(AddError::NoRoom { waiting });
+        }
     }
-    shared.set(PENDING_KEY, &text).map_err(AddError::Keyring)
+}
+
+/// Takes the oldest checkout that waits for its receipt only off `checkouts`; whether there was
+/// one. Its [`Settled`] is the entry's own word ([`GrantKeptEarlier`]).
+fn evict_receipt_waiter(checkouts: &mut Vec<PendingCheckout>) -> bool {
+    let oldest = checkouts
+        .iter()
+        .enumerate()
+        .filter_map(|(at, c)| GrantKeptEarlier::of(c).map(|kept| (at, c.started_at, kept)))
+        .min_by_key(|(_, started_at, _)| *started_at);
+    let Some((at, _, kept)) = oldest else {
+        return false;
+    };
+    // collapse-ok: the proof is made to name why the entry goes; the entry is removed here, under
+    // the list's lock, which settle() would take again
+    let _proof = Settled::receipted(&kept);
+    checkouts.remove(at);
+    true
 }
 
 /// The order whose entry is `posting_id` (made by [`begin`]) got its answer: `checkout`, the real
@@ -1359,6 +1388,11 @@ fn note_receipt(
             // collapse-ok: a mark that stays costs one more look, which finds the receipt and clears it
             let _ = change(shared, &checkout.checkout_id, |c| c.receipt_due = None);
         }
+        return record;
+    }
+    // marked by an earlier poll already: nothing to write again (the claim is asked again by every
+    // poll of an entry the app has not finished)
+    if checkout.receipt_due.is_some() {
         return record;
     }
     let marked = change(shared, &checkout.checkout_id, |c| {

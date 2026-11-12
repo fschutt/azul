@@ -667,3 +667,88 @@ fn x_delta_money2_3_checkout_paid_reads_the_payment_without_the_sign_up() {
         "a refusal is not an answer about the payment"
     );
 }
+
+/// A list full of checkouts that wait for their receipts only does not refuse a new order: the
+/// oldest of them gives its place (its grant is kept elsewhere; only a courtesy waits). A checkout
+/// that still holds the only copy of its grant - the receipt AND the grant awaited - never does:
+/// the order is refused as it was.
+#[test]
+fn x_delta_money2_3_a_checkout_that_waits_for_its_receipt_only_gives_its_place_to_a_new_order() {
+    // `count` claimed checkouts of long names that wait for their receipts, `due` as given
+    let entry = |n: usize, due: ReceiptDue| {
+        let claim = ClaimKey::generate().unwrap();
+        let mut ck = PendingCheckout::new(
+            &format!("ck_{n:026}"),
+            &claim,
+            "100GB",
+            TOKEN,
+            &"A drive with a long name ".repeat(10),
+        );
+        ck.started_at = 1_791_450_000 + i64::try_from(n).unwrap();
+        ck.receipt_due = Some(due);
+        ck.period = Some(pending::PendingTokens {
+            drive_id: format!("d_{n:024}"),
+            months: 12,
+            issue_key: String::from(ISSUE_KEY),
+            recurring: false,
+            claimed_at: 1_791_450_000,
+            counted_at: 1_791_450_000,
+        });
+        ck
+    };
+    let order = |shared: &SharedKeyring| {
+        let claim = ClaimKey::generate().unwrap();
+        pending::begin(
+            shared,
+            &PendingCheckout::posting(&claim, "100GB", TOKEN, "New"),
+        )
+    };
+
+    // grants not kept yet: their secrets stay, and an order that would not fit is refused
+    let dir = TempDir::new("azcloud-receipt");
+    let shared_open = shared(&dir);
+    let mut fitting = 0;
+    while pending::add(&shared_open, &entry(fitting, ReceiptDue::Awaited)).is_ok() {
+        fitting += 1;
+        assert!(fitting < 100, "the list never fills");
+    }
+    assert!(fitting >= 3, "{fitting}");
+    assert!(matches!(
+        order(&shared_open),
+        Err(pending::AddError::NoRoom { .. })
+    ));
+    assert_eq!(
+        pending::list(&shared_open).unwrap().len(),
+        fitting,
+        "none was given up"
+    );
+
+    // grants kept elsewhere: the same list is not "full" for an order - the oldest waiter goes
+    let dir = TempDir::new("azcloud-receipt");
+    let shared_kept = shared(&dir);
+    for n in 0..fitting {
+        pending::add(&shared_kept, &entry(n, ReceiptDue::GrantKept)).unwrap();
+    }
+    assert_eq!(pending::list(&shared_kept).unwrap().len(), fitting);
+    assert!(
+        order(&shared_kept).is_ok(),
+        "a new order is not refused for a courtesy"
+    );
+    let listed = pending::list(&shared_kept).unwrap();
+    assert!(
+        listed.iter().any(|c| c.is_posting()),
+        "the order is on the list"
+    );
+    assert!(
+        !listed
+            .iter()
+            .any(|c| c.checkout_id == format!("ck_{:026}", 0)),
+        "the oldest waiter gave its place"
+    );
+    assert!(
+        listed
+            .iter()
+            .any(|c| c.checkout_id == format!("ck_{:026}", fitting - 1)),
+        "the newest stays"
+    );
+}
