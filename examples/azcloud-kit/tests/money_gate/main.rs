@@ -28,7 +28,9 @@
 //! 5. `l10n::money(` is called anywhere but `pay_words::show`, or imported as another name;
 //! 6. the v1 payment page's order button (`buy_on_the_payment_page`) does not ask
 //!    `must_release_first` and send `Event::Release` before it places its `Job::Checkout`: the
-//!    wiring of a checkout in flight being ended before the buyer orders again (AZ-P4).
+//!    wiring of a checkout in flight being ended before the buyer orders again (AZ-P4);
+//! 7. a claimed renewal's toast is worded anywhere but `renewals::bought_text`, or `renewed` does
+//!    not call it with `month_due_at_once` (X-DELTA-MONEY2-13).
 //!
 //! The allowances name the file, the rule, how many and why. A hit no allowance takes fails, an
 //! allowance whose count is not the code's fails and so does one nothing uses any more: the
@@ -39,7 +41,9 @@
 mod rules;
 
 use azlin_contract::{CheckoutRefusal, ClaimRefusal, IssueRefusal, RedeemRefusal};
-use rules::{default_gate, pair_gate, refusal_gate, settled_gate, show_gate, wiring_gate};
+use rules::{
+    default_gate, pair_gate, refusal_gate, settled_gate, show_gate, toast_gate, wiring_gate,
+};
 
 /// The issue refusals' words that no other refusal shares with a meaning of its own
 /// (`bad_request`, `try_again`, `unavailable` are generic: `answer.rs` decides them).
@@ -117,6 +121,15 @@ fn money_is_written_for_a_person_by_one_function() {
 #[test]
 fn the_order_button_of_the_v1_page_ends_a_checkout_in_flight_before_it_orders() {
     wiring_gate().run();
+}
+
+/// X-DELTA-MONEY2-13: a claimed renewal's toast is worded by `renewals::bought_text` from what the
+/// vault will do with the months, and `renewed` - which needs a window's `CallbackInfo` and a
+/// `DriveState`, no test builds - calls it with the fact about the drive's period. Writing a key
+/// by hand in `renewed` again, or dropping either call, fails this.
+#[test]
+fn a_renewals_toast_is_worded_from_what_the_vault_will_do_and_renewed_asks_for_it() {
+    toast_gate().run();
 }
 
 /// The hand-listed words are words of the contract: one that is not any more (renamed, removed)

@@ -940,6 +940,71 @@ pub fn wiring_rules() -> Vec<Rule> {
     ]
 }
 
+// ==== 7. The renewal toast is made from what the vault will do ====
+
+/// A string literal that is one of the renewal toast's keys.
+fn toast_key(t: &[Located]) -> Vec<usize> {
+    strings(t, |s| {
+        matches!(
+            s,
+            "azdrive-months-renewed"
+                | "azdrive-months-renewed-next-look"
+                | "azdrive-tier-change-bought"
+        )
+    })
+}
+
+/// A call of `bought_text(`: the one function that words a claimed renewal's toast.
+fn toast_call(t: &[Located]) -> Vec<usize> {
+    calls(t, "bought_text")
+}
+
+/// A call of `month_due_at_once(`: the fact about the drive's period `renewed` reads before it
+/// asks for the words.
+fn toast_fact(t: &[Located]) -> Vec<usize> {
+    calls(t, "month_due_at_once")
+}
+
+pub const TOAST_KEY: &str = "renewal-toast-key";
+pub const TOAST_CALL: &str = "renewal-toast-call";
+pub const TOAST_FACT: &str = "renewal-toast-fact";
+
+#[must_use]
+pub fn toast_rules() -> Vec<Rule> {
+    vec![
+        Rule::new(
+            TOAST_KEY,
+            toast_key,
+            &[
+                "let k = \"azdrive-months-renewed\";",
+                "let p = Phrase::new(\"azdrive-tier-change-bought\");",
+            ],
+            &[
+                "let k = \"azdrive-add-buy\";",
+                "let p = Phrase::new(\"azdrive-months-bought\");",
+            ],
+        ),
+        Rule::new(
+            TOAST_CALL,
+            toast_call,
+            &["let toast = bought_text(&name, months, takes);"],
+            &[
+                "let toast = s.bought_text(1);",
+                "let toast = bought_texts(&name);",
+            ],
+        ),
+        Rule::new(
+            TOAST_FACT,
+            toast_fact,
+            &["let takes = Takes::of(change, month_due_at_once(s, id, now));"],
+            &[
+                "let due = s.month_due_at_once(id);",
+                "let due = month_due_at_onceish(id);",
+            ],
+        ),
+    ]
+}
+
 // ==== The allowances, and the gates ====
 
 /// A `Settled` is made in `pending/proof.rs`, from evidence nobody else can construct.
@@ -1132,6 +1197,42 @@ pub const ALLOWED_WIRING: &[Allow] = &[Allow::exactly(
     "buy_on_the_payment_page: the one order button of the v1 payment page, which must release a \
      checkout in flight first",
 )];
+
+/// A renewal's toast is worded in one place from one fact: three keys in `renewals::bought_text`,
+/// one call of it and one read of the drive's period in `add_flow::renewed`.
+pub const ALLOWED_TOAST: &[Allow] = &[
+    Allow::exactly(
+        "examples/azul-drive/src/renewals.rs",
+        TOAST_KEY,
+        3,
+        "bought_text: the three keys of the toast, one for each thing the vault does with the months",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/add_flow.rs",
+        TOAST_CALL,
+        1,
+        "renewed: the toast of a claimed renewal says what the vault will do with its months",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/add_flow.rs",
+        TOAST_FACT,
+        1,
+        "renewed: reads whether the drive's next month is due at once before it asks for the words",
+    ),
+];
+
+/// Gate 7: a claimed renewal's toast is worded by `bought_text` from what the vault will do
+/// (X-DELTA-MONEY2-13): no other place writes one of its keys, and `renewed` calls it.
+#[must_use]
+pub fn toast_gate() -> Gate<'static> {
+    Gate {
+        name: "money_gate: renewal toast",
+        roots: CLIENT,
+        rules: toast_rules(),
+        budget: Budget(ALLOWED_TOAST),
+        orphans: Orphans::Fail,
+    }
+}
 
 /// Gate 6: the v1 order button ends a checkout in flight before it orders again (AZ-P4,
 /// X-DELTA-AZDRIVE-MONEY-15).
