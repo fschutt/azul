@@ -15,14 +15,19 @@
 //! client refuses them. A function that stays listed after it stopped using the key fails too: the
 //! registry says what is true.
 //!
-//! The first run of this gate is the baseline of the registry: the functions it finds are the ones
-//! the lists below name, written from a read of the sources (BLIND MODE: no test was run to write
-//! them). A finding on that run is a function the lists missed or one that was renamed, to be
-//! added to its consumer or to the data path with its reason - the lists only grow on purpose.
+//! The baseline of the registry is what this gate's scanner finds, counted by running it
+//! ([`BASELINE`], checked by `the_baseline_is_what_the_scanner_finds`): the lists the registry and this
+//! file hold name every function it finds and no other. A finding is a function the lists missed or one
+//! that was renamed, to be added to its consumer or to the data path with its reason - the lists only
+//! grow on purpose.
 //!
 //! It reads source text, as every gate of this crate does: a function is its `fn` keyword, its name
 //! and the first `{ .. }` after them; comments and test items are not read; a function nested inside
-//! another is part of it. A call is its path as written (`calls`, `method_calls`).
+//! another is part of it. A call is its path as written (`calls`, `method_calls`), and the spellings
+//! that hide one are read too: a name a file gives a needle (`use ...::RecoveryWrap as Wrap;`,
+//! `type Wrap = RecoveryWrap;`), the path of a method written as a function
+//! (`DriveKey::derive(&key, ..)`), and a `macro_rules!` body - a macro that seals with the key is an
+//! item the gate finds like a function (`<file>#<macro name>` in a consumer's list).
 
 use std::{
     collections::BTreeSet,
@@ -100,17 +105,89 @@ const EXCEPTIONS: &[(&str, &str)] = &[(
      bucket hands it (b_tamper.rs): an attack, not a flow of the drive",
 )];
 
-/// Whether the tokens of a function's body put the drive key to work.
-fn uses_the_drive_key(body: &[Located]) -> bool {
+/// What the drive key is put to work with, by the name the code gives it: a type or a module and the
+/// functions of it that seal or open, or a function by itself (`""`).
+const NEEDLES: &[(&str, &[&str])] = &[
+    ("RecoveryWrap", &["seal"]),
+    ("MemberWrap", &["seal"]),
+    ("DropKeyFile", &["seal"]),
+    ("azl1", &["encrypt", "decrypt"]),
+    ("DriveKey", &["derive", "wrap_file_key", "unwrap_file_key"]),
+    ("store_key_chain", &[""]),
+];
+
+/// The other names a file gives the names of [`NEEDLES`]: `(alias, original)` of every
+/// `use .. Original as Alias` (also inside braces) and every `type Alias = Original;`.
+fn aliases_of(t: &[Located]) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let original = |name: &str| NEEDLES.iter().any(|(needle, _)| *needle == name);
+    let mut i = 0;
+    while i < t.len() {
+        if t[i].tok.is_ident("use") {
+            // up to the `;` of the item
+            let end = t[i..]
+                .iter()
+                .position(|x| x.tok.is_punct(';'))
+                .map_or(t.len(), |p| i + p);
+            for k in i..end.saturating_sub(2) {
+                if let (Some(name), true, Some(alias)) = (
+                    t[k].tok.ident(),
+                    t[k + 1].tok.is_ident("as"),
+                    t[k + 2].tok.ident(),
+                ) {
+                    if original(name) && alias != "_" {
+                        found.push((alias.to_string(), name.to_string()));
+                    }
+                }
+            }
+            i = end;
+        } else if t[i].tok.is_ident("type") && i + 3 < t.len() {
+            // `type Alias = Original;` (a path before the name is read too: the last name counts)
+            if let (Some(alias), true) = (t[i + 1].tok.ident(), t[i + 2].tok.is_punct('=')) {
+                let end = t[i..]
+                    .iter()
+                    .position(|x| x.tok.is_punct(';'))
+                    .map_or(t.len(), |p| i + p);
+                if let Some(name) = t[i + 3..end]
+                    .iter()
+                    .rev()
+                    .find_map(|x| x.tok.ident().filter(|n| original(n)))
+                {
+                    found.push((alias.to_string(), name.to_string()));
+                }
+            }
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+    found
+}
+
+/// Whether the tokens of a function's (or a macro's) body put the drive key to work, under the
+/// names of [`NEEDLES`] and the `aliases` the file gives them.
+fn uses_the_drive_key(body: &[Located], aliases: &[(String, String)]) -> bool {
     !method_calls(body, "wrap_file_key").is_empty()
         || !method_calls(body, "unwrap_file_key").is_empty()
         || !method_calls(body, "derive").is_empty()
-        || !calls(body, "RecoveryWrap::seal").is_empty()
-        || !calls(body, "MemberWrap::seal").is_empty()
-        || !calls(body, "DropKeyFile::seal").is_empty()
-        || !calls(body, "store_key_chain").is_empty()
-        || !calls(body, "azl1::encrypt").is_empty()
-        || !calls(body, "azl1::decrypt").is_empty()
+        || NEEDLES.iter().any(|(needle, functions)| {
+            let names = std::iter::once(*needle).chain(
+                aliases
+                    .iter()
+                    .filter(|(_, original)| original.as_str() == *needle)
+                    .map(|(alias, _)| alias.as_str()),
+            );
+            names.into_iter().any(|name| {
+                functions.iter().any(|function| {
+                    let path = if function.is_empty() {
+                        name.to_string()
+                    } else {
+                        format!("{name}::{function}")
+                    };
+                    !calls(body, &path).is_empty()
+                })
+            })
+        })
 }
 
 /// The token range `[open, close]` of the body of the function whose `fn` is token `fn_at`; `None`
@@ -147,20 +224,64 @@ fn body_of(t: &[Located], fn_at: usize) -> Option<(usize, usize)> {
     None
 }
 
-/// The lines of the `fn` of every function that uses the drive key, once per function.
+/// The token range `[open, close]` of the body of the `macro_rules! name { .. }` (or `( .. );`, `[ .. ];`)
+/// whose `macro_rules` is token `at`: the first delimiter after the name and its match.
+fn macro_body_of(t: &[Located], at: usize) -> Option<(usize, usize)> {
+    let open = at + 3;
+    let (open_c, close_c) = match t.get(open).map(|x| &x.tok) {
+        Some(Tok::Punct('{')) => ('{', '}'),
+        Some(Tok::Punct('(')) => ('(', ')'),
+        Some(Tok::Punct('[')) => ('[', ']'),
+        _ => return None,
+    };
+    let mut depth = 0i32;
+    for (k, x) in t.iter().enumerate().skip(open) {
+        match &x.tok {
+            Tok::Punct(c) if *c == open_c => depth += 1,
+            Tok::Punct(c) if *c == close_c => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((open, k));
+                }
+            }
+            _ => {}
+        }
+    }
+    Some((open, t.len()))
+}
+
+/// The lines of the `fn` of every function - and of the `macro_rules` of every macro - that uses the
+/// drive key, once per item. A macro is read by its body: the functions that call it do not show what
+/// it seals with.
 fn functions_using_the_drive_key(t: &[Located]) -> Vec<usize> {
+    let aliases = aliases_of(t);
     let mut found = Vec::new();
     let mut i = 0;
     while i < t.len() {
         let is_fn =
             t[i].tok.is_ident("fn") && t.get(i + 1).is_some_and(|name| name.tok.ident().is_some());
+        let is_macro = t[i].tok.is_ident("macro_rules")
+            && t.get(i + 1).is_some_and(|bang| bang.tok.is_punct('!'))
+            && t.get(i + 2).is_some_and(|name| name.tok.ident().is_some());
+        if is_macro {
+            match macro_body_of(t, i) {
+                Some((open, close)) => {
+                    if uses_the_drive_key(&t[open..close.min(t.len())], &aliases) {
+                        found.push(t[i].line);
+                    }
+                    i = close + 1;
+                }
+                None => i += 1,
+            }
+            continue;
+        }
         if !is_fn {
             i += 1;
             continue;
         }
         match body_of(t, i) {
             Some((open, close)) => {
-                if uses_the_drive_key(&t[open..close.min(t.len())]) {
+                if uses_the_drive_key(&t[open..close.min(t.len())], &aliases) {
                     found.push(t[i].line);
                 }
                 i = close + 1;
@@ -185,6 +306,11 @@ fn rules() -> Vec<Rule> {
             "let sealing = key.derive(CONTEXT);",
             "let (sealed, _) = azl1::encrypt(&plain, id, &key, &options)?;",
             "let plain = azl1::decrypt(&bytes, &id, &file_key)?;",
+            "use crate::crypto::keys::RecoveryWrap as Wrap; let wrap = Wrap::seal(&key, drive, &code, kdf)?;",
+            "use crate::crypto::{keys::{MemberWrap as Mw, KeyChain}, azl1 as a1}; let e = a1::encrypt(&plain, id, &key, &options)?;",
+            "type Wrap = keys::MemberWrap; let wrap = Wrap::seal(&key, drive, &member, &public)?;",
+            "let sealing = DriveKey::derive(&key, CONTEXT);",
+            "let wrapped = DriveKey::wrap_file_key(&key, &file_key, &object);",
         ],
         &[
             "let id = key.id();",
@@ -193,6 +319,9 @@ fn rules() -> Vec<Rule> {
             "let wrap = RecoveryWrap::parse(&bytes)?;",
             "let text = \"RecoveryWrap::seal(\";",
             "let open = MemberWrap::open(&wrap, drive, &secret)?;",
+            "use std::fmt::Display as Show; let n = x as u64;",
+            "type Name = String; let n = Name::new();",
+            "let wrap = Wrap::seal(&key);",
         ],
     )]
 }
@@ -210,9 +339,12 @@ fn registered(base: &Path) -> Result<BTreeSet<String>, String> {
         .collect())
 }
 
-/// The name a function line declares: what follows its `fn`.
+/// The name an item line declares: what follows its `fn`, or its `macro_rules!`.
 fn name_of(line: &str) -> Option<String> {
-    let after = line.split_once("fn ")?.1;
+    let after = match line.split_once("macro_rules!") {
+        Some((_, rest)) => rest.trim_start(),
+        None => line.split_once("fn ")?.1,
+    };
     let name: String = after
         .chars()
         .take_while(|c| c.is_alphanumeric() || *c == '_')
@@ -272,6 +404,50 @@ fn judge(found: &[Hit], registered: &BTreeSet<String>) -> Vec<String> {
     wrong
 }
 
+/// What the scanner finds in the tree, counted by RUNNING it (ARCH29-KEYSTATE-3, X-DELTA-STRUCT-KEYSTATE-8):
+/// the functions and macros the consumers of the registry name, the ones of the data path, and the
+/// E2E harness's. The lists above and in the registry are exactly these; a number here changes when a list
+/// does, on purpose.
+#[derive(Debug, PartialEq, Eq)]
+struct Counts {
+    consumers: usize,
+    data_path: usize,
+    harness: usize,
+}
+
+/// The counts the scanner gives over `found`.
+fn counted(found: &[Hit], registered: &BTreeSet<String>) -> Counts {
+    let data_path: BTreeSet<&str> = DATA_PATH.iter().copied().collect();
+    let mut counts = Counts {
+        consumers: 0,
+        data_path: 0,
+        harness: 0,
+    };
+    let mut seen = BTreeSet::new();
+    for hit in found {
+        let Some(name) = name_of(&hit.text) else {
+            continue;
+        };
+        let key = format!("{}#{name}", hit.rel);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        if registered.contains(&key) {
+            counts.consumers += 1;
+        } else if data_path.contains(key.as_str()) {
+            counts.data_path += 1;
+        } else if EXCEPTIONS.iter().any(|(path, _)| {
+            hit.rel == *path
+                || path
+                    .strip_suffix('/')
+                    .is_some_and(|dir| hit.rel.starts_with(&format!("{dir}/")))
+        }) {
+            counts.harness += 1;
+        }
+    }
+    counts
+}
+
 /// The gate against the tree under `base` and the roots it reads.
 fn check(base: &Path, roots: &[Root]) -> Result<usize, Vec<String>> {
     let rules = rules();
@@ -285,6 +461,35 @@ fn check(base: &Path, roots: &[Root]) -> Result<usize, Vec<String>> {
     } else {
         Err(wrong)
     }
+}
+
+/// The baseline of the registry (X-DELTA-STRUCT-KEYSTATE-8): the numbers the scanner gave when it was RUN over the
+/// tree (2026-11-12), not a count written from a read of the sources. A list that grows or shrinks on purpose
+/// changes its number here in the same commit.
+const BASELINE: Counts = Counts {
+    consumers: 25,
+    data_path: 11,
+    harness: 1,
+};
+
+#[test]
+fn the_baseline_is_what_the_scanner_finds() {
+    let base = workspace();
+    let registered = registered(&base).unwrap();
+    let read = files(&base, ROOTS, Orphans::Ignore).unwrap();
+    let found = hits(&read, &rules());
+    let counts = counted(&found, &registered);
+    assert_eq!(
+        counts.consumers,
+        registered.len(),
+        "every function the registry names is one the scanner finds"
+    );
+    assert_eq!(
+        counts.data_path,
+        DATA_PATH.len(),
+        "every function of the data path is one the scanner finds"
+    );
+    assert_eq!(counts, BASELINE, "the scanner's count over the tree");
 }
 
 #[test]
@@ -392,6 +597,78 @@ mod tests {\n\
             .iter()
             .any(|w| w.contains("crypto/mod.rs#wrap_file_key")),
         "{wrong:?}"
+    );
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-8: the spellings that hid a use of the key from the scanner are found, as items of
+/// their own with their lines: a name the file gives a needle (`use .. as`, `type`), the path of a method
+/// written as a function (`DriveKey::derive(&key, ..)`), and a `macro_rules!` that seals - the functions that
+/// call it do not show what it seals with, so it is listed (`<file>#<macro>`) like a function.
+#[test]
+fn x_delta_struct_keystate_8_an_alias_a_path_call_and_a_macro_body_are_found() {
+    let lib = "use crate::crypto::keys::RecoveryWrap as Wrap;
+use crate::crypto::azl1 as a1;
+type Member = keys::MemberWrap;
+pub fn aliased(key: &DriveKey) {
+    let w = Wrap::seal(key, drive, &code, kdf);
+}
+pub fn module_aliased(key: &DriveKey) {
+    let e = a1::encrypt(&plain, id, key, &options);
+}
+pub fn type_aliased(key: &DriveKey) {
+    let w = Member::seal(key, drive, &member, &public);
+}
+pub fn path_call(key: &DriveKey) {
+    let s = DriveKey::derive(key, CONTEXT);
+}
+macro_rules! sealing {
+    ($key:expr) => { DropKeyFile::seal($key, drive, &secret) };
+}
+macro_rules! harmless {
+    ($a:expr) => { $a + 1 };
+}
+pub fn innocent(n: u64) -> u8 {
+    n as u8
+}
+";
+    let base = base_with(
+        "spellings",
+        &[("examples/azul-storage/src/lib.rs", lib), (REGISTRY, "")],
+    );
+    let wrong = check(&base, SMALL).expect_err("five spellings that are in no consumer");
+    let _ = std::fs::remove_dir_all(&base);
+    for (name, line) in [
+        ("aliased", 4),
+        ("module_aliased", 7),
+        ("type_aliased", 10),
+        ("path_call", 13),
+        ("sealing", 16),
+    ] {
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.contains(&format!("lib.rs:{line}")) && w.contains(name)),
+            "{name} is found at line {line}: {wrong:?}"
+        );
+    }
+    assert!(
+        wrong
+            .iter()
+            .all(|w| !w.contains("innocent") && !w.contains("harmless")),
+        "{wrong:?}"
+    );
+}
+
+/// The name of a macro is read from its line: a registry that lists it by that name covers it.
+#[test]
+fn a_macro_is_named_by_its_macro_rules_line() {
+    assert_eq!(
+        name_of("macro_rules! sealing {").as_deref(),
+        Some("sealing")
+    );
+    assert_eq!(
+        name_of("pub fn sealed(key: &DriveKey) {").as_deref(),
+        Some("sealed")
     );
 }
 
