@@ -638,6 +638,18 @@ pub fn purge_options(_confirmation: &PurgeConfirmation) -> ReclaimOptions {
 /// believed (seconds).
 pub const SKEW_SECS: u64 = 600;
 
+/// Whether the bucket's time `server` agrees with the time of day a decision was made at: `stamp`, the
+/// device's clock when the analysis began (the window it cut and the stamp of its round), carried
+/// forward by `elapsed_secs` of the MONOTONIC clock since. The device's clock of the moment the bucket
+/// is asked says nothing about the stamp's: a clock that was set wrong when the analysis began and is
+/// corrected before it ends would agree with the bucket at the end and have cut the window days off
+/// (X-DELTA-SYNC4-4). A suspended machine's monotonic clock stands still, so a long suspension makes the
+/// stamp and the bucket disagree - a round that does not count, never one that does.
+#[must_use]
+pub(crate) fn stamp_agrees(server: u64, stamp: u64, elapsed_secs: u64) -> bool {
+    server.abs_diff(stamp.saturating_add(elapsed_secs)) <= SKEW_SECS
+}
+
 /// A commit stamped further ahead of the device's clock than this counts as stamped then: one
 /// device with a wrong clock must not make a whole history look younger than it is.
 const AHEAD_SECS: u64 = 86_400;
@@ -814,6 +826,9 @@ pub(crate) struct Analysis {
     pub(crate) revision: u64,
     /// The time of day the ages were judged by.
     pub(crate) now: u64,
+    /// When the analysis began by the monotonic clock: what carries [`Analysis::now`] forward to the
+    /// moment the bucket is asked ([`stamp_agrees`]).
+    pub(crate) started: crate::time::Stopwatch,
     /// The commits before this time are old (seconds since 1970).
     pub(crate) window_start: u64,
     /// The commits reachable from the head.
@@ -1148,6 +1163,7 @@ pub(crate) fn analyse(
     let mut analysis = Analysis {
         revision: 0,
         now,
+        started: crate::time::Stopwatch::start(),
         window_start,
         commits: order.len(),
         window_commits: window.len(),
@@ -1625,6 +1641,7 @@ pub(crate) fn reclaim_judged<B: Bucket, S: Sealer>(
         return Ok(report);
     };
     let now = repo.store().now();
+    let started = crate::time::Stopwatch::start();
     let revision = repo.store().state().revision;
     let after = repo
         .store()
@@ -1648,6 +1665,7 @@ pub(crate) fn reclaim_judged<B: Bucket, S: Sealer>(
         }
     };
     analysis.revision = revision;
+    analysis.started = started;
     // What the restore dialog still offers, derived its own way, against the window just analysed.
     // collapse-ok: a derivation that cannot be made is "not checked" (`None`), and a round that was
     // not checked is not clean: the failure only holds the switch back.
@@ -1718,10 +1736,11 @@ fn delete_under<B: Bucket, S: Sealer>(
     report: &mut ReclaimReport,
     gate: &Gate,
 ) -> Result<(), MetaError> {
-    // The clock NOW: the analysis took the time it took (a big drive's takes minutes), and the lease
-    // this run wrote just now is compared with the device's clock of this moment, not with the one
-    // the analysis began at (which no analysis longer than the skew could ever pass).
-    let now = repo.store().now();
+    // The analysis took the time it took (a big drive's takes minutes), and the lease this run wrote
+    // just now is compared with the time of day the analysis was made at, carried forward by the
+    // monotonic clock - not with the device's clock of this moment, which a step during the analysis
+    // makes agree with the bucket while the window was cut by the other (X-DELTA-SYNC4-4).
+    let now = analysis.now.saturating_add(analysis.started.secs());
     if let Err(why) = check_clock(repo, guard, now, options.server_clock) {
         report.stopped = Some(why);
         return Ok(());
@@ -1786,7 +1805,7 @@ fn check_clock<B: Bucket, S: Sealer>(
     let key = super::keys::lease(&guard.purpose);
     let server = repo.store().bucket().modified_of(&key).ok().flatten();
     match server {
-        Some(server) if server.abs_diff(now) <= SKEW_SECS => Ok(()),
+        Some(server) if stamp_agrees(server, now, 0) => Ok(()),
         _ => Err(NotYet::Clock {
             device: now,
             server,

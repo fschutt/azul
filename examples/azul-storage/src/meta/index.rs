@@ -51,9 +51,9 @@ use crate::{
     key::folder_of,
     meta::reclaim::{
         analyse, ask_retired_delete, manifest_pack_bytes, pack_bytes_of, purge_options, reclaim,
-        reclaim_judged, Analysis, Caps, DeleteLicence, GoEvidence, History, Hold, LiveObjects,
-        NotYet, PurgeConfirmation, ReclaimMode, ReclaimOptions, ReclaimReport, Released,
-        ServerClock, Standing, SKEW_SECS,
+        reclaim_judged, stamp_agrees, Analysis, Caps, DeleteLicence, GoEvidence, History, Hold,
+        LiveObjects, NotYet, PurgeConfirmation, ReclaimMode, ReclaimOptions, ReclaimReport,
+        Released, ServerClock, Standing,
     },
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
 };
@@ -1011,6 +1011,9 @@ impl MetaIndexProvider {
         let caps = self.reclaim.caps;
         let device = self.device_id();
         let now = crate::time::now_unix();
+        // The stamp of the round and the window the analysis cuts are made at this time of day; the
+        // bucket vouches for it at the write, carried forward by the monotonic clock (SYNC4-4).
+        let started = crate::time::Stopwatch::start();
         let dbucket = DriveBucket::new(Arc::clone(&bucket));
         let (before, _) = Ledger::read(&dbucket, drive_key).map_err(to_drive)?;
         let cache = drive.and_then(|drive| self.drive_cache_dir(drive));
@@ -1068,6 +1071,7 @@ impl MetaIndexProvider {
                 &before,
                 round,
                 now,
+                started,
                 footing(1, None, None, false),
             );
             report.evidence = Some(evidence);
@@ -1133,6 +1137,7 @@ impl MetaIndexProvider {
                         &before,
                         round,
                         now,
+                        started,
                         footing(
                             u32::try_from(analysis.devices).unwrap_or(u32::MAX),
                             rederived,
@@ -1184,6 +1189,7 @@ impl MetaIndexProvider {
                     &before,
                     round,
                     now,
+                    started,
                     footing(1, None, None, true),
                 );
                 report.evidence = Some(evidence);
@@ -1216,6 +1222,7 @@ impl MetaIndexProvider {
         before: &Ledger,
         mut round: Round,
         now: u64,
+        started: crate::time::Stopwatch,
         mut footing: Footing,
     ) -> GoEvidence {
         // The stamp of a round is this device's clock. When the bucket must vouch for it (the run's
@@ -1240,7 +1247,7 @@ impl MetaIndexProvider {
                 return ledger.evidence(now, &footing);
             }
         };
-        footing.clock_agrees = self.bucket_clock_agrees(bucket);
+        footing.clock_agrees = self.bucket_clock_agrees(bucket, now, started);
         if vouching && footing.clock_agrees == Some(true) {
             // collapse-ok: a round that could not be made clean stays what it was written as, not
             // clean: the failure only holds the switch back.
@@ -1251,17 +1258,23 @@ impl MetaIndexProvider {
         ledger.evidence(now, &footing)
     }
 
-    /// Whether the bucket's own time agrees with this device's clock now, when the round has just
-    /// been written (the ledger's object carries the bucket's time of that write): `Some(true)` when
-    /// they are within [`SKEW_SECS`] - or when the run's policy takes the device's clock alone
-    /// ([`ServerClock::Unchecked`]: a folder on disk, the tests) -, `Some(false)` when they are not,
-    /// `None` when the bucket does not say. The clock of NOW, not the round's stamp: a big drive's
-    /// analysis takes longer than the skew, and the stamp is the time it began.
-    fn bucket_clock_agrees(&self, bucket: &DriveBucket<Arc<dyn Drive>>) -> Option<bool> {
+    /// Whether the bucket's own time agrees with the time of day the round's stamp and window were
+    /// made at, when the round has just been written (the ledger's object carries the bucket's time
+    /// of that write): `Some(true)` when they are within [`SKEW_SECS`] - or when the run's policy takes
+    /// the device's clock alone ([`ServerClock::Unchecked`]: a folder on disk, the tests) -,
+    /// `Some(false)` when they are not, `None` when the bucket does not say. The stamp carried forward
+    /// by the monotonic clock ([`stamp_agrees`]): a big drive's analysis takes longer than the skew,
+    /// and the device's clock of the moment of the write is not the one the window was cut by.
+    fn bucket_clock_agrees(
+        &self,
+        bucket: &DriveBucket<Arc<dyn Drive>>,
+        stamp: u64,
+        started: crate::time::Stopwatch,
+    ) -> Option<bool> {
         match self.reclaim.server_clock {
             ServerClock::Unchecked => Some(true),
             ServerClock::Required => match bucket.modified_of(keys::SHADOW) {
-                Ok(Some(server)) => Some(server.abs_diff(crate::time::now_unix()) <= SKEW_SECS),
+                Ok(Some(server)) => Some(stamp_agrees(server, stamp, started.secs())),
                 // collapse-ok: a bucket that cannot say the time is not believed: `None` holds the
                 // switch back, as it does for the run that deletes.
                 Ok(None) | Err(_) => None,

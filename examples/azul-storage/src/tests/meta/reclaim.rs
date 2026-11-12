@@ -853,9 +853,9 @@ fn x_delta_azdrive_sync_6_a_run_configured_to_delete_waits_for_the_evidence_of_i
     );
 }
 
-/// X-DELTA-AZDRIVE-SYNC-5 (d). The bucket's clock is compared with the device's clock of the moment
-/// the lease was taken, not with the one the analysis began at: a big drive's analysis takes
-/// longer than the skew, and the check could never pass.
+/// X-DELTA-AZDRIVE-SYNC-5 (d). The bucket's clock is compared with the time of day the analysis began
+/// at, carried forward by the monotonic clock (X-DELTA-SYNC4-4), not with the one that began it as it
+/// stood: a big drive's analysis takes longer than the skew, and the check could never pass.
 #[test]
 fn x_delta_azdrive_sync_5_the_clock_check_is_made_against_the_clock_of_the_moment_not_of_the_analysis(
 ) {
@@ -874,8 +874,10 @@ fn x_delta_azdrive_sync_5_the_clock_check_is_made_against_the_clock_of_the_momen
     };
     let slow = Arc::clone(&lab.clock);
     let report = reclaim_judged(&mut lab.maintainer(), &options, &mut |_, _| {
-        // The analysis took two hours (the bucket's clock and the device's both went on).
+        // The analysis took two hours (the bucket's clock, the device's and the monotonic one all
+        // went on: a clock that went on alone is a step, X-DELTA-SYNC4-4).
         slow.fetch_add(2 * 3_600, Ordering::SeqCst);
+        crate::time::advance_monotonic(2 * 3_600);
         Ok(DeleteLicence::lab())
     })
     .unwrap();
@@ -2281,4 +2283,86 @@ fn x_delta_sync2_2_a_bucket_that_says_no_time_vouches_for_nothing_and_an_uncheck
         evidence.clean_rounds, 1,
         "the first (unverified) round ended no streak, this one is clean"
     );
+}
+
+/// X-DELTA-SYNC4-4, the pure rule. A stamp is carried forward by the monotonic clock: a slow analysis
+/// (an hour on a big drive) agrees with a bucket that is an hour on, a stamp 40 days off does not,
+/// whatever the device's clock says at the moment the bucket is asked.
+#[test]
+fn x_delta_sync4_4_a_stamp_agrees_with_the_bucket_by_the_time_carried_forward_not_by_the_clock_of_the_moment(
+) {
+    use crate::meta::reclaim::{stamp_agrees, SKEW_SECS};
+    let stamp = T0;
+    // The analysis ran an hour: the bucket says an hour later.
+    assert!(stamp_agrees(stamp + 3_600, stamp, 3_600));
+    assert!(stamp_agrees(stamp + 3_600 + SKEW_SECS, stamp, 3_600));
+    assert!(!stamp_agrees(stamp + 3_600 + SKEW_SECS + 1, stamp, 3_600));
+    // The same bucket time against a stamp that was forty days ahead when the analysis began.
+    assert!(!stamp_agrees(stamp + 3_600, stamp + 40 * DAY, 3_600));
+    assert!(!stamp_agrees(stamp + 3_600, stamp - 40 * DAY, 3_600));
+}
+
+/// X-DELTA-SYNC4-4, the round. The device's clock is 40 days ahead when the round begins (typed by
+/// hand, a wrong virtual machine host) and time sync corrects it during the analysis of a big drive:
+/// the window was cut 40 days too late, the stamp is 40 days ahead, and at the write the corrected
+/// clock agrees with the bucket. The bucket vouches for the stamp AS CARRIED FORWARD by the monotonic
+/// clock, so the round stays unverified. RED on the old code: it compared the bucket with the clock
+/// of the moment of the write, the round was made clean and counted.
+#[test]
+fn x_delta_sync4_4_a_clock_corrected_during_the_analysis_does_not_vouch_for_the_round() {
+    use crate::meta::shadow::UNVERIFIED;
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    // The bucket's own time is the system's; asking for it is the moment the clock is corrected.
+    lab.bucket.set_server_clock(|| {
+        crate::time::step_clock(0);
+        crate::time::system_unix()
+    });
+    crate::time::step_clock(i64::try_from(40 * DAY).unwrap());
+    let provider = provider_with(90, ServerClock::Required);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider.reclaim(Arc::clone(&bucket), &lab.key);
+    crate::time::step_clock(0);
+    let report = report.unwrap();
+    let evidence = report.evidence.expect("the evidence");
+    assert_eq!(evidence.clock_agrees, Some(false), "{}", report.line());
+    assert_eq!(evidence.clean_rounds, 0, "{}", report.line());
+    let (ledger, _) = Ledger::read(&DriveBucket::new(Arc::clone(&bucket)), &lab.key).unwrap();
+    let round = ledger.rounds.last().expect("written");
+    assert!(!round.clean && round.unclean == UNVERIFIED, "{round:?}");
+}
+
+/// X-DELTA-SYNC4-4, the delete run. The lease the run wrote is compared with the time of day the
+/// analysis was made at, carried forward by the monotonic clock, not with the device's clock of the
+/// moment: here the clock reads 40 days ahead during the analysis and is corrected (to the bucket's
+/// time) before the run deletes. RED on the old code: the corrected clock agreed with the bucket and the
+/// objects released in the 40 days at the window's edge were deleted.
+#[test]
+fn x_delta_sync4_4_a_clock_corrected_between_the_analysis_and_the_delete_stops_the_run() {
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    // The bucket says what the corrected clock says; the analysis ran 40 days ahead of it.
+    let true_time = T0 + 100 * DAY;
+    lab.bucket.set_server_clock(move || true_time + 5);
+    lab.at(true_time + 40 * DAY);
+    let required = ReclaimOptions {
+        mode: ReclaimMode::Delete,
+        ..ReclaimOptions::shadow()
+    };
+    let mut repo = lab.maintainer();
+    let report = reclaim_judged(&mut repo, &required, &mut |_, _| {
+        // The analysis is done; the clock is corrected before anything is deleted.
+        lab.at(true_time);
+        Ok(DeleteLicence::lab())
+    })
+    .unwrap();
+    assert_eq!(report.deleted, 0, "{}", report.line());
+    assert!(
+        matches!(report.stopped, Some(NotYet::Clock { .. })),
+        "{}",
+        report.line()
+    );
+    assert_eq!(lab.data_objects().len(), 2, "nothing was deleted");
 }

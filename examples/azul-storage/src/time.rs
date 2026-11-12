@@ -9,10 +9,78 @@ const MONTHS: [&str; 12] = [
 /// Seconds since 1970-01-01 UTC, now.
 #[must_use]
 pub fn now_unix() -> u64 {
+    let now = system_unix();
+    // A test steps the clock of ITS OWN thread (a clock corrected during an analysis); the other
+    // tests' threads are not touched.
+    #[cfg(test)]
+    let now = now.saturating_add_signed(TEST_STEP.with(std::cell::Cell::get));
+    now
+}
+
+/// Seconds since 1970-01-01 UTC by the system clock as it is - what a test's bucket answers with
+/// while the clock of the code under test is stepped ([`step_clock`]).
+#[must_use]
+pub(crate) fn system_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_STEP: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+}
+
+/// How long something has taken by the MONOTONIC clock: what carries a time of day read at the start
+/// forward to the moment it is compared with another clock, when the device's own clock may have been
+/// stepped in between ([`crate::meta::reclaim::stamp_agrees`]).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Stopwatch {
+    at: std::time::Instant,
+    /// A test's extra monotonic seconds at the start ([`advance_monotonic`]).
+    #[cfg(test)]
+    extra_at_start: u64,
+}
+
+impl Stopwatch {
+    /// Starts it now.
+    #[must_use]
+    pub(crate) fn start() -> Stopwatch {
+        Stopwatch {
+            at: std::time::Instant::now(),
+            #[cfg(test)]
+            extra_at_start: TEST_MONOTONIC.with(std::cell::Cell::get),
+        }
+    }
+
+    /// The whole seconds since it started.
+    #[must_use]
+    pub(crate) fn secs(&self) -> u64 {
+        let secs = self.at.elapsed().as_secs();
+        #[cfg(test)]
+        let secs = secs + TEST_MONOTONIC.with(std::cell::Cell::get) - self.extra_at_start;
+        secs
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_MONOTONIC: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Lets every [`Stopwatch`] of THIS thread read `secs` seconds more: a test that plays a long analysis
+/// moves the device's clock AND the monotonic one, a test that plays a step moves the first only.
+#[cfg(test)]
+pub(crate) fn advance_monotonic(secs: u64) {
+    TEST_MONOTONIC.with(|extra| extra.set(extra.get() + secs));
+}
+
+/// Makes [`now_unix`] of THIS thread read `secs` seconds off the system clock (0: as it is). A test
+/// only: the clock of a computer that was set wrong and is corrected while a round runs.
+#[cfg(test)]
+pub(crate) fn step_clock(secs: i64) {
+    TEST_STEP.with(|step| step.set(secs));
 }
 
 /// Year, month (1-12), day (1-31) of a day count since 1970-01-01
