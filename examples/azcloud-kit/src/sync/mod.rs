@@ -2262,11 +2262,13 @@ fn move_here(
     // A move is a rename into place as a download's is: a crash on either side of it is one
     // the next run must converge from.
     hooks.point("before-rename");
+    // Into a name nothing has at the moment of the rename: the look above was made before the
+    // journal's step, and a file that appeared since is never replaced (X-DELTA-SYNC4-22).
     let moved = match &via {
         Some(via) => source
-            .rename(source_name, &target, via)
-            .and_then(|()| target.rename(via, &target, target_name)),
-        None => source.rename(source_name, &target, target_name),
+            .rename_noreplace(source_name, &target, via)
+            .and_then(|()| target.rename_noreplace(via, &target, target_name)),
+        None => source.rename_noreplace(source_name, &target, target_name),
     };
     if moved.is_ok() {
         target.sync();
@@ -2274,7 +2276,12 @@ fn move_here(
     }
     hooks.finished(&step, ticket, moved.is_ok(), None);
     hooks.point("after-rename");
-    moved?;
+    match moved {
+        Ok(()) => {}
+        // A name that was free at the look and is taken now: the next run takes it from there.
+        Err(e) if e.is_already_exists() => return Ok(None),
+        Err(e) => return Err(e),
+    }
     drive.note_renamed(from_here, to);
     Ok(local::entry_now(&root.path, to, &expect.hash))
 }
@@ -2579,9 +2586,15 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         continue;
                     }
                 };
+                // Into a name nothing has at the moment of the rename: the copy's name was looked at
+                // before the journal's step, and a file that appeared since is never replaced
+                // (X-DELTA-SYNC4-22).
                 let renamed = faults::check_replace(&root.path, key)
                     .map_err(BeneathError::from)
-                    .and_then(|()| dir.rename(name, &dir, copy_name));
+                    .and_then(|()| {
+                        hooks.point("conflict-before-rename");
+                        dir.rename_noreplace(name, &dir, copy_name)
+                    });
                 if renamed.is_ok() {
                     dir.sync();
                 }
@@ -2626,6 +2639,8 @@ fn apply_local<R: SyncRemote + ?Sized>(
                             }
                         }
                     }
+                    // Taken since the look: this side's file stays where it is, the next run looks again.
+                    Err(e) if e.is_already_exists() => report.changed_during_sync.push(moved_on()),
                     Err(e) => failed_here(report, "keep", key, &e),
                 }
             }
@@ -2922,10 +2937,15 @@ fn write_link(
     // Made under a name of its own, then renamed into place: what had the name before is
     // replaced in one step, and a folder of that name is never replaced.
     let temp = beneath::temp_name(name);
-    match dir
-        .symlink(target, &temp)
-        .and_then(|()| dir.rename(&temp, &dir, name))
-    {
+    // A name the scan found nothing under is never replaced: what appeared since the look stays
+    // (X-DELTA-SYNC4-22); one that held a file as scanned is replaced as before.
+    match dir.symlink(target, &temp).and_then(|()| {
+        if expect.is_none() {
+            dir.rename_noreplace(&temp, &dir, name)
+        } else {
+            dir.rename(&temp, &dir, name)
+        }
+    }) {
         Ok(()) => {
             dir.sync();
             made.drive.note_written(here);

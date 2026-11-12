@@ -288,11 +288,13 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
                 .and_then(|(file, _)| hash_file(file).ok())
                 .is_some_and(|h| h == *hash);
             if holds {
-                match from_dir.rename(&from, &to_dir, &to) {
+                // Never over a file that took the copy's name since the look above (X-DELTA-SYNC4-22).
+                match from_dir.rename_noreplace(&from, &to_dir, &to) {
                     Ok(()) => {
                         to_dir.sync();
                         out.finished.push(format!("{key}: kept as {copy}"));
                     }
+                    Err(e) if e.is_already_exists() => {}
                     Err(e) => out.left.push(format!("{key}: {e}")),
                 }
             } else {
@@ -311,11 +313,13 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
                 return;
             };
             if via_dir.lstat(&via_name).is_ok() && to_dir.lstat(&to_name).is_err() {
-                match via_dir.rename(&via_name, &to_dir, &to_name) {
+                // Never over a file that took the name since the look above (X-DELTA-SYNC4-22).
+                match via_dir.rename_noreplace(&via_name, &to_dir, &to_name) {
                     Ok(()) => {
                         to_dir.sync();
                         out.finished.push(format!("{from}: renamed to {to}"));
                     }
+                    Err(e) if e.is_already_exists() => {}
                     Err(e) => out.left.push(format!("{from}: {e}")),
                 }
             }

@@ -51,6 +51,9 @@ pub const POINTS: &[&str] = &[
     "after-rename",
     "before-trash",
     "conflict-start",
+    // Right before the conflict's rename of this side's file to the copy's name, after the look at
+    // the name: a harness puts a file there to play the window.
+    "conflict-before-rename",
     "conflict-renamed",
     "before-base-save",
     // "Free up space" (`SyncSession::free_up`, and the size cap after a pass): after the base

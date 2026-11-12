@@ -678,3 +678,145 @@ fn x_delta_sync4_26_a_blob_uploaded_a_moment_ago_is_young_by_the_buckets_own_clo
     assert_eq!(report.deleted, 0, "{report:?}");
     assert!(behind.0.read(&in_flight).is_some(), "the blob stays");
 }
+
+/// A pairing on the plain index (the fake bucket) whose passes hear the fault seam.
+fn plain(device: &str, folder: &Path, state: &Path, store: &Arc<S3Bucket>) -> Arc<SyncSession> {
+    let remote: Arc<dyn crate::store::RemoteStore> = store.clone();
+    let root = folder.to_path_buf();
+    Arc::new(
+        SyncSession::plain(
+            SyncSetup::new("d_relook_plain", PREFIX, folder),
+            state.to_path_buf(),
+            device,
+            remote,
+        )
+        .with_points(Arc::new(move |name: &str| faults::point(&root, name))),
+    )
+}
+
+/// Runs a pass of `session` that stops at the point `at` of the pairing's folder, calls `meanwhile`
+/// there and lets the pass go on; its report.
+fn pass_with_a_step_at(
+    session: &Arc<SyncSession>,
+    folder: &Path,
+    at: &str,
+    meanwhile: impl FnOnce(),
+) -> SyncReport {
+    faults::arm_pause(folder, at);
+    let running = {
+        let session = Arc::clone(session);
+        std::thread::spawn(move || session.pass(&AtomicBool::new(false), &mut |_| {}))
+    };
+    assert_eq!(
+        faults::wait_paused(folder, Duration::from_secs(30)).as_deref(),
+        Some(at),
+        "the pass reaches {at}"
+    );
+    meanwhile();
+    faults::release(folder);
+    running
+        .join()
+        .expect("the pass ends")
+        .expect("the pass succeeds")
+        .report
+        .expect("a report")
+}
+
+/// X-DELTA-SYNC4-22 (move_here). A file the drive renamed is renamed here by `move_here`, which looked
+/// at the target name ("still free") and then called `Dir::rename` - a replacing rename: a file made
+/// under the target name between the look and the rename (right before it, the point `before-rename`)
+/// was overwritten with no trace. The rename is `rename_noreplace`; a taken name is "the next run takes
+/// it". RED on the old code: the user's file holds the renamed file's bytes.
+#[test]
+fn x_delta_sync4_22_a_rename_made_here_never_replaces_a_file_that_appeared_at_the_target_name() {
+    let store = Arc::new(S3Bucket::new());
+    let (a, a_state) = (
+        TempDir::new("azcloud-relook-s22-a"),
+        TempDir::new("azcloud-relook-s22-a-state"),
+    );
+    let (b, b_state) = (
+        TempDir::new("azcloud-relook-s22-b"),
+        TempDir::new("azcloud-relook-s22-b-state"),
+    );
+    let on_a = plain("A", a.path(), a_state.path(), &store);
+    let on_b = plain("B", b.path(), b_state.path(), &store);
+    fs::write(a.path().join("a.txt"), "the renamed file's bytes").unwrap();
+    for session in [&on_a, &on_b] {
+        session
+            .pass(&AtomicBool::new(false), &mut |_| {})
+            .expect("the pass runs");
+    }
+    // A renames it; the drive has it under the new name.
+    fs::rename(a.path().join("a.txt"), a.path().join("b.txt")).unwrap();
+    on_a.pass(&AtomicBool::new(false), &mut |_| {})
+        .expect("a sends the rename");
+    // B's pass renames its copy; a file of its own appears under the new name right before.
+    let b_path = b.path().to_path_buf();
+    let report = pass_with_a_step_at(&on_b, b.path(), "before-rename", move || {
+        fs::write(b_path.join("b.txt"), "a file B's user made under that name").unwrap();
+    });
+    assert_eq!(
+        fs::read(b.path().join("b.txt")).unwrap(),
+        b"a file B's user made under that name",
+        "the file that appeared is not replaced: {}",
+        report.summary()
+    );
+    faults::clear(b.path());
+}
+
+/// X-DELTA-SYNC4-22 (the conflict's copy). The conflict renames this side's file to the copy's name after
+/// a look at the name ("must still be free"), with a replacing rename: a file that took the name since
+/// (right before the rename, the point `conflict-before-rename`) was overwritten. RED on the old code:
+/// the file holds this side's bytes.
+#[test]
+fn x_delta_sync4_22_a_conflict_copy_never_replaces_a_file_that_took_its_name_since_the_look() {
+    let store = Arc::new(S3Bucket::new());
+    let (a, a_state) = (
+        TempDir::new("azcloud-relook-s22c-a"),
+        TempDir::new("azcloud-relook-s22c-a-state"),
+    );
+    let (b, b_state) = (
+        TempDir::new("azcloud-relook-s22c-b"),
+        TempDir::new("azcloud-relook-s22c-b-state"),
+    );
+    let on_a = plain("A", a.path(), a_state.path(), &store);
+    let on_b = plain("B", b.path(), b_state.path(), &store);
+    fs::write(a.path().join("plan.txt"), "the first plan").unwrap();
+    for session in [&on_a, &on_b] {
+        session
+            .pass(&AtomicBool::new(false), &mut |_| {})
+            .expect("the pass runs");
+    }
+    // Both change it; A's change is on the drive first.
+    fs::write(a.path().join("plan.txt"), "A's plan").unwrap();
+    on_a.pass(&AtomicBool::new(false), &mut |_| {})
+        .expect("a sends its plan");
+    fs::write(b.path().join("plan.txt"), "B's plan, longer").unwrap();
+    // The app holds the conflict as a question; the user keeps both.
+    on_b.pass(&AtomicBool::new(false), &mut |_| {})
+        .expect("b finds the conflict");
+    on_b.resolve("plan.txt", crate::sync::session::Resolution::KeepBoth)
+        .expect("the answer is taken");
+    let today = crate::rfc3339(crate::now());
+    let copy = crate::sync::merge::conflict_name("plan.txt", "B", &today[..10], &|_| false);
+    let b_path = b.path().to_path_buf();
+    let taken = copy.clone();
+    let report = pass_with_a_step_at(&on_b, b.path(), "conflict-before-rename", move || {
+        fs::write(b_path.join(&taken), "a file that took the copy's name").unwrap();
+    });
+    assert_eq!(
+        fs::read(b.path().join(&copy)).unwrap(),
+        b"a file that took the copy's name",
+        "the file that took the name is not replaced: {}",
+        report.summary()
+    );
+    assert!(
+        report
+            .changed_during_sync
+            .iter()
+            .any(|line| line.starts_with("plan.txt")),
+        "said: {:?}",
+        report.changed_during_sync
+    );
+    faults::clear(b.path());
+}
