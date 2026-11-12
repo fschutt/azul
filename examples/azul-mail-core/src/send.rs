@@ -1252,10 +1252,25 @@ pub(crate) fn retry_outbox_with(
         if entry.state != OutboxState::Queued || (!force && entry.next_attempt > now) {
             continue;
         }
-        let Ok(bytes) = outbox.get(&format!("{}.eml", entry.id)) else {
-            // The message is gone (deleted by hand): so is the entry.
-            let _ = outbox.delete(&format!("{}.json", entry.id));
-            continue;
+        let bytes = match outbox.get(&format!("{}.eml", entry.id)) {
+            Ok(bytes) => bytes,
+            // Verifiably gone: its entry is listed and its message file is not. Nothing is left
+            // to send, and nothing is removed in silence: the entry stays, failed and naming the
+            // mail, until the user deletes it (X-DELTA-SYNC4-19).
+            Err(e)
+                if e.kind() == std::io::ErrorKind::NotFound
+                    && file_is_gone(root, account_id, &entry.id) =>
+            {
+                results.push((entry.id.clone(), fail_for_missing_file(&outbox, &mut entry)));
+                continue;
+            }
+            // Anything else - a permission, a file another program holds open (a virus scanner),
+            // a failing disk, a folder that cannot be listed to be sure - is an unknown, not
+            // "gone": the mail waits like one whose server did not answer.
+            Err(e) => {
+                results.push((entry.id.clone(), wait_for_unreadable(&outbox, &mut entry, &e, now)));
+                continue;
+            }
         };
         let attempted = attempt(
             root, account_id, settings, &mut entry, &bytes, now, transport,
@@ -1265,6 +1280,102 @@ pub(crate) fn retry_outbox_with(
         results.push((entry.id.clone(), status));
     }
     results
+}
+
+/// Whether the message file of the outbox entry `id` is verifiably not there: the outbox lists,
+/// the entry's own `<id>.json` is in the listing and `<id>.eml` is not. A folder that cannot be
+/// listed verifies nothing (the listing is empty then, and the entry is not in it).
+fn file_is_gone(root: &DriveFolder, account_id: &str, id: &str) -> bool {
+    let keys = MailStore::new(account::account_dir(root, account_id)).keys(OUTBOX_DIR);
+    keys.contains(&format!("{OUTBOX_DIR}/{id}.json"))
+        && !keys.contains(&format!("{OUTBOX_DIR}/{id}.eml"))
+}
+
+/// A queued mail whose message file is verifiably gone ([`file_is_gone`]): every pending recipient
+/// fails with the reason and the entry is kept as a failed one, so that the Outbox row says "Not
+/// sent" with the mail's subject until the user deletes it, and the status names the mail.
+fn fail_for_missing_file(outbox: &MailStore, entry: &mut OutboxEntry) -> SendStatus {
+    const WHY: &str = "its message file is gone from the Outbox";
+    let mut unsent = Vec::new();
+    for recipient in entry
+        .recipients
+        .iter_mut()
+        .filter(|r| r.state == RecipientProgress::Pending)
+    {
+        recipient.state = RecipientProgress::Failed;
+        recipient.reason = WHY.to_string();
+        unsent.push(recipient.address.clone());
+    }
+    entry.state = OutboxState::Failed;
+    let mut reason = format!(
+        "\"{}\" was not sent to {}: {WHY}.",
+        entry.subject,
+        unsent.join(", ")
+    );
+    if let Err(e) = write_entry(outbox, entry) {
+        reason.push_str(&format!(" (The Outbox entry could not be updated: {e}.)"));
+    }
+    SendStatus::Failed { reason }
+}
+
+/// A queued mail whose message file cannot be READ now: it is not lost, not sent and not
+/// forgotten. It waits for its next try like a mail whose server did not answer - one more try
+/// counted, the same backoff ([`backoff_secs`], at most four hours), given up on only after the
+/// same five days ([`give_up_when_due`]) - and its recipients say why. Nothing is sent from a file
+/// that was not read, so nothing is filed in Sent either.
+fn wait_for_unreadable(
+    outbox: &MailStore,
+    entry: &mut OutboxEntry,
+    why: &std::io::Error,
+    now: i64,
+) -> SendStatus {
+    let pending = entry.pending();
+    let said = format!("its message file cannot be read: {why}");
+    if pending.is_empty() {
+        return SendStatus::Queued {
+            reason: format!("Nothing is pending, and {said}."),
+        };
+    }
+    entry.attempts = entry.attempts.saturating_add(1);
+    entry.last_attempt = now;
+    hold_back(entry, &pending, &said);
+    give_up_when_due(entry, now);
+    let given_up = entry.pending().is_empty();
+    let mut status = if given_up {
+        entry.state = OutboxState::Failed;
+        SendStatus::Failed {
+            reason: format!("\"{}\" was given up on after 5 days: {said}.", entry.subject),
+        }
+    } else {
+        entry.state = OutboxState::Queued;
+        entry.next_attempt = now + backoff_secs(entry.attempts);
+        SendStatus::Queued {
+            reason: format!("Waiting to try again: {said}."),
+        }
+    };
+    if let Err(e) = write_entry(outbox, entry) {
+        let note = format!(" (The Outbox entry could not be updated: {e}.)");
+        match &mut status {
+            SendStatus::Queued { reason } | SendStatus::Failed { reason } => reason.push_str(&note),
+            SendStatus::Sent { .. } => {}
+        }
+    }
+    status
+}
+
+/// A mail whose recipients are still pending after [`GIVE_UP_AFTER_SECS`] is given up on: each
+/// pending recipient fails with what was said last.
+fn give_up_when_due(entry: &mut OutboxEntry, now: i64) {
+    if entry.count(RecipientProgress::Pending) > 0 && now - entry.created >= GIVE_UP_AFTER_SECS {
+        for recipient in entry
+            .recipients
+            .iter_mut()
+            .filter(|r| r.state == RecipientProgress::Pending)
+        {
+            recipient.state = RecipientProgress::Failed;
+            recipient.reason = format!("given up after 5 days ({})", recipient.reason);
+        }
+    }
 }
 
 /// `<yyyymmddThhmmssZ>-<8 hex digits of the Message-ID>`: sorts by time, unique enough.
@@ -1569,16 +1680,7 @@ fn finish(
     waiting: bool,
 ) -> SendStatus {
     let outbox = MailStore::new(outbox_dir(root, account_id));
-    if entry.count(RecipientProgress::Pending) > 0 && now - entry.created >= GIVE_UP_AFTER_SECS {
-        for recipient in entry
-            .recipients
-            .iter_mut()
-            .filter(|r| r.state == RecipientProgress::Pending)
-        {
-            recipient.state = RecipientProgress::Failed;
-            recipient.reason = format!("given up after 5 days ({})", recipient.reason);
-        }
-    }
+    give_up_when_due(entry, now);
     let sent = entry.count(RecipientProgress::Sent);
     let failed = entry.count(RecipientProgress::Failed);
     let pending = entry.count(RecipientProgress::Pending);
@@ -3460,6 +3562,186 @@ mod tests {
         assert!(matches!(outcome.status, SendStatus::Failed { .. }), "{outcome:?}");
         assert!(fake.calls.is_empty());
         assert!(outbox_files(&dir.0).is_empty());
+    }
+
+    // ==== X-DELTA-SYNC4-19: a queued mail's file that cannot be read is not a file that is gone ====
+
+    /// A mail waiting in the outbox: its one recipient did not answer.
+    fn queued(dir: &TempDir) -> OutboxEntry {
+        let mut busy = Fake::new(|_| RecipientStatus::Deferred {
+            reply: None,
+            reason: "could not connect".to_string(),
+        });
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &mail(),
+            OCT_1,
+            &mut busy,
+        );
+        assert!(matches!(status, SendStatus::Queued { .. }), "{status:?}");
+        outbox_entries(&dir.folder(), ACCOUNT).remove(0)
+    }
+
+    fn eml_of(dir: &TempDir, entry: &OutboxEntry) -> PathBuf {
+        dir.0
+            .join(ACCOUNT)
+            .join(OUTBOX_DIR)
+            .join(format!("{}.eml", entry.id))
+    }
+
+    /// Takes the permission to read the entry's message file away (a virus scanner that holds it, a
+    /// failing disk): the read fails and is no "not found" - asserted. `None` where that cannot be
+    /// done ([`crate::testutil::make_unreadable`]): the test skips. Else the file's bytes.
+    fn make_unreadable(dir: &TempDir, entry: &OutboxEntry) -> Option<Vec<u8>> {
+        let file = eml_of(dir, entry);
+        let bytes = std::fs::read(&file).unwrap();
+        if !crate::testutil::make_unreadable(&file) {
+            return None;
+        }
+        let outbox = MailStore::new(outbox_dir(&dir.folder(), ACCOUNT));
+        let failure = outbox
+            .get(&format!("{}.eml", entry.id))
+            .expect_err("no permission to read it");
+        assert_ne!(
+            failure.kind(),
+            std::io::ErrorKind::NotFound,
+            "the premise of the test: {failure}"
+        );
+        Some(bytes)
+    }
+
+    fn retry_at(dir: &TempDir, force: bool, now: i64, fake: &mut Fake) -> Vec<(String, SendStatus)> {
+        retry_outbox_with(&dir.folder(), ACCOUNT, &SendSettings::default(), force, now, fake)
+    }
+
+    /// RED on the code before: the read error deleted the entry (`outbox_entries` was empty), so
+    /// the mail was never sent and nothing said so.
+    #[test]
+    fn x_delta_sync4_19_an_unreadable_eml_keeps_its_entry_and_a_later_read_sends_it() {
+        let dir = TempDir::new("send-unreadable");
+        let entry = queued(&dir);
+        let Some(bytes) = make_unreadable(&dir, &entry) else {
+            return;
+        };
+        let mut fake = take_all();
+        let now = OCT_1 + 400;
+        let results = retry_at(&dir, true, now, &mut fake);
+        assert!(
+            fake.calls.is_empty() && fake.messages.is_empty(),
+            "nothing is sent from a file that was not read"
+        );
+        assert_eq!(results.len(), 1);
+        let SendStatus::Queued { reason } = &results[0].1 else {
+            panic!("{results:?}");
+        };
+        assert!(reason.contains("cannot be read"), "{reason}");
+        let kept = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!(kept.len(), 1, "the entry stays");
+        assert_eq!(kept[0].state, OutboxState::Queued);
+        assert_eq!(kept[0].attempts, 2, "the read counts as a try");
+        assert_eq!(kept[0].next_attempt, now + backoff_secs(2));
+        assert!(
+            kept[0].recipients[0].reason.contains("cannot be read"),
+            "{:?}",
+            kept[0].recipients
+        );
+        // The file can be read again: the next try sends it.
+        let file = eml_of(&dir, &entry);
+        crate::testutil::make_readable(&file);
+        assert_eq!(std::fs::read(&file).unwrap(), bytes);
+        let results = retry_at(&dir, false, kept[0].next_attempt, &mut fake);
+        assert!(matches!(results[0].1, SendStatus::Sent { .. }), "{results:?}");
+        assert!(outbox_files(&dir.0).is_empty());
+        assert_eq!(sent_index(&dir.0).len(), 1);
+    }
+
+    /// RED on the code before: the entry of a file that is gone was deleted without a word.
+    #[test]
+    fn x_delta_sync4_19_a_missing_eml_keeps_a_failed_entry_that_names_the_mail() {
+        let dir = TempDir::new("send-missing");
+        let entry = queued(&dir);
+        std::fs::remove_file(eml_of(&dir, &entry)).unwrap();
+        let mut fake = take_all();
+        let results = retry_at(&dir, true, OCT_1 + 400, &mut fake);
+        assert!(fake.calls.is_empty());
+        assert_eq!(results.len(), 1, "the notice");
+        let SendStatus::Failed { reason } = &results[0].1 else {
+            panic!("{results:?}");
+        };
+        assert!(
+            reason.contains("Lunch") && reason.contains("ben@example.net") && reason.contains("gone"),
+            "{reason}"
+        );
+        let kept = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!(kept.len(), 1, "never removed in silence");
+        assert_eq!(kept[0].state, OutboxState::Failed);
+        assert_eq!(kept[0].recipients[0].state, RecipientProgress::Failed);
+        assert!(kept[0].recipients[0].reason.contains("gone"), "{:?}", kept[0].recipients);
+        // A failed entry is not tried again, and says nothing twice.
+        assert!(retry_at(&dir, true, OCT_1 + 9999, &mut fake).is_empty());
+    }
+
+    #[test]
+    fn x_delta_sync4_19_an_eml_that_stays_unreadable_is_given_up_after_five_days_and_says_so() {
+        let dir = TempDir::new("send-giveup");
+        let entry = queued(&dir);
+        if make_unreadable(&dir, &entry).is_none() {
+            return;
+        }
+        let mut fake = take_all();
+        let results = retry_at(&dir, true, OCT_1 + GIVE_UP_AFTER_SECS + 1, &mut fake);
+        let SendStatus::Failed { reason } = &results[0].1 else {
+            panic!("{results:?}");
+        };
+        assert!(reason.contains("Lunch") && reason.contains("given up"), "{reason}");
+        let kept = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!((kept.len(), kept[0].state), (1, OutboxState::Failed));
+        let said = &kept[0].recipients[0].reason;
+        assert!(said.contains("given up after 5 days") && said.contains("cannot be read"), "{said}");
+        assert!(eml_of(&dir, &entry).exists(), "nothing was deleted");
+        assert!(fake.calls.is_empty());
+    }
+
+    #[test]
+    fn x_delta_sync4_19_the_backoff_of_an_unreadable_eml_grows_and_stops_at_four_hours() {
+        let dir = TempDir::new("send-backoff");
+        let entry = queued(&dir);
+        if make_unreadable(&dir, &entry).is_none() {
+            return;
+        }
+        let mut fake = take_all();
+        let mut waits = Vec::new();
+        for n in 0..10 {
+            let now = OCT_1 + 400 + n;
+            let results = retry_at(&dir, true, now, &mut fake);
+            assert!(matches!(results[0].1, SendStatus::Queued { .. }), "{results:?}");
+            let kept = outbox_entries(&dir.folder(), ACCOUNT).remove(0);
+            assert_eq!(kept.attempts, 2 + u32::try_from(n).unwrap());
+            waits.push(kept.next_attempt - now);
+        }
+        assert!(waits.windows(2).all(|pair| pair[0] <= pair[1]), "{waits:?}");
+        assert_eq!(waits.last().copied(), Some(4 * 3600), "{waits:?}");
+        assert!(waits.iter().all(|wait| *wait <= 4 * 3600), "{waits:?}");
+    }
+
+    #[test]
+    fn x_delta_sync4_19_a_file_is_gone_only_when_the_outbox_lists_the_entry_without_it() {
+        let dir = TempDir::new("send-gone");
+        let entry = queued(&dir);
+        assert!(!file_is_gone(&dir.folder(), ACCOUNT, &entry.id), "the file is there");
+        std::fs::remove_file(eml_of(&dir, &entry)).unwrap();
+        assert!(file_is_gone(&dir.folder(), ACCOUNT, &entry.id));
+        assert!(
+            !file_is_gone(&dir.folder(), ACCOUNT, "no-such-entry"),
+            "an entry nobody listed verifies nothing"
+        );
+        std::fs::remove_dir_all(dir.0.join(ACCOUNT).join(OUTBOX_DIR)).unwrap();
+        assert!(
+            !file_is_gone(&dir.folder(), ACCOUNT, &entry.id),
+            "a folder that does not list verifies nothing"
+        );
     }
 }
 
