@@ -1990,3 +1990,300 @@ fn x_delta_money3_1_a_look_asks_a_revivable_end_again_when_a_month_is_due_and_bu
     );
     assert!(state.tokens.is_empty(), "issued and redeemed");
 }
+
+// ==== X-DELTA-MONEY5-8: a request an earlier try may have had counted is not given up ====
+
+/// The token server of the scenario: it hands out `keys`, and answers each issue request by its
+/// number `n` (0: the first one) - 0: it signs and COUNTS the request and the answer is lost on the
+/// way (the connection drops after the work was done); 1..=3: a proxy that empties the body, so the
+/// server answers `bad_request`; from 4 on the proxy is gone: the request it counted is answered
+/// again with its signatures (counted once), any other request asks for a month that is counted
+/// already (`not_due`, the schedule one month issued). The messages it counted are kept in
+/// `counted`; `sent` counts the issue requests.
+fn losing_server(
+    counted: &Arc<std::sync::Mutex<Option<Vec<String>>>>,
+    sent: &Arc<AtomicUsize>,
+) -> Arc<Fake> {
+    let listed = keys();
+    let (counted, sent) = (counted.clone(), sent.clone());
+    Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        let n = sent.fetch_add(1, Ordering::SeqCst);
+        let messages = blinded_of(call);
+        let once = AtomicU64::new(0);
+        match n {
+            0 => {
+                *counted.lock().unwrap() = Some(messages);
+                // signed and counted at the token server; nobody hears it
+                let _ = signed(call, N1, D1, "100GB/2026", &once);
+                Err(String::from("connection reset by peer"))
+            }
+            1..=3 => Ok(json(
+                400,
+                r#"{"error": "bad_request", "message": "checkout_id required"}"#,
+            )),
+            _ if counted.lock().unwrap().as_ref() == Some(&messages) => {
+                Ok(signed(call, N1, D1, "100GB/2026", &once))
+            }
+            _ => Ok(json(
+                409,
+                &serde_json::json!({"error": "not_due", "message": "later",
+                    "schedule": {"months": 3, "issued": 1,
+                        "next_issue_at": rfc3339(APPROVED + MONTH)}})
+                .to_string(),
+            )),
+        }
+    })
+}
+
+/// X-DELTA-MONEY5-8, the finding's own scenario (the fault X-DELTA-MONEY2-10 itself names, a proxy
+/// that empties a POST body): the request reaches the token server intact once, is signed and
+/// COUNTED, and the answer is lost; the next three looks are mangled to `bad_request`. The client
+/// gave the request up on the third word - marked it done, blinded another - and when the proxy
+/// recovered the new request was `not_due` (the month is counted) and the first request's signatures,
+/// which the server would still replay, were never asked for again: a paid month was gone until the
+/// operator edited `tokens_issued`. Now a request one of whose sends ended without an answer may
+/// have been counted: it is not given up on any number of `bad_request`s - it stays open, is sent
+/// once per look, and a fresh request is blinded beside it - and the day the body arrives intact
+/// the replay brings the month. On the old code the last assertion fails: the month never comes.
+#[test]
+fn x_delta_money5_8_a_request_whose_answer_was_lost_is_not_given_up_on_three_mangled_bodies_and_its_replay_brings_the_month(
+) {
+    use crate::vault::TokenVault;
+    let dir = TempDir::new("azcloud-period");
+    let store = store_in(&dir);
+    let (tokens, in_drive) = super::tokens_in_drive(&store);
+    tokens
+        .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let counted = Arc::new(std::sync::Mutex::new(None));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let fake = losing_server(&counted, &sent);
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let posts = || {
+        fake.calls()
+            .into_iter()
+            .filter(|c| c.url.ends_with("/v1/tokens/issue"))
+            .collect::<Vec<_>>()
+    };
+
+    // look 1: the request is kept, sent, counted at the server - and the answer is lost
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW + DAY),
+        Err(TokenError::Connect(_))
+    ));
+    let first = {
+        let state = in_drive.read().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1, "the request is kept");
+        assert!(
+            open[0].may_have_been_counted(),
+            "a send without an answer says so, in the drive's vault too"
+        );
+        open[0].id()
+    };
+
+    // looks 2 and 3: the same request again, refused as `bad_request` (the body was emptied)
+    for look in 2..=3 {
+        assert!(issue_next(&server, &tokens, "ck_1", NOW + look * DAY).is_err());
+    }
+    assert_eq!(
+        blinded_of(&posts()[0]),
+        blinded_of(&posts()[2]),
+        "the same request again"
+    );
+
+    // look 4: its third `bad_request` would have ended it. It may have been counted: it stays open
+    // - the done list does not name it - and a fresh request is blinded in the same look
+    match issue_next(&server, &tokens, "ck_1", NOW + 4 * DAY) {
+        Ok(Issued::NotDue { .. }) => {}
+        other => panic!("the fresh request of the month that is counted is not due: {other:?}"),
+    }
+    let state = tokens.state().unwrap();
+    assert!(
+        !state.done.contains(&first),
+        "the request the token server may have counted is not marked done"
+    );
+    assert!(
+        state.open_issues("ck_1").iter().any(|r| r.id() == first),
+        "and is kept for its replay"
+    );
+    assert_eq!(
+        sent.load(Ordering::SeqCst),
+        5,
+        "once more, then the fresh one"
+    );
+
+    // the proxy recovers: the next look sends the kept request once - and the month it counted
+    // arrives from its replay
+    match issue_next(&server, &tokens, "ck_1", NOW + 5 * DAY) {
+        Ok(Issued::Tokens(issued)) => assert_eq!(issued.len(), 1),
+        other => panic!("the month the token server counted never came: {other:?}"),
+    }
+    assert_eq!(sent.load(Ordering::SeqCst), 6, "the replay, once");
+    assert!(tokens.state().unwrap().open_issues("ck_1").is_empty());
+}
+
+/// The crash row: the process dies after the request was kept and (maybe) sent, before any answer
+/// was recorded - nothing in the vault says the send ended without an answer. A request found open
+/// at the start of a look with no outcome recorded for it (no refusal counted, no mark) is one
+/// whose earlier try is unaccounted for: the look marks it before it sends it again, so the same
+/// three `bad_request`s do not end it.
+#[test]
+fn x_delta_money5_8_a_request_found_open_with_no_outcome_recorded_is_not_given_up_either() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let listed = keys();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        Ok(json(
+            400,
+            r#"{"error": "bad_request", "message": "checkout_id required"}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    // a request kept by a look that was cut right after it, with nothing recorded of its send
+    let key = crate::period::IssuerKey {
+        tier: String::from("100GB"),
+        year: 2026,
+        key_id: String::from("100GB/2026"),
+        public_key_pem: pem(N1),
+    };
+    let cut = crate::period::IssueRequest::new(&key, "ck_1", 1).unwrap();
+    assert!(!cut.may_have_been_counted(), "a request as it is made");
+    tokens
+        .join(&VaultState {
+            issues: vec![cut.clone()],
+            ..VaultState::default()
+        })
+        .unwrap();
+
+    for look in 1..=4 {
+        let _ = issue_next(&server, &tokens, "ck_1", NOW + look * DAY);
+    }
+    let state = tokens.state().unwrap();
+    assert!(
+        !state.done.contains(&cut.id()),
+        "four looks of `bad_request`: not given up"
+    );
+    let open = state.open_issues("ck_1");
+    assert!(
+        open.iter()
+            .any(|r| r.id() == cut.id() && r.may_have_been_counted()),
+        "marked at the first look that found it: {open:?}"
+    );
+}
+
+/// The negative control: a request every send of which was ANSWERED - refused as `bad_request` each
+/// time - was never counted, and is given up on the third word as X-DELTA-MONEY2-10 has it (the
+/// request it made first and sent in one look is not "found open", and no send of it went
+/// unanswered).
+#[test]
+fn x_delta_money5_8_a_request_every_send_of_which_was_answered_is_still_given_up() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let listed = keys();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        Ok(json(
+            400,
+            r#"{"error": "bad_request", "message": "blind sign: no"}"#,
+        ))
+    });
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    for look in 1..=3 {
+        let _ = issue_next(&server, &tokens, "ck_1", NOW + look * DAY);
+    }
+    let state = tokens.state().unwrap();
+    assert_eq!(
+        state.done.len(),
+        1,
+        "the request every send of which was refused is given up"
+    );
+    assert!(
+        state
+            .open_issues("ck_1")
+            .iter()
+            .all(|r| !r.may_have_been_counted()),
+        "and the new one has no history"
+    );
+}
+
+/// Which failures of a send may have reached the token server and been counted: every one but those
+/// that sent nothing (a request that is not built) and a busy server that says it did nothing.
+#[test]
+fn x_delta_money5_8_only_a_failure_that_sent_nothing_or_did_nothing_is_no_doubt() {
+    use crate::{answer::Spent, period::send_may_have_been_counted};
+    let busy = |spent: Spent| TokenError::Busy {
+        status: 503,
+        code: String::from("busy"),
+        message: String::new(),
+        retry_after: None,
+        spent,
+    };
+    assert!(!send_may_have_been_counted(&TokenError::Config(
+        String::from("no issue key")
+    )));
+    assert!(!send_may_have_been_counted(&busy(Spent::Nothing)));
+    assert!(send_may_have_been_counted(&busy(Spent::Maybe)));
+    assert!(send_may_have_been_counted(&TokenError::Connect(
+        String::from("reset")
+    )));
+    assert!(send_may_have_been_counted(&TokenError::Protocol(
+        String::from("does not read")
+    )));
+    assert!(send_may_have_been_counted(&TokenError::Refused {
+        status: 403,
+        code: String::from("proxy"),
+        message: String::new(),
+    }));
+    assert!(send_may_have_been_counted(&TokenError::SignIn(
+        String::from("401")
+    )));
+}
+
+/// Rule 15: the mark is additive in the kept request's JSON and joins as an OR in every vault: a
+/// request never refused or lost writes no mark, a request from before it reads without one, and a
+/// copy that knows the send was lost makes the joined request say so.
+#[test]
+fn x_delta_money5_8_the_mark_is_additive_and_joins_as_an_or() {
+    let key = crate::period::IssuerKey {
+        tier: String::from("100GB"),
+        year: 2026,
+        key_id: String::from("100GB/2026"),
+        public_key_pem: pem(N1),
+    };
+    let plain = crate::period::IssueRequest::new(&key, "ck_1", 1).unwrap();
+    let text = serde_json::to_string(&plain).unwrap();
+    assert!(!text.contains("unanswered"), "{text}");
+    let old: crate::period::IssueRequest = serde_json::from_str(&text).unwrap();
+    assert!(!old.may_have_been_counted());
+    let lost = plain.with_unanswered_send();
+    let marked = serde_json::to_string(&lost).unwrap();
+    assert!(marked.contains(r#""unanswered":true"#), "{marked}");
+    assert!(serde_json::from_str::<crate::period::IssueRequest>(&marked)
+        .unwrap()
+        .may_have_been_counted());
+    // two vaults, one that knows and one that does not: joined either way, the request is marked
+    for (first, second) in [(&plain, &lost), (&lost, &plain)] {
+        let mut a = VaultState {
+            issues: vec![first.clone()],
+            ..VaultState::default()
+        };
+        a.join(&VaultState {
+            issues: vec![second.clone()],
+            ..VaultState::default()
+        });
+        assert_eq!(a.issues.len(), 1);
+        assert!(a.issues[0].may_have_been_counted());
+    }
+}

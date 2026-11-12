@@ -365,8 +365,9 @@ impl VaultState {
         }
         for request in &other.issues {
             match self.issues.iter_mut().find(|r| r.id() == request.id()) {
-                // the same request: how often the token server refused it is the larger count
-                Some(kept) => kept.join_refusals(request),
+                // the same request: how often the token server refused it is the larger count,
+                // and a send that went unanswered is known to every vault
+                Some(kept) => kept.join_sends(request),
                 None => self.issues.push(request.clone()),
             }
         }

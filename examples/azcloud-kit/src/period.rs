@@ -50,6 +50,7 @@ use sha2::{Digest, Sha384};
 use azlin_contract::{DeadlineKind, IssueRefusal, IssueSchedule, RedeemRefusal, REMIND_BEFORE_DAYS};
 
 use crate::{
+    answer::Spent,
     error::{CloudError, CloudResult, Context},
     shared::SharedKeyring,
     state::{create_private_dir, read_json, write_json},
@@ -388,12 +389,23 @@ pub struct IssueRequest {
     /// [`IssueRequest::id`].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     refusals: BTreeMap<String, u32>,
+    /// A send of THIS request ended without an answer of the token server's - a connection that
+    /// dropped, a busy or failing server, an answer that did not read - or was never accounted for
+    /// (a look cut after the request was kept, nothing recorded of its send): the token server may
+    /// have signed and counted it all the same, and the answer is all that was lost. No number of
+    /// refusals that say it could not take the request - a proxy that empties a POST body makes
+    /// them - proves it never counted one it may have counted: such a request is never given up
+    /// ([`IssueRequest::may_have_been_counted`], X-DELTA-MONEY5-8). Joined as an OR in every vault.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    unanswered: bool,
 }
 
 /// How many identical refusals of one kept issue request - the token server could not take it,
 /// signed and counted nothing - end the request: three looks (an hour apart after a failure), long
 /// enough for a proxy that empties a POST body for a while to recover, short enough that a request
-/// the server can never sign does not stand in the way of every later month.
+/// the server can never sign does not stand in the way of every later month. A request that may
+/// have been counted by an earlier send whose answer was lost ([`IssueRequest::may_have_been_counted`])
+/// is not ended by them: it stays open for its replay, and the next request is blinded beside it.
 pub const REFUSALS_BEFORE_A_NEW_REQUEST: u32 = 3;
 
 impl fmt::Debug for IssueRequest {
@@ -431,7 +443,24 @@ impl IssueRequest {
             public_key_pem: key.public_key_pem.clone(),
             blindings,
             refusals: BTreeMap::new(),
+            unanswered: false,
         })
+    }
+
+    /// This request, marked: a send of it ended without an answer.
+    #[must_use]
+    pub(crate) fn with_unanswered_send(&self) -> IssueRequest {
+        let mut marked = self.clone();
+        marked.unanswered = true;
+        marked
+    }
+
+    /// Whether the token server may have signed and counted this request: one of its sends ended
+    /// without an answer ([`IssueRequest::unanswered`]), so a refusal that says the server could
+    /// not take it is no proof that it never did (X-DELTA-MONEY5-8).
+    #[must_use]
+    pub fn may_have_been_counted(&self) -> bool {
+        self.unanswered
     }
 
     /// This request refused once more with `word` (`bad_request`): a copy whose count of that
@@ -457,13 +486,15 @@ impl IssueRequest {
         self.refusals.get(word).copied().unwrap_or(0)
     }
 
-    /// `other`'s counts of refusals joined in (the same request, as another vault holds it): the
-    /// larger count of each word stands - a count only grows.
-    pub(crate) fn join_refusals(&mut self, other: &IssueRequest) {
+    /// What `other` knows of the sends of the same request (as another vault holds it) joined in:
+    /// the larger count of each refusal's word stands - a count only grows - and a send that went
+    /// unanswered is known to every vault ([`IssueRequest::may_have_been_counted`]).
+    pub(crate) fn join_sends(&mut self, other: &IssueRequest) {
         for (word, count) in &other.refusals {
             let kept = self.refusals.entry(word.clone()).or_insert(0);
             *kept = (*kept).max(*count);
         }
+        self.unanswered |= other.unanswered;
     }
 
     #[must_use]
@@ -595,12 +626,14 @@ pub fn issue_next(
     // the end is in every vault by then, and only the replay (answered with the same signatures,
     // counted once) brings that last month back (AZ-P17). The first end stands.
     for kept in state.open_issues(checkout_id) {
-        match send_kept(server, tokens, &grant, kept, now)? {
+        let kept = unaccounted_for(tokens, kept);
+        match send_kept(server, tokens, &grant, &kept, now)? {
             Sent::Tokens(tokens) => return Ok(Issued::Tokens(tokens)),
             Sent::Ended(why) => return Ok(Issued::Ended(grant.ended.clone().unwrap_or(why))),
             // never signed (not due, a key that changed, refused for good as unreadable): given
-            // up, a fresh one below
-            Sent::NotDue | Sent::KeyChanged { .. } | Sent::GivenUp(_) => {}
+            // up, a fresh one below - and one the token server may have counted stays open for
+            // its replay, with a fresh one beside it
+            Sent::NotDue | Sent::KeyChanged { .. } | Sent::GivenUp(_) | Sent::Parked(_) => {}
         }
     }
     let grant = tokens.state().map_err(not_kept)?.grant(checkout_id).cloned().unwrap_or(grant);
@@ -627,12 +660,15 @@ pub fn issue_next(
             ..VaultState::default()
         };
         tokens.join(&keep).map_err(not_kept)?;
-        let answer = server.issue_period_tokens(
+        let answer = match server.issue_period_tokens(
             checkout_id,
             &grant.issue_key,
             request.key_id(),
             &request.messages(),
-        )?;
+        ) {
+            Ok(answer) => answer,
+            Err(e) => return Err(lost_answer(tokens, &request, e)),
+        };
         match answered(tokens, &grant, &request, answer, now)? {
             Sent::Tokens(issued) => return Ok(Issued::Tokens(issued)),
             Sent::Ended(why) => return Ok(Issued::Ended(why)),
@@ -651,7 +687,7 @@ pub fn issue_next(
             }
             // A request just made, refused for good: said as the refusal it is, the grant stays
             // as it is, and the next look blinds another.
-            Sent::GivenUp(why) => return Err(TokenError::Protocol(why)),
+            Sent::GivenUp(why) | Sent::Parked(why) => return Err(TokenError::Protocol(why)),
         }
     }
     Err(TokenError::Protocol(format!(
@@ -673,6 +709,11 @@ enum Sent {
     /// times in a row with the same word: it signed and counted nothing, the request is marked
     /// done, and a new one is blinded (X-DELTA-MONEY2-10).
     GivenUp(String),
+    /// The same refusals of a request that may have been counted by an earlier send whose answer
+    /// was lost ([`IssueRequest::may_have_been_counted`]): it is NOT marked done - the token
+    /// server would still answer it with its signatures the day its body arrives intact - and a
+    /// new request is blinded beside it (X-DELTA-MONEY5-8).
+    Parked(String),
 }
 
 /// The kept issue request `kept` of `grant` sent again as it is.
@@ -683,9 +724,69 @@ fn send_kept(
     kept: &IssueRequest,
     now: u64,
 ) -> Result<Sent, TokenError> {
-    let answer =
-        server.issue_period_tokens(&grant.checkout_id, &grant.issue_key, kept.key_id(), &kept.messages())?;
+    let answer = match server.issue_period_tokens(
+        &grant.checkout_id,
+        &grant.issue_key,
+        kept.key_id(),
+        &kept.messages(),
+    ) {
+        Ok(answer) => answer,
+        Err(e) => return Err(lost_answer(tokens, kept, e)),
+    };
     answered(tokens, grant, kept, answer, now)
+}
+
+/// Whether a send that ended with `e`, no answer of the token server's, may have reached it and been
+/// counted: every failure but those that sent nothing (a request that could not be built) and a
+/// busy server that says it did nothing (its rate limit, `"spent": false`).
+#[must_use]
+pub(crate) fn send_may_have_been_counted(e: &TokenError) -> bool {
+    match e {
+        TokenError::Config(_)
+        | TokenError::Busy {
+            spent: Spent::Nothing,
+            ..
+        } => false,
+        TokenError::Busy { .. }
+        | TokenError::Connect(_)
+        | TokenError::Protocol(_)
+        | TokenError::Refused { .. }
+        | TokenError::SignIn(_) => true,
+    }
+}
+
+/// The send of `request` ended with `e` and no answer: when it may have been counted, the request
+/// says so in every vault before the error goes on - a later `bad_request` is then no proof it
+/// was never counted (X-DELTA-MONEY5-8). The error is the caller's, whatever happens here.
+fn lost_answer(tokens: &DriveTokens, request: &IssueRequest, e: TokenError) -> TokenError {
+    if send_may_have_been_counted(&e) && !request.may_have_been_counted() {
+        // collapse-ok: the mark that cannot be written now is written by the next look that finds
+        // the request open with no outcome recorded ([`unaccounted_for`]); the error is what the
+        // caller needs
+        let _ = tokens.join(&VaultState {
+            issues: vec![request.with_unanswered_send()],
+            ..VaultState::default()
+        });
+    }
+    e
+}
+
+/// A request found open at the start of a look with no outcome recorded for any send of it - no
+/// refusal counted, no unanswered send marked - was kept by a look that was cut before its answer
+/// was recorded (or never sent): whether the token server counted it is not known, so it is marked
+/// before it is sent again. The request as the look sends it.
+fn unaccounted_for(tokens: &DriveTokens, kept: &IssueRequest) -> IssueRequest {
+    if kept.refusals() > 0 || kept.may_have_been_counted() {
+        return kept.clone();
+    }
+    let marked = kept.with_unanswered_send();
+    // collapse-ok: the look decides by the marked copy in hand; a mark that is not written is made
+    // again by the next look that finds the request open
+    let _ = tokens.join(&VaultState {
+        issues: vec![marked.clone()],
+        ..VaultState::default()
+    });
+    marked
 }
 
 /// Acts on `answer` to `request` of `grant` at `now` (seconds since 1970): the tokens finalized,
@@ -782,6 +883,18 @@ fn answered(
             let counted = request.refused_with_word(refusal.as_str());
             let times = counted.refused_as(refusal.as_str());
             if times >= REFUSALS_BEFORE_A_NEW_REQUEST {
+                // An earlier send of it ended without an answer: the token server may have signed
+                // and counted it, and a refusal of a mangled body proves nothing of the one that
+                // arrived intact. Not given up - kept open for its replay, sent once per look -
+                // and nothing to write: what is known of it is in the vaults (X-DELTA-MONEY5-8).
+                if counted.may_have_been_counted() {
+                    return Ok(Sent::Parked(format!(
+                        "the token server refused the request {times} times as {}, but an earlier \
+                         try of it may have been counted: it is kept for its replay and a new one \
+                         is blinded beside it",
+                        refusal.as_str()
+                    )));
+                }
                 tokens.join(&done(None)).map_err(not_kept)?;
                 return Ok(Sent::GivenUp(format!(
                     "the token server refused the request {times} times as {}: a new one is \
