@@ -188,6 +188,10 @@ impl<D: Drive> Drive for ScopedDrive<D> {
 
     // inherits: put_many, delete_many, move_many, put_from_many - the trait's batches call this
     // drive's own put, delete, copy and put_from, which check the grant and the key of every item
+    // inherits: delete_for, delete_many_for, delete_folder_for - the trait's (ARCH30-1): the reason
+    // is checked against the key the CALLER names - the one the user or the job chose, before the
+    // grant's prefix is put in front of it - and this drive's own delete, delete_many and
+    // delete_folder then check the grant and rewrite the key; the drive below never sees the reason
 
     fn local_path(&self, key: &str) -> Option<PathBuf> {
         self.inner.local_path(&self.full_name(key).ok()?)

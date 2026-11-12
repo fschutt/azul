@@ -99,6 +99,10 @@ const DATA_METHODS: &[&str] = &[
     "delete_folder",
     "remove_empty_folder",
     "delete_many",
+    // the calls that take a reason to delete (ARCH30-1) are data calls too
+    "delete_for",
+    "delete_many_for",
+    "delete_folder_for",
 ];
 
 /// What each `Drive` method of `AutoEncrypted` asks its gate for: `Op::Read`, `Op::Write` or
@@ -129,6 +133,9 @@ const OPS: &[(&str, &str)] = &[
     ("delete_folder", "Delete"),
     ("remove_empty_folder", "Delete"),
     ("delete_many", "Delete"),
+    ("delete_for", "Delete"),
+    ("delete_many_for", "Delete"),
+    ("delete_folder_for", "Delete"),
 ];
 
 /// The index of the closer that matches the opener at `open` (`(`, `[` or `{`), or the end.

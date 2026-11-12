@@ -133,7 +133,30 @@ impl<'a> Publish<'a> {
 
 /// The receipt of a publish: the new version is in place. The one thing a step that retires a
 /// source (a move deletes it after the copy landed) may be required to hold. It has one
-/// constructor, here; it cannot be copied, cloned, defaulted or read from a file.
+/// constructor, here; it cannot be copied, cloned, defaulted or read from a file. It is for the
+/// name the version landed at ([`Landed::at`]), and a reason to delete that carries it
+/// ([`crate::erase::Why::Superseded`]) covers that name and no other ([`Landed::covers`]).
+///
+/// ```compile_fail,E0451
+/// // Not made by hand: the field is private.
+/// use azul_storage::{beneath::Fingerprint, durable::Landed};
+/// fn forge(print: Fingerprint) -> Landed {
+///     Landed { len: 0, blake3: None, print, at: String::from("a.txt"), _sealed: () }
+/// }
+/// ```
+///
+/// What compiles - the control: the receipt of a publish is read, and is a reason.
+///
+/// ```no_run
+/// use azul_storage::{durable::Landed, erase::Why};
+/// fn reason(landed: &Landed) -> Why<'_> {
+///     Why::Superseded(landed)
+/// }
+/// fn name(landed: &Landed) -> &str {
+///     landed.at()
+/// }
+/// # let _ = (reason, name);
+/// ```
 #[derive(Debug)]
 pub struct Landed {
     /// Bytes written.
@@ -142,7 +165,44 @@ pub struct Landed {
     pub blake3: Option<[u8; 32]>,
     /// The file in place, as an `lstat` after the rename shows it.
     pub print: Fingerprint,
+    /// The name it landed at, from the root the folder was walked from (`a/b.txt`).
+    at: String,
     _sealed: (),
+}
+
+impl Landed {
+    /// The name the new version landed at, from the root the folder was walked from.
+    #[must_use]
+    pub fn at(&self) -> &str {
+        &self.at
+    }
+
+    /// Whether this receipt is for the name `key`: the one it landed at, and no other.
+    #[must_use]
+    pub(crate) fn covers(&self, key: &str) -> bool {
+        self.at == key
+    }
+
+    /// A receipt for the name `at`, for a test of what a reason covers.
+    #[cfg(test)]
+    pub(crate) fn lab(at: &str) -> Landed {
+        Landed {
+            len: 0,
+            blake3: None,
+            print: Fingerprint::from_parts(Kind::File, 0, 0, 0, 0, 0),
+            at: at.to_string(),
+            _sealed: (),
+        }
+    }
+}
+
+/// The name `name` of `dir` from the root `dir` was walked from: `a/b` and `c.txt` are `a/b/c.txt`.
+fn name_in(dir: &Dir, name: &str) -> String {
+    if dir.rel().is_empty() {
+        name.to_string()
+    } else {
+        format!("{}/{name}", dir.rel())
+    }
 }
 
 /// Why a new version was not put in place. In every case the old version is as it was and no
@@ -632,6 +692,7 @@ pub(crate) fn commit_probed(
         len: staged.len,
         blake3: staged.blake3,
         print,
+        at: name_in(dir, name),
         _sealed: (),
     })
 }
@@ -760,6 +821,7 @@ pub(crate) fn replace_keeping_probed(
         len: staged.len,
         blake3: staged.blake3,
         print,
+        at: name_in(dir, name),
         _sealed: (),
     })
 }

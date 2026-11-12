@@ -36,21 +36,83 @@ use super::{
 use crate::{crypto::ObjectId, BatchDelete, Drive, DriveError};
 
 /// The proof that the change which was to name a new object did not happen. Made from an error
-/// whose certainty is [`Certainty::Refused`] or [`Certainty::NotAttempted`], and from nothing else;
-/// it cannot be copied, defaulted or read from a file.
+/// whose certainty is [`Certainty::Refused`] or [`Certainty::NotAttempted`] and the object the change
+/// was to name, and from nothing else; it cannot be copied, defaulted or read from a file, and it is
+/// for that object and no other ([`Refusal::covers`]). The type is public so that a reason to delete
+/// ([`crate::erase::Why::Refused`]) can carry it; no one outside this module can make one: its fields
+/// are private and its one constructor is private ([`drop_new_object_after`] is the door).
+///
+/// ```compile_fail,E0451
+/// // Not made by hand: the fields are private.
+/// use azul_storage::meta::reclaim::Refusal;
+/// fn forge(id: azul_storage::crypto::ObjectId) -> Refusal {
+///     Refusal { id, _sealed: () }
+/// }
+/// ```
+///
+/// ```compile_fail,E0624
+/// // Not made from an error by a caller outside the module (nor by one inside the crate).
+/// use azul_storage::{meta::reclaim::Refusal, DriveError};
+/// fn forge(error: &DriveError, id: &azul_storage::crypto::ObjectId) -> Option<Refusal> {
+///     Refusal::of_object(error, id)
+/// }
+/// ```
+///
+/// What compiles - the control: a refusal that was made is a reason.
+///
+/// ```no_run
+/// use azul_storage::{erase::Why, meta::reclaim::Refusal};
+/// fn reason(refusal: &Refusal) -> Why<'_> {
+///     Why::Refused(refusal)
+/// }
+/// # let _ = reason;
+/// ```
 #[derive(Debug)]
-pub(crate) struct Refusal {
+pub struct Refusal {
+    /// The new object the refused change was to name.
+    id: ObjectId,
     _sealed: (),
 }
 
 impl Refusal {
-    /// The refusal `error` is, if it is one; `None` for a change that may have landed.
-    pub(crate) fn of(error: &DriveError) -> Option<Refusal> {
+    /// The refusal `error` is, if it is one, of the change that was to name the new object `id`;
+    /// `None` for a change that may have landed. Only [`drop_new_object_after`] makes one: a refusal
+    /// does not leave this module except inside a reason to delete.
+    fn of_object(error: &DriveError, id: &ObjectId) -> Option<Refusal> {
         match error.certainty() {
             Certainty::Unknown => None,
-            Certainty::Refused | Certainty::NotAttempted => Some(Refusal { _sealed: () }),
+            Certainty::Refused | Certainty::NotAttempted => Some(Refusal {
+                id: *id,
+                _sealed: (),
+            }),
         }
     }
+
+    /// Whether this refusal is for the object at `key` of the bucket: the key of the object it was
+    /// made for, and no other.
+    pub(crate) fn covers(&self, key: &str) -> bool {
+        self.id.bucket_key() == key
+    }
+
+    /// A refusal for the object `id`, for a test of what a reason covers.
+    #[cfg(test)]
+    pub(crate) fn lab(id: ObjectId) -> Refusal {
+        Refusal { id, _sealed: () }
+    }
+}
+
+/// Takes the new object `id` back out of `drive`'s bucket when `error`, the answer of the change that
+/// was to name it, says the change was refused for good or never made: `Some` with what the bucket
+/// answered to the delete (a delete it refuses leaves the object where it is - named by nothing, and
+/// the caller says so). `None` for a change that may have landed: nothing is deleted. The one door to
+/// the compensation: the [`Refusal`] is made here, of the error and the object, and goes no further.
+pub(crate) fn drop_new_object_after<D: Drive + ?Sized>(
+    drive: &D,
+    id: &ObjectId,
+    error: &DriveError,
+) -> Option<Result<(), DriveError>> {
+    let refusal = Refusal::of_object(error, id)?;
+    Some(drop_new_object(drive, id, &refusal))
 }
 
 /// Takes the new object `id` back out of `drive`'s bucket: the one compensation of a change that
@@ -60,7 +122,7 @@ impl Refusal {
 /// # Errors
 ///
 /// The bucket's error.
-pub(crate) fn drop_new_object<D: Drive + ?Sized>(
+fn drop_new_object<D: Drive + ?Sized>(
     drive: &D,
     id: &ObjectId,
     _refusal: &Refusal,
@@ -518,7 +580,25 @@ pub enum History<'a> {
 /// The licence to delete data objects the history may still name: made by [`ask_retired_delete`]
 /// (from the evidence of a drive's shadow rounds), by [`DeleteLicence::of_an_index_without_history`]
 /// and by [`DeleteLicence::confirmed`] (a purge the user confirmed), and by nothing else - no field
-/// is public, it cannot be copied, defaulted or read from a file.
+/// is public, it cannot be copied, defaulted or read from a file. It says WHEN the history lets a
+/// data object go, not which: the object is named by the proof beside it ([`Reclaimable`]), and a
+/// reason to delete ([`crate::erase::Why::Retired`]) is the two together.
+///
+/// ```compile_fail,E0451
+/// // Not made by hand: the field is private.
+/// use azul_storage::meta::reclaim::DeleteLicence;
+/// let _licence = DeleteLicence { _sealed: () };
+/// ```
+///
+/// What compiles - the control: a licence somebody asked for, with the proof, is a reason.
+///
+/// ```no_run
+/// use azul_storage::{erase::Why, meta::reclaim::{DeleteLicence, Reclaimable}};
+/// fn reason<'a>(licence: &'a DeleteLicence, proof: &'a Reclaimable) -> Why<'a> {
+///     Why::Retired(licence, proof)
+/// }
+/// # let _ = reason;
+/// ```
 #[derive(Debug)]
 pub struct DeleteLicence {
     _sealed: (),
@@ -589,7 +669,34 @@ pub(crate) fn ask_retired_delete(history: History<'_>, now: u64) -> Gate {
 /// What the user confirmed when they asked for the old versions of a drive to be erased: after a
 /// key was changed ("I was hacked": re-encrypting every file leaves the old objects, which the old
 /// key still opens, in the history) the history is restorable until the retention is over -
-/// unless they say it is not. Made from the confirmation a person gave and from nothing else.
+/// unless they say it is not. Made from the confirmation a person gave and from nothing else: the
+/// answer a re-encryption pass recorded ([`PurgeConfirmation::recorded_in`]); the constructor from a
+/// number is this module's and nothing outside it can call it.
+///
+/// ```compile_fail,E0451
+/// // Not made by hand: the field is private.
+/// use azul_storage::meta::reclaim::PurgeConfirmation;
+/// let _confirmation = PurgeConfirmation { at: 1, _sealed: () };
+/// ```
+///
+/// ```compile_fail,E0624
+/// // Not made from a number.
+/// use azul_storage::meta::reclaim::PurgeConfirmation;
+/// let _confirmation = PurgeConfirmation::confirmed_by_the_user(1);
+/// ```
+///
+/// What compiles - the control: the confirmation a pass recorded is read, and is a reason.
+///
+/// ```no_run
+/// use azul_storage::{erase::Why, meta::reclaim::{PurgeConfirmation, Reclaimable}};
+/// fn reason<'a>(confirmation: &'a PurgeConfirmation, proof: &'a Reclaimable) -> Why<'a> {
+///     Why::Confirmed(confirmation, proof)
+/// }
+/// fn when(confirmation: &PurgeConfirmation) -> u64 {
+///     confirmation.at
+/// }
+/// # let _ = (reason, when);
+/// ```
 // The private field and not `#[non_exhaustive]`: only this module can make one, where
 // `non_exhaustive` would let the whole crate.
 #[allow(clippy::manual_non_exhaustive)]
@@ -601,12 +708,30 @@ pub struct PurgeConfirmation {
 }
 
 impl PurgeConfirmation {
-    /// The user confirmed at `at` that every old version of every file is erased now, for good:
-    /// the drive's history before this moment cannot be restored afterwards. Call this only after
-    /// a person said so.
+    /// The confirmation the user gave that `state` records, if they gave one: the one door from a
+    /// recorded answer ([`crate::rotation::ReencryptState::confirm_purge`], saved with the pass so
+    /// that a restart does not lose it) to a confirmation. The constructor below is this module's
+    /// and nothing outside it makes one from a number.
     #[must_use]
-    pub(crate) fn confirmed_by_the_user(at: u64) -> PurgeConfirmation {
+    pub(crate) fn recorded_in(
+        state: &crate::rotation::ReencryptState,
+    ) -> Option<PurgeConfirmation> {
+        state
+            .purge_confirmed_at
+            .map(PurgeConfirmation::confirmed_by_the_user)
+    }
+
+    /// The user confirmed at `at` that every old version of every file is erased now, for good:
+    /// the drive's history before this moment cannot be restored afterwards. Only
+    /// [`PurgeConfirmation::recorded_in`] calls it.
+    fn confirmed_by_the_user(at: u64) -> PurgeConfirmation {
         PurgeConfirmation { at, _sealed: () }
+    }
+
+    /// A confirmation at `at`, for a test of what a purge does with one.
+    #[cfg(test)]
+    pub(crate) fn lab(at: u64) -> PurgeConfirmation {
+        PurgeConfirmation::confirmed_by_the_user(at)
     }
 }
 
@@ -732,7 +857,26 @@ impl NotYet {
 /// The proof that a data object may leave the bucket: the history released it, the last commit
 /// that named it is past the retention, neither the head nor a commit of the window names it, and
 /// it was read fresh and whole. Made by the reclaimer's analysis and by nothing else; it cannot
-/// be copied, defaulted or read from a file.
+/// be copied, defaulted or read from a file. It is for ONE object: a reason to delete that carries
+/// it ([`crate::erase::Why::Retired`]) is for this object's bucket key and no other.
+///
+/// ```compile_fail,E0451
+/// // Not made by hand: the fields are private.
+/// use azul_storage::meta::reclaim::Reclaimable;
+/// fn forge(id: azul_storage::crypto::ObjectId) -> Reclaimable {
+///     Reclaimable { id, _sealed: () }
+/// }
+/// ```
+///
+/// What compiles - the control: the proof is read, and says which object it is for.
+///
+/// ```no_run
+/// use azul_storage::meta::reclaim::Reclaimable;
+/// fn object(proof: &Reclaimable) -> azul_storage::crypto::ObjectId {
+///     proof.id()
+/// }
+/// # let _ = object;
+/// ```
 #[derive(Debug)]
 pub struct Reclaimable {
     id: ObjectId,
@@ -744,6 +888,18 @@ impl Reclaimable {
     #[must_use]
     pub fn id(&self) -> ObjectId {
         self.id
+    }
+
+    /// Whether this proof is for the object at `key` of the bucket: the key of its object, and no
+    /// other (what a reason to delete that carries it covers, [`crate::erase::Why::Retired`]).
+    pub(crate) fn covers(&self, key: &str) -> bool {
+        self.id.bucket_key() == key
+    }
+
+    /// A proof for the object `id`, for a test of what a reason covers.
+    #[cfg(test)]
+    pub(crate) fn lab(id: ObjectId) -> Reclaimable {
+        Reclaimable { id, _sealed: () }
     }
 }
 

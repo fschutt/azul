@@ -2382,8 +2382,7 @@ fn x_delta_sync4_10_the_purge_erases_the_versions_before_the_confirmation_and_ke
     lab.at(now - 20 * DAY);
     lab.drive.put("a.txt", b"version two").unwrap();
     // The user confirmed ten days ago; the file was saved again five days ago.
-    let confirmation =
-        crate::meta::reclaim::PurgeConfirmation::confirmed_by_the_user(now - 10 * DAY);
+    let confirmation = crate::meta::reclaim::PurgeConfirmation::lab(now - 10 * DAY);
     lab.at(now - 5 * DAY);
     lab.drive.put("a.txt", b"version three").unwrap();
     let before = lab.data_objects().len();

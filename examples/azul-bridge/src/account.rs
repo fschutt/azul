@@ -289,6 +289,9 @@ impl Drive for AccountDrive {
     // and keeps no upload state
     // inherits: put_file, put_file_checked, put_from_if, put_many, delete_many, move_many,
     // put_from_many - the trait's, which call this drive's own put_from, put_if, delete and copy
+    // inherits: delete_for, delete_many_for, delete_folder_for - the trait's (ARCH30-1): the reason is
+    // checked against the key the caller names, and this drive's own delete, delete_many (the
+    // trait's, over delete) and delete_folder then open the bucket with the account's credentials
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
         self.with_bucket(|b| b.metadata(key))
     }

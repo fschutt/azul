@@ -33,6 +33,9 @@ const LOCAL_DEFAULTS: &[(&str, &str)] = &[
     ("put_many", "one LocalDrive::put after the other: a folder packs nothing"),
     ("delete_many", "one LocalDrive::delete after the other, a version checked by LocalDrive::head's tag"),
     ("put_from_many", "one LocalDrive::put_from after the other"),
+    ("delete_for", "the reason is checked against the key, then LocalDrive::delete (ARCH30-1: the trait's composition over the drive's own delete)"),
+    ("delete_many_for", "the reason is checked against every key of the batch, then LocalDrive::delete_many's default (one LocalDrive::delete after the other)"),
+    ("delete_folder_for", "the reason is checked against the folder, then LocalDrive::delete_folder"),
 ];
 
 fn methods_of(source: &str, header: &str) -> Vec<String> {
@@ -240,8 +243,8 @@ fn c6e_a_send_method_is_a_request_that_can_be_sent_again_and_every_other_call_is
     assert!(in_list.len() >= 27, "the list was parsed");
     for entry in &in_list {
         assert!(
-            entry.kind == "send" || entry.kind == "pass",
-            "Drive::{}: the kind `{}` is neither `send` nor `pass`",
+            ["send", "pass", "compose"].contains(&entry.kind.as_str()),
+            "Drive::{}: the kind `{}` is neither `send`, `pass` nor `compose`",
             entry.name,
             entry.kind
         );
@@ -278,6 +281,54 @@ fn c6e_a_send_method_is_a_request_that_can_be_sent_again_and_every_other_call_is
     assert_eq!(kind("put_many"), Some("pass"));
 }
 
+/// ARCH30-1. A call that takes a reason to delete (`erase::Why`) is `compose`, and only such a call
+/// is: a reason is spent by the call it is given to, so it cannot be `send` (a wrapper that retries
+/// would send it twice) and a `pass` would forward it to the drive below - past the wrapper's own
+/// retry, cache, credentials, stop flag, grant and key rewrite. The default of the trait checks it
+/// against the key the caller names and calls the wrapper's OWN `delete`, `delete_many` or
+/// `delete_folder`; the macro leaves such an entry out of `DriveDelegate` and of the `impl Drive` it
+/// writes. A `compose` entry is provided (a leaf that must answer for itself is the later step) and
+/// names the call it composes over (`delete_for` over `delete`).
+#[test]
+fn arch30_1_a_call_that_takes_a_reason_is_compose_and_nothing_else_is() {
+    let in_list = list_entries(include_str!("../lib.rs"));
+    let composed: Vec<&str> = in_list
+        .iter()
+        .filter(|e| e.kind == "compose")
+        .map(|e| e.name.as_str())
+        .collect();
+    assert_eq!(
+        composed,
+        ["delete_for", "delete_many_for", "delete_folder_for"],
+        "the reasons to delete, in the order of the list"
+    );
+    for entry in &in_list {
+        let takes_a_reason = entry.signature.contains("$crate::erase::Why");
+        assert_eq!(
+            takes_a_reason,
+            entry.kind == "compose",
+            "Drive::{}: a call that takes a reason is `compose` and every `compose` call takes one \
+             (kind `{}`): {}",
+            entry.name,
+            entry.kind,
+            entry.signature
+        );
+        if entry.kind == "compose" {
+            assert!(
+                !entry.required,
+                "Drive::{} is `compose` and required: the default is the composition",
+                entry.name
+            );
+            let over = entry.name.trim_end_matches("_for");
+            assert!(
+                in_list.iter().any(|e| e.name == over),
+                "Drive::{} composes over Drive::{over}, which the list does not name",
+                entry.name
+            );
+        }
+    }
+}
+
 /// A wrapper made with the macro, over a folder, that counts the requests it sends: it writes
 /// `below` and `send` and nothing else.
 struct Counting {
@@ -300,6 +351,74 @@ impl crate::DriveDelegate for Counting {
 }
 
 crate::delegate_drive!(Counting);
+
+/// ARCH30-1, through the entry the production wrappers use (`delegate_drive!`, over a real folder):
+/// the three calls that take a reason are composed over the wrapper's OWN delete path, so the
+/// wrapper's `send` is asked once for the delete itself and a reason that is for another key is
+/// refused BEFORE it is asked - nothing reaches the drive below (RED against a forwarded `pass`: the
+/// wrapper would never hear of the delete, and `delete_for` would be answered by the folder below).
+#[test]
+fn arch30_1_a_macro_made_wrapper_composes_the_reasons_over_its_own_delete_path() {
+    use crate::{
+        erase::{Chose, Target, Why},
+        BatchDelete, Drive, DriveError,
+    };
+    use std::sync::atomic::Ordering::SeqCst;
+    let dir = crate::testing::TempDir::new("arch30-1-counting");
+    let drive = Counting {
+        folder: crate::LocalDrive::new(dir.path().to_path_buf()),
+        sent: std::sync::atomic::AtomicUsize::new(0),
+    };
+    let sent = || drive.sent.load(SeqCst);
+    for key in ["a/one.txt", "a/two.txt", "b/three.txt", "keep.txt"] {
+        drive.put(key, b"x").unwrap();
+    }
+    let puts = sent();
+    // One reason for one key: the delete goes through the wrapper's `send`, once.
+    let key_one = Chose::job("delete one.txt", Target::Key(String::from("a/one.txt")));
+    drive
+        .delete_for("a/one.txt", Why::UserChose(&key_one))
+        .unwrap();
+    assert_eq!(sent(), puts + 1, "the wrapper's own delete path asked once");
+    assert!(drive.head("a/one.txt").is_err());
+    // A reason for another key is refused before the wrapper is asked, and nothing is deleted.
+    let refused = drive.delete_for("keep.txt", Why::UserChose(&key_one));
+    assert!(
+        matches!(refused, Err(DriveError::Denied { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(sent(), puts + 2, "only the head above asked the wrapper");
+    assert!(drive.head("keep.txt").is_ok());
+    // A batch is refused whole when one key is not the reason's; else one send for the batch's items.
+    let two_files = Chose::job(
+        "delete two files",
+        Target::Keys(vec![String::from("a/two.txt"), String::from("b/three.txt")]),
+    );
+    let stray = [BatchDelete::new("a/two.txt"), BatchDelete::new("keep.txt")];
+    let answers = drive.delete_many_for(&stray, Why::UserChose(&two_files));
+    assert!(answers
+        .iter()
+        .all(|a| matches!(a, Err(DriveError::Denied { .. }))));
+    assert!(
+        drive.head("a/two.txt").is_ok(),
+        "nothing of a refused batch is deleted"
+    );
+    let both = [
+        BatchDelete::new("a/two.txt"),
+        BatchDelete::new("b/three.txt"),
+    ];
+    let answers = drive.delete_many_for(&both, Why::UserChose(&two_files));
+    assert!(answers.iter().all(Result::is_ok), "{answers:?}");
+    // A folder is removed only for a job that named a folder.
+    let folder = Chose::job("delete the folder", Target::Folder(String::from("b/")));
+    assert!(matches!(
+        drive.delete_folder_for("b/", Why::UserChose(&two_files)),
+        Err(DriveError::Denied { .. })
+    ));
+    drive
+        .delete_folder_for("b/", Why::UserChose(&folder))
+        .unwrap();
+}
 
 /// ARCH29 C6e, through the entry the production wrappers use (`delegate_drive!`, over a real
 /// folder): a request goes through the wrapper's `send` once, and everything else - the place, the

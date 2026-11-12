@@ -63,6 +63,9 @@ pub mod dir_read;
 pub mod docs;
 /// The one way a file is put in place: staged beside the name, synced, checked, renamed.
 pub mod durable;
+/// A reason at every verb that destroys: [`Drive::delete_for`] and its two siblings take a
+/// [`erase::Why`], made of a witness only the owner of the evidence can make.
+pub mod erase;
 /// What one drive leaves on a device: the keyring entries' names, the evidence a secret needs
 /// before it is erased, and the removal that takes it all off.
 pub mod footprint;
@@ -993,6 +996,55 @@ pub trait Drive: Send + Sync {
             })
             .collect()
     }
+
+    /// [`Drive::delete`] for a reason (ARCH30-1, step 1 of the migration: the old method stays):
+    /// removes the object `key` only when `why` is the reason for THAT key ([`erase::Why::covers`]),
+    /// and is refused with [`DriveError::Denied`], nothing deleted, when it is for something else.
+    /// The reason is checked against the key the caller names, here, and then the drive's own
+    /// [`Drive::delete`] does the work: a wrapper's retry, cache, credentials, stop flag, grant and
+    /// key rewrite all apply (`drive_methods!` calls this entry `compose`: it is never forwarded to
+    /// the drive below, which would skip them, and never sent twice, a reason being spent by the
+    /// call). See [`erase`] for the five reasons, what each is bound to and who makes it.
+    ///
+    /// # Errors
+    ///
+    /// [`DriveError::Denied`] when `why` is not for `key`; else what [`Drive::delete`] answers.
+    fn delete_for(&self, key: &str, why: erase::Why<'_>) -> Result<(), DriveError> {
+        why.check(key)?;
+        self.delete(key)
+    }
+
+    /// [`Drive::delete_many`] for a reason: `why` must be for EVERY key of the batch, or the whole
+    /// batch is refused before anything is deleted (one result per item, each
+    /// [`DriveError::Denied`]); then [`Drive::delete_many`] does the work, with its own rules for
+    /// versions and conflicts. A reason that names one object is a reason for a batch of one.
+    fn delete_many_for(
+        &self,
+        items: &[BatchDelete<'_>],
+        why: erase::Why<'_>,
+    ) -> Vec<Result<(), DriveError>> {
+        match why.check_all(items) {
+            Ok(()) => self.delete_many(items),
+            Err(refused) => items
+                .iter()
+                .map(|_| Err(DriveError::from(refused.clone())))
+                .collect(),
+        }
+    }
+
+    /// [`Drive::delete_folder`] for a reason: `why` must be for the folder `prefix` and everything
+    /// under it ([`erase::Why::covers_folder`]: only a job that named a folder is), else the call is
+    /// refused with [`DriveError::Denied`] and nothing is deleted; then [`Drive::delete_folder`]
+    /// removes what is in it NOW.
+    ///
+    /// # Errors
+    ///
+    /// [`DriveError::Denied`] when `why` is not for the folder; else what [`Drive::delete_folder`]
+    /// answers.
+    fn delete_folder_for(&self, prefix: &str, why: erase::Why<'_>) -> Result<(), DriveError> {
+        why.check_folder(prefix)?;
+        self.delete_folder(prefix)
+    }
 }
 
 /// A drive behind a pointer is that drive: a `Box`, an `Arc` or a reference forwards
@@ -1117,6 +1169,19 @@ macro_rules! forward_drive {
             ) -> Vec<Result<Option<String>, DriveError>> {
                 (**self).put_from_many(items)
             }
+            fn delete_for(&self, key: &str, why: erase::Why<'_>) -> Result<(), DriveError> {
+                (**self).delete_for(key, why)
+            }
+            fn delete_many_for(
+                &self,
+                items: &[BatchDelete<'_>],
+                why: erase::Why<'_>,
+            ) -> Vec<Result<(), DriveError>> {
+                (**self).delete_many_for(items, why)
+            }
+            fn delete_folder_for(&self, prefix: &str, why: erase::Why<'_>) -> Result<(), DriveError> {
+                (**self).delete_folder_for(prefix, why)
+            }
         }
     )*};
 }
@@ -1130,7 +1195,7 @@ forward_drive!(Box<D>, std::sync::Arc<D>, &D);
 /// entry per method:
 ///
 /// ```text
-/// (send|pass, required|provided) fn name(argument: Type, ..) -> Return;
+/// (send|pass|compose, required|provided) fn name(argument: Type, ..) -> Return;
 /// ```
 ///
 /// - `required`: the trait has no default for it, an implementation writes it;
@@ -1139,6 +1204,15 @@ forward_drive!(Box<D>, std::sync::Arc<D>, &D);
 /// - `pass`: forwarded as it is - a question about the drive (`site`, `local_path`) or a call a
 ///   wrapper has to decide about for itself: a body that is read once, a file's upload that hears a
 ///   stop, a batch. Never retried by default: what cannot be sent twice is not sent twice.
+/// - `compose`: answered by the trait's own default over the wrapper's OWN calls, and left out of
+///   [`DriveDelegate`] and of the `impl Drive` that [`delegate_drive!`] writes: the `*_for` methods
+///   that take a reason ([`erase::Why`], ARCH30-1). A reason is spent by the call that takes it, so
+///   the call cannot be `send` (sent again as it is), and forwarded to the drive below it would skip
+///   what the wrapper does around its own `delete` - the retry, the cache that forgets the object,
+///   the renewed credentials, the stop flag - so it is not `pass` either: the default checks the
+///   reason against the key the caller names and calls the wrapper's own `delete`, `delete_many` or
+///   `delete_folder`. A wrapper that writes `impl Drive` by hand defines it or says in an
+///   `// inherits:` comment why the composition is right for it.
 ///
 /// A new method of [`Drive`] is written here AND in the trait; `tests/drive_coverage.rs` fails
 /// until both say the same and every `send` entry is a request that can be replayed. Every wrapper
@@ -1178,6 +1252,9 @@ macro_rules! drive_methods {
             (pass, provided) fn delete_many(items: &[$crate::BatchDelete<'_>]) -> ::std::vec::Vec<::core::result::Result<(), $crate::DriveError>>;
             (pass, provided) fn move_many(items: &[$crate::BatchMove<'_>]) -> ::std::vec::Vec<::core::result::Result<(), $crate::DriveError>>;
             (pass, provided) fn put_from_many(items: &mut [$crate::BatchStream<'_>]) -> ::std::vec::Vec<::core::result::Result<::core::option::Option<::std::string::String>, $crate::DriveError>>;
+            (compose, provided) fn delete_for(key: &str, why: $crate::erase::Why<'_>) -> ::core::result::Result<(), $crate::DriveError>;
+            (compose, provided) fn delete_many_for(items: &[$crate::BatchDelete<'_>], why: $crate::erase::Why<'_>) -> ::std::vec::Vec<::core::result::Result<(), $crate::DriveError>>;
+            (compose, provided) fn delete_folder_for(prefix: &str, why: $crate::erase::Why<'_>) -> ::core::result::Result<(), $crate::DriveError>;
         }
     };
 }
@@ -1197,6 +1274,8 @@ macro_rules! __drive_delegate_method {
             self.below().$name($($arg),*)
         }
     };
+    // Composed over the wrapper's own calls by the trait's default: no method of the delegate.
+    (compose fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty) => {};
 }
 
 /// The trait [`DriveDelegate`], its methods written from [`drive_methods!`].
@@ -1216,7 +1295,12 @@ macro_rules! __drive_delegate_trait {
         /// scope makes `x.get(..)` ambiguous), writes `below`, `send` where it wraps requests and the
         /// methods it changes, and calls [`delegate_drive!`] for the `impl Drive`. A method it does
         /// not write is forwarded, and so is a method the trait gets next year: the wrapper that
-        /// forgot one cannot answer it for itself any more (X-DELTA-AZDRIVE-FILES-2).
+        /// forgot one cannot answer it for itself any more (X-DELTA-AZDRIVE-FILES-2). The calls that
+        /// take a reason to delete (`delete_for`, `delete_many_for`, `delete_folder_for`; kind
+        /// `compose` in [`drive_methods!`]) are no methods of this trait: the trait's default of
+        /// [`Drive`] checks the reason against the key and calls the wrapper's own `delete`,
+        /// `delete_many` or `delete_folder`, so the wrapper's retry, cache, credentials and stop flag
+        /// apply to them as they do to a delete (ARCH30-1).
         ///
         /// Not for a wrapper whose forwarding as it is would be WRONG for a method nobody has
         /// looked at: the encryption wrappers (`AutoEncrypted`, `EncryptedDrive`: each method has
@@ -1257,10 +1341,23 @@ macro_rules! __drive_delegate_impl {
     ( $wrapper:ty ; $( ($kind:ident, $required:ident) fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty ; )* ) => {
         impl $crate::Drive for $wrapper {
             $(
-                fn $name(&self $(, $arg: $ty)*) -> $ret {
-                    <$wrapper as $crate::DriveDelegate>::$name(self $(, $arg)*)
+                $crate::__drive_delegate_impl_method! {
+                    $wrapper ; $kind fn $name ( $($arg : $ty),* ) -> $ret
                 }
             )*
+        }
+    };
+}
+
+/// One method of the `impl Drive` that [`delegate_drive!`] writes: it calls the method of the same name
+/// of the wrapper's [`DriveDelegate`]; a `compose` method is none (the trait's default answers it).
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __drive_delegate_impl_method {
+    ( $wrapper:ty ; compose fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty ) => {};
+    ( $wrapper:ty ; $kind:ident fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty ) => {
+        fn $name(&self $(, $arg: $ty)*) -> $ret {
+            <$wrapper as $crate::DriveDelegate>::$name(self $(, $arg)*)
         }
     };
 }

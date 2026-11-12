@@ -1162,8 +1162,7 @@ impl ReencryptState {
     /// ([`crate::meta::MetaIndexProvider::purge`]) takes once the pass is over.
     #[must_use]
     pub fn purge_confirmation(&self) -> Option<crate::meta::reclaim::PurgeConfirmation> {
-        self.purge_confirmed_at
-            .map(crate::meta::reclaim::PurgeConfirmation::confirmed_by_the_user)
+        crate::meta::reclaim::PurgeConfirmation::recorded_in(self)
     }
 
     #[must_use]

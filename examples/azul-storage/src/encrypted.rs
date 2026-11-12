@@ -70,8 +70,8 @@ use crate::{
     keyring::KeyringStore,
     limits::named,
     meta::reclaim::{
-        ask_retired_delete, delete_released, drop_new_object, Gate, History, LiveObjects,
-        ReclaimMode, Refusal, Released, Standing, DEFAULT_MODE,
+        ask_retired_delete, delete_released, drop_new_object_after, Gate, History, LiveObjects,
+        ReclaimMode, Released, Standing, DEFAULT_MODE,
     },
     ops::check_folder,
     packing::{PackOptions, PackState, PackedAt},
@@ -1042,6 +1042,29 @@ impl Drive for AutoEncrypted {
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
         self.gate(Op::Delete)?.delete_folder(prefix)
     }
+    // The reasons to delete go through the same gate as the deletes (ARCH30-1): a drive that is
+    // locked or undecidable answers before the reason is looked at, and the drive the gate hands out
+    // checks the reason against the key and then deletes with its own delete.
+    fn delete_for(&self, key: &str, why: crate::erase::Why<'_>) -> Result<(), DriveError> {
+        self.gate(Op::Delete)?.delete_for(key, why)
+    }
+    fn delete_many_for(
+        &self,
+        items: &[BatchDelete<'_>],
+        why: crate::erase::Why<'_>,
+    ) -> Vec<Result<(), DriveError>> {
+        match self.gate(Op::Delete) {
+            Ok(drive) => drive.delete_many_for(items, why),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+    fn delete_folder_for(
+        &self,
+        prefix: &str,
+        why: crate::erase::Why<'_>,
+    ) -> Result<(), DriveError> {
+        self.gate(Op::Delete)?.delete_folder_for(prefix, why)
+    }
     fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
         self.gate(Op::Delete)?.remove_empty_folder(prefix)
     }
@@ -1796,20 +1819,17 @@ impl<'d, D: Drive> Staged<'d, D> {
     /// The index change that was to name the object ended in `error`. The drive's index is asked
     /// now, from the drive and not from a copy of it, whether the change landed after all (an
     /// answer that got lost); an index that cannot be asked leaves the object where it is. Then
-    /// the error decides: a change refused for good or never made ([`Refusal`]) takes the object
-    /// back out of the bucket; one that may have landed does not.
+    /// the error decides ([`drop_new_object_after`]): a change refused for good or never made takes
+    /// the object back out of the bucket; one that may have landed does not.
     pub(crate) fn failed(self, error: &DriveError) -> Settled {
         match self.drive.index.get_fresh(&self.path) {
             Ok(Some(entry)) if entry.bucket_object() == Some(self.id) => return Settled::Named,
             Ok(_) => {}
             Err(_) => return self.kept(),
         }
-        let Some(refusal) = Refusal::of(error) else {
-            return self.kept();
-        };
-        match drop_new_object(&self.drive.inner, &self.id, &refusal) {
-            Ok(()) => Settled::Dropped,
-            Err(_) => self.kept(),
+        match drop_new_object_after(&self.drive.inner, &self.id, error) {
+            Some(Ok(())) => Settled::Dropped,
+            None | Some(Err(_)) => self.kept(),
         }
     }
 
@@ -3255,6 +3275,11 @@ impl<D: Drive> Drive for EncryptedDrive<D> {
     }
     // inherits: remove_empty_folder - the trait's: a listing of the index shows what is in the
     // folder, and its markers go in one change of the index
+    // inherits: delete_for, delete_many_for, delete_folder_for - the trait's (ARCH30-1): the reason
+    // is checked against the NAME the caller gives, and this drive's own delete, delete_many and
+    // delete_folder then change the index; the data objects stay in the history, and leave the bucket
+    // only through the reclaimer's licence and its proof for the object (`Why::Retired`), a reason
+    // for a bucket key, never for a name
     // inherits: site - the place of an encrypted drive is its own key space (a logical key is no
     // key of the inner drive), so it answers as the very object it is
     // inherits: local_path, resume_folder - the inner drive's files are ciphertext, not the file

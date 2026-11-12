@@ -23,6 +23,9 @@ mod ctl;
 mod declared;
 /// A folder read in batches, a listing page that stats only its own entries.
 mod dir_read;
+/// A reason at every verb that destroys (ARCH30-1): what each witness covers, what the three `*_for`
+/// calls refuse and do.
+mod erase;
 /// What a drive leaves on a device: its keyring entries' names, the removal that takes the drives file
 /// entry last, the evidence a key needs, the plain file that takes no key.
 mod footprint;

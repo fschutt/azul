@@ -78,8 +78,8 @@ use crate::{
     limits::{Declared, Limit, LimitError},
     local::write_atomically,
     meta::reclaim::{
-        ask_retired_delete, delete_reclaimable, drop_new_object, Deleted, Gate, History,
-        LiveObjects, Refusal, Released,
+        ask_retired_delete, delete_reclaimable, drop_new_object_after, Deleted, Gate, History,
+        LiveObjects, Released,
     },
     time::now_unix,
     BatchPut, ByteRange, Drive, DriveError, ObjectInfo,
@@ -1503,8 +1503,8 @@ impl<D: Drive> EncryptedDrive<D> {
                 Named::No => {
                     let gone = refused
                         .as_ref()
-                        .and_then(Refusal::of)
-                        .is_some_and(|refusal| drop_new_object(&self.inner, &id, &refusal).is_ok());
+                        .and_then(|error| drop_new_object_after(&self.inner, &id, error))
+                        .is_some_and(|answer| answer.is_ok());
                     if gone {
                         self.packs.journal.end(&id);
                     }
