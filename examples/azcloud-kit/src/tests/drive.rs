@@ -32,14 +32,29 @@ const EXPIRES: u64 = 1_791_494_100;
 /// The cloud: the token server (a refresh with the right token answers the next bundle) and
 /// the bucket (a listing; a refused key when `refuse_key` names the credentials used).
 fn cloud(refuse_key: Option<&'static str>) -> Arc<Fake> {
+    cloud_expiring(refuse_key, "2026-10-09T09:15:00Z", "2026-10-09T21:15:00Z")
+}
+
+/// [`cloud`] whose credentials, once refreshed, last: a drive that makes several requests (the encryption's
+/// gate decides the drive from the bucket before its first answer) refreshes once, as the system's clock
+/// stands, and not at every request.
+fn cloud_lasting() -> Arc<Fake> {
+    cloud_expiring(None, "2099-01-01T00:00:00Z", "2099-01-01T12:00:00Z")
+}
+
+fn cloud_expiring(
+    refuse_key: Option<&'static str>,
+    first_refresh_expires: &'static str,
+    second_refresh_expires: &'static str,
+) -> Arc<Fake> {
     Fake::new(move |call, _| {
         if call.url.starts_with(TOKEN) {
             return Ok(match header(call, "authorization") {
                 Some("Bearer dt_f.0.aaa") => {
-                    json(200, &bundle("AKID2", "2026-10-09T09:15:00Z", "dt_f.1.bbb"))
+                    json(200, &bundle("AKID2", first_refresh_expires, "dt_f.1.bbb"))
                 }
                 Some("Bearer dt_f.1.bbb") => {
-                    json(200, &bundle("AKID3", "2026-10-09T21:15:00Z", "dt_f.2.ccc"))
+                    json(200, &bundle("AKID3", second_refresh_expires, "dt_f.2.ccc"))
                 }
                 _ => json(
                     401,
@@ -744,42 +759,22 @@ fn a_test_build_takes_the_entrys_server_else_the_runs_and_only_an_azlin_drive_ha
     );
 }
 
-/// What the app puts over the bytes: counts what passes through it. The gate of the test.
-struct Gate {
-    below: Arc<dyn Drive>,
-    passed: Arc<AtomicU64>,
-}
-
-impl azul_storage::DriveDelegate for Gate {
-    fn below(&self) -> &dyn Drive {
-        &*self.below
-    }
-
-    fn send<T>(
-        &self,
-        request: impl Fn(&dyn Drive) -> Result<T, DriveError>,
-    ) -> Result<T, DriveError> {
-        self.passed.fetch_add(1, Ordering::SeqCst);
-        request(&*self.below)
-    }
-}
-
-azul_storage::delegate_drive!(Gate);
-
-/// ARCH29 C6d, X-DELTA-AZDRIVE-KEYS-4 and -9. `open_azlin` hands out the account and the drive the gate
-/// made, nothing else: the gate is called once and is given the bytes of the bucket; a request of the
-/// drive that comes out passes through it and reaches the bucket with the drive's credentials; the account
-/// (a lockdown, the session, the token server it resolved) is the same drive's and has no put and no get.
+/// ARCH29 C6d, X-DELTA-AZDRIVE-KEYS-4 and -9, X-DELTA-STRUCT3-10. `open_azlin` hands out the account and the
+/// drive the gate made, nothing else: the gate is called once and is given the bytes of the bucket; it can
+/// only return the encryption's own drive (`AutoEncrypted`: the compile-fail doctest of `open_azlin`), and a
+/// request of the drive that comes out reaches the bucket with the drive's credentials; the account (a
+/// lockdown, the session, the token server it resolved) is the same drive's and has no put and no get.
+#[cfg(feature = "encryption")]
 #[test]
 fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
     use crate::drive::{open_azlin, AzlinOpen};
+    use azul_storage::AutoEncrypted;
     let dir = TempDir::new("c6d-open-azlin");
-    let fake = cloud(None);
+    let fake = cloud_lasting();
     let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
     let (shared, _) = keyring_with(&first, &dir);
-    let passed = Arc::new(AtomicU64::new(0));
     let gates = Arc::new(AtomicU64::new(0));
-    let (for_gate, counted) = (passed.clone(), gates.clone());
+    let counted = gates.clone();
     let (account, drive) = open_azlin(
         &first.entry_named("Cloud", TOKEN),
         AzlinOpen {
@@ -798,10 +793,12 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
                 TOKEN,
                 "the resolver's choice is the account's"
             );
-            Arc::new(Gate {
-                below: bytes,
-                passed: for_gate,
-            })
+            Arc::new(AutoEncrypted::new(
+                bytes,
+                "d_1",
+                Arc::new(MemoryKeyring::new()),
+                None,
+            ))
         },
     )
     .unwrap();
@@ -810,14 +807,11 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
         1,
         "the gate is made once, over the bytes"
     );
-    // A request of the drive goes through the gate and to the bucket.
-    assert_eq!(passed.load(Ordering::SeqCst), 0);
+    // Nothing is sent by the opening itself.
+    assert!(fake.calls().is_empty(), "{:?}", fake.calls());
+    // A request of the drive goes through the gate (which decides the drive from the bucket's listing)
+    // and to the bucket.
     drive.list(&ListRequest::folder("")).unwrap();
-    assert_eq!(
-        passed.load(Ordering::SeqCst),
-        1,
-        "the request passed the gate"
-    );
     assert!(
         fake.calls()
             .iter()
@@ -856,7 +850,12 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
         },
         move |_, bytes| {
             counted.fetch_add(1, Ordering::SeqCst);
-            bytes
+            Arc::new(AutoEncrypted::new(
+                bytes,
+                "home",
+                Arc::new(MemoryKeyring::new()),
+                None,
+            ))
         },
     );
     assert!(
@@ -864,6 +863,63 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
         "a folder on disk has no account at a token server"
     );
     assert_eq!(asked.load(Ordering::SeqCst), 0, "the gate was not asked");
+}
+
+/// X-DELTA-STRUCT3-16. The vault of an account is opened under the account's own drive id: a device that
+/// holds the key of ANOTHER drive and none of this one finds no vault for this drive (it was a parameter,
+/// and the key of the id a caller named was opened over this account's bucket, the sealed vault of that
+/// other drive written into it). The id is the entry's (`AzlinAccount::drive_id`), the compile-fail doctest
+/// of `unlocked` is the other half.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_struct3_16_the_vault_of_an_account_is_opened_under_its_own_drive_id_and_no_other() {
+    use azul_storage::crypto::{device, DriveKey};
+
+    use crate::drive::AzlinAccount;
+
+    let dir = TempDir::new("struct3-16");
+    let fake = cloud(None);
+    let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
+    let (shared, _) = keyring_with(&first, &dir);
+    let account = Arc::new(
+        AzlinAccount::new(
+            &first.entry_named("Cloud", TOKEN),
+            first.session(),
+            TOKEN,
+            shared,
+            factory(&fake),
+            Box::new(|_, _| {}),
+        )
+        .unwrap()
+        .with_clock(|| EXPIRES - 6 * 3600),
+    );
+    assert_eq!(
+        account.drive_id(),
+        "d_1",
+        "the entry's drive id, derived once"
+    );
+    let keys = MemoryKeyring::new();
+    // This device holds the key of another drive, and none of this one.
+    device::store_drive_key(&keys, "d_2", &DriveKey::generate().unwrap()).unwrap();
+    assert!(
+        account.unlocked(&keys).unwrap().is_none(),
+        "the other drive's key is not this drive's: no vault is opened over this bucket with it"
+    );
+    // Its own key: the vault of THIS drive, under its own id.
+    device::store_drive_key(&keys, "d_1", &DriveKey::generate().unwrap()).unwrap();
+    let unlocked = account
+        .unlocked(&keys)
+        .unwrap()
+        .expect("this device holds the key of this drive");
+    assert_eq!(unlocked.drive_id(), "d_1");
+    // Nothing was written into the bucket by either look.
+    assert!(
+        fake.calls()
+            .iter()
+            .all(|c| !matches!(c.method, Method::Put | Method::Delete)),
+        "{:?}",
+        fake.calls()
+    );
 }
 
 /// ARCH29 C6d. The bytes of an Azlin drive have no drive below: what falls to `below()` is refused

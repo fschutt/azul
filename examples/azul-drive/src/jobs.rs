@@ -435,12 +435,12 @@ pub(crate) enum Job {
         checkout_id: String,
     },
     /// A notice saved as a document in the drive (a price change: the durable medium). It goes
-    /// through the drive the window shows - the encryption's gate included - and never to the
+    /// through the encryption's gate - the one drive a [`NoticeDrive`] can be - and never to the
     /// bucket below it: the key and the text are the token server's words, and an object of them
     /// in the clear in an encrypted drive's bucket is a plaintext write the gate never saw
-    /// (X-DELTA-AZDRIVE-KEYS-4).
+    /// (X-DELTA-AZDRIVE-KEYS-4, X-DELTA-STRUCT3-13).
     SaveNotice {
-        drive: Arc<dyn Drive>,
+        drive: NoticeDrive,
         key: String,
         text: String,
     },
@@ -3607,11 +3607,31 @@ fn next_look_now(
     let listed = pending::list(keyring).ok()?;
     next_look(&listed, asked, (world.mono)(), wall_of(world))
 }
-/// A price notice written as a document of `drive` - the drive as the window opens it, so an
-/// encrypted drive's gate decides (`Encrypted` takes it into the index, anything else refuses it
-/// and nothing is written).
-pub(crate) fn save_notice(drive: &dyn Drive, key: &str, text: &str) -> Result<(), DriveError> {
-    drive.put(key, text.as_bytes())
+/// The drive a price notice is written to: the encryption's gate (`AutoEncrypted`), which takes a write only
+/// when the drive is encrypted - no plain drive, no bucket below the gate and no Azlin handle is one, so a
+/// job built with any of them does not compile (X-DELTA-STRUCT3-13: it was an `Arc<dyn Drive>`, and the
+/// function that chose it was a function of the window's state that no test could call).
+#[cfg(feature = "encryption")]
+pub(crate) type NoticeDrive = Arc<azul_storage::AutoEncrypted>;
+
+/// Without the encryption no Azlin drive opens (`Slot::open` refuses it): there is no drive a notice could
+/// be written to, and the type has no value.
+#[cfg(not(feature = "encryption"))]
+#[derive(Clone)]
+pub(crate) enum NoticeDrive {}
+
+/// A price notice written as a document of `drive` - the encryption's gate, so an encrypted drive's index
+/// takes it (`Encrypted` takes it into the index, anything else refuses it and nothing is written).
+pub(crate) fn save_notice(drive: &NoticeDrive, key: &str, text: &str) -> Result<(), DriveError> {
+    #[cfg(feature = "encryption")]
+    {
+        drive.put(key, text.as_bytes())
+    }
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = (key, text);
+        match *drive {}
+    }
 }
 
 /// A drive's period tokens: kept with the drive when its key is on this computer (every device
@@ -3631,8 +3651,16 @@ pub(crate) fn drive_tokens(
             let keyring =
                 azul_storage::azul_keyring::azlin_keyring(azul_storage::keyring::Asking::User);
             // The vault is sealed under the drive key and lies below the gate on purpose: the account
-            // hands its own handle to the vault's code and to nothing else (ARCH29 C6d).
-            match azlin.unlocked(drive_id, &keyring) {
+            // hands its own handle to the vault's code and to nothing else (ARCH29 C6d). It is opened
+            // under the ACCOUNT's drive id: an account that is another drive's than `drive_id` is a bug
+            // of the caller, answered with a refusal and nothing read or written (X-DELTA-STRUCT3-16).
+            if azlin.drive_id() != drive_id {
+                return Err(format!(
+                    "the account is the drive {}'s, not {drive_id}'s: its vault is not opened for it",
+                    azlin.drive_id()
+                ));
+            }
+            match azlin.unlocked(&keyring) {
                 Ok(Some(unlocked)) => return store.for_drive(&unlocked).map_err(|e| e.to_string()),
                 // a plain drive, or its key not here yet
                 Ok(None) => NoVault::NoKey,
@@ -4187,7 +4215,7 @@ fn run_job(job: Job, sender: &mut ThreadSender) -> Outcome {
             drive_id,
         },
         Job::SaveNotice { drive, key, text } => Outcome::NoticeSaved {
-            result: save_notice(drive.as_ref(), &key, &text),
+            result: save_notice(&drive, &key, &text),
             key,
         },
         Job::Options {

@@ -273,11 +273,10 @@ fn x_delta_azdrive_keys_4_a_price_notice_is_a_document_of_the_encrypted_drive_no
         "slot-1",
         &records,
     );
-    let drive: Arc<dyn Drive> = auto;
 
-    crate::jobs::save_notice(drive.as_ref(), key, text).expect("the encrypted drive takes it");
+    crate::jobs::save_notice(&auto, key, text).expect("the encrypted drive takes it");
     assert_eq!(
-        drive.get(key).unwrap(),
+        auto.get(key).unwrap(),
         text.as_bytes(),
         "a document of the drive"
     );
@@ -322,9 +321,8 @@ fn x_delta_azdrive_keys_4_a_drive_that_is_not_encrypted_takes_no_notice() {
         "slot-1",
         &records,
     );
-    let drive: Arc<dyn Drive> = auto;
     let before = bucket.objects();
-    assert!(crate::jobs::save_notice(drive.as_ref(), "Azlin notices/n.txt", "text").is_err());
+    assert!(crate::jobs::save_notice(&auto, "Azlin notices/n.txt", "text").is_err());
     assert_eq!(bucket.objects(), before, "nothing was written");
 }
 

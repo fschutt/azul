@@ -455,6 +455,11 @@ pub(crate) fn wipe(slot: &mut Slot) {
     #[cfg(feature = "encryption")]
     {
         slot.auto = None;
+        // The encrypted local copies sit below the gate on the same account: ObjectCache -> RetryingDrive ->
+        // the bytes -> `Arc<AzlinAccount>`, which holds the drive token and the bucket's credentials and
+        // refreshes them through the keyring's lock. A Lock that left it kept the old session alive until the
+        // slot was dropped (X-DELTA-STRUCT3-15).
+        slot.objects = None;
     }
 }
 

@@ -42,6 +42,9 @@ use azul_storage::{
     DriveError, ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
 };
 
+#[cfg(feature = "encryption")]
+use azul_storage::AutoEncrypted;
+
 use crate::{
     bundle::DriveBundle,
     failover::{cached_nodes, read_nodes, write_nodes, Failover, Node, TrustedEndpoint},
@@ -83,6 +86,41 @@ struct Current {
 /// job that holds one cannot write into the drive's bucket, which is how a price notice reached an
 /// encrypted drive's bucket in the clear, below the gate (X-DELTA-AZDRIVE-KEYS-4). `Debug` shows no
 /// secret.
+///
+/// What the account does not show: the session (it holds the drive token and the bucket's credentials), the
+/// failover that routes the drive's requests and the node list; the iroh lane has no reader at all. A job that
+/// holds the account - which is the point of the split - had them in public methods nobody called
+/// (X-DELTA-STRUCT3-14):
+///
+/// ```compile_fail,E0599
+/// use azcloud_kit::AzlinAccount;
+/// fn look(account: &AzlinAccount) {
+///     let _ = account.with_session(|session| session.drive_id.clone());
+/// }
+/// ```
+///
+/// ```compile_fail,E0599
+/// use azcloud_kit::AzlinAccount;
+/// fn route(account: &AzlinAccount) {
+///     let _ = account.failover();
+/// }
+/// ```
+///
+/// ```compile_fail,E0599
+/// use azcloud_kit::AzlinAccount;
+/// fn nodes(account: &AzlinAccount) {
+///     let _ = account.nodes();
+/// }
+/// ```
+///
+/// What it shows, the control of the four above:
+///
+/// ```no_run
+/// use azcloud_kit::AzlinAccount;
+/// fn look(account: &AzlinAccount) {
+///     let _ = (account.drive_id(), account.token_url(), account.restore_notice());
+/// }
+/// ```
 pub struct AzlinAccount {
     entry: DriveEntry,
     token_url: String,
@@ -290,15 +328,20 @@ impl AzlinAccount {
         self
     }
 
-    /// The node list the requests fail over to (of the last refresh, or the nodes file).
+    /// The node list the requests fail over to (of the last refresh, or the nodes file). Only the kit's
+    /// tests look at it: no app has a use for the failover of an account it holds, and a public reader of
+    /// it is a hand on the drive's routing with no gate involved (X-DELTA-STRUCT3-14).
+    #[cfg(test)]
     #[must_use]
-    pub fn nodes(&self) -> Vec<Node> {
+    pub(crate) fn nodes(&self) -> Vec<Node> {
         self.failover.nodes()
     }
 
-    /// The failover every request of the drive goes through.
+    /// The failover every request of the drive goes through (the kit's tests only, see
+    /// [`AzlinAccount::nodes`]): its setters change where the drive's requests go.
+    #[cfg(test)]
     #[must_use]
-    pub fn failover(&self) -> &Arc<Failover> {
+    pub(crate) fn failover(&self) -> &Arc<Failover> {
         &self.failover
     }
 
@@ -312,12 +355,6 @@ impl AzlinAccount {
         self.failover
             .set_lane(Some(Arc::new(IrohLane::new(dialer, relay))));
         self
-    }
-
-    /// The iroh lane, when the drive has one: what it did last.
-    #[must_use]
-    pub fn lane(&self) -> Option<Arc<IrohLane>> {
-        self.failover.lane()
     }
 
     /// Takes a bundle's view: its node list and failover URLs (the list kept in the nodes file),
@@ -354,8 +391,11 @@ impl AzlinAccount {
         self
     }
 
-    /// Runs `look` on the session as it is now (after any refresh).
-    pub fn with_session<T>(&self, look: impl FnOnce(&AzlinSession) -> T) -> T {
+    /// Runs `look` on the session as it is now (after any refresh). The kit's tests only: the session
+    /// holds the drive token and the bucket's credentials, and a job that holds the account has no
+    /// business reading them (X-DELTA-STRUCT3-14).
+    #[cfg(test)]
+    pub(crate) fn with_session<T>(&self, look: impl FnOnce(&AzlinSession) -> T) -> T {
         look(&self.lock().session)
     }
 
@@ -369,13 +409,19 @@ impl AzlinAccount {
     /// request, so the writes that follow a payment are not refused. Sends nothing; a grant of
     /// another drive changes nothing here.
     pub fn apply(&self, changed: GrantChanged) {
-        let ours = self
-            .entry
-            .azlin()
-            .map_or(self.entry.id.as_str(), |(drive_id, _)| drive_id);
-        if changed.drive_id() == ours {
+        if changed.drive_id() == self.drive_id() {
             self.grant_changed.store(true, Ordering::SeqCst);
         }
+    }
+
+    /// The drive's id at the token server: what its keys, its vault and its grants are kept under. The
+    /// entry's own, derived here and nowhere else - a caller never names it for the account
+    /// (X-DELTA-STRUCT3-16).
+    #[must_use]
+    pub fn drive_id(&self) -> &str {
+        self.entry
+            .azlin()
+            .map_or(self.entry.id.as_str(), |(drive_id, _)| drive_id)
     }
 
     /// The bucket with credentials that work now (refreshed first when they run out, or when
@@ -588,12 +634,36 @@ impl AzlinAccount {
         &self.token_url
     }
 
-    /// The drive of `drive_id` with the key `keyring` holds (or this device's member wrap in the
-    /// bucket opens), for the vault in the drive: its bucket below the encryption and the drive key.
-    /// The vault is sealed under the drive key and lies where no listing of the drive shows it, so it
-    /// is written below the gate on purpose - by the vault's own code, in this crate, and nowhere
-    /// else: the bucket's bytes are handed to nothing but [`crate::UnlockedDrive`]. `None` when this
-    /// device has no key of the drive.
+    /// THIS drive - the account's own, [`AzlinAccount::drive_id`] - with the key `keyring` holds (or this
+    /// device's member wrap in the bucket opens), for the vault in the drive: its bucket below the
+    /// encryption and the drive key. The vault is sealed under the drive key and lies where no listing of
+    /// the drive shows it, so it is written below the gate on purpose - by the vault's own code, in this
+    /// crate, and nowhere else: the bucket's bytes are handed to nothing but [`crate::UnlockedDrive`]. The
+    /// drive's id is not an argument: a caller that named another drive's id for this account's bucket got
+    /// that drive's key over this bucket, and the other drive's sealed vault was written into it
+    /// (X-DELTA-STRUCT3-16):
+    ///
+    /// ```compile_fail,E0061
+    /// // The id comes from the account: a second argument is refused.
+    /// use std::sync::Arc;
+    /// use azcloud_kit::AzlinAccount;
+    /// use azul_storage::keyring::KeyringStore;
+    /// fn another_drives_vault(account: &Arc<AzlinAccount>, keyring: &dyn KeyringStore) {
+    ///     let _ = account.unlocked("d_other", keyring);
+    /// }
+    /// ```
+    ///
+    /// ```no_run
+    /// // The control of the one above: the same call without the id.
+    /// use std::sync::Arc;
+    /// use azcloud_kit::AzlinAccount;
+    /// use azul_storage::keyring::KeyringStore;
+    /// fn this_drives_vault(account: &Arc<AzlinAccount>, keyring: &dyn KeyringStore) {
+    ///     let _ = account.unlocked(keyring);
+    /// }
+    /// ```
+    ///
+    /// `None` when this device has no key of the drive.
     ///
     /// # Errors
     ///
@@ -601,11 +671,10 @@ impl AzlinAccount {
     #[cfg(feature = "encryption")]
     pub fn unlocked(
         self: &Arc<Self>,
-        drive_id: &str,
         keyring: &dyn azul_storage::keyring::KeyringStore,
     ) -> crate::CloudResult<Option<crate::UnlockedDrive>> {
         crate::UnlockedDrive::open(
-            drive_id,
+            self.drive_id(),
             Arc::new(AzlinDrive::over(Arc::clone(self))),
             keyring,
         )
@@ -1001,24 +1070,75 @@ pub struct AzlinOpen<'a> {
     pub iroh: Option<(Arc<dyn IrohDialer>, Option<&'a str>)>,
 }
 
+/// Not nameable outside this file: what makes [`EncryptionGate`] sealed.
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// The encryption's gate: a drive that takes a write only when its drive is encrypted. Only azul-storage's
+/// `AutoEncrypted` is one (feature `encryption`), and the trait is SEALED: no type of any other crate - and no
+/// `Arc<dyn Drive>` - can be made one, so a function that asks for the gate cannot be handed anything else.
+pub trait EncryptionGate: Drive + sealed::Sealed + 'static {}
+
+#[cfg(feature = "encryption")]
+impl sealed::Sealed for AutoEncrypted {}
+
+#[cfg(feature = "encryption")]
+impl EncryptionGate for AutoEncrypted {}
+
 /// Opens the Azlin drive `entry` and hands out its two halves: the [`AzlinAccount`] and the drive of its
 /// bytes - which comes out of `gate` and never otherwise. `gate` is given the account and the bucket's
-/// bytes (the credentials refreshed by themselves, the requests failing over) and returns the drive the
-/// app uses: the layers it puts over them - the retries, the copies kept on this computer, and the
-/// encryption's gate, `AutoEncrypted`, built where the app builds it - are its own. The bytes are called
-/// once, by `gate`, and the bucket's plain store is no value this function returns: a caller that holds
-/// the account has nothing to write with, and the drive it holds is the gate's (X-DELTA-AZDRIVE-KEYS-4).
+/// bytes (the credentials refreshed by themselves, the requests failing over) and returns the app's
+/// drive: the layers it puts over them - the retries, the copies kept on this computer - are its own, and
+/// the top of them is the encryption's gate, an [`EncryptionGate`] (azul-storage's `AutoEncrypted`): the
+/// return type says so, so a gate that hands the bytes back as they are, or any drive that is not the
+/// encryption's, does not compile (it was a closure that returned an `Arc<dyn Drive>`, and one built without
+/// the encryption's wrap sent every file of the drive to the bucket in the clear and passed every gate and
+/// test: X-DELTA-STRUCT3-10). The bytes are called once, by `gate`, and the bucket's plain store is no value
+/// this function returns: a caller that holds the account has nothing to write with, and the drive it holds
+/// is the gate's (X-DELTA-AZDRIVE-KEYS-4).
+///
+/// ```compile_fail,E0277
+/// // A gate that gives the bucket's bytes back as they are: no encryption in front of the drive.
+/// use azcloud_kit::{open_azlin, AzlinOpen};
+/// use azul_storage::config::DriveEntry;
+/// fn plain(entry: &DriveEntry, open: AzlinOpen<'_>) {
+///     let _ = open_azlin(entry, open, |_account, bytes| bytes);
+/// }
+/// ```
+///
+/// ```compile_fail,E0277
+/// // Nor a drive of any other kind: only the encryption's gate is one.
+/// use std::sync::Arc;
+/// use azcloud_kit::{open_azlin, AzlinOpen};
+/// use azul_storage::{config::DriveEntry, meta::MemoryBucket};
+/// fn other(entry: &DriveEntry, open: AzlinOpen<'_>) {
+///     let _ = open_azlin(entry, open, |_account, _bytes| Arc::new(MemoryBucket::new()));
+/// }
+/// ```
+///
+/// ```no_run
+/// // The control of the two above: the same call with a gate that returns the encryption's own drive.
+/// use std::sync::Arc;
+/// use azcloud_kit::{open_azlin, AzlinOpen};
+/// use azul_storage::{config::DriveEntry, keyring::KeyringStore, AutoEncrypted};
+/// fn encrypted(entry: &DriveEntry, open: AzlinOpen<'_>, keyring: Arc<dyn KeyringStore>) {
+///     let _ = open_azlin(entry, open, |_account, bytes| {
+///         Arc::new(AutoEncrypted::new(bytes, "d_1", keyring, None))
+///     });
+/// }
+/// ```
 ///
 /// The token server is [`azlin_target`]'s choice and no other function's (X-DELTA-AZDRIVE-KEYS-9).
 ///
 /// # Errors
 ///
 /// An entry that is no bucket, or names no token server to refresh its credentials at.
-pub fn open_azlin(
+pub fn open_azlin<G: EncryptionGate>(
     entry: &DriveEntry,
     open: AzlinOpen<'_>,
-    gate: impl FnOnce(&Arc<AzlinAccount>, Arc<dyn Drive>) -> Arc<dyn Drive>,
-) -> Result<(Arc<AzlinAccount>, Arc<dyn Drive>), DriveError> {
+    gate: impl FnOnce(&Arc<AzlinAccount>, Arc<dyn Drive>) -> Arc<G>,
+) -> Result<(Arc<AzlinAccount>, Arc<G>), DriveError> {
     let mut account = AzlinAccount::new(
         entry,
         open.session,

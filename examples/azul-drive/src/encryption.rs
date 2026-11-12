@@ -79,7 +79,7 @@ use azul_storage::{
         keystate::{self, Evidence, Op, PaidMonths, Read, TokenFacts, VaultFacts, Verdict},
         random_bytes, CryptoError, KeyId, Zeroizing,
     },
-    config::EncryptionRecord,
+    config::{DriveEntry, EncryptionRecord},
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider, Recorded},
     packing::{pack_reads, PackUpkeep},
     keyring::KeyringStore,
@@ -202,35 +202,86 @@ pub(crate) fn objects_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf>
     crate::footprint::drive_cache_dir(root, drive).map(|dir| dir.join("objects"))
 }
 
-/// An Azlin drive's bucket as the drive the app uses: encrypted, always - opened on its first
-/// call with this computer's key, locked without it, and (while it has no key and no file) set
-/// up at once; never a plain drive that takes files, whatever its bucket lists. `record` is what
-/// the drives file says of it (`slot` is the drive's id there): a drive recorded as encrypted is
-/// locked without its key, and every time the drive opens encrypted, the id of its key goes to
-/// `records`, for the UI thread to write into the drives file ([`crate::take_key_records`]).
-/// `restore` is the drive's restore announcement (the token server's word, as the drive's last
-/// refresh answered it): the drive's index copy asks it, so a drive the operator restored from
-/// its off-site copy is read anew once instead of being refused as a rollback for good.
-pub(crate) fn wrap(
-    drive_id: &str,
-    bucket: Arc<dyn Drive>,
-    record: EncryptionRecord,
-    slot: &str,
-    records: &crate::KeyRecords,
-    restore: RestoreSource,
-) -> Arc<AutoEncrypted> {
-    wrap_with(
-        Arc::new(azlin_keyring(Asking::User)),
-        Some(restoring_provider(drive_index_root(), restore)),
-        drive_id,
-        bucket,
-        record,
-        slot,
-        records,
-    )
+/// What the layers over an Azlin drive's bytes are made of on this computer: the keyring its keys are kept
+/// in and the folder of its index copies and encrypted local copies ([`drive_index_root`]; none: kept in
+/// memory, no copy). A test gives it its own.
+pub(crate) struct Layers {
+    pub keyring: Arc<dyn KeyringStore>,
+    pub index_root: Option<PathBuf>,
 }
 
-/// [`wrap`] over `keyring` and `provider`: what the glue is tested with.
+impl Layers {
+    /// This computer's: the keys of the Azlin apps' shared keyring (it may ask the user), the run's cache
+    /// folder.
+    pub(crate) fn here() -> Layers {
+        Layers {
+            keyring: Arc::new(azlin_keyring(Asking::User)),
+            index_root: drive_index_root(),
+        }
+    }
+}
+
+/// An Azlin drive as the app holds it, made by [`azlin_stack`]: the encryption's gate - the drive every call
+/// goes through - and the encrypted local copies kept below it.
+pub(crate) struct AzlinStack {
+    /// The drive: [`AutoEncrypted`], which takes a write only when the drive is encrypted. The type is the
+    /// guarantee: `open_azlin` takes nothing else from its gate (X-DELTA-STRUCT3-10).
+    pub auto: Arc<AutoEncrypted>,
+    /// The drive's AZL1 objects kept on this computer below the encryption (a synced encrypted drive's
+    /// "encrypted local copies"), when there is a folder for them.
+    pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
+}
+
+/// An Azlin drive's bytes as the drive the app uses, over `layers` (this computer's, [`Layers::here`]; a
+/// test's own): THE ONE composition of the layers above them, and
+/// the only function that makes the gate of `open_azlin` (a closure that returned the bytes, or any
+/// drive built without the encryption's wrap, sent every file to the bucket in the clear and passed every
+/// test: X-DELTA-STRUCT3-10). From below: the retries (a 5xx, a dropped connection, a 429's `Retry-After`:
+/// each index page, pack and blob is retried on its own), the AZL1 objects kept on this computer
+/// ([`Layers::index_root`]; nothing is kept until a sync asks) and the encryption's gate. Encrypted,
+/// always - opened on its first call (a worker thread, never this one: the drive is decided from the
+/// bucket and the keyring AT THAT MOMENT, so a drive another device sets up or rotates between this
+/// opening and that call is met as it is then) with this computer's key, locked without it, and (while it
+/// has no key and no file) set up at once; never a plain drive that takes files, whatever its bucket lists.
+/// `account` is the drive's: its id at the token server (the keys are kept and bound under it in every app:
+/// [`azcloud_kit::AzlinAccount::drive_id`], the one derivation) and its restore announcement (the token server's
+/// word, as the drive's last refresh answered it, never the bucket's: the drive's index copy asks it, so a drive
+/// the operator restored from its off-site copy is read anew once instead of being refused as a rollback for
+/// good). `entry` is the drive's entry: what the drives file says of its encryption - a drive recorded as
+/// encrypted is locked without its key, and every time the drive opens encrypted, the id of its key goes to
+/// `records`, for the UI thread to write into the drives file ([`crate::take_key_records`]).
+pub(crate) fn azlin_stack(
+    layers: Layers,
+    account: &Arc<azcloud_kit::AzlinAccount>,
+    bytes: Arc<dyn Drive>,
+    entry: &DriveEntry,
+    records: &crate::KeyRecords,
+) -> AzlinStack {
+    let drive_id = account.drive_id();
+    let announcer = Arc::clone(account);
+    let restore = RestoreSource::new(move || announcer.restore_notice());
+    let below = crate::connection(bytes);
+    let (below, objects) = match objects_dir(layers.index_root.clone(), drive_id) {
+        Some(dir) => {
+            let objects = Arc::new(azcloud_kit::sync::objects::ObjectCache::new(below, dir));
+            (objects.clone() as Arc<dyn Drive>, Some(objects))
+        }
+        None => (below, None),
+    };
+    let auto = wrap_with(
+        layers.keyring,
+        Some(restoring_provider(layers.index_root, restore)),
+        drive_id,
+        below,
+        entry.encryption_record().unwrap_or_default(),
+        &entry.id,
+        records,
+    );
+    AzlinStack { auto, objects }
+}
+
+/// An Azlin drive's bucket as the drive the app uses, over `keyring` and `provider` ([`azlin_stack`] is
+/// the composition production calls): what the glue is tested with.
 pub(crate) fn wrap_with(
     keyring: Arc<dyn KeyringStore>,
     provider: Option<Arc<dyn IndexProvider>>,

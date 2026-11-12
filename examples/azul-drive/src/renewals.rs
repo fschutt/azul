@@ -13,7 +13,6 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use azcloud_kit::{
@@ -22,10 +21,14 @@ use azcloud_kit::{
 };
 use azul::{callbacks::ButtonOnClickCallbackType, prelude::*, str::String as AzString};
 use azul_appkit::l10n::{label, t_args, Arg, Phrase};
-use azul_storage::{time::iso8601, Drive};
+use azul_storage::time::iso8601;
 use serde::{Deserialize, Serialize};
 
-use crate::{ids, jobs::Job, pay_words, spawn, DriveState};
+use crate::{
+    ids,
+    jobs::{Job, NoticeDrive},
+    pay_words, spawn, DriveState,
+};
 
 /// `price` as the window writes money.
 fn show(price: Cents) -> String {
@@ -630,17 +633,38 @@ pub(crate) fn renewals_seen(
     }
 }
 
-/// The drive as the window opened it (the encryption's gate included) of the Azlin drive
-/// `drive_id` (its id at the token server): where a notice is written. Never the Azlin drive's own
-/// handle below the gate.
-pub(crate) fn notice_drive(s: &DriveState, drive_id: &str) -> Option<Arc<dyn Drive>> {
-    s.slots
-        .iter()
-        .find(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == drive_id))
-        .and_then(|slot| slot.drive.clone())
+/// The drive of the Azlin drive `drive_id` (its id at the token server) a notice is written to: THE
+/// ENCRYPTION'S GATE of the slot that holds it, and no other drive - not the bytes below it, not the plain
+/// bucket the keys live in (`AutoEncrypted::bucket`), not the Azlin drive's own handle. The type says so
+/// (`Job::SaveNotice` takes a [`NoticeDrive`], which a plain drive is not), and a notice is never written in
+/// the clear into an encrypted drive's bucket (X-DELTA-AZDRIVE-KEYS-4). `None` for a drive that is not open:
+/// nothing is marked as saved then (X-DELTA-STRUCT3-13: the choice was a function of the window's state that
+/// no test could call).
+pub(crate) fn notice_drive_in(slots: &[crate::Slot], drive_id: &str) -> Option<NoticeDrive> {
+    #[cfg(feature = "encryption")]
+    {
+        slots
+            .iter()
+            .find(|slot| slot.entry.azlin().is_some_and(|(id, _)| id == drive_id))
+            .and_then(|slot| slot.auto.clone())
+    }
+    // No Azlin drive opens without the encryption (`Slot::open` refuses it), so there is none to write to.
+    #[cfg(not(feature = "encryption"))]
+    {
+        let _ = (slots, drive_id);
+        None
+    }
 }
 
 /// Saves each notice not saved before as a document in the drive `drive_id` and shows it.
+///
+/// A build without the encryption opens no Azlin drive, so `notice_drive_in` has none for it and the rest
+/// is never reached (the type of the drive has no value there: the compiler sees the code after it as
+/// unreachable, which is the point).
+#[cfg_attr(
+    not(feature = "encryption"),
+    allow(unreachable_code, unused_variables)
+)]
 fn save_notices(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -648,7 +672,7 @@ fn save_notices(
     drive_id: &str,
     notices: Vec<PriceNotice>,
 ) {
-    let Some(drive) = notice_drive(s, drive_id) else {
+    let Some(drive) = notice_drive_in(&s.slots, drive_id) else {
         return;
     };
     let log = NoticeLog::new(s.period_tokens.dir(), drive_id);

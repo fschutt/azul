@@ -270,6 +270,9 @@ mod periods_tests;
 mod devices_tests;
 #[cfg(test)]
 mod renewals_tests;
+/// The opening of an Azlin drive over a fake bucket: the gate it comes out as, the notice, the vault, the Lock.
+#[cfg(all(test, feature = "encryption"))]
+mod open_tests;
 #[cfg(test)]
 mod problems_tests;
 #[cfg(test)]
@@ -565,6 +568,39 @@ pub(crate) struct Slot {
     pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
 }
 
+/// What the opening of an Azlin drive takes from this computer: how its requests are sent, where its node
+/// list is kept between starts, the iroh dialer (iroh to the nodes first, through the relay, and HTTPS as
+/// the fallback) and what the layers over its bytes are made of ([`encryption::Layers`]). A test gives it
+/// a fake transport and its own keyring and folders.
+#[cfg(feature = "encryption")]
+pub(crate) struct AzlinWorld<'a> {
+    pub transports: azcloud_kit::drive::TransportFactory,
+    pub nodes_file: PathBuf,
+    pub iroh: Option<(Arc<dyn azcloud_kit::transport::IrohDialer>, Option<&'a str>)>,
+    pub layers: encryption::Layers,
+}
+
+#[cfg(feature = "encryption")]
+impl<'a> AzlinWorld<'a> {
+    /// This computer's: the Azlin transport, the node list of the drive `drive_id` kept beside the drives,
+    /// the dialer `AZCLOUD_TRANSPORT` allows, this computer's keyring and cache folder.
+    pub(crate) fn here(drive_id: &str, relay: Option<&'a str>) -> AzlinWorld<'a> {
+        AzlinWorld {
+            transports: Arc::new(|| {
+                Box::new(AzulTransport::azlin(USER_AGENT)) as Box<dyn azul_storage::Transport>
+            }),
+            // The node list of the last refresh outlives the app: the next start fails over to the
+            // nodes before its first refresh.
+            nodes_file: nodes_file(drive_id),
+            // iroh to the nodes first (their iroh ids and sockets come with the node list), then HTTPS;
+            // AZCLOUD_TRANSPORT=https keeps to HTTPS.
+            iroh: crate::iroh_lane::dialer(&|var: &str| std::env::var(var).ok())
+                .map(|dialer| (dialer, relay)),
+            layers: encryption::Layers::here(),
+        }
+    }
+}
+
 impl Slot {
     pub fn new(entry: DriveEntry) -> Self {
         Slot {
@@ -593,7 +629,7 @@ impl Slot {
     pub fn open(
         &mut self,
         rotated: &RotatedSessions,
-        #[cfg_attr(not(feature = "encryption"), allow(unused_variables))] records: &KeyRecords,
+        records: &KeyRecords,
         token_url: Option<&str>,
         relay: Option<&str>,
         keyring: &azcloud_kit::SharedKeyring,
@@ -605,112 +641,7 @@ impl Slot {
             return Err(refusal);
         }
         let drive: Arc<dyn Drive> = if self.entry.azlin().is_some() {
-            let secret = self
-                .secret
-                .as_deref()
-                .map(String::as_str)
-                .ok_or_else(|| DriveError::Denied {
-                    message: format!(
-                        "\"{}\" has no session (the keyring has no entry for it)",
-                        self.entry.name
-                    ),
-                })?;
-            let session = azcloud_kit::AzlinSession::from_keyring_secret(secret)
-                .map_err(|e| DriveError::InvalidConfig(e.to_string()))?;
-            let queue = rotated.clone();
-            let id = self.entry.id.clone();
-            let transports: azcloud_kit::drive::TransportFactory = Arc::new(|| {
-                Box::new(AzulTransport::azlin(USER_AGENT)) as Box<dyn azul_storage::Transport>
-            });
-            // The node list of the last refresh outlives the app: the next start fails over to
-            // the nodes before its first refresh.
-            let nodes = nodes_file(&self.entry.id);
-            // iroh to the nodes first (their iroh ids and sockets come with the node list), then
-            // HTTPS; AZCLOUD_TRANSPORT=https keeps to HTTPS.
-            let iroh = crate::iroh_lane::dialer(&|var: &str| std::env::var(var).ok())
-                .map(|dialer| (dialer, relay));
-            // The account and the bytes: the ONE place the drive's token server is resolved
-            // (`azcloud_kit::azlin_target`), and the bytes come out of the layers below - the
-            // retries, the encrypted copies kept here, and the encryption's gate, built where it
-            // always was (`encryption::wrap`) - never as the bucket's plain store (X-DELTA-AZDRIVE-
-            // KEYS-4, -9; ARCH29 C6d).
-            let entry = &self.entry;
-            #[cfg(feature = "encryption")]
-            let (objects_slot, auto_slot) = (&mut self.objects, &mut self.auto);
-            let (account, drive) = azcloud_kit::open_azlin(
-                entry,
-                azcloud_kit::AzlinOpen {
-                    session,
-                    token_url: token_url.unwrap_or_default(),
-                    keyring: keyring.clone(),
-                    transports,
-                    on_rotated: Box::new(
-                        move |session: &azcloud_kit::AzlinSession, saved: Result<(), String>| {
-                            if let Ok(mut queue) = queue.lock() {
-                                queue.push(Rotated {
-                                    drive_id: id.clone(),
-                                    secret: azcloud_kit::Zeroizing::new(
-                                        session.to_keyring_secret(),
-                                    ),
-                                    unsaved: saved.err(),
-                                });
-                            }
-                        },
-                    ),
-                    nodes_file: Some(&nodes),
-                    iroh,
-                },
-                |account, bytes| {
-                    // The drive's restore announcement as its last refresh answered it: the drive's
-                    // index asks it at every poll and commit (never the bucket: whoever controls the
-                    // storage could announce a restore).
-                    #[cfg(feature = "encryption")]
-                    let restore = {
-                        let announcer = account.clone();
-                        azul_storage::meta::RestoreSource::new(move || announcer.restore_notice())
-                    };
-                    #[cfg(not(feature = "encryption"))]
-                    let _ = account;
-                    let azlin: Arc<dyn Drive> = connection(bytes);
-                    // Plain or encrypted: the first call (a worker thread) decides.
-                    #[cfg(feature = "encryption")]
-                    let azlin: Arc<dyn Drive> = {
-                        // The Azlin drive's id: the keys are kept and bound under it in every app.
-                        let drive_id = entry
-                            .azlin()
-                            .map_or_else(|| entry.id.clone(), |(id, _)| id.to_string());
-                        // Below the encryption, the objects a sync keeps on this computer
-                        // (encrypted local copies; nothing is kept until a sync asks) - in the
-                        // drive's own cache folder of the run's cache folder; none without one.
-                        let azlin: Arc<dyn Drive> = match crate::encryption::objects_dir(
-                            crate::encryption::drive_index_root(),
-                            &drive_id,
-                        ) {
-                            Some(dir) => {
-                                let objects = Arc::new(
-                                    azcloud_kit::sync::objects::ObjectCache::new(azlin, dir),
-                                );
-                                *objects_slot = Some(objects.clone());
-                                objects
-                            }
-                            None => azlin,
-                        };
-                        let auto = crate::encryption::wrap(
-                            &drive_id,
-                            azlin,
-                            entry.encryption_record().unwrap_or_default(),
-                            &entry.id,
-                            records,
-                            restore,
-                        );
-                        *auto_slot = Some(auto.clone());
-                        auto
-                    };
-                    azlin
-                },
-            )?;
-            self.azlin = Some(account);
-            drive
+            self.open_azlin_slot(rotated, records, token_url, relay, keyring)?
         } else {
             // A signed-in consumer cloud (Google Drive, Dropbox, OneDrive) refreshes its access
             // token itself; a refresh token its provider rotates (OneDrive) is stored at once,
@@ -748,6 +679,104 @@ impl Slot {
         };
         self.drive = Some(drive.clone());
         Ok(drive)
+    }
+
+    /// An Azlin drive's opening on this computer: [`Slot::open_azlin_in`] over the machine's own transport,
+    /// node list, iroh dialer and keyring. A build made without the encryption never gets here (`open`
+    /// refuses the drive first) and has no arm that could open the drive without it: the drive that comes
+    /// out of the opener is the encryption's gate or there is none (X-DELTA-STRUCT3-10).
+    #[cfg(feature = "encryption")]
+    fn open_azlin_slot(
+        &mut self,
+        rotated: &RotatedSessions,
+        records: &KeyRecords,
+        token_url: Option<&str>,
+        relay: Option<&str>,
+        keyring: &azcloud_kit::SharedKeyring,
+    ) -> Result<Arc<dyn Drive>, DriveError> {
+        let world = AzlinWorld::here(&self.entry.id, relay);
+        self.open_azlin_in(rotated, records, token_url, keyring, world)
+    }
+
+    /// The refusal of a build without the encryption: an Azlin drive is encrypted, always.
+    #[cfg(not(feature = "encryption"))]
+    fn open_azlin_slot(
+        &mut self,
+        _rotated: &RotatedSessions,
+        _records: &KeyRecords,
+        _token_url: Option<&str>,
+        _relay: Option<&str>,
+        _keyring: &azcloud_kit::SharedKeyring,
+    ) -> Result<Arc<dyn Drive>, DriveError> {
+        Err(azlin_needs_encryption(&self.entry, false).unwrap_or_else(|| {
+            DriveError::Unsupported(String::from(
+                "this build of AzDrive was made without the encryption and opens no Azlin drive",
+            ))
+        }))
+    }
+
+    /// The Azlin drive of this slot, opened over `world`: the account and the bytes
+    /// (`azcloud_kit::open_azlin`: the ONE place the drive's token server is resolved), and the layers over
+    /// the bytes from [`encryption::azlin_stack`] - the retries, the encrypted copies kept here and the
+    /// encryption's gate, the only drive `open_azlin` takes from its gate - never the bucket's plain store
+    /// (X-DELTA-AZDRIVE-KEYS-4, -9; ARCH29 C6d; X-DELTA-STRUCT3-10). The slot keeps the account, the gate and
+    /// the copies, and the gate is its drive.
+    #[cfg(feature = "encryption")]
+    pub(crate) fn open_azlin_in(
+        &mut self,
+        rotated: &RotatedSessions,
+        records: &KeyRecords,
+        token_url: Option<&str>,
+        keyring: &azcloud_kit::SharedKeyring,
+        world: AzlinWorld<'_>,
+    ) -> Result<Arc<dyn Drive>, DriveError> {
+        let secret = self
+            .secret
+            .as_deref()
+            .map(String::as_str)
+            .ok_or_else(|| DriveError::Denied {
+                message: format!(
+                    "\"{}\" has no session (the keyring has no entry for it)",
+                    self.entry.name
+                ),
+            })?;
+        let session = azcloud_kit::AzlinSession::from_keyring_secret(secret)
+            .map_err(|e| DriveError::InvalidConfig(e.to_string()))?;
+        let queue = rotated.clone();
+        let id = self.entry.id.clone();
+        let entry = &self.entry;
+        let mut objects = None;
+        let (account, auto) = azcloud_kit::open_azlin(
+            entry,
+            azcloud_kit::AzlinOpen {
+                session,
+                token_url: token_url.unwrap_or_default(),
+                keyring: keyring.clone(),
+                transports: world.transports,
+                on_rotated: Box::new(
+                    move |session: &azcloud_kit::AzlinSession, saved: Result<(), String>| {
+                        if let Ok(mut queue) = queue.lock() {
+                            queue.push(Rotated {
+                                drive_id: id.clone(),
+                                secret: azcloud_kit::Zeroizing::new(session.to_keyring_secret()),
+                                unsaved: saved.err(),
+                            });
+                        }
+                    },
+                ),
+                nodes_file: Some(&world.nodes_file),
+                iroh: world.iroh,
+            },
+            |account, bytes| {
+                let stack = encryption::azlin_stack(world.layers, account, bytes, entry, records);
+                objects = stack.objects;
+                stack.auto
+            },
+        )?;
+        self.azlin = Some(account);
+        self.objects = objects;
+        self.auto = Some(auto.clone());
+        Ok(auto)
     }
 
     /// An S3 drive's keys (an Azlin drive's current ones), for a presigned link.
@@ -3936,6 +3965,7 @@ fn set_nodes_root(folder: PathBuf) {
 }
 
 /// The folder the drives' node lists are kept in.
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))] // asked by the opening of an Azlin drive
 pub(crate) fn nodes_root() -> PathBuf {
     NODES_ROOT.get().cloned().unwrap_or_else(|| {
         match path_of(FilePath::get_cache_dir().into_option()) {
@@ -3960,11 +3990,13 @@ pub(crate) fn scratch_dir(purpose: &str) -> PathBuf {
 
 /// Where an Azlin drive keeps the node list of its last credential refresh (not secret), in the
 /// folder `root`. The one place the name is spelled; Remove drive asks it (`footprint.rs`).
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))] // asked by the opening of an Azlin drive
 pub(crate) fn nodes_file_in(root: &Path, drive_id: &str) -> PathBuf {
     root.join(format!("{}.json", azul_storage::key::safe_file_name(drive_id).unwrap_or_default()))
 }
 
 /// Where an Azlin drive keeps the node list of its last credential refresh.
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))] // asked by the opening of an Azlin drive
 fn nodes_file(drive_id: &str) -> PathBuf {
     nodes_file_in(&nodes_root(), drive_id)
 }

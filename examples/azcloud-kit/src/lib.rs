@@ -136,6 +136,7 @@ pub use cash::{ActivationCode, CashError, ClaimCode};
 pub use claim::{ClaimError, ClaimKey};
 pub use drive::{
     azlin_target, azlin_target_choice, open_azlin, AzlinAccount, AzlinOpen, AzlinTarget,
+    EncryptionGate,
 };
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
