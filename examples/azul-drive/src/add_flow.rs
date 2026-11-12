@@ -38,7 +38,7 @@ use std::sync::{
 };
 
 use azcloud_kit::{
-    pending::{Abandoned, Claimed, Finished, Recorded},
+    pending::{Abandoned, Claimed, Finished, Receipted, Recorded},
     PendingCheckout, Tiers,
 };
 use azul::{
@@ -2155,6 +2155,29 @@ pub(crate) fn checkout_finished(
             );
             crate::periods::look_after_claim(s, &drive_id);
         }
+        // The grant is done as the inner result says; the checkout stays on the keyring's list
+        // for its receipt (the token server books the sale a moment after the approval, one in
+        // another currency waits for its euros), and the claims ask again.
+        Ok(Some(Finished::AwaitsReceipt(inner))) => {
+            checkout_finished(info, app, s, checkout_id, Ok(Some(*inner)));
+            start_claims(info, app, s);
+        }
+        Ok(Some(Finished::Receipt(receipt))) => match receipt {
+            Receipted::Kept => {
+                eprintln!(
+                    "[azdrive] the receipt of the checkout {checkout_id} is in the paid list"
+                );
+            }
+            Receipted::Waits(why) => {
+                eprintln!("[azdrive] the receipt of the checkout {checkout_id} is awaited: {why}");
+            }
+            Receipted::GaveUp => {
+                eprintln!(
+                    "[azdrive] the token server named no receipt for the checkout {checkout_id} \
+                     within three days: the paid list shows no sale for it"
+                );
+            }
+        },
         Ok(Some(Finished::Dropped(why))) => s.warn(
             Phrase::new("azdrive-add-months-not-fetched")
                 .arg("checkout", checkout_id)

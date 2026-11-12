@@ -15,6 +15,8 @@
 //!   its key);
 //! - [`GrantKept`]: the period grant is in two places ([`crate::vault::Kept::is_redundant`]) -
 //!   the drive's own vault has it, or a second copy was written here;
+//! - [`GrantKeptEarlier`]: the same, said by the entry itself ([`ReceiptDue::GrantKept`], written
+//!   on a [`GrantKept`] only) - what a checkout that waited for its receipt only is ended with;
 //! - [`NeverIssued`]: the token server will never issue the rest (a final refusal, or a grant no
 //!   server issues);
 //! - [`NotMade`]: an order whose entry was made before its `POST /v1/checkout` (state `Posting`)
@@ -28,7 +30,7 @@
 
 use azlin_contract::AbandonAnswer;
 
-use super::{Abandoned, Final, PendingCheckout, POSTING_LIFE_SECS, UNOPENABLE_AFTER};
+use super::{Abandoned, Final, PendingCheckout, ReceiptDue, POSTING_LIFE_SECS, UNOPENABLE_AFTER};
 use crate::{
     period::Issued,
     token::{CheckoutStatus, TokenError},
@@ -46,6 +48,9 @@ enum SettledBy {
     Claimed,
     /// Its period grant is in two places.
     Finished,
+    /// Its period grant was in two places before, and its receipt is kept - or the wait for it is
+    /// over.
+    Receipted,
     /// The token server will never issue the rest of its grant.
     NeverIssued,
     /// The payment did not go through, or went back.
@@ -109,6 +114,19 @@ impl GrantKept {
     }
 }
 
+/// The period grant of a claimed checkout was kept in two places by an earlier [`super::finish`],
+/// and its entry has waited for its receipt only since ([`ReceiptDue::GrantKept`]).
+#[derive(Debug)]
+pub struct GrantKeptEarlier(());
+
+impl GrantKeptEarlier {
+    /// What the entry of `checkout` says: a claimed one, whose grant is kept.
+    pub(super) fn of(checkout: &PendingCheckout) -> Option<GrantKeptEarlier> {
+        (checkout.receipt_due == Some(ReceiptDue::GrantKept) && checkout.period.is_some())
+            .then_some(GrantKeptEarlier(()))
+    }
+}
+
 /// The token server will never issue the rest of a grant.
 #[derive(Debug)]
 pub struct NeverIssued(());
@@ -167,6 +185,7 @@ impl Settled {
         let why = match &self.0 {
             SettledBy::Claimed => "its drive is saved",
             SettledBy::Finished => "its period grant is kept with its drive",
+            SettledBy::Receipted => "its receipt is kept or no longer awaited",
             SettledBy::NeverIssued => "the token server will issue no more of its grant",
             SettledBy::Declined => "its payment did not go through",
             SettledBy::Gone => "the token server no longer has it",
@@ -214,6 +233,11 @@ impl Settled {
     /// Nothing more will be issued for it.
     pub(super) fn never_issued(_: &NeverIssued) -> Settled {
         Settled(SettledBy::NeverIssued)
+    }
+
+    /// Its grant was kept before, and all that waited was its receipt.
+    pub(super) fn receipted(_: &GrantKeptEarlier) -> Settled {
+        Settled(SettledBy::Receipted)
     }
 
     /// The abandon's answer, when it ended the checkout ([`AbandonAnswer::is_over`]); `None`

@@ -296,6 +296,21 @@ pub struct Paid {
     pub months: u32,
     /// The months paid so far (a monthly plan's grow as they are paid).
     pub months_paid: Option<u32>,
+    /// The tier the answer names (empty: it names none).
+    pub tier: String,
+}
+
+impl Paid {
+    /// What `answer` says of the payment.
+    #[must_use]
+    fn of(answer: &CheckoutAnswer) -> Paid {
+        Paid {
+            receipt: answer.receipt.clone(),
+            months: answer.months,
+            months_paid: answer.months_paid,
+            tier: answer.tier.trim().to_string(),
+        }
+    }
 }
 
 /// Where a checkout stands (`GET /v1/checkout/{id}`), as this app can act on it.
@@ -624,31 +639,15 @@ impl<'a> TokenServer<'a> {
         claim: &ClaimKey,
     ) -> Result<CheckoutStatus, TokenError> {
         let id = checkout_id.trim();
-        if id.is_empty() {
-            return Err(TokenError::Config(String::from("There is no checkout to ask about.")));
-        }
-        let path = format!("/v1/checkout/{}", uri_encode(id, true));
-        let value = match self.call(Method::Get, &path, None, None) {
-            Ok(value) => value,
+        let answer = match self.checkout_answer(id) {
+            Ok(answer) => answer,
             // The token server's own word, `no_such_checkout`, is the end of the checkout. A
             // bare 404 (a route missing in a rollback, a proxy's page) and a 404 of another word
             // are not: the checkout may be paid, so it is asked again (AZ-P1).
             Err(e) if e.is_no_such_checkout() => return Ok(CheckoutStatus::Gone(e.said())),
             Err(e) => return Err(e),
         };
-        let answer: CheckoutAnswer = serde_json::from_value(value).map_err(|e| {
-            TokenError::Protocol(format!("the checkout's answer does not read as one: {e}"))
-        })?;
-        if answer.checkout_id.as_str() != id {
-            return Err(TokenError::Protocol(String::from(
-                "the answer is about another checkout",
-            )));
-        }
-        let paid = Paid {
-            receipt: answer.receipt.clone(),
-            months: answer.months,
-            months_paid: answer.months_paid,
-        };
+        let paid = Paid::of(&answer);
         let said = |reason: Option<String>, default: &str| {
             reason
                 .map(|r| r.trim().to_string())
@@ -688,6 +687,54 @@ impl<'a> TokenServer<'a> {
             CheckoutStatusWire::Unknown => CheckoutStatus::Unknown(String::from(
                 "the token server names a checkout status this app does not know",
             )),
+        })
+    }
+
+    /// The answer of `GET /v1/checkout/{id}`, read as the contract's [`CheckoutAnswer`] and
+    /// checked to be about the checkout asked for. The one read both [`Self::checkout_status`]
+    /// and [`Self::checkout_paid`] make.
+    fn checkout_answer(&self, id: &str) -> Result<CheckoutAnswer, TokenError> {
+        if id.is_empty() {
+            return Err(TokenError::Config(String::from(
+                "There is no checkout to ask about.",
+            )));
+        }
+        let path = format!("/v1/checkout/{}", uri_encode(id, true));
+        let value = self.call(Method::Get, &path, None, None)?;
+        let answer: CheckoutAnswer = serde_json::from_value(value).map_err(|e| {
+            TokenError::Protocol(format!("the checkout's answer does not read as one: {e}"))
+        })?;
+        if answer.checkout_id.as_str() != id {
+            return Err(TokenError::Protocol(String::from(
+                "the answer is about another checkout",
+            )));
+        }
+        Ok(answer)
+    }
+
+    /// What the payment of the checkout `checkout_id` is as the token server tells it NOW - its
+    /// receipt, the months, the tier -, without opening the checkout's sign-up (no claim key is
+    /// needed, and a sign-up that is gone or does not read changes nothing here): `Some` once the
+    /// checkout is approved, `None` for any other status. What a paid checkout is asked again
+    /// for, after its drive was delivered, when the first answer named no receipt: the token
+    /// server books the sale a moment after the approval, and a sale in another currency waits
+    /// for its euros ([`crate::pending::ReceiptDue`]).
+    ///
+    /// # Errors
+    ///
+    /// No answer, a refusal (`no_such_checkout` included: it is not read as an end here), an
+    /// answer that does not read as the contract's [`CheckoutAnswer`].
+    pub fn checkout_paid(&self, checkout_id: &str) -> Result<Option<Paid>, TokenError> {
+        let answer = self.checkout_answer(checkout_id.trim())?;
+        Ok(match answer.status {
+            CheckoutStatusWire::Approved { .. } => Some(Paid::of(&answer)),
+            CheckoutStatusWire::Pending { .. }
+            | CheckoutStatusWire::AwaitingCash { .. }
+            | CheckoutStatusWire::Declined { .. }
+            | CheckoutStatusWire::Reversed { .. }
+            | CheckoutStatusWire::Rejected { .. }
+            | CheckoutStatusWire::Expired { .. }
+            | CheckoutStatusWire::Unknown => None,
         })
     }
 

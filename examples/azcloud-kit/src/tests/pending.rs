@@ -57,6 +57,7 @@ fn checkout(id: &str, claim: &ClaimKey) -> PendingCheckout {
         ladder_version: None,
         drive_key: None,
         key_id: None,
+        receipt_due: None,
     }
 }
 

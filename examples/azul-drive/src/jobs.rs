@@ -23,7 +23,9 @@ use std::{
 };
 
 use azcloud_kit::{
-    pending::{self, Abandoned, Claimed, Final, Finished, PendingTokens, Polled, Recorded},
+    pending::{
+        self, Abandoned, Claimed, Final, Finished, PendingTokens, Polled, ReceiptDue, Recorded,
+    },
     change_due, look_at_drive, reminder_due, ActivationCode, Checkout, CheckoutFor, CheckoutVia,
     ClaimKey, CloudError, DriveBundle, DriveTokens, GrantChanged, OptionsQuery, PendingCheckout,
     PeriodTokenStore, PeriodTokens, Quote, SharedKeyring, TierChanged, Tiers, TokenError,
@@ -3200,6 +3202,24 @@ pub(crate) fn cash_ask_due(last: Option<Instant>, every: u64, now: Instant) -> b
     last.is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(every))
 }
 
+/// Seconds between two looks of the background claims for the receipt of one checkout: ten
+/// minutes - the token server's tick that books the sales that the approval's own request did
+/// not is five.
+const RECEIPT_LOOK_SECS: u64 = 600;
+
+/// A result of the claims' round that the window has nothing to say of: a try that failed, a
+/// grant that waits for the drive's vault with nothing new to say, a receipt that is still
+/// awaited. The next round tries again, quietly.
+#[must_use]
+pub(crate) fn finish_is_quiet(finished: &Finished) -> bool {
+    matches!(
+        finished,
+        Finished::Kept(_)
+            | Finished::Waits { count: 0, .. }
+            | Finished::Receipt(pending::Receipted::Waits(_))
+    )
+}
+
 fn claim_pending(
     keyring: &SharedKeyring,
     token_url: Option<&str>,
@@ -3214,6 +3234,10 @@ fn claim_pending(
     // A cash checkout is asked once, then once each daily interval (its letter takes days):
     // never every round.
     let mut asked_cash: HashMap<String, Instant> = HashMap::new();
+    // A checkout whose grant is kept and that waits for its receipt only is asked once, then
+    // once each [`RECEIPT_LOOK_SECS`] (ENT27-B06): the token server books a sale within minutes,
+    // and asking every round would ask every ten seconds for as long as the claims run.
+    let mut asked_receipt: HashMap<String, Instant> = HashMap::new();
     let mut said_in_flight: Vec<String> = Vec::new();
     // Rounds in a row in which the token server did not answer or asked to wait, and the longest
     // wait it asked for in the round (AZ-P10).
@@ -3270,6 +3294,35 @@ fn claim_pending(
                 continue;
             };
             asked += 1;
+            // Its grant is in two places already: what is left is its receipt, asked for at its
+            // own pace and without opening the drive.
+            if checkout.receipt_due == Some(ReceiptDue::GrantKept) && checkout.period.is_some() {
+                let now = Instant::now();
+                if cash_ask_due(
+                    asked_receipt.get(&checkout.checkout_id).copied(),
+                    RECEIPT_LOOK_SECS,
+                    now,
+                ) {
+                    asked_receipt.insert(checkout.checkout_id.clone(), now);
+                    let finished = pending::await_receipt(
+                        &server,
+                        keyring,
+                        &checkout,
+                        crate::actions::now_secs(),
+                    );
+                    if !finish_is_quiet(&finished) {
+                        send(
+                            sender,
+                            Outcome::CheckoutFinished {
+                                checkout_id: checkout.checkout_id.clone(),
+                                result: Ok(Some(finished)),
+                                from_claims: true,
+                            },
+                        );
+                    }
+                }
+                continue;
+            }
             if let Some(owed) = &checkout.period {
                 let tokens = match drive_tokens(store, &owed.drive_id, drives.get(&owed.drive_id)) {
                     Ok(tokens) => tokens,
@@ -3280,10 +3333,7 @@ fn claim_pending(
                 let finished = pending::finish(&server, keyring, store, &tokens, &checkout, owed, now);
                 // A try that failed, and a grant that waits for the drive's vault with nothing
                 // new to say, is tried again next round, quietly.
-                if !matches!(
-                    finished,
-                    Finished::Kept(_) | Finished::Waits { count: 0, .. }
-                ) {
+                if !finish_is_quiet(&finished) {
                     send(
                         sender,
                         Outcome::CheckoutFinished {

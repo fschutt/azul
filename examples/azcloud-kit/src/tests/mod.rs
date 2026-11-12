@@ -46,6 +46,8 @@ mod packing;
 mod paid;
 mod pending;
 mod period;
+/// The receipt of a paid checkout: awaited on the list past its grant, until an answer names it.
+mod receipt_wait;
 mod recovery;
 mod recovery_keys;
 /// A refusal of the token server read once, as the contract's typed value (RF51).

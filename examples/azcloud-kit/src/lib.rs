@@ -140,8 +140,8 @@ pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;
 pub use outbox::{OpenCall, Outbox};
 pub use pending::{
-    Abandoned, CashKept, Final, Finished, PendingCheckout, PendingTokens, Polled, Recorded,
-    Settled, Transient,
+    Abandoned, CashKept, Final, Finished, PendingCheckout, PendingTokens, Polled, ReceiptDue,
+    Receipted, Recorded, Settled, Transient,
 };
 pub use period::{
     change_due, issue_next, look_at_drive, redeem_due, reminder_due, Active, GrantChanged,

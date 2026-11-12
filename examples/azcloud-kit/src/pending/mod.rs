@@ -33,6 +33,14 @@
 //! What a poll found is [`Polled`]: an answer that ends the checkout ([`Final`], said by the one
 //! poll that took it off) or one that keeps it for the next poll ([`Transient`]).
 //!
+//! The sale's record is made from the answer that brought the drive, and that answer may name no
+//! receipt yet: the token server books the sale a moment after the approval, and a sale in
+//! another currency waits for its euros. A checkout whose record is not complete - no receipt,
+//! or a record that could not be kept - is marked ([`PendingCheckout::receipt_due`]) and stays on
+//! the list past its grant, for [`RECEIPT_WAIT_SECS`], until an answer names the receipt and the
+//! record keeps it ([`finish`], then [`await_receipt`] once its grant is kept elsewhere): the
+//! receipt is the only invoice data the customer has (ENT27-B06, X-DELTA-MONEY2-3).
+//!
 //! Blocking (the keyring, the token server): call it from an azul `Thread`.
 
 use std::fmt;
@@ -60,7 +68,9 @@ mod proof;
 
 pub use paid::{PaidList, PaidRecord};
 pub use proof::Settled;
-use proof::{ClaimsEnded, GrantKept, NeverIssued, NoSuchCheckout, NotMade, Strikes};
+use proof::{
+    ClaimsEnded, GrantKept, GrantKeptEarlier, NeverIssued, NoSuchCheckout, NotMade, Strikes,
+};
 
 /// The keyring entry of the unfinished checkouts.
 pub const PENDING_KEY: &str = "azcloud/checkouts";
@@ -82,8 +92,10 @@ pub const POSTING_LIFE_SECS: i64 = 86_400;
 pub const MAX_NAME_CHARS: usize = 64;
 /// The room [`add`] leaves for each unclaimed checkout's [`PendingTokens`] (a drive id of up to
 /// 33 characters, the months, the issue key, a monthly plan's mark and the two stamps of its wait
-/// for the drive's vault, 192 bytes in the worst case): its claim never overflows the entry.
-const PERIOD_ROOM: usize = 192;
+/// for the drive's vault, 193 bytes in the worst case) and for the mark of a receipt still
+/// awaited that stays on the entry after its claim (`,"receipt_due":"grant_kept"`, 28 bytes):
+/// its claim never overflows the entry. A test holds the worst case to it.
+pub(crate) const PERIOD_ROOM: usize = 224;
 
 /// One unfinished checkout. `Debug` shows no claim secret.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,6 +160,26 @@ pub struct PendingCheckout {
     /// drive. `None` for every other checkout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_id: Option<String>,
+    /// The record of its payment is not complete ([`ReceiptDue`]): the answer that brought its
+    /// drive (its months) named no receipt, or the record could not be kept. It stays on the
+    /// list past its grant for up to [`RECEIPT_WAIT_SECS`], asked again, until the record names
+    /// the receipt. `None`: nothing is awaited (the record has its receipt, or nothing is
+    /// recorded for a drive picked up with a claim code).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_due: Option<ReceiptDue>,
+}
+
+/// What a checkout whose paid record is not complete waits for ([`PendingCheckout::receipt_due`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiptDue {
+    /// The sale's receipt (or the record itself): the entry is otherwise as before - unclaimed,
+    /// or claimed with its period grant not in two places yet.
+    Awaited,
+    /// The same, and the period grant is in two places elsewhere already (the drive's vault, or
+    /// a second copy on this computer): all this entry waits for is the receipt
+    /// ([`await_receipt`]), and [`finish`] does not do the grant's work again.
+    GrantKept,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -208,6 +240,7 @@ impl fmt::Debug for PendingCheckout {
             .field("ladder_version", &self.ladder_version)
             .field("drive_key", &self.drive_key.as_ref().map(|_| "<hidden>"))
             .field("key_id", &self.key_id)
+            .field("receipt_due", &self.receipt_due)
             .finish()
     }
 }
@@ -343,6 +376,7 @@ impl PendingCheckout {
             ladder_version: None,
             drive_key: None,
             key_id: None,
+            receipt_due: None,
         }
     }
 
@@ -1222,13 +1256,15 @@ fn claim_drive(
     let record = if checkout.picked_up {
         Recorded::NotBoughtHere
     } else {
-        Recorded::of(keep_paid(
+        let kept = keep_paid(
             shared,
             checkout,
             bundle.drive_id(),
             bundle.tier.as_deref(),
             paid,
-        ))
+        );
+        let complete = kept.is_ok() && paid.receipt.is_some();
+        note_receipt(shared, checkout, Recorded::of(kept), complete)
     };
     Polled::Final(Final::Claimed(Box::new(Claimed {
         bundle,
@@ -1259,8 +1295,37 @@ fn keep_drive_key(
     Ok(())
 }
 
-/// Keeps the [`PaidRecord`] of `checkout`, paid for `drive_id`: its tier (the answer's, else
-/// the sign-up's, else the order's), its months (the answer's), the sale the token server booked.
+/// The [`PaidRecord`] of `checkout`, paid for `drive_id` and seen paid at `at` (seconds since
+/// 1970, this computer's clock): its tier (the sign-up's, else the answer's, else the order's),
+/// its months (the answer's), the sale the token server booked.
+fn paid_record(
+    checkout: &PendingCheckout,
+    drive_id: &str,
+    signup_tier: Option<&str>,
+    paid: &Paid,
+    at: i64,
+) -> PaidRecord {
+    let tier = [
+        signup_tier.unwrap_or_default(),
+        paid.tier.as_str(),
+        checkout.tier.as_str(),
+    ]
+    .into_iter()
+    .map(str::trim)
+    .find(|t| !t.is_empty())
+    .unwrap_or_default()
+    .to_string();
+    PaidRecord {
+        checkout: checkout.checkout_id.clone(),
+        drive: drive_id.to_string(),
+        tier,
+        months: paid.months_paid.filter(|m| *m > 0).unwrap_or(paid.months),
+        at,
+        receipt: paid.receipt.clone(),
+    }
+}
+
+/// Keeps the [`PaidRecord`] of `checkout`, paid for `drive_id` ([`paid_record`], seen paid now).
 fn keep_paid(
     shared: &SharedKeyring,
     checkout: &PendingCheckout,
@@ -1268,20 +1333,45 @@ fn keep_paid(
     signup_tier: Option<&str>,
     paid: &Paid,
 ) -> CloudResult<()> {
-    let tier = [signup_tier.unwrap_or_default(), checkout.tier.as_str()]
-        .into_iter()
-        .map(str::trim)
-        .find(|t| !t.is_empty())
-        .unwrap_or_default()
-        .to_string();
-    shared.paid()?.keep(&PaidRecord {
-        checkout: checkout.checkout_id.clone(),
-        drive: drive_id.to_string(),
-        tier,
-        months: paid.months_paid.filter(|m| *m > 0).unwrap_or(paid.months),
-        at: crate::now(),
-        receipt: paid.receipt.clone(),
-    })
+    shared.paid()?.keep(&paid_record(
+        checkout,
+        drive_id,
+        signup_tier,
+        paid,
+        crate::now(),
+    ))
+}
+
+/// Puts the list in line with what the record of `checkout`'s payment came to - `record`, kept
+/// or not, `complete` when it is kept AND names the receipt: a record that is not complete marks
+/// the checkout ([`PendingCheckout::receipt_due`]) so that it is asked for its receipt again
+/// ([`finish`], [`await_receipt`]); a complete one clears a mark an earlier poll left. The record
+/// never holds the claim back, and neither does the mark: a list that cannot take it turns a kept
+/// record into [`Recorded::NotKept`], since nothing will improve it then and the customer is told.
+fn note_receipt(
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+    record: Recorded,
+    complete: bool,
+) -> Recorded {
+    if complete {
+        if checkout.receipt_due.is_some() {
+            // collapse-ok: a mark that stays costs one more look, which finds the receipt and clears it
+            let _ = change(shared, &checkout.checkout_id, |c| c.receipt_due = None);
+        }
+        return record;
+    }
+    let marked = change(shared, &checkout.checkout_id, |c| {
+        c.receipt_due.get_or_insert(ReceiptDue::Awaited);
+    });
+    match (marked, record) {
+        (Ok(_), record) => record,
+        (Err(e), Recorded::Kept) => Recorded::NotKept(format!(
+            "its receipt is not booked yet, and the list of checkouts could not note that it is \
+             awaited: {e}"
+        )),
+        (Err(_), record) => record,
+    }
 }
 
 /// A sign-up without a drive (a renewal, a tier change): its months for the drive the checkout
@@ -1315,17 +1405,15 @@ fn claim_months(
     }
     match claimed(shared, &checkout.checkout_id, drive_id, Some(&grant)) {
         // The months are delivered; what was paid is recorded second (see [`claim_drive`]).
-        Ok(()) => Polled::Final(Final::Renewed {
-            drive_id: drive_id.to_string(),
-            months: grant.months,
-            record: Recorded::of(keep_paid(
-                shared,
-                checkout,
-                drive_id,
-                Some(signup.tier.as_str()),
-                paid,
-            )),
-        }),
+        Ok(()) => {
+            let kept = keep_paid(shared, checkout, drive_id, Some(signup.tier.as_str()), paid);
+            let complete = kept.is_ok() && paid.receipt.is_some();
+            Polled::Final(Final::Renewed {
+                drive_id: drive_id.to_string(),
+                months: grant.months,
+                record: note_receipt(shared, checkout, Recorded::of(kept), complete),
+            })
+        }
         Err(e) => Polled::Transient(Transient::NotKept(format!(
             "its months could not be kept for the drive {drive_id}: {e}"
         ))),
@@ -1555,7 +1643,36 @@ pub enum Finished {
         count: usize,
         why: String,
     },
+    /// Its grant is done as the variant inside says (issued, granted, kept on this computer
+    /// only), but the record of its payment names no receipt yet ([`PendingCheckout::receipt_due`]):
+    /// the checkout stays on the list for it, [`RECEIPT_WAIT_SECS`] at most, and the claims go on
+    /// asking ([`await_receipt`]). The app says what the inner variant says, and keeps the claims
+    /// running.
+    AwaitsReceipt(Box<Finished>),
+    /// What a look for the receipt of a checkout whose grant is kept found ([`await_receipt`]).
+    Receipt(Receipted),
 }
+
+/// What a look for the receipt of a claimed checkout found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Receipted {
+    /// The paid list names the receipt now; the checkout is off the list.
+    Kept,
+    /// The token server names no receipt yet, or the paid list could not take it - why: the
+    /// checkout stays on the list and the next look asks again.
+    Waits(String),
+    /// [`RECEIPT_WAIT_SECS`] have been seen pass without one: the record stays as it is (the
+    /// receipt of that sale is not on this computer) and the checkout is off the list.
+    GaveUp,
+}
+
+/// How long a paid checkout waits on the list for its receipt: three days, counted - as the wait
+/// for the drive's vault is - from the payment's claim on this computer, in the time this
+/// computer saw pass. The token server books a sale within minutes; one in another currency
+/// waits for its euros, which can take longer than this wait (days to weeks): the receipt of
+/// such a sale does not reach this computer, and the record says so ("no sale was booked") -
+/// the bound keeps a checkout's claim secret and issue key from sitting on the list for it.
+pub const RECEIPT_WAIT_SECS: i64 = 3 * 86_400;
 
 /// How long a paid checkout waits in the keyring for the drive's vault to take its grant: 30
 /// days, as long as the token server keeps the sealed sign-up - counted from the payment's
@@ -1565,18 +1682,20 @@ pub enum Finished {
 /// on this computer and the keyring's goes.
 pub const GRANT_WAIT_SECS: i64 = 30 * 86_400;
 
-/// What a round of the wait for the drive's vault found.
+/// What a round of a wait counted from the claim found.
 enum Wait {
-    /// [`GRANT_WAIT_SECS`] have been seen pass since the claim.
+    /// The wait's span has been seen pass since the claim.
     Over,
     /// Not yet.
     On,
 }
 
 /// Counts the wait of the claimed checkout `checkout_id` (its `period` as the list has it) to
-/// `now` (seconds since 1970): whether it is over, with what was counted written into the list -
-/// when a step of the clock moved the claim moment, or an hour after the last write (a round
-/// every few seconds does not write the keyring every few seconds).
+/// `now` (seconds since 1970): whether `span` seconds - [`GRANT_WAIT_SECS`] for the drive's
+/// vault, [`RECEIPT_WAIT_SECS`] for the receipt - have been seen pass since the claim, with what
+/// was counted written into the list - when a step of the clock moved the claim moment, or an
+/// hour after the last write (a round every few seconds does not write the keyring every few
+/// seconds).
 ///
 /// # Errors
 ///
@@ -1586,6 +1705,7 @@ fn count_wait(
     checkout_id: &str,
     period: &PendingTokens,
     now: u64,
+    span: i64,
 ) -> CloudResult<Wait> {
     let Ok(now) = i64::try_from(now) else {
         return Ok(Wait::On);
@@ -1600,7 +1720,7 @@ fn count_wait(
             }
         })?;
     }
-    Ok(if now.saturating_sub(claimed_at) >= GRANT_WAIT_SECS {
+    Ok(if now.saturating_sub(claimed_at) >= span {
         Wait::Over
     } else {
         Wait::On
@@ -1649,6 +1769,11 @@ pub fn finish(
         Ok(_) => finished,
         Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
     };
+    // Its grant is in two places already (an earlier finish said so): all that is left of the
+    // checkout is its receipt, and the grant's work is not done again.
+    if listed.receipt_due == Some(ReceiptDue::GrantKept) {
+        return await_receipt_listed(server, shared, &listed, now);
+    }
     // A grant no token server issues: nothing to wait for.
     if let Some(never) = NeverIssued::unusable_grant(owed.months, &owed.issue_key, MAX_BLINDED) {
         return taken_off(
@@ -1724,7 +1849,7 @@ pub fn finish(
         Some(proof) => (proof, None),
         None => {
             let period = listed.period.as_ref().unwrap_or(owed);
-            match count_wait(shared, id, period, now) {
+            match count_wait(shared, id, period, now, GRANT_WAIT_SECS) {
                 Ok(Wait::Over) => match tokens.keep_second_copy() {
                     Ok(second) => match GrantKept::of(&second) {
                         Some(proof) => (proof, Some(in_vaults.why_not_redundant())),
@@ -1764,5 +1889,161 @@ pub fn finish(
         None if count > 0 => Finished::Issued { drive_id, count },
         None => Finished::Granted { drive_id, why },
     };
+    // The record of its payment names no receipt yet (the answer that brought the drive had
+    // none, or the record could not be kept): ask once more now - the token server books the
+    // sale within moments of the approval -, and when it is still not there the checkout stays
+    // on the list, its grant being in two places, until the receipt comes or the wait is over
+    // (ENT27-B06, X-DELTA-MONEY2-3).
+    if listed.receipt_due.is_some() && !checkout.picked_up {
+        if let Receipted::Waits(_) = look_for_receipt(server, shared, &listed, now) {
+            return match mark_grant_kept(shared, id, &proof) {
+                Ok(()) => Finished::AwaitsReceipt(Box::new(finished)),
+                Err(e) => Finished::Kept(format!(
+                    "its receipt is awaited, and the list could not note that its grant is kept: \
+                     {e}"
+                )),
+            };
+        }
+    }
     taken_off(Settled::finished(&proof), finished)
+}
+
+/// Notes on the list that the grant of the checkout `checkout_id` is in two places (`proof`): its
+/// entry waits for the receipt only from now on ([`ReceiptDue::GrantKept`]). An entry another
+/// window finished meanwhile is not on the list, and nothing is noted.
+fn mark_grant_kept(shared: &SharedKeyring, checkout_id: &str, _: &GrantKept) -> CloudResult<()> {
+    change(shared, checkout_id, |c| {
+        if c.receipt_due.is_some() {
+            c.receipt_due = Some(ReceiptDue::GrantKept);
+        }
+    })
+    .map(|_| ())
+}
+
+/// Asks `server` (the checkout's own token server) for the receipt of the claimed `checkout`
+/// whose period grant is in two places already ([`ReceiptDue::GrantKept`]): the paid list keeps
+/// the receipt when it is named - and the checkout leaves the list, its claim secret and issue key
+/// with it -, or stays, asked again at the next look, until [`RECEIPT_WAIT_SECS`] have been seen
+/// pass since its claim (one last look is made after that, and then the checkout goes with the
+/// record as it is). What [`finish`] leaves behind while the receipt is awaited, and the claims'
+/// round for it - cheap: it does not touch the drive's vaults.
+///
+/// A checkout whose grant is not known to be in two places is [`Finished::Kept`]: the grant is
+/// [`finish`]'s.
+#[must_use]
+pub fn await_receipt(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    checkout: &PendingCheckout,
+    now: u64,
+) -> Finished {
+    let id = checkout.checkout_id.as_str();
+    let _lock = match shared.lock(&finish_lock(id)) {
+        Ok(lock) => lock,
+        Err(e) => return Finished::Kept(e.to_string()),
+    };
+    let listed = match list(shared) {
+        Ok(checkouts) => match checkouts.into_iter().find(|c| c.checkout_id == id) {
+            Some(entry) => entry,
+            None => return Finished::Settled,
+        },
+        Err(e) => return Finished::Kept(e.to_string()),
+    };
+    await_receipt_listed(server, shared, &listed, now)
+}
+
+/// [`await_receipt`] for `listed`, the checkout as the list has it now, the checkout's lock held.
+fn await_receipt_listed(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    listed: &PendingCheckout,
+    now: u64,
+) -> Finished {
+    let Some(kept) = GrantKeptEarlier::of(listed) else {
+        return Finished::Kept(String::from(
+            "its period grant is not known to be in two places yet: finish it first",
+        ));
+    };
+    match look_for_receipt(server, shared, listed, now) {
+        Receipted::Waits(why) => Finished::Receipt(Receipted::Waits(why)),
+        done @ (Receipted::Kept | Receipted::GaveUp) => {
+            match settle(shared, &listed.checkout_id, Settled::receipted(&kept)) {
+                Ok(_) => Finished::Receipt(done),
+                Err(e) => Finished::Kept(format!("it could not be taken off the list: {e}")),
+            }
+        }
+    }
+}
+
+/// One look for the receipt of the claimed checkout `listed` (as the list has it): the wait
+/// counted to `now` first (a look that finds nothing moves it on), then the token server asked
+/// ([`TokenServer::checkout_paid`]) and the paid list kept or improved from its answer
+/// ([`keep_receipt`]). Changes nothing on the list but the wait's stamps.
+fn look_for_receipt(
+    server: &TokenServer<'_>,
+    shared: &SharedKeyring,
+    listed: &PendingCheckout,
+    now: u64,
+) -> Receipted {
+    let id = listed.checkout_id.as_str();
+    let over = match &listed.period {
+        Some(period) => match count_wait(shared, id, period, now, RECEIPT_WAIT_SECS) {
+            Ok(Wait::Over) => true,
+            Ok(Wait::On) => false,
+            Err(e) => {
+                return Receipted::Waits(format!(
+                    "the wait for its receipt could not be counted: {e}"
+                ))
+            }
+        },
+        // Not claimed: nothing counts from a claim yet.
+        None => false,
+    };
+    let looked = match server.checkout_paid(id) {
+        Ok(Some(paid)) => keep_receipt(shared, listed, &paid),
+        Ok(None) => Err(String::from("the token server does not call it paid")),
+        Err(e) => Err(e.to_string()),
+    };
+    match looked {
+        Ok(()) => Receipted::Kept,
+        Err(_) if over => Receipted::GaveUp,
+        Err(why) => Receipted::Waits(why),
+    }
+}
+
+/// Keeps the record of the payment of the claimed checkout `listed` from `paid`, the token
+/// server's answer now: `Ok` when the paid list names the receipt, `Err` why not - the answer
+/// names none yet, or the list could not be kept. A record the first claim could not keep is made
+/// here (without a receipt when the answer has none): the next look after the way is free.
+fn keep_receipt(
+    shared: &SharedKeyring,
+    listed: &PendingCheckout,
+    paid: &Paid,
+) -> Result<(), String> {
+    let Some(period) = &listed.period else {
+        return Err(String::from("it is not claimed"));
+    };
+    let list = shared.paid().map_err(|e| e.to_string())?;
+    // A failed read is no "no record": keeping sets a list that does not parse aside, or says
+    // why it cannot.
+    let recorded = matches!(list.of_checkout(&listed.checkout_id), Ok(Some(_)));
+    if paid.receipt.is_none() && recorded {
+        return Err(String::from(
+            "the token server has booked no sale for it yet",
+        ));
+    }
+    let at = if period.claimed_at > 0 {
+        period.claimed_at
+    } else {
+        crate::now()
+    };
+    list.keep(&paid_record(listed, &period.drive_id, None, paid, at))
+        .map_err(|e| e.to_string())?;
+    if paid.receipt.is_some() {
+        Ok(())
+    } else {
+        Err(String::from(
+            "the token server has booked no sale for it yet",
+        ))
+    }
 }
