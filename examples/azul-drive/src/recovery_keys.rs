@@ -57,7 +57,6 @@ use azul_storage::{
     crypto::{
         device,
         keys::{RecoveryCode, RecoveryKdf},
-        keystate::{Evidence, Guard, Op, Read},
         Zeroizing,
     },
     encrypted::AutoEncrypted,
@@ -1080,41 +1079,6 @@ fn left_after(
     Left { first_code, copies }
 }
 
-/// The key permit's shadow of a kit's wrap leaving the drive's storage (ARCH29 C7 step 2): the job has
-/// no guard of its own about the state of the drive's keys - the drive is open, so the wrap can be
-/// reached, and the token server refuses the last key afterwards. The keyring is read with one that
-/// never asks the user: the shadow must not be the reason a dialog appears.
-fn shadow_remove_code(drive: &str) {
-    let mut evidence = Evidence::new(drive, now_unix());
-    evidence.keyring =
-        device::key_facts(&azlin_keyring(azul_storage::keyring::Asking::Never), drive);
-    evidence.bucket.encrypted = Read::Found(true);
-    azul_storage::key_shadow!(
-        "azul_drive::recovery_keys::remove_job",
-        Op::RemoveCode,
-        evidence,
-        Guard::Permits,
-        known = [
-            (
-                "rotating",
-                "X-DELTA-AZDRIVE-KEYS-7: a kit's wrap is taken out while a rotation is unfinished: the \
-                 rotation's last step replaces the recovery wrap, and which kit still opens the new \
-                 key is not what the list says; the table refuses"
-            ),
-            (
-                "locked",
-                "the drive is open on this computer, so its key was read by the keyring the drive was \
-                 opened with; the keyring that never asks holds none (a stand-in keyring of a test, or \
-                 a read that would have needed the user)"
-            ),
-            (
-                "unknown",
-                "the keyring that never asks answered Denied where it would have had to ask the user"
-            ),
-        ]
-    );
-}
-
 /// Removes a recovery key: its wrap in the drive's storage first (`delete_wrap`: what lets its
 /// code open the drive key - a kit that was lost must not keep doing that; it hands back the bytes
 /// it took out), then its key at the token server (`remove_at_server`, which checks the signature
@@ -1258,9 +1222,10 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
                 // The wrap's file is named by the code's key at the token server, so that a removal of
                 // the key from another computer finds it (X-DELTA-AZDRIVE-KEYS-28).
+                let drive_keyring = azlin_keyring(azul_storage::keyring::Asking::User);
                 let (file, code) = device::add_recovery_code_for_key(
                     auto.bucket().as_ref(),
-                    &azlin_keyring(azul_storage::keyring::Asking::User),
+                    &drive_keyring,
                     auto.drive(),
                     kdf,
                     |code| findable_key_of(code).public_base64(),
@@ -1282,7 +1247,13 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                 match added {
                     Ok(key) => Ok((code.to_text(), key.key_id, file)),
                     // No key at the token server: no second kit in the bucket either.
-                    Err(e) => Err(rolled_back(auto.bucket().as_ref(), &file, token_text(&e))),
+                    Err(e) => Err(rolled_back(
+                        auto.bucket().as_ref(),
+                        &drive_keyring,
+                        auto.drive(),
+                        &file,
+                        token_text(&e),
+                    )),
                 }
             })();
             KeysDone::CodeAdded { drive_id, result }
@@ -1327,21 +1298,34 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
             token_url,
             keyring,
         } => {
+            // The key permit's RemoveCode cell, asked on the keyring this computer holds the drive's
+            // key in, before the wrap is read or deleted: a key change that is not over may replace
+            // the wrap, and which kit still opens the new key is not what the list says (KEYS-7).
+            let permit = match (&extra_file, &auto) {
+                (Some(_), Some(auto)) => Some(device::wraps_permit(
+                    azul_storage::crypto::keystate::Op::RemoveCode,
+                    &azlin_keyring(azul_storage::keyring::Asking::User),
+                    auto.drive(),
+                )),
+                _ => None,
+            };
             let result = remove_key(
-                || match (&extra_file, &auto) {
-                    (Some(file), Some(auto)) => {
+                || match (&extra_file, &auto, &permit) {
+                    (Some(file), Some(auto), Some(Ok(permit))) => {
                         let bucket = auto.bucket().as_ref();
-                        shadow_remove_code(auto.drive());
                         let taken =
                             device::read_recovery_code(bucket, file).map_err(|e| e.to_string())?;
-                        device::remove_recovery_code(bucket, file).map_err(|e| e.to_string())?;
+                        device::remove_recovery_code(permit, bucket, file)
+                            .map_err(|e| e.to_string())?;
                         Ok(taken)
                     }
+                    (Some(_), Some(_), Some(Err(refused))) => Err(refused.to_string()),
+                    (Some(_), Some(_), None) => Err(t("azdrive-keys-drive-not-open")),
                     // The kit's wrap is in the drive's storage, and the drive is not open.
-                    (Some(_), None) => Err(t("azdrive-keys-drive-not-open")),
+                    (Some(_), None, _) => Err(t("azdrive-keys-drive-not-open")),
                     // The drive's first code, or a key without a public half: no wrap this
                     // computer can name (what stays is looked at below).
-                    (None, _) => Ok(None),
+                    (None, _, _) => Ok(None),
                 },
                 || {
                     TokenServer::new(&token_url, &transport).and_then(|server| {
@@ -1353,9 +1337,10 @@ pub(crate) fn run(job: KeysJob) -> KeysDone {
                         })
                     })
                 },
-                |bytes| match (&extra_file, &auto) {
-                    (Some(file), Some(auto)) => {
-                        device::restore_recovery_code(auto.bucket().as_ref(), file, &bytes)
+                |bytes| match (&extra_file, &auto, &permit) {
+                    // The undo of the removal runs under the permit of the removal it undoes.
+                    (Some(file), Some(auto), Some(Ok(permit))) => {
+                        device::restore_recovery_code(permit, auto.bucket().as_ref(), file, &bytes)
                             .map_err(|e| e.to_string())
                     }
                     // nothing was taken out of a drive that was not open
@@ -1591,8 +1576,22 @@ pub(crate) fn on_done(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState,
 /// of the bucket again (no key at the token server, no second kit in the bucket either). A delete
 /// that fails is said - the wrap of a code nobody was shown stays in the drive and counts against
 /// the most further codes a drive holds - and is not thrown away (X-AR5b-9).
-fn rolled_back(bucket: &dyn azul_storage::Drive, file: &str, why: String) -> String {
-    match device::remove_recovery_code(bucket, file) {
+fn rolled_back(
+    bucket: &dyn azul_storage::Drive,
+    keyring: &dyn azul_storage::keyring::KeyringStore,
+    drive: &str,
+    file: &str,
+    why: String,
+) -> String {
+    // The wrap is taken out under the key permit's RemoveCode: a key change that began meanwhile may
+    // replace the wrap, and then the unused file is the key change's to remove.
+    let removed = device::wraps_permit(
+        azul_storage::crypto::keystate::Op::RemoveCode,
+        keyring,
+        drive,
+    )
+    .and_then(|permit| device::remove_recovery_code(&permit, bucket, file));
+    match removed {
         Ok(()) => why,
         Err(left) => format!(
             "{why}; the unused key file {file} could not be removed from the drive either ({left})"
@@ -2104,13 +2103,15 @@ mod tests {
             "the kit's wrap is in the bucket"
         );
 
-        let said = rolled_back(&bucket, &file, String::from("no answer"));
+        let said = rolled_back(&bucket, &keyring, "d_1", &file, String::from("no answer"));
         assert_eq!(said, "no answer", "removed: only the reason is said");
         assert!(bucket.head(&file).is_err(), "the unused wrap is gone");
 
         // A file the removal refuses (it is no further code's) is a leftover, and is said.
         let said = rolled_back(
             &bucket,
+            &keyring,
+            "d_1",
             ".azlin/keys/recovery.key",
             String::from("no answer"),
         );

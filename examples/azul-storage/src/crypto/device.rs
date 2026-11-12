@@ -59,7 +59,7 @@ use super::{
         store_member_wrap, store_recovery_wrap, MemberSecret, MemberWrap, RecoveryCode,
         RecoveryKdf, RecoveryWrap, INVITE_PREFIX, KEYS_PREFIX, RECOVERY_KEY_FILE,
     },
-    keystate::{self, Guard, Keeps, KeyringFacts, Op, Read, Way},
+    keystate::{self, Keeps, KeyringFacts, Op, Read, Way},
     to_hex, CryptoError, DriveKey, KeyId, KEY_LEN,
 };
 use crate::{
@@ -785,7 +785,7 @@ pub fn setup_new_drive_reporting(
     evidence.keyring = entries.facts();
     evidence.keyring.keeps_keys = keeps_keys_fact(keyring);
     evidence.bucket.encrypted = Read::value(listed.clone());
-    let way = match keystate::judge(&keystate::observe(&evidence), Op::Setup, &evidence) {
+    let way = match keystate::ask(Op::Setup, &evidence) {
         keystate::Verdict::Permit(permit) => permit.way(),
         keystate::Verdict::Refuse(reason) => {
             return Err(setup_refused(&reason, &entries, &listed));
@@ -921,6 +921,117 @@ fn setup_refused(
             message: reason.sentence.clone(),
         },
     }
+}
+
+/// The error a refusal is for a flow that read the keyring's four entries: the keyring's own error for a
+/// fact that could not be read (the class the caller knew), the judge's sentence in the flow's class
+/// otherwise ([`keystate::Reason::error`]).
+fn refusal_error(reason: &keystate::Reason, drive: &str, entries: &KeyEntries) -> DriveError {
+    match &reason.kind {
+        keystate::Refusal::Unreadable { .. } => [
+            &entries.drive,
+            &entries.next,
+            &entries.planned,
+            &entries.previous,
+        ]
+        .into_iter()
+        .find_map(|read| read.as_ref().err().cloned())
+        .unwrap_or_else(|| reason.error(drive)),
+        _ => reason.error(drive),
+    }
+}
+
+/// The permit of `op` for a flow that touches the keys or the recovery wraps of `drive`: the key permit's
+/// cell, asked on the keyring's four entries read ONCE, its protection, and what `fill` adds of the bucket.
+/// The error is the flow's: `Locked` for a device with no key, `Denied` with the sentence for a setup or a
+/// key change that is not over, the keyring's own for a read that failed.
+fn permit_for(
+    op: Op,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    fill: impl FnOnce(&mut keystate::Evidence<'_>),
+) -> Result<keystate::Permit, DriveError> {
+    let entries = read_entries(keyring, drive);
+    let mut evidence = keystate::Evidence::new(drive, crate::time::now_unix());
+    evidence.keyring = entries.facts();
+    evidence.keyring.keeps_keys = keeps_keys_fact(keyring);
+    fill(&mut evidence);
+    match keystate::ask(op, &evidence) {
+        keystate::Verdict::Permit(permit) => Ok(permit),
+        keystate::Verdict::Refuse(reason) => Err(refusal_error(&reason, drive, &entries)),
+    }
+}
+
+/// The permit of a device that gets the drive key: a recovery with the code, a member wrap, a join code's
+/// invite ([`recover`], [`adopt_invite`]). Asked on the keyring alone, before the bucket is looked at: a
+/// device that has no key (a new one, a locked one) may take one, a device with an unfinished setup or key
+/// change of its own may not (X-KEYSTATE-5: the flows wrote the recovered key over it).
+///
+/// # Errors
+///
+/// The refusal, in the flow's class.
+pub fn recover_permit(
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<keystate::Permit, DriveError> {
+    permit_for(Op::Recover, keyring, drive, |_| {})
+}
+
+/// The permit of a drive's recovery wraps that this device holds the key of: a further code's wrap made
+/// ([`add_recovery_code`]: `AddCode`), the first code's wrap replaced (`NewCode`), a kit's wrap taken out
+/// (`RemoveCode`, [`remove_recovery_code`]) or the drive key handed to a joining device (`Invite`,
+/// [`seal_invite`]). The flow is one of an encrypted drive, so its bucket is asked as such.
+///
+/// # Errors
+///
+/// The refusal, in the flow's class (`Locked` for a device with no key, `Denied` with the sentence while a
+/// setup or a key change is not over).
+pub fn wraps_permit(
+    op: Op,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<keystate::Permit, DriveError> {
+    permit_for(op, keyring, drive, |evidence| {
+        evidence.bucket.encrypted = Read::Found(true);
+    })
+}
+
+/// [`wraps_permit`] of `AddCode` with the count of the drive's further recovery codes read from `bucket`:
+/// a drive holds at most [`MAX_EXTRA_RECOVERY_CODES`].
+///
+/// # Errors
+///
+/// As [`wraps_permit`]; the bucket's refusal to list.
+pub fn add_code_permit(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<keystate::Permit, DriveError> {
+    // The bucket's own error for a listing that fails, as before.
+    let files = extra_recovery_files(bucket)?;
+    let extra = u32::try_from(files.len()).unwrap_or(u32::MAX);
+    permit_for(Op::AddCode, keyring, drive, |evidence| {
+        evidence.bucket.encrypted = Read::Found(true);
+        evidence.bucket.extra_codes = Read::Found(extra);
+    })
+}
+
+/// The permit of a restore as of a time: the drive's files are put back through the key this device holds
+/// (`encrypted`: the drive has an index of its own, which is what the state's policy says before the
+/// restore goes on). A key change that is not over refuses it: the repository is opened with the key the
+/// change is replacing.
+///
+/// # Errors
+///
+/// The refusal, in the flow's class.
+pub fn restore_permit(
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    encrypted: bool,
+) -> Result<keystate::Permit, DriveError> {
+    permit_for(Op::RestoreAsOf, keyring, drive, |evidence| {
+        evidence.bucket.encrypted = Read::Found(encrypted);
+    })
 }
 
 /// Whether this device has a setup of the drive under way: [`setup_new_drive`] kept the drive's key
@@ -1152,6 +1263,9 @@ pub fn adopt_invite_reporting(
     invite: &MemberSecret,
     key_id: Option<&KeyId>,
 ) -> Result<Adopted, DriveError> {
+    // Before the bucket is read: a device whose own setup or key change is not over does not take a key
+    // (X-KEYSTATE-5), and a keyring that keeps no key says so.
+    let _permit = recover_permit(keyring, drive)?;
     let member = invite_member(invite);
     let file = member_key_file(&member).map_err(|e| e.for_key(drive))?;
     let wrap = match load_member_wrap(bucket, &member) {
@@ -1181,7 +1295,6 @@ pub fn adopt_invite_reporting(
         }
     }
     let drive_key = wrap.open(drive, invite).map_err(|e| e.for_key(&file))?;
-    shadow_recover("device::adopt_invite_reporting", keyring, drive);
     enroll(bucket, keyring, drive, &drive_key)?;
     // The device has the key. A wrap that is gone is as good as deleted; any other failure leaves
     // the invite live, and that is said instead of being turned into a failure of the join.
@@ -1242,6 +1355,10 @@ pub fn recover_within(
     code: &RecoveryCode,
     budget: u64,
 ) -> Result<DriveKey, DriveError> {
+    // Before the bucket is read and the code's Argon2id is spent: the key permit's Recover cell, judged on
+    // the keyring alone. A device whose own setup or key change is not over does not take the recovered
+    // key over it (X-KEYSTATE-5), a keyring that cannot be read stops it, a keyring that keeps no key says so.
+    let _permit = recover_permit(keyring, drive)?;
     // The first code's wrap, then a further code's (a second kit), until one opens. A wrap that
     // is missing, damaged or asks for more than any wrap does is no wrap: the others are still
     // tried (a hostile bucket cannot keep a second kit from opening the drive by spoiling the
@@ -1323,7 +1440,6 @@ pub fn recover_within(
             })
         }
     };
-    shadow_recover("device::recover_within", keyring, drive);
     if let Some(named) = committed_drive_key(keyring, drive)? {
         if drive_key.id() != named {
             return Err(refused(
@@ -1337,47 +1453,6 @@ pub fn recover_within(
     }
     enroll(bucket, keyring, drive, &drive_key)?;
     Ok(drive_key)
-}
-
-/// The key permit's shadow of a flow that brings the drive key to this device (C7 step 2): `Recover`,
-/// asked once the bucket has shown that the drive is encrypted (a recovery wrap opened, an invite
-/// opened) and before the key is written. The guard is the keyring's protection
-/// ([`check_keeps_keys`]) - the first key written refuses where it keeps none - and nothing looks at
-/// the keys this device already keeps. The table refuses to bring a key onto a device whose setup
-/// or key change is unfinished.
-fn shadow_recover(site: &'static str, keyring: &dyn KeyringStore, drive: &str) {
-    let mut evidence = keystate::Evidence::new(drive, crate::time::now_unix());
-    evidence.keyring = key_facts(keyring, drive);
-    evidence.keyring.keeps_keys = keeps_keys_fact(keyring);
-    evidence.bucket.encrypted = Read::Found(true);
-    let guard = if check_keeps_keys(keyring, "the drive key").is_err() {
-        Guard::Refuses
-    } else {
-        Guard::Permits
-    };
-    crate::key_shadow!(
-        site,
-        Op::Recover,
-        evidence,
-        guard,
-        known = [
-            (
-                "planned",
-                "the flow writes the recovered key over a device whose own setup did not finish: its \
-                 planned key and the recovered one would pin two different drives' keys"
-            ),
-            (
-                "rotating",
-                "the flow brings a key onto a device that keeps the new key of an unfinished rotation \
-                 (harmless for the old key's wrap, but the table says finish the change first)"
-            ),
-            (
-                "unknown",
-                "the flow reads none of the keyring's key entries before it writes: a keyring that \
-                 cannot be read fails at the write (the table refuses on any failed read)"
-            ),
-        ]
-    );
 }
 
 // ==== Trusted contacts' keys (super::contacts) ====
@@ -1543,13 +1618,10 @@ fn add_recovery_code_named(
     kdf: RecoveryKdf,
     file_of: impl FnOnce(&RecoveryCode) -> Result<String, DriveError>,
 ) -> Result<(String, RecoveryCode), DriveError> {
-    let extra = extra_recovery_files(bucket)?.len();
-    shadow_add_code(keyring, drive, extra);
-    if extra >= MAX_EXTRA_RECOVERY_CODES {
-        return Err(DriveError::Unsupported(format!(
-            "a drive holds at most {MAX_EXTRA_RECOVERY_CODES} further recovery codes: remove one first"
-        )));
-    }
+    // The key permit's AddCode cell: the device holds the drive key, no setup or key change is not over (a
+    // code added while the recovery wrap may be replaced opens nothing once it is: KEYS-7), and the drive
+    // holds fewer than the most further codes.
+    let _permit = add_code_permit(bucket, keyring, drive)?;
     let (drive_key, stashed) =
         held(keyring, &drive_key_entry(drive))?.ok_or_else(|| DriveError::Locked {
             drive: drive.to_string(),
@@ -1561,44 +1633,17 @@ fn add_recovery_code_named(
     Ok((file, code))
 }
 
-/// The key permit's shadow of [`add_recovery_code`] (C7 step 2), asked before its two guards answer:
-/// a drive holds at most [`MAX_EXTRA_RECOVERY_CODES`] further codes, and the device must hold the
-/// drive key ([`held`] says `Locked` where it does not). Nothing looks at a key change that is
-/// unfinished: a code added while the recovery wrap may be replaced is the finding of KEYS-7.
-fn shadow_add_code(keyring: &dyn KeyringStore, drive: &str, extra: usize) {
-    let mut evidence = keystate::Evidence::new(drive, crate::time::now_unix());
-    evidence.keyring = key_facts(keyring, drive);
-    evidence.bucket.extra_codes = Read::Found(u32::try_from(extra).unwrap_or(u32::MAX));
-    let holds = matches!(evidence.keyring.drive_key, Read::Found(_));
-    let guard = if extra >= MAX_EXTRA_RECOVERY_CODES || !holds {
-        Guard::Refuses
-    } else {
-        Guard::Permits
-    };
-    crate::key_shadow!(
-        "device::add_recovery_code_named",
-        Op::AddCode,
-        evidence,
-        guard,
-        known = [
-            (
-                "rotating",
-                "X-DELTA-AZDRIVE-KEYS-7: no guard here refuses a code while a key change is \
-                 unfinished (only the settings forget the code's check); the table refuses it, the \
-                 recovery wrap may be replaced"
-            ),
-            (
-                "unknown",
-                "the flow reads only the drive key: a keyring that fails on the new key or the \
-                 planned key alone does not stop it (the table refuses on any failed read)"
-            ),
-        ]
-    );
-}
-
 /// Removes a further recovery code's wrap: its kit no longer opens the drive (a file that is
 /// gone already is no error). Refused for any other file - the first code's, a member's.
-pub fn remove_recovery_code(bucket: &dyn Drive, file: &str) -> Result<(), DriveError> {
+///
+/// `permit` is the key permit's `RemoveCode` ([`wraps_permit`]): a key change that is not over may replace
+/// the wrap, and which kit still opens the new key is not what a list says (KEYS-7).
+pub fn remove_recovery_code(
+    permit: &keystate::Permit,
+    bucket: &dyn Drive,
+    file: &str,
+) -> Result<(), DriveError> {
+    permit.allows_op(Op::RemoveCode)?;
     check_extra_recovery_file(file)?;
     match bucket.delete(file) {
         Ok(()) | Err(DriveError::NotFound { .. }) => Ok(()),
@@ -1646,10 +1691,13 @@ pub fn read_recovery_code(bucket: &dyn Drive, file: &str) -> Result<Option<Vec<u
 /// A name that is no further recovery code's, the bucket's refusal; [`DriveError::Conflict`] when
 /// something is there already.
 pub fn restore_recovery_code(
+    permit: &keystate::Permit,
     bucket: &dyn Drive,
     file: &str,
     bytes: &[u8],
 ) -> Result<(), DriveError> {
+    // The undo of a removal runs under the permit of the removal it undoes.
+    permit.allows_op(Op::RemoveCode)?;
     check_extra_recovery_file(file)?;
     put_new(bucket, file, bytes)
 }

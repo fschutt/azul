@@ -8,9 +8,10 @@ use crate::{
             add_recovery_code, add_recovery_code_for_key, enroll, other_devices,
             read_recovery_code, recover, recover_within, recovery_code_file_for,
             remove_recovery_code, restore_recovery_code, setup_new_drive, unclaimed_recovery_codes,
-            EXTRA_RECOVERY_PREFIX, MAX_EXTRA_RECOVERY_CODES, RECOVER_WORK_BUDGET,
+            wraps_permit, EXTRA_RECOVERY_PREFIX, MAX_EXTRA_RECOVERY_CODES, RECOVER_WORK_BUDGET,
         },
         keys::{RecoveryCode, RecoveryKdf, RecoveryWrap, RECOVERY_KEY_FILE},
+        keystate::{Op, Permit},
     },
     keyring::MemoryKeyring,
     Drive, DriveError, ListRequest,
@@ -18,6 +19,12 @@ use crate::{
 
 fn cheap() -> RecoveryKdf {
     RecoveryKdf::with_cost(64, 1, 1).unwrap()
+}
+
+/// The key permit's `RemoveCode` of the drive `d_1` on the device `keyring`: what a kit's wrap is taken
+/// out and put back under.
+fn removal(keyring: &MemoryKeyring) -> Permit {
+    wraps_permit(Op::RemoveCode, keyring, "d_1").unwrap()
 }
 
 #[test]
@@ -59,16 +66,16 @@ fn a_removed_second_code_opens_nothing_and_the_first_stays() {
     let owner = MemoryKeyring::new();
     let (_, first) = setup_new_drive(&bucket, &owner, "d_1", cheap()).unwrap();
     let (file, second) = add_recovery_code(&bucket, &owner, "d_1", cheap()).unwrap();
-    remove_recovery_code(&bucket, &file).unwrap();
-    remove_recovery_code(&bucket, &file).unwrap();
+    remove_recovery_code(&removal(&owner), &bucket, &file).unwrap();
+    remove_recovery_code(&removal(&owner), &bucket, &file).unwrap();
     assert!(matches!(
         recover(&bucket, &MemoryKeyring::new(), "d_1", &second),
         Err(DriveError::Denied { .. })
     ));
     assert!(recover(&bucket, &MemoryKeyring::new(), "d_1", &first).is_ok());
     // Only an extra code's file is removed this way, never the first code's or a member's.
-    assert!(remove_recovery_code(&bucket, RECOVERY_KEY_FILE).is_err());
-    assert!(remove_recovery_code(&bucket, ".azlin/keys/abc.key").is_err());
+    assert!(remove_recovery_code(&removal(&owner), &bucket, RECOVERY_KEY_FILE).is_err());
+    assert!(remove_recovery_code(&removal(&owner), &bucket, ".azlin/keys/abc.key").is_err());
     assert!(bucket.get(RECOVERY_KEY_FILE).is_ok());
 }
 
@@ -116,7 +123,7 @@ fn a_drive_holds_at_most_eight_further_recovery_codes() {
         .objects[0]
         .key
         .clone();
-    remove_recovery_code(&bucket, &first).unwrap();
+    remove_recovery_code(&removal(&owner), &bucket, &first).unwrap();
     add_recovery_code(&bucket, &owner, "d_1", cheap()).unwrap();
 }
 
@@ -281,7 +288,12 @@ fn x_delta_azdrive_keys_28_a_kit_named_by_its_key_is_found_from_another_computer
     let wrap = read_recovery_code(&bucket, &recovery_code_file_for("KITKEY="))
         .unwrap()
         .expect("the wrap is there");
-    remove_recovery_code(&bucket, &recovery_code_file_for("KITKEY=")).unwrap();
+    remove_recovery_code(
+        &removal(&owner),
+        &bucket,
+        &recovery_code_file_for("KITKEY="),
+    )
+    .unwrap();
     assert!(recover(&bucket, &MemoryKeyring::new(), "d_1", &kit).is_err());
     assert_eq!(
         read_recovery_code(&bucket, &file).unwrap(),
@@ -289,13 +301,13 @@ fn x_delta_azdrive_keys_28_a_kit_named_by_its_key_is_found_from_another_computer
         "a file that is gone reads as none"
     );
     // the server refused: it goes back, byte for byte, and the kit opens the drive again
-    restore_recovery_code(&bucket, &file, &wrap).unwrap();
+    restore_recovery_code(&removal(&owner), &bucket, &file, &wrap).unwrap();
     assert_eq!(bucket.get(&file).unwrap(), wrap);
     let opened = recover(&bucket, &MemoryKeyring::new(), "d_1", &kit).unwrap();
     assert_eq!(opened.id(), drive_key.id());
     // nothing is put over a file that is there
     assert!(matches!(
-        restore_recovery_code(&bucket, &file, b"another"),
+        restore_recovery_code(&removal(&owner), &bucket, &file, b"another"),
         Err(DriveError::Conflict { .. })
     ));
     assert_eq!(bucket.get(&file).unwrap(), wrap);
@@ -307,7 +319,7 @@ fn x_delta_azdrive_keys_28_a_kit_named_by_its_key_is_found_from_another_computer
     ] {
         assert!(read_recovery_code(&bucket, named).is_err(), "{named}");
         assert!(
-            restore_recovery_code(&bucket, named, b"x").is_err(),
+            restore_recovery_code(&removal(&owner), &bucket, named, b"x").is_err(),
             "{named}"
         );
     }

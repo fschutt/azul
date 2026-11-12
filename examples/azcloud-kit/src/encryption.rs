@@ -37,7 +37,7 @@ use azul_storage::{
         device::{self, Adopted},
         drops::{self, DropPublic},
         keys::{RecoveryCode, RecoveryKdf},
-        keystate::{Evidence, Guard, KeyringFacts, Op, Read, Way},
+        keystate::Op,
         DriveKey, KeyId,
     },
     encrypted::{EncryptedDrive, Recorded},
@@ -53,70 +53,6 @@ use crate::{
     error::{fail, CloudResult},
     failover::{Failover, Node},
 };
-
-// ==== The key permit's shadow (ARCH29 C7 step 2): the judge beside the guards of this file ====
-//
-// Each helper asks `azul_storage::crypto::keystate` the question the guard just answered, on the
-// facts the guard had and the keyring's entries read once more (local reads, a rare operation), and
-// logs a disagreement; in this crate's test build it fails the test. The guards decide; nothing here
-// changes what they did.
-
-/// The sign-up's one guard (`check_keeps_keys`): a drive that does not exist yet has no key, none
-/// planned and no key files, so the state is `Fresh` and the keyring must take the key that is made.
-fn shadow_sign_up(keyring: &dyn KeyringStore, kept: bool) {
-    let mut evidence = Evidence::new("(a new drive)", azul_storage::time::now_unix());
-    evidence.keyring = KeyringFacts {
-        drive_key: Read::Absent,
-        next_key: Read::Absent,
-        previous_key: Read::Absent,
-        planned_key: Read::Absent,
-        keeps_keys: device::keeps_keys_fact(keyring),
-    };
-    evidence.bucket.encrypted = Read::Found(false);
-    let guard = if kept {
-        Guard::PermitsAs(Way::New)
-    } else {
-        Guard::Refuses
-    };
-    azul_storage::key_shadow!(
-        "azcloud_kit::encryption::signup",
-        Op::Setup,
-        evidence,
-        guard
-    );
-}
-
-/// The join's guard before the code's one-time token is spent (`check_join_key_can_be_kept`): the
-/// keyring must take the key the code carries. The drive is encrypted (the code carries its key).
-fn shadow_join(keyring: &dyn KeyringStore, drive: &str, kept: bool) {
-    let mut evidence = Evidence::new(drive, azul_storage::time::now_unix());
-    evidence.keyring = device::key_facts(keyring, drive);
-    evidence.keyring.keeps_keys = device::keeps_keys_fact(keyring);
-    evidence.bucket.encrypted = Read::Found(true);
-    let guard = if kept { Guard::Permits } else { Guard::Refuses };
-    azul_storage::key_shadow!(
-        "azcloud_kit::encryption::check_join_key_can_be_kept",
-        Op::Recover,
-        evidence,
-        guard,
-        known = [
-            (
-                "planned",
-                "a join onto a device whose own setup did not finish: no guard before the token is spent"
-            ),
-            (
-                "rotating",
-                "a join onto a device that keeps the new key of an unfinished rotation (harmless for the \
-                 old key's invite, but the table says finish the change first)"
-            ),
-            (
-                "unknown",
-                "the guard asks the keyring's protection only: a keyring that cannot be read fails at \
-                 the first key written"
-            ),
-        ]
-    );
-}
 
 /// Where a new drive's keys go as it is made ([`Account::signup`]).
 pub struct NewKeys<'k> {
@@ -152,9 +88,7 @@ impl Account {
     ) -> CloudResult<(Account, RecoveryCode)> {
         // Before the drive is made: a keyring that keeps no key would refuse the first key written,
         // after the sign-up, and leave a drive that takes no file (X-DELTA-AZDRIVE-KEYS-25).
-        let kept = device::check_keeps_keys(keys.keyring, "the new drive's key");
-        shadow_sign_up(keys.keyring, kept.is_ok());
-        kept?;
+        device::check_keeps_keys(keys.keyring, "the new drive's key")?;
         let account = Account::sign_up_at_token_server(state, token_url, transports, tier, name)?
             .with_s3_endpoint(keys.s3_endpoint);
         let code = account.setup_encryption(keys.keyring, keys.kdf)?;
@@ -225,6 +159,8 @@ impl Account {
         let mut code = self.invite(member)?;
         let drive = self.record().id.clone();
         if let Some(drive_key) = device::load_drive_key(keyring, &drive)? {
+            // A key change that is not over would hand out the key it replaces, and delete the invite.
+            let _permit = device::wraps_permit(Op::Invite, keyring, &drive)?;
             let bucket = self.bucket_drive()?;
             let invite = device::seal_invite(&bucket, &drive, &drive_key)?;
             code.key_seal = Some(device::invite_text(&invite).to_string());
@@ -249,9 +185,11 @@ impl Account {
         if code.key_seal.is_none() {
             return Ok(());
         }
-        let kept = device::check_keeps_keys(keyring, "the drive key this join code carries");
-        shadow_join(keyring, &code.drive_id, kept.is_ok());
-        Ok(kept?)
+        // The key permit's Recover cell, asked on the keyring alone before the code's token is spent: a
+        // keyring that keeps no key says so, and a device whose own setup or key change is not over takes
+        // no key over it (X-KEYSTATE-5).
+        let _permit = device::recover_permit(keyring, &code.drive_id)?;
+        Ok(())
     }
 
     /// After [`Account::join`] with `code`: the drive key its seal opens, kept in `keyring` with

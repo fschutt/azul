@@ -14,24 +14,24 @@
 //!
 //! What is here:
 //!
-//! - [`KeyState`], OBSERVED when an operation runs and never stored (a stored flag was KEYS-2):
-//!   [`observe`] turns the facts a caller gathered ([`Evidence`]) into one of seven states. It is the
-//!   union of the local observers, which stay where they are. A fact that could not be read is
-//!   [`Read::Failed`] and lands in [`KeyState::Unknown`], never in "no key" or "no rotation".
-//! - [`Op`], the ten things that touch a key, and [`judge`]: `(KeyState, Op)` to a [`Verdict`], total,
-//!   with the sentence the window shows in every refusal. The truth table is the specification
-//!   (`tests/keystate.rs` lists all 70 cells by an exhaustive match without a catch-all).
+//! - [`ask`], THE question: `(Op, Evidence)` to a [`Verdict`]. The state of the drive's key on this
+//!   device is OBSERVED inside it when the operation runs and never stored (a stored flag was KEYS-2): the
+//!   facts a caller gathered ([`Evidence`]) are turned into one of seven states, an unread fact is
+//!   [`Read::Failed`] and lands in `Unknown`, never in "no key" or "no rotation", and the state is judged
+//!   for the operation - a total function of all the cells, with the sentence the window shows in every
+//!   refusal. The state and the judge are PRIVATE to this module: a caller can ask, it cannot make a state
+//!   up. The truth table is the specification (`tests/keystate_table.rs`, a child of this module, lists
+//!   every cell by an exhaustive match without a catch-all).
 //! - [`Permit`], the verdict that lets an operation through. Only this module makes one (its
-//!   constructor is private), so code that takes a `&Permit` cannot be handed one by a flow that did
-//!   not ask [`judge`]. NOTHING takes one yet: step 3 of C7 (after the recorded baseline run) gives
-//!   `rotate`, `reencrypt_pass`, `forget_keys`, `forget_drive`, `setup_new_drive` and the recovery-code
-//!   functions a `&Permit` parameter.
+//!   constructor is private), so a function that takes a `&Permit` cannot be handed one by a flow that
+//!   did not ask: `rotate`, `reencrypt_pass`, the removal's [`crate::footprint::RemovalProof`], the
+//!   recovery wraps' removal and restore take one of their own operation.
+//! - The facts are witnesses: the keyring's and the bucket's are made by the gatherers of `device.rs` and
+//!   `rotation.rs` (their fields are the crate's), the recovery record's and the vault's by the app that
+//!   keeps them ([`RecoveryRecord`], [`PaidMonths`], [`TokenFacts::of`], [`VaultFacts::of`]).
 //! - [`CONSUMERS`], what a drive key touches, each with its reseal and its forget, and
 //!   `tests/key_consumers_gate.rs` of azul-srcgate, which fails when a function that seals or opens
 //!   with the drive key is not listed.
-//! - The shadow ([`shadow`], [`key_shadow!`]): beside each existing guard the judge is asked the same
-//!   question and a disagreement is logged (and, in the test build of the crate that asks, asserted).
-//!   The guard still decides; the list of disagreements is the review of the guards.
 //!
 //! Decisions of this module, each a cell or a fact the key review did not settle (the table's own
 //! cells are in the tests):
@@ -47,7 +47,7 @@
 //!   keyring keeps keys, whether the index opens, how many further codes there are, the recovery
 //!   record's check and registration, the vault's months - refuses an operation that changes or
 //!   erases key material ([`Refusal::NotAsked`]): a permit made by gathering less would be a proof
-//!   made from a name. The shadow counts neither as a disagreement. A journal nobody looked at is
+//!   made from a name. A journal nobody looked at is
 //!   never taken for the device's own: only a journal that is (`Journal::Own`) makes a rotation
 //!   resume, and resuming skips the account's lockdown.
 //! - Removing a drive is permitted only with a recovery code typed back right (not by a clock that
@@ -55,10 +55,7 @@
 //!   "registered"), and the months paid kept elsewhere. A planned key may be the only copy: nothing
 //!   destructive is permitted while one is kept (KEYS-3).
 
-use std::{
-    fmt,
-    sync::{Arc, Mutex, PoisonError},
-};
+use std::{fmt, sync::Arc};
 
 use super::{
     device::{self, MAX_EXTRA_RECOVERY_CODES},
@@ -70,6 +67,12 @@ use crate::{
     encrypted::IndexProvider, footprint::KeyEntry, keyring::KeyringStore, rotation, sharing, Drive,
     DriveError,
 };
+
+/// The table of the judge, the observation of the state and the cells that depend on what was read: the
+/// specification. A CHILD module, so that it - and nothing else - reaches the state and the judge.
+#[cfg(test)]
+#[path = "../tests/keystate_table.rs"]
+mod table;
 
 // ==== What was read ====
 
@@ -136,7 +139,7 @@ pub fn key_id<E: fmt::Display>(read: &Result<Option<DriveKey>, E>) -> Read<KeyId
 
 /// Why a state is torn or unknown: each a sentence for the window ([`Refusal::sentence`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Why {
+enum Why {
     /// The drive's index opens with none of the drive keys this device holds: its keys were changed
     /// from another device (`rotation::opens_nothing`).
     OpensNothing,
@@ -152,7 +155,7 @@ pub enum Why {
 /// How a rotation that is under way goes on. Decided from the keyring and the bucket alone: nothing
 /// is written for it (`rotation::start`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Start {
+enum Start {
     /// The journal in the bucket is this device's own - its MAC verifies under the new key the
     /// keyring keeps: the rotation goes on where it stopped, and has had its lockdown.
     Resume,
@@ -172,7 +175,7 @@ pub enum Start {
 
 /// A drive's key on this device, as observed when an operation runs. Never stored.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum KeyState {
+enum KeyState {
     /// No key here, and the drive is not known to be encrypted: a new drive, or one made before the
     /// encryption.
     Fresh,
@@ -193,29 +196,13 @@ pub enum KeyState {
 
 impl KeyState {
     /// The state's row of the table: its variant, whatever its payload says.
-    #[must_use]
-    pub fn row(&self) -> &'static str {
+    #[cfg(test)]
+    fn row(&self) -> &'static str {
         match self {
             KeyState::Fresh => "fresh",
             KeyState::Planned => "planned",
             KeyState::Active => "active",
             KeyState::Rotating(_) => "rotating",
-            KeyState::Torn(_) => "torn",
-            KeyState::Locked => "locked",
-            KeyState::Unknown(_) => "unknown",
-        }
-    }
-
-    /// The state's word in a log line.
-    #[must_use]
-    pub fn kind(&self) -> &'static str {
-        match self {
-            KeyState::Fresh => "fresh",
-            KeyState::Planned => "planned",
-            KeyState::Active => "active",
-            KeyState::Rotating(Start::Resume) => "rotating (resume)",
-            KeyState::Rotating(Start::Adopt) => "rotating (adopt)",
-            KeyState::Rotating(Start::Again) => "rotating (again)",
             KeyState::Torn(_) => "torn",
             KeyState::Locked => "locked",
             KeyState::Unknown(_) => "unknown",
@@ -238,19 +225,19 @@ pub enum Keeps {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct KeyringFacts {
     /// The id of the key under `drive-key`.
-    pub drive_key: Read<KeyId>,
+    pub(crate) drive_key: Read<KeyId>,
     /// The id of the key under `drive-key-next`: the new key of a rotation.
-    pub next_key: Read<KeyId>,
+    pub(crate) next_key: Read<KeyId>,
     /// The id of the key under `drive-key-previous`: the drive key a rotation replaces, kept until its
     /// last step. With the new key it tells a rotation that went past its Members step (the drive key
     /// IS the new key and this entry is still there) from a finished one that left its new key's
     /// entry behind.
-    pub previous_key: Read<KeyId>,
+    pub(crate) previous_key: Read<KeyId>,
     /// The id of the key under `drive-key-planned`: a key made before the drive's setup finished.
-    pub planned_key: Read<KeyId>,
+    pub(crate) planned_key: Read<KeyId>,
     /// Whether the keyring takes key material at all (a plain file the user did not allow does
     /// not).
-    pub keeps_keys: Read<Keeps>,
+    pub(crate) keeps_keys: Read<Keeps>,
 }
 
 /// Whose a rotation journal in the bucket is.
@@ -267,14 +254,14 @@ pub enum Journal {
 pub struct BucketFacts {
     /// Whether the drive is encrypted as this device knows it: the bucket lists key files, or the
     /// device recorded that it found the drive encrypted. `Absent` is `Found(false)`.
-    pub encrypted: Read<bool>,
+    pub(crate) encrypted: Read<bool>,
     /// The rotation's journal. `Absent`: there is none.
-    pub journal: Read<Journal>,
+    pub(crate) journal: Read<Journal>,
     /// Whether the drive's index opens with one of the keys this device holds (`Found(true)` for a
     /// drive with no index yet: nothing in it is sealed). `Found(false)`: it opens with none.
-    pub index_opens: Read<bool>,
+    pub(crate) index_opens: Read<bool>,
     /// How many further recovery codes (second kits) the drive holds.
-    pub extra_codes: Read<u32>,
+    pub(crate) extra_codes: Read<u32>,
 }
 
 /// The recovery record of a drive: what the app that keeps it knows of the drive's recovery code.
@@ -385,32 +372,6 @@ impl<'a> Evidence<'a> {
             now,
         }
     }
-
-    /// The facts that were asked, by name: what a log line says of a site that decides on a part
-    /// of the picture.
-    #[must_use]
-    pub fn asked(&self) -> Vec<&'static str> {
-        let k = &self.keyring;
-        let b = &self.bucket;
-        let facts: [(&'static str, bool); 12] = [
-            ("drive key", k.drive_key.is_asked()),
-            ("new key", k.next_key.is_asked()),
-            ("previous key", k.previous_key.is_asked()),
-            ("planned key", k.planned_key.is_asked()),
-            ("keeps keys", k.keeps_keys.is_asked()),
-            ("encrypted", b.encrypted.is_asked()),
-            ("journal", b.journal.is_asked()),
-            ("index opens", b.index_opens.is_asked()),
-            ("extra codes", b.extra_codes.is_asked()),
-            ("code checked", self.token.code_checked.is_asked()),
-            ("code registered", self.token.code_registered.is_asked()),
-            ("months elsewhere", self.vault.months_elsewhere.is_asked()),
-        ];
-        facts
-            .into_iter()
-            .filter_map(|(name, asked)| asked.then_some(name))
-            .collect()
-    }
 }
 
 // ==== observe ====
@@ -485,7 +446,7 @@ fn without_a_key(e: &Evidence<'_>) -> KeyState {
 /// - `encrypted::Facts::gather`: no key, no planned key: the bucket's key files and the device's
 ///   record say locked or fresh.
 #[must_use]
-pub fn observe(e: &Evidence<'_>) -> KeyState {
+fn observe(e: &Evidence<'_>) -> KeyState {
     let k = &e.keyring;
     let drive = match entry(&k.drive_key, "the drive key") {
         Ok(id) => id,
@@ -528,7 +489,7 @@ pub fn observe(e: &Evidence<'_>) -> KeyState {
 
 // ==== The operations and the verdicts ====
 
-/// The ten things that touch a drive's key.
+/// The things that touch a drive's key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Op {
     /// The first device turns encryption on: a new key (or the planned one), the recovery wrap.
@@ -546,6 +507,15 @@ pub enum Op {
     AddCode,
     /// A further recovery code's wrap is taken out of the bucket.
     RemoveCode,
+    /// The first recovery code's wrap is replaced by a new code's: the code on a new recovery sheet.
+    /// Like [`Op::AddCode`] it writes a wrap and no key, and a key change that is not over may replace
+    /// the wrap again (KEYS-7); it has no count of codes to keep.
+    NewCode,
+    /// The drive key is handed to another device (a join code's one-time wrap): in a key change that is
+    /// not over it would hand out the key the change is replacing, and the change deletes the invite.
+    Invite,
+    /// A member (an invite included) is taken out of the drive: its wrap leaves the bucket.
+    RemoveMember,
     /// A device without the key gets it: the recovery code, this device's member wrap in the bucket,
     /// a join code's invite.
     Recover,
@@ -559,13 +529,16 @@ pub enum Op {
 
 impl Op {
     /// Every operation, in the table's column order.
-    pub const ALL: [Op; 10] = [
+    pub const ALL: [Op; 13] = [
         Op::Setup,
         Op::Enroll,
         Op::Rotate,
         Op::Remove,
         Op::AddCode,
         Op::RemoveCode,
+        Op::NewCode,
+        Op::Invite,
+        Op::RemoveMember,
         Op::Recover,
         Op::Reencrypt,
         Op::RestoreAsOf,
@@ -582,6 +555,9 @@ impl Op {
             Op::Remove => "remove",
             Op::AddCode => "add-code",
             Op::RemoveCode => "remove-code",
+            Op::NewCode => "new-code",
+            Op::Invite => "invite",
+            Op::RemoveMember => "remove-member",
             Op::Recover => "recover",
             Op::Reencrypt => "reencrypt",
             Op::RestoreAsOf => "restore-as-of",
@@ -857,6 +833,27 @@ impl Permit {
         }
     }
 
+    /// `Ok` when this permit is for `op`, whatever the drive: what a function checks that is not told
+    /// which drive it works on (a kit's wrap is taken out of the bucket it is handed).
+    ///
+    /// # Errors
+    ///
+    /// `Denied`, naming what the permit is for.
+    pub fn allows_op(&self, op: Op) -> Result<(), DriveError> {
+        if self.op == op {
+            Ok(())
+        } else {
+            Err(DriveError::Denied {
+                message: format!(
+                    "the permit is for {} of \"{}\", not for {}",
+                    self.op.name(),
+                    self.drive,
+                    op.name()
+                ),
+            })
+        }
+    }
+
     /// The operation it permits.
     #[must_use]
     pub fn op(&self) -> Op {
@@ -1060,9 +1057,15 @@ fn fresh(op: Op, e: &Evidence<'_>) -> Verdict {
         Op::Remove => removal(e),
         Op::Recover => permit_keeping(op, e, Way::Plain),
         Op::RestoreAsOf => refuse(Refusal::NotEncrypted, e),
-        Op::Enroll | Op::Rotate | Op::AddCode | Op::RemoveCode | Op::Reencrypt | Op::Lockdown => {
-            refuse(Refusal::NoKey, e)
-        }
+        Op::Enroll
+        | Op::Rotate
+        | Op::AddCode
+        | Op::RemoveCode
+        | Op::NewCode
+        | Op::Invite
+        | Op::RemoveMember
+        | Op::Reencrypt
+        | Op::Lockdown => refuse(Refusal::NoKey, e),
     }
 }
 
@@ -1074,6 +1077,9 @@ fn planned(op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::Remove
         | Op::AddCode
         | Op::RemoveCode
+        | Op::NewCode
+        | Op::Invite
+        | Op::RemoveMember
         | Op::Recover
         | Op::Reencrypt
         | Op::RestoreAsOf
@@ -1099,7 +1105,11 @@ fn active(op: Op, e: &Evidence<'_>) -> Verdict {
         Op::Remove => removal(e),
         Op::AddCode => add_code(e),
         Op::Reencrypt => permit_over_an_index(op, e),
-        Op::RemoveCode | Op::Lockdown => permit_plain(op, e),
+        // A wrap written or taken out, an invite made, a member taken out: nothing of the keyring is
+        // written and no fact is read.
+        Op::RemoveCode | Op::NewCode | Op::Invite | Op::RemoveMember | Op::Lockdown => {
+            permit_plain(op, e)
+        }
         Op::Recover => permit_keeping(op, e, Way::Plain),
         Op::RestoreAsOf => permit(op, e, Way::Plain, RESTORE_STAYS),
     }
@@ -1117,10 +1127,15 @@ fn rotating(start: Start, op: Op, e: &Evidence<'_>) -> Verdict {
             // `rotation::start` answers `Fresh` here: a new key, a new journal, the lockdown again.
             Start::Again => permit_keeping_over_an_index(op, e, Way::New),
         },
-        Op::AddCode | Op::RemoveCode => refuse(Refusal::WrapMayChange, e),
-        Op::Remove | Op::Recover | Op::Reencrypt | Op::RestoreAsOf => {
-            refuse(Refusal::KeyChangeUnfinished, e)
-        }
+        Op::AddCode | Op::RemoveCode | Op::NewCode => refuse(Refusal::WrapMayChange, e),
+        // The key change replaces the key and deletes the invites and the members it did not make:
+        // an invite made now hands out the key being replaced.
+        Op::Remove
+        | Op::Invite
+        | Op::RemoveMember
+        | Op::Recover
+        | Op::Reencrypt
+        | Op::RestoreAsOf => refuse(Refusal::KeyChangeUnfinished, e),
         Op::Lockdown => match start {
             Start::Resume => refuse(Refusal::AlreadyLockedDown, e),
             Start::Adopt | Start::Again => permit_plain(op, e),
@@ -1139,6 +1154,9 @@ fn torn(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::Remove
         | Op::AddCode
         | Op::RemoveCode
+        | Op::NewCode
+        | Op::Invite
+        | Op::RemoveMember
         | Op::Reencrypt
         | Op::RestoreAsOf
         | Op::Lockdown => refuse(Refusal::of(why), e),
@@ -1160,9 +1178,11 @@ fn locked(op: Op, e: &Evidence<'_>) -> Verdict {
         Op::Remove => removal(e),
         Op::Enroll
         | Op::Rotate
-        | Op::Remove
         | Op::AddCode
         | Op::RemoveCode
+        | Op::NewCode
+        | Op::Invite
+        | Op::RemoveMember
         | Op::Reencrypt
         | Op::RestoreAsOf
         | Op::Lockdown => refuse(Refusal::Locked, e),
@@ -1178,12 +1198,18 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         // computer is a fresh one or a locked one, and both go on the removal's own conditions. (The
         // removal reads no bucket: a drive that cannot be reached is removed all the same.)
         Op::Remove if *why == Why::NotAsked(ENCRYPTED) => removal(e),
+        // A recovery does not rest on whether the bucket lists key files either: a device with no key
+        // (a new one, a locked one) may take one, and it is asked before the bucket is looked at.
+        Op::Recover if *why == Why::NotAsked(ENCRYPTED) => permit_keeping(op, e, Way::Plain),
         Op::Setup
         | Op::Enroll
         | Op::Rotate
         | Op::Remove
         | Op::AddCode
         | Op::RemoveCode
+        | Op::NewCode
+        | Op::Invite
+        | Op::RemoveMember
         | Op::Recover
         | Op::Reencrypt
         | Op::RestoreAsOf => refuse(Refusal::of(why), e),
@@ -1210,7 +1236,7 @@ pub fn ask(op: Op, e: &Evidence<'_>) -> Verdict {
 /// permitted only with a checked code, a registered code and the months kept elsewhere, and says what
 /// stays (KEYS-8, KEYS-32); Active x RestoreAsOf is permitted and keeps the recorded key id
 /// (KEYS-18); Locked x anything but Recover is refused.
-pub fn judge(state: &KeyState, op: Op, e: &Evidence<'_>) -> Verdict {
+fn judge(state: &KeyState, op: Op, e: &Evidence<'_>) -> Verdict {
     match state {
         KeyState::Fresh => fresh(op, e),
         KeyState::Planned => planned(op, e),
@@ -1220,233 +1246,6 @@ pub fn judge(state: &KeyState, op: Op, e: &Evidence<'_>) -> Verdict {
         KeyState::Locked => locked(op, e),
         KeyState::Unknown(why) => unknown(why, op, e),
     }
-}
-
-// ==== The shadow ====
-
-/// What the guard beside the judge decided.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Guard {
-    /// The guard lets the operation through.
-    Permits,
-    /// The guard lets it through in this way (`rotation::start`'s `Resume`, `Adopt` or `Fresh`).
-    PermitsAs(Way),
-    /// The guard refuses, or errs and so stops the flow.
-    Refuses,
-}
-
-/// What the judge said, as a summary a log line and a test can hold (a [`Permit`] cannot be copied).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Judged {
-    Permits(Way),
-    Refuses(Reason),
-}
-
-/// A guard and the judge that did not decide alike.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Disagreement {
-    /// The guard's place: `file::function`.
-    pub site: &'static str,
-    pub op: Op,
-    /// The state the judge observed in the evidence.
-    pub state: KeyState,
-    pub guard: Guard,
-    pub judged: Judged,
-    /// The facts the site asked, by name: a site that decides on a part of the picture says which.
-    pub asked: Vec<&'static str>,
-    /// A disagreement the lane that wrote the shadow knows and reports: its finding. Logged and
-    /// recorded, never asserted ([`note`]).
-    pub known: Option<&'static str>,
-}
-
-impl fmt::Display for Disagreement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let judged = match &self.judged {
-            Judged::Permits(way) => format!("permits ({way:?})"),
-            Judged::Refuses(reason) => format!("refuses ({reason})"),
-        };
-        write!(
-            f,
-            "{}: the guard {:?}, the judge {judged}, for {} in the state {} ({:?}); asked: {}",
-            self.site,
-            self.guard,
-            self.op.name(),
-            self.state.kind(),
-            self.state,
-            self.asked.join(", ")
-        )?;
-        if let Some(finding) = self.known {
-            write!(f, " [known: {finding}]")?;
-        }
-        Ok(())
-    }
-}
-
-/// What a comparison of a guard with the judge came to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Compared {
-    Agree,
-    Disagree(Disagreement),
-    /// The site did not ask a fact the state rests on (the fact's name): nothing to compare with.
-    NotJudgeable(&'static str),
-}
-
-/// Whether the guard decided as the judge did.
-fn agrees(guard: Guard, judged: &Judged) -> bool {
-    match (guard, judged) {
-        (Guard::Permits, Judged::Permits(_)) | (Guard::Refuses, Judged::Refuses(_)) => true,
-        (Guard::PermitsAs(way), Judged::Permits(got)) => way == *got,
-        (Guard::Permits | Guard::PermitsAs(_), Judged::Refuses(_))
-        | (Guard::Refuses, Judged::Permits(_)) => false,
-    }
-}
-
-/// The judge's answer to the evidence, compared with the guard's. Pure.
-pub fn compare(site: &'static str, op: Op, e: &Evidence<'_>, guard: Guard) -> Compared {
-    let state = observe(e);
-    if let KeyState::Unknown(Why::NotAsked(what)) = &state {
-        return Compared::NotJudgeable(what);
-    }
-    let judged = match judge(&state, op, e) {
-        Verdict::Permit(permit) => Judged::Permits(permit.way()),
-        // The cell rests on a fact this site did not ask: nothing to compare the guard with.
-        Verdict::Refuse(Reason {
-            kind: Refusal::NotAsked(what),
-            ..
-        }) => return Compared::NotJudgeable(what),
-        Verdict::Refuse(reason) => Judged::Refuses(reason),
-    };
-    if agrees(guard, &judged) {
-        return Compared::Agree;
-    }
-    Compared::Disagree(Disagreement {
-        site,
-        op,
-        state,
-        guard,
-        judged,
-        asked: e.asked(),
-        known: None,
-    })
-}
-
-/// The most distinct disagreements kept (a loop that disagrees a million times says it once): far more
-/// than the places that ask (about twenty sites, a handful of states each).
-const KEPT: usize = 256;
-
-/// The disagreements of this process since the last [`take_disagreements`], each once.
-static SEEN: Mutex<Vec<Disagreement>> = Mutex::new(Vec::new());
-
-/// Notes `d` (once) and says it once on stderr.
-fn record(d: &Disagreement) {
-    let first = {
-        let mut seen = SEEN.lock().unwrap_or_else(PoisonError::into_inner);
-        let known = seen.iter().any(|s| {
-            s.site == d.site
-                && s.op == d.op
-                && s.state.kind() == d.state.kind()
-                && s.guard == d.guard
-        });
-        if !known && seen.len() < KEPT {
-            seen.push(d.clone());
-        }
-        !known
-    };
-    if first {
-        eprintln!("[azul-storage] key permit shadow: {d}");
-    }
-}
-
-/// The disagreements noted since the last call, each once: what a test asks after it ran a guard.
-#[must_use]
-pub fn take_disagreements() -> Vec<Disagreement> {
-    std::mem::take(&mut *SEEN.lock().unwrap_or_else(PoisonError::into_inner))
-}
-
-/// The disagreements noted at `site` so far (a copy: nothing is taken), for a test that ran the guard
-/// at that site and asks what the judge said beside it.
-#[must_use]
-pub fn disagreements_at(site: &str) -> Vec<Disagreement> {
-    SEEN.lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .iter()
-        .filter(|d| d.site == site)
-        .cloned()
-        .collect()
-}
-
-/// A disagreement that the lane that wrote the shadow knows and reports as a finding: when the judge
-/// observes a state of this row ([`KeyState::row`]), the guard and the judge decide differently and
-/// `finding` says why. It is noted and logged and never asserted; any other disagreement at the site
-/// is.
-#[derive(Clone, Copy, Debug)]
-pub struct Known {
-    /// The row of the table the finding is about.
-    pub state: &'static str,
-    /// The finding: the register id where there is one, and what differs.
-    pub finding: &'static str,
-}
-
-/// Compares the guard at `site` with the judge: a disagreement is noted and logged and handed back.
-/// The guard has decided already; nothing here changes what it did. [`key_shadow!`] is the call a
-/// site makes (it asserts in the test build of the crate the site is in).
-pub fn shadow(site: &'static str, op: Op, e: &Evidence<'_>, guard: Guard) -> Option<Disagreement> {
-    shadow_known(site, op, e, guard, &[])
-}
-
-/// [`shadow`] for a site with findings of its own: a disagreement in a state that `known` names is
-/// noted and logged with its finding and handed back as no disagreement at all.
-pub fn shadow_known(
-    site: &'static str,
-    op: Op,
-    e: &Evidence<'_>,
-    guard: Guard,
-    known: &[Known],
-) -> Option<Disagreement> {
-    let Compared::Disagree(mut d) = compare(site, op, e, guard) else {
-        return None;
-    };
-    let finding = known
-        .iter()
-        .find(|k| k.state == d.state.row())
-        .map(|k| k.finding);
-    d.known = finding;
-    record(&d);
-    finding.is_none().then_some(d)
-}
-
-/// Asks the judge beside a guard and logs a disagreement; in the test build of the crate that calls
-/// it, a disagreement fails the test. The guard has decided before this runs and is not changed by
-/// it. `known = [("<row>", "<finding>"), ..]` names the disagreements that are reported as findings:
-/// in a state of that row they are logged, not asserted.
-///
-/// ```ignore
-/// azul_storage::key_shadow!("rotation::start", Op::Rotate, evidence, Guard::PermitsAs(Way::Resume));
-/// ```
-#[macro_export]
-macro_rules! key_shadow {
-    ($site:expr, $op:expr, $evidence:expr, $guard:expr) => {
-        $crate::key_shadow!($site, $op, $evidence, $guard, known = [])
-    };
-    ($site:expr, $op:expr, $evidence:expr, $guard:expr, known = [$(($state:expr, $finding:expr)),* $(,)?]) => {{
-        let disagreement = $crate::crypto::keystate::shadow_known(
-            $site,
-            $op,
-            &$evidence,
-            $guard,
-            &[$($crate::crypto::keystate::Known {
-                state: $state,
-                finding: $finding,
-            }),*],
-        );
-        if cfg!(test) {
-            assert!(
-                disagreement.is_none(),
-                "{}",
-                disagreement.map_or_else(String::new, |d| d.to_string())
-            );
-        }
-    }};
 }
 
 // ==== What a drive key touches ====
