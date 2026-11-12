@@ -950,3 +950,141 @@ fn x_delta_money5_5_the_retry_of_a_look_that_cannot_be_made_ends_after_a_week_an
     ));
     assert!(pending::list(&shared).unwrap().is_empty());
 }
+
+// ==== X-DELTA-MONEY5-6: a cut after any write of a renewal's claim loses no receipt ====
+
+/// A keyring of a process that dies: the first `writes` writes of the checkouts' list land; the
+/// next one, and every call after it - reads included - fails, as the keyring does for a process
+/// that is gone. What the dead process left in `inner` is what the next start finds.
+struct Dying {
+    inner: Arc<MemoryKeyring>,
+    writes_left: AtomicUsize,
+    dead: std::sync::atomic::AtomicBool,
+}
+
+impl Dying {
+    fn new(inner: &Arc<MemoryKeyring>, writes: usize) -> Dying {
+        Dying {
+            inner: inner.clone(),
+            writes_left: AtomicUsize::new(writes),
+            dead: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    fn alive(&self) -> Result<(), azul_storage::keyring::KeyringError> {
+        if self.dead.load(Ordering::SeqCst) {
+            return Err(azul_storage::keyring::KeyringError::Failed(String::from(
+                "the process is gone",
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl azul_storage::keyring::KeyringStore for Dying {
+    fn get(&self, key: &str) -> Result<Option<String>, azul_storage::keyring::KeyringError> {
+        self.alive()?;
+        self.inner.get(key)
+    }
+
+    fn set(&self, key: &str, secret: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+        self.alive()?;
+        if key == pending::PENDING_KEY {
+            if self.writes_left.load(Ordering::SeqCst) == 0 {
+                self.dead.store(true, Ordering::SeqCst);
+                return self.alive();
+            }
+            self.writes_left.fetch_sub(1, Ordering::SeqCst);
+        }
+        self.inner.set(key, secret)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+        self.alive()?;
+        self.inner.delete(key)
+    }
+}
+
+/// X-DELTA-MONEY5-6. A renewal's claim wrote its period FIRST, then the paid record, then the
+/// receipt mark: a cut between the first and the last left a period with no mark, the claims never
+/// poll an entry with a period again, and `finish` looks for a receipt only when the mark is set -
+/// the proof of payment of that renewal was lost for good. The claim now records and marks first
+/// (as a new drive's claim does) and writes the period last. The crash table: for every number of
+/// writes of the list that land before the cut (0: the mark fails; 1: the period fails; 2 and more:
+/// the claim completes), the entry the next start finds never has months to issue without its record
+/// and its mark - and the next start ends with the receipt in the record and the entry off the list.
+/// On the old code the cut after one write (the period) fails the first assertion.
+#[test]
+fn x_delta_money5_6_a_cut_after_any_write_of_a_renewal_s_claim_loses_no_receipt() {
+    for writes in 0..=3 {
+        let dir = TempDir::new("azcloud-receipt");
+        let inner = Arc::new(MemoryKeyring::new());
+        let locks = dir.path().join("locks");
+        let healthy =
+            SharedKeyring::with_lock_root(inner.clone(), KeyringNamespace::azlin_shared(), &locks);
+        let claim = ClaimKey::generate().unwrap();
+        let mut ck = PendingCheckout::new("ck_1", &claim, "100GB", TOKEN, "");
+        ck.for_drive = String::from("d_1");
+        pending::add(&healthy, &ck).unwrap();
+        // no sale is booked at the claim and at the first look after the restart; the third
+        // question names it
+        let (fake, _) = server_of(renewal_signup(&claim), &[false, false, true]);
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+
+        // the claim, cut after `writes` writes of the list
+        let dying = SharedKeyring::with_lock_root(
+            Arc::new(Dying::new(&inner, writes)),
+            KeyringNamespace::azlin_shared(),
+            &locks,
+        );
+        let _ = pending::poll(&server, &dying, &ck);
+        let entry = pending::list(&healthy).unwrap().remove(0);
+        if entry.period.is_some() {
+            let record = record_of(&healthy);
+            assert!(
+                record.is_some(),
+                "cut after {writes} writes: months to issue and no record of the payment"
+            );
+            assert!(
+                entry.receipt_due.is_some()
+                    || record.as_ref().is_some_and(|r| r.receipt.is_some()),
+                "cut after {writes} writes: months to issue, a record without a receipt and no mark - \
+                 nothing will ask for the receipt"
+            );
+        }
+
+        // the next start: what the claims do - poll an unclaimed entry, finish a claimed one, ask
+        // for the receipt of one whose grant is kept
+        let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+        let (tokens, _) = tokens_in_drive(&store);
+        let now = u64::try_from(crate::now()).unwrap();
+        for round in 1..=8 {
+            let Some(entry) = pending::list(&healthy).unwrap().into_iter().next() else {
+                break;
+            };
+            let at = now + round * 600;
+            match (&entry.period, entry.receipt_due) {
+                (None, _) => match pending::poll(&server, &healthy, &entry) {
+                    Polled::Final(Final::Renewed { .. }) => {}
+                    other => panic!("cut after {writes} writes: {other:?}"),
+                },
+                (Some(_), Some(ReceiptDue::GrantKept)) => {
+                    let _ = pending::await_receipt(&server, &healthy, &entry, at);
+                }
+                (Some(owed), _) => {
+                    let _ = pending::finish(&server, &healthy, &store, &tokens, &entry, owed, at);
+                }
+            }
+        }
+        assert!(
+            pending::list(&healthy).unwrap().is_empty(),
+            "cut after {writes} writes: the entry is off the list in the end"
+        );
+        let record = record_of(&healthy).expect("a record");
+        assert!(
+            record.receipt.is_some(),
+            "cut after {writes} writes: the receipt reached the record"
+        );
+    }
+}

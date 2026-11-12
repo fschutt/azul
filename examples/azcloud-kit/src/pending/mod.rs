@@ -1616,17 +1616,22 @@ fn claim_months(
             "its sign-up grants months of another checkout, or none",
         )));
     }
+    // What was paid is recorded and marked BEFORE the months are claimed, as [`claim_drive`] does
+    // before the app saves the drive: the claims never poll an entry with a period again, and
+    // [`finish`] looks for a receipt only when the mark is set, so a cut after the claim's own
+    // write left a period with no record and no mark and the proof of payment was lost
+    // (X-DELTA-MONEY5-6). Recorded first, a cut at any write leaves an entry that is polled again
+    // and claims again, and the records are idempotent. A record that cannot be kept never holds
+    // the months back: `kept` says so, the claim goes on.
+    let kept = keep_paid(shared, checkout, drive_id, Some(signup.tier.as_str()), paid);
+    let complete = kept.is_ok() && paid.receipt.is_some();
+    let record = note_receipt(shared, checkout, Recorded::of(kept), complete);
     match claimed(shared, &checkout.checkout_id, drive_id, Some(&grant)) {
-        // The months are delivered; what was paid is recorded second (see [`claim_drive`]).
-        Ok(()) => {
-            let kept = keep_paid(shared, checkout, drive_id, Some(signup.tier.as_str()), paid);
-            let complete = kept.is_ok() && paid.receipt.is_some();
-            Polled::Final(Final::Renewed {
-                drive_id: drive_id.to_string(),
-                months: grant.months,
-                record: note_receipt(shared, checkout, Recorded::of(kept), complete),
-            })
-        }
+        Ok(()) => Polled::Final(Final::Renewed {
+            drive_id: drive_id.to_string(),
+            months: grant.months,
+            record,
+        }),
         Err(e) => Polled::Transient(Transient::NotKept(format!(
             "its months could not be kept for the drive {drive_id}: {e}"
         ))),
