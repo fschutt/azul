@@ -277,23 +277,85 @@ pub struct BucketFacts {
     pub extra_codes: Read<u32>,
 }
 
-/// What the token server and the recovery record say of the drive's recovery code.
+/// The recovery record of a drive: what the app that keeps it knows of the drive's recovery code.
+/// [`TokenFacts::of`] asks it and nothing else makes the facts, so the judge is never handed a stamp or a
+/// flag a caller made up (the removal's proof used to be a name: a drive id and the belief of one line).
+pub trait RecoveryRecord {
+    /// When the recovery code was last typed back right (seconds since 1970, this computer's clock);
+    /// `Absent`: never; `Failed`: the record could not be read.
+    fn code_checked(&self) -> Read<u64>;
+    /// Whether the token server knows the code. `Found(false)`: its registration is pending or missing;
+    /// `Absent`: it was never recorded either way.
+    fn code_registered(&self) -> Read<bool>;
+}
+
+/// What the token server and the recovery record say of the drive's recovery code: the answers of a
+/// [`RecoveryRecord`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TokenFacts {
-    /// When the recovery code was last typed back right (seconds since 1970, this computer's
-    /// clock); `Absent`: never.
-    pub code_checked: Read<u64>,
-    /// Whether the token server knows the code. `Found(false)`: its registration is pending or
-    /// missing; `Absent`: it was never recorded either way.
-    pub code_registered: Read<bool>,
+    code_checked: Read<u64>,
+    code_registered: Read<bool>,
+}
+
+impl TokenFacts {
+    /// What `record` says now.
+    #[must_use]
+    pub fn of(record: &dyn RecoveryRecord) -> TokenFacts {
+        TokenFacts {
+            code_checked: record.code_checked(),
+            code_registered: record.code_registered(),
+        }
+    }
+
+    /// A drive with no recovery record: its code was never typed back right and the token server was
+    /// never told of it (asked, and the answer is "never": a removal of it keeps its keys).
+    #[must_use]
+    pub fn no_record() -> TokenFacts {
+        TokenFacts {
+            code_checked: Read::Absent,
+            code_registered: Read::Absent,
+        }
+    }
+
+    /// Why the keys of a removal at `now` would stay for the code's sake alone: it was never typed back
+    /// right (or the check is dated after `now`), or the token server is not known to have it. `None`: the
+    /// record lets them go - the keyring and the vault still decide. What the confirm dialog says before
+    /// the button is pressed, and what a removal checks before it asks the drive's vault.
+    #[must_use]
+    pub fn refusal(&self, now: u64) -> Option<Refusal> {
+        code_refusal(self, now)
+    }
+}
+
+/// This computer's vault of paid months and the drive's own: what a [`PaidMonths`] says.
+pub trait PaidMonths {
+    /// Whether the drive's own vault holds the months this computer's vault holds, for `drive` (what
+    /// it lacks is written into it once more, and read back); `Failed`: it could not be told.
+    fn held_elsewhere(&self, drive: &str) -> Read<bool>;
 }
 
 /// What this computer's vault of paid months and the drive's own say.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VaultFacts {
-    /// Whether the drive's own vault holds the months this computer's vault holds. `Absent`: the
-    /// drive has no vault of its own to ask (nothing is paid for it).
-    pub months_elsewhere: Read<bool>,
+    months_elsewhere: Read<bool>,
+}
+
+impl VaultFacts {
+    /// What `vault` says of the drive `drive`.
+    #[must_use]
+    pub fn of(vault: &dyn PaidMonths, drive: &str) -> VaultFacts {
+        VaultFacts {
+            months_elsewhere: vault.held_elsewhere(drive),
+        }
+    }
+
+    /// A drive with no vault of its own to ask: nothing is paid for it, so nothing is lost.
+    #[must_use]
+    pub fn no_vault() -> VaultFacts {
+        VaultFacts {
+            months_elsewhere: Read::Absent,
+        }
+    }
 }
 
 /// Everything the judge is told. The callers gather it; the judge reads nothing.
@@ -384,6 +446,9 @@ fn if_the_index_opens(e: &Evidence<'_>, then: KeyState) -> KeyState {
     }
 }
 
+/// What whether the drive is encrypted is asked as.
+const ENCRYPTED: &str = "whether the drive is encrypted";
+
 /// The state of a device that holds no key and keeps none for a rotation.
 fn without_a_key(e: &Evidence<'_>) -> KeyState {
     match &e.keyring.planned_key {
@@ -398,8 +463,8 @@ fn without_a_key(e: &Evidence<'_>) -> KeyState {
     match &e.bucket.encrypted {
         Read::Found(true) => KeyState::Locked,
         Read::Found(false) | Read::Absent => KeyState::Fresh,
-        Read::Failed(why) => unreadable("whether the drive is encrypted", why),
-        Read::Unasked => KeyState::Unknown(Why::NotAsked("whether the drive is encrypted")),
+        Read::Failed(why) => unreadable(ENCRYPTED, why),
+        Read::Unasked => KeyState::Unknown(Why::NotAsked(ENCRYPTED)),
     }
 }
 
@@ -930,17 +995,8 @@ const MONTHS: &str = "whether the drive's own vault holds the paid months";
 /// permit rests on: what was not asked refuses ([`Refusal::NotAsked`]) as what could not be read does -
 /// a permit made by gathering less would be a proof made from a name (X-DELTA-STRUCT-KEYSTATE-2).
 fn removal(e: &Evidence<'_>) -> Verdict {
-    match &e.token.code_checked {
-        Read::Found(at) if *at <= e.now => {}
-        Read::Found(_) | Read::Absent => return refuse(Refusal::CodeNotChecked, e),
-        Read::Failed(why) => return refuse(failed(CHECKED, why), e),
-        Read::Unasked => return refuse(Refusal::NotAsked(CHECKED), e),
-    }
-    match &e.token.code_registered {
-        Read::Found(true) => {}
-        Read::Found(false) | Read::Absent => return refuse(Refusal::CodeNotRegistered, e),
-        Read::Failed(why) => return refuse(failed(REGISTERED, why), e),
-        Read::Unasked => return refuse(Refusal::NotAsked(REGISTERED), e),
+    if let Some(kind) = code_refusal(&e.token, e.now) {
+        return refuse(kind, e);
     }
     match &e.vault.months_elsewhere {
         // A drive with no vault of its own (`Absent`) has no months to lose.
@@ -950,6 +1006,35 @@ fn removal(e: &Evidence<'_>) -> Verdict {
         Read::Unasked => return refuse(Refusal::NotAsked(MONTHS), e),
     }
     permit(Op::Remove, e, Way::Plain, REMOVAL_STAYS)
+}
+
+/// The first two facts a removal rests on, which the recovery record answers: the code was typed back
+/// right (not after `now`) and the token server knows it.
+fn code_refusal(token: &TokenFacts, now: u64) -> Option<Refusal> {
+    match &token.code_checked {
+        Read::Found(at) if *at <= now => {}
+        Read::Found(_) | Read::Absent => return Some(Refusal::CodeNotChecked),
+        Read::Failed(why) => return Some(failed(CHECKED, why)),
+        Read::Unasked => return Some(Refusal::NotAsked(CHECKED)),
+    }
+    match &token.code_registered {
+        Read::Found(true) => None,
+        Read::Found(false) | Read::Absent => Some(Refusal::CodeNotRegistered),
+        Read::Failed(why) => Some(failed(REGISTERED, why)),
+        Read::Unasked => Some(Refusal::NotAsked(REGISTERED)),
+    }
+}
+
+/// Whether a removal was refused for want of the vault's answer ALONE: the record and the keyring would
+/// let the keys go, and what the drive's own vault holds of the months was not asked. The caller that
+/// pays for that question (it writes into the drive's vault, and reads it back) asks it only then, and
+/// asks the judge again.
+#[must_use]
+pub fn waits_for_the_vault(verdict: &Verdict) -> bool {
+    matches!(
+        verdict,
+        Verdict::Refuse(Reason { kind: Refusal::NotAsked(what), .. }) if *what == MONTHS
+    )
 }
 
 /// What the count of a drive's further recovery codes is asked as.
@@ -1066,6 +1151,13 @@ fn locked(op: Op, e: &Evidence<'_>) -> Verdict {
         // The setup says what it always said of an encrypted drive it has no key for: open it with
         // an invite or the recovery code.
         Op::Setup => refuse(Refusal::EncryptedAlready, e),
+        // What this computer keeps of a drive it holds no drive key of (a member key, a device key, the
+        // request key of a recovery, the vault's key) goes with the drive on the removal's own conditions:
+        // a recovery code typed back right is a way back in whatever this keyring holds, and months that
+        // are only here stay. A refusal would leave a member key behind for good after a removal the code
+        // made safe. (The table said Refuse(Locked); a refused removal means "the keys stay", and these
+        // are the keys.)
+        Op::Remove => removal(e),
         Op::Enroll
         | Op::Rotate
         | Op::Remove
@@ -1082,6 +1174,10 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         // A failed read stops no lockdown: whoever can make the bucket or the keyring fail must not
         // be able to keep "I was hacked" from running (KEYS-6).
         Op::Lockdown => permit_plain(op, e),
+        // A removal does not rest on whether the bucket lists key files: a drive with no key on this
+        // computer is a fresh one or a locked one, and both go on the removal's own conditions. (The
+        // removal reads no bucket: a drive that cannot be reached is removed all the same.)
+        Op::Remove if *why == Why::NotAsked(ENCRYPTED) => removal(e),
         Op::Setup
         | Op::Enroll
         | Op::Rotate

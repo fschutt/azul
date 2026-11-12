@@ -12,7 +12,8 @@
 //!   else). A name is never renamed: users' keys are in them (a test pins them).
 //! - [`Protection`] and [`Allow`]: what a keyring keeps its entries safe with, and whether a plain
 //!   file may hold key material at all (it may not, unless the user said so).
-//! - [`RemovalProof`]: the evidence a drive's keys need before they leave the device with it.
+//! - [`RemovalProof`]: the evidence a drive's keys need before they leave the device with it: the key
+//!   permit's Permit of a removal.
 //! - [`Footprint`], [`forget_drive`] and [`ForgetReport`]: one store's part of a removal, and the
 //!   removal that tries every store and takes the drives-file entry LAST - only when every other
 //!   store is clean, so a delete that was refused leaves the drive on the list for a retry and
@@ -216,29 +217,51 @@ impl Protection {
     }
 }
 
-/// Evidence that a drive's keys may leave this device with the drive: its recovery code was typed
-/// back right, so the keys here are not the only way into the drive. Without one the keys stay and
-/// that is said. One constructor, no `Clone`, no `Default`, no `Deserialize`: a proof is made
-/// from what the drive's recovery state knows (AzDrive's `RecoveryState::removal_proof`), and
-/// `footprint_gate` counts the places that call it.
+/// Evidence that a drive's keys may leave this device with the drive: the key permit's Permit of a
+/// removal of it ([`crate::crypto::keystate::ask`]) - the recovery code was typed back right and is
+/// known to the token server, the months paid are kept in the drive too, and the keyring says no key
+/// change or setup is unfinished here. Without one the keys stay and that is said. One constructor,
+/// which takes the permit; no `Clone`, no `Default`, no `Deserialize`; a permit is made by the judge
+/// and nowhere else, so a proof is not made from a name (it used to be: `from_checked_code(&str)`).
+/// Without the encryption feature there are no keys and no judge: no proof can be made.
 #[derive(Debug)]
 #[must_use]
 pub struct RemovalProof {
     drive: String,
+    #[cfg(feature = "encryption")]
+    permit: crate::crypto::keystate::Permit,
 }
 
 impl RemovalProof {
-    /// The proof for `drive`. Only the recovery state of a drive whose code was checked calls it.
-    pub fn from_checked_code(drive: &str) -> RemovalProof {
-        RemovalProof {
-            drive: drive.to_string(),
+    /// The proof `permit` is: the permit of a removal.
+    ///
+    /// # Errors
+    ///
+    /// The permit back, when it is the permit of another operation.
+    #[cfg(feature = "encryption")]
+    pub fn from_permit(
+        permit: crate::crypto::keystate::Permit,
+    ) -> Result<RemovalProof, crate::crypto::keystate::Permit> {
+        if permit.op() != crate::crypto::keystate::Op::Remove {
+            return Err(permit);
         }
+        Ok(RemovalProof {
+            drive: permit.drive().to_string(),
+            permit,
+        })
     }
 
     /// The drive it is for.
     #[must_use]
     pub fn drive(&self) -> &str {
         &self.drive
+    }
+
+    /// The permit it is.
+    #[cfg(feature = "encryption")]
+    #[must_use]
+    pub fn permit(&self) -> &crate::crypto::keystate::Permit {
+        &self.permit
     }
 }
 

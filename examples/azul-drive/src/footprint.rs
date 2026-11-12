@@ -318,6 +318,39 @@ mod tests {
         RecoveryKdf::with_cost(64, 1, 1).unwrap()
     }
 
+    /// A proof as the removal makes one: the key permit's Permit of a removal of `drive`, asked on a
+    /// keyring that holds the drive's finished setup, with a recovery code typed back right and registered
+    /// and no vault of its own to lose months from. It is not made from a name: the judge makes it.
+    fn a_proof_for(drive: &str) -> RemovalProof {
+        use azul_storage::crypto::{
+            device::key_facts,
+            keystate::{ask, Evidence, Op, Read, RecoveryRecord, TokenFacts, VaultFacts, Verdict},
+        };
+
+        struct Checked;
+        impl RecoveryRecord for Checked {
+            fn code_checked(&self) -> Read<u64> {
+                Read::Found(1_000)
+            }
+            fn code_registered(&self) -> Read<bool> {
+                Read::Found(true)
+            }
+        }
+
+        let keyring = MemoryKeyring::new();
+        setup_new_drive(&MemoryBucket::new(), &keyring, drive, cheap()).unwrap();
+        let mut evidence = Evidence::new(drive, 2_000);
+        evidence.keyring = key_facts(&keyring, drive);
+        evidence.token = TokenFacts::of(&Checked);
+        evidence.vault = VaultFacts::no_vault();
+        match ask(Op::Remove, &evidence) {
+            Verdict::Permit(permit) => {
+                RemovalProof::from_permit(permit).expect("the permit of a removal")
+            }
+            Verdict::Refuse(reason) => panic!("{reason}"),
+        }
+    }
+
     fn entry(id: &str) -> DriveEntry {
         DriveEntry {
             id: id.to_string(),
@@ -580,7 +613,7 @@ mod tests {
         }
         let others = holding(&sandbox, OTHER);
 
-        let proof = RemovalProof::from_checked_code(DRIVE);
+        let proof = a_proof_for(DRIVE);
         let keyring: &dyn KeyringStore = &sandbox.keyring;
         let report = forget(DRIVE, &sandbox.places(DRIVE), Some(keyring), Some(&proof));
         assert!(report.complete(), "{report:?}");
@@ -686,7 +719,7 @@ mod tests {
         assert_eq!(before.len(), 2, "its two pairings' folders: {before:?}");
 
         let places = Places::of(&sandbox.computer, DRIVE, &[]);
-        let proof = RemovalProof::from_checked_code(DRIVE);
+        let proof = a_proof_for(DRIVE);
         let keyring: &dyn KeyringStore = &sandbox.keyring;
         let report = forget(DRIVE, &places, Some(keyring), Some(&proof));
         assert!(report.complete(), "{report:?}");
@@ -722,7 +755,7 @@ mod tests {
             "and said"
         );
 
-        let proof = RemovalProof::from_checked_code(DRIVE);
+        let proof = a_proof_for(DRIVE);
         let report = forget(DRIVE, &places, Some(keyring), Some(&proof));
         assert!(report.complete(), "{report:?}");
         assert!(
@@ -754,7 +787,7 @@ mod tests {
         )
         .unwrap();
 
-        let proof = RemovalProof::from_checked_code(DRIVE);
+        let proof = a_proof_for(DRIVE);
         let keyring: &dyn KeyringStore = &sandbox.keyring;
         let report = forget(DRIVE, &sandbox.places(DRIVE), Some(keyring), Some(&proof));
         assert!(report.complete(), "{report:?}");
@@ -821,7 +854,7 @@ mod tests {
             stubborn.inner.set(&name, &secret).unwrap();
         }
         let places = sandbox.places(DRIVE);
-        let proof = RemovalProof::from_checked_code(DRIVE);
+        let proof = a_proof_for(DRIVE);
         let keyring: &dyn KeyringStore = &stubborn;
 
         let report = forget(DRIVE, &places, Some(keyring), Some(&proof));

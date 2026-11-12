@@ -17,7 +17,8 @@
 //! without the encryption feature; the flows are `recovery.rs`'s.
 
 use azul_appkit::l10n::{Phrase, Text};
-use azul_storage::footprint::RemovalProof;
+#[cfg(feature = "encryption")]
+use azul_storage::crypto::keystate::{Read, RecoveryRecord, TokenFacts};
 use serde::{Deserialize, Serialize};
 
 /// A day in seconds.
@@ -268,27 +269,26 @@ pub struct RecoverySettings {
     pub pending: Vec<PendingRecovery>,
 }
 
-impl RecoveryState {
-    /// The evidence that this drive's keys - and what was paid for it, kept beside them - may
-    /// leave this computer with the drive: its recovery code was typed back right at least once
-    /// (the setup's check, a drill) at a time that is not after `now`, and the token server knows
-    /// the code (a code whose registration is pending or missing locks nothing down and finds
-    /// nothing: it is no method, [`RecoveryState::methods`], and so no way back). The keys on this
-    /// computer may be the only way into the drive, and removing a drive must not make one nobody
-    /// can open: without a checked code they stay. A stamp from a clock that ran ahead is no
-    /// check. This is the proof of the SETTINGS; the removal takes it back where the keyring or
-    /// the drive say otherwise when it runs (`encryption::proof_for_removal`). The one place a
-    /// [`RemovalProof`] is made (`footprint_gate` counts the callers).
-    #[must_use]
-    pub fn removal_proof(&self, now: u64) -> Option<RemovalProof> {
-        if self.code_unregistered() {
-            return None;
-        }
-        self.code_checked
-            .filter(|checked| *checked <= now)
-            .map(|_| RemovalProof::from_checked_code(&self.drive_id))
+/// What the key permit's judge asks of a drive's recovery record. A registration that was never recorded
+/// (a code from before AzDrive kept the answer) is "never recorded", which a removal does not take for
+/// "registered": the token server may not know the code, and a code it cannot find is no way back in
+/// (X-KEYSTATE-6: the settings let it pass and the table did not; there is one answer now, the table's).
+#[cfg(feature = "encryption")]
+impl RecoveryRecord for RecoveryState {
+    fn code_checked(&self) -> Read<u64> {
+        self.code_checked.map_or(Read::Absent, Read::Found)
     }
 
+    fn code_registered(&self) -> Read<bool> {
+        match self.registration {
+            Registration::Registered => Read::Found(true),
+            Registration::Pending(_) | Registration::Missing => Read::Found(false),
+            Registration::Unknown => Read::Absent,
+        }
+    }
+}
+
+impl RecoveryState {
     /// A key change or a new code is about to replace the drive's recovery wrap: the code that was
     /// typed back right is no witness any more, whatever comes of the call. The wrap may be
     /// replaced before the new code is shown or recorded, and a stop in between (a failed answer,
@@ -605,11 +605,27 @@ pub fn state_of<'a>(states: &'a [RecoveryState], drive_id: &str) -> Option<&'a R
     states.iter().find(|state| state.drive_id == drive_id)
 }
 
-/// The evidence that the keys of the removed drive `drive_id` may leave this computer with it
-/// ([`RecoveryState::removal_proof`]); `None` for a drive this computer has no recovery state of.
+/// What the settings say of a drive's recovery code, as the key permit's witness: the record is asked
+/// ([`RecoveryRecord`] of its [`RecoveryState`]), and a drive with no record answers "never typed back,
+/// never registered". The removal asks the key permit with it ([`crate::encryption::forget_job`]); the
+/// proof of a removal is no longer made from the settings' word alone.
+#[cfg(feature = "encryption")]
 #[must_use]
-pub fn removal_proof(states: &[RecoveryState], drive_id: &str, now: u64) -> Option<RemovalProof> {
-    state_of(states, drive_id).and_then(|state| state.removal_proof(now))
+pub fn token_facts(states: &[RecoveryState], drive_id: &str) -> TokenFacts {
+    match state_of(states, drive_id) {
+        Some(state) => TokenFacts::of(state),
+        None => TokenFacts::no_record(),
+    }
+}
+
+/// Whether the settings alone would let a removal at `now` take the drive's keys: the recovery code was
+/// typed back right (not after `now`) and the token server knows it. What the confirm dialog says before
+/// the button is pressed; the removal itself asks the key permit when it runs, which also looks at the
+/// keyring and the vault.
+#[cfg(feature = "encryption")]
+#[must_use]
+pub fn keys_may_go(states: &[RecoveryState], drive_id: &str, now: u64) -> bool {
+    token_facts(states, drive_id).refusal(now).is_none()
 }
 
 /// The recovery of `drive_id`, made when there is none.
@@ -873,48 +889,48 @@ mod tests {
     fn lane_az_2_a_removed_drives_keys_go_only_once_its_recovery_code_was_checked() {
         let never_made: Vec<RecoveryState> = Vec::new();
         assert!(
-            removal_proof(&never_made, "d_1", NOW).is_none(),
+            !keys_may_go(&never_made, "d_1", NOW),
             "no record: keep the keys"
         );
         let mut made = RecoveryState::new("d_1");
         made.code_made(NOW, Some(String::from("key")));
+        assert!(!keys_may_go(&[made], "d_1", NOW), "a code never typed back");
+        let mut states = vec![checked(), RecoveryState::new("d_2")];
+        states[0].registration = Registration::Registered;
+        assert!(keys_may_go(&states, "d_1", NOW), "typed back at the setup");
         assert!(
-            removal_proof(&[made], "d_1", NOW).is_none(),
-            "a code never typed back"
-        );
-        let states = vec![checked(), RecoveryState::new("d_2")];
-        let proof = removal_proof(&states, "d_1", NOW).expect("typed back at the setup");
-        assert_eq!(proof.drive(), "d_1");
-        assert!(
-            removal_proof(&states, "d_2", NOW).is_none(),
+            !keys_may_go(&states, "d_2", NOW),
             "another drive's state says nothing"
         );
         assert!(
-            removal_proof(&states, "d_1", NOW - 1).is_none(),
+            !keys_may_go(&states, "d_1", NOW - 1),
             "a check from the future is stale, not proof"
         );
     }
 
-    /// X-DELTA-AZDRIVE-KEYS-8: a code the token server does not know (the registration is pending
-    /// or missing) is no method - the health is red - and so no evidence for a removal: the
-    /// removal dropped the signed pending requests, which cannot be made again without the code.
+    /// X-DELTA-AZDRIVE-KEYS-8, X-KEYSTATE-6: a code the token server does not know (the registration is
+    /// pending or missing, or was never recorded) is no method - the health is red - and so no evidence
+    /// for a removal: the removal dropped the signed pending requests, which cannot be made again without
+    /// the code. A registration that was never recorded used to pass here and not in the key permit's
+    /// table; the settings answer what the table answers.
     #[test]
     fn x_delta_azdrive_keys_8_a_code_the_token_server_does_not_know_is_no_proof_for_a_removal() {
         let mut state = checked();
+        assert_eq!(state.registration, Registration::Unknown);
         assert!(
-            state.removal_proof(NOW).is_some(),
-            "registration unknown: as before"
+            !keys_may_go(&[state.clone()], "d_1", NOW),
+            "registration never recorded: the token server may not know the code"
         );
         state.registration = Registration::Pending(PendingRegistration::default());
         assert!(state.code_unregistered());
         assert!(
-            state.removal_proof(NOW).is_none(),
+            !keys_may_go(&[state.clone()], "d_1", NOW),
             "pending: the health is red, the proof must not be there"
         );
         state.registration = Registration::Missing;
-        assert!(state.removal_proof(NOW).is_none());
+        assert!(!keys_may_go(&[state.clone()], "d_1", NOW));
         state.registration = Registration::Registered;
-        assert!(state.removal_proof(NOW).is_some());
+        assert!(keys_may_go(&[state], "d_1", NOW));
     }
 
     /// X-DELTA-AZDRIVE-KEYS-2 and -7: a rotation is about to replace the recovery wrap. The code
@@ -924,11 +940,12 @@ mod tests {
     #[test]
     fn x_delta_azdrive_keys_2_a_rotation_forgets_the_check_of_the_code_it_may_replace() {
         let mut state = checked();
-        assert!(state.removal_proof(NOW).is_some());
+        state.registration = Registration::Registered;
+        assert!(keys_may_go(&[state.clone()], "d_1", NOW));
         assert_eq!(state.health(NOW), Health::Yellow, "one method: the code");
         state.wrap_may_change();
         assert_eq!(state.code_checked, None);
-        assert!(state.removal_proof(NOW).is_none());
+        assert!(!keys_may_go(&[state.clone()], "d_1", NOW));
         assert_eq!(state.health(NOW), Health::Red, "no checked method any more");
         // The code was made and is not checked: that is the state `setup_unfinished` reads as a
         // drive whose new code is to be made and shown (a stop after the wrap was replaced).

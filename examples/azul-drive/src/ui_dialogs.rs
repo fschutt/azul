@@ -264,12 +264,14 @@ pub(crate) fn popup_parts(popup: &Popup, s: &DriveState, app: &RefAny) -> (Strin
             let title = t_args("azdrive-forget-title", &[("name", Arg::from(name))]);
             // What the removal will do with the keys is told before it is pressed: they go with the
             // evidence of a checked recovery code and stay without it (X-DELTA-AZDRIVE-KEYS-32).
-            let keys_go = crate::recovery_health::removal_proof(
+            #[cfg(feature = "encryption")]
+            let keys_go = crate::recovery_health::keys_may_go(
                 &s.settings.recovery.drives,
                 drive_id,
                 crate::actions::now_secs(),
-            )
-            .is_some();
+            );
+            #[cfg(not(feature = "encryption"))]
+            let keys_go = false;
             let what = if keys_go {
                 "azdrive-forget-what"
             } else {

@@ -9,12 +9,51 @@ use crate::{
     config::{DriveEntry, DriveLocation, DrivesFile},
     footprint::{
         contact_key_entry, forget_drive, DrivesListing, Footprint, KeptBecause, KeyEntry,
-        KeyringFootprint, Paths, RemovalProof, StoreOutcome,
+        KeyringFootprint, Paths, StoreOutcome,
     },
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
 };
+#[cfg(feature = "encryption")]
+use crate::footprint::RemovalProof;
 
 const DRIVE: &str = "d_k3f9";
+
+/// A proof as the apps make one: the key permit's Permit of a removal of `drive`, asked on a keyring that
+/// holds the drive's finished setup, with a recovery code typed back right and known to the token server
+/// and no vault of its own to lose months from. It is not made from a name: the judge makes it, or nobody.
+#[cfg(feature = "encryption")]
+fn proof_for(drive: &str) -> RemovalProof {
+    use crate::crypto::{
+        device,
+        keys::RecoveryKdf,
+        keystate::{ask, Evidence, Op, Read, RecoveryRecord, TokenFacts, VaultFacts, Verdict},
+    };
+
+    struct Checked;
+    impl RecoveryRecord for Checked {
+        fn code_checked(&self) -> Read<u64> {
+            Read::Found(1_000)
+        }
+        fn code_registered(&self) -> Read<bool> {
+            Read::Found(true)
+        }
+    }
+
+    let keyring = MemoryKeyring::new();
+    let bucket = super::mem_bucket::MemBucket::new();
+    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    device::setup_new_drive(&bucket, &keyring, drive, kdf).unwrap();
+    let mut evidence = Evidence::new(drive, 2_000);
+    evidence.keyring = device::key_facts(&keyring, drive);
+    evidence.token = TokenFacts::of(&Checked);
+    evidence.vault = VaultFacts::no_vault();
+    match ask(Op::Remove, &evidence) {
+        Verdict::Permit(permit) => {
+            RemovalProof::from_permit(permit).expect("the permit of a removal")
+        }
+        Verdict::Refuse(reason) => panic!("{reason}"),
+    }
+}
 
 /// Every kind of entry a drive has, filled for `drive`.
 fn filled(keyring: &MemoryKeyring, drive: &str) {
@@ -118,6 +157,7 @@ fn lane_az_2_the_keyring_entry_names_of_a_drive_are_pinned() {
 /// LANE-AZ-2: a removal without the evidence that the recovery code was checked takes the
 /// credentials and leaves the keys, and says so; with it, every entry of the drive goes and no
 /// entry of another drive does.
+#[cfg(feature = "encryption")]
 #[test]
 fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof() {
     let keyring = MemoryKeyring::new();
@@ -139,7 +179,7 @@ fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof(
     assert!(done.kept.iter().all(|k| k.because == KeptBecause::NoProof));
     assert_eq!(store.residue(DRIVE).unwrap().len(), 8);
 
-    let proof = RemovalProof::from_checked_code(DRIVE);
+    let proof = proof_for(DRIVE);
     let done = store.forget(DRIVE, Some(&proof)).unwrap();
     assert!(done.kept.is_empty(), "{done:?}");
     assert!(store.residue(DRIVE).unwrap().is_empty());
@@ -157,6 +197,7 @@ fn lane_az_2_a_removal_takes_the_credentials_and_keeps_the_keys_without_a_proof(
 /// the session's) was in no list of a drive's entries, so a removal never found it. It is a kind of
 /// `KeyEntry`, named below the session's, and it goes with the proof like the keys: it is what
 /// gets a locked drive back to its owner.
+#[cfg(feature = "encryption")]
 #[test]
 fn x_delta_azdrive_keys_32_the_device_key_is_an_entry_of_the_drive_and_goes_with_its_proof() {
     let keyring = MemoryKeyring::new();
@@ -196,7 +237,7 @@ fn x_delta_azdrive_keys_32_the_device_key_is_an_entry_of_the_drive_and_goes_with
     assert_eq!(store.residue(DRIVE).unwrap(), [device.clone()]);
 
     // with it: gone, and another drive's is not touched
-    let proof = RemovalProof::from_checked_code(DRIVE);
+    let proof = proof_for(DRIVE);
     store.forget(DRIVE, Some(&proof)).unwrap();
     assert!(keyring.get(&device).unwrap().is_none());
     assert!(store.residue(DRIVE).unwrap().is_empty());
@@ -282,6 +323,7 @@ fn x_delta_azdrive_keys_32_a_users_file_that_stayed_is_not_keys_kept() {
 /// X-DELTA-AZDRIVE-KEYS-8: the period vault's FILES go only with a proof (the months paid for the
 /// drive may be only there); the key that opens them went without one, and the files that stayed
 /// were ciphertext nobody could read. The key stays with the files.
+#[cfg(feature = "encryption")]
 #[test]
 fn x_delta_azdrive_keys_8_the_key_of_the_period_vault_goes_only_with_the_proof_its_files_wait_for()
 {
@@ -309,7 +351,7 @@ fn x_delta_azdrive_keys_8_the_key_of_the_period_vault_goes_only_with_the_proof_i
         "a credential goes without a proof"
     );
 
-    let proof = RemovalProof::from_checked_code(DRIVE);
+    let proof = proof_for(DRIVE);
     store.forget(DRIVE, Some(&proof)).unwrap();
     assert!(keyring
         .get(&KeyEntry::VaultKey.name(DRIVE))
@@ -397,12 +439,13 @@ fn lane_az_2_a_key_entry_that_cannot_be_read_fails_the_store_and_the_drive_stays
 }
 
 /// LANE-AZ-2: a proof is for one drive. One for another drive is none.
+#[cfg(feature = "encryption")]
 #[test]
 fn lane_az_2_a_proof_for_another_drive_is_no_proof() {
     let keyring = MemoryKeyring::new();
     filled(&keyring, DRIVE);
     let store = KeyringFootprint::new(&keyring);
-    let other = RemovalProof::from_checked_code("d_other");
+    let other = proof_for("d_other");
     let report = forget_drive(&[&store], DRIVE, Some(&other));
     assert!(report.complete(), "{report:?}");
     // What stays is every entry that goes only with a proof - the keys, the vault's key (KEYS-8)
@@ -433,6 +476,7 @@ fn lane_az_2_a_proof_for_another_drive_is_no_proof() {
 /// the list LAST and only when no store failed - given first, the listing still goes last. A delete
 /// the keyring refused leaves the drive on the list, its entries findable by its id, and the same
 /// call finishes the job once the keyring lets go.
+#[cfg(feature = "encryption")]
 #[test]
 fn lane_az_2_a_refused_delete_leaves_the_drive_on_the_list_and_every_other_store_is_tried() {
     let dir = TempDir::new("footprint");
@@ -457,7 +501,7 @@ fn lane_az_2_a_refused_delete_leaves_the_drive_on_the_list_and_every_other_store
         move |_| vec![cache.clone()]
     });
     let listing = DrivesListing::new(&drives);
-    let proof = RemovalProof::from_checked_code(DRIVE);
+    let proof = proof_for(DRIVE);
 
     let report = forget_drive(&[&listing, &keys, &caches], DRIVE, Some(&proof));
     assert!(!report.complete(), "{report:?}");

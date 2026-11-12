@@ -26,8 +26,8 @@ use crate::{
         keystate::{
             compare, disagreements_at, judge, observe, owner, shadow, Change, Compared,
             Disagreement, Done, Erase, Evidence, Forget, Guard, Journal, Judged, Keeps, KeyState,
-            KeyringFacts, Op, Owner, Permit, Read, Refusal, Reseal, Start, Stays, TokenFacts,
-            VaultFacts, Verdict, Way, Why, CONSUMERS, MEMBERS,
+            KeyringFacts, Op, Owner, PaidMonths, Permit, Read, RecoveryRecord, Refusal, Reseal,
+            Start, Stays, TokenFacts, VaultFacts, Verdict, Way, Why, CONSUMERS, MEMBERS,
         },
         DriveKey, KeyId,
     },
@@ -154,11 +154,12 @@ fn spec(state: &KeyState, op: Op) -> Cell {
         (S::Locked, Op::Recover) => Cell::Permit(Way::Plain, NO_STAYS),
         // the setup's own refusal of an encrypted drive (`the_sentence_of_an_encrypted_drive_...`)
         (S::Locked, Op::Setup) => Cell::Refuse(Refusal::EncryptedAlready),
+        // what this computer keeps of a drive it holds no drive key of goes on the removal's conditions
+        (S::Locked, Op::Remove) => Cell::Removal,
         (
             S::Locked,
             Op::Enroll
             | Op::Rotate
-            | Op::Remove
             | Op::AddCode
             | Op::RemoveCode
             | Op::Reencrypt
@@ -168,6 +169,8 @@ fn spec(state: &KeyState, op: Op) -> Cell {
 
         // ---- Unknown: a read failed, and a failed read is never "nothing there" (KEYS-6)
         (S::Unknown(_), Op::Lockdown) => Cell::Permit(Way::Plain, NO_STAYS),
+        // a removal does not rest on whether the bucket lists key files (it reads no bucket)
+        (S::Unknown(Why::NotAsked("whether the drive is encrypted")), Op::Remove) => Cell::Removal,
         (
             S::Unknown(why),
             Op::Setup
@@ -200,6 +203,7 @@ fn states() -> Vec<KeyState> {
             why: String::from("the keyring refused"),
         }),
         KeyState::Unknown(Why::NotAsked("the drive key")),
+        KeyState::Unknown(Why::NotAsked("whether the drive is encrypted")),
     ]
 }
 
@@ -312,21 +316,32 @@ fn x_delta_struct_keystate_2_a_removal_judged_on_the_keyring_alone_is_refused() 
         Verdict::Permit(permit) => panic!("the removal was permitted ({:?})", permit.stays()),
     }
 
-    let unasked: [(&str, fn(&mut Evidence<'_>)); 3] = [
-        ("whether the recovery code was checked", |e| {
-            e.token.code_checked = Read::Unasked;
-        }),
-        ("whether the token server knows the recovery code", |e| {
-            e.token.code_registered = Read::Unasked;
-        }),
-        ("whether the drive's own vault holds the paid months", |e| {
-            e.vault.months_elsewhere = Read::Unasked;
-        }),
+    let unasked: [(&str, Record, Read<bool>); 3] = [
+        (
+            "whether the recovery code was checked",
+            Record {
+                checked: Read::Unasked,
+                ..a_good_record()
+            },
+            Read::Found(true),
+        ),
+        (
+            "whether the token server knows the recovery code",
+            Record {
+                registered: Read::Unasked,
+                ..a_good_record()
+            },
+            Read::Found(true),
+        ),
+        (
+            "whether the drive's own vault holds the paid months",
+            a_good_record(),
+            Read::Unasked,
+        ),
     ];
     for state in [KeyState::Fresh, KeyState::Active] {
-        for (what, hide) in unasked {
-            let mut e = all_good();
-            hide(&mut e);
+        for (what, record, months) in unasked.clone() {
+            let e = with_a_record(Evidence::new(DRIVE, NOW), record, months);
             assert_eq!(
                 removal_verdict(&state, &e),
                 Err(Refusal::NotAsked(what)),
@@ -441,17 +456,57 @@ fn x_delta_azdrive_keys_1_a_rotation_that_is_under_way_goes_on_with_its_key_and_
 
 // ==== The cells that depend on what was read ====
 
+/// A recovery record in a test: what it says is what the test sets.
+#[derive(Clone)]
+struct Record {
+    checked: Read<u64>,
+    registered: Read<bool>,
+}
+
+impl RecoveryRecord for Record {
+    fn code_checked(&self) -> Read<u64> {
+        self.checked.clone()
+    }
+    fn code_registered(&self) -> Read<bool> {
+        self.registered.clone()
+    }
+}
+
+/// The record of a code typed back right ten seconds before `NOW` and registered.
+fn a_good_record() -> Record {
+    Record {
+        checked: Read::Found(NOW - 10),
+        registered: Read::Found(true),
+    }
+}
+
+/// A vault in a test: what it says is what the test sets.
+struct Months(Read<bool>);
+
+impl PaidMonths for Months {
+    fn held_elsewhere(&self, _drive: &str) -> Read<bool> {
+        self.0.clone()
+    }
+}
+
 /// Evidence of a drive whose recovery code was checked, registered, and whose months are kept
 /// elsewhere too.
 fn all_good() -> Evidence<'static> {
-    let mut e = Evidence::new(DRIVE, NOW);
-    e.token = TokenFacts {
-        code_checked: Read::Found(NOW - 10),
-        code_registered: Read::Found(true),
-    };
-    e.vault = VaultFacts {
-        months_elsewhere: Read::Found(true),
-    };
+    with_a_record(
+        Evidence::new(DRIVE, NOW),
+        a_good_record(),
+        Read::Found(true),
+    )
+}
+
+/// `e` with the recovery record `record` and the vault's answer `months`.
+fn with_a_record(
+    mut e: Evidence<'static>,
+    record: Record,
+    months: Read<bool>,
+) -> Evidence<'static> {
+    e.token = TokenFacts::of(&record);
+    e.vault = VaultFacts::of(&Months(months), DRIVE);
     e
 }
 
@@ -475,29 +530,52 @@ fn x_delta_azdrive_keys_8_remove_is_permitted_only_with_a_checked_registered_cod
             "{state:?}"
         );
 
-        let mut never = all_good();
-        never.token.code_checked = Read::Absent;
+        let with = |record: Record, months: Read<bool>| {
+            with_a_record(Evidence::new(DRIVE, NOW), record, months)
+        };
+        let never = with(
+            Record {
+                checked: Read::Absent,
+                ..a_good_record()
+            },
+            Read::Found(true),
+        );
         assert_eq!(
             removal_verdict(&state, &never),
             Err(Refusal::CodeNotChecked)
         );
 
         // a stamp from a clock that ran ahead is no check
-        let mut ahead = all_good();
-        ahead.token.code_checked = Read::Found(NOW + 1);
+        let ahead = with(
+            Record {
+                checked: Read::Found(NOW + 1),
+                ..a_good_record()
+            },
+            Read::Found(true),
+        );
         assert_eq!(
             removal_verdict(&state, &ahead),
             Err(Refusal::CodeNotChecked)
         );
 
         // checked at this very second is checked
-        let mut now = all_good();
-        now.token.code_checked = Read::Found(NOW);
+        let now = with(
+            Record {
+                checked: Read::Found(NOW),
+                ..a_good_record()
+            },
+            Read::Found(true),
+        );
         assert!(removal_verdict(&state, &now).is_ok());
 
         for registered in [Read::Found(false), Read::Absent] {
-            let mut unregistered = all_good();
-            unregistered.token.code_registered = registered;
+            let unregistered = with(
+                Record {
+                    registered,
+                    ..a_good_record()
+                },
+                Read::Found(true),
+            );
             assert_eq!(
                 removal_verdict(&state, &unregistered),
                 Err(Refusal::CodeNotRegistered),
@@ -505,31 +583,43 @@ fn x_delta_azdrive_keys_8_remove_is_permitted_only_with_a_checked_registered_cod
             );
         }
 
-        let mut only_here = all_good();
-        only_here.vault.months_elsewhere = Read::Found(false);
+        let only_here = with(a_good_record(), Read::Found(false));
         assert_eq!(
             removal_verdict(&state, &only_here),
             Err(Refusal::MonthsOnlyHere)
         );
 
         // a drive with no vault of its own has no months to lose
-        let mut no_vault = all_good();
-        no_vault.vault.months_elsewhere = Read::Absent;
+        let no_vault = with(a_good_record(), Read::Absent);
         assert!(removal_verdict(&state, &no_vault).is_ok());
 
         // a failed read refuses, whichever it is
-        for (name, mut failing) in [
-            ("code_checked", all_good()),
-            ("code_registered", all_good()),
-            ("months", all_good()),
+        fn failed<T>() -> Read<T> {
+            Read::Failed(String::from("no"))
+        }
+        for (name, failing) in [
+            (
+                "code_checked",
+                with(
+                    Record {
+                        checked: failed(),
+                        ..a_good_record()
+                    },
+                    Read::Found(true),
+                ),
+            ),
+            (
+                "code_registered",
+                with(
+                    Record {
+                        registered: failed(),
+                        ..a_good_record()
+                    },
+                    Read::Found(true),
+                ),
+            ),
+            ("months", with(a_good_record(), failed())),
         ] {
-            match name {
-                "code_checked" => failing.token.code_checked = Read::Failed(String::from("no")),
-                "code_registered" => {
-                    failing.token.code_registered = Read::Failed(String::from("no"));
-                }
-                _ => failing.vault.months_elsewhere = Read::Failed(String::from("no")),
-            }
             assert!(
                 matches!(
                     removal_verdict(&state, &failing),

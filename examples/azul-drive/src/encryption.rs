@@ -76,7 +76,7 @@ use azul_storage::{
     crypto::{
         device,
         keys::{load_recovery_wrap, RecoveryCode, RecoveryKdf, RecoveryWrap},
-        keystate::{Evidence, Guard, Op, Read},
+        keystate::{self, Evidence, Guard, Op, PaidMonths, Read, TokenFacts, VaultFacts, Verdict},
         random_bytes, CryptoError, KeyId, Zeroizing,
     },
     config::EncryptionRecord,
@@ -287,11 +287,9 @@ pub(crate) fn start_forget(
         &s.slots[index].entry,
         s.slots.iter().map(|slot| &slot.entry),
     );
-    let proof = crate::recovery_health::removal_proof(
-        &s.settings.recovery.drives,
-        drive_id,
-        crate::actions::now_secs(),
-    );
+    // What the recovery record says of the drive's code NOW, as the key permit's witness; the keyring
+    // and the vault are asked when the job runs.
+    let token = crate::recovery_health::token_facts(&s.settings.recovery.drives, drive_id);
     // An Azlin drive's period vault on this computer is compared with the drive's own when the
     // job runs: months that are only here are not thrown away with the drive.
     let vault = s.slots[index].entry.azlin().map(|_| VaultCheck {
@@ -340,7 +338,7 @@ pub(crate) fn start_forget(
             name,
             places,
             uses_keyring,
-            proof,
+            token,
             grant,
             vault,
         }),
@@ -367,57 +365,80 @@ impl VaultCheck {
     }
 }
 
-/// Why a removal's proof was taken back when the removal ran.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProofTaken {
-    /// The keyring holds the new key of a key change that is not the drive's key yet.
-    KeyChangeUnfinished,
-    /// The keyring could not be asked whether a key change is unfinished.
-    KeyringUnreadable,
-    /// The months paid for the drive are only in this computer's vault.
-    PaidMonthsOnlyHere,
-    /// Whether the drive's vault holds the paid months could not be told.
-    PaidMonthsUnknown,
+impl PaidMonths for VaultCheck {
+    fn held_elsewhere(&self, drive: &str) -> Read<bool> {
+        match self.redundant(drive) {
+            Ok(elsewhere) => Read::Found(elsewhere),
+            Err(why) => Read::Failed(why),
+        }
+    }
 }
 
-/// The removal as the worker thread runs it: the proof made from the settings when the button was
-/// pressed ([`start_forget`]) is taken back where the keyring or the drive say otherwise NOW - a key
-/// change that is unfinished (the new key is in one keyring entry only, the index may be sealed
-/// under it), the months paid that are only in this computer's vault - and then every store of the
-/// drive is taken off ([`crate::footprint::forget`]).
+/// The removal as the worker thread runs it: the key permit is asked NOW for the removal of the drive -
+/// what the recovery record said when the button was pressed (`token`), what the keyring holds this
+/// moment (a key change that is unfinished: the new key is in one keyring entry only, the index may be
+/// sealed under it; a setup that is unfinished; a keyring that cannot be read), and what the drive's own
+/// vault holds of the months paid (`vault`) - and every store of the drive is taken off
+/// ([`crate::footprint::forget`]). A Permit is the proof the keys go with; a refusal is the sentence the
+/// window can show, and means "the keys STAY": the credentials, the copies, the states and the listing go
+/// all the same, so a drive whose keys are not on this computer, or cannot be judged, still leaves the
+/// list.
 pub(crate) fn forget_job(
     keyring: &dyn KeyringStore,
     drive_id: &str,
     places: &crate::footprint::Places,
     uses_keyring: bool,
-    proof: Option<azul_storage::footprint::RemovalProof>,
-    paid_months_elsewhere: Option<Result<bool, String>>,
+    token: TokenFacts,
+    vault: Option<&dyn PaidMonths>,
 ) -> azul_storage::footprint::ForgetReport {
-    // What the key permit's judge is told of the removal (C7 step 2): the settings' proof stands for
-    // a recovery code that was checked and is registered; the months are the vault's answer.
-    let had_proof = proof.is_some();
-    let months = match &paid_months_elsewhere {
-        None => Read::Absent,
-        Some(Ok(elsewhere)) => Read::Found(*elsewhere),
-        Some(Err(why)) => Read::Failed(why.clone()),
+    // A drive that keeps no key in the keyring has nothing the keyring could prove.
+    let proof = if uses_keyring {
+        removal_proof(keyring, drive_id, token, vault)
+    } else {
+        None
     };
-    let (proof, taken) = proof_for_removal(
-        proof,
-        rotation::unfinished(keyring, drive_id).map_err(|e| e.to_string()),
-        paid_months_elsewhere,
-    );
-    if let Some(taken) = taken {
-        println!("AZDRIVE_FORGET_PROOF_TAKEN {drive_id}: {taken:?}");
-    }
-    if uses_keyring {
-        shadow_removal(keyring, drive_id, had_proof, months, proof.is_some());
-    }
     crate::footprint::forget(
         drive_id,
         places,
         uses_keyring.then_some(keyring),
         proof.as_ref(),
     )
+}
+
+/// The proof of a removal: the key permit's Permit, asked on the keyring's four entries read now, the
+/// recovery record's witness and - only when nothing else refuses, for it writes into the drive's vault
+/// what the drive lacks and reads it back - the vault's. `None` where the permit is refused: the keys stay.
+pub(crate) fn removal_proof(
+    keyring: &dyn KeyringStore,
+    drive_id: &str,
+    token: TokenFacts,
+    vault: Option<&dyn PaidMonths>,
+) -> Option<azul_storage::footprint::RemovalProof> {
+    let mut evidence = Evidence::new(drive_id, now_unix());
+    evidence.keyring = device::key_facts(keyring, drive_id);
+    evidence.token = token;
+    let mut verdict = keystate::ask(Op::Remove, &evidence);
+    if keystate::waits_for_the_vault(&verdict) {
+        evidence.vault = match vault {
+            Some(vault) => VaultFacts::of(vault, drive_id),
+            None => VaultFacts::no_vault(),
+        };
+        verdict = keystate::ask(Op::Remove, &evidence);
+    }
+    match verdict {
+        Verdict::Permit(permit) => azul_storage::footprint::RemovalProof::from_permit(permit).ok(),
+        Verdict::Refuse(reason) => {
+            // A drive whose code was never checked is the common case and says nothing; the rest are
+            // proofs the settings would have made and the keyring or the vault took back.
+            if !matches!(
+                reason.kind,
+                keystate::Refusal::CodeNotChecked | keystate::Refusal::CodeNotRegistered
+            ) {
+                println!("AZDRIVE_FORGET_PROOF_TAKEN {drive_id}: {:?}", reason.kind);
+            }
+            None
+        }
+    }
 }
 
 // ==== The key permit's shadow (ARCH29 C7 step 2): the judge beside the guards of this file ====
@@ -433,46 +454,6 @@ fn shadow_evidence<'a>(drive: &'a str, keyring: &dyn KeyringStore) -> Evidence<'
     let mut evidence = Evidence::new(drive, now_unix());
     evidence.keyring = device::key_facts(keyring, drive);
     evidence
-}
-
-/// "Remove drive" ([`proof_for_removal`] is the guard): the keys go when the proof survived the
-/// keyring's and the vault's questions (`kept`). The judge is told what the proof stands for (a
-/// recovery code that was checked and is registered, when the settings made one) and what the
-/// vault said of the months. The bucket is not read: whether the drive is encrypted is not asked, so
-/// a computer with no key is not judged.
-fn shadow_removal(
-    keyring: &dyn KeyringStore,
-    drive: &str,
-    had_proof: bool,
-    months: Read<bool>,
-    kept: bool,
-) {
-    let mut evidence = shadow_evidence(drive, keyring);
-    evidence.token.code_checked = if had_proof {
-        Read::Found(evidence.now)
-    } else {
-        Read::Absent
-    };
-    evidence.token.code_registered = Read::Found(had_proof);
-    evidence.vault.months_elsewhere = months;
-    azul_storage::key_shadow!(
-        "azul_drive::encryption::forget_job",
-        Op::Remove,
-        evidence,
-        if kept { Guard::Permits } else { Guard::Refuses },
-        known = [
-            (
-                "planned",
-                "X-DELTA-AZDRIVE-KEYS-3: the guard asks whether a key change is unfinished and never \
-                 whether a setup is: with a proof the removal erases the planned key, which may be the \
-                 only copy; the table refuses"
-            ),
-            (
-                "unknown",
-                "the keyring failed on an entry the guard does not read (the planned key)"
-            ),
-        ]
-    );
 }
 
 /// A new recovery code for the drive (the job replaces the first code's wrap: the table has no
@@ -533,35 +514,6 @@ fn shadow_restore(keyring: &dyn KeyringStore, drive: &str, state: EncState) {
             ),
         ]
     );
-}
-
-/// The proof a removal runs with: the one made from the settings (`proof`), kept only while the
-/// keyring says no key change is unfinished (`unfinished`) and the drive's own vault holds the
-/// months paid (`paid_months_elsewhere`: `None` for a drive that has none). A question that could
-/// not be answered takes the proof back too: the keys here may be the only way into the drive, and
-/// "unknown" is not "fine" (X-DELTA-AZDRIVE-KEYS-2, -8). Pure: the job asks, this decides.
-pub(crate) fn proof_for_removal(
-    proof: Option<azul_storage::footprint::RemovalProof>,
-    unfinished: Result<bool, String>,
-    paid_months_elsewhere: Option<Result<bool, String>>,
-) -> (
-    Option<azul_storage::footprint::RemovalProof>,
-    Option<ProofTaken>,
-) {
-    let Some(proof) = proof else {
-        return (None, None);
-    };
-    match unfinished {
-        Ok(false) => {}
-        Ok(true) => return (None, Some(ProofTaken::KeyChangeUnfinished)),
-        Err(_) => return (None, Some(ProofTaken::KeyringUnreadable)),
-    }
-    match paid_months_elsewhere {
-        None | Some(Ok(true)) => {}
-        Some(Ok(false)) => return (None, Some(ProofTaken::PaidMonthsOnlyHere)),
-        Some(Err(_)) => return (None, Some(ProofTaken::PaidMonthsUnknown)),
-    }
-    (Some(proof), None)
 }
 
 /// What the user must know of the sign-in of a removed drive: it stays valid at its provider
@@ -2902,9 +2854,9 @@ pub(crate) enum EncryptionJob {
         places: crate::footprint::Places,
         /// The drive keeps a session or keys in the keyring.
         uses_keyring: bool,
-        /// The evidence that its recovery code was checked: the keys may go. The job takes it back
-        /// where the keyring or the drive's vault say otherwise ([`proof_for_removal`]).
-        proof: Option<azul_storage::footprint::RemovalProof>,
+        /// What the recovery record said of the drive's code when the button was pressed: the key
+        /// permit is asked with it when the job runs ([`forget_job`]).
+        token: TokenFacts,
         /// The sign-in at a provider (a Google Drive, a Dropbox) to end before its refresh token
         /// goes with the keyring entry (AZ-CN12).
         grant: Option<crate::sign_in::Grant>,
@@ -3361,7 +3313,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             name,
             places,
             uses_keyring,
-            proof,
+            token,
             grant,
             vault,
         } => {
@@ -3374,19 +3326,16 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     &AzulTransport::foreign(crate::USER_AGENT),
                 )
             });
-            // The vault is compared with the drive's only when a proof would let it go: without
-            // one it stays, and nothing is asked of the drive for it.
-            let paid_months_elsewhere = proof
-                .as_ref()
-                .and_then(|_| vault.map(|vault| vault.redundant(&drive_id)));
-            // The user asked for this: the keyring may ask (the unlock prompt, Touch ID).
+            // The user asked for this: the keyring may ask (the unlock prompt, Touch ID). The vault is
+            // compared with the drive's only when nothing else would keep the keys: without a proof it
+            // stays, and nothing is asked of the drive for it.
             let report = forget_job(
                 &keyring,
                 &drive_id,
                 &places,
                 uses_keyring,
-                proof,
-                paid_months_elsewhere,
+                token,
+                vault.as_ref().map(|vault| vault as &dyn PaidMonths),
             );
             EncryptionOutcome::Forgotten {
                 drive_id,
@@ -5947,8 +5896,32 @@ mod tests {
 
     const KEYS_DRIVE: &str = "d_k2";
 
-    fn removal_proof_of_a_checked_code() -> azul_storage::footprint::RemovalProof {
-        azul_storage::footprint::RemovalProof::from_checked_code(KEYS_DRIVE)
+    /// The recovery record of a drive whose code was typed back right and is registered.
+    struct CheckedCode;
+
+    impl azul_storage::crypto::keystate::RecoveryRecord for CheckedCode {
+        fn code_checked(&self) -> Read<u64> {
+            Read::Found(1_000)
+        }
+        fn code_registered(&self) -> Read<bool> {
+            Read::Found(true)
+        }
+    }
+
+    fn a_checked_code() -> TokenFacts {
+        TokenFacts::of(&CheckedCode)
+    }
+
+    /// The drive's own vault in a test: what it says of the months.
+    struct Months(Result<bool, String>);
+
+    impl PaidMonths for Months {
+        fn held_elsewhere(&self, _drive: &str) -> Read<bool> {
+            match &self.0 {
+                Ok(elsewhere) => Read::Found(*elsewhere),
+                Err(why) => Read::Failed(why.clone()),
+            }
+        }
     }
 
     fn no_places() -> crate::footprint::Places {
@@ -5990,7 +5963,7 @@ mod tests {
             KEYS_DRIVE,
             &no_places(),
             true,
-            Some(removal_proof_of_a_checked_code()),
+            a_checked_code(),
             None,
         );
         assert!(report.complete());
@@ -6032,7 +6005,7 @@ mod tests {
             KEYS_DRIVE,
             &no_places(),
             true,
-            Some(removal_proof_of_a_checked_code()),
+            a_checked_code(),
             None,
         );
         assert!(report.complete());
@@ -6152,14 +6125,14 @@ mod tests {
     /// What a removal with a perfect proof kept, by entry.
     fn kept_by_a_removal(
         keyring: &dyn KeyringStore,
-        months: Option<Result<bool, String>>,
+        months: Option<&dyn PaidMonths>,
     ) -> Vec<String> {
         let report = forget_job(
             keyring,
             KEYS_DRIVE,
             &no_places(),
             true,
-            Some(removal_proof_of_a_checked_code()),
+            a_checked_code(),
             months,
         );
         assert!(report.complete());
@@ -6300,6 +6273,81 @@ mod tests {
         assert_eq!(device::load_drive_key(&keyring, KEYS_DRIVE).unwrap(), None);
     }
 
+    /// X-KEYSTATE-3: a planned key may be the ONLY copy of the key a setup made (a checkout's, or a setup
+    /// that stopped before its recovery code was shown), and the old guard asked whether a KEY CHANGE was
+    /// unfinished and never whether a SETUP was: with a proof of a checked code (a stale one, or another
+    /// window's) the removal erased it. The key permit's Planned x Remove cell refuses, and the planned
+    /// key stays with the member key.
+    #[test]
+    fn x_keystate_3_a_removal_keeps_a_key_that_is_only_planned() {
+        let keyring = azul_storage::keyring::MemoryKeyring::new();
+        let planned = DriveKey::generate().unwrap();
+        device::plan_drive_key(&keyring, KEYS_DRIVE, &planned).unwrap();
+        device::member_secret(&keyring, KEYS_DRIVE).unwrap();
+
+        let kept = kept_by_a_removal(&keyring, None);
+        for entry in [KeyEntry::PlannedKey, KeyEntry::MemberKey] {
+            assert!(
+                kept.contains(&entry.name(KEYS_DRIVE)),
+                "{entry:?} stays: {kept:?}"
+            );
+        }
+        assert_eq!(
+            device::held(&keyring, &device::planned_key_entry(KEYS_DRIVE))
+                .unwrap()
+                .map(|(key, _)| key),
+            Some(planned),
+            "the only copy is still in the keyring"
+        );
+    }
+
+    /// X-DELTA-STRUCT-KEYSTATE-4: a refused removal means "the keys STAY", and the removal of the drive
+    /// from this computer goes on: a drive this computer holds no key of (nothing but a session) leaves
+    /// with or without a checked code, and a keyring that has to be refused leaves the credentials gone
+    /// all the same.
+    #[test]
+    fn x_delta_struct_keystate_4_a_drive_whose_keys_are_not_here_is_removed_with_or_without_a_checked_code(
+    ) {
+        for token in [a_checked_code(), TokenFacts::no_record()] {
+            let keyring = azul_storage::keyring::MemoryKeyring::new();
+            keyring
+                .set(&KeyEntry::Session.name(KEYS_DRIVE), "a session")
+                .unwrap();
+            let report = forget_job(&keyring, KEYS_DRIVE, &no_places(), true, token, None);
+            assert!(report.complete(), "{report:?}");
+            assert!(report.kept().is_empty(), "{:?}", report.kept());
+            assert!(
+                keyring
+                    .get(&KeyEntry::Session.name(KEYS_DRIVE))
+                    .unwrap()
+                    .is_none(),
+                "the session of the drive is gone"
+            );
+        }
+        // Keys that stay (a key change that is not over) do not keep the credentials from going.
+        let (keyring, _, _) = keyring_of_a_stopped_rotation();
+        keyring
+            .set(&KeyEntry::Session.name(KEYS_DRIVE), "a session")
+            .unwrap();
+        let report = forget_job(
+            &keyring,
+            KEYS_DRIVE,
+            &no_places(),
+            true,
+            a_checked_code(),
+            None,
+        );
+        assert!(report.complete() && report.keys_kept(), "{report:?}");
+        assert!(keyring
+            .get(&KeyEntry::Session.name(KEYS_DRIVE))
+            .unwrap()
+            .is_none());
+        assert!(
+            rotation::unfinished(&keyring, KEYS_DRIVE).unwrap(),
+            "its keys are all there"
+        );
+    }
+
     /// X-DELTA-AZDRIVE-KEYS-8: months paid that only this computer's vault holds (the drive's own
     /// could not take them, or the drive has none) go with the drive's keys and the vault's key
     /// only when the drive holds them too; a question that could not be answered is no "yes".
@@ -6338,8 +6386,8 @@ mod tests {
                 KEYS_DRIVE,
                 &places,
                 true,
-                Some(removal_proof_of_a_checked_code()),
-                Some(not_elsewhere.clone()),
+                a_checked_code(),
+                Some(&Months(not_elsewhere.clone())),
             );
             assert!(report.complete());
             assert!(
@@ -6364,8 +6412,8 @@ mod tests {
             KEYS_DRIVE,
             &places,
             true,
-            Some(removal_proof_of_a_checked_code()),
-            Some(Ok(true)),
+            a_checked_code(),
+            Some(&Months(Ok(true))),
         );
         assert!(
             report.complete() && report.kept().is_empty(),
@@ -6380,37 +6428,69 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn x_delta_azdrive_keys_8_the_proof_of_a_removal_is_kept_only_when_every_question_says_yes() {
-        let proof = || Some(removal_proof_of_a_checked_code());
-        // No proof from the settings: nothing is asked, nothing is taken back.
-        let (kept, taken) = proof_for_removal(None, Ok(true), Some(Ok(false)));
-        assert!(kept.is_none() && taken.is_none());
-        let (kept, taken) = proof_for_removal(proof(), Ok(false), None);
-        assert!(
-            kept.is_some() && taken.is_none(),
-            "a drive with no vault of its own"
-        );
-        let (kept, taken) = proof_for_removal(proof(), Ok(false), Some(Ok(true)));
-        assert!(kept.is_some() && taken.is_none());
-        for (unfinished, months, why) in [
-            (Ok(true), None, ProofTaken::KeyChangeUnfinished),
-            (
-                Err(String::from("denied")),
-                None,
-                ProofTaken::KeyringUnreadable,
-            ),
-            (Ok(false), Some(Ok(false)), ProofTaken::PaidMonthsOnlyHere),
-            (
-                Ok(false),
-                Some(Err(String::from("unread"))),
-                ProofTaken::PaidMonthsUnknown,
-            ),
-        ] {
-            let (kept, taken) = proof_for_removal(proof(), unfinished, months);
-            assert!(kept.is_none(), "{why:?}");
-            assert_eq!(taken, Some(why));
+    /// A keyring that cannot be read.
+    struct UnreadableKeyring;
+
+    impl KeyringStore for UnreadableKeyring {
+        fn get(&self, _key: &str) -> Result<Option<String>, azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Failed(String::from(
+                "the keyring went",
+            )))
         }
+        fn set(
+            &self,
+            _key: &str,
+            _secret: &str,
+        ) -> Result<(), azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Failed(String::from(
+                "the keyring went",
+            )))
+        }
+        fn delete(&self, _key: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Failed(String::from(
+                "the keyring went",
+            )))
+        }
+    }
+
+    /// A vault that is never to be asked.
+    struct NeverAsked;
+
+    impl PaidMonths for NeverAsked {
+        fn held_elsewhere(&self, _drive: &str) -> Read<bool> {
+            panic!("the vault was asked for a removal the keys of which stay anyway");
+        }
+    }
+
+    #[test]
+    fn x_delta_azdrive_keys_8_the_proof_of_a_removal_is_made_only_when_every_question_says_yes() {
+        let active = || {
+            let keyring = azul_storage::keyring::MemoryKeyring::new();
+            device::store_drive_key(&keyring, KEYS_DRIVE, &DriveKey::generate().unwrap()).unwrap();
+            keyring
+        };
+        let proof =
+            |keyring: &dyn KeyringStore, token: TokenFacts, months: Option<&dyn PaidMonths>| {
+                removal_proof(keyring, KEYS_DRIVE, token, months)
+            };
+        // No code typed back right: no proof, and the drive's vault is not asked for it.
+        assert!(proof(&active(), TokenFacts::no_record(), Some(&NeverAsked)).is_none());
+        // A drive with no vault of its own, or whose vault holds the months: the keys go.
+        assert!(proof(&active(), a_checked_code(), None).is_some());
+        assert!(proof(&active(), a_checked_code(), Some(&Months(Ok(true)))).is_some());
+        // The months are only here, or the vault could not be told: they stay with the keys.
+        assert!(proof(&active(), a_checked_code(), Some(&Months(Ok(false)))).is_none());
+        assert!(proof(
+            &active(),
+            a_checked_code(),
+            Some(&Months(Err(String::from("unread"))))
+        )
+        .is_none());
+        // A key change that is not over, and a keyring that cannot be read: the keys stay, and the
+        // vault is not asked for it either.
+        let (stopped, _, _) = keyring_of_a_stopped_rotation();
+        assert!(proof(&stopped, a_checked_code(), Some(&NeverAsked)).is_none());
+        assert!(proof(&UnreadableKeyring, a_checked_code(), Some(&NeverAsked)).is_none());
     }
 
     /// X-DELTA-AZDRIVE-KEYS-20: "Encrypt this drive" on a drive that holds files saves the mark
@@ -6783,7 +6863,9 @@ mod tests {
             "opening a folder starts no new code"
         );
         assert!(
-            state.removal_proof(300).is_some(),
+            azul_storage::crypto::keystate::TokenFacts::of(&state)
+                .refusal(300)
+                .is_none(),
             "and the proof of the checked code is back"
         );
     }
@@ -7107,7 +7189,9 @@ mod tests {
             "no NewCode for a code made elsewhere"
         );
         assert!(
-            state.removal_proof(300).is_none(),
+            azul_storage::crypto::keystate::TokenFacts::of(state)
+                .refusal(300)
+                .is_some(),
             "the old check is no proof"
         );
         assert!(
