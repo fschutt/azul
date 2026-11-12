@@ -1039,3 +1039,131 @@ fn x_delta_azdrive_keys_21_an_unreadable_key_id_in_the_account_file_is_a_damaged
         refused.as_ref().err()
     );
 }
+
+/// X-KEYS3-T1 (the vault answer of the third key review): a rotation never touches the drive's period vault
+/// (`.azlin/period/v1`: not an index entry, not a member wrap, not a share, not a drop key), so it stays sealed
+/// under the key it was written with and the keys before the new one live only in the key chain, each sealed
+/// under the next. The test the answer lacked: rotate through the production entry (`rotate_drive_key`) a drive
+/// whose vault holds a grant and a token, let a device JOIN afterwards - it holds the new key only - and read
+/// the vault back through the chain, grant and token. A second rotation with nobody writing the vault in
+/// between makes the walk K3 -> K2 -> K1 (each link used once), which a device that joined after it reads the
+/// same way; the first write puts the vault under the key that is current.
+#[test]
+fn x_keys3_t1_a_device_that_joins_after_a_rotation_reads_the_drives_vault_through_the_chain() {
+    use azul_storage::crypto::azl1::{PublicHeader, HEADER_LEN};
+
+    use super::period::{stored, ISSUE_KEY};
+    use crate::{
+        period::PeriodTokenStore,
+        vault::{DriveVault, TokenVault, UnlockedDrive, VaultGrant, VaultState},
+    };
+
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let a_dir = TempDir::new("azcloud-t1-a");
+    let mut a = signed_up(&transports, &a_dir);
+    let a_keys = MemoryKeyring::new();
+    a.setup_encryption(&a_keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let k1 = device::load_drive_key(&a_keys, "d_1").unwrap().unwrap();
+
+    // The drive's vault holds a grant and a token, sealed under K1.
+    let bucket: Arc<dyn Drive> = Arc::new(a.bucket_drive().unwrap());
+    let laptop = TempDir::new("azcloud-t1-laptop");
+    let kept = PeriodTokenStore::new(laptop.path().join("period-tokens"))
+        .for_drive(&UnlockedDrive::new("d_1", bucket, k1.clone()))
+        .unwrap();
+    kept.add_tokens(&[stored("aa")]).unwrap();
+    kept.keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let key_id_of_the_vault = || {
+        let bytes = s3.read(DriveVault::KEY).expect("the drive's vault");
+        PublicHeader::parse(&bytes[..HEADER_LEN])
+            .unwrap()
+            .wrapped_key
+            .key_id
+    };
+    assert_eq!(key_id_of_the_vault(), k1.id());
+
+    // A device that joins the drive now, from A's code: the key it holds and the drive as it opens it.
+    let joined = |label: &str, a: &Account, a_keys: &MemoryKeyring| {
+        let code = a.invite_with_key(None, a_keys).unwrap();
+        let dir = TempDir::new(&format!("azcloud-t1-{label}"));
+        let state = StateDir::open(dir.path()).unwrap();
+        let decoded = JoinCode::decode(&code.encode()).unwrap();
+        let account = Account::join(&state, TOKEN, transports.clone(), &decoded).unwrap();
+        let keys = MemoryKeyring::new();
+        let key = account
+            .adopt_join_key(&decoded, &keys)
+            .unwrap()
+            .expect("the code carries the key");
+        let drive = UnlockedDrive::open("d_1", Arc::new(account.bucket_drive().unwrap()), &keys)
+            .unwrap()
+            .expect("the device holds the drive key");
+        (dir, key, drive)
+    };
+
+    // The real rotation: nothing of it reseals the vault.
+    let rotated = a.rotate_drive_key(&a_keys, &provider, cheap()).unwrap();
+    let k2 = device::load_drive_key(&a_keys, "d_1").unwrap().unwrap();
+    assert_eq!(k2.id(), rotated.drive_key);
+    assert_ne!(k1.id(), k2.id());
+    assert_eq!(
+        key_id_of_the_vault(),
+        k1.id(),
+        "a rotation leaves the vault under the key it was written with"
+    );
+
+    // The device that joins afterwards holds K2 only: the vault opens through the chain, every part of it.
+    let (_dir_b, key_b, drive_b) = joined("b", &a, &a_keys);
+    assert_eq!(
+        key_b.id(),
+        k2.id(),
+        "it joined with the new key, not the old"
+    );
+    let state = DriveVault::new(&drive_b)
+        .read()
+        .expect("the vault opens through the key chain on a device that joined after the rotation");
+    assert_eq!(state.tokens, vec![stored("aa")]);
+    assert!(
+        state.grant("ck_1").is_some(),
+        "the grant that only the drive held"
+    );
+    assert_eq!(
+        key_id_of_the_vault(),
+        k1.id(),
+        "a read writes nothing: the vault is under K1 still"
+    );
+
+    // A second rotation with the vault still under K1: the walk is K3 -> K2 -> K1, each link used once.
+    let again = a.rotate_drive_key(&a_keys, &provider, cheap()).unwrap();
+    let k3 = device::load_drive_key(&a_keys, "d_1").unwrap().unwrap();
+    assert_eq!(k3.id(), again.drive_key);
+    assert_eq!(key_id_of_the_vault(), k1.id());
+    let (_dir_c, key_c, drive_c) = joined("c", &a, &a_keys);
+    assert_eq!(key_c.id(), k3.id());
+    let state = DriveVault::new(&drive_c)
+        .read()
+        .expect("the vault opens through the chain of two rotations");
+    assert_eq!(state.tokens, vec![stored("aa")]);
+    assert!(state.grant("ck_1").is_some());
+    // The app's own read of the period tokens (the local vault joined with the drive's) sees the same.
+    let phone = TempDir::new("azcloud-t1-phone");
+    let seen = PeriodTokenStore::new(phone.path().join("period-tokens"))
+        .for_drive(&drive_c)
+        .unwrap()
+        .state_of_all()
+        .expect("the period tokens open on the device that joined after both rotations");
+    assert_eq!(seen.tokens, vec![stored("aa")]);
+    assert!(seen.grant("ck_1").is_some());
+
+    // The first write that has something to write puts it under the key that is current.
+    DriveVault::new(&drive_c)
+        .join(&VaultState::default())
+        .unwrap();
+    assert_eq!(key_id_of_the_vault(), k3.id());
+    assert_eq!(
+        DriveVault::new(&drive_c).read().unwrap().tokens,
+        vec![stored("aa")]
+    );
+}
