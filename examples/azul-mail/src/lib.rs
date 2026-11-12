@@ -1422,7 +1422,12 @@ fn sync_drive(
         std::sync::Arc::new(azlin_keyring(Asking::User)),
     )
     .map_err(azlin_sync::drive_error)?;
-    azlin_sync::sync_account(&drive, &MailStore::new(job.mail_root.clone()), options, progress)
+    // The drive's restore announcement is the session's (a re-sign-in may bring a newer one).
+    let options = azlin_sync::AzlinOptions {
+        restore: session.restore.clone(),
+        ..options.clone()
+    };
+    azlin_sync::sync_account(&drive, &MailStore::new(job.mail_root.clone()), &options, progress)
 }
 
 /// An Azlin account's Receive: signs in at the token server when the drive's credentials run
@@ -1622,6 +1627,14 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
             } else {
                 t_args("azmail-new-messages", &[("count", Arg::from(report.fetched()))])
             };
+            // A restored drive lacks mail this computer has: it stays, and the user is told.
+            if report.kept_after_restore() > 0 {
+                text.push(' ');
+                text.push_str(&t_args(
+                    "azmail-restore-kept",
+                    &[("count", Arg::from(report.kept_after_restore()))],
+                ));
+            }
             if sent + queued + failed > 0 {
                 text.push(' ');
                 text.push_str(&outbox_text(sent, queued, failed));

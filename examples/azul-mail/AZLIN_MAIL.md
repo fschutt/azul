@@ -107,11 +107,19 @@ Send/Receive on a device:
    without a connection) has no object yet and is put into its folder; read and flag marks
    made here and not yet written are written (the local `flags.json` holds them until then).
 2. **Pull**: one listing per folder (one ListObjectsV2 page per 1000 messages) and one
-   recursive listing of `mail/.state/`. New names are fetched, names that are gone are dropped
-   from the local copy, the flags come from the markers.
+   recursive listing of `mail/.state/`. New names are fetched, the flags come from the markers.
+   A name that is gone from the listing is dropped from the local copy only when the drive,
+   asked about that very object (a HEAD), says it is not there: a listing that is short for any
+   reason, or a look that fails, deletes nothing.
 
 After a pull the local copy equals the bucket as listed; with no new writes, every device's
-next pull ends in the same state.
+next pull ends in the same state - except after a RESTORE of the drive. A restore (the operator
+rebuilt the drive from its lagging off-site copy) is announced by the token server with an epoch
+(`restore.rs`, the one protocol of every drive); the Send/Receive that meets an epoch newer than
+the one this computer took (`azlin-drive.json`, written after the last folder was synced) deletes
+no mail here: what the restored drive lacks came after the restore's moment and exists on this
+computer only, so it is put back into the drive (a message of which only the header block is
+here stays as it is), and the window says so.
 
 ### 4.4 Cost, and what comes later
 

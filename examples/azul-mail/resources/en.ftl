@@ -217,6 +217,10 @@ azmail-new-messages = { $count ->
    *[other] { $count } new messages.
  }
 azmail-sign-in-failed = Sign-in failed: { $why }
+azmail-restore-kept = { $count ->
+    [one] The Azlin drive was restored to an earlier state and lacks 1 message you have: it stays here and goes back into the drive.
+   *[other] The Azlin drive was restored to an earlier state and lacks { $count } messages you have: they stay here and go back into the drive.
+ }
 azmail-send-receive-error = Send/Receive error: { $why }
 azmail-send-receive-stopped = Send/Receive stopped. What arrived until then is kept.
 azmail-outbox-empty-no-account = Nothing waits in the Outbox. To receive mail, add an account: File > Info > Add Account.

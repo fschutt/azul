@@ -217,6 +217,10 @@ azmail-new-messages = { $count ->
    *[other] { $count } neue Nachrichten.
  }
 azmail-sign-in-failed = Anmeldung fehlgeschlagen: { $why }
+azmail-restore-kept = { $count ->
+    [one] Das Azlin-Laufwerk wurde auf einen früheren Stand zurückgesetzt und hat 1 Nachricht nicht, die du hast: Sie bleibt hier und kommt wieder ins Laufwerk.
+   *[other] Das Azlin-Laufwerk wurde auf einen früheren Stand zurückgesetzt und hat { $count } Nachrichten nicht, die du hast: Sie bleiben hier und kommen wieder ins Laufwerk.
+ }
 azmail-send-receive-error = Fehler beim Senden/Empfangen: { $why }
 azmail-send-receive-stopped = Senden/Empfangen angehalten. Was bis dahin ankam, bleibt erhalten.
 azmail-outbox-empty-no-account = Im Postausgang wartet nichts. Um E-Mails zu empfangen, füge ein Konto hinzu: Datei > Informationen > Konto hinzufügen.

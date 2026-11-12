@@ -118,6 +118,10 @@ pub struct FolderReport {
     pub pushed: u64,
     /// An Azlin account's: messages gone from the drive, dropped from the local copy.
     pub removed: u64,
+    /// An Azlin account's: messages a restored drive lacks, kept here (put into the drive again
+    /// where this computer has the message; a message of which only the header block is here
+    /// stays as it is). Never counted in `removed`.
+    pub kept_after_restore: u64,
 }
 
 /// The whole sync's outcome.
@@ -141,6 +145,10 @@ impl SyncReport {
 
     pub fn removed(&self) -> u64 {
         self.folders.iter().map(|f| f.removed).sum()
+    }
+
+    pub fn kept_after_restore(&self) -> u64 {
+        self.folders.iter().map(|f| f.kept_after_restore).sum()
     }
 }
 

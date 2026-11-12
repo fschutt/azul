@@ -17,6 +17,50 @@ impl MailFolder for TempDir {
     }
 }
 
+// ==== a file that cannot be read ====
+
+/// Takes away the permission to read `file`: the stand-in for a failing disk, or for a virus scanner
+/// that holds a file - a read that fails and is NO "not found" (a folder where the file belongs reads
+/// as not found, so it is no stand-in). `true` when the read fails now; `false` where it cannot be
+/// done (not Unix) or does not bite (a process that reads anything, root): the test skips then, and
+/// the line on stderr says so. Give the permission back with [`make_readable`].
+pub fn make_unreadable(file: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o000)).is_err() {
+            eprintln!("skipped: the permission of {} cannot be changed", file.display());
+            return false;
+        }
+        if std::fs::read(file).is_err() {
+            return true;
+        }
+        make_readable(file);
+        eprintln!("skipped: this process reads files it has no permission to");
+        false
+    }
+    #[cfg(not(unix))]
+    {
+        eprintln!("skipped: no Unix file permissions here ({})", file.display());
+        false
+    }
+}
+
+/// Gives back the permission [`make_unreadable`] took.
+pub fn make_readable(file: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)) {
+            eprintln!("the permission of {} could not be given back: {e}", file.display());
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = file;
+    }
+}
+
 // ==== a one-connection SMTP server on this computer, for the clients' tests ====
 
 /// What the test sink offers and answers. `Default`: the name and nothing else after EHLO,

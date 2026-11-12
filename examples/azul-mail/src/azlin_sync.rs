@@ -8,11 +8,23 @@
 //! 1. **Push**: mail filed here first (a sent mail, a draft saved while offline: no `remote`
 //!    yet) goes into its folder of the drive under its name (`azlin::object_name`).
 //! 2. **Pull**: the folder's listing against the index. Names that are gone leave the local
-//!    copy; new ones are fetched - whole up to `full_fetch_limit`, else only their first
-//!    `head_bytes` (the header block; [`fetch_message`] gets the rest when the message is
-//!    opened) - and get the next UIDs in name (arrival) order.
+//!    copy - when the drive, asked about the object itself, says it is not there, and never
+//!    after a restore of the drive (below); new ones are fetched - whole up to
+//!    `full_fetch_limit`, else only their first `head_bytes` (the header block;
+//!    [`fetch_message`] gets the rest when the message is opened) - and get the next UIDs in
+//!    name (arrival) order.
 //! 3. **Flags**: the marks made here (`flags.json`) are written as markers where the drive says
 //!    otherwise, then dropped; every message's flags are the drive's markers from then on.
+//!
+//! A drive that was RESTORED (an operator's restore from its off-site copy, "Restore as of"; the
+//! token server announces it with an epoch, [`AzlinOptions::restore`]) serves an older state, so
+//! the mail that came after is missing from its listing and exists here only. That is not a
+//! delete: the Send/Receive that takes the announcement deletes no mail here, puts the mail the
+//! drive lacks into it again (a message of which only the header block is here stays as it is)
+//! and says so ([`FolderReport::kept_after_restore`]); the epoch is remembered
+//! ([`DRIVE_FILE`]) once every folder is through, so a pass that stopped takes the restore
+//! again (X-DELTA-SYNC4-20; `restore.rs` is the one protocol of every drive, AzDrive's sync
+//! decides the same way).
 //!
 //! The actions - [`move_messages`], [`delete_messages`], [`upload_message`], [`push_marks`],
 //! [`fetch_message`] - write the drive first and the local copy after, so a refused request
@@ -24,7 +36,13 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-use azul_storage::{ops, time::parse_iso8601, ByteRange, Drive, DriveError, ObjectInfo};
+use azul_storage::{
+    ops,
+    restore::{judge, Clock, RestoreNotice, Seen, Standing},
+    time::parse_iso8601,
+    ByteRange, Drive, DriveError, ObjectInfo,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     azlin::{self, MessageState},
@@ -40,7 +58,7 @@ use crate::{
 pub const AZLIN_UIDVALIDITY: u32 = 1;
 
 /// How Send/Receive fetches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AzlinOptions {
     /// A message up to this many bytes is fetched whole.
     pub full_fetch_limit: u64,
@@ -50,6 +68,11 @@ pub struct AzlinOptions {
     pub chunk: u64,
     /// Now, in seconds since 1970 (`synced_at`; the arrival of mail filed here without a date).
     pub now: i64,
+    /// The drive's newest restore announcement as the session's last sign-in carried it
+    /// ([`crate::azlin::AzlinSession::restore`]); `None`: none was announced. One this copy has
+    /// not taken yet makes the Send/Receive a restore's: it deletes no mail here
+    /// ([`sync_account`]).
+    pub restore: Option<RestoreNotice>,
 }
 
 impl Default for AzlinOptions {
@@ -59,6 +82,7 @@ impl Default for AzlinOptions {
             head_bytes: 64 * 1024,
             chunk: azul_storage::transfer::CHUNK,
             now: 0,
+            restore: None,
         }
     }
 }
@@ -139,6 +163,69 @@ fn write_marks(store: &MailStore, folder: &str, marks: &LocalFlags) -> std::io::
     store.put(&listing::flags_key(folder), marks.to_json().as_bytes())
 }
 
+/// What this copy remembers of the drive between two Send/Receives, at the root of the account's
+/// folder: the newest restore announcement it took ([`DriveMemory::restore_epoch`]).
+pub const DRIVE_FILE: &str = "azlin-drive.json";
+
+/// The `format` of [`DRIVE_FILE`].
+const DRIVE_FORMAT: &str = "azmail.azlin-drive";
+
+/// The contents of [`DRIVE_FILE`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct DriveMemory {
+    format: String,
+    version: u64,
+    /// The newest restore epoch ([`RestoreNotice::epoch`]) a Send/Receive of this copy took
+    /// completely.
+    #[serde(default)]
+    restore_epoch: u64,
+}
+
+/// The restore epoch this copy took last: 0 for a copy that took none (no file, or one that is not
+/// this AzMail's: the restore is then taken once more, which deletes nothing). A file that
+/// cannot be READ is an error, never "no restore taken": not knowing is not a reason to treat the
+/// next listing as an ordinary one.
+fn read_restore_epoch(store: &MailStore) -> Result<u64, SyncError> {
+    match store.get(DRIVE_FILE) {
+        Ok(bytes) => Ok(serde_json::from_slice::<DriveMemory>(&bytes)
+            .ok()
+            .filter(|memory| memory.format == DRIVE_FORMAT)
+            .map_or(0, |memory| memory.restore_epoch)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(e) => Err(io(e)),
+    }
+}
+
+fn write_restore_epoch(store: &MailStore, epoch: u64) -> std::io::Result<()> {
+    let memory = DriveMemory {
+        format: DRIVE_FORMAT.to_string(),
+        version: 1,
+        restore_epoch: epoch,
+    };
+    let mut text = serde_json::to_string_pretty(&memory)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    text.push('\n');
+    store.put(DRIVE_FILE, text.as_bytes())
+}
+
+/// What the drive is to this copy: whether `notice`, the newest announcement, is a restore this
+/// copy has not taken yet ([`Standing::Restored`]). The drive's counter says nothing here (an
+/// Azlin drive's mail is listed, its index is not read), so only the epoch decides
+/// ([`Clock::Own`]); the one decision every drive's sync makes (`azul_storage::restore::judge`).
+fn restore_standing(
+    store: &MailStore,
+    notice: Option<&RestoreNotice>,
+) -> Result<Standing, SyncError> {
+    let Some(notice) = notice else {
+        return Ok(Standing::InSync);
+    };
+    let seen = Seen {
+        epoch: read_restore_epoch(store)?,
+        clock: 0,
+    };
+    Ok(judge(&seen, 0, Clock::Own, Some(notice), azlin::MAIL_PREFIX))
+}
+
 /// The UID after `last` that no line of `index` has (mail filed here has UIDs far above, from
 /// `send::LOCAL_UID_FLOOR`).
 fn next_uid(index: &BTreeMap<u32, IndexEntry>, last: u32) -> u32 {
@@ -207,12 +294,20 @@ pub use crate::azlin::{list_mailbox, list_states, local_folders, RemoteFolder};
 /// Syncs the drive's mailbox and this computer's copy in `store` (see the module
 /// documentation). `progress` is told what is happening; when it answers `false` the sync
 /// records what it has and stops with [`SyncError::Stopped`].
+///
+/// An announced restore of the drive that this copy has not taken ([`AzlinOptions::restore`])
+/// makes the whole call a restore's: no mail leaves this computer, what the drive lacks goes
+/// into it again, and the epoch is remembered only after the last folder was synced.
 pub fn sync_account(
     drive: &dyn Drive,
     store: &MailStore,
     options: &AzlinOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
+    // Before anything is listed or written: a restore is told from a delete by the announcement,
+    // never by what the listing lacks.
+    let standing = restore_standing(store, options.restore.as_ref())?;
+    let restored = matches!(standing, Standing::Restored(_));
     let remote = list_mailbox(drive).map_err(drive_error)?;
     let paths: Vec<String> = remote.iter().map(|folder| folder.path.clone()).collect();
     let mut boxes = local_folders(&paths);
@@ -255,16 +350,22 @@ pub fn sync_account(
             mailbox,
             listed,
             listing.is_some(),
+            restored,
             &mut states,
             options,
             progress,
         )?);
     }
+    // Every folder is through: the restore is taken (a pass that stopped before this took it
+    // again, which is idempotent: what was put back is listed now).
+    if let Standing::Restored(notice) = &standing {
+        write_restore_epoch(store, notice.epoch).map_err(io)?;
+    }
     Ok(report)
 }
 
 /// Syncs one folder: push, pull, flags (the module documentation). `in_drive`: the drive lists
-/// the folder.
+/// the folder. `restored`: the drive was restored and this copy takes it now (no mail leaves).
 #[allow(clippy::too_many_arguments)]
 fn sync_folder(
     drive: &dyn Drive,
@@ -272,12 +373,15 @@ fn sync_folder(
     mailbox: &LocalMailbox,
     listed: &[ObjectInfo],
     in_drive: bool,
+    restored: bool,
     states: &mut HashMap<String, MessageState>,
     options: &AzlinOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<FolderReport, SyncError> {
     let key = mailbox.key.as_str();
     let path = mailbox.server_name.as_str();
+    // Every object the drive listed, hidden ones too.
+    let on_drive: HashSet<&str> = listed.iter().map(|object| object.key.as_str()).collect();
     // A message another program marked deleted (IMAP's \Deleted through the Azlin Bridge, not
     // expunged yet) is hidden here as if it were gone, until the mark goes or the message does.
     let visible: Vec<ObjectInfo> = listed
@@ -303,11 +407,22 @@ fn sync_folder(
 
     let result = (|| -> Result<(), SyncError> {
         // 1. Push: mail filed here first goes into the folder (whatever the listing said, it
-        //    is there now).
+        //    is there now). After a restore also the mail the restored drive lacks: it came
+        //    after the restore's moment and exists here only (its line keeps the old object's
+        //    key until the new one is in the drive).
         let mut pushed: HashSet<String> = HashSet::new();
+        let lost: HashSet<u32> = if restored {
+            index
+                .values()
+                .filter(|entry| !entry.remote.is_empty() && !on_drive.contains(entry.remote.as_str()))
+                .map(|entry| entry.uid)
+                .collect()
+        } else {
+            HashSet::new()
+        };
         let local_only: Vec<(u32, String, u64, Vec<String>)> = index
             .values()
-            .filter(|entry| entry.remote.is_empty())
+            .filter(|entry| entry.remote.is_empty() || lost.contains(&entry.uid))
             .map(|entry| {
                 (
                     entry.uid,
@@ -320,6 +435,11 @@ fn sync_folder(
         for (uid, file, arrival, flags) in local_only {
             let bytes = match store.get(&file) {
                 Ok(bytes) => bytes,
+                // A line the restore lost whose file is not here (a big message Send/Receive
+                // fetched the header block of) has nothing to put back: it stays as it is.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound && lost.contains(&uid) => {
+                    continue;
+                }
                 // A line whose file is gone holds nothing to put: it goes.
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     index.remove(&uid);
@@ -343,6 +463,7 @@ fn sync_folder(
             pushed.insert(object);
             report.pushed += 1;
         }
+        report.kept_after_restore = lost.len() as u64;
 
         // 2. Pull: what is gone leaves, what is new comes.
         let listed_keys: HashSet<&str> = listed.iter().map(|object| object.key.as_str()).collect();
@@ -356,6 +477,21 @@ fn sync_folder(
             .map(|entry| entry.uid)
             .collect();
         for uid in gone {
+            // After a restore nothing leaves: what the listing lacks was lost, not deleted, and
+            // exists here only (X-DELTA-SYNC4-20).
+            if restored {
+                continue;
+            }
+            let Some(remote) = index.get(&uid).map(|entry| entry.remote.clone()) else {
+                continue;
+            };
+            // The listing's word is enough for a message another program hid with a mark. For
+            // every other the drive is asked about the object itself: a listing that is short for
+            // any reason must not delete a copy that may exist nowhere else, and a failed look
+            // is an unknown, not an "absent" (the pass ends, nothing more leaves).
+            if !on_drive.contains(remote.as_str()) && ops::exists(drive, &remote).map_err(drive_error)? {
+                continue;
+            }
             if let Some(entry) = index.remove(&uid) {
                 store.delete(&entry.path).map_err(io)?;
                 report.removed += 1;
@@ -933,6 +1069,7 @@ mod tests {
             head_bytes: 64 * 1024,
             chunk: 8 * 1024 * 1024,
             now: SEP_30,
+            restore: None,
         }
     }
 
@@ -1397,5 +1534,360 @@ mod tests {
         let closed = azul_appkit::l10n::t_text(&sending_refused(Some(&ban), until + 1).expect("closed"));
         assert!(closed.starts_with("This drive was closed on 2026-10-12"), "{closed}");
         assert_eq!(sending_refused(None, until), None, "a drive in good standing sends");
+    }
+
+    // ==== X-DELTA-SYNC4-20: a restored drive, a short listing, a failed look ====
+
+    /// A drive that fails where a test says. Its listing leaves out the keys of `unlisted` (the
+    /// objects are there: `head` and `get` serve them), fails whole, or never ends; its `head`
+    /// fails; its `put` fails after `puts_left` more puts. Everything else is the folder on disk.
+    struct Faulty {
+        inner: LocalDrive,
+        unlisted: Mutex<Vec<String>>,
+        list_fails: std::sync::atomic::AtomicBool,
+        list_never_ends: std::sync::atomic::AtomicBool,
+        head_fails: std::sync::atomic::AtomicBool,
+        puts_left: Mutex<Option<u32>>,
+    }
+
+    impl Faulty {
+        /// The drive of `f` (the same folder on disk), faultless until a test says.
+        fn of(f: &Fixture) -> Faulty {
+            Faulty {
+                inner: LocalDrive::without_manifest(f.bucket_dir.0.clone()),
+                unlisted: Mutex::new(Vec::new()),
+                list_fails: false.into(),
+                list_never_ends: false.into(),
+                head_fails: false.into(),
+                puts_left: Mutex::new(None),
+            }
+        }
+    }
+
+    impl Drive for Faulty {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            use std::sync::atomic::Ordering::SeqCst;
+            if self.list_fails.load(SeqCst) {
+                return Err(DriveError::Transport(String::from("the listing failed")));
+            }
+            if self.list_never_ends.load(SeqCst) {
+                return Ok(ListPage {
+                    next: Some(String::from("again")),
+                    ..ListPage::default()
+                });
+            }
+            let mut page = self.inner.list(request)?;
+            let unlisted = self.unlisted.lock().unwrap();
+            page.objects.retain(|object| !unlisted.contains(&object.key));
+            Ok(page)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.inner.get(key)
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.inner.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            if let Some(left) = self.puts_left.lock().unwrap().as_mut() {
+                if *left == 0 {
+                    return Err(DriveError::Transport(String::from("the put failed")));
+                }
+                *left -= 1;
+            }
+            self.inner.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.inner.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            if self.head_fails.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(DriveError::Transport(String::from("the look failed")));
+            }
+            self.inner.head(key)
+        }
+        fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+            self.inner.copy(from, to)
+        }
+    }
+
+    /// `options()` with the drive's restore announced under `epoch`.
+    fn announced(epoch: u64) -> AzlinOptions {
+        AzlinOptions {
+            restore: Some(RestoreNotice {
+                epoch,
+                ..RestoreNotice::default()
+            }),
+            ..options()
+        }
+    }
+
+    fn sync_with(
+        drive: &dyn Drive,
+        f: &Fixture,
+        options: &AzlinOptions,
+    ) -> Result<SyncReport, SyncError> {
+        sync_account(drive, &f.store, options, &mut |_| true)
+    }
+
+    /// Every message of `folder` here: its line, its file's bytes, and whether the drive has the
+    /// object its line names.
+    fn held(f: &Fixture, folder: &str) -> Vec<(IndexEntry, Vec<u8>, bool)> {
+        index(&f.store, folder)
+            .into_iter()
+            .map(|entry| {
+                let bytes = f.store.get(&entry.path).unwrap_or_default();
+                let on_the_drive = !entry.remote.is_empty() && !missing(&f.bucket.inner, &entry.remote);
+                (entry, bytes, on_the_drive)
+            })
+            .collect()
+    }
+
+    /// RED on the code before: the restored drive's listing lacked two of three mails and the
+    /// Send/Receive deleted both here (`removed == 2`, an index of one line).
+    #[test]
+    fn x_delta_sync4_20_a_restore_that_lists_fewer_mails_keeps_every_local_mail_and_puts_it_back() {
+        let f = fixture();
+        deliver(&f, "Inbox", &mail(1, "Older"), SEP_30);
+        let newer = deliver(&f, "Inbox", &mail(2, "Newer"), SEP_30 + 60);
+        let archived = deliver(&f, "Archive", &mail(3, "Archived"), SEP_30 + 120);
+        run(&f);
+        assert_eq!(index(&f.store, "inbox").len(), 2);
+        // The operator restored the drive from its off-site copy, which lags: two mails are
+        // missing, the token server announced epoch 1.
+        f.bucket.inner.delete(&newer).unwrap();
+        f.bucket.inner.delete(&archived).unwrap();
+        let report = sync_with(&f.bucket, &f, &announced(1)).unwrap();
+        assert_eq!(report.removed(), 0, "a restore deletes no mail here");
+        assert_eq!(report.kept_after_restore(), 2);
+        assert_eq!(report.pushed(), 2, "and puts what the drive lacks into it again");
+        let inbox = held(&f, "inbox");
+        assert_eq!(inbox.len(), 2, "both lines stay");
+        let subjects: Vec<&str> = inbox.iter().map(|(e, _, _)| e.subject.as_str()).collect();
+        assert_eq!(subjects, ["Older", "Newer"]);
+        assert_eq!(inbox[1].1, mail(2, "Newer"), "the file is the mail, not an empty one");
+        assert!(inbox.iter().all(|(_, _, on_the_drive)| *on_the_drive), "every line names an object of the drive");
+        let archive = held(&f, "archive");
+        assert_eq!(archive.len(), 1);
+        assert_eq!((archive[0].1.clone(), archive[0].2), (mail(3, "Archived"), true));
+        assert!(
+            archive[0].0.remote.starts_with("mail/Archive/"),
+            "put back into its own folder of the drive: {}",
+            archive[0].0.remote
+        );
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 1, "the restore is taken once");
+        // The same announcement again is no restore: the drive is as it was left.
+        let again = sync_with(&f.bucket, &f, &announced(1)).unwrap();
+        assert_eq!(
+            (again.removed(), again.pushed(), again.fetched(), again.kept_after_restore()),
+            (0, 0, 0, 0)
+        );
+        assert_eq!(index(&f.store, "inbox").len(), 2);
+    }
+
+    /// The restore is taken once; a delete made by another device afterwards is an ordinary
+    /// delete again, and the next restore (a higher epoch) takes mail the same way.
+    #[test]
+    fn x_delta_sync4_20_after_the_restore_is_taken_a_delete_elsewhere_leaves_again() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        f.bucket.inner.delete(&two).unwrap();
+        sync_with(&f.bucket, &f, &announced(1)).unwrap();
+        assert_eq!(index(&f.store, "inbox").len(), 2, "the restore kept it");
+        // Another device deletes `one` for good: the announcement is the same epoch 1.
+        f.bucket.inner.delete(&one).unwrap();
+        let report = sync_with(&f.bucket, &f, &announced(1)).unwrap();
+        assert_eq!(report.removed(), 1, "an ordinary delete");
+        assert_eq!(index(&f.store, "inbox").len(), 1);
+        // A second restore (epoch 2) that lacks the remaining mail keeps it too.
+        let remaining = index(&f.store, "inbox").remove(0);
+        f.bucket.inner.delete(&remaining.remote).unwrap();
+        let report = sync_with(&f.bucket, &f, &announced(2)).unwrap();
+        assert_eq!((report.removed(), report.kept_after_restore()), (0, 1));
+        assert_eq!(held(&f, "inbox").len(), 1);
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 2);
+    }
+
+    /// The crash table of a restore's pass, every row by stopping the flow after a write: the
+    /// first mail is put back and the second put fails (a cut line). Nothing leaves, the epoch is
+    /// NOT remembered, and the next Send/Receive takes the restore again and finishes. RED on
+    /// the code before: the second mail was deleted here before the first was put anywhere.
+    #[test]
+    fn x_delta_sync4_20_a_restore_pass_cut_after_the_first_put_takes_the_restore_again() {
+        let f = fixture();
+        let first = deliver(&f, "Inbox", &mail(1, "First"), SEP_30);
+        let second = deliver(&f, "Inbox", &mail(2, "Second"), SEP_30 + 60);
+        run(&f);
+        f.bucket.inner.delete(&first).unwrap();
+        f.bucket.inner.delete(&second).unwrap();
+        let drive = Faulty::of(&f);
+        *drive.puts_left.lock().unwrap() = Some(1);
+        let stopped = sync_with(&drive, &f, &announced(1));
+        assert!(matches!(stopped, Err(SyncError::Connect(_))), "{stopped:?}");
+        // Row: after the first put and its line, before the second put.
+        let rows = held(&f, "inbox");
+        assert_eq!(rows.len(), 2, "no mail left");
+        assert_eq!(rows[0].1, mail(1, "First"));
+        assert_eq!(rows[1].1, mail(2, "Second"));
+        assert_eq!(
+            rows.iter().filter(|(_, _, on_the_drive)| *on_the_drive).count(),
+            1,
+            "one is back in the drive, one waits"
+        );
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 0, "a stopped pass took nothing");
+        // The next Send/Receive, the drive answering now: the restore is taken again.
+        *drive.puts_left.lock().unwrap() = None;
+        let report = sync_with(&drive, &f, &announced(1)).unwrap();
+        assert_eq!(report.removed(), 0);
+        let rows = held(&f, "inbox");
+        assert!(rows.iter().all(|(_, _, on_the_drive)| *on_the_drive), "both are back");
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 1);
+    }
+
+    /// A folder the restored drive has none of (it was made after the restore's moment): its
+    /// mail stays, goes back into a folder of that name, and the folder's files stay too. RED on
+    /// the code before: an empty listing, so every message left with the folder.
+    #[test]
+    fn x_delta_sync4_20_a_folder_the_restored_drive_lacks_keeps_its_mail() {
+        let f = fixture();
+        let key = deliver(&f, "Receipts", &mail(1, "Invoice"), SEP_30);
+        run(&f);
+        f.bucket.inner.delete(&key).unwrap();
+        std::fs::remove_dir_all(f.bucket_dir.0.join("mail").join("Receipts")).unwrap();
+        let report = sync_with(&f.bucket, &f, &announced(1)).unwrap();
+        assert_eq!((report.removed(), report.kept_after_restore()), (0, 1));
+        assert!(f.store.folders().contains(&String::from("Receipts")), "the folder stays");
+        let rows = held(&f, "Receipts");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1, mail(1, "Invoice"));
+        assert!(rows[0].2 && rows[0].0.remote.starts_with("mail/Receipts/"), "{:?}", rows[0].0.remote);
+    }
+
+    /// A message of which only the header block is here (a big one Send/Receive did not fetch)
+    /// cannot be put back: its line stays as it is - never dropped for "no file", the way mail
+    /// filed here without a body is.
+    #[test]
+    fn x_delta_sync4_20_a_header_only_line_stays_when_the_restored_drive_lacks_it() {
+        let f = fixture();
+        let mut big = mail(5, "Holiday photos");
+        big.extend(std::iter::repeat(b'x').take(5000));
+        let key = deliver(&f, "Inbox", &big, SEP_30);
+        let small = AzlinOptions {
+            full_fetch_limit: 1000,
+            head_bytes: 512,
+            ..options()
+        };
+        sync_account(&f.bucket, &f.store, &small, &mut |_| true).unwrap();
+        f.bucket.inner.delete(&key).unwrap();
+        let restored = AzlinOptions {
+            restore: announced(1).restore,
+            ..small
+        };
+        let report = sync_account(&f.bucket, &f.store, &restored, &mut |_| true).unwrap();
+        assert_eq!((report.removed(), report.pushed(), report.kept_after_restore()), (0, 0, 1));
+        let lines = index(&f.store, "inbox");
+        assert_eq!(lines.len(), 1, "the line stays");
+        assert_eq!(lines[0].remote, key, "and keeps the key it had");
+        assert_eq!(lines[0].subject, "Holiday photos");
+    }
+
+    /// The listing that FAILS deletes nothing: the call ends before any folder is read (this arm
+    /// was safe before; the test pins it).
+    #[test]
+    fn x_delta_sync4_20_a_listing_that_fails_deletes_nothing() {
+        let f = fixture();
+        let key = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        f.bucket.inner.delete(&key).unwrap();
+        let drive = Faulty::of(&f);
+        drive.list_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        let failed = sync_with(&drive, &f, &options());
+        assert!(matches!(failed, Err(SyncError::Connect(_))), "{failed:?}");
+        assert_eq!(held(&f, "inbox").len(), 1, "the mail is still here, with its file");
+    }
+
+    /// A listing that never ends is refused by the paging guard, not taken as a complete one
+    /// (this arm was safe before; the test pins it).
+    #[test]
+    fn x_delta_sync4_20_a_listing_that_never_ends_deletes_nothing() {
+        let f = fixture();
+        deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        let drive = Faulty::of(&f);
+        drive.list_never_ends.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(sync_with(&drive, &f, &options()).is_err());
+        assert_eq!(held(&f, "inbox").len(), 1);
+    }
+
+    /// A listing that is short for any reason: it omits an object the drive has. RED on the code
+    /// before: the local copy was deleted on the listing's word alone.
+    #[test]
+    fn x_delta_sync4_20_a_listing_that_omits_an_object_the_drive_has_deletes_nothing() {
+        let f = fixture();
+        let key = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        let drive = Faulty::of(&f);
+        drive.unlisted.lock().unwrap().push(key.clone());
+        let report = sync_with(&drive, &f, &options()).unwrap();
+        assert_eq!(report.removed(), 0);
+        let rows = held(&f, "inbox");
+        assert_eq!(rows.len(), 1);
+        assert_eq!((rows[0].0.remote.as_str(), rows[0].1.clone()), (key.as_str(), mail(1, "One")));
+    }
+
+    /// The drive that cannot be asked about the object is an unknown, not an absent: the pass
+    /// ends with the error and the mail stays. RED on the code before (no look at all).
+    #[test]
+    fn x_delta_sync4_20_a_failed_look_at_the_object_ends_the_pass_and_deletes_nothing() {
+        let f = fixture();
+        let key = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        f.bucket.inner.delete(&key).unwrap();
+        let drive = Faulty::of(&f);
+        drive.head_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        let failed = sync_with(&drive, &f, &options());
+        assert!(matches!(failed, Err(SyncError::Connect(_))), "{failed:?}");
+        assert_eq!(held(&f, "inbox").len(), 1, "line and file stay");
+        // The drive answers again and says the object is gone: now it leaves.
+        let report = run(&f);
+        assert_eq!(report.removed(), 1);
+    }
+
+    /// A memory of the drive that cannot be read is an unknown, never "no restore taken yet"
+    /// (that would turn the next listing into a restore's: mail put back that a delete took).
+    #[test]
+    fn x_delta_sync4_20_a_drive_memory_that_cannot_be_read_ends_the_sync_before_it_lists() {
+        let f = fixture();
+        deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        write_restore_epoch(&f.store, 0).unwrap();
+        // No permission to read it: the read fails, and is no "not found" (skips where it cannot).
+        let file = f.store.folder().path().join(DRIVE_FILE);
+        if !crate::testutil::make_unreadable(&file) {
+            return;
+        }
+        let drive = Faulty::of(&f);
+        drive.list_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        let failed = sync_with(&drive, &f, &announced(1));
+        crate::testutil::make_readable(&file);
+        assert!(
+            matches!(failed, Err(SyncError::Storage(_))),
+            "ended on the memory, before the failing listing: {failed:?}"
+        );
+    }
+
+    /// A memory file that is not this AzMail's reads as "no restore taken": the next restore is
+    /// taken once more, which deletes nothing.
+    #[test]
+    fn x_delta_sync4_20_a_damaged_drive_memory_means_no_restore_was_taken() {
+        let f = fixture();
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 0, "no file");
+        f.store.put(DRIVE_FILE, b"{ not json").unwrap();
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 0);
+        f.store.put(DRIVE_FILE, br#"{"format":"other","version":1,"restore_epoch":9}"#).unwrap();
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 0);
+        write_restore_epoch(&f.store, 4).unwrap();
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 4);
     }
 }
