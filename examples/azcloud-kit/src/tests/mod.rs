@@ -294,6 +294,29 @@ pub(crate) fn tokens_in_drive(
     (tokens, vault)
 }
 
+/// A call of every method of `drive` (`azul_storage::testing::every_method`): the one-byte file and the two reasons it
+/// needs are made HERE - a test item may name a `Chose` and write a file, the support module may do neither (the chose
+/// gate and the durable gate read it).
+pub(crate) fn every_method_of(
+    drive: &dyn azul_storage::Drive,
+    dir: &std::path::Path,
+) -> Vec<azul_storage::testing::Called> {
+    use azul_storage::erase::{Chose, Target, Why};
+    let file = dir.join("one-byte.txt");
+    std::fs::write(&file, b"x").expect("the file of the call");
+    let keys = Chose::job(
+        "a call of every method",
+        Target::Keys(vec![String::from("k")]),
+    );
+    let folder = Chose::job("a call of every method", Target::Folder(String::from("f/")));
+    azul_storage::testing::every_method(
+        drive,
+        &file,
+        || Why::UserChose(&keys),
+        || Why::UserChose(&folder),
+    )
+}
+
 /// A keyring (a map) holding drive `d_1`'s session with the drive token `token`, its locks in
 /// `dir`.
 pub(crate) fn keyring_holding(dir: &azul_storage::testing::TempDir, token: &str) -> crate::SharedKeyring {

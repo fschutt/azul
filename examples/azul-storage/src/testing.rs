@@ -342,26 +342,33 @@ macro_rules! __probe_method_names {
 crate::drive_methods!(crate::__probe_method_names;);
 
 /// Calls every method of [`Drive`] once on `drive` with the smallest arguments that make a call (a batch of
-/// one item, a file of one byte in `files`, a reason that is for the key it is given), in the order of the
-/// list, and says what each answered. What a wrapper does with ALL its methods is seen from here: a stop flag
-/// that must refuse every request, a drive that has nothing below it and must refuse every one. The names are
+/// one item, `file` for the uploads of a file, a reason for the calls that delete), in the order of the list,
+/// and says what each answered. What a wrapper does with ALL its methods is seen from here: a stop flag that
+/// must refuse every request, a drive that has nothing below it and must refuse every one. The names are
 /// [`METHOD_NAMES`] and a test of this module keeps them so (a method the trait gets and this call does not
 /// make fails it).
 ///
+/// The CALLER makes what this module may not: `file` is a file of the one byte `x` that exists (a write
+/// is the durable module's), and `keys` and `folder` make the reason a delete carries - the first for the
+/// key `k` the calls delete, the second for the folder `f/` (a reason is for the key it names, and a test
+/// item makes the reason it needs; this module is no job of a user's and names none).
+///
 /// # Panics
 ///
-/// When the file in `files` cannot be made.
+/// When `file` cannot be read.
 #[must_use]
-pub fn every_method(drive: &dyn crate::Drive, files: &Path) -> Vec<Called> {
+pub fn every_method<'a>(
+    drive: &dyn crate::Drive,
+    file: &Path,
+    keys: impl Fn() -> crate::erase::Why<'a>,
+    folder: impl Fn() -> crate::erase::Why<'a>,
+) -> Vec<Called> {
     use crate::{
-        checked::FileCheck,
-        erase::{Chose, Target, Why},
-        BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Limit, ListRequest, Precondition,
+        checked::FileCheck, BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Limit,
+        ListRequest, Precondition,
     };
 
-    let file = files.join("one-byte.txt");
-    std::fs::write(&file, b"x").expect("the file of the call");
-    let meta = std::fs::metadata(&file).expect("its metadata");
+    let meta = std::fs::metadata(file).expect("the file of the call");
     let check = FileCheck {
         size: meta.len(),
         modified_ns: meta
@@ -375,12 +382,6 @@ pub fn every_method(drive: &dyn crate::Drive, files: &Path) -> Vec<Called> {
     };
     let condition = Precondition::Matches(String::from("tag-1"));
     let quiet = crate::ctl::Quiet;
-    // A reason is for the key it names: the keys the calls delete, and the folder the one that deletes a folder.
-    let chose = Chose::job(
-        "a call of every method",
-        Target::Keys(vec![String::from("k")]),
-    );
-    let chose_folder = Chose::job("a call of every method", Target::Folder(String::from("f/")));
     let one = |called: Vec<Result<Option<String>, crate::DriveError>>| {
         called
             .into_iter()
@@ -454,13 +455,13 @@ pub fn every_method(drive: &dyn crate::Drive, files: &Path) -> Vec<Called> {
     call(
         "put_file",
         true,
-        drive.put_file("k", &file, &quiet).map(|_| ()),
+        drive.put_file("k", file, &quiet).map(|_| ()),
     );
     call(
         "put_file_checked",
         true,
         drive
-            .put_file_checked("k", &file, &check, &quiet)
+            .put_file_checked("k", file, &check, &quiet)
             .map(|_| ()),
     );
     call(
@@ -475,7 +476,7 @@ pub fn every_method(drive: &dyn crate::Drive, files: &Path) -> Vec<Called> {
         "put_file_if",
         true,
         drive
-            .put_file_if("k", &file, &Precondition::Absent, &quiet)
+            .put_file_if("k", file, &Precondition::Absent, &quiet)
             .map(|_| ()),
     );
     call(
@@ -499,20 +500,16 @@ pub fn every_method(drive: &dyn crate::Drive, files: &Path) -> Vec<Called> {
         true,
         one(drive.put_from_many(&mut [BatchStream::new("k", &mut body)])),
     );
-    call(
-        "delete_for",
-        true,
-        drive.delete_for("k", Why::UserChose(&chose)),
-    );
+    call("delete_for", true, drive.delete_for("k", keys()));
     call(
         "delete_many_for",
         true,
-        first(drive.delete_many_for(&[BatchDelete::new("k")], Why::UserChose(&chose))),
+        first(drive.delete_many_for(&[BatchDelete::new("k")], keys())),
     );
     call(
         "delete_folder_for",
         true,
-        drive.delete_folder_for("f/", Why::UserChose(&chose_folder)),
+        drive.delete_folder_for("f/", folder()),
     );
     for (name, answer) in [
         ("local_path", local_path),

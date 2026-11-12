@@ -585,9 +585,7 @@ fn x_delta_struct3_6_a_download_in_parts_never_splices_an_object_replaced_betwee
 fn x_delta_struct3_8_the_downloads_drive_pins_a_read_and_refuses_every_request_once_its_pass_is_gone(
 ) {
     use crate::sync::drive_store::Stoppable;
-    use azul_storage::testing::{
-        every_method, pinned_read_arrives, PinnedRead, Probe, METHOD_NAMES,
-    };
+    use azul_storage::testing::{pinned_read_arrives, PinnedRead, Probe, METHOD_NAMES};
 
     let dir = TempDir::new("azcloud-struct3-8-stoppable");
     let probe = Probe::new();
@@ -598,7 +596,7 @@ fn x_delta_struct3_8_the_downloads_drive_pins_a_read_and_refuses_every_request_o
         stopped: &stopped,
     };
     pinned_read_arrives(&drive, &probe, "object").expect("the pinned read arrives as sent");
-    let down = every_method(&drive, dir.path());
+    let down = super::every_method_of(&drive, dir.path());
     assert_eq!(down.len(), METHOD_NAMES.len());
     for call in &down {
         assert!(
@@ -612,7 +610,7 @@ fn x_delta_struct3_8_the_downloads_drive_pins_a_read_and_refuses_every_request_o
 
     stopped.store(true, std::sync::atomic::Ordering::SeqCst);
     let mut not_refused = Vec::new();
-    for call in every_method(&drive, dir.path())
+    for call in super::every_method_of(&drive, dir.path())
         .iter()
         .filter(|call| call.request)
     {

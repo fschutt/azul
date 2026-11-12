@@ -808,6 +808,7 @@ fn x_delta_azdrive_files_2_every_shipped_impl_of_drive_is_classified() {
 
 use std::sync::Arc;
 
+use crate::erase::{Chose, Target, Why};
 use crate::testing::{every_method, pinned_read_arrives, Probe, METHOD_NAMES};
 
 /// `Box`, `Arc` and `&` of a drive are drives (`forward_drive!`): each sends a pinned read down with its
@@ -872,7 +873,21 @@ fn x_delta_struct3_8_the_call_of_every_method_is_the_list_and_nothing_else() {
     assert_eq!(METHOD_NAMES, listed.as_slice(), "the const is the list");
     let dir = crate::testing::TempDir::new("struct3-8-every-method");
     let probe = Probe::new();
-    let called = every_method(&probe, dir.path());
+    // The file and the reasons of the call are made here: the support module makes neither (the chose gate and
+    // the durable gate read it), a test item may.
+    let file = dir.path().join("one-byte.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let keys = Chose::job(
+        "a call of every method",
+        Target::Keys(vec![String::from("k")]),
+    );
+    let folder = Chose::job("a call of every method", Target::Folder(String::from("f/")));
+    let called = every_method(
+        &probe,
+        &file,
+        || Why::UserChose(&keys),
+        || Why::UserChose(&folder),
+    );
     let names: Vec<&str> = called.iter().map(|c| c.name).collect();
     assert_eq!(
         names, METHOD_NAMES,

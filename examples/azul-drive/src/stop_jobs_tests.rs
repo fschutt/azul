@@ -142,6 +142,26 @@ fn x_delta_struct_drive_3_stops_is_the_drive_below_for_the_place_and_the_path_an
     );
 }
 
+/// A call of every method of `drive` (`azul_storage::testing::every_method`): the one-byte file and the two reasons it
+/// needs are made HERE - a test item may name a `Chose` and write a file, the support module may do neither (the chose
+/// gate and the durable gate read it).
+fn every_method_of(drive: &dyn Drive, dir: &std::path::Path) -> Vec<azul_storage::testing::Called> {
+    use azul_storage::erase::{Chose, Target, Why};
+    let file = dir.join("one-byte.txt");
+    std::fs::write(&file, b"x").expect("the file of the call");
+    let keys = Chose::job(
+        "a call of every method",
+        Target::Keys(vec![String::from("k")]),
+    );
+    let folder = Chose::job("a call of every method", Target::Folder(String::from("f/")));
+    azul_storage::testing::every_method(
+        drive,
+        &file,
+        || Why::UserChose(&keys),
+        || Why::UserChose(&folder),
+    )
+}
+
 /// X-DELTA-STRUCT3-7. The flag refuses EVERY request of the trait, not seven of them: `Stops` forwarded nine
 /// write and batch methods straight to the drive below, so the claim "every request is refused with `Cancelled`
 /// once the flag is raised" was wrong for `put_from`, `put_file`, `put_file_checked`, `put_from_if`,
@@ -153,7 +173,7 @@ fn x_delta_struct_drive_3_stops_is_the_drive_below_for_the_place_and_the_path_an
 #[test]
 fn x_delta_struct3_7_a_raised_flag_refuses_every_request_of_the_trait_and_nothing_reaches_the_drive_below(
 ) {
-    use azul_storage::testing::{every_method, Probe, METHOD_NAMES};
+    use azul_storage::testing::{Probe, METHOD_NAMES};
 
     let dir = TempDir::new("stops-every-method");
     let probe = Probe::new();
@@ -164,7 +184,7 @@ fn x_delta_struct3_7_a_raised_flag_refuses_every_request_of_the_trait_and_nothin
         stop: Arc::clone(&stop),
     };
 
-    let down = every_method(&drive, dir.path());
+    let down = every_method_of(&drive, dir.path());
     assert_eq!(
         down.len(),
         METHOD_NAMES.len(),
@@ -185,7 +205,7 @@ fn x_delta_struct3_7_a_raised_flag_refuses_every_request_of_the_trait_and_nothin
     );
 
     stop.store(true, Ordering::SeqCst);
-    let up = every_method(&drive, dir.path());
+    let up = every_method_of(&drive, dir.path());
     assert_eq!(up.len(), METHOD_NAMES.len());
     // The nine calls the finding names are among them (each of them is a request the flag must refuse).
     for name in [

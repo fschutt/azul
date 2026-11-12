@@ -966,13 +966,13 @@ fn c6d_the_bytes_have_no_drive_below_and_each_drive_is_its_own_place() {
 #[test]
 fn x_delta_struct3_8_the_drive_below_the_bytes_refuses_every_request_and_answers_every_question_with_no(
 ) {
-    use azul_storage::testing::{every_method, METHOD_NAMES};
+    use azul_storage::testing::METHOD_NAMES;
 
     let dir = TempDir::new("struct3-8-below");
     let fake = cloud(None);
     let (a, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir);
     let below = azul_storage::DriveDelegate::below(&a);
-    let called = every_method(below, dir.path());
+    let called = super::every_method_of(below, dir.path());
     assert_eq!(
         called.len(),
         METHOD_NAMES.len(),
@@ -1073,9 +1073,7 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
         assert_eq!(account.drive_id(), target.drive_id);
     }
     // No server named by the entry or the run: no account.
-    let refused = open(&azlin_entry(""), "")
-        .err()
-        .expect("no token server to name");
+    let refused = open(&azlin_entry(""), "").expect_err("no token server to name");
     assert!(
         matches!(&refused, DriveError::InvalidConfig(why) if why.contains("names no token server")),
         "{refused:?}"
@@ -1100,9 +1098,7 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
             auth: DriveAuth::Keyring,
         },
     };
-    let refused = open(&other, LIVE)
-        .err()
-        .expect("a bucket of another provider is no Azlin drive");
+    let refused = open(&other, LIVE).expect_err("a bucket of another provider is no Azlin drive");
     assert!(
         matches!(&refused, DriveError::InvalidConfig(why) if why.contains("not an Azlin drive")),
         "{refused:?}"
