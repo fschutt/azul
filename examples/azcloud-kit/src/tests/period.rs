@@ -2627,13 +2627,13 @@ fn x_delta_money6_1_a_look_asks_a_stopped_mandate_again_and_buys_the_month_after
 
 // ==== X-MONEY5A-4: a send cut between its POST and what was recorded of its answer ====
 
-/// The token server of the scenario: `keys`, and each issue request by its number `n` (0: the first)
-/// - 0, 2, 3: a proxy that empties the body, the server answers `bad_request`; 1: the body arrives
-/// intact, the server signs and COUNTS the request (`counted`, when `count_before_dying`) and the
-/// process dies - the answer closure panics, nothing after the POST runs, as in a power cut; from 4
-/// on the proxy is gone: the request the server counted is answered again with its signatures
-/// (counted once), any request that came first is signed, any other asks for a month that is counted
-/// already (`not_due`). `sent` counts the issue requests.
+/// The token server of the scenario: `keys`, and each issue request by its number `n` (0: the
+/// first). Requests 0, 2 and 3: a proxy that empties the body, the server answers `bad_request`;
+/// request 1: the body arrives intact, the server signs and COUNTS the request (`counted`, when
+/// `count_before_dying`) and the process dies - the answer closure panics, nothing after the POST
+/// runs, as in a power cut; from 4 on the proxy is gone: the request the server counted is answered
+/// again with its signatures (counted once), any request that came first is signed, any other asks
+/// for a month that is counted already (`not_due`). `sent` counts the issue requests.
 fn cut_server(
     counted: &Arc<std::sync::Mutex<Option<Vec<String>>>>,
     sent: &Arc<AtomicUsize>,
