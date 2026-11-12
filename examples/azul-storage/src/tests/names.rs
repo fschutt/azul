@@ -756,7 +756,11 @@ fn c6c_a_key_of_a_purpose_that_makes_no_folder_is_refused_by_the_walks_that_make
 #[test]
 fn x_delta_struct_drive_2_a_path_to_say_claims_no_key_and_makes_nothing() {
     use crate::names::path_to_say;
-    let root = std::path::Path::new("/struct-drive-2-root-that-is-not-there");
+    // A root that is not there, in a folder this test may write to: saying a path must not make it (a root at the
+    // top of the volume cannot be made by anyone, so a mutant that makes it would pass).
+    let tmp = TempDir::new("struct-drive-2-say");
+    let root = tmp.path().join("root-that-is-not-there");
+    let root = root.as_path();
     assert_eq!(
         path_to_say(root, "docs/a.txt"),
         root.join("docs").join("a.txt")
@@ -771,6 +775,11 @@ fn x_delta_struct_drive_2_a_path_to_say_claims_no_key_and_makes_nothing() {
         assert_eq!(path_to_say(root, bad), root.to_path_buf(), "{bad:?}");
     }
     assert!(!root.exists(), "saying a path made the root");
+    assert_eq!(
+        std::fs::read_dir(tmp.path()).unwrap().count(),
+        0,
+        "saying a path made something"
+    );
 }
 
 /// X-DELTA-STRUCT3-17. The engine's own folder is the root's alone, and a user's folder `Backups/.AZLIN` is an
