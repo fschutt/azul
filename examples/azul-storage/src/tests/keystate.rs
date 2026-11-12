@@ -53,7 +53,7 @@ enum Cell {
     Permit(Way, &'static [Stays]),
     Refuse(Refusal),
     /// Remove drive: permitted only when the recovery code, the token server and the vault say so
-    /// (`removal_*` below). With nothing asked it is permitted.
+    /// (`removal_*` below). With nothing asked it is refused (X-DELTA-STRUCT-KEYSTATE-2).
     Removal,
 }
 
@@ -200,12 +200,23 @@ fn states() -> Vec<KeyState> {
     ]
 }
 
+/// Evidence in which everything a cell may rest on was asked and says yes: the keyring keeps keys, the
+/// index opens, the drive holds none of its further codes, the recovery code was checked, registered,
+/// and the months are kept elsewhere too.
+fn everything_asked() -> Evidence<'static> {
+    let mut e = all_good();
+    e.keyring.keeps_keys = Read::Found(Keeps::Yes);
+    e.bucket.index_opens = Read::Found(true);
+    e.bucket.extra_codes = Read::Found(0);
+    e
+}
+
 #[test]
 fn the_table_is_the_specification_and_judge_answers_all_seventy_cells_by_it() {
     let mut cells = BTreeSet::new();
     for state in states() {
         for op in Op::ALL {
-            let e = Evidence::new(DRIVE, NOW);
+            let e = everything_asked();
             let got = judge(&state, op, &e);
             match (spec(&state, op), got) {
                 (Cell::Permit(way, stays), Verdict::Permit(permit)) => {
@@ -223,7 +234,7 @@ fn the_table_is_the_specification_and_judge_answers_all_seventy_cells_by_it() {
                     assert_eq!(reason.sentence, want.sentence(DRIVE));
                 }
                 (Cell::Removal, Verdict::Permit(permit)) => {
-                    // nothing asked, nothing refused: the conditions are `removal_*` below
+                    // everything asked and good: the conditions are `removal_*` below
                     assert_eq!(permit.op(), Op::Remove);
                     assert_eq!(
                         permit.stays(),
@@ -237,6 +248,145 @@ fn the_table_is_the_specification_and_judge_answers_all_seventy_cells_by_it() {
         }
     }
     assert_eq!(cells.len(), 70, "seven states, ten operations");
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-2: the table's permits rest on facts, and a fact nobody asked is no "yes".
+/// With nothing asked, an operation that changes or erases key material is refused wherever the table
+/// permits it, and says which fact was not asked; the one cell that rests on nothing is the removal of
+/// a further code's wrap in an Active drive (it writes no key and reads no fact). The refusals of the
+/// table stay as they are.
+#[test]
+fn x_delta_struct_keystate_2_with_nothing_asked_no_key_changing_operation_is_permitted_unless_its_cell_rests_on_nothing(
+) {
+    const KEY_CHANGING: [Op; 7] = [
+        Op::Setup,
+        Op::Rotate,
+        Op::Remove,
+        Op::AddCode,
+        Op::RemoveCode,
+        Op::Reencrypt,
+        Op::Recover,
+    ];
+    let nothing = Evidence::new(DRIVE, NOW);
+    let mut rested_on_nothing = Vec::new();
+    for state in states() {
+        for op in KEY_CHANGING {
+            let got = judge(&state, op, &nothing);
+            match (spec(&state, op), got) {
+                (Cell::Refuse(want), Verdict::Refuse(reason)) => {
+                    assert_eq!(reason.kind, want, "{state:?} x {op:?}");
+                }
+                (Cell::Permit(..) | Cell::Removal, Verdict::Refuse(reason)) => assert!(
+                    matches!(reason.kind, Refusal::NotAsked(_)),
+                    "{state:?} x {op:?}: {reason:?}"
+                ),
+                (Cell::Permit(..), Verdict::Permit(_)) => rested_on_nothing.push((state.row(), op)),
+                (want, got) => panic!("{state:?} x {op:?}: the table says {want:?}, judge {got:?}"),
+            }
+        }
+    }
+    assert_eq!(rested_on_nothing, [("active", Op::RemoveCode)]);
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-2, the finding's own words: `judge(&observe(&e), Remove, &e)` on evidence
+/// with only the keyring gathered (five lines, `Active`) returned a Permit that says what the removal
+/// leaves. At step 3 that Permit replaces the removal's proof, whose weakness was that anyone could make
+/// one: this one was made by gathering less. Each of the three facts the removal rests on is refused on
+/// its own, too.
+#[test]
+fn x_delta_struct_keystate_2_a_removal_judged_on_the_keyring_alone_is_refused() {
+    let e = keyring(Some(1), None, None);
+    assert_eq!(observe(&e), KeyState::Active);
+    match judge(&observe(&e), Op::Remove, &e) {
+        Verdict::Refuse(reason) => {
+            assert!(matches!(reason.kind, Refusal::NotAsked(_)), "{reason:?}");
+            assert!(
+                reason.sentence.contains("not looked at"),
+                "{}",
+                reason.sentence
+            );
+        }
+        Verdict::Permit(permit) => panic!("the removal was permitted ({:?})", permit.stays()),
+    }
+
+    let unasked: [(&str, fn(&mut Evidence<'_>)); 3] = [
+        ("whether the recovery code was checked", |e| {
+            e.token.code_checked = Read::Unasked;
+        }),
+        ("whether the token server knows the recovery code", |e| {
+            e.token.code_registered = Read::Unasked;
+        }),
+        ("whether the drive's own vault holds the paid months", |e| {
+            e.vault.months_elsewhere = Read::Unasked;
+        }),
+    ];
+    for state in [KeyState::Fresh, KeyState::Active] {
+        for (what, hide) in unasked {
+            let mut e = all_good();
+            hide(&mut e);
+            assert_eq!(
+                removal_verdict(&state, &e),
+                Err(Refusal::NotAsked(what)),
+                "{state:?}"
+            );
+        }
+    }
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-2: the other facts a key-changing cell rests on, one by one: whether the
+/// keyring keeps keys (Setup, Rotate, Recover), whether the index opens (Rotate, Re-encrypt: a rotation
+/// of this device's own journal excepted), how many further codes the drive holds (AddCode).
+#[test]
+fn x_delta_struct_keystate_2_the_keyring_the_index_and_the_count_of_codes_are_facts_a_cell_rests_on(
+) {
+    let ask = |state: &KeyState, op: Op, hide: fn(&mut Evidence<'_>)| {
+        let mut e = everything_asked();
+        assert!(
+            matches!(judge(state, op, &e), Verdict::Permit(_)),
+            "{state:?} x {op:?} with everything asked"
+        );
+        hide(&mut e);
+        match judge(state, op, &e) {
+            Verdict::Refuse(reason) => Some(reason.kind),
+            Verdict::Permit(_) => None,
+        }
+    };
+    let keyring: fn(&mut Evidence<'_>) = |e| e.keyring.keeps_keys = Read::Unasked;
+    let index: fn(&mut Evidence<'_>) = |e| e.bucket.index_opens = Read::Unasked;
+    let codes: fn(&mut Evidence<'_>) = |e| e.bucket.extra_codes = Read::Unasked;
+    for (state, op) in [
+        (KeyState::Fresh, Op::Setup),
+        (KeyState::Planned, Op::Setup),
+        (KeyState::Active, Op::Rotate),
+        (KeyState::Active, Op::Recover),
+        (KeyState::Locked, Op::Recover),
+        (KeyState::Rotating(Start::Resume), Op::Rotate),
+    ] {
+        assert!(
+            matches!(ask(&state, op, keyring), Some(Refusal::NotAsked(_))),
+            "{state:?} x {op:?}: the keyring's protection was not asked"
+        );
+    }
+    for (state, op) in [
+        (KeyState::Active, Op::Rotate),
+        (KeyState::Active, Op::Reencrypt),
+        (KeyState::Rotating(Start::Adopt), Op::Rotate),
+        (KeyState::Rotating(Start::Again), Op::Rotate),
+    ] {
+        assert!(
+            matches!(ask(&state, op, index), Some(Refusal::NotAsked(_))),
+            "{state:?} x {op:?}: whether the index opens was not asked"
+        );
+    }
+    assert_eq!(
+        ask(&KeyState::Rotating(Start::Resume), Op::Rotate, index),
+        None,
+        "a journal of this device's own goes on whatever the index says"
+    );
+    assert!(matches!(
+        ask(&KeyState::Active, Op::AddCode, codes),
+        Some(Refusal::NotAsked(_))
+    ));
 }
 
 /// A setup that stopped between the drive key and the planned key's deletion is finished by the same
@@ -268,7 +418,7 @@ fn the_ten_operations_are_all_listed_once() {
 #[test]
 fn x_delta_azdrive_keys_1_a_rotation_that_is_under_way_goes_on_with_its_key_and_makes_no_second_one(
 ) {
-    let e = Evidence::new(DRIVE, NOW);
+    let e = everything_asked();
     for (start, way) in [
         (Start::Resume, Way::Resume),
         (Start::Adopt, Way::Adopt),
@@ -466,6 +616,7 @@ fn x_delta_azdrive_keys_25_a_keyring_that_keeps_no_key_refuses_every_operation_t
     ];
     for (state, op) in writes {
         let mut e = Evidence::new(DRIVE, NOW);
+        e.bucket.index_opens = Read::Found(true);
         e.keyring.keeps_keys = Read::Found(Keeps::No("a plain file"));
         match judge(&state, op, &e) {
             Verdict::Refuse(reason) => {
@@ -531,6 +682,7 @@ fn keyring(drive: Option<u8>, next: Option<u8>, planned: Option<u8>) -> Evidence
         planned_key: planned.map_or(Read::Absent, |n| Read::Found(id(n))),
         keeps_keys: Read::Found(Keeps::Yes),
     };
+    e.bucket.index_opens = Read::Found(true);
     e
 }
 
@@ -731,7 +883,8 @@ fn the_evidence_says_which_facts_were_asked() {
             "previous key",
             "planned key",
             "keeps keys",
-            "encrypted"
+            "encrypted",
+            "index opens"
         ]
     );
 }
@@ -1152,7 +1305,7 @@ impl IndexProvider for Provider {
 }
 
 fn permit_of(state: &KeyState, op: Op) -> Permit {
-    match judge(state, op, &all_good()) {
+    match judge(state, op, &everything_asked()) {
         Verdict::Permit(permit) => permit,
         Verdict::Refuse(reason) => panic!("{state:?} x {op:?}: {reason}"),
     }

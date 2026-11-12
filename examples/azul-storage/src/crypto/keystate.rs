@@ -42,12 +42,14 @@
 //!   is not.
 //! - `Unknown` refuses every operation but the lockdown: a failed read is no "nothing there". The
 //!   lockdown is permitted whatever could not be read (KEYS-6: a hostile bucket must not stop it).
-//! - A fact the caller did not read is [`Read::Unasked`]. The judge decides on what it is told: an
-//!   unasked fact that only refines a state (the journal, whether the index opens) changes nothing,
-//!   and one the state itself rests on (the keyring's entries) makes the state `Unknown`
-//!   ([`Why::NotAsked`]), which the shadow does not count as a disagreement. A journal nobody looked
-//!   at is never taken for the device's own: only a journal that is (`Journal::Own`) makes a
-//!   rotation resume, and resuming skips the account's lockdown.
+//! - A fact the caller did not read is [`Read::Unasked`]. One the STATE rests on (the keyring's
+//!   entries) makes the state `Unknown` ([`Why::NotAsked`]); one the CELL rests on - whether the
+//!   keyring keeps keys, whether the index opens, how many further codes there are, the recovery
+//!   record's check and registration, the vault's months - refuses an operation that changes or
+//!   erases key material ([`Refusal::NotAsked`]): a permit made by gathering less would be a proof
+//!   made from a name. The shadow counts neither as a disagreement. A journal nobody looked at is
+//!   never taken for the device's own: only a journal that is (`Journal::Own`) makes a rotation
+//!   resume, and resuming skips the account's lockdown.
 //! - Removing a drive is permitted only with a recovery code typed back right (not by a clock that
 //!   ran ahead), the token server's knowledge of it (a registration that was never recorded is not
 //!   "registered"), and the months paid kept elsewhere. A planned key may be the only copy: nothing
@@ -778,13 +780,26 @@ fn failed(what: &'static str, why: &str) -> Refusal {
 
 /// An operation that writes a key into the keyring is refused when the keyring keeps no key material
 /// (a plain file the user did not allow, AZ-K7): asked BEFORE anything that cannot be taken back is
-/// done at a server (KEYS-25). `None`: nothing in the way (or not asked).
+/// done at a server (KEYS-25). `None`: nothing in the way. Whether the keyring keeps keys is a fact
+/// such an operation rests on: not looked at is not "yes" (X-DELTA-STRUCT-KEYSTATE-2).
 fn keyring_refuses(e: &Evidence<'_>) -> Option<Refusal> {
     match &e.keyring.keeps_keys {
         Read::Found(Keeps::No(why)) => Some(Refusal::KeyringKeepsNoKeys(why)),
-        Read::Failed(why) => Some(failed("whether the keyring keeps key material", why)),
-        Read::Found(Keeps::Yes) | Read::Absent | Read::Unasked => None,
+        Read::Failed(why) => Some(failed(KEEPS, why)),
+        Read::Found(Keeps::Yes) => None,
+        Read::Absent | Read::Unasked => Some(Refusal::NotAsked(KEEPS)),
     }
+}
+
+/// What a keyring's protection is asked as.
+const KEEPS: &str = "whether the keyring keeps key material";
+/// What the drive's index is asked as.
+const INDEX_FACT: &str = "whether the drive's index opens with this device's keys";
+
+/// A key change and a re-encryption rest on the drive's index opening with a key this device holds: a
+/// bucket nobody asked is not a bucket whose index opens (X-DELTA-STRUCT-KEYSTATE-2).
+fn index_not_asked(e: &Evidence<'_>) -> Option<Refusal> {
+    matches!(e.bucket.index_opens, Read::Unasked).then_some(Refusal::NotAsked(INDEX_FACT))
 }
 
 /// A permit for `op`, unless the keyring takes no key material.
@@ -795,47 +810,64 @@ fn permit_keeping(op: Op, e: &Evidence<'_>, way: Way) -> Verdict {
     }
 }
 
+/// [`permit_keeping`] for an operation that also rests on the index opening ([`index_not_asked`]).
+fn permit_keeping_over_an_index(op: Op, e: &Evidence<'_>, way: Way) -> Verdict {
+    match keyring_refuses(e).or_else(|| index_not_asked(e)) {
+        Some(kind) => refuse(kind, e),
+        None => permit(op, e, way, &[]),
+    }
+}
+
+/// A permit for `op`, which writes no key and rests on the drive's index opening.
+fn permit_over_an_index(op: Op, e: &Evidence<'_>) -> Verdict {
+    match index_not_asked(e) {
+        Some(kind) => refuse(kind, e),
+        None => permit_plain(op, e),
+    }
+}
+
 /// A permit for an operation with nothing else to ask.
 fn permit_plain(op: Op, e: &Evidence<'_>) -> Verdict {
     permit(op, e, Way::Plain, &[])
 }
 
+/// What the recovery record's check of the code is asked as.
+const CHECKED: &str = "whether the recovery code was checked";
+/// What the token server's knowledge of the code is asked as.
+const REGISTERED: &str = "whether the token server knows the recovery code";
+/// What the drive's own vault is asked as.
+const MONTHS: &str = "whether the drive's own vault holds the paid months";
+
 /// Remove drive: the keys go with the drive only when no other way back in depends on them. The
 /// recovery code was typed back right (not after `now`: a stamp from a clock that ran ahead is no
-/// check), the token server knows it, and the months paid are kept elsewhere too. What was not
-/// asked is not judged ([`Read::Unasked`]); what could not be read refuses.
+/// check), the token server knows it, and the months paid are kept elsewhere too. Each is a fact the
+/// permit rests on: what was not asked refuses ([`Refusal::NotAsked`]) as what could not be read does -
+/// a permit made by gathering less would be a proof made from a name (X-DELTA-STRUCT-KEYSTATE-2).
 fn removal(e: &Evidence<'_>) -> Verdict {
     match &e.token.code_checked {
         Read::Found(at) if *at <= e.now => {}
         Read::Found(_) | Read::Absent => return refuse(Refusal::CodeNotChecked, e),
-        Read::Failed(why) => {
-            return refuse(failed("whether the recovery code was checked", why), e)
-        }
-        Read::Unasked => {}
+        Read::Failed(why) => return refuse(failed(CHECKED, why), e),
+        Read::Unasked => return refuse(Refusal::NotAsked(CHECKED), e),
     }
     match &e.token.code_registered {
         Read::Found(true) => {}
         Read::Found(false) | Read::Absent => return refuse(Refusal::CodeNotRegistered, e),
-        Read::Failed(why) => {
-            return refuse(
-                failed("whether the token server knows the recovery code", why),
-                e,
-            )
-        }
-        Read::Unasked => {}
+        Read::Failed(why) => return refuse(failed(REGISTERED, why), e),
+        Read::Unasked => return refuse(Refusal::NotAsked(REGISTERED), e),
     }
     match &e.vault.months_elsewhere {
-        Read::Found(true) | Read::Absent | Read::Unasked => {}
+        // A drive with no vault of its own (`Absent`) has no months to lose.
+        Read::Found(true) | Read::Absent => {}
         Read::Found(false) => return refuse(Refusal::MonthsOnlyHere, e),
-        Read::Failed(why) => {
-            return refuse(
-                failed("whether the drive's own vault holds the paid months", why),
-                e,
-            )
-        }
+        Read::Failed(why) => return refuse(failed(MONTHS, why), e),
+        Read::Unasked => return refuse(Refusal::NotAsked(MONTHS), e),
     }
     permit(Op::Remove, e, Way::Plain, REMOVAL_STAYS)
 }
+
+/// What the count of a drive's further recovery codes is asked as.
+const EXTRA_CODES: &str = "the drive's further recovery codes";
 
 /// AddCode on a drive whose key this device holds: a drive holds at most
 /// [`MAX_EXTRA_RECOVERY_CODES`] further codes.
@@ -844,8 +876,10 @@ fn add_code(e: &Evidence<'_>) -> Verdict {
         Read::Found(n) if usize::try_from(*n).map_or(true, |n| n >= MAX_EXTRA_RECOVERY_CODES) => {
             refuse(Refusal::TooManyCodes, e)
         }
-        Read::Failed(why) => refuse(failed("the drive's further recovery codes", why), e),
-        Read::Found(_) | Read::Absent | Read::Unasked => permit_plain(Op::AddCode, e),
+        Read::Failed(why) => refuse(failed(EXTRA_CODES, why), e),
+        // How many there are is what the cell rests on: not looked at is not "none".
+        Read::Unasked => refuse(Refusal::NotAsked(EXTRA_CODES), e),
+        Read::Found(_) | Read::Absent => permit_plain(Op::AddCode, e),
     }
 }
 
@@ -890,10 +924,11 @@ fn active(op: Op, e: &Evidence<'_>) -> Verdict {
             _ => refuse(Refusal::EncryptedAlready, e),
         },
         Op::Enroll => permit_keeping(op, e, Way::Plain),
-        Op::Rotate => permit_keeping(op, e, Way::New),
+        Op::Rotate => permit_keeping_over_an_index(op, e, Way::New),
         Op::Remove => removal(e),
         Op::AddCode => add_code(e),
-        Op::RemoveCode | Op::Reencrypt | Op::Lockdown => permit_plain(op, e),
+        Op::Reencrypt => permit_over_an_index(op, e),
+        Op::RemoveCode | Op::Lockdown => permit_plain(op, e),
         Op::Recover => permit_keeping(op, e, Way::Plain),
         Op::RestoreAsOf => permit(op, e, Way::Plain, RESTORE_STAYS),
     }
@@ -904,10 +939,12 @@ fn rotating(start: Start, op: Op, e: &Evidence<'_>) -> Verdict {
         Op::Setup => refuse(Refusal::EncryptedAlready, e),
         Op::Enroll => permit_keeping(op, e, Way::Plain),
         Op::Rotate => match start {
+            // A journal of this device's own goes on whatever the index says (`rotation::start`
+            // returns before it reads it).
             Start::Resume => permit_keeping(op, e, Way::Resume),
-            Start::Adopt => permit_keeping(op, e, Way::Adopt),
+            Start::Adopt => permit_keeping_over_an_index(op, e, Way::Adopt),
             // `rotation::start` answers `Fresh` here: a new key, a new journal, the lockdown again.
-            Start::Again => permit_keeping(op, e, Way::New),
+            Start::Again => permit_keeping_over_an_index(op, e, Way::New),
         },
         Op::AddCode | Op::RemoveCode => refuse(Refusal::WrapMayChange, e),
         Op::Remove | Op::Recover | Op::Reencrypt | Op::RestoreAsOf => {
@@ -1082,6 +1119,11 @@ pub fn compare(site: &'static str, op: Op, e: &Evidence<'_>, guard: Guard) -> Co
     }
     let judged = match judge(&state, op, e) {
         Verdict::Permit(permit) => Judged::Permits(permit.way()),
+        // The cell rests on a fact this site did not ask: nothing to compare the guard with.
+        Verdict::Refuse(Reason {
+            kind: Refusal::NotAsked(what),
+            ..
+        }) => return Compared::NotJudgeable(what),
         Verdict::Refuse(reason) => Judged::Refuses(reason),
     };
     if agrees(guard, &judged) {
