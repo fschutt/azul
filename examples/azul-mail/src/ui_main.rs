@@ -639,8 +639,85 @@ fn move_to_role(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, role: Rol
     }
 }
 
-/// Delete: into Deleted Items; in Deleted Items, out of the drive for good.
+/// What Delete does to the Outbox's selected rows ([`remove_from_outbox`]).
+#[derive(Debug, Default, PartialEq, Eq)]
+struct OutboxRemoval {
+    /// Mails that said "Not sent", taken out of the Outbox.
+    removed: usize,
+    /// Mails that are still being sent: they stay.
+    waiting: usize,
+    /// Why a mail could not be removed, one text each.
+    problems: Vec<String>,
+}
+
+/// Delete in the Outbox: the selected rows whose mail says "Not sent" are taken out of it - its
+/// entry first, its message file after ([`crate::send::remove_failed_entry`]); that is the only
+/// way a failed entry whose message file is gone leaves the list (X-DELTA-APPS3-4). A mail that is
+/// still being sent stays. `entries` are the Outbox's rows, `waiting` their entries by row path.
+fn remove_from_outbox(
+    root: &crate::store::DriveFolder,
+    mailbox_id: &str,
+    entries: &[crate::store::IndexEntry],
+    waiting: &std::collections::BTreeMap<String, crate::send::OutboxEntry>,
+    uids: &[u32],
+) -> OutboxRemoval {
+    let mut done = OutboxRemoval::default();
+    for uid in uids {
+        let Some(entry) = entries
+            .iter()
+            .find(|e| e.uid == *uid)
+            .and_then(|row| waiting.get(&row.path))
+        else {
+            continue;
+        };
+        if entry.state != crate::send::OutboxState::Failed {
+            done.waiting += 1;
+            continue;
+        }
+        match crate::send::remove_failed_entry(root, mailbox_id, &entry.id) {
+            Ok(()) => done.removed += 1,
+            Err(e) => done.problems.push(e.to_string()),
+        }
+    }
+    done
+}
+
+/// Delete in the Outbox ([`remove_from_outbox`]), with the notice of what it did.
+fn delete_from_outbox(s: &mut MailApp) {
+    let uids = action_uids(s);
+    if uids.is_empty() {
+        s.notice = t("azmail-notice-select-first");
+        return;
+    }
+    let Some(id) = s.current.and_then(|i| s.mailbox_id(i)) else {
+        return;
+    };
+    let done = remove_from_outbox(&s.root, &id, &s.entries, &s.outbox_waiting, &uids);
+    s.notice = match (done.problems.first(), done.removed, done.waiting) {
+        (Some(why), _, _) => t_args(
+            "azmail-notice-outbox-remove-failed",
+            &[("why", Arg::from(why.as_str()))],
+        ),
+        (None, 0, _) => t("azmail-notice-outbox-waiting"),
+        (None, removed, _) => t_args(
+            "azmail-notice-outbox-removed",
+            &[("count", Arg::from(removed as u64))],
+        ),
+    };
+    if done.removed > 0 {
+        s.selection = azul::widgets::ListSelection::create();
+        s.reload_folders();
+        s.reload_messages();
+    }
+}
+
+/// Delete: into Deleted Items; in Deleted Items, out of the drive for good; in the Outbox, a mail
+/// that says "Not sent" out of the Outbox.
 fn delete_messages(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
+    if s.folder.as_deref() == Some(listing::OUTBOX_KEY) {
+        delete_from_outbox(s);
+        return;
+    }
     if !shows_azlin(s) {
         s.notice = t(READ_ONLY);
         return;
@@ -2573,5 +2650,85 @@ mod tests {
         assert_eq!(zoom_by(ZOOM_MAX, 1.0), ZOOM_MAX);
         assert_eq!(zoom_by(ZOOM_MIN, -1.0), ZOOM_MIN);
         assert_eq!(zoom_by(57.0, -1.0), ZOOM_MIN);
+    }
+    /// X-DELTA-APPS3-4: Delete in the Outbox takes out the rows that say "Not sent" - one whose
+    /// message file is gone included, which nothing else could remove - and leaves a mail that is
+    /// still being sent where it is.
+    #[test]
+    fn x_delta_apps3_4_delete_in_the_outbox_removes_failed_rows_and_leaves_waiting_ones() {
+        use crate::{
+            send::{self, OutboxState},
+            testutil::{MailFolder, TempDir},
+        };
+        let dir = TempDir::new("outbox-delete");
+        let root = dir.folder();
+        let id = "ada@example.org";
+        let outbox = crate::store::MailStore::new(send::outbox_dir(&root, id));
+        let entry = |name: &str, state: OutboxState| send::OutboxEntry {
+            format: String::from(send::OUTBOX_FORMAT),
+            version: 1,
+            id: name.to_string(),
+            message_id: format!("{name}@example.org"),
+            from: String::from("ada@example.org"),
+            subject: name.to_string(),
+            created: 1_790_843_400,
+            attempts: 1,
+            last_attempt: 0,
+            next_attempt: 0,
+            state,
+            recipients: Vec::new(),
+        };
+        let rows = [
+            ("a-failed-and-gone", OutboxState::Failed, false),
+            ("b-failed-with-file", OutboxState::Failed, true),
+            ("c-waiting", OutboxState::Queued, true),
+        ];
+        for (name, state, file) in &rows {
+            outbox
+                .put(
+                    &format!("{name}.json"),
+                    serde_json::to_string(&entry(name, *state))
+                        .unwrap()
+                        .as_bytes(),
+                )
+                .unwrap();
+            if *file {
+                outbox
+                    .put(&format!("{name}.eml"), b"Subject: x\r\n\r\nbody")
+                    .unwrap();
+            }
+        }
+        let listed = send::outbox_entries(&root, id);
+        assert_eq!(listed.len(), 3);
+        let index = send::outbox_index(&listed);
+        let waiting: std::collections::BTreeMap<String, send::OutboxEntry> = index
+            .iter()
+            .zip(&listed)
+            .map(|(row, entry)| (row.path.clone(), entry.clone()))
+            .collect();
+        let all: Vec<u32> = index.iter().map(|row| row.uid).collect();
+        let done = remove_from_outbox(&root, id, &index, &waiting, &all);
+        assert_eq!(
+            done,
+            OutboxRemoval {
+                removed: 2,
+                waiting: 1,
+                problems: Vec::new()
+            }
+        );
+        let left = send::outbox_entries(&root, id);
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, "c-waiting", "the mail still being sent stays");
+        let mut files: Vec<String> = std::fs::read_dir(send::outbox_dir(&root, id).path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        files.sort();
+        assert_eq!(
+            files,
+            ["c-waiting.eml", "c-waiting.json"],
+            "nothing else is left"
+        );
     }
 }

@@ -113,6 +113,12 @@ azmail-option-plain-text = Als Nur-Text lesen
 azmail-option-note = Die Schalter der Registerkarte „Ansicht“; AzMail merkt sie sich. Die Konten stehen unter Datei > Informationen.
 azmail-notice-outbox-first = Die E-Mails im Postausgang sind noch nicht im Laufwerk: Sie werden zuerst gesendet.
 azmail-notice-already-there = Die Nachrichten sind bereits in diesem Ordner.
+azmail-notice-outbox-removed = { $count ->
+    [one] 1 E-Mail wurde aus dem Postausgang entfernt.
+   *[other] { $count } E-Mails wurden aus dem Postausgang entfernt.
+ }
+azmail-notice-outbox-waiting = Nur eine E-Mail, die „Nicht gesendet“ meldet, lässt sich aus dem Postausgang entfernen: die anderen werden noch gesendet.
+azmail-notice-outbox-remove-failed = Eine E-Mail konnte nicht aus dem Postausgang entfernt werden: { $why }
 azmail-notice-select-first = Wähle zuerst eine Nachricht aus.
 azmail-error-download = Diese Nachricht konnte nicht heruntergeladen werden: { $why }
 azmail-notice-marks-wait = Die Lese- und Kennzeichnungsmarkierungen warten auf das nächste Senden/Empfangen: { $why }

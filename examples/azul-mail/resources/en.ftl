@@ -113,6 +113,12 @@ azmail-option-plain-text = Read as plain text
 azmail-option-note = The View tab's switches; AzMail remembers them. The accounts are under File > Info.
 azmail-notice-outbox-first = The Outbox's mail is not in the drive yet: it is sent first.
 azmail-notice-already-there = The messages are in that folder already.
+azmail-notice-outbox-removed = { $count ->
+    [one] 1 mail was removed from the Outbox.
+   *[other] { $count } mails were removed from the Outbox.
+ }
+azmail-notice-outbox-waiting = Only a mail that says "Not sent" can be removed from the Outbox: the others are still being sent.
+azmail-notice-outbox-remove-failed = A mail could not be removed from the Outbox: { $why }
 azmail-notice-select-first = Select a message first.
 azmail-error-download = Could not download this message: { $why }
 azmail-notice-marks-wait = The read and flag marks wait for the next Send/Receive: { $why }

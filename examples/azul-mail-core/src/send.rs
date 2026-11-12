@@ -1699,15 +1699,17 @@ fn finish(
         .collect();
 
     if pending == 0 && sent > 0 {
-        // Out of the outbox, into Sent.
-        let filed = file_message(
-            &sent_store_root(root, account_id),
-            Role::Sent.key().unwrap_or("sent"),
-            bytes,
-            &[String::from("\\Seen")],
-            now,
-        );
-        if let Err(e) = filed {
+        // The delivery is written down FIRST: every recipient's outcome, in the entry on disk, which
+        // said "pending" until now. A kill from here on never has the mail sent a second time, and
+        // the retry that follows it only finishes what is left (X-DELTA-APPS3-4). A write that
+        // fails changes nothing below: the mail is filed and the entry removed all the same.
+        // collapse-ok: the entry goes in a moment; this write only narrows the crash window.
+        let _ = write_entry(&outbox, entry);
+        if killed(Step::Recorded) {
+            return stopped();
+        }
+        // Out of the outbox, into Sent - once: a retry after a kill finds its Message-ID there.
+        if let Err(e) = file_sent_once(root, account_id, entry, bytes, now) {
             // Delivered, but not filed: keep it in the outbox (not queued) rather than lose it.
             entry.state = OutboxState::Failed;
             let _ = write_entry(&outbox, entry);
@@ -1715,8 +1717,29 @@ fn finish(
                 reason: format!("Sent, but it could not be put into the Sent folder: {e}"),
             };
         }
+        if killed(Step::Filed) {
+            return stopped();
+        }
+        // The ENTRY goes first and the message file after: an orphan file is garbage, an orphan
+        // entry is a lie - the next retry found a `.json` without its `.eml` and said that a mail
+        // that had gone out "was not sent" (X-DELTA-APPS3-4). ARCH30-4: Why::Superseded.
+        if let Err(e) = outbox.delete(&format!("{}.json", entry.id)) {
+            // It stays, recording that every recipient got it and that Sent has the copy: the
+            // retry files nothing twice and removes it.
+            return SendStatus::Failed {
+                reason: format!(
+                    "Sent, and filed in Sent, but its Outbox entry could not be removed: {e}"
+                ),
+            };
+        }
+        if killed(Step::EntryRemoved) {
+            return stopped();
+        }
+        // collapse-ok: an orphan message file is garbage, never a lie; its text is in Sent.
         let _ = outbox.delete(&format!("{}.eml", entry.id));
-        let _ = outbox.delete(&format!("{}.json", entry.id));
+        if killed(Step::FileRemoved) {
+            return stopped();
+        }
         if failed == 0 {
             return SendStatus::Sent {
                 message_id: entry.message_id.clone(),
@@ -1769,6 +1792,101 @@ fn finish(
     SendStatus::Queued {
         reason: format!("Waiting to try again: {}.", waiting.join(", ")),
     }
+}
+
+/// The writes of [`finish`] a delivered mail's filing goes through, in order: a test stops the
+/// process after one of them ([`killed`]) and runs the retry - the crash table of the filing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    /// The delivery is written into the entry.
+    Recorded,
+    /// The message is in the Sent folder.
+    Filed,
+    /// The entry (`<id>.json`) is removed.
+    EntryRemoved,
+    /// The message file (`<id>.eml`) is removed: nothing is left.
+    FileRemoved,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The step after which the process dies on this thread (a test's kill).
+    static KILL_AFTER: std::cell::Cell<Option<Step>> = const { std::cell::Cell::new(None) };
+}
+
+/// Whether the process dies right after `step`: never, outside a test.
+fn killed(step: Step) -> bool {
+    #[cfg(test)]
+    {
+        KILL_AFTER.with(|kill| kill.get() == Some(step))
+    }
+    #[cfg(not(test))]
+    {
+        let _ = step;
+        false
+    }
+}
+
+/// What a killed [`finish`] returns where a real kill returns nothing at all.
+fn stopped() -> SendStatus {
+    SendStatus::Failed {
+        reason: String::from("the process stopped here (a test's kill)"),
+    }
+}
+
+/// Files the message of the delivered `entry` in the account's Sent folder - unless Sent holds its
+/// Message-ID already, filed by the run a kill cut short: a retry never files a copy twice. A read
+/// of the folder's index that FAILS is the error of the filing, as [`file_message`] makes it.
+fn file_sent_once(
+    root: &DriveFolder,
+    account_id: &str,
+    entry: &OutboxEntry,
+    bytes: &[u8],
+    now: i64,
+) -> std::io::Result<()> {
+    let store_root = sent_store_root(root, account_id);
+    let folder = Role::Sent.key().unwrap_or("sent");
+    let store = MailStore::new(store_root.clone());
+    match store.get(&store::index_key(folder)) {
+        Ok(text) => {
+            let filed = store::index_from_jsonl(&String::from_utf8_lossy(&text))
+                .iter()
+                .any(|line| !entry.message_id.is_empty() && line.message_id == entry.message_id);
+            if filed {
+                return Ok(());
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    file_message(&store_root, folder, bytes, &[String::from("\\Seen")], now).map(|_| ())
+}
+
+/// Removes the entry `id` of the account's Outbox - the user's Delete on a row that says "Not
+/// sent": the entry first, the message file after (an orphan file is garbage, an orphan entry is a
+/// lie). Only a FAILED entry goes; one that is still being tried is refused
+/// ([`std::io::ErrorKind::InvalidInput`]), as is one that cannot be read. A message file that is
+/// already gone is fine: removing the row of a mail whose file is gone is what this is for
+/// (X-DELTA-APPS3-4; the retry keeps such an entry as a failed one and nothing else removed it).
+///
+/// # Errors
+///
+/// The entry cannot be read, is not a failed one, or a file cannot be removed.
+pub fn remove_failed_entry(root: &DriveFolder, account_id: &str, id: &str) -> std::io::Result<()> {
+    let _lock = OUTBOX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let outbox = MailStore::new(outbox_dir(root, account_id));
+    let text = outbox.get(&format!("{id}.json"))?;
+    let entry: OutboxEntry = serde_json::from_slice(&text)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    if entry.state != OutboxState::Failed {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "the mail is still being sent: only a mail that says \"Not sent\" can be removed",
+        ));
+    }
+    // ARCH30-4: Why::UserChose (the user's Delete on the row).
+    outbox.delete(&format!("{id}.json"))?;
+    outbox.delete(&format!("{id}.eml"))
 }
 
 // ==== the Sent folder ====
@@ -3833,6 +3951,120 @@ mod tests {
             !file_is_gone(&dir.folder(), ACCOUNT, &entry.id),
             "a folder that does not list verifies nothing"
         );
+    }
+
+    // ==== X-DELTA-APPS3-4: the filing of a delivered mail ====
+
+    /// The crash table of `finish` for a mail that was delivered, every row by stopping the process
+    /// after a write (the kill) and running the retry. RED on the code before, row `EntryRemoved`
+    /// being the first the old order cut: it deleted the message file FIRST and the entry second,
+    /// so a kill between the two left a `.json` without its `.eml` - and the retry said that a mail
+    /// that was in the recipient's inbox and in Sent "was not sent: its message file is gone".
+    /// Every row: delivered once, never sent twice, no failed entry for a mail that went out, one
+    /// copy in Sent, no entry left (an orphan message file is garbage, nothing more).
+    #[test]
+    fn x_delta_apps3_4_a_kill_after_any_write_of_the_filing_leaves_no_false_not_sent_and_no_second_delivery(
+    ) {
+        for step in [
+            Step::Recorded,
+            Step::Filed,
+            Step::EntryRemoved,
+            Step::FileRemoved,
+        ] {
+            let dir = TempDir::new("send-kill");
+            queued(&dir);
+            let mut fake = take_all();
+            KILL_AFTER.with(|kill| kill.set(Some(step)));
+            retry_at(&dir, true, OCT_1 + 400, &mut fake);
+            KILL_AFTER.with(|kill| kill.set(None));
+            assert_eq!(
+                fake.messages.len(),
+                1,
+                "{step:?}: delivered once before the kill"
+            );
+            // The process starts again.
+            let mut again = take_all();
+            let results = retry_at(&dir, true, OCT_1 + 800, &mut again);
+            assert!(
+                again.calls.is_empty() && again.messages.is_empty(),
+                "{step:?}: never sent twice"
+            );
+            assert!(
+                results
+                    .iter()
+                    .all(|(_, status)| !matches!(status, SendStatus::Failed { .. })),
+                "{step:?}: no 'not sent' for a mail that went out: {results:?}"
+            );
+            assert_eq!(sent_index(&dir.0).len(), 1, "{step:?}: one copy in Sent");
+            let left = outbox_entries(&dir.folder(), ACCOUNT);
+            assert!(left.is_empty(), "{step:?}: no entry is left: {left:?}");
+            let files = outbox_files(&dir.0);
+            assert!(
+                files.iter().all(|name| name.ends_with(".eml")),
+                "{step:?}: {files:?}"
+            );
+        }
+    }
+
+    /// A delivered mail goes as it did: the entry and the file are gone, one copy in Sent.
+    #[test]
+    fn x_delta_apps3_4_a_delivered_mail_leaves_the_outbox_and_is_filed_once() {
+        let dir = TempDir::new("send-delivered");
+        queued(&dir);
+        let mut fake = take_all();
+        let results = retry_at(&dir, true, OCT_1 + 400, &mut fake);
+        assert!(
+            matches!(results[0].1, SendStatus::Sent { .. }),
+            "{results:?}"
+        );
+        assert!(outbox_files(&dir.0).is_empty());
+        assert_eq!(sent_index(&dir.0).len(), 1);
+    }
+
+    /// The Delete of the Outbox's row that says "Not sent": a failed entry whose message file is
+    /// gone can be removed (nothing else did), a failed one with its file takes the file too, and a
+    /// mail that is still being tried is refused and untouched.
+    #[test]
+    fn x_delta_apps3_4_a_failed_entry_can_be_removed_and_a_queued_one_cannot() {
+        let dir = TempDir::new("send-remove");
+        let entry = queued(&dir);
+        let refused = remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap_err();
+        assert_eq!(
+            refused.kind(),
+            std::io::ErrorKind::InvalidInput,
+            "{refused}"
+        );
+        assert_eq!(
+            outbox_entries(&dir.folder(), ACCOUNT).len(),
+            1,
+            "still queued"
+        );
+        // Its file is gone: the retry keeps a failed entry that names the mail.
+        std::fs::remove_file(eml_of(&dir, &entry)).unwrap();
+        let mut fake = take_all();
+        retry_at(&dir, true, OCT_1 + 400, &mut fake);
+        let kept = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!((kept.len(), kept[0].state), (1, OutboxState::Failed));
+        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty());
+        assert!(outbox_files(&dir.0).is_empty());
+        // One that is not there, and a name that is no entry's.
+        let missing = remove_failed_entry(&dir.folder(), ACCOUNT, "nobody").unwrap_err();
+        assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
+        assert!(remove_failed_entry(&dir.folder(), ACCOUNT, "../x").is_err());
+        // A failed entry whose file is there goes with it.
+        let dir = TempDir::new("send-remove-both");
+        let entry = queued(&dir);
+        let mut refusing = Fake::new(|_| RecipientStatus::Rejected {
+            reply: reply(550, "5.1.1 no such user"),
+            server: String::from("mx.test"),
+        });
+        retry_at(&dir, true, OCT_1 + 400, &mut refusing);
+        let kept = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!((kept.len(), kept[0].state), (1, OutboxState::Failed));
+        assert!(eml_of(&dir, &entry).exists());
+        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        assert!(outbox_files(&dir.0).is_empty());
     }
 }
 
