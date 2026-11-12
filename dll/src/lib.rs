@@ -319,8 +319,8 @@ pub mod web;
 #[cfg(feature = "cabi_internal")]
 mod __ffi_internal {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/dll_api_internal.rs"
+        env!("AZ_CODEGEN_DIR_RESOLVED"),
+        "/dll_api_internal.rs"
     ));
 }
 
@@ -341,8 +341,8 @@ pub mod ffi {
 #[cfg(all(feature = "cabi_external", not(feature = "cabi_internal")))]
 mod __ffi_external {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/dll_api_external.rs"
+        env!("AZ_CODEGEN_DIR_RESOLVED"),
+        "/dll_api_external.rs"
     ));
 }
 
@@ -366,8 +366,8 @@ pub mod ffi {
 
 #[cfg(feature = "rust_api")]
 include!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../target/codegen/reexports.rs"
+    env!("AZ_CODEGEN_DIR_RESOLVED"),
+    "/reexports.rs"
 ));
 
 // =============================================================================
@@ -378,8 +378,8 @@ include!(concat!(
 #[cfg(feature = "python-extension")]
 mod python {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/python_api.rs"
+        env!("AZ_CODEGEN_DIR_RESOLVED"),
+        "/python_api.rs"
     ));
 }
 
@@ -425,8 +425,8 @@ pub mod php_extension;
 #[cfg(test)]
 mod memtest {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/memtest.rs"
+        env!("AZ_CODEGEN_DIR_RESOLVED"),
+        "/memtest.rs"
     ));
 }
 

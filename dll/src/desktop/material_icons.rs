@@ -11,8 +11,8 @@
 /// Decompressed lazily on first use.
 #[cfg(feature = "icons")]
 static MATERIAL_ICONS_BR: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../target/codegen/material_icons.ttf.br"
+    env!("AZ_CODEGEN_DIR_RESOLVED"),
+    "/material_icons.ttf.br"
 ));
 
 #[cfg(feature = "icons")]
