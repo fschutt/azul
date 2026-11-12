@@ -565,7 +565,8 @@ fn x_delta_money5_1_the_marks_an_unclaimed_entry_can_carry_fit_in_the_room_a_cla
 /// 30 days (azlin-token's `HANDOFF_KEPT_DAYS`) and a cash buyer's four times as long
 /// (`CASH_HANDOFF_FACTOR`, 120 days), and the wait of a paid grant for the drive's vault is the same
 /// 30 days. The server's side of the pair lives in azul-apps (iso/crates/azlin-token/src/payments.rs
-/// `HANDOFF_KEPT_DAYS`, `CASH_HANDOFF_FACTOR`); a change on either side is a change of both.
+/// `HANDOFF_KEPT_DAYS`, `CASH_HANDOFF_FACTOR`); a change on either side is a change of both. Since
+/// X-DELTA-MONEY6-7 the kit's constants are the contract's items, so they cannot drift from it.
 #[test]
 fn x_delta_money5_1_the_hand_over_s_life_is_one_number_the_token_server_s() {
     assert_eq!(HANDOVER_KEPT_SECS, 30 * DAY);
@@ -880,3 +881,33 @@ fn x_delta_money6_6_a_poll_that_found_the_payment_taken_back_and_could_not_count
     );
 }
 
+// ==== X-DELTA-MONEY6-7: the hand-over's life is the contract's, not a copy ====
+
+/// X-DELTA-MONEY6-7: the kit's hand-over life is DERIVED from the contract's items
+/// (`azlin_contract::HANDOVER_KEPT_DAYS`, `CASH_HANDOVER_FACTOR`) - a copy of the token server's
+/// constants across two repos let the app erase a claim secret the token server could still use the
+/// day the server's life was lengthened, the defect X-DELTA-MONEY5-1 closed. The numbers are asserted
+/// here as well, 30 and 4: until the token server reads the contract's items at its next re-pin, its
+/// own constants are `HANDOFF_KEPT_DAYS` (iso/crates/azlin-token/src/payments.rs:31) and
+/// `CASH_HANDOFF_FACTOR` (payments.rs:39), 30 and 4 - whoever changes one side's number is told by
+/// this test (and the contract's `x_delta_money6_7_*`) to change the other's.
+#[test]
+fn x_delta_money6_7_the_kits_hand_over_life_is_the_contracts_and_names_the_token_servers_numbers() {
+    assert_eq!(
+        HANDOVER_KEPT_SECS,
+        i64::from(azlin_contract::HANDOVER_KEPT_DAYS) * DAY,
+        "derived, not copied"
+    );
+    assert_eq!(
+        CASH_HANDOVER_KEPT_SECS,
+        i64::from(azlin_contract::CASH_HANDOVER_FACTOR) * HANDOVER_KEPT_SECS
+    );
+    // the token server's numbers as of azul-apps payments.rs:31 and :39
+    assert_eq!(azlin_contract::HANDOVER_KEPT_DAYS, 30);
+    assert_eq!(azlin_contract::CASH_HANDOVER_FACTOR, 4);
+    let claim = ClaimKey::generate().unwrap();
+    let mut ck = unclaimed(&claim);
+    assert_eq!(ck.handover_life_secs(), 30 * DAY);
+    ck.method = String::from("cash");
+    assert_eq!(ck.handover_life_secs(), 120 * DAY);
+}

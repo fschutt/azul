@@ -1978,17 +1978,21 @@ pub const RECEIPT_RETRY_SECS: i64 = 7 * 86_400;
 pub const RECEIPT_RETRY_EVERY_SECS: u64 = 86_400;
 
 /// How long the token server keeps the sealed sign-up of a paid checkout - the hand-over its
-/// claim secret opens: 30 days from the payment (CLAIM CONTRACT v1; azlin-token's
-/// `HANDOFF_KEPT_DAYS`, which purges it). The approval nulls the server's own copy of the claim
-/// key, so a hand-over that is purged cannot be sealed again: a drive nobody claimed by then has
-/// no way in.
-pub const HANDOVER_KEPT_SECS: i64 = 30 * 86_400;
+/// claim secret opens: [`azlin_contract::HANDOVER_KEPT_DAYS`] (30) from the payment (CLAIM
+/// CONTRACT v1; azlin-token's `HANDOFF_KEPT_DAYS`, which purges it, reads the same item at its
+/// next re-pin of the contract). The approval nulls the server's own copy of the claim key, so a
+/// hand-over that is purged cannot be sealed again: a drive nobody claimed by then has no way in.
+/// The number is the contract's: a copy of it here would let the app erase a secret the token
+/// server can still use the day the server's life is lengthened (X-DELTA-MONEY6-7).
+pub const HANDOVER_KEPT_SECS: i64 = azlin_contract::HANDOVER_KEPT_DAYS as i64 * 86_400;
 
-/// How long the token server keeps a CASH buyer's hand-over: four times as long (azlin-token's
+/// How long the token server keeps a CASH buyer's hand-over:
+/// [`azlin_contract::CASH_HANDOVER_FACTOR`] (4) times as long (azlin-token's
 /// `CASH_HANDOFF_FACTOR`, 120 days) - the operator activates a cash order when the post is
 /// opened, up to 60 days after it was made, and the buyer's app asks once a day, only while it
 /// runs. A drive picked up with a claim code is a cash buyer's.
-pub const CASH_HANDOVER_KEPT_SECS: i64 = 4 * HANDOVER_KEPT_SECS;
+pub const CASH_HANDOVER_KEPT_SECS: i64 =
+    azlin_contract::CASH_HANDOVER_FACTOR as i64 * HANDOVER_KEPT_SECS;
 
 /// How long a paid checkout waits in the keyring for the drive's vault to take its grant: 30
 /// days, as long as the token server keeps the sealed sign-up ([`HANDOVER_KEPT_SECS`]) - counted

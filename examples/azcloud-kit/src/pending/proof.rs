@@ -348,9 +348,10 @@ impl Settled {
             CheckoutStatus::HandoverGone => Some((
                 Settled(SettledBy::Gone),
                 Final::Gone(format!(
-                    "it was paid, but the token server keeps its drive's hand-over only 30 days \
+                    "it was paid, but the token server keeps its drive's hand-over only {} days \
                      after the payment and has it no more: support can help with the checkout \
-                     {checkout_id}"
+                     {checkout_id}",
+                    super::HANDOVER_KEPT_SECS / 86_400
                 )),
             )),
             CheckoutStatus::Pending
