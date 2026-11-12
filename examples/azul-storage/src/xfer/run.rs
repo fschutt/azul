@@ -425,7 +425,7 @@ impl SmallBatch {
 ///
 /// What a copy guarantees about the NAME it writes - a name free when the plan was made stays
 /// unwritten if another device made it since; a version the user chose to replace is replaced only
-/// while it is still that version ([`Guard`]) - and what it leaves:
+/// while it is still that version (the plan's guard) - and what it leaves:
 ///
 /// - a folder on this computer whose file system gives files an identity: the rename that puts the
 ///   file in place asks ([`Expect`]); nothing can come between;
