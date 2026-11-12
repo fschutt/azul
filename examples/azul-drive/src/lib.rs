@@ -1456,6 +1456,16 @@ impl DriveState {
         self.slots.iter().position(|s| s.entry.id == drive_id)
     }
 
+    /// What the looks last saw of the period of the drive `drive_id`, as the toast of a claimed
+    /// renewal reads it ([`renewals::month_due_at_once`]).
+    pub(crate) fn period_facts(&self, drive_id: &str) -> renewals::PeriodFacts<'_> {
+        renewals::PeriodFacts {
+            archives: &self.archives,
+            renewals: &self.renewals,
+            azlin_id: archive::azlin_of(self, drive_id),
+        }
+    }
+
     /// The drive of the open folder.
     pub fn current_drive(&self) -> Option<usize> {
         match &self.place {

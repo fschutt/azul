@@ -327,3 +327,167 @@ fn x_delta_azdrive_keys_4_a_drive_that_is_not_encrypted_takes_no_notice() {
     assert!(crate::jobs::save_notice(drive.as_ref(), "Azlin notices/n.txt", "text").is_err());
     assert_eq!(bucket.objects(), before, "nothing was written");
 }
+
+/// X-DELTA-INTEGRITY3-20. The toast of a claimed renewal is made of what the vault will do with its
+/// months, and what it does depends on two facts about the drive's period as the looks last saw it:
+/// whether it has ended (the drive is in its grace, read-only or locked - by AzDrive's id or the
+/// drive's id at the token server) and whether its end is within the week the vault redeems a month
+/// ahead (the reminder of its end). Nothing asserted either: the helpers were tested, the facts they
+/// are asked were not (and `renewed`, which reads them from the window, is gated by `money_gate`).
+/// Both facts, the sentence each gives, in both languages.
+#[test]
+fn x_delta_integrity3_20_the_renewal_toast_follows_the_period_the_looks_saw() {
+    use std::collections::HashMap;
+
+    use azul_appkit::l10n::t_phrase;
+
+    use crate::{
+        archive::{Seen, Stage},
+        renewals::{bought_text, month_due_at_once, PeriodFacts, RenewalSeen, Takes},
+    };
+
+    crate::l10n::in_english();
+    let now = 1_791_450_000_u64;
+    let week = azcloud_kit::period::REDEEM_AHEAD_SECS;
+    let in_grace = Seen {
+        stage: Stage::Grace {
+            period_until: now - 86_400,
+            read_only_at: now + 86_400,
+            locks_at: now + 2 * 86_400,
+        },
+    };
+    let reminder = |kind: DeadlineKind, at: u64| RenewalSeen {
+        reminder: Some(Reminder {
+            kind,
+            at,
+            days_before: 7,
+        }),
+        ..RenewalSeen::default()
+    };
+    let said = |archives: &HashMap<String, Seen>,
+                renewals: &HashMap<String, RenewalSeen>,
+                azlin_id: Option<&str>,
+                change_tier: bool| {
+        let facts = PeriodFacts {
+            archives,
+            renewals,
+            azlin_id: azlin_id.map(str::to_string),
+        };
+        let due = month_due_at_once(&facts, "d_1", now);
+        let takes = Takes::of(change_tier, due);
+        (due, takes, t_phrase(&bought_text("Photos", 12, takes)))
+    };
+    let no_archives: HashMap<String, Seen> = HashMap::new();
+    let no_renewals: HashMap<String, RenewalSeen> = HashMap::new();
+
+    // a drive no look saw ends no sooner than the sentence says: a week before the end
+    let (due, takes, text) = said(&no_archives, &no_renewals, Some("azl_1"), false);
+    assert!(!due);
+    assert_eq!(takes, Takes::AWeekBefore);
+    assert!(
+        text.contains("a week before the paid period ends"),
+        "{text}"
+    );
+
+    // its period has ended: found in grace under AzDrive's id, or under its id at the token server
+    for (archives, why) in [
+        (
+            HashMap::from([(String::from("d_1"), in_grace.clone())]),
+            "AzDrive's id",
+        ),
+        (
+            HashMap::from([(String::from("azl_1"), in_grace.clone())]),
+            "the token server's id",
+        ),
+    ] {
+        let (due, takes, text) = said(&archives, &no_renewals, Some("azl_1"), false);
+        assert!(due, "period ended, by {why}");
+        assert_eq!(takes, Takes::AtTheNextLook, "{why}");
+        assert!(
+            text.contains("at the next look at the drive"),
+            "{why}: {text}"
+        );
+        assert!(
+            !text.contains("Each month is added a week before"),
+            "{why}: {text}"
+        );
+    }
+    // another drive's period ended: this one's did not
+    let other = HashMap::from([(String::from("d_2"), in_grace.clone())]);
+    assert!(!said(&other, &no_renewals, Some("azl_1"), false).0);
+    // the id at the token server does not count without the slot that has it
+    let azlin_only = HashMap::from([(String::from("azl_1"), in_grace)]);
+    assert!(!said(&azlin_only, &no_renewals, None, false).0);
+
+    // its end is within the week - a day short of it, exactly at it - or further off
+    for (at, due) in [
+        (now + week - 1, true),
+        (now + week, true),
+        (now + week + 1, false),
+    ] {
+        let renewals =
+            HashMap::from([(String::from("d_1"), reminder(DeadlineKind::PeriodEnd, at))]);
+        let (is_due, takes, text) = said(&no_archives, &renewals, Some("azl_1"), false);
+        assert_eq!(is_due, due, "end at now + {}", at - now);
+        assert_eq!(
+            takes,
+            if due {
+                Takes::AtTheNextLook
+            } else {
+                Takes::AWeekBefore
+            }
+        );
+        assert_eq!(
+            text.contains("at the next look at the drive"),
+            due,
+            "end at now + {}: {text}",
+            at - now
+        );
+    }
+    // a later deadline (read-only starts, the drive closes) is named only once the period ended
+    for kind in [DeadlineKind::ReadOnlyStart, DeadlineKind::ReadOnlyEnd] {
+        let renewals = HashMap::from([(String::from("d_1"), reminder(kind, now + 40 * 86_400))]);
+        assert!(
+            said(&no_archives, &renewals, Some("azl_1"), false).0,
+            "{kind:?}"
+        );
+    }
+
+    // bought as a change of tier: a move, whatever the period says
+    for (archives, renewals) in [
+        (no_archives.clone(), no_renewals.clone()),
+        (
+            HashMap::from([(
+                String::from("d_1"),
+                Seen {
+                    stage: Stage::ReadOnly {
+                        period_until: now - 86_400,
+                        locks_at: now + 86_400,
+                    },
+                },
+            )]),
+            no_renewals.clone(),
+        ),
+    ] {
+        let (_, takes, text) = said(&archives, &renewals, Some("azl_1"), true);
+        assert_eq!(takes, Takes::MovesTier);
+        assert!(text.contains("tier of \"Photos\" is bought"), "{text}");
+    }
+
+    // and in German
+    azul_appkit::l10n::set_locale("de-DE");
+    let archives = HashMap::from([(
+        String::from("d_1"),
+        Seen {
+            stage: Stage::ReadOnly {
+                period_until: now - 86_400,
+                locks_at: now + 86_400,
+            },
+        },
+    )]);
+    let (_, _, german) = said(&archives, &no_renewals, Some("azl_1"), false);
+    assert!(german.contains("nächsten Blick"), "{german}");
+    let (_, _, german) = said(&no_archives, &no_renewals, Some("azl_1"), false);
+    assert!(german.contains("eine Woche vor dem Ende"), "{german}");
+    azul_appkit::l10n::set_locale("en-US");
+}

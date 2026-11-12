@@ -1975,7 +1975,11 @@ pub(crate) fn renewed(
     // proof below changes what the looks saw (X-DELTA-MONEY2-13)
     let takes = Takes::of(
         change_tier,
-        month_due_at_once(s, drive_id, crate::actions::now_secs()),
+        month_due_at_once(
+            &s.period_facts(drive_id),
+            drive_id,
+            crate::actions::now_secs(),
+        ),
     );
     // a locked drive: the payment is named in a proof, so it counts at once
     crate::archive::renewed(info, app, s, drive_id, checkout_id);

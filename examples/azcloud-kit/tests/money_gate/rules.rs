@@ -965,9 +965,58 @@ fn toast_fact(t: &[Located]) -> Vec<usize> {
     calls(t, "month_due_at_once")
 }
 
+/// The index of the `)` that closes the `(` at `open`.
+fn paren_end(t: &[Located], open: usize) -> usize {
+    let mut depth = 0_i32;
+    for (j, x) in t.iter().enumerate().skip(open) {
+        if x.tok.is_punct('(') {
+            depth += 1;
+        } else if x.tok.is_punct(')') {
+            depth -= 1;
+            if depth == 0 {
+                return j;
+            }
+        }
+    }
+    t.len()
+}
+
+/// A call of `Takes::of(` with the fact about the drive's period among its arguments: what the
+/// months do is decided by that fact, not by a value made up on the spot (X-DELTA-INTEGRITY3-20).
+fn toast_fact_decides(t: &[Located]) -> Vec<usize> {
+    (0..t.len())
+        .filter(|&i| {
+            ident_at(t, i, "Takes")
+                && punct_at(t, i + 1, ':')
+                && punct_at(t, i + 2, ':')
+                && ident_at(t, i + 3, "of")
+                && punct_at(t, i + 4, '(')
+        })
+        .filter(|&i| (i + 4..paren_end(t, i + 4)).any(|k| ident_at(t, k, "month_due_at_once")))
+        .map(|i| t[i].line)
+        .collect()
+}
+
+/// A call of `bought_text(` that is given the `takes` the page made of that fact: the words say what
+/// the vault will do, not a sentence chosen on the side.
+fn toast_words_follow(t: &[Located]) -> Vec<usize> {
+    (1..t.len())
+        .filter(|&i| {
+            ident_at(t, i, "bought_text")
+                && punct_at(t, i + 1, '(')
+                && !ident_at(t, i - 1, "fn")
+                && !punct_at(t, i - 1, '.')
+        })
+        .filter(|&i| (i + 1..paren_end(t, i + 1)).any(|k| ident_at(t, k, "takes")))
+        .map(|i| t[i].line)
+        .collect()
+}
+
 pub const TOAST_KEY: &str = "renewal-toast-key";
 pub const TOAST_CALL: &str = "renewal-toast-call";
 pub const TOAST_FACT: &str = "renewal-toast-fact";
+pub const TOAST_DECIDES: &str = "renewal-toast-fact-decides";
+pub const TOAST_FOLLOWS: &str = "renewal-toast-words-follow";
 
 #[must_use]
 pub fn toast_rules() -> Vec<Rule> {
@@ -1000,6 +1049,34 @@ pub fn toast_rules() -> Vec<Rule> {
             &[
                 "let due = s.month_due_at_once(id);",
                 "let due = month_due_at_onceish(id);",
+            ],
+        ),
+        // the fact reaches the function that says what the months do
+        Rule::new(
+            TOAST_DECIDES,
+            toast_fact_decides,
+            &[
+                "let takes = Takes::of(change, month_due_at_once(s, id, now));",
+                "let takes = Takes::of(change_tier, month_due_at_once(&s.period_facts(id), id, now));",
+            ],
+            &[
+                "let takes = Takes::of(change, false);",
+                "let due = month_due_at_once(s, id, now); let takes = Takes::of(change, due);",
+                "let takes = Retakes::of(change, month_due_at_once(s, id, now));",
+            ],
+        ),
+        // and what it says reaches the words
+        Rule::new(
+            TOAST_FOLLOWS,
+            toast_words_follow,
+            &[
+                "let toast = bought_text(&name, months, takes);",
+                "let t = bought_text(&n, 1, takes);",
+            ],
+            &[
+                "let toast = bought_text(&name, months, Takes::AWeekBefore);",
+                "fn bought_text(drive: &str, months: u32, takes: Takes) {}",
+                "let toast = s.bought_text(takes);",
             ],
         ),
     ]
@@ -1218,6 +1295,19 @@ pub const ALLOWED_TOAST: &[Allow] = &[
         TOAST_FACT,
         1,
         "renewed: reads whether the drive's next month is due at once before it asks for the words",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/add_flow.rs",
+        TOAST_DECIDES,
+        1,
+        "renewed: that fact is what decides what the months do (`Takes::of`), not a value made up \
+         on the spot",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/add_flow.rs",
+        TOAST_FOLLOWS,
+        1,
+        "renewed: the words are asked with the `takes` that fact decided",
     ),
 ];
 

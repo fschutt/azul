@@ -273,18 +273,9 @@ fn slot_of(s: &DriveState, azlin_id: &str) -> Option<String> {
 }
 
 /// The Azlin id of AzDrive's drive `drive_id`.
-fn azlin_of(s: &DriveState, drive_id: &str) -> Option<String> {
+pub(crate) fn azlin_of(s: &DriveState, drive_id: &str) -> Option<String> {
     let index = s.slot_index(drive_id)?;
     s.slots[index].entry.azlin().map(|(id, _)| id.to_string())
-}
-
-/// Whether the paid period of the drive `drive_id` (AzDrive's id or the Azlin id) had ended when
-/// it was last looked at - it is in its grace, read-only or locked, [`stage_of`]: the months
-/// bought for it are then redeemed at its first look, not a week before an end that has passed.
-#[must_use]
-pub(crate) fn period_ended(s: &DriveState, drive_id: &str) -> bool {
-    s.archives.contains_key(drive_id)
-        || azlin_of(s, drive_id).is_some_and(|azlin_id| s.archives.contains_key(&azlin_id))
 }
 
 /// What the looks saw of the drive in view: its AzDrive id, its Azlin id, its stage.

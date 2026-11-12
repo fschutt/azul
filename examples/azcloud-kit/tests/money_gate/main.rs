@@ -30,7 +30,9 @@
 //!    `must_release_first` and send `Event::Release` before it places its `Job::Checkout`: the
 //!    wiring of a checkout in flight being ended before the buyer orders again (AZ-P4);
 //! 7. a claimed renewal's toast is worded anywhere but `renewals::bought_text`, or `renewed` does
-//!    not call it with `month_due_at_once` (X-DELTA-MONEY2-13).
+//!    not call it with `month_due_at_once` (X-DELTA-MONEY2-13), or that fact does not decide the
+//!    `Takes::of` the words follow, or the words are not asked with the `takes` it made
+//!    (X-DELTA-INTEGRITY3-20).
 //!
 //! The allowances name the file, the rule, how many and why. A hit no allowance takes fails, an
 //! allowance whose count is not the code's fails and so does one nothing uses any more: the

@@ -11,6 +11,7 @@
 //! <tier>`, `AZDRIVE_PRICE_NOTICE <drive> <key>`, `AZDRIVE_TIER_BACK <tier>`.
 
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -165,15 +166,43 @@ impl Takes {
     }
 }
 
+/// What the toast of a claimed renewal reads of the window: the two maps the looks fill and the
+/// drive's id at the token server. Borrowed from the state by [`DriveState::period_facts`]; a test
+/// builds it from the maps (X-DELTA-INTEGRITY3-20: the state itself is a window's).
+pub(crate) struct PeriodFacts<'a> {
+    /// The drives the looks found past their paid period (in grace, read-only or locked), by
+    /// AzDrive's id or the drive's id at the token server.
+    pub archives: &'a HashMap<String, crate::archive::Seen>,
+    /// What each look saw of a drive's next months, by AzDrive's id.
+    pub renewals: &'a HashMap<String, RenewalSeen>,
+    /// The drive's id at the token server, when its slot has one.
+    pub azlin_id: Option<String>,
+}
+
+impl PeriodFacts<'_> {
+    /// Whether the paid period of the drive `drive_id` (AzDrive's id) had ended when it was last
+    /// looked at - it is in its grace, read-only or locked: the months bought for it are then
+    /// redeemed at its first look, not a week before an end that has passed.
+    #[must_use]
+    pub(crate) fn period_ended(&self, drive_id: &str) -> bool {
+        self.archives.contains_key(drive_id)
+            || self
+                .azlin_id
+                .as_deref()
+                .is_some_and(|azlin_id| self.archives.contains_key(azlin_id))
+    }
+}
+
 /// Whether the first look at the drive `drive_id` redeems a month at once, as the looks last saw
-/// the drive at `now` (seconds since 1970): its paid period has ended ([`crate::archive::period_ended`]:
+/// the drive at `now` (seconds since 1970): its paid period has ended ([`PeriodFacts::period_ended`]:
 /// grace, read-only or locked), or its period's end is within the week the vault redeems a month
 /// ahead - the reminder of its end, which a look keeps while the vault holds no month for the
 /// drive. A drive no look saw ends no sooner than the sentence says, which is the common case.
 #[must_use]
-pub(crate) fn month_due_at_once(s: &DriveState, drive_id: &str, now: u64) -> bool {
-    crate::archive::period_ended(s, drive_id)
-        || s.renewals
+pub(crate) fn month_due_at_once(facts: &PeriodFacts<'_>, drive_id: &str, now: u64) -> bool {
+    facts.period_ended(drive_id)
+        || facts
+            .renewals
             .get(drive_id)
             .and_then(|seen| seen.reminder.as_ref())
             .is_some_and(|reminder| match reminder.kind {
