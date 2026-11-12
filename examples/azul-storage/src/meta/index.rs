@@ -1237,7 +1237,7 @@ impl MetaIndexProvider {
                 return ledger.evidence(now, &footing);
             }
         };
-        footing.clock_agrees = self.bucket_clock_agrees(bucket, written.at);
+        footing.clock_agrees = self.bucket_clock_agrees(bucket);
         if vouching && footing.clock_agrees == Some(true) {
             // collapse-ok: a round that could not be made clean stays what it was written as, not
             // clean: the failure only holds the switch back.
@@ -1248,19 +1248,17 @@ impl MetaIndexProvider {
         ledger.evidence(now, &footing)
     }
 
-    /// Whether the bucket's own time agrees with `stamp` (a time this device's clock gave a round):
-    /// `Some(true)` when it is within [`SKEW_SECS`] of it - or when the run's policy takes the
-    /// device's clock alone ([`ServerClock::Unchecked`]: a folder on disk, the tests) -,
-    /// `Some(false)` when it is not, `None` when the bucket does not say.
-    fn bucket_clock_agrees(
-        &self,
-        bucket: &DriveBucket<Arc<dyn Drive>>,
-        stamp: u64,
-    ) -> Option<bool> {
+    /// Whether the bucket's own time agrees with this device's clock now, when the round has just
+    /// been written (the ledger's object carries the bucket's time of that write): `Some(true)` when
+    /// they are within [`SKEW_SECS`] - or when the run's policy takes the device's clock alone
+    /// ([`ServerClock::Unchecked`]: a folder on disk, the tests) -, `Some(false)` when they are not,
+    /// `None` when the bucket does not say. The clock of NOW, not the round's stamp: a big drive's
+    /// analysis takes longer than the skew, and the stamp is the time it began.
+    fn bucket_clock_agrees(&self, bucket: &DriveBucket<Arc<dyn Drive>>) -> Option<bool> {
         match self.reclaim.server_clock {
             ServerClock::Unchecked => Some(true),
             ServerClock::Required => match bucket.modified_of(keys::SHADOW) {
-                Ok(Some(server)) => Some(server.abs_diff(stamp) <= SKEW_SECS),
+                Ok(Some(server)) => Some(server.abs_diff(crate::time::now_unix()) <= SKEW_SECS),
                 // collapse-ok: a bucket that cannot say the time is not believed: `None` holds the
                 // switch back, as it does for the run that deletes.
                 Ok(None) | Err(_) => None,
