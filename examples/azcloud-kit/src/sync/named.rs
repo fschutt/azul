@@ -993,6 +993,11 @@ impl SyncRemote for NamedFiles<'_> {
         Ok(abandoned)
     }
 
+    /// The files this run moved to their new names on the drive: their old names are gone from it.
+    fn deleted_already(&self) -> BTreeSet<String> {
+        lock(&self.moved).clone()
+    }
+
     fn commit(
         &self,
         remote: &RemoteIndex,

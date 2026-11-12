@@ -1118,6 +1118,16 @@ trait SyncRemote: Sync {
     /// upload waits for the next run (their file changed, the run was stopped, ...).
     fn upload(&self, work: &Uploads<'_>, report: &mut SyncReport) -> CloudResult<BTreeSet<String>>;
 
+    /// The keys whose `DeleteRemote` the upload phase of this run has made on the drive already:
+    /// a file that was renamed here and that the drive moved to its new name (a drive whose commit
+    /// is its files). They are gone from the drive; the commit only says so. A delete that is
+    /// done is no delete a later look at the folder may take back: the drive does not have the
+    /// file under that name any more (X-DELTA-SYNC4-28). By default none: a plain index changes
+    /// nothing before its commit.
+    fn deleted_already(&self) -> BTreeSet<String> {
+        BTreeSet::new()
+    }
+
     /// Makes `next` the drive's state in place of `remote` (read with `etag`): the new marker;
     /// `None` when another device committed first (the run reads, merges and tries again).
     fn commit(
@@ -3714,11 +3724,24 @@ fn keep_saves(
 /// delete committed then is a tombstone every other device trashes its copy for, and a new upload
 /// one pass later. A file that is back, or cannot be looked at, is no delete: it is dropped from the
 /// plan and listed, and the next pass takes what is there (X-DELTA-EDGE-5).
-fn hold_returned_deletes(actions: &mut Vec<Action>, root: &Path, report: &mut SyncReport) {
+///
+/// Never a delete the run has MADE already (`done`: [`SyncRemote::deleted_already`], a file the
+/// upload phase moved to its new name on the drive): the drive does not have it under that name, so
+/// the delete is no plan any more but a fact, and dropping it would leave the base naming a file the
+/// drive lacks - the next pass would read it as deleted on the drive and trash the file here, and
+/// delete its new name there (X-DELTA-SYNC4-28). The commit says it was deleted; a file that is back
+/// under the old name is a new file the next pass sends.
+fn hold_returned_deletes(
+    actions: &mut Vec<Action>,
+    root: &Path,
+    done: &BTreeSet<String>,
+    report: &mut SyncReport,
+) {
     let keys: Vec<String> = actions
         .iter()
         .filter(|a| matches!(a, Action::DeleteRemote { .. }))
         .map(|a| a.key().to_string())
+        .filter(|key| !done.contains(key))
         .collect();
     if keys.is_empty() {
         return;
@@ -4648,7 +4671,12 @@ fn run_pass<R: SyncRemote + ?Sized>(
         )?;
         actions.retain(|a| !abandoned.contains(a.key()));
         // The deletes are looked at again right before the commit: the uploads took time.
-        hold_returned_deletes(&mut actions, &root.path, &mut report);
+        hold_returned_deletes(
+            &mut actions,
+            &root.path,
+            &remote_side.deleted_already(),
+            &mut report,
+        );
         // From the drive's whole index: the entries no run acts on stay in it as they are.
         let next = next_index(
             &remote,

@@ -85,6 +85,8 @@ mod sync_names;
 mod sync_local;
 mod sync_merge;
 mod sync_named;
+/// The look a pass takes at its planned deletes right before the commit, and the saves that hold one.
+mod sync_relook;
 mod sync_ondemand;
 /// The per-file problem list: codes, what stays listed, escaped names.
 mod sync_problems;

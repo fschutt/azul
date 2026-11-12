@@ -74,7 +74,7 @@ pub(super) fn s3_drive_resuming(s3: &Arc<FakeS3>, resume: &Path) -> Arc<dyn Driv
 }
 
 /// A drive that names each file's BLAKE3 in its metadata, as an encrypted drive's index does.
-struct NamesHashes(Arc<dyn Drive>);
+pub(super) struct NamesHashes(pub(super) Arc<dyn Drive>);
 
 impl Drive for NamesHashes {
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
