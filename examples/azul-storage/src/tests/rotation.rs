@@ -8,7 +8,7 @@ use std::sync::{
 };
 
 use super::{
-    asked::{lockdown_needed, rotate},
+    asked::{lockdown_needed, reencrypt_pass, rotate},
     faulty::{Fail, Faulty},
     mem_bucket::MemBucket,
 };
@@ -30,9 +30,7 @@ use crate::{
     },
     encrypted::{open_encrypted, Expect, IndexChange, IndexProvider, MemoryIndex, NameIndex},
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
-    rotation::{
-        pending, reencrypt_pass, resumable, unfinished, Phase, ReencryptState, JOURNAL_FILE,
-    },
+    rotation::{pending, resumable, unfinished, Phase, ReencryptState, JOURNAL_FILE},
     sharing::{list_shares, share},
     time::now_unix,
     Drive, DriveError, ListRequest,
@@ -306,10 +304,17 @@ fn re_encrypting_everything_leaves_no_object_the_old_key_opens() {
 
     let mut state = ReencryptState::new(now_unix() + 1);
     let mut saves = 0;
-    assert!(reencrypt_pass(&drive, &mut state, &mut |_| {
-        saves += 1;
-        Ok(())
-    }, &|| false)
+    assert!(reencrypt_pass(
+        &s.keyring,
+        DRIVE,
+        &drive,
+        &mut state,
+        &mut |_| {
+            saves += 1;
+            Ok(())
+        },
+        &|| false
+    )
     .unwrap());
     assert_eq!(state.done, 3);
     assert_eq!(saves, 3);
@@ -338,9 +343,28 @@ fn re_encrypting_everything_leaves_no_object_the_old_key_opens() {
     let mut stopped = ReencryptState::new(now_unix() + 1);
     let asked = AtomicUsize::new(0);
     let stop_after_one = || asked.fetch_add(1, Ordering::SeqCst) >= 1;
-    assert!(!reencrypt_pass(&drive, &mut stopped, &mut |_| Ok(()), &stop_after_one).unwrap());
-    assert_eq!((stopped.done, stopped.cursor.as_deref()), (1, Some("backup/plan.txt")));
-    assert!(reencrypt_pass(&drive, &mut stopped, &mut |_| Ok(()), &|| false).unwrap());
+    assert!(!reencrypt_pass(
+        &s.keyring,
+        DRIVE,
+        &drive,
+        &mut stopped,
+        &mut |_| Ok(()),
+        &stop_after_one
+    )
+    .unwrap());
+    assert_eq!(
+        (stopped.done, stopped.cursor.as_deref()),
+        (1, Some("backup/plan.txt"))
+    );
+    assert!(reencrypt_pass(
+        &s.keyring,
+        DRIVE,
+        &drive,
+        &mut stopped,
+        &mut |_| Ok(()),
+        &|| false
+    )
+    .unwrap());
     assert_eq!(stopped.done, 3);
 }
 

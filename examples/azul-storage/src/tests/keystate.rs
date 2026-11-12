@@ -2137,3 +2137,87 @@ fn a_key_change_on_a_keyring_that_keeps_no_key_is_refused_before_the_lockdown() 
         refused.as_ref().err()
     );
 }
+
+// ==== C7 step 3: "re-encrypt everything" takes the permit of its own operation ====
+
+/// A drive set up on a device, opened as the apps open it.
+fn an_open_drive() -> (
+    Arc<MemBucket>,
+    MemoryKeyring,
+    crate::encrypted::EncryptedDrive<Arc<dyn Drive>>,
+) {
+    let (bucket, keyring) = a_drive_set_up();
+    let plain: Arc<dyn Drive> = bucket.clone();
+    let drive = crate::encrypted::open_encrypted(plain, &keyring, DRIVE, &Provider::new()).unwrap();
+    drive.put("notes/plan.txt", b"the plan").unwrap();
+    (bucket, keyring, drive)
+}
+
+/// A pass asked in an Active drive runs; asked while a key change of this device is not over it is refused
+/// - the files would be written under the key the change replaces, and the guard of the old flow looked at
+/// nothing (the shadow's `known` finding of X-KEYSTATE-2) - and nothing is written.
+#[test]
+fn a_reencryption_is_permitted_in_an_active_drive_and_refused_while_a_key_change_is_unfinished() {
+    let (bucket, keyring, drive) = an_open_drive();
+    let permit = rotation::ask_reencrypt(&keyring, DRIVE, &drive).unwrap();
+    assert_eq!(permit.op(), Op::Reencrypt);
+    let mut state = rotation::ReencryptState::new(crate::time::now_unix() + 10);
+    assert!(
+        rotation::reencrypt_pass(&permit, &drive, &mut state, &mut |_| Ok(()), &|| false).unwrap()
+    );
+
+    // A key change of this device stops after its journal went in.
+    let failing: Arc<dyn Drive> = Arc::new(NthWrite::new(bucket.clone(), 3));
+    assert!(rotate(failing, &keyring, DRIVE, &Provider::new(), cheap()).is_err());
+    assert!(rotation::unfinished(&keyring, DRIVE).unwrap());
+    let objects = bucket.objects();
+    let refused = rotation::ask_reencrypt(&keyring, DRIVE, &drive);
+    assert!(
+        matches!(&refused, Err(DriveError::Denied { message }) if message.contains("not finished")),
+        "{:?}",
+        refused.as_ref().err()
+    );
+    assert_eq!(bucket.objects(), objects, "nothing was written");
+}
+
+/// A pass takes a permit of ITS operation, asked for the drive key the drive is opened with: the permit of
+/// a rotation, and the permit of another drive's key, change nothing.
+#[test]
+fn a_reencryption_takes_a_permit_of_its_own_operation_and_drive_key_and_changes_nothing_for_another(
+) {
+    let (bucket, keyring, drive) = an_open_drive();
+    let objects = bucket.objects();
+    let mut state = rotation::ReencryptState::new(crate::time::now_unix() + 10);
+
+    let rotation = rotation::ask(bucket.as_ref(), &keyring, DRIVE).unwrap();
+    let refused = rotation::reencrypt_pass(
+        rotation.permit(),
+        &drive,
+        &mut state,
+        &mut |_| Ok(()),
+        &|| false,
+    );
+    assert!(
+        matches!(&refused, Err(DriveError::Denied { .. })),
+        "{refused:?}"
+    );
+
+    // the permit asked for ANOTHER drive's key
+    let (other_bucket, other_keyring, other_drive) = {
+        let bucket = Arc::new(MemBucket::new());
+        let keyring = MemoryKeyring::new();
+        setup_new_drive(bucket.as_ref(), &keyring, "d_other", cheap()).unwrap();
+        let plain: Arc<dyn Drive> = bucket.clone();
+        let drive =
+            crate::encrypted::open_encrypted(plain, &keyring, "d_other", &Provider::new()).unwrap();
+        (bucket, keyring, drive)
+    };
+    let others = rotation::ask_reencrypt(&other_keyring, "d_other", &other_drive).unwrap();
+    let refused = rotation::reencrypt_pass(&others, &drive, &mut state, &mut |_| Ok(()), &|| false);
+    assert!(
+        matches!(&refused, Err(DriveError::Denied { message }) if message.contains("another drive key")),
+        "{refused:?}"
+    );
+    assert_eq!(bucket.objects(), objects, "nothing was written");
+    drop(other_bucket);
+}

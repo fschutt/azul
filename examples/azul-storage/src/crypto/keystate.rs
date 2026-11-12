@@ -741,6 +741,9 @@ impl fmt::Display for Reason {
 pub struct Permit {
     op: Op,
     drive: String,
+    /// The id of the drive key the keyring held when it was asked: a permit is for THAT key. A function
+    /// that works on a drive opened with a key checks it ([`Permit::allows_key`]).
+    key: Option<KeyId>,
     way: Way,
     stays: &'static [Stays],
 }
@@ -759,6 +762,28 @@ impl Permit {
             Err(DriveError::Denied {
                 message: format!(
                     "the permit is for {} of \"{}\", not for {} of \"{drive}\"",
+                    self.op.name(),
+                    self.drive,
+                    op.name()
+                ),
+            })
+        }
+    }
+
+    /// `Ok` when this permit is for `op` and was asked while the keyring held the drive key `key`: what a
+    /// function that works on a drive OPENED with a key checks (the drive's own name is not known to it).
+    ///
+    /// # Errors
+    ///
+    /// `Denied`, naming what the permit is for.
+    pub fn allows_key(&self, op: Op, key: KeyId) -> Result<(), DriveError> {
+        if self.op == op && self.key == Some(key) {
+            Ok(())
+        } else {
+            Err(DriveError::Denied {
+                message: format!(
+                    "the permit is for {} of \"{}\" under another drive key, not for {} of the drive \
+                     key {key}",
                     self.op.name(),
                     self.drive,
                     op.name()
@@ -804,6 +829,10 @@ fn permit(op: Op, e: &Evidence<'_>, way: Way, stays: &'static [Stays]) -> Verdic
     Verdict::Permit(Permit {
         op,
         drive: e.drive.to_string(),
+        key: match &e.keyring.drive_key {
+            Read::Found(id) => Some(*id),
+            Read::Absent | Read::Failed(_) | Read::Unasked => None,
+        },
         way,
         stays,
     })

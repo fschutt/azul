@@ -1072,6 +1072,36 @@ impl ReencryptState {
     }
 }
 
+/// May this device re-encrypt every file of `drive`? The drive is OPEN (`opened`): a key this device holds
+/// opened its index, so that is what the evidence says of the index - and the opened drive is the witness.
+/// The keyring's entries are read and the key permit's `Reencrypt` cell decides: a key change of this
+/// device that is not over refuses it (the files would be written under the key the change replaces), a
+/// keyring that cannot be read refuses it, and the permit is for the drive key the keyring holds - which
+/// must be the one `opened` is sealed under.
+///
+/// # Errors
+///
+/// The refusal, in the class the flows know (`Denied` with its sentence), or `Denied` for a drive opened
+/// with another key than the keyring's.
+pub fn ask_reencrypt<D: Drive>(
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    opened: &EncryptedDrive<D>,
+) -> Result<Permit, DriveError> {
+    let entries = device::read_entries(keyring, drive);
+    let mut evidence = keystate::Evidence::new(drive, crate::time::now_unix());
+    evidence.keyring = entries.facts();
+    evidence.keyring.keeps_keys = device::keeps_keys_fact(keyring);
+    evidence.bucket.index_opens = Read::Found(true);
+    match keystate::ask(Op::Reencrypt, &evidence) {
+        Verdict::Permit(permit) => {
+            permit.allows_key(Op::Reencrypt, opened.drive_key_id())?;
+            Ok(permit)
+        }
+        Verdict::Refuse(reason) => Err(reason.error(drive)),
+    }
+}
+
 /// "Re-encrypt everything": every file of `drive` (opened with the new drive key) modified
 /// before `state.before` is written into a new object with a new file key (its date kept). On a
 /// drive whose index keeps no history the old object is deleted - afterwards nothing in the
@@ -1084,12 +1114,18 @@ impl ReencryptState {
 /// state after every file (and after the packs, when there were any), `stop` is asked before every
 /// file; `Ok(true)` when every file is done. A file the user changed meanwhile keeps the user's
 /// version (it is in a new object anyway).
+///
+/// `permit` is the pass's own ([`ask_reencrypt`]): the key permit's word that this device may write every
+/// file again, for the drive key `drive` is opened with. The permit of another operation or of another
+/// drive key, or none, changes nothing.
 pub fn reencrypt_pass<D: Drive>(
+    permit: &Permit,
     drive: &EncryptedDrive<D>,
     state: &mut ReencryptState,
     save: &mut dyn FnMut(&ReencryptState) -> Result<(), DriveError>,
     stop: &dyn Fn() -> bool,
 ) -> Result<bool, DriveError> {
+    permit.allows_key(Op::Reencrypt, drive.drive_key_id())?;
     for (path, entry) in drive.all_entries("")? {
         let due = entry.object.as_ref().is_some_and(|o| o.packed.is_none())
             && entry.modified.unwrap_or(0) < state.before

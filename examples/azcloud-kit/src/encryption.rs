@@ -118,32 +118,6 @@ fn shadow_join(keyring: &dyn KeyringStore, drive: &str, kept: bool) {
     );
 }
 
-/// "Re-encrypt everything" has one guard here: the drive opens, so this device holds a key that opens
-/// its index. Nothing asks whether a key change is unfinished.
-fn shadow_reencrypt(keyring: &dyn KeyringStore, drive: &str) {
-    let mut evidence = Evidence::new(drive, azul_storage::time::now_unix());
-    evidence.keyring = device::key_facts(keyring, drive);
-    evidence.bucket.encrypted = Read::Found(true);
-    evidence.bucket.index_opens = Read::Found(true);
-    azul_storage::key_shadow!(
-        "azcloud_kit::encryption::reencrypt",
-        Op::Reencrypt,
-        evidence,
-        Guard::Permits,
-        known = [
-            (
-                "rotating",
-                "no guard refuses a re-encryption while a key change is unfinished: the files would be \
-                 written under the old key the rotation is replacing"
-            ),
-            (
-                "unknown",
-                "the keyring failed on a re-read after the drive had opened"
-            ),
-        ]
-    );
-}
-
 /// Where a new drive's keys go as it is made ([`Account::signup`]).
 pub struct NewKeys<'k> {
     /// This device's keyring: the drive key and the device's member key.
@@ -492,8 +466,12 @@ impl Account {
         stop: &dyn Fn() -> bool,
     ) -> CloudResult<bool> {
         let drive = self.open_encrypted(keyring, provider)?;
-        shadow_reencrypt(keyring, &self.record().id);
-        Ok(rotation::reencrypt_pass(&drive, state, save, stop)?)
+        // The key permit asks: a key change that is not over, or a keyring that cannot be read, refuses
+        // it (the files would be written under the key the change replaces).
+        let permit = rotation::ask_reencrypt(keyring, &self.record().id, &drive)?;
+        Ok(rotation::reencrypt_pass(
+            &permit, &drive, state, save, stop,
+        )?)
     }
 
     /// Turns incoming mail on for the encrypted drive: its drop key (the bucket's, else a new

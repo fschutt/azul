@@ -501,28 +501,6 @@ fn shadow_new_code(keyring: &dyn KeyringStore, drive: &str) {
     );
 }
 
-/// "Re-encrypt everything": the drive opened, so a key opens its index; nothing asks whether a key
-/// change is unfinished.
-fn shadow_reencrypt(keyring: &dyn KeyringStore, drive: &str) {
-    let mut evidence = shadow_evidence(drive, keyring);
-    evidence.bucket.encrypted = Read::Found(true);
-    evidence.bucket.index_opens = Read::Found(true);
-    azul_storage::key_shadow!(
-        "azul_drive::encryption::reencrypt_job",
-        Op::Reencrypt,
-        evidence,
-        Guard::Permits,
-        known = [
-            (
-                "rotating",
-                "no guard refuses a re-encryption while a key change is unfinished: the files would be \
-                 written under the old key the rotation is replacing"
-            ),
-            ("unknown", "the keyring failed on a re-read after the drive had opened"),
-        ]
-    );
-}
-
 /// "Restore as of..." and a file's restored version, where the restore goes on: the guard is the
 /// state's own policy (`EncState::restore_kind`: the files for an encrypted drive, "open it first"
 /// for one nobody decided, "encrypt it first" for one that is not), asked only for the answer that
@@ -3256,10 +3234,12 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     provider.as_ref(),
                 )
                 .map_err(|e| e.to_string())?;
-                shadow_reencrypt(&keyring, auto.drive());
+                // The key permit asks: a key change that is not over refuses it.
+                let permit = rotation::ask_reencrypt(&keyring, auto.drive(), &drive)
+                    .map_err(|e| e.to_string())?;
                 let mut save =
                     |state: &ReencryptState| save_state(&state_file, &state.to_json());
-                reencrypt_pass(&drive, &mut state, &mut save, &|| false)
+                reencrypt_pass(&permit, &drive, &mut state, &mut save, &|| false)
                     .map_err(|e| e.to_string())?;
                 // Done: the next "Re-encrypt" starts a new pass. A state that cannot be removed
                 // is said (the next pass would find a finished one).

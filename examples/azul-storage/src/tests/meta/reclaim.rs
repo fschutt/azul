@@ -1474,7 +1474,8 @@ fn az_m2_a_drive_in_shadow_mode_keeps_an_object_nothing_names_and_its_journal_en
 #[test]
 fn az_m2_re_encrypting_a_drive_with_history_keeps_its_old_versions_until_the_user_confirms_a_purge()
 {
-    use crate::rotation::{reencrypt_pass, ReencryptState};
+    use crate::rotation::ReencryptState;
+    use crate::tests::asked::reencrypt_pass_of_parts;
 
     let bucket = Arc::new(MemoryBucket::new());
     bucket.set_server_clock(crate::time::now_unix);
@@ -1498,7 +1499,7 @@ fn az_m2_re_encrypting_a_drive_with_history_keeps_its_old_versions_until_the_use
 
     // Every file is written into a new object; the old ones are the history, and stay.
     let mut state = ReencryptState::new(crate::time::now_unix() + 10);
-    assert!(reencrypt_pass(&drive, &mut state, &mut |_| Ok(()), &|| false).unwrap());
+    assert!(reencrypt_pass_of_parts(&key, &drive, &mut state, &mut |_| Ok(()), &|| false).unwrap());
     assert_eq!(state.done, 1);
     assert_eq!(
         objects(&bucket),

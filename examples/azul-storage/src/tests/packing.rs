@@ -683,7 +683,8 @@ fn a_key_rotation_rewraps_packed_files_and_the_reencryption_repacks_them() {
     }
     let mut state = crate::rotation::ReencryptState::new(now_unix() + 10);
     let done =
-        crate::rotation::reencrypt_pass(&after, &mut state, &mut |_| Ok(()), &|| false).unwrap();
+        super::asked::reencrypt_pass_of_parts(&new, &after, &mut state, &mut |_| Ok(()), &|| false)
+            .unwrap();
     assert!(done);
     for (path, bytes) in &files {
         let object = after.entry(path).unwrap().object.unwrap();
