@@ -10,11 +10,26 @@
 //! A quiet keyring ([`AzulKeyring::quiet`]: azul's `*_quietly_in` ops) never shows a prompt:
 //! where the system would have to ask the user it answers [`KeyringError::Denied`]. Background
 //! work reads and writes with it, so a start or a timer never raises a dialog.
+//!
+//! # The tests' keyring (cargo feature `memory-keyring`)
+//!
+//! With the feature every [`AzulKeyring`] - [`azlin_keyring`] builds the Azlin apps' one, and no
+//! other code builds one - keeps its entries in a map of this process: no call into azul, no
+//! system keychain, no file, no lock folder of the user's, and [`KeyringStore::protection`] says
+//! [`Protection::Memory`]. It is what a TEST build of an app needs: the libazul the tests link is
+//! built without its own `test-hooks`, so it ignores `AZ_KEYRING=memory`, and a test that reached
+//! `azlin_keyring()` wrote (and read) the owner's real login keychain (X-TESTFIX-AZUL2-4: two
+//! AzDrive tests left their drives' keys there, and a rebuilt test binary then blocked on the
+//! keychain's access prompt). The feature is named in the `[dev-dependencies]` of a crate whose
+//! tests reach the keyring and nowhere else (`examples/azul-srcgate/tests/memory_keyring_gate.rs`
+//! reads every manifest for it): a build that ships would lose every drive key at exit.
+//!
+//! One map for the process, the entries of every namespace apart in it, as the system keeps them.
+//! Nothing in memory needs the user, so a quiet keyring ([`Asking::Never`]) answers what a user's
+//! keyring does - the system's quiet ops answer [`KeyringError::Denied`] only where the system
+//! would have had to ask.
 
-use azul::{
-    error::KeyringResult,
-    misc::{Keyring, KeyringNamespace as AzulNamespace},
-};
+use azul::misc::KeyringNamespace as AzulNamespace;
 
 use crate::{
     keyring::{Asking, KeyringError, KeyringNamespace, KeyringStore, Protection, ENTRY_LOCK_WAIT},
@@ -75,10 +90,6 @@ impl AzulKeyring {
     pub fn namespace(&self) -> &KeyringNamespace {
         &self.namespace
     }
-
-    fn service(&self) -> AzulNamespace {
-        azul_namespace(&self.namespace)
-    }
 }
 
 /// The keyring of the Azlin apps - AzDrive, AzMail, the bridge - in their shared namespace: the
@@ -86,24 +97,17 @@ impl AzulKeyring {
 /// entries are changed under, are applied here and nowhere else). `asking` says whether it may
 /// show the system's prompt: `Asking::User` for what the user asked for, `Asking::Never` for
 /// background work. Its entries are held under the locks every process of this user shares
-/// (`<config dir>/azlin/locks/<namespace>`) when the system names a configuration folder.
+/// (`<config dir>/azlin/locks/<namespace>`) when the system names a configuration folder. In a
+/// test build (cargo feature `memory-keyring`, see the module's doc) it is a map of this process,
+/// held under this process's locks.
 #[must_use]
 pub fn azlin_keyring(asking: Asking) -> AzulKeyring {
     let namespace = KeyringNamespace::azlin_shared();
-    let locks = crate::lock::user_config_dir().map(|config| {
-        LockDir::new(
-            crate::lock::keyring_lock_root(&config)
-                .join(crate::lock::namespace_folder(namespace.as_str())),
-        )
-    });
     let keyring = match asking {
         Asking::User => AzulKeyring::new(namespace),
         Asking::Never => AzulKeyring::quiet(namespace),
     };
-    match locks {
-        Some(locks) => keyring.with_locks(locks),
-        None => keyring,
-    }
+    backing::shared_locks(keyring)
 }
 
 /// azul's form of `namespace`, for a UI callback's `CallbackInfo::keyring_*_in`: the entries
@@ -113,57 +117,21 @@ pub fn azul_namespace(namespace: &KeyringNamespace) -> AzulNamespace {
     AzulNamespace::create(namespace.as_str())
 }
 
-/// What a keyring answer that is no success says.
-fn error_of(answer: &KeyringResult) -> KeyringError {
-    match answer {
-        KeyringResult::Denied => KeyringError::Denied,
-        KeyringResult::Unavailable => KeyringError::Unavailable,
-        KeyringResult::NotFound => KeyringError::Failed(String::from("the entry is not there")),
-        KeyringResult::Error => KeyringError::Failed(String::from("the keyring reported an error")),
-        _ => KeyringError::Failed(String::from("the keyring answered something else")),
-    }
-}
-
 impl KeyringStore for AzulKeyring {
     fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
-        let answer = if self.quiet {
-            Keyring::get_quietly_in(self.service(), key)
-        } else {
-            Keyring::get_blocking_in(self.service(), key)
-        };
-        match answer {
-            KeyringResult::Retrieved(secret) => Ok(Some(secret.as_str().to_string())),
-            KeyringResult::NotFound => Ok(None),
-            other => Err(error_of(&other)),
-        }
+        backing::get(&self.namespace, self.quiet, key)
     }
 
     fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
-        let answer = if self.quiet {
-            Keyring::store_quietly_in(self.service(), key, secret, false)
-        } else {
-            Keyring::store_blocking_in(self.service(), key, secret, false)
-        };
-        match answer {
-            KeyringResult::Stored => Ok(()),
-            other => Err(error_of(&other)),
-        }
+        backing::set(&self.namespace, self.quiet, key, secret)
     }
 
     fn delete(&self, key: &str) -> Result<(), KeyringError> {
-        let answer = if self.quiet {
-            Keyring::delete_quietly_in(self.service(), key)
-        } else {
-            Keyring::delete_blocking_in(self.service(), key)
-        };
-        match answer {
-            KeyringResult::Deleted | KeyringResult::NotFound => Ok(()),
-            other => Err(error_of(&other)),
-        }
+        backing::delete(&self.namespace, self.quiet, key)
     }
 
     fn protection(&self) -> Protection {
-        Protection::Os
+        backing::PROTECTION
     }
 
     fn hold(&self, key: &str) -> Result<HeldLock, KeyringError> {
@@ -172,5 +140,242 @@ impl KeyringStore for AzulKeyring {
             None => crate::lock::in_process(key, ENTRY_LOCK_WAIT),
         }
         .map_err(|e| KeyringError::Failed(e.to_string()))
+    }
+}
+
+/// Where the ops of every [`AzulKeyring`] go: the system's keyring through azul. The one of the two
+/// modules a build has (the other is the test build's, below), so a test build cannot reach this
+/// one at all.
+#[cfg(not(feature = "memory-keyring"))]
+mod backing {
+    use azul::{error::KeyringResult, misc::Keyring};
+
+    use super::{azul_namespace, AzulKeyring};
+    use crate::{
+        keyring::{KeyringError, KeyringNamespace, Protection},
+        lock::LockDir,
+    };
+
+    /// The operating system's keyring.
+    pub(super) const PROTECTION: Protection = Protection::Os;
+
+    /// `keyring` with the folder of the locks every process of this user shares: its entries are
+    /// changed in several steps under them, so two windows or two apps take turns.
+    pub(super) fn shared_locks(keyring: AzulKeyring) -> AzulKeyring {
+        let locks = crate::lock::user_config_dir().map(|config| {
+            LockDir::new(
+                crate::lock::keyring_lock_root(&config)
+                    .join(crate::lock::namespace_folder(keyring.namespace().as_str())),
+            )
+        });
+        match locks {
+            Some(locks) => keyring.with_locks(locks),
+            None => keyring,
+        }
+    }
+
+    /// What a keyring answer that is no success says.
+    fn error_of(answer: &KeyringResult) -> KeyringError {
+        match answer {
+            KeyringResult::Denied => KeyringError::Denied,
+            KeyringResult::Unavailable => KeyringError::Unavailable,
+            KeyringResult::NotFound => KeyringError::Failed(String::from("the entry is not there")),
+            KeyringResult::Error => {
+                KeyringError::Failed(String::from("the keyring reported an error"))
+            }
+            _ => KeyringError::Failed(String::from("the keyring answered something else")),
+        }
+    }
+
+    pub(super) fn get(
+        namespace: &KeyringNamespace,
+        quiet: bool,
+        key: &str,
+    ) -> Result<Option<String>, KeyringError> {
+        let service = azul_namespace(namespace);
+        let answer = if quiet {
+            Keyring::get_quietly_in(service, key)
+        } else {
+            Keyring::get_blocking_in(service, key)
+        };
+        match answer {
+            KeyringResult::Retrieved(secret) => Ok(Some(secret.as_str().to_string())),
+            KeyringResult::NotFound => Ok(None),
+            other => Err(error_of(&other)),
+        }
+    }
+
+    pub(super) fn set(
+        namespace: &KeyringNamespace,
+        quiet: bool,
+        key: &str,
+        secret: &str,
+    ) -> Result<(), KeyringError> {
+        let service = azul_namespace(namespace);
+        let answer = if quiet {
+            Keyring::store_quietly_in(service, key, secret, false)
+        } else {
+            Keyring::store_blocking_in(service, key, secret, false)
+        };
+        match answer {
+            KeyringResult::Stored => Ok(()),
+            other => Err(error_of(&other)),
+        }
+    }
+
+    pub(super) fn delete(
+        namespace: &KeyringNamespace,
+        quiet: bool,
+        key: &str,
+    ) -> Result<(), KeyringError> {
+        let service = azul_namespace(namespace);
+        let answer = if quiet {
+            Keyring::delete_quietly_in(service, key)
+        } else {
+            Keyring::delete_blocking_in(service, key)
+        };
+        match answer {
+            KeyringResult::Deleted | KeyringResult::NotFound => Ok(()),
+            other => Err(error_of(&other)),
+        }
+    }
+}
+
+/// Where the ops of every [`AzulKeyring`] go in a test build (cargo feature `memory-keyring`): a map
+/// of this process, one for every keyring that is built, the entries of each namespace apart.
+/// Nothing here calls azul, the system or the disk.
+#[cfg(feature = "memory-keyring")]
+mod backing {
+    use std::{
+        collections::BTreeMap,
+        sync::{Mutex, MutexGuard, PoisonError},
+    };
+
+    use super::AzulKeyring;
+    use crate::keyring::{KeyringError, KeyringNamespace, Protection};
+
+    /// Entries by (namespace, entry name).
+    type Entries = BTreeMap<(String, String), String>;
+
+    /// The process's keyring.
+    static ENTRIES: Mutex<Entries> = Mutex::new(BTreeMap::new());
+
+    /// The memory of this process: nothing is kept for the next run.
+    pub(super) const PROTECTION: Protection = Protection::Memory;
+
+    /// The map; a test that panicked while it held it leaves it as it was, for the tests after it.
+    fn entries() -> MutexGuard<'static, Entries> {
+        ENTRIES.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn at(namespace: &KeyringNamespace, key: &str) -> (String, String) {
+        (namespace.as_str().to_string(), key.to_string())
+    }
+
+    /// `keyring` as it is: the map is this process's, so the locks that hold its entries are too
+    /// (no lock folder in the user's configuration folder).
+    pub(super) fn shared_locks(keyring: AzulKeyring) -> AzulKeyring {
+        keyring
+    }
+
+    pub(super) fn get(
+        namespace: &KeyringNamespace,
+        _quiet: bool,
+        key: &str,
+    ) -> Result<Option<String>, KeyringError> {
+        Ok(entries().get(&at(namespace, key)).cloned())
+    }
+
+    pub(super) fn set(
+        namespace: &KeyringNamespace,
+        _quiet: bool,
+        key: &str,
+        secret: &str,
+    ) -> Result<(), KeyringError> {
+        entries().insert(at(namespace, key), secret.to_string());
+        Ok(())
+    }
+
+    pub(super) fn delete(
+        namespace: &KeyringNamespace,
+        _quiet: bool,
+        key: &str,
+    ) -> Result<(), KeyringError> {
+        entries().remove(&at(namespace, key));
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "memory-keyring"))]
+mod tests {
+    use super::*;
+
+    /// X-TESTFIX-AZUL2-4: what the Azlin apps' keyring is in a test build - a map of this process, whose
+    /// entries read back, replace, and go with a delete (one that is not there is no error).
+    #[test]
+    fn the_azlin_keyring_of_a_test_build_is_a_map_that_reads_back_what_was_stored() {
+        let keyring = azlin_keyring(Asking::User);
+        assert_eq!(keyring.protection(), Protection::Memory);
+        let entry = "azul-storage/tests/memory-keyring/round-trip";
+        assert_eq!(keyring.get(entry), Ok(None));
+        keyring.set(entry, "first").unwrap();
+        assert_eq!(keyring.get(entry).unwrap().as_deref(), Some("first"));
+        keyring.set(entry, "second").unwrap();
+        assert_eq!(
+            keyring.get(entry).unwrap().as_deref(),
+            Some("second"),
+            "a store replaces what was there"
+        );
+        keyring.delete(entry).unwrap();
+        keyring.delete(entry).unwrap();
+        assert_eq!(keyring.get(entry), Ok(None));
+    }
+
+    /// One map for the process: what a keyring that may ask stores, a quiet one reads (and the other
+    /// way), as the system's two ops reach the same entries; the entries of two namespaces are
+    /// apart.
+    #[test]
+    fn the_two_askings_share_one_map_and_two_namespaces_are_apart() {
+        let entry = "azul-storage/tests/memory-keyring/shared";
+        let user = azlin_keyring(Asking::User);
+        let never = azlin_keyring(Asking::Never);
+        assert!(!user.is_quiet() && never.is_quiet());
+        user.set(entry, "by the user").unwrap();
+        assert_eq!(never.get(entry).unwrap().as_deref(), Some("by the user"));
+        never.set(entry, "in the background").unwrap();
+        assert_eq!(
+            user.get(entry).unwrap().as_deref(),
+            Some("in the background")
+        );
+        let other = AzulKeyring::new(KeyringNamespace::named("org.example.memory-keyring-test"));
+        assert_eq!(
+            other.get(entry),
+            Ok(None),
+            "the entry is the Azlin namespace's, not another's"
+        );
+        other.set(entry, "elsewhere").unwrap();
+        assert_eq!(
+            user.get(entry).unwrap().as_deref(),
+            Some("in the background")
+        );
+        other.delete(entry).unwrap();
+        never.delete(entry).unwrap();
+        assert_eq!(user.get(entry), Ok(None));
+    }
+
+    /// Held in this process only: the keyring `azlin_keyring` builds names no lock folder of the
+    /// user's (nothing is written to the configuration folder), and an entry is held and let go.
+    #[test]
+    fn the_entries_of_a_test_build_are_held_in_process_and_no_lock_folder_is_named() {
+        let keyring = azlin_keyring(Asking::User);
+        assert!(keyring.locks.is_none(), "{keyring:?}");
+        let held = keyring
+            .hold("azul-storage/tests/memory-keyring/held")
+            .unwrap();
+        drop(held);
+        let again = keyring
+            .hold("azul-storage/tests/memory-keyring/held")
+            .unwrap();
+        drop(again);
     }
 }

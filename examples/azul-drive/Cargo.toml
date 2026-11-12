@@ -53,8 +53,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
-# The one temporary folder for tests (azul_storage::testing::TempDir).
-azul-storage = { path = "../azul-storage", features = ["testing"] }
+# The one temporary folder for tests (azul_storage::testing::TempDir), and the keyring a test reaches
+# (`azlin_keyring()`, which `run` and `wrap` build): a map of the process, never the owner's system
+# keychain (the libazul the tests link ignores AZ_KEYRING=memory; X-TESTFIX-AZUL2-4). Dev only:
+# azul-srcgate's memory_keyring_gate refuses the name in any other table.
+azul-storage = { path = "../azul-storage", features = ["testing", "memory-keyring"] }
 # A keyring of a test's own, with locks of its own (`SharedKeyring::with_lock_root`).
 azcloud-kit = { path = "../azcloud-kit", features = ["testing"] }
 # The tests of the sign-in resolve the provider's endpoints from an environment of their own; a

@@ -73,8 +73,10 @@ microdns = "0.1"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider", "webpki-roots"] }
 
 [dev-dependencies]
-# The one temporary folder for tests (azul_storage::testing::TempDir).
-azul-storage = { path = "../azul-storage", features = ["testing"] }
+# The one temporary folder for tests (azul_storage::testing::TempDir), and the keyring a test reaches
+# (`azlin_keyring()`): a map of the process, never the owner's system keychain (X-TESTFIX-AZUL2-4).
+# Dev only: azul-srcgate's memory_keyring_gate refuses the name in any other table.
+azul-storage = { path = "../azul-storage", features = ["testing", "memory-keyring"] }
 # The tests' helpers (`testutil`: the temporary folder, the SMTP sink).
 azul-mail-core = { path = "../azul-mail-core", default-features = false, features = ["testing"] }
 

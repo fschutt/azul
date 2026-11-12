@@ -113,3 +113,25 @@ fn this_shipped_process_takes_nothing_from_its_environment() {
         "a shipped AzMail trusted a certificate a variable named"
     );
 }
+
+/// X-TESTFIX-AZUL2-4: the keyring AzMail's tests reach - `azlin_keyring`, the one place - is a map
+/// of this process and NOT the system keychain. The test binary links a libazul built without its
+/// own `test-hooks`, which ignores `AZ_KEYRING=memory`: a test that reaches the keyring there
+/// writes (and reads) the owner's real login keychain. The assertion is on the keyring object's
+/// own word, made before any entry is touched.
+#[test]
+fn the_keyring_a_test_build_reaches_is_a_map_of_this_process_and_never_the_system_keychain() {
+    use azul_storage::{
+        azul_keyring::azlin_keyring,
+        keyring::{Asking, KeyringStore, Protection},
+    };
+    for asking in [Asking::User, Asking::Never] {
+        assert_eq!(
+            azlin_keyring(asking).protection(),
+            Protection::Memory,
+            "azlin_keyring({asking:?}) is the SYSTEM keyring in this test build: a test that \
+             reaches it writes the owner's real keychain. azul-storage's cargo feature \
+             `memory-keyring` belongs in this crate's [dev-dependencies]"
+        );
+    }
+}

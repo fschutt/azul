@@ -163,6 +163,15 @@ testing = []
 # is sent to (`oauth::TOKEN_URL`), as a fake provider on this computer needs. A shipped build
 # refreshes at the provider's own endpoint, whatever `drives.json` says.
 test-hooks = []
+# TESTS ONLY (X-TESTFIX-AZUL2-4): `azul_keyring::azlin_keyring()` - the ONE place the Azlin apps' keyring is
+# built - answers with a keyring in this process's memory (one map per process): no SecItem, Credential Manager
+# or Secret Service call, no file, no lock folder of the user's. libazul's own stand-in (AZ_KEYRING=memory) is
+# honoured only by a libazul built with ITS `test-hooks`, and the libazul the apps' tests link is not: a test that
+# reached `azlin_keyring()` wrote the owner's real keychain. Named in the `[dev-dependencies]` of a crate whose
+# tests reach the keyring (azul-drive, azul-mail, azul-bridge) and NOWHERE else - never in a `[dependencies]` table
+# or the feature list of a build that ships (a shipped AzDrive would lose every drive key at exit):
+# `examples/azul-srcgate/tests/memory_keyring_gate.rs` reads every manifest for it.
+memory-keyring = []
 # Data sources through Apache OpenDAL (OpendalDrive; the catalog's OpenDAL entries).
 opendal = ["dep:opendal", "dep:http", "dep:futures", "dep:tokio"]
 # Databases browsed as files (DatabaseDrive; the catalog's database entries).

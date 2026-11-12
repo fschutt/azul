@@ -173,6 +173,24 @@ mod tests {
         assert_eq!(sign_in_entry("ada@example.org"), "AzMail/ada@example.org/imap");
     }
 
+    /// X-TESTFIX-AZUL2-4: the OS keyring a bridge TEST build opens (`os-keyring`: libazul linked)
+    /// is a map of this process and NOT the system keychain: the test binary links a libazul built
+    /// without its own `test-hooks`, which ignores `AZ_KEYRING=memory`. The assertion is on the
+    /// keyring object's own word, made before any entry is touched.
+    #[cfg(feature = "os-keyring")]
+    #[test]
+    fn x_testfix_azul2_4_the_os_keyring_a_test_build_opens_is_a_map_of_this_process() {
+        let dir = TempDir::new("bridge-os-keyring");
+        let keyring = open(KeyringChoice::Os, FileSecrets::new(dir.0.join("s.json"))).unwrap();
+        assert_eq!(
+            keyring.protection(),
+            azul_storage::footprint::Protection::Memory,
+            "the OS keyring is the SYSTEM keychain in this test build: a test that reaches it \
+             writes the owner's real keychain. azul-storage's cargo feature `memory-keyring` \
+             belongs in this crate's [dev-dependencies]"
+        );
+    }
+
     #[test]
     fn the_keyring_choice_reads_back_and_a_build_without_libazul_has_no_os_keyring() {
         for choice in [KeyringChoice::Os, KeyringChoice::File] {

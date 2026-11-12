@@ -6432,6 +6432,39 @@ mod tests {
         assert!(proof(&UnreadableKeyring, a_checked_code(), Some(&NeverAsked)).is_none());
     }
 
+    /// X-TESTFIX-AZUL2-4: the keyring `run` and `wrap` build - `azlin_keyring`, the one place - is,
+    /// in this crate's test build, a map in this process and NOT the system keychain. The test
+    /// binary links a libazul built without its own `test-hooks`, which ignores `AZ_KEYRING=memory`:
+    /// the two `x_delta_azdrive_keys_20_*` tests below left their drives' keys in the owner's real
+    /// login keychain, and a rebuilt test binary then blocked on the keychain's access prompt. The
+    /// assertion is on the keyring object's own word (`protection`), made BEFORE any entry is read
+    /// or written, so the test on the old code fails without touching the keychain either.
+    #[test]
+    fn x_testfix_azul2_4_the_keyring_a_test_build_reaches_is_a_map_of_this_process_and_never_the_system_keychain(
+    ) {
+        for asking in [Asking::User, Asking::Never] {
+            let keyring = azlin_keyring(asking);
+            assert_eq!(
+                keyring.protection(),
+                azul_storage::keyring::Protection::Memory,
+                "azlin_keyring({asking:?}) is the SYSTEM keyring in this test build: a test that \
+                 reaches it writes the owner's real keychain. azul-storage's cargo feature \
+                 `memory-keyring` belongs in this crate's [dev-dependencies]"
+            );
+        }
+        // Only now, with the map known to be the one in front of it: what one asking writes the
+        // other reads (one map per process), and an entry that is not there is no error.
+        let entry = "x-testfix-azul2-4/seam";
+        let user = azlin_keyring(Asking::User);
+        let never = azlin_keyring(Asking::Never);
+        assert_eq!(never.get(entry), Ok(None));
+        user.set(entry, "kept in memory").unwrap();
+        assert_eq!(never.get(entry).unwrap().as_deref(), Some("kept in memory"));
+        user.delete(entry).unwrap();
+        user.delete(entry).unwrap();
+        assert_eq!(never.get(entry), Ok(None));
+    }
+
     /// X-DELTA-AZDRIVE-KEYS-20: "Encrypt this drive" on a drive that holds files saves the mark
     /// "the files still have to move" BEFORE the key exists. The job's own first step does it
     /// (`before`), through the real `run`: here it records whether the drive had a key, or a key

@@ -83,8 +83,11 @@ tray = ["dep:azul", "os-keyring", "azul-appkit/azul"]
 test-hooks = ["azcloud-kit/test-hooks"]
 
 [dev-dependencies]
-# A temporary folder for the tests (azul_storage::testing::TempDir).
-azul-storage = { path = "../azul-storage", features = ["testing"] }
+# A temporary folder for the tests (azul_storage::testing::TempDir), and - in a build with `os-keyring`
+# - the keyring a test reaches (`azlin_keyring()`): a map of the process, never the owner's system
+# keychain (X-TESTFIX-AZUL2-4). The feature does nothing without `azul`, which `os-keyring` turns on.
+# Dev only: azul-srcgate's memory_keyring_gate refuses the name in any other table.
+azul-storage = { path = "../azul-storage", features = ["testing", "memory-keyring"] }
 # The one-connection SMTP sink the sending tests deliver to (azmail_core::testutil).
 azul-mail-core = { path = "../azul-mail-core", default-features = false, features = ["testing"] }
 # Throwaway roots and a loopback TLS server (azul-core's tls_testing) for the trust tests.
