@@ -160,13 +160,18 @@ impl AzMailSubmitter {
         else {
             return 0;
         };
-        let mut kept = Vec::new();
+        // The lines that leave the index: copies moved into the drive, and lines whose file is
+        // verifiably gone. Every other line stays.
+        let mut taken: HashSet<String> = HashSet::new();
         let mut moved = 0;
         for entry in entries {
             let bytes = match spool.get(&entry.path) {
                 Ok(bytes) => bytes,
                 // The file is verifiably gone: the entry has nothing to move, and goes.
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    taken.insert(entry.path);
+                    continue;
+                }
                 // Any other failure (a scanner holds the file, a failing disk) is an unknown, not
                 // "gone": the entry stays and the next drain moves the copy (X-DELTA-SYNC6-9).
                 Err(e) => {
@@ -174,7 +179,6 @@ impl AzMailSubmitter {
                         "[azul-bridge] the Sent copy {} cannot be read yet: {e}",
                         entry.path
                     );
-                    kept.push(entry);
                     continue;
                 }
             };
@@ -183,18 +187,42 @@ impl AzMailSubmitter {
                 seen: true,
                 ..Marks::default()
             };
-            match self.store.append(&sent_box.path, &bytes, arrived, marks) {
-                Ok(stored) => {
-                    if let Some(id) = sent::message_id_of(&bytes) {
-                        self.sent.remember(&id, &sent_box.path, &stored.name);
-                    }
-                    let _ = spool.delete(&entry.path);
-                    moved += 1;
+            // A copy the drive refuses stays for the next drain.
+            if let Ok(stored) = self.store.append(&sent_box.path, &bytes, arrived, marks) {
+                if let Some(id) = sent::message_id_of(&bytes) {
+                    self.sent.remember(&id, &sent_box.path, &stored.name);
                 }
-                Err(_) => kept.push(entry),
+                // ARCH30-4: Why::Superseded (the copy is in the drive's Sent).
+                // collapse-ok: a spool file that stays is garbage; its line leaves below.
+                let _ = spool.delete(&entry.path);
+                taken.insert(entry.path);
+                moved += 1;
             }
         }
-        let _ = spool.put(&index_key, local::index_to_jsonl(&kept).as_bytes());
+        if taken.is_empty() {
+            return moved;
+        }
+        // The index is written back from what is in it NOW, minus what left: the bridge's
+        // submission files its own Sent copy into this index under another lock while a drain
+        // appends to the drive, and a line filed after this drain's snapshot is not in it. Writing
+        // the snapshot's remainder over the file dropped that line, its message file stayed in the
+        // spool for ever and never reached the drive (X-DELTA-APPS3-8). The one lock every writer
+        // of the spool's files takes is held for this short read-modify-write only.
+        let _spool = send::lock_outbox();
+        match spool.get(&index_key) {
+            Ok(text) => {
+                let now: Vec<local::IndexEntry> =
+                    local::index_from_jsonl(&String::from_utf8_lossy(&text))
+                        .into_iter()
+                        .filter(|entry| !taken.contains(&entry.path))
+                        .collect();
+                // collapse-ok: a write that fails leaves the lines of copies that are in the
+                // drive already: the next drain moves them again, a duplicate, never a loss.
+                let _ = spool.put(&index_key, local::index_to_jsonl(&now).as_bytes());
+            }
+            // Not read: every line stays, with the same duplicate as the only cost.
+            Err(e) => eprintln!("[azul-bridge] the spool's Sent index cannot be read: {e}"),
+        }
         moved
     }
 
@@ -581,5 +609,124 @@ mod tests {
         );
         assert!(index.is_empty(), "{index:?}");
         assert!(!drive.keys().iter().any(|k| k.starts_with("mail/Sent/")));
+    }
+
+    /// A drive that runs `once` when the first object is put into its Sent folder: another thread
+    /// of the bridge filing the Sent copy of its own mail into the spool while a drain appends.
+    struct Racing {
+        inner: Arc<MemoryDrive>,
+        once: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    }
+
+    impl Drive for Racing {
+        fn list(
+            &self,
+            request: &azul_storage::ListRequest,
+        ) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+            self.inner.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.inner.get(key)
+        }
+        fn get_range(
+            &self,
+            key: &str,
+            range: azul_storage::ByteRange,
+        ) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.inner.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+            if key.starts_with("mail/Sent/") {
+                let race = self
+                    .once
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take();
+                if let Some(race) = race {
+                    race();
+                }
+            }
+            self.inner.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+            self.inner.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+            self.inner.head(key)
+        }
+    }
+
+    /// X-DELTA-APPS3-8, RED on the code before: `drain` wrote the spool's Sent index back from the
+    /// snapshot it read at its start, while the bridge's submission - another thread, another lock -
+    /// filed the Sent copy of a second mail into it: the second mail's line was dropped, its file
+    /// stayed in the spool for ever and never reached the drive. The race is made at the exact
+    /// moment: the drive's first put of the drain is where the second copy is filed.
+    #[test]
+    fn x_delta_apps3_8_a_sent_copy_filed_while_a_drain_runs_is_not_lost_from_the_index() {
+        let dir = TempDir::new("bridge-drain-race");
+        let sent_root = account::account_dir(&DriveFolder::outside(dir.0.join("spool")), ACCOUNT);
+        let drive = Arc::new(MemoryDrive::new());
+        let racing = Arc::new(Racing {
+            inner: drive.clone(),
+            once: Mutex::new(None),
+        });
+        let submitter = AzMailSubmitter::new(
+            dir.0.join("spool"),
+            ACCOUNT,
+            None,
+            Arc::new(MemoryKeyring::new()),
+            Arc::new(DriveMailStore::new(racing.clone())),
+            Arc::new(SentRegistry::new()),
+        );
+        let seen = [String::from("\\Seen")];
+        send::file_message(
+            &sent_root,
+            local_sent(),
+            MESSAGE.as_bytes(),
+            &seen,
+            1_790_843_400,
+        )
+        .unwrap();
+        let second = MESSAGE
+            .replace("b1@example.org", "b2@example.org")
+            .replace("From the bridge", "Second");
+        let filer = sent_root.clone();
+        *racing.once.lock().unwrap() = Some(Box::new(move || {
+            send::file_message(
+                &filer,
+                local_sent(),
+                second.as_bytes(),
+                &seen,
+                1_790_843_500,
+            )
+            .unwrap();
+        }));
+        assert_eq!(submitter.drain(), 1, "the first copy moved");
+        let spool = local::MailStore::new(sent_root.clone());
+        let lines = |spool: &local::MailStore| {
+            local::index_from_jsonl(
+                &String::from_utf8(spool.get(&local::index_key(local_sent())).unwrap()).unwrap(),
+            )
+        };
+        let index = lines(&spool);
+        assert_eq!(index.len(), 1, "the second copy's line survives: {index:?}");
+        assert_eq!(index[0].subject, "Second");
+        assert!(
+            sent_root.path().join(&index[0].path).is_file(),
+            "and so does its file"
+        );
+        // The next drain moves it.
+        assert_eq!(submitter.drain(), 1);
+        assert_eq!(
+            drive
+                .keys()
+                .iter()
+                .filter(|k| k.starts_with("mail/Sent/"))
+                .count(),
+            2,
+            "{:?}",
+            drive.keys()
+        );
+        assert!(lines(&spool).is_empty());
     }
 }

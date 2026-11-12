@@ -969,6 +969,15 @@ pub fn outbox_index(entries: &[OutboxEntry]) -> Vec<IndexEntry> {
 /// never written by two threads at once, and an entry is never delivered twice in parallel.
 static OUTBOX_LOCK: Mutex<()> = Mutex::new(());
 
+/// Holds the lock every writer of the spool's files takes ([`send_mail`], [`send_prepared`],
+/// [`retry_outbox`]: an entry, the Sent index) until the guard is dropped. The Azlin Bridge's
+/// drain takes it for the short moment it reads the spool's Sent index and writes it back without
+/// the copies it moved, so a line a submission filed meanwhile is not dropped (X-DELTA-APPS3-8).
+/// Never held across a drive's request.
+pub fn lock_outbox() -> std::sync::MutexGuard<'static, ()> {
+    OUTBOX_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// One delivery attempt. `relay`: `None` is the recipients' MX hosts.
 pub(crate) trait Transport {
     fn deliver(
