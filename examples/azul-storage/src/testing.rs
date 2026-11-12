@@ -97,6 +97,71 @@ pub fn make_folder_chain(
     }
 }
 
+/// A moment `days` days ago: how old a kept copy is made when "days go by" in a test.
+#[must_use]
+pub fn days_ago(days: u32) -> std::time::SystemTime {
+    std::time::SystemTime::now() - std::time::Duration::from_secs(u64::from(days) * 86_400)
+}
+
+/// Sets the modification time of `path` - a file, or a folder - to `time`: what time does to a kept copy,
+/// its record and its folder. A link is left alone (opening it would age what it points at).
+///
+/// # Panics
+///
+/// When `path` cannot be opened or its time cannot be set.
+#[cfg(unix)]
+pub fn age_to(path: &Path, time: std::time::SystemTime) {
+    if !path.is_symlink() {
+        std::fs::File::open(path)
+            .expect("the path to age opens")
+            .set_modified(time)
+            .expect("its time is set");
+    }
+}
+
+/// `path` and everything below it made `time` old: a kept folder is as old as the newest thing in it, so
+/// a test that wants one old ages what is in it too.
+///
+/// # Panics
+///
+/// As [`age_to`], and when a folder of the tree cannot be read.
+#[cfg(unix)]
+pub fn age_tree_to(path: &Path, time: std::time::SystemTime) {
+    if path.is_dir() && !path.is_symlink() {
+        for entry in std::fs::read_dir(path).expect("the folder to age is read") {
+            age_tree_to(&entry.expect("an entry of the folder").path(), time);
+        }
+    }
+    age_to(path, time);
+}
+
+/// Notes the copy `name` of the kept `folder` as made AFTER everything in the folder was aged to `time`
+/// ([`age_tree_to`] first): what a copy that was made then and has not been touched since looks like. A
+/// record names the time of the file it describes, so a file aged after it was noted is "another file" to
+/// it (`MadeState::Changed`) and its folder the user's work - which is what a sweep must see only of a file
+/// somebody really wrote -; and writing the record changes the folder, which makes it young again, so the
+/// record and the folder are aged last. The ONE helper of the sweep tests of storage, the kit and AzDrive
+/// (X-TESTFIX-AZUL2-5: it was written four times, and the first versions of three of the tests aged the
+/// files after the record and went red for it).
+///
+/// # Panics
+///
+/// As [`age_to`], and when the copy is not `Untouched` afterwards: the fixture is then no copy that time
+/// has aged.
+#[cfg(unix)]
+pub fn note_made_long_ago(folder: &Path, name: &str, time: std::time::SystemTime) {
+    use crate::scratch::{MadeState, Scratch};
+
+    Scratch::note_made(folder, name).expect("the copy is noted as made");
+    age_to(&folder.join(".made.json"), time);
+    age_to(folder, time);
+    assert_eq!(
+        Scratch::made_state(folder, name),
+        MadeState::Untouched,
+        "the copy is the file that was written, long ago"
+    );
+}
+
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);

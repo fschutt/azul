@@ -4428,6 +4428,8 @@ pub(crate) extern "C" fn job_thread(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use azul_storage::testing::{age_to, note_made_long_ago};
     use azul_storage::testing::TempDir;
 
     use super::*;
@@ -6125,34 +6127,6 @@ mod tests {
         assert_eq!(cloud.gets(), 1, "fetched once");
     }
 
-    /// `time` set on `path`, a file or a folder.
-    #[cfg(unix)]
-    fn made_old(path: &Path, time: SystemTime) {
-        fs::File::open(path).unwrap().set_modified(time).unwrap();
-    }
-
-    /// Notes the copy `name` of the kept `folder` as made AFTER everything in the folder was aged
-    /// to `time`: what a copy that was made then and has not been touched since looks like. A
-    /// record names the time of the file it describes, so a file aged after it was noted is
-    /// "another file" to it ([`MadeState::Changed`]) and its folder the user's work - which is what
-    /// a sweep must see only of a file somebody really wrote -; and writing the record changes the
-    /// folder, which makes it young again, so the record and the folder are aged last. The same
-    /// order as the kit's and the storage's sweep tests (`note_made_long_ago`, `grown_old`) and the
-    /// picker's (X-DELTA-SYNC2-4).
-    #[cfg(unix)]
-    fn note_made_long_ago(folder: &Path, name: &str, time: SystemTime) {
-        use azul_storage::scratch::MadeState;
-
-        Scratch::note_made(folder, name).unwrap();
-        made_old(&folder.join(".made.json"), time);
-        made_old(folder, time);
-        assert_eq!(
-            Scratch::made_state(folder, name),
-            MadeState::Untouched,
-            "the copy is the file that was written, three days on"
-        );
-    }
-
     /// X-DELTA-AZDRIVE-FILES-7: a folder that holds work of the user's is never swept, however old;
     /// the same age takes an untouched copy's folder (and one no record names) away.
     ///
@@ -6180,7 +6154,7 @@ mod tests {
         let long_ago = SystemTime::now() - OPEN_COPY_KEPT * 3;
         for dir in [&folder, &other_folder] {
             for entry in fs::read_dir(dir).unwrap() {
-                made_old(&entry.unwrap().path(), long_ago);
+                age_to(&entry.unwrap().path(), long_ago);
             }
         }
         note_made_long_ago(&folder, "report.docx", long_ago);
@@ -6197,7 +6171,7 @@ mod tests {
         // The negative control: the folder stayed because of the user's file, not because it was
         // young or its copy "changed". Without the file, the same folder at the same age is swept.
         fs::remove_file(&mine).unwrap();
-        made_old(&folder, long_ago);
+        age_to(&folder, long_ago);
         assert_eq!(
             copies.sweep(OPEN_COPY_KEPT),
             1,

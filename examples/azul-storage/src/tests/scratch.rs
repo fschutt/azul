@@ -11,6 +11,8 @@ use std::{
 
 use super::TempDir;
 use crate::scratch::{self, Scratch};
+#[cfg(unix)]
+use crate::testing::{age_to, age_tree_to, days_ago, note_made_long_ago};
 
 /// A pid no process has (`kill(pid, 0)` says "no such process" on every system we run on).
 #[cfg(unix)]
@@ -19,45 +21,6 @@ const DEAD_PID: u32 = i32::MAX as u32;
 /// The horizon the sweep tests give: one day.
 #[cfg(unix)]
 const DAY: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
-
-/// `path` (a file, or a folder) made `days` old.
-#[cfg(unix)]
-fn age(path: &Path, days: u32) {
-    let when = std::time::SystemTime::now() - DAY * days;
-    fs::File::open(path).unwrap().set_modified(when).unwrap();
-}
-
-/// `path` and everything below it made `days` old: a kept folder is as old as the newest thing in
-/// it, so a test that wants it old ages what is in it too.
-#[cfg(unix)]
-fn age_tree(path: &Path, days: u32) {
-    if path.is_dir() && !path.is_symlink() {
-        for entry in fs::read_dir(path).unwrap() {
-            age_tree(&entry.unwrap().path(), days);
-        }
-    }
-    if !path.is_symlink() {
-        age(path, days);
-    }
-}
-
-/// Notes the copy `name` of the kept `folder` as made, AFTER `days` went by. A record names the
-/// time of the file it describes, so a file aged after it was noted is "another file" to it
-/// ([`crate::scratch::MadeState::Changed`]) and the folder is the user's work - which is what a
-/// sweep must see only of a file somebody really wrote -, and writing the record changes the
-/// folder, which makes it young again: the record and the folder are aged last. What a copy that
-/// was made `days` ago and has not been touched since looks like: [`age_tree`] first, then this.
-#[cfg(unix)]
-fn note_made_long_ago(folder: &Path, name: &str, days: u32) {
-    Scratch::note_made(folder, name).unwrap();
-    age(&folder.join(".made.json"), days);
-    age(folder, days);
-    assert_eq!(
-        Scratch::made_state(folder, name),
-        crate::scratch::MadeState::Untouched,
-        "the copy is the file that was written, three or four days on"
-    );
-}
 
 #[cfg(unix)]
 fn mode_of(path: &Path) -> u32 {
@@ -262,13 +225,13 @@ fn x_ar5a_23_a_sweep_removes_a_dead_processs_files_and_nothing_a_live_one_holds(
     // A live process's file: young stays, old goes.
     let young_live = planted(&dir, "spool", parent, 7, 2);
     let old_live = planted(&dir, "spool", parent, 7, 3);
-    age(&dir.join(&old_live), 3);
+    age_to(&dir.join(&old_live), days_ago(3));
     // Not the module's: another purpose's file, a name of no scheme, a folder.
     let other_purpose = planted(&dir, "open", DEAD_PID, 7, 4);
     fs::write(dir.join("notes.txt"), b"mine").unwrap();
     fs::create_dir(dir.join("folder")).unwrap();
     // This run's file is never swept, however old it looks.
-    age(&mine.path(), 30);
+    age_to(&mine.path(), days_ago(30));
 
     let removed = scratch.sweep(DAY);
     assert_eq!(removed, 3, "{:?}", names(&dir));
@@ -341,7 +304,7 @@ fn az_u13_a_kept_folder_is_one_per_tag_private_and_swept_when_old() {
     // Young: stays. Old: the folder and the read-only file in it go; the other tag stays.
     assert_eq!(open.sweep(DAY), 0);
     assert!(copy.exists());
-    age_tree(&a, 3);
+    age_tree_to(&a, days_ago(3));
     assert_eq!(open.sweep(DAY), 1);
     assert!(!a.exists());
     assert!(other_version.exists());
@@ -369,7 +332,7 @@ fn x_delta_azdrive_keys_32_a_scratch_tagged_by_a_drive_is_a_purpose_of_its_own()
         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
     let copy = one.keep("docs/a.docx\0v1").unwrap();
     fs::write(copy.join("a.docx"), b"cloud bytes").unwrap();
-    age_tree(&copy, 3);
+    age_tree_to(&copy, days_ago(3));
     assert_eq!(scratch::sweep_all_in(root.path(), DAY), 1);
     assert!(!copy.exists());
 }
@@ -473,6 +436,57 @@ fn x_delta_azdrive_files_7_a_kept_file_is_tracked_by_its_size_time_and_identity(
     );
 }
 
+/// X-TESTFIX-AZUL2-5. The one ageing helper of the sweep tests (storage's, the kit's and AzDrive's: it was
+/// written four times) makes what time makes of a kept copy: the copy, its record and its folder are old,
+/// and the copy is still the file that was written. Aged AFTER it was noted, a copy is another file to its
+/// record - which is why the helper ages the tree first and the record and the folder last, and why its
+/// callers never age a copy after noting it.
+#[cfg(unix)]
+#[test]
+fn x_testfix_azul2_5_the_shared_ageing_helper_makes_a_copy_that_time_aged_not_one_aged_after_its_note(
+) {
+    let tmp = TempDir::new("ageing-helper");
+    let scratch = Scratch::under(tmp.path(), "open");
+    let folder = scratch.keep("aged").unwrap();
+    fs::write(folder.join("a.txt"), b"cloud bytes").unwrap();
+    age_tree_to(&folder, days_ago(3));
+    note_made_long_ago(&folder, "a.txt", days_ago(3));
+    let age_of = |path: &Path| {
+        std::time::SystemTime::now()
+            .duration_since(fs::metadata(path).unwrap().modified().unwrap())
+            .unwrap()
+    };
+    for path in [
+        folder.clone(),
+        folder.join(".made.json"),
+        folder.join("a.txt"),
+    ] {
+        assert!(
+            age_of(&path) >= DAY * 3 - std::time::Duration::from_secs(60),
+            "{path:?} is three days old"
+        );
+    }
+    assert_eq!(
+        Scratch::made_state(&folder, "a.txt"),
+        scratch::MadeState::Untouched
+    );
+    // The same copy aged once more, after it was noted: the record names a time the file no longer has.
+    age_to(&folder.join("a.txt"), days_ago(5));
+    assert_eq!(
+        Scratch::made_state(&folder, "a.txt"),
+        scratch::MadeState::Changed,
+        "a file aged after its note is another file to its record"
+    );
+    // A link is left alone: opening it would age what it points at.
+    let outside = tmp.path().join("outside.txt");
+    fs::write(&outside, b"not a copy").unwrap();
+    let before = fs::metadata(&outside).unwrap().modified().unwrap();
+    std::os::unix::fs::symlink(&outside, folder.join("link")).unwrap();
+    age_to(&folder.join("link"), days_ago(9));
+    age_tree_to(&folder, days_ago(9));
+    assert_eq!(fs::metadata(&outside).unwrap().modified().unwrap(), before);
+}
+
 /// X-DELTA-AZDRIVE-FILES-7. The sweep takes a kept folder away when it is old - unless it holds
 /// something its owner did not write: a file the user saved beside the copy, or over it. A folder
 /// with a record that names only what is in it goes as before, and so does a folder with no
@@ -503,10 +517,10 @@ fn x_delta_azdrive_files_7_the_sweep_leaves_a_kept_folder_that_holds_the_users_w
     // file after it was noted changes the time its record names, and the sweep would take it for a
     // file somebody wrote (`note_made_long_ago`).
     for folder in [&plain, &beside, &over, &unrecorded] {
-        age_tree(folder, 3);
+        age_tree_to(folder, days_ago(3));
     }
-    note_made_long_ago(&plain, "a.txt", 3);
-    note_made_long_ago(&beside, "b.txt", 3);
+    note_made_long_ago(&plain, "a.txt", days_ago(3));
+    note_made_long_ago(&beside, "b.txt", days_ago(3));
     assert_eq!(
         Scratch::made_state(&over, "c.txt"),
         crate::scratch::MadeState::Changed,
@@ -560,9 +574,9 @@ fn x_delta_azdrive_files_29_the_sweep_removes_only_the_folders_keep_makes() {
         folder
     })
     .collect();
-    age_tree(&ours, 3);
+    age_tree_to(&ours, days_ago(3));
     for folder in &theirs {
-        age_tree(folder, 3);
+        age_tree_to(folder, days_ago(3));
     }
     assert_eq!(open.sweep(DAY), 1, "only the folder keep made");
     assert!(!ours.exists());
@@ -587,7 +601,7 @@ fn x_delta_azdrive_files_29_a_sweep_does_not_walk_a_link_planted_in_its_place() 
     let elsewhere = tmp.path().join("elsewhere");
     let kept = Scratch::under(&elsewhere, "open").keep("tag").unwrap();
     fs::write(kept.join("precious.txt"), b"not scratch").unwrap();
-    age_tree(&kept, 3);
+    age_tree_to(&kept, days_ago(3));
     let orphan = planted(&elsewhere.join("open"), "open", DEAD_PID, 1, 0);
     // `<root>/open` is a link to the folder a program of the same user keeps something in.
     std::os::unix::fs::symlink(elsewhere.join("open"), root.join("open")).unwrap();
@@ -615,13 +629,13 @@ fn x_delta_azdrive_files_29_a_kept_folder_is_as_old_as_the_newest_thing_in_it() 
     let folder = picked.keep("d_1").unwrap();
     fs::create_dir_all(folder.join("docs")).unwrap();
     fs::write(folder.join("docs").join("a.pdf"), b"old").unwrap();
-    age_tree(&folder, 3);
+    age_tree_to(&folder, days_ago(3));
     // A later pick into the same folder of the copy: only `docs` and the new file change.
     fs::write(folder.join("docs").join("b.pdf"), b"new").unwrap();
-    age(&folder, 3);
+    age_to(&folder, days_ago(3));
     assert_eq!(picked.sweep(DAY), 0, "a file picked today keeps the folder");
     assert!(folder.join("docs").join("b.pdf").exists());
-    age_tree(&folder, 3);
+    age_tree_to(&folder, days_ago(3));
     assert_eq!(picked.sweep(DAY), 1);
     assert!(!folder.exists());
 }
@@ -926,8 +940,8 @@ mod open_copy {
         // record made the folder young: what is left to tell the copies from the user's work is
         // what they are.
         for (folder, name) in [(&mine_folder, "report.docx"), (&other_folder, "other.docx")] {
-            age_tree(folder, 4);
-            note_made_long_ago(folder, name, 4);
+            age_tree_to(folder, days_ago(4));
+            note_made_long_ago(folder, name, days_ago(4));
         }
         let removed = copies.sweep(OPEN_COPY_KEPT);
         assert_eq!(removed, 1, "only the untouched copy's folder went");

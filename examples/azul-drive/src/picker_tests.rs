@@ -3,6 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use azul_storage::testing::{age_tree_to, days_ago, note_made_long_ago};
+
 use super::*;
 
 fn files(keys: &[&str]) -> Vec<(String, bool)> {
@@ -268,30 +271,6 @@ fn x_delta_azdrive_files_29_the_pickers_copies_wait_in_scratch_with_or_without_a
     std::fs::remove_dir_all(&root).unwrap();
 }
 
-/// `path` (a file, or a folder) made `days` old.
-#[cfg(unix)]
-fn aged_by(path: &Path, days: u32) {
-    let when =
-        std::time::SystemTime::now() - std::time::Duration::from_secs(u64::from(days) * 86_400);
-    std::fs::File::open(path)
-        .unwrap()
-        .set_modified(when)
-        .unwrap();
-}
-
-/// `path` and everything below it made `days` old: a kept folder is as old as the newest thing in it.
-#[cfg(unix)]
-fn aged_tree(path: &Path, days: u32) {
-    if path.is_dir() && !path.is_symlink() {
-        for entry in std::fs::read_dir(path).unwrap() {
-            aged_tree(&entry.unwrap().path(), days);
-        }
-    }
-    if !path.is_symlink() {
-        aged_by(path, days);
-    }
-}
-
 /// A copy of a cloud object as the picker's fetch leaves it: the key's file, in a staging folder.
 #[cfg(unix)]
 fn fetched(staging: &Path, name: &str) -> PathBuf {
@@ -361,11 +340,9 @@ fn x_delta_sync2_4_a_picked_copy_is_an_open_copy_and_an_edit_saved_over_it_survi
 
     // Four days go by. The untouched copy b is the file that was written, four days on (noted after
     // it was aged, its record and folder aged last); a's folder holds the edit.
-    aged_tree(copies.dir(), 4);
+    age_tree_to(copies.dir(), days_ago(4));
     let b_folder = b.parent().unwrap();
-    Scratch::note_made(b_folder, "b.docx").unwrap();
-    aged_by(&b_folder.join(".made.json"), 4);
-    aged_by(b_folder, 4);
+    note_made_long_ago(b_folder, "b.docx", days_ago(4));
     assert_eq!(
         Scratch::made_state(b_folder, "b.docx"),
         MadeState::Untouched
