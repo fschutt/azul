@@ -320,6 +320,74 @@ pub trait IndexProvider: Send + Sync {
 /// gate - not the provider - decides: a standing is evidence, never a verdict.
 pub type ReclaimStanding = Arc<dyn Fn(u64) -> Option<Standing> + Send + Sync>;
 
+/// A drive index that is read and never changed: the drive of a device whose own key change stopped between
+/// its R4 and its Members step is opened through it ([`own_rotation_window`]). Every change is refused with
+/// the sentence of the state, before the index could be asked to take it, so nothing is written under a key
+/// that is not the drive's yet.
+struct ReadOnlyIndex {
+    inner: Arc<dyn NameIndex>,
+    drive: String,
+}
+
+impl NameIndex for ReadOnlyIndex {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get(path)
+    }
+
+    fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get_fresh(path)
+    }
+
+    fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        self.inner.live_objects(now)
+    }
+
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request)
+    }
+
+    fn apply(&self, _changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        Err(DriveError::Denied {
+            message: format!(
+                "the key change of \"{drive}\" that this device began is not finished: its files can be \
+                 read here until it is, not changed (run \"I was hacked: new keys\" again to finish it)",
+                drive = self.drive
+            ),
+        })
+    }
+}
+
+/// The drive of a device whose own key change stopped between its R4 (the index sealed under the new key) and
+/// its Members step (the new key the drive key): the keyring's `drive-key` still opens nothing of the index, and
+/// the key the index is sealed under is the keyring's `drive-key-next`. The index opens with it in the rotation's
+/// window, `previous` (the drive key) as the key before it, READ-ONLY - [`ReadOnlyIndex`] - until the rotation
+/// resumes; `None` for a keyring that holds no such key or an index that opens with none (the first error stands:
+/// X-DELTA-KEYS3-8). The data was fine and the way out was "I was hacked" again, which needs the stopped step to
+/// succeed; the drive showed as unreadable on the only device that holds the key it is sealed under.
+fn own_rotation_window(
+    bucket: &Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    provider: &dyn IndexProvider,
+    previous: &DriveKey,
+) -> Option<EncryptedDrive<Arc<dyn Drive>>> {
+    let (_, next_entry) = device::rotation_key_entries(drive);
+    // A keyring that cannot be read, or holds no new key, is no window: the index's own error stands.
+    let next = device::load_key_at(keyring, &next_entry).ok().flatten()?;
+    if next == *previous {
+        // The same key: it failed already.
+        return None;
+    }
+    let index = provider
+        .open_index_in_window(drive, Arc::clone(bucket), &next, previous)
+        .ok()?;
+    let index: Arc<dyn NameIndex> = Arc::new(ReadOnlyIndex {
+        inner: index,
+        drive: drive.to_string(),
+    });
+    Some(EncryptedDrive::new(Arc::clone(bucket), next, index))
+}
+
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
 /// its member wrap in the bucket, [`crate::crypto::device::unlock`]), the index from
 /// `provider`. `Locked` when this device holds no key for the drive yet: it joins with a code
@@ -330,7 +398,10 @@ pub type ReclaimStanding = Arc<dyn Fn(u64) -> Option<Standing> + Send + Sync>;
 /// catches up ([`device::catch_up`]): that key goes into the keyring, and the index opens in
 /// the rotation's window ([`IndexProvider::open_index_in_window`]), where the device's copy
 /// sealed under the old key still opens. A wrap of a key it never pinned is refused
-/// (`KeyRefused`). Its reads of packs count under `drive`
+/// (`KeyRefused`). A key change of this device that stopped after the index was sealed under the new key
+/// and before the new key became the drive key leaves a drive key that opens nothing and no wrap to catch up
+/// from; the key the index is sealed under is the keyring's `drive-key-next`, and the drive opens with it,
+/// READ-ONLY, until the change is finished (X-DELTA-KEYS3-8). Its reads of packs count under `drive`
 /// ([`crate::packing::pack_reads`]).
 pub fn open_encrypted(
     bucket: Arc<dyn Drive>,
@@ -343,6 +414,8 @@ pub fn open_encrypted(
             drive: drive.to_string(),
         });
     };
+    // The key a window reads the file keys of the key before it with, besides the key chain's.
+    let mut window_of = None;
     let opened = match provider.open_index(drive, Arc::clone(&bucket), &drive_key) {
         Ok(index) => EncryptedDrive::new(bucket, drive_key, index),
         // The first error stands when there is nothing to catch up from.
@@ -354,11 +427,28 @@ pub fn open_encrypted(
             }
             // A wrap of a key this device does not take says more than the index's error.
             Err(refused @ DriveError::KeyRefused { .. }) => return Err(refused),
-            Ok(None) | Err(_) => return Err(e),
+            // A key change of this device that stopped after the index was sealed under the new key and
+            // before the new key became the drive key: its member wrap in the bucket is the old key's, so
+            // nothing catches up - and the key the index IS sealed under is in this keyring.
+            Ok(None) | Err(_) => {
+                match own_rotation_window(&bucket, keyring, drive, provider, &drive_key) {
+                    Some(window) => {
+                        window_of = Some(drive_key);
+                        window
+                    }
+                    None => return Err(e),
+                }
+            }
         },
     };
     // The keys from before the drive's rotations, for the file keys they wrapped.
     let opened = opened.with_key_chain(drive)?;
+    // The key before the new one wrapped every file key the re-wrap has not reached, and the chain holds it
+    // only from the rotation's chain step on.
+    let opened = match window_of {
+        Some(previous) => opened.also_opening_file_keys_of(previous),
+        None => opened,
+    };
     let opened = opened.counting_pack_reads_as(drive);
     let opened = opened.with_reclaim(provider.reclaim_mode(drive));
     let opened = match provider.reclaim_standing(drive) {
@@ -1776,6 +1866,16 @@ impl<D: Drive> EncryptedDrive<D> {
     #[must_use]
     pub fn with_older_keys(mut self, keys: Vec<DriveKey>) -> EncryptedDrive<D> {
         self.older_keys = keys;
+        self
+    }
+
+    /// Also opens the file keys wrapped by `key`, besides the older keys already known: the key a
+    /// window's drive key replaced.
+    #[must_use]
+    fn also_opening_file_keys_of(mut self, key: DriveKey) -> EncryptedDrive<D> {
+        if !self.older_keys.contains(&key) {
+            self.older_keys.push(key);
+        }
         self
     }
 

@@ -540,6 +540,116 @@ fn x_delta_keys2_1_a_rotation_has_begun_once_its_keys_are_in_the_keyring() {
     );
 }
 
+// ==== X-DELTA-KEYS3-8: the device that began a rotation opens its own drive in the window ====
+
+/// X-DELTA-KEYS3-8: a rotation of this device stopped after R4 sealed the index under K2 (the chain step's
+/// write refused: the keyring holds DK = P = K1 and N = K2, the member wrap is K1's still). `open_encrypted`
+/// took K1, found the index sealed under another key, found nothing to catch up from and answered "does not
+/// open with this drive's key": the drive was unreadable on the one device that holds the key it is sealed
+/// under, and the other devices were locked out already. It opens with N now - the files read, through the
+/// key before it where the chain does not hold it yet - and READ-ONLY: every change is refused with the
+/// sentence of the state and nothing reaches the bucket (the manifest and the object list are as they were).
+#[test]
+fn x_delta_keys3_8_a_device_whose_own_rotation_stopped_after_the_switch_opens_its_drive_read_only()
+{
+    let w = world();
+    let _k2 = w.stopped_after_the_switch();
+    assert!(
+        w.mem.get(CHAIN_KEY_FILE).is_err(),
+        "premise: the chain does not hold K1 yet"
+    );
+
+    let drive = open_encrypted(w.plain.clone(), &w.keyring, DRIVE, &w.provider)
+        .expect("the key the index is sealed under is in this keyring: the drive opens");
+    assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
+    assert_eq!(drive.get("photos/a.jpg").unwrap(), b"a photo");
+    let listed = drive.list(&ListRequest::recursive("")).unwrap();
+    let files: Vec<&str> = listed
+        .objects
+        .iter()
+        .map(|object| object.key.as_str())
+        .filter(|key| !key.ends_with('/'))
+        .collect();
+    assert_eq!(files, ["notes/plan.txt", "photos/a.jpg"], "{listed:?}");
+
+    // Read-only: nothing that changes the drive is let through, and nothing lands.
+    let manifest = w.mem.head(keys::MANIFEST).unwrap().etag;
+    let names = |w: &World| -> Vec<String> {
+        let mut names: Vec<String> = w.mem.objects().into_iter().map(|(name, _)| name).collect();
+        names.sort();
+        names
+    };
+    let objects = names(&w);
+    for result in [
+        drive
+            .put("notes/new.txt", b"written in the window")
+            .map(|_| ()),
+        drive.delete("notes/plan.txt"),
+        drive.rename("photos/a.jpg", "photos/b.jpg"),
+        drive.copy("photos/a.jpg", "photos/c.jpg"),
+        drive.create_folder("later/"),
+    ] {
+        match &result {
+            Err(DriveError::Denied { message }) => {
+                assert!(message.contains("not finished"), "{message}");
+                assert!(message.contains("I was hacked"), "{message}");
+            }
+            other => panic!("a change in the window is refused: {other:?}"),
+        }
+    }
+    let many = drive.put_many(&[crate::BatchPut::new("notes/late-1.txt", b"one")]);
+    assert!(
+        matches!(many[0], Err(DriveError::Denied { .. })),
+        "{:?}",
+        many[0]
+    );
+    assert_eq!(
+        w.mem.head(keys::MANIFEST).unwrap().etag,
+        manifest,
+        "the manifest did not move"
+    );
+    assert_eq!(
+        names(&w),
+        objects,
+        "no object was left behind by a refused change"
+    );
+    assert_eq!(
+        drive.get("notes/plan.txt").unwrap(),
+        b"the plan",
+        "and the file is still there"
+    );
+
+    // The rotation resumes - the same call - and the drive opens as every drive does, and changes.
+    rotate(w.plain.clone(), &w.keyring, DRIVE, &w.provider, cheap()).unwrap();
+    let drive = open_encrypted(w.plain.clone(), &w.keyring, DRIVE, &w.provider).unwrap();
+    drive.put("notes/new.txt", b"written after it").unwrap();
+    assert_eq!(drive.get("notes/new.txt").unwrap(), b"written after it");
+    assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
+}
+
+/// X-DELTA-KEYS3-8: the window is the key THIS device made for its own rotation and nothing else. A device
+/// that holds only the old key after another device's rotation (no `drive-key-next`) is refused as before,
+/// and so is one whose `drive-key-next` is a key the index is not sealed under: the first error stands.
+#[test]
+fn x_delta_keys3_8_no_window_for_a_device_that_holds_no_key_the_index_is_sealed_under() {
+    let w = world();
+    let (lagging, a, _) = lagging_behind_a_rotation(&w);
+    drop(lagging);
+    // The stale device's keyring: K1 as the drive key, nothing of a rotation.
+    let refused = open_encrypted(w.plain.clone(), &w.keyring, DRIVE, &w.provider);
+    assert!(refused.is_err(), "no new key here: no window");
+    // A `drive-key-next` that is not the key the index is sealed under opens nothing either.
+    let (_, next) = rotation_key_entries(DRIVE);
+    crate::crypto::device::store_key_at(&w.keyring, &next, &DriveKey::generate().unwrap()).unwrap();
+    let refused = open_encrypted(w.plain.clone(), &w.keyring, DRIVE, &w.provider);
+    assert!(
+        refused.is_err(),
+        "a key that does not open the index is no window"
+    );
+    // The device that holds the new key is not in a window at all.
+    assert!(open_encrypted(w.plain.clone(), &a, DRIVE, &w.provider).is_ok());
+}
+
 // ==== X-DELTA-EDGE (E16b, T16): a device that lags behind a rotation ====
 
 /// The drive of [`world`] while a device that opened it with K1 is still running and another device,
