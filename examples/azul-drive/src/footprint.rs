@@ -204,9 +204,14 @@ impl Places {
             copies.extend(crate::trash::marks_file(cache, drive));
         }
         // The rescue copy's state names every key of the drive's copy: it goes with the drive
-        // (X-DELTA-AZDRIVE-FILES-34). The copy's files are the user's own and stay.
+        // (X-DELTA-AZDRIVE-FILES-34), and so does the journal of the files that landed since its
+        // last whole write, which a run that was cut off leaves and which names keys too
+        // (X-DELTA-SYNC2-10). The copy's files are the user's own and stay.
         if let Some(file) = &computer.drives_file {
-            copies.extend(crate::archive::rescue_file_of(file, drive));
+            if let Some(state) = crate::archive::rescue_file_of(file, drive) {
+                copies.push(crate::archive::landed_dir(&state));
+                copies.push(state);
+            }
         }
         copies.push(computer.picked_scratch.kept(drive));
         spots.push(Spot::free("copies and indexes", copies));
@@ -442,11 +447,16 @@ mod tests {
             crate::trash::marks_file(cache, drive).unwrap(),
             format!("{drive} trash marks"),
         );
-        // The rescue copy's state lists every key of the drive's copy (X-DELTA-AZDRIVE-FILES-34).
+        // The rescue copy's state lists every key of the drive's copy (X-DELTA-AZDRIVE-FILES-34),
+        // and a run that was cut off left the journal of the files that landed since its last
+        // whole write, one small file each, which names keys too (X-DELTA-SYNC2-10).
+        let rescue =
+            crate::archive::rescue_file_of(computer.drives_file.as_ref().unwrap(), drive).unwrap();
         put(
-            crate::archive::rescue_file_of(computer.drives_file.as_ref().unwrap(), drive).unwrap(),
-            format!("{drive} the keys of its rescue copy"),
+            crate::archive::landed_dir(&rescue).join("000000000001.json"),
+            format!("{{\"key\": \"{drive}/a.txt\"}}"),
         );
+        put(rescue, format!("{drive} the keys of its rescue copy"));
         put(
             crate::nodes_file_in(&computer.nodes_root, drive),
             format!("{drive} nodes"),
@@ -553,6 +563,8 @@ mod tests {
             "listings",
             "picked",
             "trash",
+            "rescue.json.landed/",
+            "rescue.json",
             "nodes",
             "notices",
             "encryption",
