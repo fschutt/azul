@@ -179,8 +179,8 @@ fn a_conflict_between_offline_devices_settles_in_two_rounds_and_stays_settled() 
     let made = copies(&trees[0]);
     assert_eq!(made.len(), 2, "N - 1 copies: {:?}", made.keys());
     let by: BTreeSet<&str> = made
-        .iter()
-        .map(|(k, _)| {
+        .keys()
+        .map(|k| {
             ["B", "C"]
                 .into_iter()
                 .find(|d| k.starts_with(&format!("notes/a (conflict {d} ")) && k.ends_with(").md"))

@@ -68,8 +68,11 @@ pub struct Crashed {
     pub point: String,
 }
 
-/// What a test hears of each folder a scan lists.
-struct Listing(Arc<dyn Fn(&str) + Send + Sync>);
+/// What a test hears of each folder a scan lists: told the folder's key.
+pub type ListingHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// A [`ListingHook`] kept per folder.
+struct Listing(ListingHook);
 
 impl fmt::Debug for Listing {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -450,7 +453,7 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
 
 /// Has `hook` told the key of every folder (`""` the top) the scans of `root` list, right before
 /// each is listed and on the scan's own thread; `None` takes it away.
-pub fn set_listing_hook(root: &Path, hook: Option<Arc<dyn Fn(&str) + Send + Sync>>) {
+pub fn set_listing_hook(root: &Path, hook: Option<ListingHook>) {
     with(root, |f| f.listing = hook.map(Listing));
 }
 

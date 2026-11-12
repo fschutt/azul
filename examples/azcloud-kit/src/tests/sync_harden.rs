@@ -1684,9 +1684,10 @@ fn a_temp_written_within_the_settle_window_holds_the_delete_whatever_its_bytes()
 /// X-DELTA-EDGE-5 (E1b, T1, the slow-writer variant). A writer that unlinks the document and writes its
 /// temp slowly afterwards: the folder's own time moves when the temp is made, not when it is written
 /// into (the wait for a quiet folder does not look at an ignored file), so a pass with a quiet wait of
-/// 500 ms starts its scan while the temp is mid-write, finds the document gone and plans its delete.
-/// A temp written within the quiet wait holds the delete; the pass after the rename sends the new bytes
-/// as an edit, and the other device never trashes its copy.
+/// 1.5 s starts its scan while the temp is mid-write, finds the document gone and plans its delete.
+/// A temp written within the quiet wait holds the delete (the writer writes every 25 ms for 2.5 s, so
+/// a stall of its thread of a second still leaves the temp inside the wait); the pass after the rename
+/// sends the new bytes as an edit, and the other device never trashes its copy.
 #[test]
 fn a_temp_written_slowly_after_the_unlink_holds_the_delete_while_the_folder_waits_for_quiet() {
     use std::io::Write;
@@ -1701,17 +1702,17 @@ fn a_temp_written_slowly_after_the_unlink_holds_the_delete_while_the_folder_wait
         let (temp, doc) = (a.path().join("doc.tmp"), a.path().join("doc.docx"));
         std::thread::spawn(move || {
             let mut file = fs::File::create(&temp).unwrap();
-            for _ in 0..60 {
+            for _ in 0..100 {
                 file.write_all(b"slowly written bytes ").unwrap();
                 file.flush().unwrap();
-                std::thread::sleep(Duration::from_millis(20));
+                std::thread::sleep(Duration::from_millis(25));
             }
             drop(file);
             fs::rename(&temp, &doc).unwrap();
         })
     };
     let mut opts = a.opts();
-    opts.settle = Duration::from_millis(500);
+    opts.settle = Duration::from_millis(1500);
     let report = a.sync_with(&store, &opts).unwrap();
     writer.join().unwrap();
     assert_eq!(report.deleted_there, 0, "{}", report.summary());
@@ -1723,7 +1724,7 @@ fn a_temp_written_slowly_after_the_unlink_holds_the_delete_while_the_folder_wait
     let report = a.sync(&store);
     assert_eq!(report.files_up, 1, "{}", report.summary());
     b.sync(&store);
-    assert_eq!(b.read("doc.docx").map(|bytes| bytes.len()), Some(21 * 60));
+    assert_eq!(b.read("doc.docx").map(|bytes| bytes.len()), Some(21 * 100));
     assert!(trashed(b.path()).is_empty());
 }
 
