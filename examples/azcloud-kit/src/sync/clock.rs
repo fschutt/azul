@@ -22,6 +22,15 @@
 //!
 //! A reading that fails either is not a time: [`TrustedClock::purge_before`] answers `None`, and
 //! the caller expires nothing this pass. The record is part of the pairing's base.
+//!
+//! **A second clock for what only the trash keeps** (X-DELTA-AZDRIVE-SYNC-8). A trash folder is
+//! named by the wall clock of the pass that made it, and nothing proves that clock was right then:
+//! after a reset to 2000-01-01 a "Take theirs" loser - a version that may exist nowhere else - lands
+//! in `20000101-...`, and when the clock is fixed and has been steady for a day that name is "older
+//! than 30 days". So the trash is purged only when two clocks agree: the date the folder is named by
+//! AND the time this pairing has itself watched it lie there ([`TrustedClock::watched_secs`]: what
+//! the wall clock advanced between looks, a step back or a jump counting for no more than
+//! [`MAX_GAP_SECS`], summed per folder). A reset, a jump and a year ahead add days at most.
 
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +66,9 @@ impl ClockRecord {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TrustedClock {
     now: Option<i64>,
+    /// What the wall clock advanced since the look before, seconds: 0 at the first look and after a
+    /// step back, at most [`MAX_GAP_SECS`] after a jump forward. The time a pairing has watched.
+    watched: i64,
 }
 
 impl TrustedClock {
@@ -64,14 +76,24 @@ impl TrustedClock {
     /// drive's own record shows (0: it shows none), `record` what the pairing remembers: it is
     /// updated by the look.
     pub fn look(record: &mut ClockRecord, wall: i64, drive: i64) -> TrustedClock {
-        let none = TrustedClock { now: None };
         if wall <= 0 {
             // The system could not say what time it is.
-            return none;
+            return TrustedClock {
+                now: None,
+                watched: 0,
+            };
         }
         let first = record.last == 0;
         let went_back = !first && wall + SLACK_SECS < record.last;
         let jumped = !first && wall - record.last > MAX_GAP_SECS;
+        // What this look adds to the time the pairing has watched: the clock's own progress, a step
+        // back adding nothing and a jump no more than the longest gap that is no jump.
+        let watched = if first || went_back {
+            0
+        } else {
+            (wall - record.last).clamp(0, MAX_GAP_SECS)
+        };
+        let none = TrustedClock { now: None, watched };
         if first || went_back || jumped {
             *record = ClockRecord {
                 last: wall,
@@ -83,10 +105,20 @@ impl TrustedClock {
         let steady = wall - record.steady_since >= PROBATION_SECS;
         let behind_the_drive = drive > 0 && wall + SLACK_SECS < drive;
         if steady && !behind_the_drive {
-            TrustedClock { now: Some(wall) }
+            TrustedClock {
+                now: Some(wall),
+                watched,
+            }
         } else {
             none
         }
+    }
+
+    /// The seconds this look adds to what a pairing has watched lie where it lies (the second clock
+    /// of the trash: see the module's doc).
+    #[must_use]
+    pub fn watched_secs(&self) -> i64 {
+        self.watched
     }
 
     /// The time before which something dated `days` ago is expired; `None` when the clock is not

@@ -181,6 +181,12 @@ pub struct LocalIndex {
     /// ([`super::clock`]).
     #[serde(default, skip_serializing_if = "ClockRecord::is_unset")]
     pub clock: ClockRecord,
+    /// The trash folders of this pairing by name, each with the seconds the pairing has itself
+    /// watched it lie there (what the wall clock advanced between passes, a step or a jump counting
+    /// for [`super::clock::MAX_GAP_SECS`] at most): the second clock of the trash's purge, which a
+    /// folder named by a clock that was reset cannot fake (X-DELTA-AZDRIVE-SYNC-8).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub trash_watched: BTreeMap<String, i64>,
     /// Files here the drive deleted before this pairing knew them (D5): kept, listed and not
     /// sent until the user chooses ([`super::session::SyncSession::send_kept`]).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -208,6 +214,7 @@ impl LocalIndex {
             volume: None,
             volume_dev: 0,
             clock: ClockRecord::default(),
+            trash_watched: BTreeMap::new(),
             kept: BTreeSet::new(),
         }
     }

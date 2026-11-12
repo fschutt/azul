@@ -4350,11 +4350,13 @@ fn run_pass<R: SyncRemote + ?Sized>(
                 crate::now().saturating_add(opts.clock_offset),
                 remote.updated_at,
             );
-            if let (Some(before), Ok(tree)) = (
-                clock.purge_before(root::TRASH_DAYS),
-                beneath::Root::open(&root.path),
-            ) {
-                root::purge_trash(&tree, before);
+            // The trash is purged when two clocks agree: the date its folders are named by (the
+            // believed wall clock) and the time this pairing has itself watched them lie there.
+            if let Ok(tree) = beneath::Root::open(&root.path) {
+                root::watch_trash(&tree, &mut index.trash_watched, clock.watched_secs());
+                if let Some(before) = clock.purge_before(root::TRASH_DAYS) {
+                    root::purge_trash(&tree, before, &index.trash_watched);
+                }
             }
             trusted = Some(clock);
         }

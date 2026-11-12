@@ -772,6 +772,15 @@ fn az_s12_a_clock_one_year_ahead_purges_no_trash_and_expires_no_tombstone() {
         stamp
     };
     let (young_trash, ancient_trash) = (make(10), make(40));
+    // The pairing has watched them lie there as long as their names say (the second clock of the
+    // trash, X-DELTA-AZDRIVE-SYNC-8: a name alone is no proof of age).
+    {
+        use crate::sync::local::LocalIndex;
+        let mut base = LocalIndex::load(&a.index()).unwrap().expect("a base");
+        base.trash_watched.insert(young_trash.clone(), 10 * DAY);
+        base.trash_watched.insert(ancient_trash.clone(), 40 * DAY);
+        base.save(&a.index()).unwrap();
+    }
     let key = index_key(PREFIX);
     let mut index = RemoteIndex::parse(&store.read(&key).unwrap()).unwrap();
     for (name, days) in [("old/young.txt", 60), ("old/ancient.txt", 100)] {
@@ -824,10 +833,79 @@ fn az_s12_a_clock_one_year_ahead_purges_no_trash_and_expires_no_tombstone() {
     pass_at(40 + 365 * 24 + 20);
     assert!(names(&trash).contains(&young_trash), "on probation still");
     assert!(drive_has("old/young.txt"));
-    // A clock that stays there for a day is all there is to believe.
+    // A clock that stays there for a day is all there is to believe for the tombstones. The trash
+    // needs the second clock as well (X-DELTA-AZDRIVE-SYNC-8): the pairing has watched the young
+    // folder lie there for about two weeks, a clock a year ahead adds three days at most, so it stays.
     pass_at(40 + 365 * 24 + 40);
-    assert!(!names(&trash).contains(&young_trash));
+    assert!(
+        names(&trash).contains(&young_trash),
+        "a believed clock alone does not purge a folder the pairing has watched for two weeks"
+    );
     assert!(!drive_has("old/young.txt"));
+}
+
+/// X-DELTA-AZDRIVE-SYNC-8. The trash is named by the wall clock of the pass that made it. A "Take
+/// theirs" answered while the computer's clock was reset to 2000-01-01 put this computer's version -
+/// which may exist nowhere else - into `20000101-...`; when the clock was fixed and had been steady
+/// for a day, that name was "older than 30 days" and the folder was purged the next day, not after
+/// thirty. The purge now needs the second clock: the time this pairing has itself watched the folder
+/// lie there (what the wall clock advanced between passes; a reset, a jump and a year ahead count for
+/// three days at most). RED on the old code: the folder is gone after the steady day. The control: once
+/// the pairing has watched it for thirty days (passes two days apart), it goes.
+#[test]
+fn x_delta_azdrive_sync_8_a_loser_stamped_under_a_reset_clock_is_kept_until_the_pairing_has_watched_it_for_30_days(
+) {
+    const YEARS_26: i64 = 26 * 365 * 24;
+    let store = S3Bucket::new();
+    let a = Device::new("sync8-a");
+    let mut counter = 0;
+    let mut pass_at = |hours: i64| {
+        counter += 1;
+        a.write(&format!("f{counter}.txt"), counter.to_string().as_bytes());
+        let mut opts = a.opts();
+        opts.clock_offset = hours * 3_600;
+        a.sync_with(&store, &opts).expect("the pass runs")
+    };
+    pass_at(0);
+    // The answer "Take theirs" while the clock was reset: the folder is named by 2000-01-01.
+    let trash = a.path().join(".azlin").join("sync").join("trash");
+    let stamp = root::trash_stamp(946_684_800);
+    fs::create_dir_all(trash.join(&stamp)).unwrap();
+    fs::write(
+        trash.join(&stamp).join("mine.txt"),
+        b"the only copy of mine",
+    )
+    .unwrap();
+    // The reset itself, then the clock is fixed and stays steady for a day and more.
+    pass_at(-YEARS_26);
+    pass_at(0);
+    pass_at(20);
+    pass_at(40);
+    assert!(
+        names(&trash).contains(&stamp),
+        "a steady day after the fix is no thirty days: {:?}",
+        names(&trash)
+    );
+    assert_eq!(
+        fs::read(trash.join(&stamp).join("mine.txt")).unwrap(),
+        b"the only copy of mine"
+    );
+    // The pairing watches it lie there: passes two days apart. Still there at twenty days.
+    for step in 1..=10 {
+        pass_at(40 + step * 48);
+    }
+    assert!(
+        names(&trash).contains(&stamp),
+        "not yet watched for thirty days"
+    );
+    // The control: the rule is no switch-off - it goes once two clocks agree.
+    for step in 11..=20 {
+        pass_at(40 + step * 48);
+    }
+    assert!(
+        !names(&trash).contains(&stamp),
+        "watched for thirty days and named older: it goes"
+    );
 }
 
 /// A system without permission bits (Windows) shows every file as not executable: its volume

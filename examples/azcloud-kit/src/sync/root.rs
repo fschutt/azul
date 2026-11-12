@@ -12,7 +12,10 @@
 //!
 //! What the disk does with names ([`Volume`]) is probed in the same folder.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use azul_storage::{
     beneath::{self, BeneathError, Kind, Root},
@@ -244,11 +247,50 @@ pub fn trash_target(
     Ok((trash, target, path))
 }
 
+/// Whether `name` is the name of a dated trash folder: eight digits first.
+fn dated(name: &str) -> bool {
+    name.get(..8)
+        .is_some_and(|date| date.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Adds `secs` of watched time to every trash folder that is there and forgets the ones that are
+/// gone (`watched`: folder name -> seconds this pairing has itself seen it lie there, the second
+/// clock of the trash, [`super::clock`]). A folder that cannot be listed leaves the ledger as it is.
+pub fn watch_trash(root: &Root, watched: &mut BTreeMap<String, i64>, secs: i64) {
+    let trash = match root.dir_existing(TRASH_DIR) {
+        Ok(trash) => trash,
+        // No trash folder: nothing is there to be watched.
+        Err(e) if e.is_not_found() => {
+            watched.clear();
+            return;
+        }
+        Err(_) => return,
+    };
+    let Ok(names) = trash.names() else {
+        return;
+    };
+    let present: BTreeSet<String> = names
+        .iter()
+        .filter_map(|name| name.to_str())
+        .filter(|name| dated(name))
+        .map(str::to_string)
+        .collect();
+    watched.retain(|name, _| present.contains(name));
+    for name in present {
+        let seen = watched.entry(name).or_insert(0);
+        *seen = seen.saturating_add(secs.max(0));
+    }
+}
+
 /// Removes the trash folders of passes dated before `before` (seconds since 1970; their names start
-/// with the date). The bytes stay on the drive as its versions. `before` is a time a clock that
-/// was believed gave ([`super::clock::TrustedClock::purge_before`] of [`TRASH_DAYS`]), never the
-/// wall clock as it stands (AZ-S12).
-pub fn purge_trash(root: &Root, before: i64) {
+/// with the date) that this pairing has watched lie there for [`TRASH_DAYS`] (`watched`). The bytes
+/// stay on the drive as its versions. `before` is a time a clock that was believed gave
+/// ([`super::clock::TrustedClock::purge_before`] of [`TRASH_DAYS`]), never the wall clock as it
+/// stands (AZ-S12) - and a folder's name is that wall clock as it stood when the pass made it, so
+/// the date is only half of the proof: a "Take theirs" loser stamped under a clock that had been
+/// reset is "old" the day the clock is fixed, and nothing but the time this pairing has itself
+/// watched it can say it is not (AZ-SYNC-8). A folder nobody has watched yet stays.
+pub fn purge_trash(root: &Root, before: i64, watched: &BTreeMap<String, i64>) {
     let Ok(trash) = root.dir_existing(TRASH_DIR) else {
         return;
     };
@@ -261,10 +303,12 @@ pub fn purge_trash(root: &Root, before: i64) {
     let Ok(names) = trash.names() else {
         return;
     };
+    let long_enough = TRASH_DAYS.saturating_mul(86_400);
     for name in names {
         let Some(name) = name.to_str() else { continue };
         let date = name.get(..8).unwrap_or("");
-        if date.len() == 8 && date.chars().all(|c| c.is_ascii_digit()) && date < horizon.as_str() {
+        let seen = watched.get(name).copied().unwrap_or(0);
+        if dated(name) && date < horizon.as_str() && seen >= long_enough {
             remove_tree(&trash, name);
         }
     }
