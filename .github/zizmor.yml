@@ -37,10 +37,10 @@ rules:
   #  - excessive-permissions: the workflow-level `pages: write` and `id-token: write` of rust.yml (GitHub Pages deploy,
   #    OIDC publishing) and `packages: write` of dockery.yml (push to ghcr.io). Moving them into the jobs that need them
   #    changes the token of every other job of the file.
-  #  - known-vulnerable-actions: pypa/gh-action-pypi-publish v1.14.2 (the `pypi` job of rust.yml) has GHSA-5xjx-3w67-w9x9
-  #    (critical, published 2026-10-30: the CA of Sigstore's chain used by trusted publishing and attestations was
-  #    revoked); fixed in v1.14.3. TO DO FIRST: bump the pin (`# v1.14.3`) and delete the comment. Left as it is because
-  #    it is a release job.
+  #  - known-vulnerable-actions: pypa/gh-action-pypi-publish v1.14.2 had GHSA-5xjx-3w67-w9x9 (critical, published
+  #    2026-10-30: the CA of Sigstore's chain used by trusted publishing and attestations was revoked); the `pypi` job
+  #    of rust.yml is bumped to v1.14.3 (commit 7245906f, an annotated tag verified through the GitHub API), so this
+  #    needs no ignore any more.
   #  - artipacked: 21 checkouts of jobs that publish, deploy, sign or talk to a git remote carry an explicit
   #    `persist-credentials: true # kept as it was ...` (the default, so nothing changed); the owner decides per job
   #    whether it can be `false` like every other checkout.
