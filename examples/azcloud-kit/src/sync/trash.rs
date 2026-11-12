@@ -307,7 +307,7 @@ pub fn untrash(root: &Path, state_dir: &Path, key: &str) -> CloudResult<Untrashe
         };
         // A name the rows refuse stays in the trash with its reason, and the restore goes on with the rest:
         // it fails nowhere and makes no folder (X-DELTA-STRUCT-DRIVE-5).
-        if let Err(refusal) = policy.admit(&item.key, names::Purpose::Sync) {
+        if let Err(refusal) = names::admit_synced(&policy, &item.key) {
             refused.push((item.key.clone(), refusal.why));
             continue;
         }

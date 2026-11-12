@@ -35,6 +35,18 @@ pub fn walk_record(tree: &Root, key: &str) -> Result<(Dir, String), BeneathError
     Ok((dir, name.to_string()))
 }
 
+/// A key of the drive that passed the rows of a synced name ([`Purpose::Sync`] on this disk: the protected
+/// names in every spelling among them), or why not - the sync's ONE admission of a name it may make, which
+/// [`make_parent_of`] asks and which a caller that only wants the reason asks too (a restore that leaves a
+/// refused name in the trash says why: X-DELTA-STRUCT-DRIVE-5). `names_gate` counts the `admit` of it once.
+///
+/// # Errors
+///
+/// [`Refusal`], the first row the key breaks.
+pub fn admit_synced(policy: &Policy, key: &str) -> Result<Admitted, Refusal> {
+    policy.admit(key, Purpose::Sync)
+}
+
 /// The folder of a name that is to be MADE here - a file or a link a run writes, a folder renamed to
 /// the drive's new name, a file put back - made where it is missing, and the name: the sync's one
 /// create. The name comes from the drive, another device or a record about one, so it passes the
@@ -53,7 +65,7 @@ pub fn make_parent_of(
     policy: &Policy,
     key: &str,
 ) -> Result<(Dir, String), BeneathError> {
-    let admitted = policy.admit(key, Purpose::Sync)?;
+    let admitted = admit_synced(policy, key)?;
     let (dir, name) = tree.parent_of_new(&admitted)?;
     Ok((dir, name.to_string()))
 }

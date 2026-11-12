@@ -310,12 +310,14 @@ fn c6c_the_syncs_one_create_makes_a_folder_only_for_a_name_the_full_rows_admit()
         ".git/hooks/post-commit",
         ".GIT/hooks/post-commit",
         "proj/.git./hooks/x",
+        "proj/.git /hooks/x",
         "GIT~1/config",
         "a/.g\u{200c}it/x",
         ".hg/x",
         "proj/.SVN/x",
         ".azlin/sync/x",
         ".AZLIN/x",
+        "AZLIN~1/sync/x",
         ".git::$INDEX_ALLOCATION/x",
     ];
     for volume in [Volume::default(), unprobed_volume()] {
