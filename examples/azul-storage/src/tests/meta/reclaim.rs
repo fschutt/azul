@@ -2366,3 +2366,37 @@ fn x_delta_sync4_4_a_clock_corrected_between_the_analysis_and_the_delete_stops_t
     );
     assert_eq!(lab.data_objects().len(), 2, "nothing was deleted");
 }
+
+/// X-DELTA-SYNC4-10. The user-confirmed purge asked the erasure of every version there was when they
+/// said so; `purge_options` ignored the confirmation's time and its window started at the moment the run
+/// began, so a version saved AFTER the click - a re-encryption pass takes hours - was erased by the purge
+/// that followed it. The window is the time since the confirmation. RED on the old code: the version made
+/// after the click is deleted too.
+#[test]
+fn x_delta_sync4_10_the_purge_erases_the_versions_before_the_confirmation_and_keeps_the_ones_after()
+{
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 30 * DAY, |drive| drive);
+    lab.bucket.set_server_clock(crate::time::now_unix);
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(now - 20 * DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    // The user confirmed ten days ago; the file was saved again five days ago.
+    let confirmation =
+        crate::meta::reclaim::PurgeConfirmation::confirmed_by_the_user(now - 10 * DAY);
+    lab.at(now - 5 * DAY);
+    lab.drive.put("a.txt", b"version three").unwrap();
+    let before = lab.data_objects().len();
+    assert_eq!(before, 3, "three versions in the bucket");
+    let provider = provider_with(90, ServerClock::Required);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let report = provider.purge(bucket, &lab.key, &confirmation).unwrap();
+    assert_eq!(
+        lab.data_objects().len(),
+        2,
+        "version one (released before the confirmation) is erased; version two, released by the save \
+         after it, stays: {}",
+        report.line()
+    );
+    assert_eq!((report.deleted, report.failed), (1, 0), "{}", report.line());
+}

@@ -605,15 +605,22 @@ impl PurgeConfirmation {
     /// the drive's history before this moment cannot be restored afterwards. Call this only after
     /// a person said so.
     #[must_use]
-    pub fn confirmed_by_the_user(at: u64) -> PurgeConfirmation {
+    pub(crate) fn confirmed_by_the_user(at: u64) -> PurgeConfirmation {
         PurgeConfirmation { at, _sealed: () }
     }
 }
 
-/// The options of a purge: every object the head does not name, whatever its age, deleted; the
-/// whole history read; no mark kept. The bucket's clock must still agree with the device's.
+/// The options of a purge: every object the head does not name that the history released BEFORE the
+/// user confirmed, whatever its age, deleted; the whole history read; no mark kept. The bucket's clock
+/// must still agree with the device's.
+///
+/// What the user confirmed is the erasure of the versions there were when they said so: the window of
+/// versions the analysis keeps is the time since then (a re-encryption pass takes hours, and what was
+/// saved in them is a version the user never agreed to lose). A commit made in the second of the
+/// confirmation counts as before it (X-DELTA-SYNC4-10).
 #[must_use]
-pub fn purge_options(_confirmation: &PurgeConfirmation) -> ReclaimOptions {
+pub fn purge_options(confirmation: &PurgeConfirmation) -> ReclaimOptions {
+    let since = crate::time::now_unix().saturating_sub(confirmation.at.saturating_add(1));
     ReclaimOptions {
         mode: ReclaimMode::Delete,
         caps: Caps {
@@ -627,7 +634,7 @@ pub fn purge_options(_confirmation: &PurgeConfirmation) -> ReclaimOptions {
         retention: Retention {
             trash: std::time::Duration::ZERO,
             node: std::time::Duration::ZERO,
-            versions: std::time::Duration::ZERO,
+            versions: std::time::Duration::from_secs(since),
         },
         server_clock: ServerClock::Required,
         use_mark: false,
