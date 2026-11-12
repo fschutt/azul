@@ -17,6 +17,9 @@
 //! | copy: the old file to the trash, the  | or, when that is gone, the old file back from the |
 //! | new version into the name (two renames| trash; a name that is held is left as it is       |
 //! | where the volume has no hard links)   |                                                   |
+//! | "Free up space": the file taken aside | the file is put back under its name (beside it,   |
+//! | under a name of its own before it is  | as `name (kept)`, when a newer file holds the     |
+//! | removed                               | name): the free-up is undone, never finished      |
 //!
 //! The journal is `journal.jsonl` in the pairing's state folder (0600), one JSON line per
 //! begin and per done, each flushed to the disk before the step goes on. Recovery empties it.
@@ -73,6 +76,10 @@ pub enum Intent {
         staged: String,
         slot: String,
     },
+    /// "Free up space" takes the file `key` aside under `aside` (a path from the folder's root, in
+    /// the file's own folder) before it removes it. A kill between the rename and the unlink leaves
+    /// the file there under a name nobody lists; recovery puts it back (X-DELTA-SYNC6-5).
+    Evict { key: String, aside: String },
 }
 
 impl Intent {
@@ -83,7 +90,8 @@ impl Intent {
             Intent::Download { key, .. }
             | Intent::Conflict { key, .. }
             | Intent::Trash { key, .. }
-            | Intent::Replace { key, .. } => key,
+            | Intent::Replace { key, .. }
+            | Intent::Evict { key, .. } => key,
             Intent::CaseRename { from, .. } => from,
         }
     }
@@ -305,6 +313,7 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
         }
         Intent::Trash { .. } => {}
         Intent::Replace { key, staged, slot } => recover_replace(tree, key, staged, slot, out),
+        Intent::Evict { key, aside } => recover_evict(tree, key, aside, out),
         Intent::CaseRename { from, via, to } => {
             let (Some((via_dir, via_name)), Some((to_dir, to_name))) =
                 (inside(tree, via), inside(tree, to))
@@ -324,6 +333,60 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
                 }
             }
         }
+    }
+}
+
+/// A "Free up space" cut between its rename and its unlink (X-DELTA-SYNC6-5): the file is under the
+/// aside name, the name is empty and the base says "in the cloud only". The aside is nothing a pass
+/// lists - the rules leave it out - so it would never be freed, never swept, and the space the user
+/// asked to free would stay used under a name the app hides. The free-up is UNDONE, not finished: the
+/// file goes back under its name (a newer file that holds the name is never overwritten, the file is
+/// kept beside it as `name (kept)`), where the pass reads it as present and unchanged and makes the
+/// base entry whole again; the user presses "Free up space" once more. Finishing it would need the
+/// base to be known here, and an unlink on a guess is the one thing this must not do.
+fn recover_evict(tree: &Root, key: &str, aside: &str, out: &mut Recovery) {
+    let (Some((aside_dir, aside_name)), Some((dir, name))) =
+        (inside(tree, aside), inside(tree, key))
+    else {
+        out.left
+            .push(format!("{key}: its folder is a link or gone"));
+        return;
+    };
+    match aside_dir.lstat(&aside_name) {
+        Ok(st) if st.kind == Kind::File => {}
+        Ok(_) => {
+            out.left.push(format!(
+                "{key}: {aside_name} is no file; it is left as it is"
+            ));
+            return;
+        }
+        // Not taken aside (the cut came before the rename), or removed: nothing to put back.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            out.left.push(format!("{key}: {e}"));
+            return;
+        }
+    }
+    match aside_dir.rename_noreplace(&aside_name, &dir, &name) {
+        Ok(()) => {
+            dir.sync();
+            aside_dir.sync();
+            out.rolled_back.push(format!(
+                "{key}: the file a stopped Free up space took aside is back"
+            ));
+        }
+        Err(e) if e.is_already_exists() => match super::keep_beside(&aside_dir, &aside_name, &name)
+        {
+            Some(kept) => out.finished.push(format!(
+                "{key}: a newer file holds the name, the file a stopped Free up space took aside \
+                 is kept as {kept}"
+            )),
+            None => out.left.push(format!(
+                "{key}: a newer file holds the name and the file a stopped Free up space took \
+                 aside stays as {aside_name}"
+            )),
+        },
+        Err(e) => out.left.push(format!("{key}: {e}")),
     }
 }
 

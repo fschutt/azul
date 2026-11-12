@@ -849,3 +849,125 @@ fn x_delta_sync4_13_a_file_a_kill_left_under_the_freeing_name_is_never_uploaded(
     );
     assert_eq!(report.files_up, 0, "{}", report.summary());
 }
+
+/// X-DELTA-SYNC6-5 (the hold). The aside "Free up space" leaves is a TEMP file the rules hide, and
+/// `keep_saves` took it for an app's old version of a file: once the user opened the freed file and
+/// deleted it, the delete met a temp of the same size and the same bytes and was held in every pass
+/// ("an app is saving it"), for ever. The name is no app's save. RED on the old code: the delete is
+/// held.
+#[test]
+fn x_delta_sync6_5_the_bytes_under_the_freeing_name_hold_no_later_delete_of_the_same_file() {
+    let dir = TempDir::new("azcloud-relook-freeing");
+    fs::create_dir_all(dir.path().join("docs")).unwrap();
+    let bytes = b"the freed file, opened again and then deleted by the user";
+    fs::write(dir.path().join("docs/.azul-freeing-4711-3"), bytes).unwrap();
+    let mut base = BTreeMap::new();
+    base.insert(
+        String::from("docs/report.pdf"),
+        BaseEntry {
+            size: bytes.len() as u64,
+            hash: crate::sync::local::hash_bytes(bytes),
+            ..BaseEntry::default()
+        },
+    );
+    let long_ago = crate::now_ns() - 3 * 3600 * 1_000_000_000;
+    let mut scan = Scan::default();
+    scan.temps.insert(
+        String::from("docs/.azul-freeing-4711-3"),
+        Temp {
+            size: bytes.len() as u64,
+            mtime_ns: long_ago,
+            ctime_ns: long_ago,
+            saves: true,
+        },
+    );
+    let mut actions = vec![Action::DeleteRemote {
+        key: String::from("docs/report.pdf"),
+    }];
+    let mut report = SyncReport::default();
+    crate::sync::keep_saves(
+        &mut actions,
+        &scan,
+        &base,
+        dir.path(),
+        Duration::from_secs(2),
+        &mut report,
+    );
+    assert_eq!(
+        actions.len(),
+        1,
+        "the delete is not held: {:?}",
+        report.problems
+    );
+    assert!(!lists(&report, Code::SaveInProgress, "docs/report.pdf"));
+}
+
+/// X-DELTA-SYNC6-5, a pair test (the name and its rule): what "Free up space" names its aside is the
+/// name the base rules leave out of the sync.
+#[test]
+fn x_delta_sync6_5_the_freeing_name_and_the_rule_that_hides_it_are_one() {
+    use crate::sync::{freeing_name, rules::Rules, FREEING_PREFIX};
+    let name = freeing_name();
+    assert!(name.starts_with(FREEING_PREFIX), "{name}");
+    assert_eq!(
+        Rules::base().excluded(&name),
+        Some(crate::sync::rules::TEMP),
+        "{name}"
+    );
+}
+
+/// X-DELTA-SYNC6-5, through the passes. "Free up space" cut between its rename and its unlink: the
+/// base says "in the cloud only", the journal says what was begun, the bytes are under the aside.
+/// The next pass's recovery puts the file back; nothing is uploaded; and when the user deletes it
+/// later the delete reaches the drive - the old code left the aside for ever. The cut is built by
+/// hand (a kill is not playable): RED on a recovery that does nothing.
+#[test]
+fn x_delta_sync6_5_a_free_up_space_kill_is_undone_by_the_next_pass_and_a_later_delete_goes_through()
+{
+    use crate::sync::{
+        journal::{Intent, Journal},
+        local::LocalIndex,
+        session::INDEX_FILE,
+    };
+    let p = pair("freeing-undo");
+    let index_path = p._a_state.path().join(INDEX_FILE);
+    let mut index = LocalIndex::load(&index_path).unwrap().unwrap();
+    {
+        let entry = index.files.get_mut("report.pdf").expect("synced");
+        entry.cloud_only = true;
+        entry.mtime_ns = 0;
+        entry.ctime_ns = 0;
+        entry.ino = 0;
+        entry.dev = 0;
+    }
+    index.save(&index_path).unwrap();
+    Journal::new(p._a_state.path())
+        .begin(Intent::Evict {
+            key: String::from("report.pdf"),
+            aside: String::from(".azul-freeing-4711-3"),
+        })
+        .unwrap();
+    fs::rename(
+        p.a.path().join("report.pdf"),
+        p.a.path().join(".azul-freeing-4711-3"),
+    )
+    .unwrap();
+
+    let report = pass(&p.on_a);
+    assert_eq!(
+        fs::read(p.a.path().join("report.pdf")).ok().as_deref(),
+        Some(&b"the report"[..]),
+        "{}",
+        report.summary()
+    );
+    assert!(
+        !p.a.path().join(".azul-freeing-4711-3").exists(),
+        "the aside is gone"
+    );
+    assert_eq!(report.files_up, 0, "{}", report.summary());
+
+    fs::remove_file(p.a.path().join("report.pdf")).unwrap();
+    let report = pass(&p.on_a);
+    assert_eq!(report.deleted_there, 1, "{}", report.summary());
+    assert!(!on_drive(&p.s3).contains_key("report.pdf"));
+}

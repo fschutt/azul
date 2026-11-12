@@ -312,3 +312,86 @@ fn x_delta_sync2_6_a_replace_that_finds_neither_file_says_so() {
     assert_eq!(recovery.left.len(), 1, "{recovery:?}");
     assert!(!root.path().join("docs/a.txt").exists());
 }
+
+/// X-DELTA-SYNC6-5. "Free up space" takes the file aside under `.azul-freeing-<pid>-<n>` before it
+/// unlinks it. A kill between the two left the file's bytes under a name the rules hide: never
+/// freed, never swept, and the space the user asked to free stayed used. The step is in the journal
+/// now (`Intent::Evict`): recovery puts the file back under its name, where the pass reads it as
+/// present and unchanged and makes the base entry whole again. The cut is built by hand, as the
+/// other recoveries' are.
+#[test]
+fn x_delta_sync6_5_a_free_up_space_cut_between_its_rename_and_its_unlink_gets_the_file_back() {
+    let root = TempDir::new("journal-root");
+    let state = TempDir::new("journal-state");
+    fs::create_dir_all(root.path().join("docs")).unwrap();
+    fs::write(
+        root.path().join("docs/.azul-freeing-4711-3"),
+        b"the freed file",
+    )
+    .unwrap();
+    Journal::new(state.path())
+        .begin(Intent::Evict {
+            key: String::from("docs/report.pdf"),
+            aside: String::from("docs/.azul-freeing-4711-3"),
+        })
+        .unwrap();
+    let recovery = Journal::new(state.path()).recover(root.path()).unwrap();
+    assert_eq!(
+        fs::read(root.path().join("docs/report.pdf")).unwrap(),
+        b"the freed file",
+        "{recovery:?}"
+    );
+    assert!(!root.path().join("docs/.azul-freeing-4711-3").exists());
+    assert_eq!(recovery.rolled_back.len(), 1, "{recovery:?}");
+}
+
+/// X-DELTA-SYNC6-5. A newer file holds the name when recovery looks (the user saved one meanwhile):
+/// it is never overwritten; the freed file is kept beside it under a name that says so.
+#[test]
+fn x_delta_sync6_5_a_free_up_space_cut_whose_name_is_held_again_keeps_the_file_beside() {
+    let root = TempDir::new("journal-root");
+    let state = TempDir::new("journal-state");
+    fs::write(root.path().join("report.pdf"), b"a newer file").unwrap();
+    fs::write(root.path().join(".azul-freeing-4711-3"), b"the freed file").unwrap();
+    Journal::new(state.path())
+        .begin(Intent::Evict {
+            key: String::from("report.pdf"),
+            aside: String::from(".azul-freeing-4711-3"),
+        })
+        .unwrap();
+    let recovery = Journal::new(state.path()).recover(root.path()).unwrap();
+    assert_eq!(
+        fs::read(root.path().join("report.pdf")).unwrap(),
+        b"a newer file"
+    );
+    assert_eq!(
+        fs::read(root.path().join("report.pdf (kept)")).unwrap(),
+        b"the freed file",
+        "{recovery:?}"
+    );
+    assert!(!root.path().join(".azul-freeing-4711-3").exists());
+}
+
+/// X-DELTA-SYNC6-5. The cut came before the rename (or the unlink finished): nothing is under the
+/// aside name, and recovery changes nothing - least of all makes a file appear.
+#[test]
+fn x_delta_sync6_5_a_free_up_space_cut_with_nothing_taken_aside_changes_nothing() {
+    let root = TempDir::new("journal-root");
+    let state = TempDir::new("journal-state");
+    fs::write(root.path().join("report.pdf"), b"still here").unwrap();
+    Journal::new(state.path())
+        .begin(Intent::Evict {
+            key: String::from("report.pdf"),
+            aside: String::from(".azul-freeing-4711-3"),
+        })
+        .unwrap();
+    let recovery = Journal::new(state.path()).recover(root.path()).unwrap();
+    assert_eq!(
+        fs::read(root.path().join("report.pdf")).unwrap(),
+        b"still here"
+    );
+    assert!(
+        recovery.rolled_back.is_empty() && recovery.finished.is_empty(),
+        "{recovery:?}"
+    );
+}

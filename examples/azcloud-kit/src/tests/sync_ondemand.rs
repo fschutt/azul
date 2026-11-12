@@ -279,6 +279,31 @@ fn a_cancelled_run_changes_nothing_and_the_next_run_does_it_all() {
     assert_eq!(got.files_up, 2, "{}", got.summary());
 }
 
+/// X-DELTA-SYNC6-5. A free-up writes its intent to the journal before the file leaves its name and
+/// marks it done after: nothing is left open after a whole one, and the journal says what was begun
+/// (the aside sits in the file's own folder). RED on the old code: the journal knows nothing of it.
+#[test]
+fn x_delta_sync6_5_a_free_up_begins_its_step_in_the_journal_and_marks_it_done() {
+    use crate::sync::journal::{Journal, JOURNAL_FILE};
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    a.write("docs/report.txt", b"the report");
+    a.sync(&store);
+    evict_file(&a.root(), &a.index(), "docs/report.txt").unwrap();
+    let state = a.index().parent().unwrap().to_path_buf();
+    assert!(
+        Journal::new(&state).open_steps().is_empty(),
+        "the step is done"
+    );
+    let text = fs::read_to_string(state.join(JOURNAL_FILE)).expect("the journal was written");
+    assert!(
+        text.contains("\"op\":\"evict\"")
+            && text.contains("\"key\":\"docs/report.txt\"")
+            && text.contains("docs/.azul-freeing-"),
+        "{text}"
+    );
+}
+
 #[test]
 fn a_freed_file_stays_on_the_drive_and_opening_it_brings_it_back() {
     let store = S3Bucket::new();
@@ -411,12 +436,15 @@ fn beside(path: &std::path::Path, name: &str) -> Vec<String> {
 /// has been taken aside and looked at again - and leaves no name behind.
 #[test]
 fn x_delta_sync2_1_take_away_removes_the_file_that_was_looked_at() {
-    use crate::sync::{take_away, TakenAway};
+    use crate::sync::{freeing_name, take_away_as, TakenAway};
     let folder = TempDir::new("azcloud-ondemand-take-same");
     fs::write(folder.path().join("a.txt"), b"the bytes").unwrap();
     let dir = top_of(folder.path());
     let seen = dir.lstat("a.txt").unwrap();
-    assert_eq!(take_away(&dir, "a.txt", &seen).unwrap(), TakenAway::Gone);
+    assert_eq!(
+        take_away_as(&dir, "a.txt", &freeing_name(), &seen).unwrap(),
+        TakenAway::Gone
+    );
     assert!(!folder.path().join("a.txt").exists());
     assert!(beside(folder.path(), "a.txt").is_empty(), "no name is left");
 }
@@ -424,13 +452,16 @@ fn x_delta_sync2_1_take_away_removes_the_file_that_was_looked_at() {
 /// X-DELTA-SYNC2-1: a name the user removed meanwhile is gone: nothing to take, nothing to fail.
 #[test]
 fn x_delta_sync2_1_take_away_of_a_file_the_user_removed_is_done() {
-    use crate::sync::{take_away, TakenAway};
+    use crate::sync::{freeing_name, take_away_as, TakenAway};
     let folder = TempDir::new("azcloud-ondemand-take-gone");
     fs::write(folder.path().join("a.txt"), b"the bytes").unwrap();
     let dir = top_of(folder.path());
     let seen = dir.lstat("a.txt").unwrap();
     fs::remove_file(folder.path().join("a.txt")).unwrap();
-    assert_eq!(take_away(&dir, "a.txt", &seen).unwrap(), TakenAway::Gone);
+    assert_eq!(
+        take_away_as(&dir, "a.txt", &freeing_name(), &seen).unwrap(),
+        TakenAway::Gone
+    );
     assert!(beside(folder.path(), "a.txt").is_empty());
 }
 
@@ -438,7 +469,7 @@ fn x_delta_sync2_1_take_away_of_a_file_the_user_removed_is_done() {
 /// name: it is put back untouched, never removed. (An unlink by name removes it: RED on the old code.)
 #[test]
 fn x_delta_azdrive_sync_16_take_away_puts_back_the_file_an_editor_saved_after_the_look() {
-    use crate::sync::{take_away, TakenAway};
+    use crate::sync::{freeing_name, take_away_as, TakenAway};
     let folder = TempDir::new("azcloud-ondemand-take-saved");
     fs::write(
         folder.path().join("a.txt"),
@@ -458,7 +489,7 @@ fn x_delta_azdrive_sync_16_take_away_puts_back_the_file_an_editor_saved_after_th
     )
     .unwrap();
     assert_eq!(
-        take_away(&dir, "a.txt", &seen).unwrap(),
+        take_away_as(&dir, "a.txt", &freeing_name(), &seen).unwrap(),
         TakenAway::Replaced
     );
     assert_eq!(
@@ -472,7 +503,7 @@ fn x_delta_azdrive_sync_16_take_away_puts_back_the_file_an_editor_saved_after_th
 /// back where it was.
 #[test]
 fn x_delta_sync2_1_take_away_puts_back_a_file_written_in_place_after_the_look() {
-    use crate::sync::{take_away, TakenAway};
+    use crate::sync::{freeing_name, take_away_as, TakenAway};
     let folder = TempDir::new("azcloud-ondemand-take-written");
     fs::write(folder.path().join("a.txt"), b"short").unwrap();
     let dir = top_of(folder.path());
@@ -483,7 +514,7 @@ fn x_delta_sync2_1_take_away_puts_back_a_file_written_in_place_after_the_look() 
     )
     .unwrap();
     assert_eq!(
-        take_away(&dir, "a.txt", &seen).unwrap(),
+        take_away_as(&dir, "a.txt", &freeing_name(), &seen).unwrap(),
         TakenAway::Replaced
     );
     assert_eq!(

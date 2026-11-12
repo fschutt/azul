@@ -55,7 +55,7 @@ pub const BASE_RULES: &[(&str, &str)] = &[
     ("*.swp", TEMP),
     ("*.swo", TEMP),
     ("*.swx", TEMP),
-    // The name "Free up space" takes a file to before it removes it (`take_away`): a kill between the
+    // The name "Free up space" takes a file to before it removes it (`take_away_as`): a kill between the
     // two leaves it there, and it must never go up as a file of the user's (X-DELTA-SYNC4-13).
     (".azul-freeing-*", TEMP),
     // Word's, Excel's and PowerPoint's owner file while a document is open.

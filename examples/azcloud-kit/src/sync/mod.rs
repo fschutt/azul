@@ -3757,6 +3757,11 @@ pub(crate) fn keep_saves(
             return true;
         };
         for &(temp, temp_name, found) in temps {
+            // The name "Free up space" takes a file to is no app's save, and the bytes under it are
+            // the file's own: they hold no delete of the same file later (X-DELTA-SYNC6-5).
+            if temp_name.starts_with(FREEING_PREFIX) {
+                continue;
+            }
             let holding = if found.size == entry.size {
                 let hash = hashes.entry(temp).or_insert_with(|| hash_here(root, temp));
                 match hash.as_deref() {
@@ -5119,29 +5124,107 @@ pub(crate) fn evict_file_with(
             )),
         }
     };
-    match take_away(&dir, name, &st) {
+    // The intent before the file leaves its name (X-DELTA-SYNC6-5): a kill between the rename and
+    // the unlink leaves the file under the aside name, which no pass lists; the next pass's
+    // recovery puts it back. A journal that cannot be written changes nothing here.
+    let aside = freeing_name();
+    let (folder, _) = beneath::split_key(key);
+    let aside_key = if folder.is_empty() {
+        aside.clone()
+    } else {
+        format!("{folder}/{aside}")
+    };
+    let journal = index_path.parent().map(journal::Journal::new);
+    let ticket = match &journal {
+        Some(journal) => match journal.begin(journal::Intent::Evict {
+            key: key.to_string(),
+            aside: aside_key,
+        }) {
+            Ok(ticket) => Some(ticket),
+            Err(e) => {
+                return Err(put_back_base(
+                    &mut index,
+                    format!("{key} stays on this device: the journal cannot be written ({e})"),
+                ))
+            }
+        },
+        None => None,
+    };
+    // The step is over when the file is gone, back or kept beside: nothing is left under the aside
+    // name. An error leaves it open - recovery looks at what is there.
+    let finished = || {
+        if let (Some(journal), Some(ticket)) = (&journal, ticket) {
+            // collapse-ok: a line that cannot be marked done leaves a step whose recovery finds
+            // the aside gone and does nothing.
+            let _ = journal.done(ticket);
+        }
+    };
+    match take_away_as(&dir, name, &aside, &st) {
         Ok(TakenAway::Gone) => {
+            finished();
             dir.sync();
             root.drive().note_deleted(key);
             point("after-evict-unlink");
             Ok(())
         }
-        Ok(TakenAway::Replaced) => Err(put_back_base(
-            &mut index,
-            format!("{key} was changed while it was freed: it stays on this device"),
-        )),
-        Ok(TakenAway::Kept(aside)) => Err(put_back_base(
-            &mut index,
-            format!(
-                "{key} stays on this device as {aside}: a newer file took its name while it was \
-                 freed"
-            ),
-        )),
+        Ok(TakenAway::Replaced) => {
+            finished();
+            Err(put_back_base(
+                &mut index,
+                format!("{key} was changed while it was freed: it stays on this device"),
+            ))
+        }
+        Ok(TakenAway::Kept(aside)) => {
+            finished();
+            Err(put_back_base(
+                &mut index,
+                format!(
+                    "{key} stays on this device as {aside}: a newer file took its name while it \
+                     was freed"
+                ),
+            ))
+        }
         Err(e) => Err(put_back_base(&mut index, e.to_string())),
     }
 }
 
-/// What [`take_away`] did with a file.
+/// The name "Free up space" takes a file to before it removes it: [`FREEING_PREFIX`], the process and a
+/// counter - short whatever the file's name (a name is at most 255 bytes).
+pub(crate) fn freeing_name() -> String {
+    use std::sync::atomic::AtomicU32;
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    format!(
+        "{FREEING_PREFIX}{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::SeqCst)
+    )
+}
+
+/// What every name "Free up space" takes a file to starts with. The rules leave such a file out of the
+/// sync (`rules::BASE_RULES`, pinned to this by a test), `keep_saves` does not take it for an app's
+/// temp, and the journal's recovery puts a file left under one back ([`journal::Intent::Evict`]).
+pub(crate) const FREEING_PREFIX: &str = ".azul-freeing-";
+
+/// A file taken aside and not removed, kept under a visible name beside the one that took its place:
+/// `name (kept)`, then `name (kept 2)` to `name (kept 9)`. The name it is kept as, or `None` when
+/// none of the nine is free (the file stays under `aside`).
+pub(crate) fn keep_beside(dir: &beneath::Dir, aside: &str, name: &str) -> Option<String> {
+    for n in 1..=9 {
+        let kept = if n == 1 {
+            format!("{name} (kept)")
+        } else {
+            format!("{name} (kept {n})")
+        };
+        if beneath::check_file_name(&kept).is_ok()
+            && dir.rename_noreplace(aside, dir, &kept).is_ok()
+        {
+            return Some(kept);
+        }
+    }
+    None
+}
+
+/// What [`take_away_as`] did with a file.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum TakenAway {
     /// It was the file looked at (or the user had removed it already), and it is gone.
@@ -5157,49 +5240,38 @@ pub(crate) enum TakenAway {
 /// Removes the file `name` of `dir` only when it is still the file `seen` was the `lstat` of.
 /// An unlink by name would take whatever has the name by then - an editor that saves by rename
 /// makes a NEW file there, which exists nowhere else (X-DELTA-AZDRIVE-SYNC-16). So the file is
-/// first renamed to a name of its own, in the one step no editor can come between; what was taken
-/// is looked at (the same file, size and modification time: a rename moves the status-change
-/// time) and only then removed - or put back, where it was.
+/// first renamed to `aside`, a name of its own that the journal knows already
+/// ([`journal::Intent::Evict`]), in the one step no editor can come between; what was taken is
+/// looked at (the same file, size and modification time: a rename moves the status-change time)
+/// and only then removed - or put back, where it was.
 ///
 /// # Errors
 ///
 /// When the file cannot be taken aside, or taken aside and neither removed nor put back (it is
 /// said where it is).
-pub(crate) fn take_away(dir: &beneath::Dir, name: &str, seen: &Stat) -> CloudResult<TakenAway> {
-    use std::sync::atomic::AtomicU32;
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    // A hidden name of its own, short whatever the file's name (a name is at most 255 bytes).
-    let aside = format!(
-        ".azul-freeing-{}-{}",
-        std::process::id(),
-        COUNTER.fetch_add(1, Ordering::SeqCst)
-    );
-    match dir.rename_noreplace(name, dir, &aside) {
+pub(crate) fn take_away_as(
+    dir: &beneath::Dir,
+    name: &str,
+    aside: &str,
+    seen: &Stat,
+) -> CloudResult<TakenAway> {
+    match dir.rename_noreplace(name, dir, aside) {
         Ok(()) => {}
         // Removed by the user meanwhile: nothing is left to take, and the cloud keeps it.
         Err(e) if e.is_not_found() => return Ok(TakenAway::Gone),
         Err(e) => return Err(e.into()),
     }
     let put_back = || -> CloudResult<TakenAway> {
-        match dir.rename_noreplace(&aside, dir, name) {
+        match dir.rename_noreplace(aside, dir, name) {
             Ok(()) => Ok(TakenAway::Replaced),
             Err(e) if e.is_already_exists() => {
                 // The name is a newer file's again: this one is kept beside it, visibly.
-                for n in 1..=9 {
-                    let kept = if n == 1 {
-                        format!("{name} (kept)")
-                    } else {
-                        format!("{name} (kept {n})")
-                    };
-                    if beneath::check_file_name(&kept).is_ok()
-                        && dir.rename_noreplace(&aside, dir, &kept).is_ok()
-                    {
-                        return Ok(TakenAway::Kept(kept));
-                    }
+                match keep_beside(dir, aside, name) {
+                    Some(kept) => Ok(TakenAway::Kept(kept)),
+                    None => Err(CloudError::failed(format!(
+                        "{name} was changed while it was freed and is kept as {aside}"
+                    ))),
                 }
-                Err(CloudError::failed(format!(
-                    "{name} was changed while it was freed and is kept as {aside}"
-                )))
             }
             Err(e) => Err(CloudError::failed(format!(
                 "{name} was taken aside as {aside} and could not be put back: {e}"
@@ -5214,7 +5286,7 @@ pub(crate) fn take_away(dir: &beneath::Dir, name: &str, seen: &Stat) -> CloudRes
             kept => Ok(kept),
         }
     };
-    let taken = match dir.lstat(&aside) {
+    let taken = match dir.lstat(aside) {
         Ok(taken) => taken,
         // Not looked at, not removed: it goes back.
         Err(e) => return stays(&format!("it could not be looked at once taken aside ({e})")),
@@ -5227,7 +5299,7 @@ pub(crate) fn take_away(dir: &beneath::Dir, name: &str, seen: &Stat) -> CloudRes
         // Another file (an editor's save), whole and untouched: where it was.
         return put_back();
     }
-    match dir.unlink(&aside) {
+    match dir.unlink(aside) {
         Ok(()) => Ok(TakenAway::Gone),
         Err(e) => stays(&format!("it could not be removed ({e})")),
     }
