@@ -54,7 +54,7 @@ pub use checkout::{
     AbandonAnswer, AbandonWire, CheckoutAnswer, CheckoutRefusal, CheckoutStatusWire, DeclineWire,
     EurAmountWire, LadderRef, Legal, MailTo, Prepay, ReceiptWire, RetentionAddon, ScheduledChange,
     Settles,
-    TierClosed, TierOffer, TierPriceWire, TiersAnswer,
+    TierClosed, TierOffer, TierPriceWire, TiersAnswer, CASH_HANDOVER_FACTOR, HANDOVER_KEPT_DAYS,
 };
 pub use claim::ClaimRefusal;
 pub use error::{AzlinError, RATE_LIMITED};

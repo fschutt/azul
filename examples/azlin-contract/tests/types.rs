@@ -335,6 +335,23 @@ mod checkout {
         assert_eq!(CheckoutRefusal::parse("blocked_country").map(|r| r.status()), Some(403));
     }
 
+    /// X-DELTA-MONEY6-7: how long the token server keeps the hand-over a paid checkout's claim secret
+    /// opens is an item of the contract, read by the app. The token server's own constants are
+    /// `HANDOFF_KEPT_DAYS` (iso/crates/azlin-token/src/payments.rs:31) and `CASH_HANDOFF_FACTOR`
+    /// (payments.rs:39), 30 and 4 until the token server reads these two (at its next re-pin of the
+    /// contract): a value changed on either side without the other is a red test here or in the
+    /// kit's `x_delta_money6_7_*`.
+    #[test]
+    fn x_delta_money6_7_the_hand_over_s_life_is_30_days_and_a_cash_buyer_s_four_times_that() {
+        assert_eq!(azlin_contract::HANDOVER_KEPT_DAYS, 30);
+        assert_eq!(azlin_contract::CASH_HANDOVER_FACTOR, 4);
+        assert_eq!(
+            azlin_contract::HANDOVER_KEPT_DAYS * azlin_contract::CASH_HANDOVER_FACTOR,
+            120,
+            "a cash buyer's hand-over: 120 days, twice the order's own 60"
+        );
+    }
+
     #[test]
     fn an_approved_checkout_without_its_sealed_sign_up_says_so() {
         let answer: CheckoutAnswer = serde_json::from_str(
@@ -417,6 +434,31 @@ mod period {
         assert_eq!(IssueRefusal::TryAgain.status(), 503);
     }
 
+    /// X-DELTA-MONEY6-1, word by word as the token server sends them: the two refusals a restore
+    /// can lift are `not_paid` and `mandate_stopped`; the three that no restore touches
+    /// (`issue_key_wrong`, `no_such_checkout`, `already_issued`) are final for good, and so is a
+    /// refusal this build does not know (it is not final at all: an update may read it).
+    #[test]
+    fn x_delta_money6_1_a_stopped_mandate_is_revivable_like_a_payment_taken_back() {
+        let read = |word: &str| -> IssueRefusal {
+            serde_json::from_str(&format!(r#"{{"error":"{word}","message":"why"}}"#))
+                .expect("reads")
+        };
+        for word in ["not_paid", "mandate_stopped"] {
+            let refusal = read(word);
+            assert!(refusal.is_final(), "{word}: nothing is issued meanwhile");
+            assert!(refusal.is_revivable(), "{word}: a restore lifts it");
+        }
+        for word in ["issue_key_wrong", "no_such_checkout", "already_issued"] {
+            let refusal = read(word);
+            assert!(refusal.is_final(), "{word}");
+            assert!(!refusal.is_revivable(), "{word}: no restore touches it");
+        }
+        for word in ["a_new_word", "try_again", "bad_request"] {
+            assert!(!read(word).is_revivable(), "{word}");
+        }
+    }
+
     /// X-DELTA-AZDRIVE-MONEY-4: the five refusals that end a grant are about the CHECKOUT, the
     /// three that are about the request never end one - no refusal is both, none is neither of
     /// them and also the server's wait.
@@ -445,10 +487,15 @@ mod period {
         }
         assert_eq!(all.iter().filter(|r| r.is_final()).count(), 5);
         assert_eq!(all.iter().filter(|r| r.is_about_the_request()).count(), 3);
-        // X-DELTA-MONEY3-1: of the five, only a payment taken back can be put back (the token
-        // server's restore approves the checkout again); the others stay final for good
+        // X-DELTA-MONEY3-1, X-DELTA-MONEY6-1: of the five, a payment taken back and the stop a
+        // repeat reversal put on its mandate can be put back (the token server's restore approves
+        // the checkout again and lifts the stop that sat on the reversal it answered); a wrong key,
+        // a checkout gone and every month issued stay final for good
         let revivable: Vec<_> = all.iter().filter(|r| r.is_revivable()).collect();
-        assert_eq!(revivable, [&IssueRefusal::NotPaid]);
+        assert_eq!(
+            revivable,
+            [&IssueRefusal::NotPaid, &IssueRefusal::MandateStopped]
+        );
         for refusal in &all {
             assert!(
                 !refusal.is_revivable() || refusal.is_final(),

@@ -9,6 +9,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CheckoutId, Currency, InvalidValue, Months, Rfc3339, StoredBytes, TierId};
 
+/// How many days the token server keeps the sealed sign-up of a paid checkout - the hand-over its
+/// claim secret opens - counted from the day of the payment (CLAIM CONTRACT v1). An app that has
+/// not fetched it by then has no way into the drive: the approval nulled the token server's own
+/// copy of the claim key, so a purged hand-over cannot be sealed again. ONE number for both
+/// sides: the token server purges by it, and an app keeps the claim secret of a checkout whose
+/// payment was taken back - the token server may put it back - for as long.
+pub const HANDOVER_KEPT_DAYS: u32 = 30;
+
+/// How many times as long as [`HANDOVER_KEPT_DAYS`] a CASH buyer's hand-over is kept: the
+/// operator activates a cash order when the post is opened, up to 60 days after it was made, and
+/// the buyer's app asks once a day, only while it runs. A drive picked up with a claim code is a
+/// cash buyer's.
+pub const CASH_HANDOVER_FACTOR: u32 = 4;
+
 /// The periods a tier is sold for at once, shortest first, each once. Never empty: a tier
 /// that can be bought for no period is not on sale.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -238,9 +252,9 @@ pub enum CheckoutStatusWire {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mail_to: Option<MailTo>,
     },
-    /// Paid. `sealed_signup` is the sign-up sealed to the checkout's claim key, kept 30 days
-    /// after the payment; `None` once that hand-over is gone (or for a checkout from before the
-    /// claim keys): the app cannot get that drive any more.
+    /// Paid. `sealed_signup` is the sign-up sealed to the checkout's claim key, kept
+    /// [`HANDOVER_KEPT_DAYS`] days after the payment; `None` once that hand-over is gone (or for a
+    /// checkout from before the claim keys): the app cannot get that drive any more.
     Approved {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sealed_signup: Option<String>,
