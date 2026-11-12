@@ -93,6 +93,9 @@ pub struct UidMaps {
     dir: Option<PathBuf>,
     clock: Box<dyn Fn() -> u64 + Send + Sync>,
     maps: Mutex<HashMap<String, UidMap>>,
+    /// A test's disk that refuses every write of a map file ([`UidMaps::failing_writes`]).
+    #[cfg(test)]
+    fail_writes: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for UidMaps {
@@ -109,6 +112,8 @@ impl UidMaps {
             dir: Some(dir),
             clock: Box::new(now_unix),
             maps: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            fail_writes: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -119,6 +124,8 @@ impl UidMaps {
             dir: None,
             clock: Box::new(now_unix),
             maps: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            fail_writes: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -182,9 +189,37 @@ impl UidMaps {
             vanished: map.vanished.clone(),
             vanished_floor: map.vanished_floor,
         };
-        // A map that cannot be written is made anew next time: a new UIDVALIDITY, never a
-        // wrong UID.
-        let _ = azcloud_kit::state::write_json(&path, &file, false);
+        if let Err(why) = self.write_map(&path, &file) {
+            // The file on disk is now OLDER than this map: the numbers given since are in no
+            // file, and a restart that read the old one would give them again to other messages
+            // under the same UIDVALIDITY - a wrong UID, the one thing IMAP forbids. So the old
+            // file goes: a restart makes the map anew, with a new UIDVALIDITY, and the programs
+            // fetch the mailbox again (X-DELTA-SYNC4-21).
+            eprintln!("[azul-bridge] the UID map of \"{mailbox}\" could not be saved: {why}");
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => eprintln!(
+                    "[azul-bridge] the older UID map of \"{mailbox}\" could not be removed either ({e}): a restart would read it"
+                ),
+            }
+        }
+    }
+
+    /// Writes one map file (the durable replace).
+    fn write_map(&self, path: &std::path::Path, file: &MapFile) -> Result<(), String> {
+        #[cfg(test)]
+        if self.fail_writes.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(String::from("the disk refused the write"));
+        }
+        azcloud_kit::state::write_json(path, file, false).map_err(|e| e.to_string())
+    }
+
+    /// The same maps on a disk that refuses every write from now on (a test).
+    #[cfg(test)]
+    fn failing_writes(&self) {
+        self.fail_writes
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Numbers the messages `names` of `mailbox` (any order; the store's is name order): the
@@ -454,5 +489,44 @@ mod tests {
         assert_eq!(after.highest_modseq, before.highest_modseq);
         assert_eq!(after.modseqs, before.modseqs);
         assert_eq!(after.vanished, before.vanished);
+    }
+
+    /// X-DELTA-SYNC4-21 (its last open site), RED on the code before: a failed save of the map was
+    /// dropped and the older file stayed under the same UIDVALIDITY, so the UID the bridge had given
+    /// a new message since (3) was given to ANOTHER message after a restart - the one that sorts
+    /// first: a wrong UID. Now the older file does not stay, and the restart makes the map anew
+    /// with a new UIDVALIDITY.
+    #[test]
+    fn x_delta_sync4_21_a_map_that_cannot_be_saved_is_made_anew_at_the_next_start_never_reused() {
+        let dir = TempDir::new("uids-save-fails");
+        let folder = dir.0.join(UIDS_DIR);
+        let maps = UidMaps::in_folder(folder.clone()).with_clock(|| 100);
+        let first = maps.number("Inbox", &names(&["b.eml", "c.eml"]));
+        assert_eq!(
+            (first.validity, uids_of(&first)),
+            (100, vec![("b.eml", 1), ("c.eml", 2)])
+        );
+        assert_eq!(
+            std::fs::read_dir(&folder).unwrap().count(),
+            1,
+            "the map is on disk"
+        );
+        // The disk refuses writes: a message arrives, gets UID 3 in memory, and its save fails.
+        maps.failing_writes();
+        let second = maps.number("Inbox", &names(&["b.eml", "c.eml", "z.eml"]));
+        assert_eq!(uids_of(&second).last(), Some(&("z.eml", 3)));
+        assert_eq!(
+            std::fs::read_dir(&folder).unwrap().count(),
+            0,
+            "the older map would give 3 to another message: it is not left"
+        );
+        // The next start has no map: the numbers are made anew under a new UIDVALIDITY.
+        let restarted = UidMaps::in_folder(folder).with_clock(|| 200);
+        let again = restarted.number("Inbox", &names(&["a.eml", "b.eml", "c.eml", "z.eml"]));
+        assert_eq!(again.validity, 200, "the programs fetch the mailbox again");
+        assert_eq!(
+            uids_of(&again),
+            vec![("a.eml", 1), ("b.eml", 2), ("c.eml", 3), ("z.eml", 4)]
+        );
     }
 }
