@@ -61,6 +61,9 @@ pub struct PlannedFile {
     pub target_etag: Option<String>,
     /// Its size, as far as the target said (conflicts).
     pub target_size: Option<u64>,
+    /// Its modification time (seconds since 1970), as far as the target said (conflicts): with its size,
+    /// what a Replace over a target that tells no tag is held to ([`Guard::Stamp`]).
+    pub target_modified: Option<u64>,
     /// The name "Keep both" gives the newcomer: free at the target when the plan was made
     /// (conflicts only).
     pub keep_as: Option<String>,
@@ -290,6 +293,7 @@ fn add_file(
     let mut conflict = false;
     let mut target_etag = None;
     let mut target_size = None;
+    let mut target_modified = None;
     if targets.set.state(wanted) == Claim::Planned {
         // An earlier file of this plan lands there: this one is another file, with another name.
         target_key = targets.free_key(wanted)?;
@@ -299,6 +303,7 @@ fn add_file(
             Ok(info) => {
                 target_etag = info.etag;
                 target_size = Some(info.size);
+                target_modified = info.modified;
             }
             // Gone since it was listed: the name is free, and the write asks for exactly that.
             Err(DriveError::NotFound { .. }) => conflict = false,
@@ -321,6 +326,7 @@ fn add_file(
         source_etag,
         target_etag,
         target_size,
+        target_modified,
         keep_as: None,
     });
     Ok(target_key)

@@ -1542,6 +1542,7 @@ mod tests {
                 source_etag: None,
                 target_etag: None,
                 target_size: None,
+                target_modified: None,
                 keep_as: None,
             });
             let report = run_transfer(&plan, &os, &home, kind, &never_cancel(), &mut |_| {});

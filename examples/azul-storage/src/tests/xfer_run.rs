@@ -448,6 +448,7 @@ fn a_file_that_is_its_own_destination_is_refused_and_kept() {
         source_etag: None,
         target_etag: None,
         target_size: None,
+        target_modified: None,
         keep_as: None,
     });
     let report = go(&plan, &home, &again, true);

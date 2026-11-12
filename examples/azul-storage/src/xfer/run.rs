@@ -188,6 +188,12 @@ enum Guard {
     Absent,
     /// The version the user chose to replace (the target's tag at the plan).
     Version(String),
+    /// The file the user chose to replace, for a target that tells no tag (SFTP, FTP, a service
+    /// without ETags): the size and the date it had at the plan. A file another device saved since
+    /// has another date or another size, and is not replaced without asking (X-DELTA-SYNC4-11). What
+    /// cannot be told apart - a save that keeps both - is the stamp's own limit; the write has no
+    /// condition to carry it.
+    Stamp { size: u64, modified: Option<u64> },
 }
 
 impl Guard {
@@ -197,8 +203,17 @@ impl Guard {
         }
         match (file.choice, &file.target_etag) {
             (Some(Choice::Replace), Some(tag)) => Guard::Version(tag.clone()),
-            // A target that tells no versions: what the user was asked about is replaced.
-            (Some(Choice::Replace), None) => Guard::Any,
+            // A target that tells no tag but its size and date at the plan: those hold the replace to
+            // the file the user was asked about.
+            (Some(Choice::Replace), None) => match file.target_size {
+                Some(size) => Guard::Stamp {
+                    size,
+                    modified: file.target_modified,
+                },
+                // A target that told nothing at all (it cannot look at a file): what the user was
+                // asked about is replaced as it stands.
+                None => Guard::Any,
+            },
             // Keep both: the newcomer's own name, which was free.
             _ => Guard::Absent,
         }
@@ -207,7 +222,8 @@ impl Guard {
     /// The same as a condition of a bucket's write.
     fn condition(&self) -> Option<Precondition> {
         match self {
-            Guard::Any => None,
+            // No condition a write can carry: the look before it holds the guard.
+            Guard::Any | Guard::Stamp { .. } => None,
             Guard::Absent => Some(Precondition::Absent),
             Guard::Version(tag) => Some(Precondition::Matches(tag.clone())),
         }
@@ -235,6 +251,12 @@ fn precheck(target: &dyn Drive, key: &str, guard: &Guard) -> Result<(), DriveErr
             Ok(_) | Err(DriveError::NotFound { .. }) => Err(changed()),
             Err(e) => Err(e),
         },
+        Guard::Stamp { size, modified } => match target.head(key) {
+            Ok(info) if info.size == *size && info.modified == *modified => Ok(()),
+            // Another size or date, or none: the file the user chose to replace is not there.
+            Ok(_) | Err(DriveError::NotFound { .. }) => Err(changed()),
+            Err(e) => Err(e),
+        },
     }
 }
 
@@ -248,6 +270,11 @@ fn expect_on_disk(target: &dyn Drive, key: &str, guard: &Guard) -> Result<Expect
             // here, and the rename then goes on without a check of its own.
             precheck(target, key, guard)?;
             Ok(local::expect_of_tag(tag).unwrap_or(Expect::Any))
+        }
+        // The look is all a stamp has: the rename then goes on without a check of its own.
+        Guard::Stamp { .. } => {
+            precheck(target, key, guard)?;
+            Ok(Expect::Any)
         }
     }
 }
@@ -280,7 +307,8 @@ fn copy_one(
     let asks_itself = if on_disk {
         !matches!(expect, Expect::Any)
     } else {
-        target.conditional_writes()
+        // A drive that writes conditionally asks only a guard that has a condition to send.
+        condition.is_some() && target.conditional_writes()
     };
     let look = || precheck(target, &file.target_key, guard);
     let last_look: Option<transfer::Look<'_>> =
@@ -374,6 +402,25 @@ impl SmallBatch {
         }
         let files = std::mem::take(&mut self.files);
         self.bytes = 0;
+        // A guard that has no condition to send - a stamp - is looked at right before the batch is
+        // written: the file another device saved since the plan is a conflict, not replaced.
+        let mut asked = Vec::with_capacity(files.len());
+        for file in files {
+            if let Guard::Stamp { .. } = file.guard {
+                if let Err(e) = precheck(target, &file.target_key, &file.guard) {
+                    progress.bytes_done += file.bytes.len() as u64;
+                    progress.files_done += 1;
+                    out.failed.push((file.source_key, e));
+                    continue;
+                }
+            }
+            asked.push(file);
+        }
+        let files = asked;
+        if files.is_empty() {
+            report(progress);
+            return;
+        }
         let conditions: Vec<Option<Precondition>> =
             files.iter().map(|file| file.guard.condition()).collect();
         let items: Vec<BatchPut<'_>> = files

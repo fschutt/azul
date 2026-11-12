@@ -529,6 +529,44 @@ impl Drive for NoTags {
     }
 }
 
+/// X-DELTA-SYNC4-11. A Replace over a target that tells no tag (SFTP, FTP, a service without ETags) was
+/// written with no check at all: whatever another device saved at the name between the dialog and the
+/// write was overwritten. The plan keeps the target's size and date, and the look before the write (and
+/// the last look) holds the replace to them. RED on the old code: the other device's file is
+/// replaced.
+#[test]
+fn x_delta_sync4_11_a_replace_over_a_target_that_tells_no_tag_does_not_overwrite_a_later_save() {
+    let tmp = TempDir::new("sync4-11");
+    let source = LocalDrive::new(tmp.path().join("src"));
+    source.put("a.txt", b"new from here").unwrap();
+    let target = NoTags::with(&[("a.txt", b"old, the one the dialog asked about")], true);
+    let mut plan = make_plan(&source, &[file("a.txt")], &target, "", false, "Copy").unwrap();
+    assert_eq!(plan.conflicts(), vec![0]);
+    assert_eq!(plan.files[0].target_etag, None, "the target tells no tag");
+    assert!(
+        plan.files[0].target_size.is_some() && plan.files[0].target_modified.is_some(),
+        "but its size and date: {:?}",
+        plan.files[0]
+    );
+    plan.choose(0, Choice::Replace);
+    // Another device saved the name while the dialog was open.
+    target.write("a.txt", b"another device's save, longer than before");
+    let report = go(&plan, &source, &target, false);
+    assert_eq!(report.done, 0, "{report:?}");
+    assert_eq!(report.failed.len(), 1, "{report:?}");
+    assert_eq!(
+        target.files.lock().unwrap()["a.txt"].0,
+        b"another device's save, longer than before"
+    );
+    // The control: the file the user was asked about is replaced.
+    let target = NoTags::with(&[("a.txt", b"old, the one the dialog asked about")], true);
+    let mut plan = make_plan(&source, &[file("a.txt")], &target, "", false, "Copy").unwrap();
+    plan.choose(0, Choice::Replace);
+    let report = go(&plan, &source, &target, false);
+    assert_eq!(report.done, 1, "{report:?}");
+    assert_eq!(target.files.lock().unwrap()["a.txt"].0, b"new from here");
+}
+
 fn move_one(source: &NoTags, target: &LocalDrive, tamper: impl FnOnce(&NoTags)) -> Report {
     let items = [Item {
         key: String::from("a.txt"),
