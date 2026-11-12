@@ -1133,17 +1133,9 @@ impl sealed::Sealed for AutoEncrypted {}
 #[cfg(feature = "encryption")]
 impl EncryptionGate for AutoEncrypted {}
 
-/// Opens the Azlin drive `entry` and hands out its two halves: the [`AzlinAccount`] and the drive of its
-/// bytes - which comes out of `gate` and never otherwise. `gate` is given the account and the bucket's
-/// bytes (the credentials refreshed by themselves, the requests failing over) and returns the app's
-/// drive: the layers it puts over them - the retries, the copies kept on this computer - are its own, and
-/// the top of them is the encryption's gate, an [`EncryptionGate`] (azul-storage's `AutoEncrypted`): the
-/// return type says so, so a gate that hands the bytes back as they are, or any drive that is not the
-/// encryption's, does not compile (it was a closure that returned an `Arc<dyn Drive>`, and one built without
-/// the encryption's wrap sent every file of the drive to the bucket in the clear and passed every gate and
-/// test: X-DELTA-STRUCT3-10). The bytes are called once, by `gate`, and the bucket's plain store is no value
-/// this function returns: a caller that holds the account has nothing to write with, and the drive it holds
-/// is the gate's (X-DELTA-AZDRIVE-KEYS-4).
+/// What [`open_azlin`] refuses to compile, and the control of it. They are doc tests of this item and only of it: the
+/// encryption's own drive (`azul_storage::AutoEncrypted`) exists with the feature `encryption` only, and without it no
+/// type is a gate, so there is nothing to show (and a `compile_fail` example that fails for another reason proves nothing).
 ///
 /// ```compile_fail,E0277
 /// // A gate that gives the bucket's bytes back as they are: no encryption in front of the drive.
@@ -1175,6 +1167,23 @@ impl EncryptionGate for AutoEncrypted {}
 ///     });
 /// }
 /// ```
+#[cfg(all(doctest, feature = "encryption"))]
+struct OpenAzlinGate;
+
+/// Opens the Azlin drive `entry` and hands out its two halves: the [`AzlinAccount`] and the drive of its
+/// bytes - which comes out of `gate` and never otherwise. `gate` is given the account and the bucket's
+/// bytes (the credentials refreshed by themselves, the requests failing over) and returns the app's
+/// drive: the layers it puts over them - the retries, the copies kept on this computer - are its own, and
+/// the top of them is the encryption's gate, an [`EncryptionGate`] (azul-storage's `AutoEncrypted`): the
+/// return type says so, so a gate that hands the bytes back as they are, or any drive that is not the
+/// encryption's, does not compile (it was a closure that returned an `Arc<dyn Drive>`, and one built without
+/// the encryption's wrap sent every file of the drive to the bucket in the clear and passed every gate and
+/// test: X-DELTA-STRUCT3-10). The bytes are called once, by `gate`, and the bucket's plain store is no value
+/// this function returns: a caller that holds the account has nothing to write with, and the drive it holds
+/// is the gate's (X-DELTA-AZDRIVE-KEYS-4).
+///
+/// The examples that show what does not compile - a gate that gives the bytes back, a drive of another kind - are the
+/// doc tests of `OpenAzlinGate` below (they need the encryption's own drive).
 ///
 /// The token server is [`azlin_target`]'s choice and no other function's (X-DELTA-AZDRIVE-KEYS-9).
 ///
