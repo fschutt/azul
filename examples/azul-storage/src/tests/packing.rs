@@ -5,7 +5,7 @@
 
 use std::{
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Barrier,
     },
     thread,
@@ -1073,4 +1073,247 @@ fn x_delta_azdrive_keys_14_every_number_of_a_packed_entry_is_held_against_a_pack
             "{size} {packed:?}: {refused:?}"
         );
     }
+}
+
+/// An index whose `hijack`-th apply LANDS and then answers with a conflict at its first path: what
+/// a change sent again after it landed answers (a 409 for a swap still under way, then the rebuilt
+/// change meeting its own commit). The applies after it go straight to the index, so a change that
+/// expects its path absent conflicts with the landed commit's paths as well. After the landing the
+/// index can be made unreadable (`unreadable_after`): the read that would say whether it landed.
+struct OwnCommitConflicts {
+    inner: MemoryIndex,
+    /// The apply, counted from 1, that lands and answers with a conflict; 0: none.
+    hijack: AtomicU32,
+    calls: AtomicU32,
+    unreadable_after: AtomicBool,
+    unreadable: AtomicBool,
+}
+
+impl OwnCommitConflicts {
+    fn new(hijack: u32, unreadable_after: bool) -> Arc<OwnCommitConflicts> {
+        Arc::new(OwnCommitConflicts {
+            inner: MemoryIndex::new(),
+            hijack: AtomicU32::new(hijack),
+            calls: AtomicU32::new(0),
+            unreadable_after: AtomicBool::new(unreadable_after),
+            unreadable: AtomicBool::new(false),
+        })
+    }
+
+    fn reading(&self) -> Result<(), DriveError> {
+        if self.unreadable.load(Ordering::SeqCst) {
+            return Err(DriveError::Transport(String::from(
+                "connection reset by peer",
+            )));
+        }
+        Ok(())
+    }
+}
+
+impl NameIndex for OwnCommitConflicts {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.reading()?;
+        self.inner.get(path)
+    }
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.reading()?;
+        self.inner.list(request)
+    }
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        if call != self.hijack.load(Ordering::SeqCst) {
+            return self.inner.apply(changes);
+        }
+        let first = match changes.first() {
+            Some(IndexChange::Put { path, .. } | IndexChange::Remove { path, .. }) => path.clone(),
+            None => String::new(),
+        };
+        self.inner.apply(changes)?;
+        if self.unreadable_after.load(Ordering::SeqCst) {
+            self.unreadable.store(true, Ordering::SeqCst);
+        }
+        Err(DriveError::Conflict { key: first })
+    }
+}
+
+/// A drive that packs small files over `index`, its journal in `dir`.
+fn packing_over(
+    bucket: &Arc<MemBucket>,
+    index: &Arc<OwnCommitConflicts>,
+    key: &DriveKey,
+    dir: &TempDir,
+) -> EncryptedDrive<Arc<MemBucket>> {
+    let options = PackOptions::default().with_journal(dir.path().join("packs"));
+    let index: Arc<dyn NameIndex> = index.clone();
+    EncryptedDrive::new(Arc::clone(bucket), key.clone(), index).with_packing(options)
+}
+
+/// Create-only writes of `files`: every file must be a new name.
+fn put_new(
+    drive: &EncryptedDrive<Arc<MemBucket>>,
+    files: &[(String, Vec<u8>)],
+) -> Vec<Result<Option<String>, DriveError>> {
+    let absent = Precondition::Absent;
+    let items: Vec<BatchPut<'_>> = files
+        .iter()
+        .map(|(path, bytes)| BatchPut::new(path, bytes).when(&absent))
+        .collect();
+    drive.put_many(&items)
+}
+
+/// X-DELTA-SYNC4-2, row "the change landed, its retry met its own commit". The one index change
+/// that names a pack of 20 new files landed and answered with a conflict; the rebuilt changes expect
+/// their paths absent and conflict with the commit's own paths, one after the other, until every
+/// target is dead. `commit_pack` took that for "refused for good" and deleted the pack the index
+/// names: 20 entries read "its object is missing" and every caller was told Conflict. RED on the old
+/// code: every result is a conflict and the bucket holds no pack.
+#[test]
+fn x_delta_sync4_2_a_pack_whose_commit_landed_and_whose_retry_conflicted_is_kept_and_its_files_are_written(
+) {
+    let dir = TempDir::new("pack-own-commit");
+    let bucket = Arc::new(MemBucket::new());
+    let index = OwnCommitConflicts::new(1, false);
+    let drive = packing_over(&bucket, &index, &DriveKey::generate().unwrap(), &dir);
+    let files = small_files(20, 700);
+    let results = put_new(&drive, &files);
+    assert!(
+        results.iter().all(Result::is_ok),
+        "the files are in the index: {:?}",
+        results.iter().filter_map(|r| r.as_ref().err()).next()
+    );
+    assert_eq!(
+        data_objects(&bucket).len(),
+        1,
+        "the pack the index names is in the bucket"
+    );
+    for (path, bytes) in &files {
+        assert_eq!(&drive.get(path).unwrap(), bytes, "{path}");
+    }
+    assert!(dangling(&drive).is_empty());
+}
+
+/// X-DELTA-SYNC4-2, the mixed row: a name that another writer took (a real conflict) and the files
+/// of the commit that landed. The files the index names with the pack are written, the one that is
+/// someone else's is a conflict, and the pack stays for the files it holds. RED on the old code:
+/// the pack is deleted, so the files the index names have no object.
+#[test]
+fn x_delta_sync4_2_a_member_that_lost_to_another_writer_is_a_conflict_and_the_landed_ones_are_written(
+) {
+    let dir = TempDir::new("pack-own-commit-mixed");
+    let bucket = Arc::new(MemBucket::new());
+    // The first write of the test is the apply 1; of the second write the first apply is the real
+    // conflict of the taken name (2) and the second one lands and conflicts (3).
+    let index = OwnCommitConflicts::new(3, false);
+    let drive = packing_over(&bucket, &index, &DriveKey::generate().unwrap(), &dir);
+    drive.put("notes/0001.txt", b"someone else's file").unwrap();
+    let packs_before = data_objects(&bucket).len();
+    let files = small_files(5, 600);
+    let results = put_new(&drive, &files);
+    assert!(
+        matches!(results[1], Err(DriveError::Conflict { .. })),
+        "the taken name stays a conflict: {:?}",
+        results[1]
+    );
+    for i in [0usize, 2, 3, 4] {
+        assert!(results[i].is_ok(), "{}: {:?}", files[i].0, results[i]);
+        assert_eq!(
+            drive.get(&files[i].0).unwrap(),
+            files[i].1,
+            "{}",
+            files[i].0
+        );
+    }
+    assert_eq!(drive.get("notes/0001.txt").unwrap(), b"someone else's file");
+    assert_eq!(
+        data_objects(&bucket).len(),
+        packs_before + 1,
+        "the new pack is kept"
+    );
+    assert!(dangling(&drive).is_empty());
+}
+
+/// X-DELTA-SYNC4-2, row "every path really conflicts": nothing names the pack, the index is asked
+/// and says so, and the pack leaves the bucket again (the compensation still works: it asks, then
+/// deletes). Green on the old code too.
+#[test]
+fn x_delta_sync4_2_a_pack_no_path_of_which_the_index_names_goes_again_after_real_conflicts() {
+    let dir = TempDir::new("pack-real-conflicts");
+    let bucket = Arc::new(MemBucket::new());
+    let index = OwnCommitConflicts::new(0, false);
+    let drive = packing_over(&bucket, &index, &DriveKey::generate().unwrap(), &dir);
+    let files = small_files(4, 500);
+    put_all(&drive, &files);
+    let before = data_objects(&bucket);
+    assert_eq!(before.len(), 1);
+    let others: Vec<(String, Vec<u8>)> = files
+        .iter()
+        .map(|(path, _)| (path.clone(), text(450, 99)))
+        .collect();
+    let results = put_new(&drive, &others);
+    assert!(
+        results
+            .iter()
+            .all(|r| matches!(r, Err(DriveError::Conflict { .. }))),
+        "{results:?}"
+    );
+    assert_eq!(
+        data_objects(&bucket),
+        before,
+        "the pack nothing names left the bucket again"
+    );
+    for (path, bytes) in &files {
+        assert_eq!(&drive.get(path).unwrap(), bytes);
+    }
+}
+
+/// X-DELTA-SYNC4-2, row "the index cannot be asked": the commit landed, its retry conflicted, and
+/// the read that would say so fails. Nothing is deleted, the callers are told it is not known (not
+/// "conflict"), and the upkeep that runs later finds the pack named and keeps it. RED on the old
+/// code: the pack was deleted on the conflict's word.
+#[test]
+fn x_delta_sync4_2_a_conflict_whose_read_back_fails_keeps_the_pack_and_is_not_a_conflict() {
+    let dir = TempDir::new("pack-own-commit-unread");
+    let bucket = Arc::new(MemBucket::new());
+    let index = OwnCommitConflicts::new(1, true);
+    let key = DriveKey::generate().unwrap();
+    let drive = packing_over(&bucket, &index, &key, &dir);
+    let files = small_files(6, 650);
+    let results = put_new(&drive, &files);
+    assert_eq!(
+        data_objects(&bucket).len(),
+        1,
+        "the pack stays: the index may name it"
+    );
+    assert!(
+        results
+            .iter()
+            .all(|r| matches!(r, Err(DriveError::Transport(_)))),
+        "not known, not a conflict: {results:?}"
+    );
+
+    // The index can be read again: the files are there, and the upkeep keeps the pack.
+    index.unreadable.store(false, Ordering::SeqCst);
+    for (path, bytes) in &files {
+        assert_eq!(&drive.get(path).unwrap(), bytes, "{path}");
+    }
+    let later = now_unix() + JOURNAL_STALE_SECS + 1;
+    assert_eq!(
+        drive.recover_packs(later).unwrap(),
+        1,
+        "the pack was in flight"
+    );
+    assert_eq!(
+        data_objects(&bucket).len(),
+        1,
+        "a pack the index names is no garbage"
+    );
+    for (path, bytes) in &files {
+        assert_eq!(&drive.get(path).unwrap(), bytes, "{path}");
+    }
+    assert!(dangling(&drive).is_empty());
+    assert_eq!(
+        drive.recover_packs(later).unwrap(),
+        0,
+        "nothing is left in flight"
+    );
 }

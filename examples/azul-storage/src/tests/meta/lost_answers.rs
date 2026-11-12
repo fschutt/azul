@@ -120,6 +120,118 @@ impl Bucket for LostAnswers {
     }
 }
 
+/// How a swap that did not land at once answers.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Answer {
+    /// A timeout: the request may be on its way to the bucket still.
+    Transport,
+    /// A 409: another write of the manifest - this very swap - is under way.
+    Raced,
+    /// A refusal for good (a frozen drive): nothing was written and nothing will be.
+    Denied,
+}
+
+impl Answer {
+    pub(crate) fn error(self) -> MetaError {
+        match self {
+            Answer::Transport => MetaError::Drive(DriveError::Transport("timed out".to_string())),
+            Answer::Raced => MetaError::Raced {
+                key: keys::MANIFEST.to_string(),
+            },
+            Answer::Denied => MetaError::Drive(DriveError::Denied {
+                message: "the drive is frozen".to_string(),
+            }),
+        }
+    }
+}
+
+/// A bucket whose next replace of a key containing a fragment is not applied when it is asked: it
+/// answers at once, and the write lands right after the first read that follows - a slow PUT, a
+/// service that answers 409 for the swap it is still making. The read itself still sees the
+/// object as it was.
+pub(crate) struct LateSwap {
+    inner: MemoryBucket,
+    armed: Mutex<Option<(String, Answer)>>,
+    pending: Mutex<Option<(String, Vec<u8>, String)>>,
+}
+
+impl LateSwap {
+    pub(crate) fn new(inner: MemoryBucket) -> LateSwap {
+        LateSwap {
+            inner,
+            armed: Mutex::new(None),
+            pending: Mutex::new(None),
+        }
+    }
+
+    pub(crate) fn answer_next(&self, fragment: &str, answer: Answer) {
+        *self.armed.lock().unwrap() = Some((fragment.to_string(), answer));
+    }
+
+    fn land(&self) {
+        let pending = self.pending.lock().unwrap().take();
+        if let Some((key, bytes, known)) = pending {
+            self.inner
+                .replace(&key, &bytes, &known)
+                .expect("the late swap meets the version it was made from");
+        }
+    }
+
+    /// Whether the late swap is still on its way.
+    pub(crate) fn on_its_way(&self) -> bool {
+        self.pending.lock().unwrap().is_some()
+    }
+}
+
+impl Bucket for LateSwap {
+    fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
+        let read = self.inner.read(key);
+        self.land();
+        read
+    }
+    fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
+        let read = self.inner.read_if_changed(key, known);
+        self.land();
+        read
+    }
+    fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {
+        Bucket::read_range(&self.inner, key, range)
+    }
+    fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
+        self.inner.create(key, bytes)
+    }
+    fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
+        let hit = {
+            let mut armed = self.armed.lock().unwrap();
+            if armed
+                .as_ref()
+                .is_some_and(|(f, _)| key.contains(f.as_str()))
+            {
+                armed.take()
+            } else {
+                None
+            }
+        };
+        let Some((_, answer)) = hit else {
+            return self.inner.replace(key, bytes, known);
+        };
+        if !matches!(answer, Answer::Denied) {
+            *self.pending.lock().unwrap() =
+                Some((key.to_string(), bytes.to_vec(), known.to_string()));
+        }
+        Err(answer.error())
+    }
+    fn remove(&self, key: &str) -> Result<(), MetaError> {
+        self.inner.remove(key)
+    }
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        self.inner.list_keys(prefix)
+    }
+    fn exists(&self, key: &str) -> Result<bool, MetaError> {
+        self.inner.exists(key)
+    }
+}
+
 fn sealer() -> TestSealer {
     TestSealer::new([23; 32])
 }
@@ -322,6 +434,68 @@ mod encrypted {
                 .expect("the index names the file: its object must still be in the bucket"),
             b"the only copy of the report"
         );
+    }
+
+    /// X-DELTA-SYNC4-2 through the real index, the interleaving of the finding: a pack of new files
+    /// is put, the swap that names it answers 409 ("another write of the manifest is in progress")
+    /// and lands a moment later. The publish tries again, meets its OWN commit, and the rebuilt
+    /// change expects every path absent: `Conflict` at each, until every target is dead.
+    /// `commit_pack` read that as "refused for good" and deleted the pack the manifest names.
+    /// RED on the old code: every write answers a conflict, the pack is gone from the bucket and
+    /// the index names 30 files whose bytes are nowhere.
+    #[test]
+    fn x_delta_sync4_2_a_pack_whose_manifest_swap_answered_409_and_landed_is_kept() {
+        use super::{Answer, LateSwap};
+        use crate::{packing::PackOptions, BatchPut, Precondition};
+
+        let key = DriveKey::generate().unwrap();
+        let data = MemoryBucket::new();
+        let meta = Arc::new(LateSwap::new(data.clone()));
+        let options = RepoOptions {
+            cache_dir: None,
+            lazy: false,
+            ..RepoOptions::default()
+        };
+        let repo =
+            MetaRepo::create_with(Arc::clone(&meta), key.clone(), "laptop", "Laptop", &options)
+                .unwrap();
+        let index: Arc<dyn NameIndex> = Arc::new(MetaIndex::new(repo).with_poll_every(0));
+        let drive = EncryptedDrive::new(data.clone(), key.clone(), index)
+            .with_packing(PackOptions::default());
+        let files: Vec<(String, Vec<u8>)> = (0..30)
+            .map(|i| {
+                (
+                    format!("notes/{i:03}.txt"),
+                    format!("the note {i}, written once").into_bytes(),
+                )
+            })
+            .collect();
+        let absent = Precondition::Absent;
+        let items: Vec<BatchPut<'_>> = files
+            .iter()
+            .map(|(path, bytes)| BatchPut::new(path, bytes).when(&absent))
+            .collect();
+        meta.answer_next(keys::MANIFEST, Answer::Raced);
+        let results = drive.put_many(&items);
+        assert!(
+            !meta.on_its_way(),
+            "the swap landed after the read that looked for it"
+        );
+        assert!(
+            results.iter().all(Result::is_ok),
+            "the files are named by the manifest that landed: {:?}",
+            results.iter().filter_map(|r| r.as_ref().err()).next()
+        );
+        let other = phone(&data, &key);
+        for (path, bytes) in &files {
+            assert_eq!(
+                &other.get(path).unwrap_or_else(|e| panic!(
+                    "{path}: the index names it, its pack must be there: {e}"
+                )),
+                bytes,
+                "{path}"
+            );
+        }
     }
 
     #[test]

@@ -374,6 +374,16 @@ fn bin_of(body: u64, object_len: u64, low: u64, high: u64) -> Option<(u64, u64)>
     Some((start, end - start))
 }
 
+/// What the index says of a pack whose change ended in conflicts ([`EncryptedDrive::commit_pack`]).
+enum Named {
+    /// These (member, target) pairs name the pack: the change landed.
+    Yes(Vec<(usize, usize)>),
+    /// No path of any member names the pack: nothing landed.
+    No,
+    /// The index could not be asked.
+    Unknown,
+}
+
 /// One file version on its way into a pack.
 pub(crate) struct Member {
     /// The paths that will name it: one for a write; every path that names the version for a
@@ -1378,8 +1388,11 @@ impl<D: Drive> EncryptedDrive<D> {
     /// Seals `members` into a new pack, puts it (in the journal while it is in flight) and
     /// names its members in ONE index change; a path whose expectation fails drops out and the
     /// rest is applied again. The index never names the pack before it is in the bucket; a pack
-    /// nothing came to name leaves the bucket again; after any other failure the pack stays in
-    /// the journal for [`EncryptedDrive::recover_packs`] (the commit may have landed).
+    /// nothing came to name leaves the bucket again - only after the index, asked now and from
+    /// the drive, was found not to name it (a conflict is no proof: a change sent again after it
+    /// landed meets its own commit and conflicts at every path it named, X-DELTA-SYNC4-2); after
+    /// any other failure the pack stays in the journal for [`EncryptedDrive::recover_packs`] (the
+    /// commit may have landed).
     fn commit_pack(&self, members: &[Member]) -> Committed {
         let all = |e: DriveError| Committed {
             results: members.iter().map(|_| Err(e.clone())).collect(),
@@ -1470,16 +1483,49 @@ impl<D: Drive> EncryptedDrive<D> {
             }
         }
         if !named {
-            // Nothing names the pack and every change of it was refused for good: it goes again.
-            // Without that proof it stays in the journal for `recover_packs`.
-            let gone = refused
-                .as_ref()
-                .and_then(Refusal::of)
-                .is_some_and(|refusal| drop_new_object(&self.inner, &id, &refusal).is_ok());
-            if gone {
-                self.packs.journal.end(&id);
+            // Every change of the pack ended in a Conflict, and a Conflict is not yet a refusal: a
+            // change that was sent again after it landed (a 409 for the swap still under way, an
+            // answer that got lost) meets its OWN commit and conflicts at every path it named.
+            // The index is asked now, from the drive, whether it names the pack - as the single
+            // object's `Staged::failed` asks - and only an index that does not name it lets the
+            // pack go (X-DELTA-SYNC4-2).
+            match self.named_by_index(&id, members) {
+                // The commit landed: these members are written, and the pack is named.
+                Named::Yes(landed) => {
+                    for (i, t) in landed {
+                        alive[i][t] = true;
+                        results[i] = None;
+                    }
+                    named = true;
+                }
+                // Nothing names the pack and every change of it was refused for good: it goes
+                // again. Without that proof it stays in the journal for `recover_packs`.
+                Named::No => {
+                    let gone = refused
+                        .as_ref()
+                        .and_then(Refusal::of)
+                        .is_some_and(|refusal| drop_new_object(&self.inner, &id, &refusal).is_ok());
+                    if gone {
+                        self.packs.journal.end(&id);
+                    }
+                }
+                // The index cannot be asked: the pack may be named. It stays in the journal, and
+                // whoever was told "conflict" is told it is not known (the conflict is no answer
+                // to hand on).
+                Named::Unknown => {
+                    let unknown = DriveError::Transport(String::from(
+                        "whether these files were written is not known: the drive's index could \
+                         not be read afterwards, and nothing was deleted",
+                    ));
+                    for result in &mut results {
+                        if matches!(result, Some(Err(DriveError::Conflict { .. }))) {
+                            *result = Some(Err(unknown.clone()));
+                        }
+                    }
+                }
             }
-        } else {
+        }
+        if named {
             // Best effort: a pack missing from the list is still found while the index names it.
             let _ = self.packs.journal.note(&[(id, sealed.pack.object_len)]);
             self.packs.journal.end(&id);
@@ -1499,6 +1545,30 @@ impl<D: Drive> EncryptedDrive<D> {
             results,
             released,
             packs: named.then_some(sealed.pack).into_iter().collect(),
+        }
+    }
+
+    /// What the drive's index, asked now and from the drive and not from a copy of it, says of the
+    /// pack `id` that `members` were to be named in: which of their paths name it. One member is
+    /// written when any of its paths names the pack.
+    fn named_by_index(&self, id: &ObjectId, members: &[Member]) -> Named {
+        let mut landed = Vec::new();
+        for (i, member) in members.iter().enumerate() {
+            for (t, target) in member.targets.iter().enumerate() {
+                match self.index.get_fresh(&target.path) {
+                    Ok(Some(entry)) if entry.bucket_object() == Some(*id) => {
+                        landed.push((i, t));
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(_) => return Named::Unknown,
+                }
+            }
+        }
+        if landed.is_empty() {
+            Named::No
+        } else {
+            Named::Yes(landed)
         }
     }
 

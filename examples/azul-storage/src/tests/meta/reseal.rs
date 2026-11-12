@@ -7,15 +7,13 @@
 //!
 //! The rows of the table in the doc of `reseal`, one test each.
 
-use std::sync::Mutex;
-
-use super::lost_answers::{Lost, LostAnswers};
+use super::lost_answers::{Answer, LateSwap, Lost, LostAnswers};
 use crate::{
     meta::{
-        keys, wal::reseal, Bucket, Fetched, Kind, Listed, Manifest, MemoryBucket, MetaError,
-        MetaStore, PackWriter, Publish, RefUpdate, Sealer, TestSealer, Version,
+        keys, wal::reseal, Bucket, Kind, Manifest, MemoryBucket, MetaError, MetaStore, PackWriter,
+        Publish, RefUpdate, Sealer, TestSealer,
     },
-    ByteRange, DriveError,
+    DriveError,
 };
 
 const MAIN: &str = "refs/heads/main";
@@ -86,118 +84,6 @@ fn opens_with_new(bucket: &MemoryBucket) -> Result<String, MetaError> {
 /// What a device that holds the old key reads (the swap has not landed yet).
 fn opens_with_old(bucket: &MemoryBucket) -> bool {
     MetaStore::open(bucket.clone(), old_key(), "phone").is_ok()
-}
-
-/// How a swap that did not land at once answers.
-#[derive(Clone, Copy, Debug)]
-enum Answer {
-    /// A timeout: the request may be on its way to the bucket still.
-    Transport,
-    /// A 409: another write of the manifest - this very swap - is under way.
-    Raced,
-    /// A refusal for good (a frozen drive): nothing was written and nothing will be.
-    Denied,
-}
-
-impl Answer {
-    fn error(self) -> MetaError {
-        match self {
-            Answer::Transport => MetaError::Drive(DriveError::Transport("timed out".to_string())),
-            Answer::Raced => MetaError::Raced {
-                key: keys::MANIFEST.to_string(),
-            },
-            Answer::Denied => MetaError::Drive(DriveError::Denied {
-                message: "the drive is frozen".to_string(),
-            }),
-        }
-    }
-}
-
-/// A bucket whose next replace of a key containing a fragment is not applied when it is asked: it
-/// answers at once, and the write lands right after the first read that follows - a slow PUT, a
-/// service that answers 409 for the swap it is still making. The read itself still sees the
-/// object as it was.
-struct LateSwap {
-    inner: MemoryBucket,
-    armed: Mutex<Option<(String, Answer)>>,
-    pending: Mutex<Option<(String, Vec<u8>, String)>>,
-}
-
-impl LateSwap {
-    fn new(inner: MemoryBucket) -> LateSwap {
-        LateSwap {
-            inner,
-            armed: Mutex::new(None),
-            pending: Mutex::new(None),
-        }
-    }
-
-    fn answer_next(&self, fragment: &str, answer: Answer) {
-        *self.armed.lock().unwrap() = Some((fragment.to_string(), answer));
-    }
-
-    fn land(&self) {
-        let pending = self.pending.lock().unwrap().take();
-        if let Some((key, bytes, known)) = pending {
-            self.inner
-                .replace(&key, &bytes, &known)
-                .expect("the late swap meets the version it was made from");
-        }
-    }
-
-    /// Whether the late swap is still on its way.
-    fn on_its_way(&self) -> bool {
-        self.pending.lock().unwrap().is_some()
-    }
-}
-
-impl Bucket for LateSwap {
-    fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
-        let read = self.inner.read(key);
-        self.land();
-        read
-    }
-    fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
-        let read = self.inner.read_if_changed(key, known);
-        self.land();
-        read
-    }
-    fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {
-        Bucket::read_range(&self.inner, key, range)
-    }
-    fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
-        self.inner.create(key, bytes)
-    }
-    fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
-        let hit = {
-            let mut armed = self.armed.lock().unwrap();
-            if armed
-                .as_ref()
-                .is_some_and(|(f, _)| key.contains(f.as_str()))
-            {
-                armed.take()
-            } else {
-                None
-            }
-        };
-        let Some((_, answer)) = hit else {
-            return self.inner.replace(key, bytes, known);
-        };
-        if !matches!(answer, Answer::Denied) {
-            *self.pending.lock().unwrap() =
-                Some((key.to_string(), bytes.to_vec(), known.to_string()));
-        }
-        Err(answer.error())
-    }
-    fn remove(&self, key: &str) -> Result<(), MetaError> {
-        self.inner.remove(key)
-    }
-    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
-        self.inner.list_keys(prefix)
-    }
-    fn exists(&self, key: &str) -> Result<bool, MetaError> {
-        self.inner.exists(key)
-    }
 }
 
 /// Row "any answer, the read-back names this call's checkpoint" (412): the swap landed and its
