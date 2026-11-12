@@ -617,3 +617,79 @@ fn imap4rev2_answers_as_rfc_9051_wants_once_enabled() {
     let entwurf = client.ok("v10", "SELECT \"Entwürfe\"");
     assert!(has(&entwurf, "* 1 EXISTS"), "{entwurf:?}");
 }
+
+// ==== X-DELTA-SYNC4-21: a listing that failed is no empty mailbox ====
+
+/// A drive in memory whose listings under `prefix` fail while `armed`; everything else is the
+/// drive's own.
+struct Flaky {
+    inner: Arc<MemoryDrive>,
+    armed: std::sync::atomic::AtomicBool,
+    prefix: String,
+}
+
+impl Drive for Flaky {
+    fn list(&self, request: &azul_storage::ListRequest) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+        if self.armed.load(std::sync::atomic::Ordering::SeqCst) && request.prefix.starts_with(&self.prefix) {
+            return Err(azul_storage::DriveError::Transport(String::from("the listing failed")));
+        }
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, azul_storage::DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+        self.inner.head(key)
+    }
+    fn copy(&self, from: &str, to: &str) -> Result<(), azul_storage::DriveError> {
+        self.inner.copy(from, to)
+    }
+}
+
+/// RED on the code before: the target's listing for the COPYUID failed, was taken for an empty
+/// mailbox, and every message of the target was dropped from its UID map as expunged - the next
+/// listing numbered them all anew under the same UIDVALIDITY (the message that was UID 1 was UID 2).
+#[test]
+fn x_delta_sync4_21_a_copy_whose_target_cannot_be_listed_leaves_the_uid_map_alone() {
+    let drive = seeded();
+    let archived = mail("old", "Already in the Archive.");
+    drive
+        .put(&azlin::message_key("Archive", &azlin::object_name(&archived, OCT_1 - 600)), &archived)
+        .unwrap();
+    let flaky = Arc::new(Flaky {
+        inner: drive.clone(),
+        armed: std::sync::atomic::AtomicBool::new(false),
+        prefix: String::from("mail/Archive/"),
+    });
+    let imap = Arc::new(Imap::new(
+        Arc::new(DriveMailStore::new(flaky.clone())),
+        Arc::new(UidMaps::in_memory().with_clock(|| 1_700_000_000)),
+        Credentials::new(USER, PASSWORD),
+        Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
+        Limits::default(),
+        Arc::new(SentRegistry::new()),
+    ));
+    let mut client = Client::signed_in(imap);
+    client.ok("s1", "SELECT Archive");
+    let before = client.ok("f1", "UID FETCH 1:* (UID)");
+    assert!(has(&before, "(UID 1)"), "{before:?}");
+    client.ok("s2", "SELECT INBOX");
+    flaky.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let copied = client.run("c1", "COPY 1 Archive");
+    assert!(copied.last().unwrap().starts_with("c1 OK"), "the copy landed: {copied:?}");
+    assert!(!has(&copied, "COPYUID"), "no listing, no numbers: {copied:?}");
+    flaky.armed.store(false, std::sync::atomic::Ordering::SeqCst);
+    client.ok("s3", "SELECT Archive");
+    let after = client.ok("f2", "UID FETCH 1:* (UID)");
+    assert!(has(&after, "(UID 1)"), "the message that was there keeps its UID: {after:?}");
+    assert!(has(&after, "(UID 2)"), "the copy is the next one: {after:?}");
+}

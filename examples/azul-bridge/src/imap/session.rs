@@ -1694,29 +1694,32 @@ impl<'s, C: Conn> Session<'s, C> {
             };
             copied.push((msg.uid, name));
         }
-        // COPYUID: the source UIDs and the ones the messages have in the target now.
+        // COPYUID: the source UIDs and the ones the messages have in the target now. The target's
+        // listing decides the numbers; one that FAILED numbers nothing - an empty list would drop
+        // every message of the target from its UID map as expunged and number them all anew, under
+        // the same UIDVALIDITY (X-DELTA-SYNC4-21). The COPY is then answered without the code,
+        // which a server may leave out.
         let mut code = String::new();
         if !copied.is_empty() {
-            let names: Vec<String> = match self.imap.store.messages(&target.path) {
-                Ok(listed) => listed.into_iter().map(|m| m.name).collect(),
-                Err(_) => Vec::new(),
-            };
-            let numbered = self.imap.uids.number(&target.path, &names);
-            let target_uid: HashMap<&str, u32> =
-                numbered.uids.iter().map(|(n, u)| (n.as_str(), *u)).collect();
-            let pairs: Vec<(u32, u32)> = copied
-                .iter()
-                .filter_map(|(uid, name)| target_uid.get(name.as_str()).map(|t| (*uid, *t)))
-                .collect();
-            if !pairs.is_empty() {
-                let from: Vec<String> = pairs.iter().map(|(s, _)| s.to_string()).collect();
-                let to: Vec<String> = pairs.iter().map(|(_, t)| t.to_string()).collect();
-                code = format!(
-                    "[COPYUID {} {} {}] ",
-                    numbered.validity,
-                    from.join(","),
-                    to.join(",")
-                );
+            if let Ok(listed) = self.imap.store.messages(&target.path) {
+                let names: Vec<String> = listed.into_iter().map(|m| m.name).collect();
+                let numbered = self.imap.uids.number(&target.path, &names);
+                let target_uid: HashMap<&str, u32> =
+                    numbered.uids.iter().map(|(n, u)| (n.as_str(), *u)).collect();
+                let pairs: Vec<(u32, u32)> = copied
+                    .iter()
+                    .filter_map(|(uid, name)| target_uid.get(name.as_str()).map(|t| (*uid, *t)))
+                    .collect();
+                if !pairs.is_empty() {
+                    let from: Vec<String> = pairs.iter().map(|(s, _)| s.to_string()).collect();
+                    let to: Vec<String> = pairs.iter().map(|(_, t)| t.to_string()).collect();
+                    code = format!(
+                        "[COPYUID {} {} {}] ",
+                        numbered.validity,
+                        from.join(","),
+                        to.join(",")
+                    );
+                }
             }
         }
         if !moving || target.path == source {
