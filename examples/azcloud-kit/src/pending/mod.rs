@@ -1043,7 +1043,8 @@ pub enum Abandoned {
     /// Its payment was paid and TAKEN BACK (a refund, a returned debit, a chargeback): nobody can
     /// pay it, so the buyer may order again - but the token server puts a reversed payment back
     /// when its refund failed or a dispute was won, and the drive then comes with the claim key
-    /// this entry keeps. The entry STAYS on the list, and the claims ask about it once a day
+    /// this entry keeps. The entry STAYS on the list, marked as taken back by the abandon itself
+    /// (so it stands in no order's way, X-DELTA-MONEY6-2), and the claims ask about it once a day
     /// ([`Transient::TakenBack`], X-DELTA-MONEY5-1).
     TakenBack,
     /// It stays on the list, its payment possibly under way ([`PendingCheckout::in_flight_since`]):
@@ -1087,7 +1088,28 @@ pub fn abandon(server: &TokenServer<'_>, shared: &SharedKeyring, checkout_id: &s
         Ok(answer) => match Settled::abandoned(answer) {
             Verdict::Over(proof) => settled(proof),
             // Over for the buyer, not for the claim key: the token server may put the payment back.
-            Verdict::TakenBack => Abandoned::TakenBack,
+            // The count the poll makes is made HERE, before the answer: an entry that says it was
+            // taken back is no open order, so the order the dialog places the moment this answers
+            // is not refused as the same order, still open (X-DELTA-MONEY6-2); and the hand-over's
+            // life counts from this look when no poll found the payment taken back first.
+            Verdict::TakenBack => {
+                let now = crate::now();
+                match count_taken_back(shared, checkout_id, now) {
+                    Ok(Some(listed)) => match HandoverOver::of(&listed, now) {
+                        Some(over) => settled(Settled::handover_over(&over)),
+                        None => Abandoned::TakenBack,
+                    },
+                    // not on the list any more: another window dealt with it, and the token
+                    // server's answer is the same
+                    Ok(None) => Abandoned::TakenBack,
+                    // The list could not take the count: the entry is still an open order as far
+                    // as it can say, so the buyer is not told to order again.
+                    Err(e) => kept(
+                        false,
+                        format!("its payment was taken back, but the list could not count it: {e}"),
+                    ),
+                }
+            }
             Verdict::Open => kept(false, format!("the token server keeps it open ({answer:?})")),
         },
         Err(e) if e.is_checkout_paid() => kept(true, e.said()),
@@ -1368,6 +1390,32 @@ fn not_taken_back(shared: &SharedKeyring, checkout: &PendingCheckout) {
     }
 }
 
+/// Counts one look that found the payment of the checkout `checkout_id` taken back, at `now`
+/// (seconds since 1970, this computer's clock), in the list's own entry ([`TakenBack`]): the first
+/// look starts the count, a later one adds the time this computer saw pass. ONE function: the poll
+/// and the abandon ([`abandon`]) make the same count, so an entry the abandon found taken back is as
+/// marked as one the poll found (X-DELTA-MONEY6-2). The entry as it is now, `None` when it is not on
+/// the list (another window took it off).
+fn count_taken_back(
+    shared: &SharedKeyring,
+    checkout_id: &str,
+    now: i64,
+) -> CloudResult<Option<PendingCheckout>> {
+    change(shared, checkout_id, |c| {
+        // the list's own entry is the one that counts: a claim another window made meanwhile
+        // has no use for it
+        if c.period.is_none() {
+            c.taken_back = Some(match c.taken_back {
+                Some(earlier) => earlier.counted_to(now),
+                None => TakenBack {
+                    since: now,
+                    counted_at: now,
+                },
+            });
+        }
+    })
+}
+
 /// A poll found the payment of `checkout` taken back (`why`, as the token server said it): the
 /// look is counted in the entry ([`TakenBack`]) and the entry STAYS, claim secret and all -
 /// [`Transient::TakenBack`] - unless the token server's hand-over for it is over by now, which is
@@ -1381,19 +1429,7 @@ fn taken_back(shared: &SharedKeyring, checkout: &PendingCheckout, why: &str) -> 
         return Polled::Transient(Transient::TakenBack(said));
     }
     let now = crate::now();
-    let counted = change(shared, &checkout.checkout_id, |c| {
-        // the list's own entry is the one that counts: a claim another window made meanwhile
-        // has no use for it
-        if c.period.is_none() {
-            c.taken_back = Some(match c.taken_back {
-                Some(earlier) => earlier.counted_to(now),
-                None => TakenBack {
-                    since: now,
-                    counted_at: now,
-                },
-            });
-        }
-    });
+    let counted = count_taken_back(shared, &checkout.checkout_id, now);
     match counted {
         Ok(Some(listed)) => match HandoverOver::of(&listed, now) {
             Some(over) => end(

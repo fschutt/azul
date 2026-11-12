@@ -6,11 +6,14 @@
 //! secret; the restore then approved a drive no computer could open. Now the entry stays, asked
 //! once a day, until the token server's hand-over is over.
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use azul_storage::{
     config::keyring_key,
-    keyring::{KeyringNamespace, KeyringStore, MemoryKeyring},
+    keyring::{KeyringError, KeyringNamespace, KeyringStore, MemoryKeyring},
     testing::TempDir,
 };
 
@@ -634,3 +637,178 @@ fn x_delta_money5_1_the_abandon_of_a_checkout_whose_payment_was_taken_back_keeps
         other => panic!("the restored drive was not claimed: {other:?}"),
     }
 }
+
+// ==== X-DELTA-MONEY6-2: the abandon makes the count the poll makes ====
+
+/// A keyring whose writes can be refused on demand: the user's "No", a locked keychain.
+struct WritesOnDemand {
+    inner: MemoryKeyring,
+    refuse: AtomicBool,
+}
+
+impl KeyringStore for WritesOnDemand {
+    fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+        self.inner.get(key)
+    }
+    fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+        if self.refuse.load(Ordering::SeqCst) {
+            return Err(KeyringError::Denied);
+        }
+        self.inner.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> Result<(), KeyringError> {
+        self.inner.delete(key)
+    }
+}
+
+/// What the token server answers an abandon of `ck_1` with.
+fn abandon_says(status: &'static str) -> Arc<Fake> {
+    Fake::new(move |call, _| {
+        assert!(
+            call.url.ends_with("/v1/checkout/ck_1/abandon"),
+            "{}",
+            call.url
+        );
+        Ok(json(
+            200,
+            &format!(r#"{{"checkout_id": "ck_1", "status": "{status}"}}"#),
+        ))
+    })
+}
+
+/// The order the dialog places next for the same thing (a new drive of the tier): what the machine's
+/// `OrderAgain` makes of an abandon that answered `Ended`.
+fn order_again() -> PendingCheckout {
+    PendingCheckout::posting(&ClaimKey::generate().unwrap(), "100GB", TOKEN, "Photos")
+}
+
+/// X-DELTA-MONEY6-2, the finding's scenario: the buyer presses pay again while an earlier checkout is
+/// in flight; the abandon answers `reversed` (the payment was taken back in the last seconds, before
+/// the claims' poll marked it). `Abandoned::TakenBack` made the machine order again at once - and the
+/// entry was unmarked, so `begin` found an open order of the same intent and refused: "an earlier
+/// order is still open", the dialog's "you can order again" false for the moment it was said. Now the
+/// abandon makes the same count the poll makes, before it answers: the entry is no open order, the
+/// next order is `Fresh`, the claim secret is kept, and the hand-over's life counts from this look.
+/// On the old code the first assertion after the abandon fails (no mark) and `begin` is refused.
+#[test]
+fn x_delta_money6_2_an_abandon_answered_reversed_marks_the_entry_so_the_next_order_is_not_refused()
+{
+    let dir = TempDir::new("azcloud-taken-back");
+    let (shared, keyring) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    pending::add(&shared, &unclaimed(&claim)).unwrap();
+    // the control: until it is known to be taken back the unclaimed order is open
+    assert!(matches!(
+        pending::begin(&shared, &order_again()),
+        Err(AddError::SameIntentOpen { .. })
+    ));
+    let before = crate::now();
+    let transport = Shared(abandon_says("reversed"));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert_eq!(
+        pending::abandon(&server, &shared, "ck_1"),
+        Abandoned::TakenBack
+    );
+    let entry = listed(&shared);
+    let mark = entry.taken_back.expect("the abandon counted the look");
+    assert!(
+        (before..=crate::now()).contains(&mark.since) && mark.since == mark.counted_at,
+        "the count starts at this look: {mark:?}"
+    );
+    assert!(!entry.is_open_order(), "no open order: nobody can pay it");
+    assert!(secret_is_kept(&keyring, &claim), "the claim secret stays");
+    // the order the machine places the moment the abandon answers is not refused
+    assert!(matches!(
+        pending::begin(&shared, &order_again()),
+        Ok(Begun::Fresh)
+    ));
+    assert_eq!(pending::list(&shared).unwrap().len(), 2);
+    // a poll that comes later adds to the SAME count: the hand-over's life runs from the abandon's look
+    let polled = Shared(saying(vec![REVERSED.into()]));
+    let server = TokenServer::new(TOKEN, &polled).unwrap();
+    let entry = pending::list(&shared)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.checkout_id == "ck_1")
+        .unwrap();
+    assert!(matches!(
+        pending::poll(&server, &shared, &entry),
+        Polled::Transient(Transient::TakenBack(_))
+    ));
+    let later = pending::list(&shared)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.checkout_id == "ck_1")
+        .unwrap()
+        .taken_back
+        .unwrap();
+    assert_eq!(later.since, mark.since, "counted from the abandon's look");
+}
+
+/// X-DELTA-MONEY6-2, the other abandon answers are not marked as taken back (the negative controls:
+/// an answer that ends the checkout takes it off the list, one that leaves it open keeps it unmarked
+/// and in flight), and an abandon that finds an entry whose hand-over is over - first seen taken back
+/// 31 days ago and not asked since - ends it as the poll does, claim secret and all.
+#[test]
+fn x_delta_money6_2_only_the_answer_reversed_marks_and_an_old_mark_ends_the_entry_as_the_poll_does()
+{
+    // still pending: kept, in flight, never marked as taken back
+    let dir = TempDir::new("azcloud-taken-back");
+    let (open, _) = shared(&dir);
+    pending::add(&open, &unclaimed(&ClaimKey::generate().unwrap())).unwrap();
+    let transport = Shared(abandon_says("pending"));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        pending::abandon(&server, &open, "ck_1"),
+        Abandoned::Kept { paid: false, .. }
+    ));
+    assert_eq!(listed(&open).taken_back, None);
+    assert!(listed(&open).in_flight_since.is_some());
+
+    // a hand-over that is over: the first look was 31 days ago
+    let dir = TempDir::new("azcloud-taken-back");
+    let (shared, keyring) = shared(&dir);
+    let claim = ClaimKey::generate().unwrap();
+    let mut old = unclaimed(&claim);
+    let now = crate::now();
+    old.taken_back = Some(TakenBack {
+        since: now - 31 * DAY,
+        counted_at: now - 3_600,
+    });
+    pending::add(&shared, &old).unwrap();
+    let transport = Shared(abandon_says("reversed"));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert_eq!(pending::abandon(&server, &shared, "ck_1"), Abandoned::Ended);
+    assert!(pending::list(&shared).unwrap().is_empty(), "off the list");
+    assert!(!secret_is_kept(&keyring, &claim), "the secret is erased");
+}
+
+/// X-DELTA-MONEY6-2, a list that cannot take the count: the entry stays unmarked, so it is still an
+/// open order as far as the list can say - the abandon says so (`Kept`, the payment possibly under
+/// way) and does not tell the buyer to order again; the claims' poll marks it when the list works.
+#[test]
+fn x_delta_money6_2_an_abandon_whose_count_cannot_be_written_does_not_say_order_again() {
+    let dir = TempDir::new("azcloud-taken-back");
+    let gate = Arc::new(WritesOnDemand {
+        inner: MemoryKeyring::new(),
+        refuse: AtomicBool::new(false),
+    });
+    let shared = SharedKeyring::with_lock_root(
+        gate.clone() as Arc<dyn KeyringStore>,
+        KeyringNamespace::azlin_shared(),
+        &dir.path().join("locks"),
+    );
+    pending::add(&shared, &unclaimed(&ClaimKey::generate().unwrap())).unwrap();
+    gate.refuse.store(true, Ordering::SeqCst);
+    let transport = Shared(abandon_says("reversed"));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    match pending::abandon(&server, &shared, "ck_1") {
+        Abandoned::Kept { paid: false, why } => {
+            assert!(why.contains("could not count it"), "{why}");
+        }
+        other => panic!("not kept: {other:?}"),
+    }
+    assert_eq!(pending::list(&shared).unwrap().len(), 1, "the entry stays");
+    assert_eq!(listed(&shared).taken_back, None);
+}
+
