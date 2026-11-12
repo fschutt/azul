@@ -188,14 +188,31 @@ impl Pim {
         for info in ops::list_all(&*self.contacts, &prefix)? {
             match task::parse_key(&info.key) {
                 KeyKind::List { list } => {
-                    let read = self
-                        .contacts
-                        .get(&info.key)
+                    // A list file that cannot be READ is no list without its file: it would be
+                    // made up below with the default name and the next order, and the next
+                    // PROPPATCH or MKCALENDAR would write that over the real file - its name,
+                    // colour and order gone (X-DELTA-APPS3-9). Only a file that is gone since the
+                    // listing is "not there"; a read that failed, and a file that is there and is
+                    // no list of this id, end the call: the answer is the drive's, nothing is
+                    // written.
+                    let bytes = match self.contacts.get(&info.key) {
+                        Ok(bytes) => bytes,
+                        Err(DriveError::NotFound { .. }) => continue,
+                        Err(e) => return Err(e),
+                    };
+                    let read = String::from_utf8(bytes)
                         .ok()
-                        .and_then(|bytes| String::from_utf8(bytes).ok())
                         .and_then(|text| task::list_from_json(&text).ok())
                         .filter(|read| read.id == list);
-                    lists.extend(read);
+                    match read {
+                        Some(read) => lists.push(read),
+                        None => {
+                            return Err(DriveError::Io(format!(
+                                "the file of the task list \"{}\" cannot be read",
+                                info.key
+                            )))
+                        }
+                    }
                 }
                 KeyKind::Task { list, task: id } => {
                     let Some(mut task) = self.read_task(&info, &id) else {

@@ -823,3 +823,80 @@ fn x_delta_sync4_21_an_event_whose_old_file_cannot_be_read_is_not_written_over()
     );
     assert_ne!(calendar.get(&key).unwrap(), before);
 }
+
+/// X-DELTA-APPS3-9, RED on the code before: the list's own file could not be read (the drive did
+/// not answer), so the list was made up as an unnamed one with the next order, and the program's
+/// PROPPATCH wrote that over the real file - its name, colour and order gone; the "a list is
+/// there" refusal of MKCALENDAR did not fire either. Now a failed read ends the call, nothing is
+/// written, and the drive answering again lets the same PROPPATCH keep the colour and the order.
+#[test]
+fn x_delta_apps3_9_a_task_list_whose_file_cannot_be_read_is_not_rebuilt_and_not_written_over() {
+    let contacts = Arc::new(MemoryDrive::new());
+    contacts.set_now(1_790_843_400);
+    let calendar = Arc::new(MemoryDrive::new());
+    let mut list = TaskList::new(LIST.to_string(), String::from("Home"), 7);
+    list.color = task::ListColor::Green;
+    let before = task::list_to_json(&list);
+    contacts.put(&list.key(), before.as_bytes()).unwrap();
+    let made = day(2026, 10, 1).and_time(at(8, 0));
+    let rent = Task::new(
+        TASK.to_string(),
+        LIST.to_string(),
+        String::from("Pay rent"),
+        made,
+    );
+    contacts
+        .put(&rent.key(), task::task_to_json(&rent).as_bytes())
+        .unwrap();
+    let flaky = Unreadable::over(&contacts);
+    flaky.keys.lock().unwrap().push(list.key());
+    let pim = Pim::new(flaky.clone(), calendar, Names::in_memory(), ADDRESS);
+    let href = format!("/calendars/tasks-{LIST}/");
+    let rename = "<D:propertyupdate xmlns:D=\"DAV:\"><D:set><D:prop>\
+         <D:displayname>Renamed</D:displayname></D:prop></D:set></D:propertyupdate>";
+    let answer = ask(&pim, "PROPPATCH", &href, &[], rename);
+    assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
+    assert_eq!(
+        contacts.get(&list.key()).unwrap(),
+        before.as_bytes(),
+        "the list's file is as it was"
+    );
+    // MKCALENDAR of the same segment: the list is not "not there".
+    let mk = "<C:mkcalendar xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><D:set><D:prop>\
+         <D:displayname>Again</D:displayname><C:supported-calendar-component-set><C:comp name=\"VTODO\"/>\
+         </C:supported-calendar-component-set></D:prop></D:set></C:mkcalendar>";
+    let answer = ask(&pim, "MKCALENDAR", &href, &[], mk);
+    assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
+    assert_eq!(contacts.get(&list.key()).unwrap(), before.as_bytes());
+    // The calendar home lists no made-up list: the listing answers the drive's failure.
+    let home = ask(
+        &pim,
+        "PROPFIND",
+        "/calendars/",
+        &[("Depth", "1")],
+        CALENDAR_PROPS,
+    );
+    assert_eq!(home.status, Status::BAD_GATEWAY, "{}", text(&home));
+    // The drive answers again: the same PROPPATCH renames the list and keeps what the file held.
+    flaky.keys.lock().unwrap().clear();
+    let answer = ask(&pim, "PROPPATCH", &href, &[], rename);
+    assert_eq!(answer.status, Status::MULTI_STATUS, "{}", text(&answer));
+    let stored =
+        task::list_from_json(&String::from_utf8(contacts.get(&list.key()).unwrap()).unwrap())
+            .unwrap();
+    assert_eq!(stored.name, "Renamed");
+    assert_eq!(
+        (stored.order, stored.color),
+        (7, task::ListColor::Green),
+        "{stored:?}"
+    );
+    // A list file that is there and is no list at all is no "unnamed list" either.
+    contacts.put(&list.key(), b"{ not a list").unwrap();
+    let answer = ask(&pim, "PROPPATCH", &href, &[], rename);
+    assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
+    assert_eq!(
+        contacts.get(&list.key()).unwrap(),
+        b"{ not a list",
+        "the damaged file is left for repair"
+    );
+}
