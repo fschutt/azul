@@ -13,7 +13,7 @@ use azul_storage::{
     beneath::{BeneathError, Root},
     ctl::Quiet,
     durable::{self, Expect, Mode, Publish},
-    names::{OnDisk, Policy, Purpose, Volume},
+    names::{OnDisk, Policy, Purpose, Refusal, Volume},
 };
 use serde::{Deserialize, Serialize};
 
@@ -108,6 +108,12 @@ pub fn move_in(root: &Path, state_dir: &Path, from: &Path, key: &str) -> CloudRe
     result.map(|()| copied)
 }
 
+/// The error of a name the rows refuse: the sentence of the refusal - the name and the row it broke - and not
+/// "cannot be a file name".
+fn refused_name(refusal: Refusal) -> CloudError {
+    CloudError::failed(refusal.to_string())
+}
+
 /// Copies the file `from` to `key` under `tree`: into a new file in the key's folder, synced
 /// and renamed in, with the source's permission bits (never setuid, setgid or sticky).
 fn copy_one(
@@ -128,10 +134,11 @@ fn copy_one(
     #[cfg(not(unix))]
     let mode = 0o644;
     // The user's own folder moves in with its own names (a repository keeps its `.git`: the scan's
-    // rules leave it out later): the rows of a name a person chose, then the folders are made.
+    // rules leave it out later): the rows of a copy, then the folders are made. A refusal says which row
+    // the name broke (X-DELTA-STRUCT3-20: it said only that the name "cannot be a file name").
     let admitted = Policy::here(Volume::default())
-        .admit(key, Purpose::UserTyped)
-        .map_err(BeneathError::from)
+        .admit(key, Purpose::Copy)
+        .map_err(refused_name)
         .context(key)?;
     let (dir, name) = tree.parent_of_new(&admitted).context(key)?;
     // Only into a name nothing holds at the moment of the write: the look at the top name was made
@@ -162,10 +169,10 @@ fn copy_tree(
     pending: &mut PendingMoves,
     copied: &mut Vec<String>,
 ) -> CloudResult<()> {
-    // The folder is made for a name a person chose, after the rows of one (ARCH29 C6c).
+    // The folder is made for a name from the user's own folder, after the rows of a copy (ARCH29 C6c).
     let admitted = Policy::here(Volume::default())
-        .admit(key, Purpose::UserTyped)
-        .map_err(BeneathError::from)
+        .admit(key, Purpose::Copy)
+        .map_err(refused_name)
         .context(key)?;
     tree.dir_new(&admitted).context(key)?;
     let mut entries: Vec<fs::DirEntry> = fs::read_dir(from)

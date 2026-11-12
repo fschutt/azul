@@ -535,16 +535,21 @@ impl Purpose {
     ];
 
     /// Whether a key admitted for this purpose may make folders under a root ([`crate::beneath::Root::parent_of_new`],
-    /// [`crate::beneath::Root::dir_new`]): a name to be made in a folder of this computer - the synced folder, a
-    /// folder the user chose. The key of a cloud file opened from a cache ([`Purpose::Open`]) and
+    /// [`crate::beneath::Root::dir_new`]): the sync's rows (every protected spelling refused) and a copy's - a copy
+    /// of a repository keeps its own `.git`, which the rows of a copy admit, so a caller that makes a folder from
+    /// them says `Copy`. A name a person TYPED ([`Purpose::UserTyped`]) is checked - the dialog says why it is
+    /// refused - and never made from: its rows are a copy's (an exact `.git` and `.azlin` are admitted), and a
+    /// folder that was made from the weakest rows a purpose had is how the contained drive and the move-in made
+    /// folders from a drive's names (X-DELTA-STRUCT-DRIVE-2: the callers that make say `Copy` now, and a key
+    /// that only passed a check makes nothing). The key of a cloud file opened from a cache ([`Purpose::Open`]) and
     /// that of the rescue copy ([`Purpose::Rescue`]) become a path under a root of their own
     /// (`Scratch`, the rescue folder) that their callers make; the walk of a synced or a user's
     /// folder refuses them.
     #[must_use]
     pub fn makes_folders(self) -> bool {
         match self {
-            Purpose::Sync | Purpose::UserTyped | Purpose::Copy => true,
-            Purpose::Rescue | Purpose::Open => false,
+            Purpose::Sync | Purpose::Copy => true,
+            Purpose::UserTyped | Purpose::Rescue | Purpose::Open => false,
         }
     }
 }
@@ -700,6 +705,16 @@ impl OnDisk {
     }
 }
 
+/// The path of `key` under `root`, to SAY - in a message to the user - and nothing else: the key is a path of plain
+/// names (no `..`, no separator that leaves the folder, nothing this system refuses), else the answer is `root`
+/// itself. No key is made and nothing is opened: the file may not be there. A caller that said a drive's key through
+/// [`OnDisk::of_entry`] claimed an entry this disk read (appkit's `local_path`, X-DELTA-STRUCT-DRIVE-2); it asks
+/// this now, which claims nothing.
+#[must_use]
+pub fn path_to_say(root: &std::path::Path, key: &str) -> std::path::PathBuf {
+    OnDisk::checked(key).map_or_else(|_| root.to_path_buf(), |on_disk| on_disk.under(root))
+}
+
 /// A key of a name from a drive, a device, a user or a listing that passed [`Policy::admit`]: the
 /// rows of the purpose it was admitted for, the protected names in every spelling among them. The
 /// only key that makes a name here: [`crate::beneath::Root::parent_of_new`] and [`crate::beneath::Root::dir_new`] take nothing
@@ -811,16 +826,7 @@ impl Policy {
             // A copy of a repository keeps its `.git`: only a spelling a disk would merge into
             // one is refused.
             Purpose::Rescue | Purpose::Open | Purpose::UserTyped | Purpose::Copy => {
-                self.path_problem(key).or_else(|| {
-                    key.split('/')
-                        .find(|name| Protected::is_disguised(name))
-                        .map(|name| {
-                            format!(
-                                "\"{name}\" is a spelling of a protected name (the bookkeeping or a \
-                                 version-control folder) that a disk may read as the real one"
-                            )
-                        })
-                })
+                self.path_problem(key).or_else(|| disguised_problem(key))
             }
         };
         match problem {
@@ -860,6 +866,28 @@ impl Policy {
     pub fn leaf_for_text(&self, text: &str) -> String {
         leaf_for_text(text)
     }
+}
+
+/// The first name of `key` that is a spelling a disk reads as a protected name without being the exact one (`.GIT`,
+/// `GIT~1`, `.git.`) and that a name made here may not be: a version-control spelling at any depth, a bookkeeping
+/// spelling (`.AZLIN`, `AZLIN~1`) as the FIRST name only - the engine's own folder is the root's alone, and a
+/// user's folder `Backups/.AZLIN` is an ordinary folder, as `x/.azlin` is for the sync ([`Protected::in_key`]).
+/// The rule counted the bookkeeping spelling at any depth, so every rename or move below such a folder failed
+/// for the one purpose that renames, and the plan refused the same folder for a copy (X-DELTA-STRUCT3-17).
+fn disguised_problem(key: &str) -> Option<String> {
+    key.split('/').enumerate().find_map(|(at, name)| {
+        let counts = match Protected::kind(name)? {
+            ProtectedKind::Vcs => true,
+            ProtectedKind::Bookkeeping => at == 0,
+            ProtectedKind::VcsMetadata | ProtectedKind::OsPrivate => false,
+        };
+        (counts && Protected::is_disguised(name)).then(|| {
+            format!(
+                "\"{name}\" is a spelling of a protected name (the bookkeeping or a version-control \
+                 folder) that a disk may read as the real one"
+            )
+        })
+    })
 }
 
 /// A folder or file name made from `text` a person wrote: the characters a name cannot hold

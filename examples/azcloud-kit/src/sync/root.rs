@@ -226,12 +226,7 @@ pub fn trash_target(
     key: &str,
     stamp: &str,
 ) -> Result<(beneath::Dir, String, String), BeneathError> {
-    let (folder, name) = beneath::split_key(key);
-    let rel = if folder.is_empty() {
-        format!("{TRASH_DIR}/{stamp}")
-    } else {
-        format!("{TRASH_DIR}/{stamp}/{folder}")
-    };
+    let (_, name) = beneath::split_key(key);
     // The key is a file that is on this disk and goes into the trash: its own folders are copied under
     // the pass's trash folder (the key's rows are those of a record of this device's, never a name to be
     // made in the synced folder).
@@ -243,7 +238,10 @@ pub fn trash_target(
         target = format!("{name} ({n})");
         n += 1;
     }
-    let path = format!("{rel}/{target}");
+    // Its path from the root is the folder's own - `Dir::rel`, the one derivation: `trash_dir` made the folder from the
+    // pass's stamp and the key's folders, and a second spelling of that path here would name, in the journal and
+    // in the list of what was trashed, a place the file is not at the day one of them changes (X-DELTA-STRUCT3-19).
+    let path = format!("{}/{target}", trash.rel());
     Ok((trash, target, path))
 }
 

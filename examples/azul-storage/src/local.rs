@@ -345,14 +345,14 @@ fn existing_key(key: &str) -> Result<OnDisk, DriveError> {
 }
 
 /// The key of a contained walk that makes the folders of a name (a write, a folder, the target of a
-/// rename): an [`Admitted`] key. The folder is the user's own, so the rows are those of a name a person
-/// chose ([`Purpose::UserTyped`]: the shape, this system's and the spellings a disk reads as a protected
-/// name - a name that only a disk would merge into a repository's `.git` is refused, X-DELTA-STRUCT-DRIVE-2);
-/// what a name from ANOTHER drive passes before it reaches this one is the transfer plan's check
-/// ([`Purpose::Copy`], the same rows).
+/// rename): an [`Admitted`] key of a COPY ([`Purpose::Copy`]: the shape, this system's and the spellings a disk
+/// reads as a protected name - a name that only a disk would merge into a repository's `.git` is refused, and
+/// a repository's own `.git` is a copy's). What a name from ANOTHER drive passes before it reaches this one is
+/// the transfer plan's check, the same rows. A key that was only CHECKED ([`Purpose::UserTyped`]) makes no
+/// folder: this drive made them from the weakest rows a purpose had (X-DELTA-STRUCT-DRIVE-2).
 fn new_key(key: &str) -> Result<Admitted, DriveError> {
     Policy::here(Volume::default())
-        .admit(key, Purpose::UserTyped)
+        .admit(key, Purpose::Copy)
         .map_err(DriveError::from)
 }
 

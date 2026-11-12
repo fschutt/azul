@@ -144,6 +144,15 @@ fn method_calls_where(t: &[Located], name: &str, keep: impl Fn(&[Located]) -> bo
     found
 }
 
+/// The lines of the method calls `.name(` and of the same function written as a path call
+/// (`Type::name(&receiver, ..)`): what `method_calls` alone missed (X-DELTA-STRUCT3-18).
+fn method_or_path_calls(t: &[Located], name: &str, path: &str) -> Vec<usize> {
+    let mut lines = method_calls(t, name);
+    lines.extend(calls(t, path));
+    lines.sort_unstable();
+    lines
+}
+
 /// Whether the argument tokens hold a comma outside every bracket: two arguments or more.
 fn has_two_arguments(args: &[Located]) -> bool {
     let mut depth = 0usize;
@@ -299,8 +308,11 @@ fn rules() -> Vec<Rule> {
         ),
         Rule::new(
             PARENT_OF_EXISTING,
-            |t| method_calls(t, "parent_of_existing"),
-            &["let (dir, name) = tree.parent_of_existing(&on_disk)?;"],
+            |t| method_or_path_calls(t, "parent_of_existing", "Root::parent_of_existing"),
+            &[
+                "let (dir, name) = tree.parent_of_existing(&on_disk)?;",
+                "let (dir, name) = Root::parent_of_existing(&tree, &on_disk)?;",
+            ],
             &[
                 "let x = parent_of_existing(1);",
                 "pub fn parent_of_existing(&self, key: &OnDisk) {}",
@@ -308,8 +320,11 @@ fn rules() -> Vec<Rule> {
         ),
         Rule::new(
             PARENT_OF_NEW,
-            |t| method_calls(t, "parent_of_new"),
-            &["let (dir, name) = tree.parent_of_new(&admitted)?;"],
+            |t| method_or_path_calls(t, "parent_of_new", "Root::parent_of_new"),
+            &[
+                "let (dir, name) = tree.parent_of_new(&admitted)?;",
+                "let (dir, name) = Root::parent_of_new(&tree, &admitted)?;",
+            ],
             &[
                 "let x = parent_of_new(1);",
                 "pub fn parent_of_new(&self, key: &Admitted) {}",
@@ -366,22 +381,39 @@ fn rules() -> Vec<Rule> {
         ),
         Rule::new(
             ADMIT_CALL,
-            |t| method_calls_where(t, "admit", names_a_purpose),
+            |t| {
+                // A call that names a purpose, or any call of two arguments (a purpose in a variable is
+                // one: `.admit(key, purpose)`), and the same function as a path call
+                // (`Policy::admit(&policy, key, purpose)`, X-DELTA-STRUCT3-18).
+                let mut lines = method_calls_where(t, "admit", |args| {
+                    names_a_purpose(args) || has_two_arguments(args)
+                });
+                lines.extend(calls(t, "Policy::admit"));
+                lines.sort_unstable();
+                lines
+            },
             &[
                 "let admitted = policy.admit(key, Purpose::Sync)?;",
                 "let rows = Policy::here(Volume::default()).admit(&key, Purpose::Copy);",
+                "let admitted = policy.admit(&key, purpose)?;",
+                "let rows = Policy::admit(&policy, &key, Purpose::UserTyped);",
+                "let rows = azul_storage::names::Policy::admit(&policy, key, Purpose::Copy)?;",
             ],
             &[
                 "if self.told.admit(code) {}",
                 "let kept: Vec<Problem> = rows.into_iter().filter(|p| tally.admit(p.code)).collect();",
                 "chat.admit(device);",
                 "pub fn admit(&self, key: &str, purpose: Purpose) {}",
+                "let x = Other::admit(1);",
             ],
         ),
         Rule::new(
             DIR_NEW,
-            |t| method_calls(t, "dir_new"),
-            &["let dir = tree.dir_new(&admitted)?;"],
+            |t| method_or_path_calls(t, "dir_new", "Root::dir_new"),
+            &[
+                "let dir = tree.dir_new(&admitted)?;",
+                "let dir = Root::dir_new(&tree, &admitted)?;",
+            ],
             &[
                 "let x = dir_new(1);",
                 "pub fn dir_new(&self, key: &Admitted) {}",
@@ -389,8 +421,11 @@ fn rules() -> Vec<Rule> {
         ),
         Rule::new(
             OWN_DIR,
-            |t| method_calls(t, "own_dir"),
-            &["let dir = root.own_dir(SYNC_DIR)?;"],
+            |t| method_or_path_calls(t, "own_dir", "Root::own_dir"),
+            &[
+                "let dir = root.own_dir(SYNC_DIR)?;",
+                "let dir = Root::own_dir(&root, SYNC_DIR)?;",
+            ],
             &[
                 "let x = own_dir(1);",
                 "pub fn own_dir(&self, rel: &'static str) {}",
@@ -398,8 +433,11 @@ fn rules() -> Vec<Rule> {
         ),
         Rule::new(
             TRASH_DIR_CALL,
-            |t| method_calls(t, "trash_dir"),
-            &["let trash = root.trash_dir(stamp, &on_disk)?;"],
+            |t| method_or_path_calls(t, "trash_dir", "Root::trash_dir"),
+            &[
+                "let trash = root.trash_dir(stamp, &on_disk)?;",
+                "let trash = Root::trash_dir(&root, stamp, &on_disk)?;",
+            ],
             &[
                 "let x = trash_dir(1);",
                 "pub fn trash_dir(&self, stamp: &str, key: &OnDisk) {}",
@@ -407,8 +445,11 @@ fn rules() -> Vec<Rule> {
         ),
         Rule::new(
             MAKE_CHILD,
-            |t| method_calls(t, "make_child"),
-            &["let made = parent.make_child(name)?;"],
+            |t| method_or_path_calls(t, "make_child", "Dir::make_child"),
+            &[
+                "let made = parent.make_child(name)?;",
+                "let made = Dir::make_child(&parent, name)?;",
+            ],
             &[
                 "let x = make_child(1);",
                 "pub(crate) fn make_child(&self, name: &str) {}",
@@ -457,16 +498,9 @@ const ALLOWED: &[Allow] = &[
         "examples/azcloud-kit/src/sync/movein.rs",
         PARENT_OF_NEW,
         1,
-        "copy_one: the folders of each copy, made after Policy::admitted for a name a person chose \
-         (Purpose::UserTyped: the user's own folder moves in with its names, a repository with its \
-         .git) (ARCH29 C6c)",
-    ),
-    Allow::exactly(
-        "examples/azul-appkit/src/data.rs",
-        ON_DISK_KEY,
-        1,
-        "local_path: the path of a key for a message to the user - a file that is on the disk, an \
-         entry; nothing is opened or made by it (ARCH29 C6c)",
+        "copy_one: the folders of each copy, made after Policy::admit for a name of the user's own folder \
+         (Purpose::Copy: the folder moves in with its names, a repository with its .git) (ARCH29 C6c; \
+         X-DELTA-STRUCT-DRIVE-2: a key that was only checked makes no folder)",
     ),
     Allow::exactly(
         "examples/azul-storage/src/local.rs",
@@ -479,9 +513,9 @@ const ALLOWED: &[Allow] = &[
         "examples/azul-storage/src/local.rs",
         PARENT_OF_NEW,
         3,
-        "the contained LocalDrive's walks that make a folder, each after Policy::admitted for a name \
-         a person chose (new_key): contained_parent_new, contained_make_folder, parent_dir (ARCH29 \
-         C6c)",
+        "the contained LocalDrive's walks that make a folder, each after Policy::admit for a copy's rows \
+         (new_key: Purpose::Copy): contained_parent_new, contained_make_folder, parent_dir (ARCH29 \
+         C6c; X-DELTA-STRUCT-DRIVE-2)",
     ),
     Allow::exactly(
         "examples/azul-storage/src/local.rs",
@@ -511,7 +545,7 @@ const ALLOWED: &[Allow] = &[
         ADMIT_CALL,
         1,
         "new_key: the contained LocalDrive's key of a name that is made (a write, a folder, the target of \
-         a rename): Purpose::UserTyped, the folder is the user's own",
+         a rename): Purpose::Copy (a key that was only checked makes no folder)",
     ),
     Allow::exactly(
         "examples/azul-storage/src/xfer/plan.rs",
@@ -571,7 +605,7 @@ const ALLOWED: &[Allow] = &[
         "examples/azcloud-kit/src/sync/movein.rs",
         ADMIT_CALL,
         2,
-        "copy_one and copy_tree: the names of the user's own folder that moves in (Purpose::UserTyped: a \
+        "copy_one and copy_tree: the names of the user's own folder that moves in (Purpose::Copy: a \
          repository keeps its `.git`, a spelling a disk would merge into one is refused)",
     ),
     Allow::exactly(
@@ -1151,5 +1185,155 @@ fn a_planted_use_of_the_deleted_walks_is_caught_and_the_makers_are_counted() {
     .join("\n");
     std::fs::write(base.join("examples/azcloud-kit/src/walking.rs"), clean).unwrap();
     assert_eq!(check(&base, &[]), Ok(0));
+    let _ = std::fs::remove_dir_all(base);
+}
+
+// ==== Every crate that depends on azul-storage, at count zero (X-DELTA-STRUCT3-18) ====
+//
+// `names` and `beneath` are `pub mod`s of azul-storage, and the gate read azul-storage and three of the 30
+// crates that depend on it: a new call in the bridge, mail or contacts crates such as
+// `let k = policy.admit(&drive_key, Purpose::UserTyped)?; Root::dir_new(&tree, &k)?` moved no gate line and made
+// an exact `.git` or `.azlin` folder from a drive's name. The list of crates is read from the manifests when the
+// gate runs - a crate added tomorrow is read tomorrow - and every one of them is held at ZERO for every rule that
+// admits or makes a name (the text rules about the engine's own spelling stay with the four crates that own the
+// bookkeeping). A crate that needs one of these is a new line in the list above, with its reason.
+
+/// The four crates the allowances above are written for.
+const OWNERS: &[&str] = &["azul-storage", "azcloud-kit", "azul-drive", "azul-appkit"];
+
+/// Whether the manifest `text` names azul-storage as a dependency of any table (`azul-storage = ..`,
+/// `azul-storage.workspace = true`, `[dependencies.azul-storage]`).
+fn depends_on_storage(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim();
+        line.strip_prefix("azul-storage")
+            .is_some_and(|rest| rest.trim_start().starts_with(['=', '.']))
+            || (line.starts_with('[') && line.ends_with("dependencies.azul-storage]"))
+    })
+}
+
+/// Every package of `examples/` that depends on azul-storage and is none of [`OWNERS`], as the roots a gate
+/// reads: from the manifests, at run time.
+fn dependents() -> &'static [Root] {
+    static FOUND: std::sync::OnceLock<Vec<Root>> = std::sync::OnceLock::new();
+    FOUND.get_or_init(|| {
+        let base = azul_srcgate::workspace().join("examples");
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(&base)
+            .unwrap_or_else(|e| panic!("{}: {e}", base.display()))
+            .flatten()
+        {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(manifest) = std::fs::read_to_string(entry.path().join("Cargo.toml")) else {
+                continue;
+            };
+            if OWNERS.contains(&name.as_str()) || !depends_on_storage(&manifest) {
+                continue;
+            }
+            found.push(Root {
+                dir: Box::leak(format!("examples/{name}").into_boxed_str()),
+                min_files: 1,
+            });
+        }
+        found.sort_by_key(|root| root.dir);
+        assert!(
+            found.len() >= 20,
+            "the manifests of the crates that depend on azul-storage were read in the wrong place: {found:?}"
+        );
+        found
+    })
+}
+
+/// The rules that admit or make a name: every rule of the gate but the two that read string literals (the engine's
+/// own spelling, which a crate that merely mentions `.git` or `.azlin` in a message may hold).
+fn making_rules() -> Vec<Rule> {
+    rules()
+        .into_iter()
+        .filter(|rule| rule.name != BOOKKEEPING_NAME && rule.name != VCS_NAME)
+        .collect()
+}
+
+#[test]
+fn x_delta_struct3_18_no_other_crate_that_depends_on_azul_storage_admits_or_makes_a_name() {
+    Gate {
+        name: "no crate but the four admits or makes a name from a drive, a device or a person",
+        roots: dependents(),
+        rules: making_rules(),
+        budget: Budget(&[]),
+        orphans: Orphans::Ignore,
+    }
+    .run();
+}
+
+/// The manifests are read as the gate reads them: the three spellings of a dependency, nothing for a crate that
+/// does not name azul-storage (and one that only has a longer name).
+#[test]
+fn x_delta_struct3_18_the_dependency_is_found_in_every_spelling_of_a_manifest() {
+    assert!(depends_on_storage(
+        "[dependencies]\nazul-storage = { path = \"../azul-storage\" }\n"
+    ));
+    assert!(depends_on_storage("[dev-dependencies]\nazul-storage = { path = \"../azul-storage\", features = [\"testing\"] }\n"));
+    assert!(depends_on_storage(
+        "[dependencies]\nazul-storage.workspace = true\n"
+    ));
+    assert!(depends_on_storage(
+        "[dependencies.azul-storage]\npath = \"../azul-storage\"\n"
+    ));
+    assert!(!depends_on_storage(
+        "[dependencies]\nazul-storage-extras = \"1\"\n# azul-storage = 1\n"
+    ));
+    assert!(!depends_on_storage(
+        "[package]\nname = \"azul-storage-tool\"\n"
+    ));
+}
+
+/// The path call and the two-argument call in a crate nobody listed are findings with their lines, at zero: the
+/// planted tree is one crate of the dependents, and the old gate - `.method(` spellings only, four crates - read
+/// none of it.
+#[test]
+fn x_delta_struct3_18_a_path_call_and_a_purpose_in_a_variable_are_caught_in_a_crate_nobody_listed()
+{
+    let planted = [
+        "pub fn open(policy: &Policy, tree: &Root, key: &str, purpose: Purpose) {",
+        "    let admitted = Policy::admit(policy, key, purpose).unwrap();",
+        "    let dir = Root::dir_new(tree, &admitted).unwrap();",
+        "    let again = policy.admit(key, purpose).unwrap();",
+        "    let (parent, name) = Root::parent_of_new(tree, &again).unwrap();",
+        "}",
+        "",
+    ]
+    .join("\n");
+    let base = base_with(
+        "other-crate",
+        &[
+            ("examples/azul-bridge/src/lib.rs", "mod names;\n"),
+            ("examples/azul-bridge/src/names.rs", planted.as_str()),
+        ],
+    );
+    const OTHER: &[Root] = &[Root {
+        dir: "examples/azul-bridge/src",
+        min_files: 1,
+    }];
+    let wrong = Gate {
+        name: "the planted dependents",
+        roots: OTHER,
+        rules: making_rules(),
+        budget: Budget(&[]),
+        orphans: Orphans::Ignore,
+    }
+    .check(&base)
+    .expect_err("a crate nobody listed admits and makes names");
+    let at = |line: usize, rule: &str| {
+        wrong.iter().any(|w| {
+            w.starts_with(&format!("examples/azul-bridge/src/names.rs:{line}:")) && w.contains(rule)
+        })
+    };
+    assert!(at(2, ADMIT_CALL), "the path call: {wrong:?}");
+    assert!(at(3, DIR_NEW), "the path call of the walk: {wrong:?}");
+    assert!(at(4, ADMIT_CALL), "a purpose in a variable: {wrong:?}");
+    assert!(
+        at(5, PARENT_OF_NEW),
+        "the path call of the other walk: {wrong:?}"
+    );
     let _ = std::fs::remove_dir_all(base);
 }

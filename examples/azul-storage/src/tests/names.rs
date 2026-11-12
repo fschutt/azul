@@ -568,11 +568,15 @@ fn c6c_a_name_is_made_only_from_an_admitted_key_and_the_full_rows_refuse_what_a_
         Purpose::Copy,
         Purpose::UserTyped,
     ] {
-        for name in [".GIT", "GIT~1", ".git.", ".HG", ".AZLIN"] {
+        let here = Policy::here(Volume::default());
+        for name in [".GIT", "GIT~1", ".git.", ".HG"] {
             let key = format!("proj/{name}/x");
-            let here = Policy::here(Volume::default());
             assert!(here.admit(&key, purpose).is_err(), "{key:?} {purpose:?}");
         }
+        // The engine's own folder is the root's alone: `.AZLIN` is refused as the first name, and an ordinary
+        // folder further down.
+        assert!(here.admit(".AZLIN/x", purpose).is_err(), "{purpose:?}");
+        assert!(here.admit("proj/.AZLIN/x", purpose).is_ok(), "{purpose:?}");
     }
     // A reserved Windows name, whichever computer asks.
     let windows = Policy {
@@ -600,10 +604,25 @@ fn c6c_a_name_is_made_only_from_an_admitted_key_and_the_full_rows_refuse_what_a_
     assert!(tree.parent_of_new(&copy).is_ok());
     assert!(tmp.path().join("proj/.git").is_dir());
     // A name the user typed is held to the shape and to the disguised spellings (X-DELTA-STRUCT-DRIVE-2:
-    // it admitted `.GIT`, and the contained drive and the move-in made a folder of it).
+    // it admitted `.GIT`, and the contained drive and the move-in made a folder of it) ...
     assert!(here.admit("proj/.GIT/x", Purpose::UserTyped).is_err());
-    assert!(here.admit("proj/.git/x", Purpose::UserTyped).is_ok());
     assert!(here.admit("a/../b", Purpose::UserTyped).is_err());
+    // ... its rows are a copy's - an exact `.git` passes the check - and it is CHECKED, never made from: the
+    // create path takes a key of a purpose that makes folders (the sync's rows, or a copy that says so), and the
+    // key that only passed the check makes none (this assertion pinned that it did).
+    let typed = here.admit("proj2/.git/x", Purpose::UserTyped).unwrap();
+    assert!(
+        matches!(
+            tree.parent_of_new(&typed),
+            Err(crate::beneath::BeneathError::BadName(_))
+        ),
+        "a typed name made a folder"
+    );
+    assert!(matches!(
+        tree.dir_new(&typed),
+        Err(crate::beneath::BeneathError::BadName(_))
+    ));
+    assert!(!tmp.path().join("proj2").exists());
 }
 
 /// What each purpose refuses on the create path, written so that a purpose added later is a compile
@@ -628,11 +647,10 @@ fn refused_by(purpose: Purpose) -> (&'static [&'static str], &'static [&'static 
                 ".git ",
                 "GIT~1",
                 ".g\u{200c}it",
-                ".AZLIN",
-                ".azlin.",
-                "AZLIN~1",
             ],
-            &[],
+            // The bookkeeping spellings count as the FIRST name only: `Backups/.AZLIN` is an ordinary
+            // folder of the user's, as `x/.azlin` is for the sync (X-DELTA-STRUCT3-17).
+            &[".AZLIN", ".azlin.", "AZLIN~1"],
         ),
     }
 }
@@ -713,7 +731,7 @@ fn c6c_a_key_of_a_purpose_that_makes_no_folder_is_refused_by_the_walks_that_make
     let tmp = TempDir::new("c6c-no-folder");
     let tree = Root::open(tmp.path()).unwrap();
     let here = Policy::here(Volume::default());
-    for purpose in [Purpose::Open, Purpose::Rescue] {
+    for purpose in [Purpose::Open, Purpose::Rescue, Purpose::UserTyped] {
         assert!(!purpose.makes_folders(), "{purpose:?}");
         let key = here.admit("docs/2026/a.txt", purpose).unwrap();
         assert!(
@@ -726,7 +744,69 @@ fn c6c_a_key_of_a_purpose_that_makes_no_folder_is_refused_by_the_walks_that_make
         );
     }
     assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
-    for purpose in [Purpose::Sync, Purpose::UserTyped, Purpose::Copy] {
+    for purpose in [Purpose::Sync, Purpose::Copy] {
         assert!(purpose.makes_folders(), "{purpose:?}");
     }
+}
+
+/// X-DELTA-STRUCT-DRIVE-2. The path of a key for a MESSAGE (`names::path_to_say`) claims no key and makes
+/// nothing: it was `OnDisk::of_entry(drive_key)`, a claim that a directory entry of this disk was read, made by a caller
+/// that held a drive's key (appkit's `local_path`). A key that is a path of plain names is said under the root, as it is
+/// (a protected spelling included: it is a message); one that is not is the root itself; the root is never made.
+#[test]
+fn x_delta_struct_drive_2_a_path_to_say_claims_no_key_and_makes_nothing() {
+    use crate::names::path_to_say;
+    let root = std::path::Path::new("/struct-drive-2-root-that-is-not-there");
+    assert_eq!(
+        path_to_say(root, "docs/a.txt"),
+        root.join("docs").join("a.txt")
+    );
+    for said in [".GIT/hooks/x", "GIT~1/config", "proj/.git/config"] {
+        let expected = said
+            .split('/')
+            .fold(root.to_path_buf(), |path, name| path.join(name));
+        assert_eq!(path_to_say(root, said), expected, "{said:?}");
+    }
+    for bad in ["", "/etc/x", "a//b", "a/../b", "a\\b", "x\0y"] {
+        assert_eq!(path_to_say(root, bad), root.to_path_buf(), "{bad:?}");
+    }
+    assert!(!root.exists(), "saying a path made the root");
+}
+
+/// X-DELTA-STRUCT3-17. The engine's own folder is the root's alone, and a user's folder `Backups/.AZLIN` is an
+/// ordinary one - for the sync (`x/.azlin`) and for the four other purposes alike: the other purposes counted a
+/// bookkeeping SPELLING at any depth, so a case-sensitive pairing that holds `Backups/.AZLIN/notes.txt` (the sync
+/// admits it) could not rename `notes.txt` or move anything below that folder, and the plan's copy refused the
+/// folder. A version-control spelling is still refused at any depth; the bookkeeping spelling as the first name.
+#[test]
+fn x_delta_struct3_17_a_bookkeeping_spelling_below_the_first_name_is_an_ordinary_folder_for_every_purpose(
+) {
+    let here = Policy::here(Volume::default());
+    for purpose in Purpose::ALL {
+        for key in [
+            "Backups/.AZLIN/notes2.txt",
+            "Backups/AZLIN~1/notes2.txt",
+            "a/b/.azlin./c",
+            "Backups/.AZLIN",
+        ] {
+            assert!(
+                here.admit(key, purpose).is_ok(),
+                "{key:?} is refused for {purpose:?}"
+            );
+        }
+        for key in [
+            ".AZLIN/notes.txt",
+            "AZLIN~1/x",
+            "Backups/.GIT/x",
+            "a/b/GIT~1",
+            "x/.HG",
+        ] {
+            let admitted = here.admit(key, purpose);
+            // The sync refuses every spelling of the version-control names and the bookkeeping first; the
+            // other four refuse the spellings that are not the exact name, wherever they stand.
+            assert!(admitted.is_err(), "{key:?} is admitted for {purpose:?}");
+        }
+    }
+    // `.azlin` itself, exact, below the first name is a folder for the sync as it was.
+    assert!(here.admit("x/.azlin/y", Purpose::Sync).is_ok());
 }

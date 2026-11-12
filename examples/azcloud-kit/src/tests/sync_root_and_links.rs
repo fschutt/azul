@@ -171,3 +171,42 @@ fn a_folder_paired_before_markers_is_marked_only_while_it_holds_a_file_as_synced
         "nothing deleted on the drive"
     );
 }
+
+/// X-DELTA-STRUCT3-19. The path a file goes to in the trash is derived ONCE: `trash_target` built it for what the journal
+/// records and what the report lists, and `Root::trash_dir` built the same path for the folder the file lands in - equal
+/// by luck, with no test that said so, so a per-device level or a change of the stamp in one of them left the journal and
+/// the restore list naming a place the file is not at (and recovery's `walk_record` of it failed). The path it answers is
+/// the folder's own now: the file really is at it after the rename - at the top of the folder, in a folder, and when a
+/// second file of the same name goes in the same pass.
+#[test]
+fn x_delta_struct3_19_the_journalled_trash_path_is_where_the_file_really_goes() {
+    use azul_storage::beneath::Root;
+
+    let folder = TempDir::new("azcloud-struct3-19");
+    fs::create_dir_all(folder.path().join("docs/2026")).unwrap();
+    fs::write(folder.path().join("docs/2026/a.txt"), b"first").unwrap();
+    fs::write(folder.path().join("top.txt"), b"top").unwrap();
+    let tree = Root::open(folder.path()).unwrap();
+    let stamp = root::trash_stamp(1_700_000_000);
+    for (key, bytes) in [("docs/2026/a.txt", &b"first"[..]), ("top.txt", &b"top"[..])] {
+        let (trash, target, path) = root::trash_target(&tree, key, &stamp).unwrap();
+        let (dir, name) = crate::sync::names::walk_entry(&tree, key).unwrap();
+        dir.rename(&name, &trash, &target).unwrap();
+        assert_eq!(
+            fs::read(folder.path().join(&path)).unwrap_or_default(),
+            bytes,
+            "{key}: the journalled path {path:?} is not where the file went"
+        );
+        assert!(!folder.path().join(key).exists(), "{key} is still there");
+    }
+    // A second file of that name in the same pass takes the next free name, and its path says so.
+    fs::write(folder.path().join("docs/2026/a.txt"), b"second").unwrap();
+    let (trash, target, path) = root::trash_target(&tree, "docs/2026/a.txt", &stamp).unwrap();
+    assert_eq!(target, "a.txt (2)");
+    let (dir, name) = crate::sync::names::walk_entry(&tree, "docs/2026/a.txt").unwrap();
+    dir.rename(&name, &trash, &target).unwrap();
+    assert_eq!(
+        fs::read(folder.path().join(&path)).unwrap_or_default(),
+        b"second"
+    );
+}

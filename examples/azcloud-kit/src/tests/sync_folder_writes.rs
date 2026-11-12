@@ -69,6 +69,42 @@ fn a_move_into_the_folder_never_lands_through_a_link() {
     assert_eq!(fs::read(folder.join("a.txt")).unwrap(), b"a");
 }
 
+/// X-DELTA-STRUCT3-20. A name the rows refuse is said with the rule it broke, not as "cannot be a file name": the
+/// refusal's own sentence was built and dropped on the way to the user, and the dialogs of a rename and an upload
+/// were the only places that said it. A move-in of a file or of a folder is refused before anything is made, and the
+/// message names the spelling and why.
+#[test]
+fn x_delta_struct3_20_a_refused_move_in_names_the_rule_it_broke() {
+    let root = TempDir::new("azcloud-writes-movein-refused");
+    let state = TempDir::new("azcloud-writes-movein-refused-state");
+    let source = TempDir::new("azcloud-writes-movein-refused-source");
+    let file = source.path().join("config");
+    fs::write(&file, b"c").unwrap();
+    let message = move_in(root.path(), state.path(), &file, "proj/.GIT/config")
+        .unwrap_err()
+        .to_string();
+    assert!(message.contains("proj/.GIT/config"), "{message}");
+    assert!(
+        message.contains("is a spelling of a protected name"),
+        "the rule is not said: {message}"
+    );
+    let folder = source.path().join("repo");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("a.txt"), b"a").unwrap();
+    let message = move_in(root.path(), state.path(), &folder, "x/GIT~1")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        message.contains("is a spelling of a protected name"),
+        "{message}"
+    );
+    assert!(
+        is_empty(root.path()),
+        "a folder was made for a refused name"
+    );
+    assert_eq!(fs::read(&file).unwrap(), b"c", "the source stays");
+}
+
 #[test]
 fn a_file_moved_in_keeps_its_executable_bit() {
     use std::os::unix::fs::PermissionsExt;

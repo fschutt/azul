@@ -6,8 +6,8 @@ use std::{fs, path::Path};
 
 use super::TempDir;
 #[cfg(unix)]
-use crate::{local::THROUGH_LINK, DriveError};
-use crate::{Drive, LocalDrive};
+use crate::local::THROUGH_LINK;
+use crate::{Drive, DriveError, LocalDrive};
 
 /// A root whose `inbox` links to a folder outside it, which holds `secret.txt` and
 /// `sub/kept.txt`.
@@ -31,6 +31,30 @@ fn names(dir: &Path) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+/// X-DELTA-STRUCT3-17, through the function the app's rename calls (`LocalDrive::rename` of a contained drive): a
+/// case-sensitive pairing holds `Backups/.AZLIN/notes.txt` (the sync admits it: the engine's folder is the root's
+/// alone), and renaming `notes.txt` there failed - `new_key` refused the `.AZLIN` of the TARGET's path at any depth.
+/// Every rename or move below that folder works now, and the root's own `.AZLIN` is still no place to make a name.
+#[test]
+fn x_delta_struct3_17_a_rename_below_a_folder_spelled_azlin_works_on_a_contained_drive() {
+    let root = TempDir::new("struct3-17-rename");
+    fs::create_dir_all(root.path().join("Backups/.AZLIN")).unwrap();
+    fs::write(root.path().join("Backups/.AZLIN/notes.txt"), b"notes").unwrap();
+    let drive = LocalDrive::without_manifest(root.path()).contained();
+    drive
+        .rename("Backups/.AZLIN/notes.txt", "Backups/.AZLIN/notes2.txt")
+        .expect("a rename below a folder spelled .AZLIN");
+    assert_eq!(drive.get("Backups/.AZLIN/notes2.txt").unwrap(), b"notes");
+    assert!(!root.path().join("Backups/.AZLIN/notes.txt").exists());
+    // The engine's own folder at the root is no place for a name made here.
+    let refused = drive.put(".AZLIN/x.txt", b"x");
+    assert!(
+        matches!(refused, Err(DriveError::InvalidKey { .. })),
+        "{refused:?}"
+    );
+    assert!(!root.path().join(".AZLIN").exists());
 }
 
 #[cfg(unix)]
