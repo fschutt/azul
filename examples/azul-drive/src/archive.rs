@@ -1133,11 +1133,15 @@ impl Stops {
     }
 }
 
-/// A request of the copy goes to the drive below unless the flag is raised; a call that is no request - a
-/// question about the drive (`site`, `local_path`), a body that is read once, a file's upload, a batch - is
-/// the drive below's own, and so is whatever the trait gets next (X-DELTA-STRUCT-DRIVE-3: it wrote seven
-/// methods and left twenty to the trait's defaults, so `site()` was a place of its own and `local_path` was
-/// none; the census could not see it). The copy reads: nothing it sends is a write.
+/// A request of the copy goes to the drive below unless the flag is raised; a question about the drive
+/// (`site`, `local_path`, `resume_folder`, `conditional_writes`) is the drive below's own, and so is whatever
+/// the trait gets next (X-DELTA-STRUCT-DRIVE-3: it wrote seven methods and left twenty to the trait's
+/// defaults, so `site()` was a place of its own and `local_path` was none; the census could not see it). The
+/// copy reads: nothing it sends is a write - but the calls that write (a body that is read once, a file's
+/// upload, a batch) ask the flag as well. `delegate_drive!` passes them straight to the drive below, and
+/// without the flag a later `move_many` or `put_file` reached a removed drive with its credentials; "every
+/// request is refused with `Cancelled`" was wrong for those nine (X-DELTA-STRUCT3-7). They stay the drive
+/// below's own once the flag is down: refusing them outright would change what the copy of a drive does.
 impl azul_storage::DriveDelegate for Stops {
     fn below(&self) -> &dyn Drive {
         &*self.inner
@@ -1152,6 +1156,12 @@ impl azul_storage::DriveDelegate for Stops {
     }
 }
 
+
+    /// The answer of a batch of `items` once the flag is raised: each one `Cancelled`.
+    fn gone<T>(&self, items: usize) -> Result<(), Vec<Result<T, DriveError>>> {
+        self.alive()
+            .map_err(|stopped| (0..items).map(|_| Err(stopped.clone())).collect())
+    }
 azul_storage::delegate_drive!(Stops);
 
 /// Whether the copy of a drive whose last state is `last` (none before a first copy) runs now: it
@@ -1171,6 +1181,87 @@ pub(crate) fn rescue_due(last: Option<&Rescue>, now: u64) -> bool {
 
 /// How far a running copy got.
 pub(crate) fn rescue_progress(s: &mut DriveState, azlin_id: &str, copied: usize, total: usize) {
+
+    fn put_from(&self, key: &str, body: &mut dyn std::io::Read) -> Result<u64, DriveError> {
+        self.alive()?;
+        self.inner.put_from(key, body)
+    }
+
+    fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        ctl: &dyn azul_storage::Ctl,
+    ) -> Result<u64, DriveError> {
+        self.alive()?;
+        self.inner.put_file(key, path, ctl)
+    }
+
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &Path,
+        check: &azul_storage::checked::FileCheck,
+        ctl: &dyn azul_storage::Ctl,
+    ) -> Result<azul_storage::checked::CheckedUpload, DriveError> {
+        self.alive()?;
+        self.inner.put_file_checked(key, path, check, ctl)
+    }
+
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn std::io::Read,
+        condition: &azul_storage::Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.alive()?;
+        self.inner.put_from_if(key, body, condition)
+    }
+
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: &azul_storage::Precondition,
+        ctl: &dyn azul_storage::Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        self.alive()?;
+        self.inner.put_file_if(key, path, condition, ctl)
+    }
+
+    fn put_many(
+        &self,
+        items: &[azul_storage::BatchPut<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        if let Err(refused) = self.gone(items.len()) {
+            return refused;
+        }
+        self.inner.put_many(items)
+    }
+
+    fn delete_many(&self, items: &[azul_storage::BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        if let Err(refused) = self.gone(items.len()) {
+            return refused;
+        }
+        self.inner.delete_many(items)
+    }
+
+    fn move_many(&self, items: &[azul_storage::BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        if let Err(refused) = self.gone(items.len()) {
+            return refused;
+        }
+        self.inner.move_many(items)
+    }
+
+    fn put_from_many(
+        &self,
+        items: &mut [azul_storage::BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        if let Err(refused) = self.gone(items.len()) {
+            return refused;
+        }
+        self.inner.put_from_many(items)
+    }
     if let Some(r) = s.rescues.get_mut(azlin_id) {
         r.copied = copied;
         r.total = total;

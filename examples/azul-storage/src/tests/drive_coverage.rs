@@ -14,11 +14,17 @@
 //! ARCH29 C6e: a wrapper made with `delegate_drive!` forwards every method of `drive_methods!`
 //! (THE list of the 27) unless it writes the method itself, so a new method of the trait is
 //! forwarded without touching the wrapper - provided the list says the same as the trait, which
-//! the first test below keeps true. `AzlinDrive`, the bytes of an Azlin drive (ARCH29 C6d), and `Stops`
+//! the first test below keeps true. `AzlinDrive`, the bytes of an Azlin drive (ARCH29 C6d), `Stops`
 //! (the copy of a locked drive reads through it; X-DELTA-STRUCT-DRIVE-3: it wrote seven methods and
-//! left twenty to the trait's defaults) are made with it too: a request goes through their `send` (the
-//! credentials renewed; the stop flag asked), and a method they do not write is forwarded - or, where
-//! there is no drive below, refused - never answered by the trait's default. The wrappers that must write every method on
+//! left twenty to the trait's defaults) and `Stoppable` (a sync download's drive over a reference;
+//! X-DELTA-STRUCT3-6: the same seven methods, and the pinned read was lost) are made with it too: a request
+//! goes through their `send` (the credentials renewed; the stop flag asked), and a method they do not write is
+//! forwarded - or, where there is no drive below, refused - never answered by the trait's default.
+//!
+//! X-DELTA-STRUCT3-8: the tests above read NAMES. The last section of this file puts a probe (a drive that only
+//! listens) below each wrapper that decides for itself what a call does and sends a pinned read through it; the
+//! wrappers' own crates hold the same test over their own probes ([`BODY_TESTS`] names each and a test below
+//! keeps the list whole). The wrappers that must write every method on
 //! purpose (the encryption wrappers, `ScopedDrive`, the bridge's account drive) stay in `WRAPPERS`
 //! with their per-method census: forwarding as it is would be the bug for a method nobody looked at.
 
@@ -481,6 +487,8 @@ const DELEGATING: &[(&str, &str)] = &[
     ("ObjectCache", "azcloud-kit/src/sync/objects.rs"),
     ("AzlinDrive", "azcloud-kit/src/drive.rs"),
     ("Stops", "azul-drive/src/archive.rs"),
+    // A download's drive, over a `&dyn Drive` (a wrapper with a lifetime: `delegate_drive!(Stoppable<'_>)`).
+    ("Stoppable", "azcloud-kit/src/sync/drive_store.rs"),
 ];
 
 /// The drives that sit on top of another drive and write every method themselves, on purpose (a
@@ -538,8 +546,10 @@ const OTHERS: &[(&str, &str)] = &[
         "a bucket in memory (the drive index's tests and tools): a place of its own",
     ),
     (
-        "Stoppable",
-        "the six calls a download makes, failing once its process is gone: it forwards no more",
+        "Probe",
+        "the leaf of the body census (`azul_storage::testing`, feature `testing`): it only listens - the calls \
+         that reach it, with their keys and conditions - and answers what a drive nobody wrote to answers: a \
+         place of its own, and no drive below it",
     ),
     (
         "NoDriveBelow",
@@ -655,16 +665,22 @@ fn c6e_a_delegating_wrapper_calls_the_macro_and_writes_only_below_send_and_metho
         let path = examples_dir().join(file);
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("{name}: {} cannot be read ({e})", path.display()));
+        // A wrapper over a reference has a lifetime, and the macro takes the type as it is written.
+        let spelled = if source.contains(&format!("azul_storage::delegate_drive!({name}<'_>);")) {
+            format!("{name}<'_>")
+        } else {
+            (*name).to_string()
+        };
         assert!(
-            source.contains(&format!("azul_storage::delegate_drive!({name});")),
+            source.contains(&format!("azul_storage::delegate_drive!({spelled});")),
             "{name} ({file}) is listed in DELEGATING and does not call delegate_drive!({name}): its \
              impl Drive is not made"
         );
         assert!(
-            !source.contains(&format!("impl Drive for {name} {{")),
+            !source.contains(&format!("impl Drive for {spelled} {{")),
             "{name} ({file}) is made with delegate_drive! and writes an impl Drive of its own"
         );
-        let header = format!("impl azul_storage::DriveDelegate for {name} {{");
+        let header = format!("impl azul_storage::DriveDelegate for {spelled} {{");
         let written = methods_of(&source, &header);
         assert!(
             written.iter().any(|m| m == "below"),
@@ -779,5 +795,309 @@ fn x_delta_azdrive_files_2_every_shipped_impl_of_drive_is_classified() {
     }
     for (_, reason) in OTHERS {
         assert!(!reason.is_empty());
+    }
+}
+
+// ==== What a wrapper DOES with a call: a probe below it (X-DELTA-STRUCT3-8) ====
+//
+// The census above reads NAMES: a wrapper that names `get_range_if` and answers it with `get_range` (the
+// condition dropped) passes every check of this file, and the sync's ranged downloads, which rest on the
+// pin (X-DELTA-SYNC2-3, X-DELTA-SYNC4-12), read an object that was replaced and put back as a splice. So each
+// hand-written wrapper is put over a `Probe` - a drive that only listens - and ONE pinned read is sent through
+// it: what the probe heard is what the wrapper did.
+
+use std::sync::Arc;
+
+use crate::testing::{every_method, pinned_read_arrives, Probe, METHOD_NAMES};
+
+/// `Box`, `Arc` and `&` of a drive are drives (`forward_drive!`): each sends a pinned read down with its
+/// condition, as a read of the key it was given. RED against a pointer impl that answers `get_range_if` with
+/// `get_range` (the probe hears a plain `get_range`).
+#[test]
+fn x_delta_struct3_8_the_pointer_impls_send_a_pinned_read_down_with_its_condition() {
+    let probe = Probe::new();
+    pinned_read_arrives(&Arc::new(probe.clone()), &probe, "object").expect("Arc<D>");
+    pinned_read_arrives(&Box::new(probe.clone()), &probe, "object").expect("Box<D>");
+    pinned_read_arrives(&&probe, &probe, "object").expect("&D");
+    // ... and through all three at once.
+    let all: Box<Arc<Probe>> = Box::new(Arc::new(probe.clone()));
+    pinned_read_arrives(&all, &probe, "object").expect("Box<Arc<D>>");
+    assert_eq!(
+        probe.heard().iter().filter(|c| c.method == "get_range_if").count(),
+        4,
+        "one pinned read per pointer, no more"
+    );
+}
+
+/// A grant's drive rewrites the key of a pinned read - `p/` in front of it - and sends the condition as it is.
+/// RED against a `get_range_if` that calls `get_range`, or one that sends the key unscoped.
+#[test]
+fn x_delta_struct3_8_a_scoped_drive_sends_a_pinned_read_with_its_condition_under_the_scope() {
+    let probe = Probe::new();
+    for can_write in [true, false] {
+        let scoped = crate::scoped::ScopedDrive::new(probe.clone(), "p/", can_write).unwrap();
+        pinned_read_arrives(&scoped, &probe, "p/object")
+            .unwrap_or_else(|why| panic!("a grant that writes: {can_write}: {why:?}"));
+    }
+}
+
+/// The encryption's gate sends a pinned read down as it is while the drive is new (nothing in it is encrypted: the
+/// read is the bucket's own) - the key and the condition as given. RED against a `get_range_if` that called
+/// `get_range`.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_struct3_8_the_encryption_gate_sends_a_pinned_read_down_with_its_condition() {
+    let probe = Probe::new();
+    let auto = crate::AutoEncrypted::new(
+        Arc::new(probe.clone()),
+        "d_1",
+        Arc::new(crate::keyring::MemoryKeyring::new()),
+        None,
+    );
+    pinned_read_arrives(&auto, &probe, "object").expect("AutoEncrypted over a new drive");
+}
+
+/// The call of every method of [`crate::Drive`] (`testing::every_method`) is made from THE list: the names it
+/// calls are `drive_methods!`'s, each once, in its order - a method the trait gets next that the call does not
+/// make fails here, so a census built on it (a stop flag that must refuse every request, a drive that has
+/// nothing below it) covers it at once.
+#[test]
+fn x_delta_struct3_8_the_call_of_every_method_is_the_list_and_nothing_else() {
+    let lib = include_str!("../lib.rs");
+    let listed: Vec<String> = list_entries(lib).into_iter().map(|e| e.name).collect();
+    assert_eq!(METHOD_NAMES, listed.as_slice(), "the const is the list");
+    let dir = crate::testing::TempDir::new("struct3-8-every-method");
+    let probe = Probe::new();
+    let called = every_method(&probe, dir.path());
+    let names: Vec<&str> = called.iter().map(|c| c.name).collect();
+    assert_eq!(names, METHOD_NAMES, "every method of the list is called, once, in the list's order");
+    assert!(
+        called.iter().any(|c| c.name == "get_range_if" && c.outcome.is_ok()),
+        "the pinned read reached the probe, which answers it"
+    );
+}
+
+/// The shipped drives that sit on no drive: none of them holds a drive below it - a `dyn Drive`, an `Arc` of
+/// one or a type parameter that is one. A wrapper is a wrapper, whatever it is called here: `Stoppable` held a
+/// `&dyn Drive`, wrote seven methods and was filed under "an adapter of the few calls one caller makes", so the
+/// pinned read was dropped by a wrapper no census read (X-DELTA-STRUCT3-6).
+#[test]
+fn x_delta_struct3_8_a_drive_filed_as_no_wrapper_holds_no_drive_below_it() {
+    for (name, _) in OTHERS {
+        for (found, path) in shipped_impls() {
+            if found != *name {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{name}: {} cannot be read ({e})", path.display()));
+            if let Some(held) = holds_a_drive(&text, name) {
+                panic!(
+                    "{name} ({}) is filed in OTHERS and holds a drive below it ({held}): it is a wrapper - \
+                     delegate_drive! if it forwards every call, WRAPPERS with a body test if it does not",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
+/// The text of the struct `name` in `source` (its header to the end of its field list), when there is one.
+fn struct_text<'a>(source: &'a str, name: &str) -> Option<&'a str> {
+    ["pub struct ", "pub(crate) struct ", "struct "].iter().find_map(|head| {
+        let at = source
+            .match_indices(&format!("{head}{name}"))
+            .find(|(at, _)| {
+                let rest = &source[at + head.len() + name.len()..];
+                rest.starts_with(['<', ' ', '{', '(', ';', '\n'])
+                    && (*at == 0 || source[..*at].ends_with('\n'))
+            })?
+            .0;
+        let rest = &source[at..];
+        // A struct ends at its closing brace in column 0, or at the `;` of a tuple or unit struct.
+        let end = rest
+            .find("\n}\n")
+            .map(|i| i + 2)
+            .into_iter()
+            .chain(rest.find(";\n").map(|i| i + 1))
+            .min()
+            .unwrap_or(rest.len());
+        Some(&rest[..end])
+    })
+}
+
+/// What shows that `source`'s struct `name` holds a drive below it: a `dyn .. Drive`, an `Arc`, `Box` or
+/// reference of a drive, a type parameter bounded by `Drive`. `None` for a leaf.
+fn holds_a_drive(source: &str, name: &str) -> Option<String> {
+    let text = struct_text(source, name)?;
+    let mut rest = text;
+    while let Some(at) = rest.find("dyn ") {
+        rest = &rest[at + 4..];
+        let path: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | ':'))
+            .collect();
+        if path == "Drive" || path.ends_with("::Drive") {
+            return Some(format!("`dyn {path}`"));
+        }
+    }
+    let header = text.lines().next().unwrap_or_default();
+    if header.contains(": Drive") || header.contains(": azul_storage::Drive") {
+        return Some(String::from("a type parameter bounded by `Drive`"));
+    }
+    None
+}
+
+/// Every `impl Drive for X` / `delegate_drive!(X)` of the shipped code, with its file: what the census above
+/// walks, as a list.
+fn shipped_impls() -> Vec<(String, std::path::PathBuf)> {
+    fn is_test_source(path: &std::path::Path) -> bool {
+        path.components()
+            .any(|c| matches!(c.as_os_str().to_str(), Some("tests" | "e2e" | "target")))
+            || path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(|stem| stem.ends_with("tests") || stem.ends_with("_test"))
+    }
+    fn walk(dir: &std::path::Path, found: &mut Vec<(String, std::path::PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if is_test_source(&path) {
+                continue;
+            }
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                for line in text.lines().filter(|l| l.starts_with("impl")) {
+                    let Some(at) = line.find("Drive for ") else {
+                        continue;
+                    };
+                    if line[..at]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                    {
+                        continue;
+                    }
+                    let name: String = line[at + "Drive for ".len()..]
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .collect();
+                    if !name.is_empty() {
+                        found.push((name, path.clone()));
+                    }
+                }
+            }
+        }
+    }
+    let mut found = Vec::new();
+    if let Ok(crates) = std::fs::read_dir(examples_dir()) {
+        for krate in crates.flatten() {
+            walk(&krate.path().join("src"), &mut found);
+        }
+    }
+    found
+}
+
+/// The test that looks at what ARRIVES below each wrapper, one row per wrapper that decides for itself what to
+/// do with a call: `(wrapper, file below examples/, the test)`. A pinned read sent through it over a probe (a
+/// leaf that listens), or - for a wrapper whose probe is a fake bucket - at the transport; `NoDriveBelow` is
+/// the drive that refuses everything, and its test calls every method of the list.
+const BODY_TESTS: &[(&str, &str, &str)] = &[
+    (
+        "Box, Arc and & of a drive",
+        "azul-storage/src/tests/drive_coverage.rs",
+        "x_delta_struct3_8_the_pointer_impls_send_a_pinned_read_down_with_its_condition",
+    ),
+    (
+        "ScopedDrive",
+        "azul-storage/src/tests/drive_coverage.rs",
+        "x_delta_struct3_8_a_scoped_drive_sends_a_pinned_read_with_its_condition_under_the_scope",
+    ),
+    (
+        "AutoEncrypted",
+        "azul-storage/src/tests/drive_coverage.rs",
+        "x_delta_struct3_8_the_encryption_gate_sends_a_pinned_read_down_with_its_condition",
+    ),
+    (
+        "EncryptedDrive",
+        "azul-storage/src/tests/encrypted.rs",
+        "x_delta_sync2_3_a_pinned_range_is_of_the_object_head_showed_and_of_no_other",
+    ),
+    (
+        "AccountDrive",
+        "azul-bridge/src/account.rs",
+        "x_delta_struct3_8_the_bridges_account_drive_sends_a_pinned_read_with_its_if_match",
+    ),
+    (
+        "Stops",
+        "azul-drive/src/stop_jobs_tests.rs",
+        "x_delta_struct3_8_stops_sends_a_pinned_read_down_with_its_condition_and_refuses_it_once_the_flag_is_up",
+    ),
+    (
+        "Stoppable",
+        "azcloud-kit/src/tests/sync_hostile.rs",
+        "x_delta_struct3_8_the_downloads_drive_pins_a_read_and_refuses_every_request_once_its_pass_is_gone",
+    ),
+    (
+        "NoDriveBelow",
+        "azcloud-kit/src/tests/drive.rs",
+        "x_delta_struct3_8_the_drive_below_the_bytes_refuses_every_request_and_answers_every_question_with_no",
+    ),
+];
+
+/// The census learns BODIES: every wrapper that writes a method for itself (`WRAPPERS`, the pointer impls, the
+/// delegating wrappers that decide what a call does - `Stops`, `Stoppable` - and the drive that refuses) has a
+/// named test that exists, is not ignored and looks at what arrives below it. A wrapper that names `get_range_if`
+/// and answers it with `get_range` passes every check of the names above; it fails the test named here.
+#[test]
+fn x_delta_struct3_8_every_wrapper_that_decides_for_itself_has_a_test_of_what_arrives_below_it() {
+    for (name, _, _) in WRAPPERS {
+        assert!(
+            BODY_TESTS.iter().any(|(wrapper, _, _)| wrapper == name),
+            "{name} writes every method for itself and has no row in BODY_TESTS: a test that sends a pinned \
+             read through it over a probe"
+        );
+    }
+    for must in ["Box, Arc and & of a drive", "Stops", "Stoppable", "NoDriveBelow"] {
+        assert!(BODY_TESTS.iter().any(|(wrapper, _, _)| *wrapper == must), "{must} has no row");
+    }
+    for (name, file, test) in BODY_TESTS {
+        let path = examples_dir().join(file);
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{name}: {} cannot be read ({e})", path.display()));
+        let header = format!("fn {test}(");
+        let at = source
+            .find(&header)
+            .unwrap_or_else(|| panic!("{name}: the test `{test}` is not in {file}"));
+        // Its attributes: the lines right above it, back to the blank line before the doc comment (a test in a
+        // module is indented: the indent is no line).
+        let above = source[..at].trim_end_matches([' ', '\t']);
+        let attributes: Vec<&str> = above
+            .lines()
+            .rev()
+            .take_while(|line| !line.trim().is_empty())
+            .collect();
+        assert!(
+            attributes.iter().any(|line| line.trim() == "#[test]"),
+            "{name}: `{test}` is no #[test] ({attributes:?})"
+        );
+        assert!(
+            !attributes.iter().any(|line| line.contains("ignore")),
+            "{name}: `{test}` is ignored"
+        );
+        let body = &source[at..];
+        let body = &body[..body.find("\n}\n").unwrap_or(body.len())];
+        assert!(
+            ["pinned_read_arrives", "get_range_if", "every_method"]
+                .iter()
+                .any(|word| body.contains(word)),
+            "{name}: `{test}` does not send a pinned read or call every method"
+        );
     }
 }

@@ -167,3 +167,362 @@ impl Drop for TempDir {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+
+// ==== A drive that only listens, and a call of every method (X-DELTA-STRUCT3-8) ====
+
+/// One call a [`Probe`] heard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Heard {
+    /// The method the call arrived at.
+    pub method: &'static str,
+    /// The key it carried (the prefix of a listing), as it ARRIVED: a wrapper that rewrites keys shows here.
+    pub key: String,
+    /// The condition it carried: what a pinned read is pinned to.
+    pub condition: Option<crate::Precondition>,
+}
+
+/// A leaf drive that does nothing but listen: it records the calls that reach it - the method, the key as
+/// it arrived, the condition - and answers what a drive nobody has written to answers (an empty listing,
+/// no object), except a pinned read, which it answers with a few bytes. What a wrapper over it does with a
+/// call is seen from below: the census of the wrappers checks that a method is NAMED, and a probe behind
+/// each wrapper checks what its BODY does with it (a `get_range_if` that called `get_range` dropped the
+/// condition, and passed every check of the names). A clone shares the log: the wrapper owns one, the test
+/// listens through the other.
+#[derive(Clone, Default)]
+pub struct Probe {
+    heard: std::sync::Arc<std::sync::Mutex<Vec<Heard>>>,
+}
+
+impl Probe {
+    /// A probe that has heard nothing.
+    #[must_use]
+    pub fn new() -> Probe {
+        Probe::default()
+    }
+
+    /// What it heard, in the order it heard it.
+    #[must_use]
+    pub fn heard(&self) -> Vec<Heard> {
+        self.heard
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn hear(&self, method: &'static str, key: &str, condition: Option<&crate::Precondition>) {
+        self.heard
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(Heard {
+                method,
+                key: key.to_string(),
+                condition: condition.cloned(),
+            });
+    }
+}
+
+impl crate::Drive for Probe {
+    fn list(&self, request: &crate::ListRequest) -> Result<crate::ListPage, crate::DriveError> {
+        self.hear("list", &request.prefix, None);
+        Ok(crate::ListPage {
+            folders: Vec::new(),
+            objects: Vec::new(),
+            next: None,
+        })
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, crate::DriveError> {
+        self.hear("get", key, None);
+        Err(crate::DriveError::NotFound {
+            key: key.to_string(),
+        })
+    }
+    fn get_range(&self, key: &str, _range: crate::ByteRange) -> Result<Vec<u8>, crate::DriveError> {
+        self.hear("get_range", key, None);
+        Err(crate::DriveError::NotFound {
+            key: key.to_string(),
+        })
+    }
+    fn get_range_if(
+        &self,
+        key: &str,
+        _range: crate::ByteRange,
+        condition: &crate::Precondition,
+    ) -> Result<Vec<u8>, crate::DriveError> {
+        self.hear("get_range_if", key, Some(condition));
+        Ok(b"pinned".to_vec())
+    }
+    fn put(&self, key: &str, _bytes: &[u8]) -> Result<(), crate::DriveError> {
+        self.hear("put", key, None);
+        Ok(())
+    }
+    fn delete(&self, key: &str) -> Result<(), crate::DriveError> {
+        self.hear("delete", key, None);
+        Ok(())
+    }
+    fn head(&self, key: &str) -> Result<crate::ObjectInfo, crate::DriveError> {
+        self.hear("head", key, None);
+        Err(crate::DriveError::NotFound {
+            key: key.to_string(),
+        })
+    }
+}
+
+/// What [`pinned_read_arrives`] found wrong with a wrapper.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PinnedRead {
+    /// The wrapper refused the pinned read with this error.
+    Refused(crate::DriveError),
+    /// What reached the probe is not ONE `get_range_if` carrying the condition: these calls did.
+    NotPinned(Vec<Heard>),
+}
+
+/// Sends ONE pinned read - `get_range_if("object", 0..=3, Matches("tag-1"))` - through `wrapper`, which
+/// stands over `probe`, and says whether it arrived as it was sent: one `get_range_if` call at the probe, with
+/// the condition `Matches("tag-1")` and the key `arrives_as` (a wrapper that rewrites keys names the rewrite).
+/// Anything the probe heard before the read (a drive that decides what it is from a listing first) is not
+/// counted: only the calls that came after the first of them are asked about.
+///
+/// # Errors
+///
+/// [`PinnedRead`]: the wrapper refused the read, or what arrived is not that read.
+pub fn pinned_read_arrives(
+    wrapper: &dyn crate::Drive,
+    probe: &Probe,
+    arrives_as: &str,
+) -> Result<(), PinnedRead> {
+    let before = probe.heard().len();
+    let condition = crate::Precondition::Matches(String::from("tag-1"));
+    wrapper
+        .get_range_if("object", crate::ByteRange::new(0, Some(3)), &condition)
+        .map_err(PinnedRead::Refused)?;
+    let heard: Vec<Heard> = probe
+        .heard()
+        .into_iter()
+        .skip(before)
+        .filter(|call| call.method == "get_range_if" || call.method == "get_range")
+        .collect();
+    let expected = Heard {
+        method: "get_range_if",
+        key: arrives_as.to_string(),
+        condition: Some(condition),
+    };
+    if heard == [expected] {
+        Ok(())
+    } else {
+        Err(PinnedRead::NotPinned(heard))
+    }
+}
+
+/// What one call of [`every_method`] did.
+#[derive(Debug)]
+pub struct Called {
+    /// The method's name, as `drive_methods!` writes it.
+    pub name: &'static str,
+    /// Whether it is a request to the drive (every method of the trait but the four questions about it: `site`,
+    /// `local_path`, `resume_folder`, `conditional_writes`, which are answered and never refused).
+    pub request: bool,
+    /// What it answered; a batch's first item (the call asks for one), a yes or no or a path as `Ok`.
+    pub outcome: Result<(), crate::DriveError>,
+    /// What a question about the drive (`request: false`) answered, as `Debug` writes it: the place, the
+    /// path, the folder, whether it writes conditionally. A drive that has nothing below it answers each of
+    /// them with its "no". `None` for a request.
+    pub answer: Option<String>,
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __probe_method_names {
+    ( ; $( ($kind:ident, $required:ident) fn $name:ident ( $($arg:ident : $ty:ty),* ) -> $ret:ty ; )* ) => {
+        /// The name of every method of [`Drive`], from THE list (`drive_methods!`): what a call of every method
+        /// ([`every_method`]) has to cover, and a method added to the trait is in it at once.
+        pub const METHOD_NAMES: &[&str] = &[ $( stringify!($name) ),* ];
+    };
+}
+
+crate::drive_methods!(crate::__probe_method_names;);
+
+/// Calls every method of [`Drive`] once on `drive` with the smallest arguments that make a call (a batch of
+/// one item, a file of one byte in `files`, a reason that is for the key it is given), in the order of the
+/// list, and says what each answered. What a wrapper does with ALL its methods is seen from here: a stop flag
+/// that must refuse every request, a drive that has nothing below it and must refuse every one. The names are
+/// [`METHOD_NAMES`] and a test of this module keeps them so (a method the trait gets and this call does not
+/// make fails it).
+///
+/// # Panics
+///
+/// When the file in `files` cannot be made.
+#[must_use]
+pub fn every_method(drive: &dyn crate::Drive, files: &Path) -> Vec<Called> {
+    use crate::{
+        checked::FileCheck,
+        erase::{Chose, Target, Why},
+        BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Limit, ListRequest, Precondition,
+    };
+
+    let file = files.join("one-byte.txt");
+    std::fs::write(&file, b"x").expect("the file of the call");
+    let meta = std::fs::metadata(&file).expect("its metadata");
+    let check = FileCheck {
+        size: meta.len(),
+        modified_ns: meta
+            .modified()
+            .ok()
+            .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(0)),
+        blake3: blake3::hash(b"x").to_hex().to_string(),
+        dev: 0,
+        ino: 0,
+    };
+    let condition = Precondition::Matches(String::from("tag-1"));
+    let quiet = crate::ctl::Quiet;
+    // A reason is for the key it names: the keys the calls delete, and the folder the one that deletes a folder.
+    let chose = Chose::job(
+        "a call of every method",
+        Target::Keys(vec![String::from("k")]),
+    );
+    let chose_folder = Chose::job("a call of every method", Target::Folder(String::from("f/")));
+    let one = |called: Vec<Result<Option<String>, crate::DriveError>>| {
+        called
+            .into_iter()
+            .next()
+            .map_or(Ok(()), |first| first.map(|_| ()))
+    };
+    let first =
+        |called: Vec<Result<(), crate::DriveError>>| called.into_iter().next().unwrap_or(Ok(()));
+    let mut out = Vec::new();
+    let mut call = |name: &'static str, request: bool, outcome: Result<(), crate::DriveError>| {
+        out.push(Called {
+            name,
+            request,
+            outcome,
+            answer: None,
+        });
+    };
+    call(
+        "list",
+        true,
+        drive.list(&ListRequest::folder("")).map(|_| ()),
+    );
+    call("get", true, drive.get("k").map(|_| ()));
+    call(
+        "get_range",
+        true,
+        drive.get_range("k", ByteRange::new(0, Some(3))).map(|_| ()),
+    );
+    call(
+        "get_range_if",
+        true,
+        drive
+            .get_range_if("k", ByteRange::new(0, Some(3)), &condition)
+            .map(|_| ()),
+    );
+    call(
+        "get_limited",
+        true,
+        drive.get_limited("k", Limit::new("a call", 16)).map(|_| ()),
+    );
+    call("put", true, drive.put("k", b"x"));
+    call("delete", true, drive.delete("k"));
+    call("head", true, drive.head("k").map(|_| ()));
+    call(
+        "put_from",
+        true,
+        drive.put_from("k", &mut &b"x"[..]).map(|_| ()),
+    );
+    call(
+        "put_if",
+        true,
+        drive.put_if("k", b"x", &Precondition::Absent).map(|_| ()),
+    );
+    call("copy", true, drive.copy("k", "k2"));
+    call("create_folder", true, drive.create_folder("f/"));
+    call("rename", true, drive.rename("k", "k2"));
+    call("delete_folder", true, drive.delete_folder("f/"));
+    call(
+        "remove_empty_folder",
+        true,
+        drive.remove_empty_folder("f/").map(|_| ()),
+    );
+    let local_path = format!("{:?}", drive.local_path("k"));
+    let site = format!("{:?}", drive.site());
+    let resume_folder = format!("{:?}", drive.resume_folder());
+    let conditional_writes = format!("{:?}", drive.conditional_writes());
+    call("local_path", false, Ok(()));
+    call("site", false, Ok(()));
+    call("resume_folder", false, Ok(()));
+    call("metadata", true, drive.metadata("k").map(|_| ()));
+    call(
+        "put_file",
+        true,
+        drive.put_file("k", &file, &quiet).map(|_| ()),
+    );
+    call(
+        "put_file_checked",
+        true,
+        drive
+            .put_file_checked("k", &file, &check, &quiet)
+            .map(|_| ()),
+    );
+    call(
+        "put_from_if",
+        true,
+        drive
+            .put_from_if("k", &mut &b"x"[..], &Precondition::Absent)
+            .map(|_| ()),
+    );
+    call("conditional_writes", false, Ok(()));
+    call(
+        "put_file_if",
+        true,
+        drive
+            .put_file_if("k", &file, &Precondition::Absent, &quiet)
+            .map(|_| ()),
+    );
+    call(
+        "put_many",
+        true,
+        one(drive.put_many(&[BatchPut::new("k", b"x")])),
+    );
+    call(
+        "delete_many",
+        true,
+        first(drive.delete_many(&[BatchDelete::new("k")])),
+    );
+    call(
+        "move_many",
+        true,
+        first(drive.move_many(&[BatchMove::new("k", "k2")])),
+    );
+    let mut body: &[u8] = b"x";
+    call(
+        "put_from_many",
+        true,
+        one(drive.put_from_many(&mut [BatchStream::new("k", &mut body)])),
+    );
+    call(
+        "delete_for",
+        true,
+        drive.delete_for("k", Why::UserChose(&chose)),
+    );
+    call(
+        "delete_many_for",
+        true,
+        first(drive.delete_many_for(&[BatchDelete::new("k")], Why::UserChose(&chose))),
+    );
+    call(
+        "delete_folder_for",
+        true,
+        drive.delete_folder_for("f/", Why::UserChose(&chose_folder)),
+    );
+    for (name, answer) in [
+        ("local_path", local_path),
+        ("site", site),
+        ("resume_folder", resume_folder),
+        ("conditional_writes", conditional_writes),
+    ] {
+        if let Some(called) = out.iter_mut().find(|called| called.name == name) {
+            called.answer = Some(answer);
+        }
+    }
+    out
+}

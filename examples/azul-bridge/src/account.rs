@@ -306,7 +306,10 @@ mod tests {
         drive::TransportFactory,
         StateDir,
     };
-    use azul_storage::{testing::TempDir, Drive, HttpCall, HttpReply, ListRequest, Transport};
+    use azul_storage::{
+        testing::TempDir, ByteRange, Drive, HttpCall, HttpReply, ListRequest, Precondition,
+        Transport,
+    };
 
     use super::AccountDrive;
 
@@ -355,6 +358,69 @@ mod tests {
         .unwrap();
         store_grant(&state, &read_grant(&answer, TOKEN, "owner", 0).unwrap()).unwrap();
         state
+    }
+
+    /// Every call kept whole, answered as a bucket answers a ranged read of an object it holds: 206, the bytes
+    /// and the tag of the version it served.
+    struct Recorder(Arc<Mutex<Vec<HttpCall>>>);
+
+    impl Transport for Recorder {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            self.0.lock().unwrap().push(call.clone());
+            Ok(HttpReply {
+                status: 206,
+                headers: vec![(String::from("etag"), String::from("\"tag-1\""))],
+                body: b"abcd".to_vec(),
+            })
+        }
+    }
+
+    /// X-DELTA-STRUCT3-8. The bridge's drive is written by hand (the census reads its method NAMES): its
+    /// `get_range_if` has to send the condition to the bucket - an `If-Match` on the ranged GET, which a copy
+    /// that reads one object in many requests asks of every one (X-DELTA-SYNC2-3). A `get_range_if` that called
+    /// `get_range` dropped it and passed every check of the names; the bucket then serves whatever object the
+    /// name names when the range is read, and the copy is a splice of two versions. The probe here is the
+    /// transport: the one pinned read of the test is ONE ranged GET of the object with the range and the tag.
+    #[test]
+    fn x_delta_struct3_8_the_bridges_account_drive_sends_a_pinned_read_with_its_if_match() {
+        let dir = TempDir::new("bridge-pinned-read");
+        let state = device(&dir);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let transports: TransportFactory =
+            Arc::new(move || Box::new(Recorder(seen.clone())) as Box<dyn Transport>);
+        let drive = AccountDrive::open(&state, TOKEN, transports, None).unwrap();
+        let range = ByteRange::new(0, Some(3));
+        let tag = Precondition::Matches(String::from("tag-1"));
+        assert_eq!(drive.get_range_if("object", range, &tag).unwrap(), b"abcd");
+        let reads = |calls: &Arc<Mutex<Vec<HttpCall>>>| -> Vec<HttpCall> {
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|call| call.url.ends_with("/d-1/object"))
+                .cloned()
+                .collect()
+        };
+        let header = |call: &HttpCall, name: &str| {
+            call.headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.clone())
+        };
+        let pinned = reads(&calls);
+        assert_eq!(pinned.len(), 1, "one ranged GET of the object: {pinned:?}");
+        assert_eq!(header(&pinned[0], "range").as_deref(), Some("bytes=0-3"));
+        assert_eq!(
+            header(&pinned[0], "if-match").as_deref(),
+            Some("\"tag-1\""),
+            "the condition reached the bucket"
+        );
+        // The control: the plain range of the same object asks no version.
+        assert_eq!(drive.get_range("object", range).unwrap(), b"abcd");
+        let both = reads(&calls);
+        assert_eq!(both.len(), 2);
+        assert_eq!(header(&both[1], "if-match"), None);
     }
 
     #[test]

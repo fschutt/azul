@@ -21,7 +21,7 @@ use azul_storage::{
     checked::{CheckedUpload, FileCheck},
     ctl::Quiet,
     limits::named::SYNC_OBJECT_CEILING,
-    ops, transfer, ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo,
+    ops, transfer, BatchDelete, BatchMove, BatchPut, BatchStream, Ctl, Drive, DriveError, Limit,
     Precondition,
 };
 
@@ -222,10 +222,18 @@ impl Drop for StopsOnUnwind<'_> {
     }
 }
 
-/// A drive whose requests fail once `stopped` is set (the download's process is gone).
-struct Stoppable<'a> {
-    inner: &'a dyn Drive,
-    stopped: &'a AtomicBool,
+/// A drive whose requests fail once `stopped` is set (the download's process is gone). Made with
+/// `delegate_drive!`: every method of the trait goes to the drive below - `get_range_if` among them, the
+/// pinned read a download's ranges are made with, so that an object replaced and put back between two
+/// ranges is refused and not spliced (X-DELTA-SYNC2-3, X-DELTA-SYNC4-12) - and a request asks the flag first
+/// (`send`). It wrote seven methods and left the rest to the trait's defaults, which answered a pinned read
+/// `Unsupported`: the download read its ranges plain and looked once at the end, and a drive that had put the
+/// first version back passed the look (X-DELTA-STRUCT3-6). The calls `delegate_drive!` passes straight on - a
+/// body read once, a file's upload, a batch - ask the flag too: a download that is gone does not use the
+/// drive's credentials, whatever it sends.
+pub(crate) struct Stoppable<'a> {
+    pub(crate) inner: &'a dyn Drive,
+    pub(crate) stopped: &'a AtomicBool,
 }
 
 impl Stoppable<'_> {
@@ -237,42 +245,99 @@ impl Stoppable<'_> {
         }
         Ok(())
     }
-}
 
-impl Drive for Stoppable<'_> {
-    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        self.alive()?;
-        self.inner.list(request)
-    }
-
-    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        self.alive()?;
-        self.inner.get(key)
-    }
-
-    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        self.alive()?;
-        self.inner.get_range(key, range)
-    }
-
-    // The inner drive's guard stands: a drive that wraps another forwards the limit.
-    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
-        self.alive()?;
-        self.inner.get_limited(key, limit)
-    }
-
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        self.alive()?;
-        self.inner.put(key, bytes)
-    }
-
-    fn delete(&self, key: &str) -> Result<(), DriveError> {
-        self.alive()?;
-        self.inner.delete(key)
-    }
-
-    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        self.alive()?;
-        self.inner.head(key)
+    /// The answer of a batch of `items` once the download is gone: each one refused.
+    fn gone<T>(&self, items: usize) -> Result<(), Vec<Result<T, DriveError>>> {
+        self.alive()
+            .map_err(|stopped| (0..items).map(|_| Err(stopped.clone())).collect())
     }
 }
+
+impl azul_storage::DriveDelegate for Stoppable<'_> {
+    fn below(&self) -> &dyn Drive {
+        self.inner
+    }
+
+    fn send<T>(
+        &self,
+        request: impl Fn(&dyn Drive) -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
+        self.alive()?;
+        request(self.inner)
+    }
+
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        self.alive()?;
+        self.inner.put_from(key, body)
+    }
+
+    fn put_file(&self, key: &str, path: &Path, ctl: &dyn Ctl) -> Result<u64, DriveError> {
+        self.alive()?;
+        self.inner.put_file(key, path, ctl)
+    }
+
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &Path,
+        check: &FileCheck,
+        ctl: &dyn Ctl,
+    ) -> Result<CheckedUpload, DriveError> {
+        self.alive()?;
+        self.inner.put_file_checked(key, path, check, ctl)
+    }
+
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.alive()?;
+        self.inner.put_from_if(key, body, condition)
+    }
+
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        self.alive()?;
+        self.inner.put_file_if(key, path, condition, ctl)
+    }
+
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        if let Err(refused) = self.gone(items.len()) {
+            return refused;
+        }
+        self.inner.put_many(items)
+    }
+
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        if let Err(refused) = self.gone(items.len()) {
+            return refused;
+        }
+        self.inner.delete_many(items)
+    }
+
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        if let Err(refused) = self.gone(items.len()) {
+            return refused;
+        }
+        self.inner.move_many(items)
+    }
+
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        if let Err(refused) = self.gone(items.len()) {
+            return refused;
+        }
+        self.inner.put_from_many(items)
+    }
+}
+
+azul_storage::delegate_drive!(Stoppable<'_>);

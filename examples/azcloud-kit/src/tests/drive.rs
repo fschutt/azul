@@ -954,3 +954,61 @@ fn c6d_the_bytes_have_no_drive_below_and_each_drive_is_its_own_place() {
         .iter()
         .all(|c| !c.url.contains("127.0.0.1:19000")));
 }
+
+/// X-DELTA-STRUCT3-8. The drive below the bytes of an Azlin drive refuses EVERY method of the trait: the call of
+/// every method of THE list (`testing::every_method`, so a method the trait gets next is in it) answers each request
+/// `Unsupported` - a method the bytes did not write is a refusal and never the trait's default of a drive nobody
+/// looked at - and each question about the drive with its "no". It wrote six methods and left the rest to the
+/// defaults, which refuse only because they are composed over those six; a new question of the trait falls to its
+/// default answer, and nothing required the bytes to write it. A question this test does not know fails it.
+#[test]
+fn x_delta_struct3_8_the_drive_below_the_bytes_refuses_every_request_and_answers_every_question_with_no(
+) {
+    use azul_storage::testing::{every_method, METHOD_NAMES};
+
+    let dir = TempDir::new("struct3-8-below");
+    let fake = cloud(None);
+    let (a, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir);
+    let below = azul_storage::DriveDelegate::below(&a);
+    let called = every_method(below, dir.path());
+    assert_eq!(
+        called.len(),
+        METHOD_NAMES.len(),
+        "every method of the list was called"
+    );
+    let mut answered = Vec::new();
+    for call in called.iter().filter(|call| call.request) {
+        if !matches!(call.outcome, Err(DriveError::Unsupported(_))) {
+            answered.push(format!("{}: {:?}", call.name, call.outcome));
+        }
+    }
+    assert!(
+        answered.is_empty(),
+        "requests the drive below did not refuse: {answered:?}"
+    );
+    let questions: Vec<&str> = called
+        .iter()
+        .filter(|call| !call.request)
+        .map(|call| call.name)
+        .collect();
+    assert_eq!(
+        questions,
+        ["local_path", "site", "resume_folder", "conditional_writes"],
+        "a question the trait got is not answered here: say what the drive below answers it"
+    );
+    let answer = |name: &str| {
+        called
+            .iter()
+            .find(|call| call.name == name)
+            .and_then(|call| call.answer.as_deref())
+            .map(str::to_string)
+    };
+    assert_eq!(answer("local_path").as_deref(), Some("None"));
+    assert_eq!(answer("resume_folder").as_deref(), Some("None"));
+    assert_eq!(answer("conditional_writes").as_deref(), Some("false"));
+    // Nothing of the above reached the bucket.
+    assert!(fake
+        .calls()
+        .iter()
+        .all(|c| !c.url.contains("127.0.0.1:19000")));
+}

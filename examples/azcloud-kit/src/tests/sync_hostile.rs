@@ -421,3 +421,216 @@ fn a_hostile_index_with_tens_of_thousands_of_over_long_keys_is_listed_once_per_c
     // The drive is as it was: nothing of the hostile entries is touched.
     assert_eq!(super::sync::index_of(&store).files.len(), BAD + 1);
 }
+
+/// An object another device replaces between two ranges of a download and puts back: it is `a` for the first
+/// range, `b` for the second and `a` again afterwards, so the look at the end finds the tag the download began
+/// with (X-DELTA-SYNC4-12's A-B-A). A pinned range is served only while the object is the version it names; a
+/// plain one is served whatever the object is then. `replace: false` is the same drive that is left alone.
+struct ReplacedBetweenRanges {
+    a: Vec<u8>,
+    b: Vec<u8>,
+    replace: bool,
+    /// The ranges served so far.
+    served: std::sync::Mutex<usize>,
+    pinned: std::sync::atomic::AtomicUsize,
+    plain: std::sync::atomic::AtomicUsize,
+}
+
+impl ReplacedBetweenRanges {
+    fn new(replace: bool) -> ReplacedBetweenRanges {
+        // Two parts: one whole part and one byte.
+        let len = usize::try_from(azul_storage::transfer::CHUNK).unwrap() + 1;
+        ReplacedBetweenRanges {
+            a: (0..len).map(|i| (i % 251) as u8).collect(),
+            b: (0..len).map(|i| ((i + 7) % 251) as u8).collect(),
+            replace,
+            served: std::sync::Mutex::new(0),
+            pinned: std::sync::atomic::AtomicUsize::new(0),
+            plain: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+
+    /// The object as it is after `served` ranges: `b` for the second one.
+    fn now(&self, served: usize) -> (&[u8], &'static str) {
+        if self.replace && served == 1 {
+            (&self.b, "tag-b")
+        } else {
+            (&self.a, "tag-a")
+        }
+    }
+
+    fn serve(
+        &self,
+        key: &str,
+        range: azul_storage::ByteRange,
+        pinned_to: Option<&str>,
+    ) -> Result<Vec<u8>, DriveError> {
+        let mut served = self.served.lock().unwrap();
+        let (object, tag) = self.now(*served);
+        if pinned_to.is_some_and(|want| want != tag) {
+            return Err(DriveError::Conflict {
+                key: key.to_string(),
+            });
+        }
+        *served += 1;
+        let start = usize::try_from(range.start)
+            .unwrap_or(usize::MAX)
+            .min(object.len());
+        let end = range
+            .end
+            .map_or(object.len(), |e| {
+                usize::try_from(e).unwrap_or(usize::MAX).saturating_add(1)
+            })
+            .min(object.len());
+        Ok(object[start..end.max(start)].to_vec())
+    }
+}
+
+impl azul_storage::Drive for ReplacedBetweenRanges {
+    fn list(&self, _: &azul_storage::ListRequest) -> Result<azul_storage::ListPage, DriveError> {
+        Ok(azul_storage::ListPage {
+            folders: Vec::new(),
+            objects: Vec::new(),
+            next: None,
+        })
+    }
+
+    fn get(&self, _: &str) -> Result<Vec<u8>, DriveError> {
+        let served = *self.served.lock().unwrap();
+        Ok(self.now(served).0.to_vec())
+    }
+
+    fn get_range(&self, key: &str, range: azul_storage::ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.plain.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.serve(key, range, None)
+    }
+
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: azul_storage::ByteRange,
+        condition: &azul_storage::Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        match condition {
+            azul_storage::Precondition::Matches(tag) => {
+                self.pinned
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.serve(key, range, Some(tag))
+            }
+            azul_storage::Precondition::Absent => Err(DriveError::Unsupported(String::from(
+                "a range only if absent",
+            ))),
+        }
+    }
+
+    fn put(&self, key: &str, _: &[u8]) -> Result<(), DriveError> {
+        Err(DriveError::Unsupported(format!("writing {key}")))
+    }
+
+    fn delete(&self, _: &str) -> Result<(), DriveError> {
+        Ok(())
+    }
+
+    fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+        let served = *self.served.lock().unwrap();
+        let (object, tag) = self.now(served);
+        Ok(azul_storage::ObjectInfo {
+            key: key.to_string(),
+            size: object.len() as u64,
+            modified: Some(1),
+            etag: Some(tag.to_string()),
+        })
+    }
+}
+
+/// X-DELTA-STRUCT3-6. The sync's download is made over `Stoppable`, which wrote seven methods and left the rest to
+/// the trait's defaults: `get_range_if` answered `Unsupported`, so the download read its ranges PLAIN and looked once
+/// at the end. An object replaced between two ranges and put back (A, B, A) passed that look and the file under the
+/// final name was the splice of two versions - for the named pairing, whose blobs carry no content hash, a spliced
+/// file the sync then remembers. Every range is pinned to the version the download began with now, so the range
+/// that meets B is a `Conflict` and nothing is put in place. Entered through `download_told`, the function the
+/// sync's fetch calls. RED against the old `Stoppable` (the download answers `Ok` with the splice).
+#[test]
+fn x_delta_struct3_6_a_download_in_parts_never_splices_an_object_replaced_between_two_ranges_and_put_back(
+) {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let object = ReplacedBetweenRanges::new(true);
+    let size = object.a.len() as u64;
+    let dir = TempDir::new("azcloud-struct3-6");
+    let dest = dir.path().join("big.blob");
+    let outcome = crate::sync::drive_store::download_told(&object, "big", size, &dest, &|| {});
+    assert!(
+        matches!(outcome, Err(DriveError::Conflict { .. })),
+        "a range that met the other version was read and kept: {outcome:?}"
+    );
+    assert!(!dest.exists(), "no file under its name");
+    assert_eq!(object.plain.load(SeqCst), 0, "no range was read unpinned");
+    assert!(object.pinned.load(SeqCst) >= 1);
+
+    // The control: a drive nobody replaces is downloaded whole through the same pinned reads.
+    let steady = ReplacedBetweenRanges::new(false);
+    let dest = dir.path().join("steady.blob");
+    crate::sync::drive_store::download_told(&steady, "big", size, &dest, &|| {})
+        .expect("a steady object");
+    assert_eq!(fs::read(&dest).unwrap(), steady.a);
+    assert_eq!(steady.pinned.load(SeqCst), 2, "both ranges pinned");
+    assert_eq!(steady.plain.load(SeqCst), 0);
+}
+
+/// X-DELTA-STRUCT3-6, -7 and -8 for `Stoppable` itself: the pinned read reaches the drive below as ONE `get_range_if`
+/// with its condition, every request - the nine calls `delegate_drive!` passes straight on included - is refused once
+/// the download's pass is gone and nothing reaches the drive below then.
+#[test]
+fn x_delta_struct3_8_the_downloads_drive_pins_a_read_and_refuses_every_request_once_its_pass_is_gone(
+) {
+    use crate::sync::drive_store::Stoppable;
+    use azul_storage::testing::{
+        every_method, pinned_read_arrives, PinnedRead, Probe, METHOD_NAMES,
+    };
+
+    let dir = TempDir::new("azcloud-struct3-8-stoppable");
+    let probe = Probe::new();
+    let below: Arc<dyn azul_storage::Drive> = Arc::new(probe.clone());
+    let stopped = AtomicBool::new(false);
+    let drive = Stoppable {
+        inner: &*below,
+        stopped: &stopped,
+    };
+    pinned_read_arrives(&drive, &probe, "object").expect("the pinned read arrives as sent");
+    let down = every_method(&drive, dir.path());
+    assert_eq!(down.len(), METHOD_NAMES.len());
+    for call in &down {
+        assert!(
+            !matches!(call.outcome, Err(DriveError::Transport(_))),
+            "{}: refused with the pass alive: {:?}",
+            call.name,
+            call.outcome
+        );
+    }
+    let heard = probe.heard().len();
+
+    stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut not_refused = Vec::new();
+    for call in every_method(&drive, dir.path())
+        .iter()
+        .filter(|call| call.request)
+    {
+        if !matches!(call.outcome, Err(DriveError::Transport(_))) {
+            not_refused.push(format!("{}: {:?}", call.name, call.outcome));
+        }
+    }
+    assert!(
+        not_refused.is_empty(),
+        "requests the stop did not refuse: {not_refused:?}"
+    );
+    assert!(matches!(
+        pinned_read_arrives(&drive, &probe, "object"),
+        Err(PinnedRead::Refused(DriveError::Transport(_)))
+    ));
+    assert_eq!(
+        probe.heard().len(),
+        heard,
+        "nothing reached the drive below once the pass was gone"
+    );
+}
