@@ -221,12 +221,6 @@ azmail-restore-kept = { $count ->
     [one] The Azlin drive was restored to an earlier state and lacks 1 message you have: it stays here and goes back into the drive.
    *[other] The Azlin drive was restored to an earlier state and lacks { $count } messages you have: they stay here and go back into the drive.
  }
-azmail-send-receive-error = Send/Receive error: { $why }
-azmail-send-receive-stopped = Send/Receive stopped. What arrived until then is kept.
-azmail-outbox-empty-no-account = Nothing waits in the Outbox. To receive mail, add an account: File > Info > Add Account.
-azmail-outbox-empty-local = Nothing waits in the Outbox of Local Folders.
-azmail-sending-outbox = Sending the Outbox…
-azmail-outbox-counts = Outbox: { $sent } sent, { $queued } waiting, { $failed } failed.
 azmail-restore-header-only = { $count ->
     [one] The Azlin drive was restored to an earlier state and lacks 1 more message you have, of which only the header is here: it cannot go back into the drive.
    *[other] The Azlin drive was restored to an earlier state and lacks { $count } more messages you have, of which only the headers are here: they cannot go back into the drive.
@@ -239,6 +233,12 @@ azmail-restore-unknown = { $count ->
     [one] The Azlin drive no longer lists 1 message you have, and the token server could not be asked whether the drive was restored ({ $why }): it stays here until the next Send/Receive.
    *[other] The Azlin drive no longer lists { $count } messages you have, and the token server could not be asked whether the drive was restored ({ $why }): they stay here until the next Send/Receive.
  }
+azmail-send-receive-error = Send/Receive error: { $why }
+azmail-send-receive-stopped = Send/Receive stopped. What arrived until then is kept.
+azmail-outbox-empty-no-account = Nothing waits in the Outbox. To receive mail, add an account: File > Info > Add Account.
+azmail-outbox-empty-local = Nothing waits in the Outbox of Local Folders.
+azmail-sending-outbox = Sending the Outbox…
+azmail-outbox-counts = Outbox: { $sent } sent, { $queued } waiting, { $failed } failed.
 azmail-error-azlin-sign-in-old = the Azlin drive's sign-in is out of date: Send/Receive (F9) signs in again
 azmail-notice-send-receive-first = Send/Receive (F9) first: AzMail signs in to the Azlin drive then.
 azmail-error-azlin-only = This message is in the Azlin drive only: Send/Receive (F9) signs in, then it opens.

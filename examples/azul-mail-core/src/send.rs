@@ -898,6 +898,7 @@ pub fn outbox_index(entries: &[OutboxEntry]) -> Vec<IndexEntry> {
             size: 0,
             path: format!("{OUTBOX_DIR}/{}.eml", entry.id),
             remote: String::new(),
+            on_drive_since: None,
         })
         .collect()
 }
@@ -960,7 +961,6 @@ impl Transport for Network<'_> {
                     })
                     .collect()
             }
-            on_drive_since: None,
         }
     }
 
