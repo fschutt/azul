@@ -121,7 +121,10 @@ pub enum Why<'a> {
     /// (feature `encryption`).
     #[cfg(feature = "encryption")]
     Confirmed(&'a PurgeConfirmation, &'a Reclaimable),
-    /// A new version landed at the name: what it replaced may go.
+    /// A new version landed at this name. The receipt covers THAT name - the file that just landed - and
+    /// no other: what the version replaced, or was moved from, is NOT covered yet; ARCH30-1b gives the
+    /// receipt the key it retires (X-DELTA-KEYS4-6: this line used to say "what it replaced may go",
+    /// which no call can do today).
     Superseded(&'a Landed),
     /// The change that was to name a new object was refused for good or never made: the object it
     /// uploaded goes back out (feature `encryption`).

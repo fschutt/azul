@@ -220,6 +220,8 @@ fn delete_unchanged(bucket: &dyn Drive, object: &ObjectInfo) -> Result<bool, Dri
         Some(etag) => BatchDelete::new(&object.key).of_version(etag),
         None => BatchDelete::new(&object.key),
     };
+    // ARCH30-4: needs Why::Superseded bound to the key it retires (a receipt that names the plaintext object
+    // once its encrypted copy landed); until then the delete keeps `delete_many`.
     match bucket.delete_many(&[item]).into_iter().next() {
         Some(Ok(())) => Ok(true),
         Some(Err(DriveError::Conflict { .. })) => Ok(false),
@@ -249,6 +251,8 @@ fn undo_our_copy<D: Drive>(
     let Some(version) = written.etag.as_deref() else {
         return Ok(());
     };
+    // ARCH30-4: needs a Refused that binds the object id our write returned (not the name): the undo of a
+    // write that landed.
     match encrypted
         .delete_many(&[BatchDelete::new(key).of_version(version)])
         .into_iter()
@@ -272,6 +276,8 @@ fn move_one<D: Drive>(
     if key.ends_with('/') {
         return match encrypted.create_folder(key) {
             Ok(()) => {
+                // ARCH30-4: needs Why::Superseded for a folder marker (no data object; the encrypted
+                // marker landed first).
                 bucket.delete(key)?;
                 Ok(Outcome::Moved(0))
             }
