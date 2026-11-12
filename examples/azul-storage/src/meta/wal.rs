@@ -43,7 +43,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{
     bucket::{Bucket, Fetched, Version},
-    certainty::Certainty,
     keys,
     objects::{ObjectId, Objects},
     pack::{PackIndex, PackWriter, SealedPack},
@@ -1060,16 +1059,15 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     |manifest: &Manifest| manifest.log.iter().any(|r| r.key == log_key);
                 match self.swap_landed(names_entry)? {
                     Some(true) => Ok(true),
-                    // Refused for good - a drive that is frozen, over its quota - and named by no
-                    // manifest: the entry goes again. Every try of a drive that refuses its index
-                    // changes used to leave one sealed entry behind, counted in the budget the
-                    // drive has for them (AZ-M6).
-                    Some(false) if refused_for_good(&e) => {
-                        // collapse-ok: an entry nothing names is only space; a delete the
-                        // storage also refuses leaves it for the orphan sweep.
-                        let _ = self.bucket.remove(&log_key);
-                        Err(e)
-                    }
+                    // Named by no manifest as read now - and the entry STAYS, whatever the error
+                    // says. A refusal for policy (a frozen drive, a quota, an expired session)
+                    // is the answer of the LAST request the transport sent; the first one may be
+                    // on its way to the bucket still and land after this read, and a manifest
+                    // that names a log entry that was removed breaks the whole repository
+                    // (X-DELTA-SYNC6-2, the same flaw as AZ-M1). An entry nothing names is only
+                    // space: the orphan sweep collects it after the grace. Only a 412 (above) is
+                    // final - a conditional write that met a newer version can never land.
+                    // ARCH30-5: Refused is minted for a leaf's first and only attempt (A3).
                     _ => Err(e),
                 }
             }
@@ -1801,7 +1799,7 @@ pub struct Resealed {
 /// | 412 | another manifest (the old key's, or another writer's) | removed: a refused conditional write cannot land later | stay |
 /// | 409 (under way) | another manifest | stays: this swap may still land; an orphan is only space | stay |
 /// | an error of unknown certainty (a timeout) | another manifest | stays, same reason | stay |
-/// | a refusal for good (frozen, over quota) | another manifest | removed | stay |
+/// | a refusal for policy (frozen, over quota, an expired session) | another manifest | stays: it is the answer of the last request sent, the first may still land (X-DELTA-SYNC6-2) | stay |
 /// | any | cannot be read | stays | stay: [`MetaError::OutcomeUnknown`] |
 pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
     bucket: &B,
@@ -1957,15 +1955,14 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
                             removed,
                         });
                     }
-                    // Refused for good - a drive that is frozen, over its quota - and named by no
-                    // manifest: the checkpoint is nobody's.
-                    Swap::Absent if refused_for_good(&e) => {
-                        // collapse-ok: as above, only space.
-                        let _ = bucket.remove(&checkpoint_key);
-                    }
-                    // A timeout or a lost connection: the request may be on its way to the
-                    // bucket still, and a read that comes before it lands says "not switched".
-                    // The checkpoint stays; the next run finds the swap landed or lost.
+                    // A timeout, a lost connection - or a refusal for policy (a frozen drive, a
+                    // quota, an expired session): the answer is the LAST request's the transport
+                    // sent, and the first may be on its way to the bucket still; a read that
+                    // comes before it lands says "not switched", and a checkpoint removed on
+                    // that word leaves a manifest that names nothing (X-DELTA-SYNC6-2). The
+                    // checkpoint stays; the next run finds the swap landed or lost, and an orphan
+                    // is only space for the sweep. Only a 412 (above) is final.
+                    // ARCH30-5: Refused is minted for a leaf's first and only attempt (A3).
                     Swap::Absent | Swap::Unknown => {}
                 }
                 return Err(e);
@@ -2109,12 +2106,6 @@ fn remove_old<B: Bucket + ?Sized, N: Sealer>(
         }
     }
     Ok(removed)
-}
-
-/// Whether `e` says the storage refused the change for good (or it was never made): nothing
-/// landed, and nothing will.
-fn refused_for_good(e: &MetaError) -> bool {
-    matches!(e, MetaError::Drive(d) if d.certainty() != Certainty::Unknown)
 }
 
 /// Every key the manifest names: itself, the live packs and their indexes, the

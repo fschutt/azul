@@ -10,8 +10,10 @@
 use super::lost_answers::{Answer, LateSwap, Lost, LostAnswers};
 use crate::{
     meta::{
-        keys, wal::reseal, Bucket, Kind, Manifest, MemoryBucket, MetaError, MetaStore, PackWriter,
-        Publish, RefUpdate, Sealer, TestSealer,
+        keys,
+        wal::{reseal, MAINTENANCE},
+        Bucket, Kind, Manifest, MemoryBucket, MetaError, MetaStore, PackWriter, Publish, RefUpdate,
+        Sealer, TestSealer,
     },
     DriveError,
 };
@@ -260,19 +262,23 @@ fn x_delta_sync4_1_a_swap_that_lost_a_real_race_removes_only_its_own_checkpoint(
     );
 }
 
-/// Row "a refusal for good, another manifest": a frozen drive refuses the swap. Nothing landed,
-/// the checkpoint is nobody's and goes; the old repository is untouched.
+/// Row "a refusal for policy, another manifest" (X-DELTA-SYNC6-2, which replaced the row "a
+/// refusal for good: removed"): a frozen drive refuses the swap and nothing lands. The checkpoint
+/// STAYS - the refusal is the answer of the last request the transport sent and says nothing of
+/// the first - the old repository is untouched, and the orphan is only space: the next run
+/// switches and the orphan sweep collects it after the grace (AZ-M6's leak stays bounded).
 #[test]
-fn x_delta_sync4_1_a_swap_the_storage_refused_for_good_removes_its_checkpoint() {
+fn x_delta_sync6_2_a_swap_the_storage_refused_leaves_its_checkpoint_as_space_the_sweep_collects() {
     let seeded = seeded();
     let before = keys_of(&seeded);
     let bucket = LateSwap::new(seeded.clone());
     bucket.answer_next(keys::MANIFEST, Answer::Denied);
     assert!(reseal(&bucket, &old_key(), &new_key(), "laptop", NOW).is_err());
     assert!(opens_with_old(&seeded));
-    assert!(
-        checkpoints(&seeded).is_empty(),
-        "no checkpoint of the lost swap: {:?}",
+    assert_eq!(
+        checkpoints(&seeded).len(),
+        1,
+        "the refused attempt's checkpoint stays: {:?}",
         checkpoints(&seeded)
     );
     let now = keys_of(&seeded);
@@ -280,6 +286,64 @@ fn x_delta_sync4_1_a_swap_the_storage_refused_for_good_removes_its_checkpoint() 
         before.iter().all(|key| now.contains(key)),
         "no object of the old key was deleted"
     );
+
+    // Run again (the drive is open again): it switches, with a checkpoint of its own.
+    let done = reseal(&bucket, &old_key(), &new_key(), "laptop", NOW).expect("it switches");
+    assert!(done.switched, "{done:?}");
+    assert_eq!(opens_with_new(&seeded).as_deref(), Ok("three"));
+    assert_eq!(
+        checkpoints(&seeded).len(),
+        2,
+        "the named one and the orphan: {:?}",
+        checkpoints(&seeded)
+    );
+    // Maintenance of the new key's device: the orphan is retired, then collected.
+    let mut janitor = MetaStore::open(seeded.clone(), new_key(), "phone").unwrap();
+    let guard = janitor.acquire_lease(MAINTENANCE, 600).unwrap();
+    assert_eq!(janitor.sweep_orphans(&guard, 0).unwrap(), 1);
+    assert_eq!(janitor.collect_garbage(&guard, 0).unwrap(), 1);
+    assert_eq!(checkpoints(&seeded).len(), 1, "{:?}", checkpoints(&seeded));
+    assert_eq!(opens_with_new(&seeded).as_deref(), Ok("three"));
+}
+
+/// Row "a refusal for policy of the RE-SENT request, another manifest" (X-DELTA-SYNC6-2): the first
+/// swap got no answer and is on its way to the bucket still; the transport sent it again and the
+/// repeat was refused (the session expired); the read-back shows the old manifest; the first swap
+/// lands right after it. The checkpoint must stay. RED on the old code: the generic arm took the
+/// refusal for "nothing landed, nothing will" and removed the checkpoint, the first request then
+/// landed, and the manifest - sealed with the new key - named a checkpoint that was gone: no key
+/// opened the repository and every rerun of `reseal` ended in `Corrupt` (the old objects, the only
+/// other copy, were kept for good).
+#[test]
+fn x_delta_sync6_2_a_policy_refusal_of_the_resent_swap_keeps_the_checkpoint_the_first_request_lands_on(
+) {
+    let seeded = seeded();
+    let bucket = LateSwap::new(seeded.clone());
+    bucket.answer_next(keys::MANIFEST, Answer::DeniedFirstLands);
+    let first = reseal(&bucket, &old_key(), &new_key(), "laptop", NOW);
+    assert!(
+        matches!(first, Err(MetaError::Drive(DriveError::Denied { .. }))),
+        "the caller is told the refusal: {first:?}"
+    );
+    assert!(
+        !bucket.on_its_way(),
+        "the first swap reached the bucket after the read-back"
+    );
+    assert!(
+        !opens_with_old(&seeded),
+        "the manifest is the new key's now"
+    );
+    assert_eq!(
+        opens_with_new(&seeded).as_deref(),
+        Ok("three"),
+        "the checkpoint the manifest names was not removed: {:?}",
+        keys_of(&seeded)
+    );
+    // Run again: past the switch, it deletes the old objects once the new set is proven whole.
+    let again = reseal(&bucket, &old_key(), &new_key(), "laptop", NOW).expect("it finishes");
+    assert!(!again.switched, "{again:?}");
+    assert_eq!(opens_with_new(&seeded).as_deref(), Ok("three"));
+    assert_eq!(checkpoints(&seeded).len(), 1, "{:?}", checkpoints(&seeded));
 }
 
 /// Step 3 deletes the only other copy, so it asks the new set first: a manifest of the new key

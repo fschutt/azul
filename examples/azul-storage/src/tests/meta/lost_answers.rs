@@ -129,6 +129,10 @@ pub(crate) enum Answer {
     Raced,
     /// A refusal for good (a frozen drive): nothing was written and nothing will be.
     Denied,
+    /// A refusal for policy (an expired session, a drive that froze) of the request the transport
+    /// sent AGAIN: the first request is on its way to the bucket still and lands right after the
+    /// next read (X-DELTA-SYNC6-2). The caller sees the same error as for [`Answer::Denied`].
+    DeniedFirstLands,
 }
 
 impl Answer {
@@ -138,7 +142,7 @@ impl Answer {
             Answer::Raced => MetaError::Raced {
                 key: keys::MANIFEST.to_string(),
             },
-            Answer::Denied => MetaError::Drive(DriveError::Denied {
+            Answer::Denied | Answer::DeniedFirstLands => MetaError::Drive(DriveError::Denied {
                 message: "the drive is frozen".to_string(),
             }),
         }
@@ -237,8 +241,8 @@ fn sealer() -> TestSealer {
 }
 
 /// Sets the main ref to `value`, with a pack of one blob.
-fn publish_main(
-    store: &mut MetaStore<&LostAnswers, TestSealer>,
+fn publish_main<B: Bucket>(
+    store: &mut MetaStore<B, TestSealer>,
     value: &str,
 ) -> Result<Option<crate::meta::Published>, MetaError> {
     store.publish(|state| {
@@ -316,6 +320,35 @@ fn a_manifest_swap_whose_answer_was_lost_while_the_bucket_stays_away_is_found_la
     assert_eq!(
         main_ref_as_another_device_sees_it(&bucket.inner).as_deref(),
         Some("two")
+    );
+}
+
+/// X-DELTA-SYNC6-2 at the store. The swap that names the new log entry got no answer, the
+/// transport sent it again and the repeat was refused for policy (the session expired, the drive
+/// froze); the read-back shows the old manifest; the FIRST request then lands. The entry must
+/// still be there. RED on the old code: the refusal arm of `commit_entry` removed the entry on
+/// the word of the last request, the first request landed and the manifest named a log entry that
+/// was gone - no device could open the repository any more.
+#[test]
+fn x_delta_sync6_2_a_policy_refusal_of_the_resent_commit_keeps_the_log_entry_the_first_request_lands_on(
+) {
+    let bucket = LateSwap::new(MemoryBucket::new());
+    let mut store = MetaStore::create(&bucket, sealer(), "laptop").unwrap();
+    bucket.answer_next(keys::MANIFEST, Answer::DeniedFirstLands);
+    let published = publish_main(&mut store, "one");
+    assert!(
+        matches!(published, Err(MetaError::Drive(DriveError::Denied { .. }))),
+        "the caller is told the refusal: {published:?}"
+    );
+    assert!(
+        !bucket.on_its_way(),
+        "the first swap reached the bucket after the read-back"
+    );
+    // Another device opens the repository: every log entry the manifest names must be there.
+    assert_eq!(
+        main_ref_as_another_device_sees_it(&bucket.inner).as_deref(),
+        Some("one"),
+        "the entry the landed manifest names was not removed"
     );
 }
 

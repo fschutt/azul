@@ -551,18 +551,39 @@ fn log_entries(bucket: &MemoryBucket) -> usize {
         .count()
 }
 
-/// AZ-M6. A drive whose index changes the storage refuses (a frozen drive, a quota) left one
-/// sealed log entry behind per try: the sync retries every pass, and the entries are counted in
-/// the budget the drive has for them. An entry no manifest names, and that a refusal says will
-/// never be named, goes again; one a lost answer may have landed stays.
+/// The keys of the repository's own objects (packs, indexes, log entries, checkpoints): what the
+/// orphan sweep looks at.
+fn repo_objects(bucket: &MemoryBucket) -> Vec<String> {
+    let mut found: Vec<String> = bucket
+        .objects()
+        .into_iter()
+        .map(|(key, _)| key)
+        .filter(|key| {
+            [keys::WAL_DIR, keys::LOG_DIR, keys::CHECKPOINT_DIR]
+                .iter()
+                .any(|dir| key.starts_with(dir))
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// AZ-M6 as X-DELTA-SYNC6-2 left it. A drive whose index changes the storage refuses (a frozen
+/// drive, a quota) leaves one sealed log entry behind per try: the sync retries every pass. The
+/// entry used to go again on a refusal for policy; that removal rested on the word of the LAST
+/// request the transport sent (the first may be on its way still and land after the read-back, and
+/// a manifest that names a removed log entry breaks the repository), so the entry STAYS - an entry
+/// no manifest names is only space - and the orphan sweep collects every one of them: the leak is
+/// bounded by the maintenance, not by the number of tries.
 #[test]
-fn az_m6_a_swap_the_storage_refuses_for_good_leaves_no_log_entry_behind() {
+fn az_m6_a_swap_the_storage_refuses_leaves_its_log_entry_as_space_the_sweep_collects() {
     use crate::{AzlinError, DriveError, ServiceError};
 
     let bucket = MemoryBucket::new();
     let mut laptop = MetaStore::create(bucket.clone(), sealer(), "laptop").unwrap();
     set_ref(&mut laptop, MAIN, "one");
     assert_eq!(log_entries(&bucket), 1);
+    let named_at_the_start = repo_objects(&bucket);
 
     let try_to_set = |laptop: &mut MetaStore<MemoryBucket, TestSealer>, value: &str| {
         laptop.publish(|state| {
@@ -594,18 +615,43 @@ fn az_m6_a_swap_the_storage_refuses_for_good_leaves_no_log_entry_behind() {
             try_to_set(&mut laptop, value),
             Err(MetaError::Drive(DriveError::Service(_)))
         ));
-        assert_eq!(
-            log_entries(&bucket),
-            1,
-            "the refused try left nothing ({value})"
+        assert!(
+            log_entries(&bucket) >= 2,
+            "the refused try's entry stays: no answer says the first request never lands ({value})"
         );
     }
+    assert_eq!(
+        log_entries(&bucket),
+        4,
+        "the named entry and one per refused try"
+    );
 
-    // A connection lost after the request went out says nothing: the entry may be named.
+    // A connection lost after the request went out says nothing either.
     bucket.fail_next_write(
         keys::MANIFEST,
         MetaError::Drive(DriveError::Transport(String::from("reset"))),
     );
     assert!(try_to_set(&mut laptop, "five").is_err());
-    assert_eq!(log_entries(&bucket), 2, "an entry that may be named stays");
+    assert_eq!(log_entries(&bucket), 5, "an entry that may be named stays");
+
+    // The drive thaws; the maintenance finds what no manifest names - the entries, packs and
+    // indexes of the four tries - and collects it, and the repository is what it was after the
+    // first publish.
+    let guard = laptop.acquire_lease(MAINTENANCE, 600).unwrap();
+    assert!(laptop.sweep_orphans(&guard, 0).unwrap() >= 4);
+    laptop.collect_garbage(&guard, 0).unwrap();
+    assert_eq!(
+        repo_objects(&bucket),
+        named_at_the_start,
+        "only what the manifest names is left"
+    );
+    assert_eq!(
+        MetaStore::open(bucket, sealer(), "phone")
+            .unwrap()
+            .state()
+            .refs
+            .get(MAIN)
+            .map(String::as_str),
+        Some("one")
+    );
 }
