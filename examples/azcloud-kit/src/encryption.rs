@@ -417,10 +417,15 @@ impl Account {
     /// ([`crate::cloudflare::Cloudflare::set_worker_secret`] with
     /// [`crate::cloudflare::DROP_KEY_VARIABLE`]).
     ///
+    /// The key permit's `DropKey` cell asks first (X-DELTA-KEYS3-2): a key change that is not over, or a drop
+    /// key file sealed under another drive key than this device holds - its key was replaced - refuses, and
+    /// nothing is written. A device that still held the key before a rotation used to write a new drop key
+    /// over the one the new key sealed, and the mail sealed to it opened with nothing.
+    ///
     /// # Errors
     ///
-    /// No drive key on this device (the drive is not encrypted, or not unlocked here), the
-    /// bucket's or the keyring's refusal.
+    /// No drive key on this device (the drive is not encrypted, or not unlocked here), the key permit's
+    /// refusal (`Denied`, `KeyRefused`), the bucket's or the keyring's refusal.
     pub fn enable_mail_drop(&self, keyring: &dyn KeyringStore) -> CloudResult<DropPublic> {
         let Some(drive_key) = self.unlock_key(keyring)? else {
             fail!(
@@ -429,8 +434,10 @@ impl Account {
                 self.record().id
             );
         };
+        let drive = self.record().id.clone();
         let bucket = self.bucket_drive()?;
-        Ok(drops::enable_drop(&bucket, &drive_key, &self.record().id)?)
+        let permit = device::drop_key_permit(&bucket, keyring, &drive, &drive_key)?;
+        Ok(drops::enable_drop(&permit, &bucket, &drive_key, &drive)?)
     }
 
     /// The drive's drop public key when incoming mail is on (and this device holds the drive

@@ -679,7 +679,7 @@ pub fn is_encrypted(bucket: &dyn Drive) -> Result<bool, DriveError> {
 
 /// Puts a key file that must be new: conditionally where the bucket can (two devices setting a
 /// drive up at once: the second one learns it lost).
-fn put_new(bucket: &dyn Drive, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+pub(crate) fn put_new(bucket: &dyn Drive, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
     match bucket.put_if(key, bytes, &Precondition::Absent) {
         Ok(_) => Ok(()),
         Err(DriveError::Unsupported(_)) => bucket.put(key, bytes),
@@ -979,6 +979,36 @@ pub fn wraps_permit(
 ) -> Result<keystate::Permit, DriveError> {
     permit_for(op, keyring, drive, |evidence| {
         evidence.bucket.encrypted = Read::Found(true);
+    })
+}
+
+/// The permit of turning incoming mail on or off for a drive whose key this device holds (`DropKey`,
+/// [`crate::crypto::drops::enable_drop`] and `disable_drop`): the key permit's cell asked on the keyring's four
+/// entries, its protection, and what the bucket's drop key file is to `drive_key` (the key this device will
+/// seal a new drop key under). A drop key file sealed under another drive key refuses it: this device's key
+/// was replaced, and what it would write goes over the key the newer key sealed (X-DELTA-KEYS3-2).
+///
+/// # Errors
+///
+/// The refusal, in the flow's class (`Locked` for a device with no key, `Denied` with the sentence while a
+/// setup or a key change is not over, `KeyRefused` for a drop key of another key); the bucket's own error
+/// for a drop key file that cannot be read.
+pub fn drop_key_permit(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    drive_key: &DriveKey,
+) -> Result<keystate::Permit, DriveError> {
+    let file = super::drops::drop_file_fact(bucket, drive_key, drive);
+    permit_for(Op::DropKey, keyring, drive, |evidence| {
+        evidence.bucket.encrypted = Read::Found(true);
+        evidence.bucket.drop_file = Read::of(file.clone());
+    })
+    // The judge refuses a drop key file that could not be read as `Unreadable`; the caller is told the
+    // bucket's own error, in the class it knew.
+    .map_err(|refused| match (&refused, &file) {
+        (DriveError::Io(_), Err(read)) => read.clone(),
+        _ => refused,
     })
 }
 

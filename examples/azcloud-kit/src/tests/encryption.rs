@@ -614,6 +614,63 @@ fn incoming_mail_gets_a_drop_key_whose_public_half_goes_to_the_customers_worker(
     assert!(Cloudflare::new(Box::new(Shared(refusing)), "not-an-id", "t").is_err());
 }
 
+/// X-DELTA-KEYS3-2, through the command line's own entry (`azcloud mail-drop` is `enable_mail_drop`): a device
+/// that still holds the key from before another device's rotation and still has bucket credentials turned
+/// incoming mail on. `load_drop_key` read the file the new key sealed as "no key here", a new drop key went
+/// over it - and the Worker, given its public half, sealed every message from then on to a key only the
+/// stale device could open, while the secret the mail since the rotation was sealed to was gone for good.
+/// Now the key permit asks the file first, and the stale device is told its key was replaced.
+#[test]
+fn x_delta_keys3_2_a_device_with_the_old_key_cannot_turn_mail_on_over_the_new_keys_drop_key() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-drop-stale");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    a.open_encrypted(&keys, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    a.enable_mail_drop(&keys).unwrap();
+    // Another device of the drive, which keeps the key as it is now - and will not hear of the rotation.
+    let old = device::load_drive_key(&keys, "d_1").unwrap().unwrap();
+    let stale = MemoryKeyring::new();
+    device::store_drive_key(&stale, "d_1", &old).unwrap();
+
+    let rotated = a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+    let public = rotated
+        .drop_key
+        .expect("incoming mail was on: the rotation made a new drop key");
+    let file = s3.read(".azlin/keys/_drop.key").expect("the drop key file");
+
+    let refused = a.enable_mail_drop(&stale);
+    let why = format!("{refused:?}");
+    assert!(
+        refused.is_err(),
+        "a device whose key was replaced writes no drop key: {why}"
+    );
+    assert!(
+        why.contains("another drive key"),
+        "it is told its key was replaced: {why}"
+    );
+    assert_eq!(
+        s3.read(".azlin/keys/_drop.key").unwrap(),
+        file,
+        "_drop.key is byte-identical: the secret the Worker's mail is sealed to is still there"
+    );
+    // The read is no "none" either, for the same device.
+    assert!(a.mail_drop_key(&stale).is_err());
+    // The device that holds the new key reads its drop key, and the previous one is kept for the mail on its way.
+    assert_eq!(a.mail_drop_key(&keys).unwrap(), Some(public));
+    assert_eq!(
+        a.enable_mail_drop(&keys).unwrap(),
+        public,
+        "turned on again: the same key"
+    );
+}
+
 #[test]
 fn i_was_hacked_locks_the_drive_down_then_rotates_its_key() {
     let s3 = FakeS3::new();

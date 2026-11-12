@@ -834,7 +834,10 @@ mod tests {
         let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
         device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), DRIVE, cheap).unwrap();
         let drive_key = device::load_drive_key(keyring.as_ref(), DRIVE).unwrap().unwrap();
-        let public = drops::enable_drop(bucket.as_ref(), &drive_key, DRIVE).unwrap();
+        // What an app asks before it turns incoming mail on: the key permit's `DropKey`.
+        let permit =
+            device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), DRIVE, &drive_key).unwrap();
+        let public = drops::enable_drop(&permit, bucket.as_ref(), &drive_key, DRIVE).unwrap();
         let raw = mail("Lunch on Thursday");
         let key = drops::new_drop_key().unwrap();
         let sealed = drops::seal_drop(&public, DRIVE, &key, OCT_1, DropFolder::Inbox, &raw).unwrap();

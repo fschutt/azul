@@ -42,7 +42,7 @@ fn why_refuses(why: &Why) -> Refusal {
     }
 }
 
-/// THE SPECIFICATION: all 7 x 13 cells.
+/// THE SPECIFICATION: all 7 x 14 cells.
 fn spec(state: &KeyState, op: Op) -> Cell {
     use KeyState as S;
     match (state, op) {
@@ -58,7 +58,8 @@ fn spec(state: &KeyState, op: Op) -> Cell {
             | Op::Invite
             | Op::RemoveMember
             | Op::Reencrypt
-            | Op::Lockdown,
+            | Op::Lockdown
+            | Op::DropKey,
         ) => Cell::Refuse(Refusal::NoKey),
         (S::Fresh, Op::Remove) => Cell::Removal,
         (S::Fresh, Op::Recover) => Cell::Permit(Way::Plain, NO_STAYS),
@@ -79,7 +80,8 @@ fn spec(state: &KeyState, op: Op) -> Cell {
             | Op::Recover
             | Op::Reencrypt
             | Op::RestoreAsOf
-            | Op::Lockdown,
+            | Op::Lockdown
+            | Op::DropKey,
         ) => Cell::Refuse(Refusal::SetupUnfinished),
 
         // ---- Active: the drive key is here and no key change is under way
@@ -100,6 +102,9 @@ fn spec(state: &KeyState, op: Op) -> Cell {
         (S::Active, Op::Remove) => Cell::Removal,
         // A restore keeps the recorded key id (KEYS-18)
         (S::Active, Op::RestoreAsOf) => Cell::Permit(Way::Plain, &[Stays::RecordedKeyId]),
+        // incoming mail is turned on or off through a drop key file this device's key opens, or none
+        // (X-DELTA-KEYS3-2: `drop_key_cell_*` below carry the cells that depend on the file)
+        (S::Active, Op::DropKey) => Cell::Permit(Way::Plain, NO_STAYS),
 
         // ---- Rotating: this device keeps the new key of a key change
         (S::Rotating(_), Op::Setup) => Cell::Refuse(Refusal::EncryptedAlready),
@@ -123,7 +128,9 @@ fn spec(state: &KeyState, op: Op) -> Cell {
             | Op::RemoveMember
             | Op::Recover
             | Op::Reencrypt
-            | Op::RestoreAsOf,
+            | Op::RestoreAsOf
+            // the key change makes the drop key anew, in its own step, and keeps the one before it
+            | Op::DropKey,
         ) => Cell::Refuse(Refusal::KeyChangeUnfinished),
         // a rotation of this device has had its lockdown; a journal that is not its own has not
         (S::Rotating(Start::Resume), Op::Lockdown) => Cell::Refuse(Refusal::AlreadyLockedDown),
@@ -147,7 +154,8 @@ fn spec(state: &KeyState, op: Op) -> Cell {
             | Op::RemoveMember
             | Op::Reencrypt
             | Op::RestoreAsOf
-            | Op::Lockdown,
+            | Op::Lockdown
+            | Op::DropKey,
         ) => Cell::Refuse(why_refuses(why)),
 
         // ---- Locked: encrypted, and this device has no key
@@ -167,7 +175,8 @@ fn spec(state: &KeyState, op: Op) -> Cell {
             | Op::RemoveMember
             | Op::Reencrypt
             | Op::RestoreAsOf
-            | Op::Lockdown,
+            | Op::Lockdown
+            | Op::DropKey,
         ) => Cell::Refuse(Refusal::Locked),
 
         // ---- Unknown: a read failed, and a failed read is never "nothing there" (KEYS-6)
@@ -202,7 +211,8 @@ fn spec(state: &KeyState, op: Op) -> Cell {
             | Op::RemoveMember
             | Op::Recover
             | Op::Reencrypt
-            | Op::RestoreAsOf,
+            | Op::RestoreAsOf
+            | Op::DropKey,
         ) => Cell::Refuse(Refusal::KeyChangeUnfinished),
         (
             S::Unknown(why),
@@ -217,7 +227,8 @@ fn spec(state: &KeyState, op: Op) -> Cell {
             | Op::RemoveMember
             | Op::Recover
             | Op::Reencrypt
-            | Op::RestoreAsOf,
+            | Op::RestoreAsOf
+            | Op::DropKey,
         ) => Cell::Refuse(why_refuses(why)),
     }
 }
@@ -257,6 +268,7 @@ fn everything_asked() -> Evidence<'static> {
     e.keyring.keeps_keys = Read::Found(Keeps::Yes);
     e.bucket.index_opens = Read::Found(true);
     e.bucket.extra_codes = Read::Found(0);
+    e.bucket.drop_file = Read::Found(DropFile::Opens);
     e
 }
 
@@ -296,7 +308,7 @@ fn the_table_is_the_specification_and_judge_answers_every_cell_by_it() {
             cells.insert((state.row(), op.name()));
         }
     }
-    assert_eq!(cells.len(), 91, "seven states, thirteen operations");
+    assert_eq!(cells.len(), 98, "seven states, fourteen operations");
 }
 
 /// X-DELTA-STRUCT-KEYSTATE-2: the table's permits rest on facts, and a fact nobody asked is no "yes".
@@ -307,7 +319,7 @@ fn the_table_is_the_specification_and_judge_answers_every_cell_by_it() {
 #[test]
 fn x_delta_struct_keystate_2_with_nothing_asked_no_key_changing_operation_is_permitted_unless_its_cell_rests_on_nothing(
 ) {
-    const KEY_CHANGING: [Op; 8] = [
+    const KEY_CHANGING: [Op; 9] = [
         Op::Setup,
         Op::Rotate,
         Op::Remove,
@@ -316,6 +328,8 @@ fn x_delta_struct_keystate_2_with_nothing_asked_no_key_changing_operation_is_per
         Op::NewCode,
         Op::Reencrypt,
         Op::Recover,
+        // writes a key sealed under the drive key: its cell rests on the drop key file (X-DELTA-KEYS3-2)
+        Op::DropKey,
     ];
     let nothing = Evidence::new(DRIVE, NOW);
     let mut rested_on_nothing = Vec::new();
@@ -474,8 +488,8 @@ fn a_planned_key_left_beside_the_drive_key_lets_setup_finish_and_nothing_else_ch
 #[test]
 fn the_operations_are_all_listed_once() {
     let names: BTreeSet<&str> = Op::ALL.iter().map(|op| op.name()).collect();
-    assert_eq!(names.len(), 13);
-    assert_eq!(Op::ALL.len(), 13);
+    assert_eq!(names.len(), 14);
+    assert_eq!(Op::ALL.len(), 14);
 }
 
 /// KEYS-1: the cell that finds the new key of an earlier try permits the way that goes on with it.
@@ -803,6 +817,58 @@ fn a_drive_holds_at_most_the_most_further_recovery_codes() {
         judge(&KeyState::Active, Op::AddCode, &e),
         Verdict::Refuse(reason) if matches!(reason.kind, Refusal::Unreadable { .. })
     ));
+}
+
+/// X-DELTA-KEYS3-2: the cell of turning incoming mail on or off rests on what the bucket's drop key file is
+/// to this device's key. One this key opens, or none, is let through; one sealed under ANOTHER drive key is
+/// refused (it is the key the newer key sealed: this device's was replaced) with the sentence that tells the
+/// user to ask for the new key, and as the class the apps tell that in (`KeyRefused`); a file that could not
+/// be read is `Unreadable` and one nobody looked at is `NotAsked` - never "none".
+#[test]
+fn x_delta_keys3_2_the_drop_key_cell_rests_on_the_file_the_bucket_holds() {
+    let ask = |file: Read<DropFile>| {
+        let mut e = everything_asked();
+        e.bucket.drop_file = file;
+        judge(&KeyState::Active, Op::DropKey, &e)
+    };
+    for file in [Read::Found(DropFile::Opens), Read::Absent] {
+        assert!(matches!(ask(file.clone()), Verdict::Permit(_)), "{file:?}");
+    }
+    match ask(Read::Found(DropFile::OtherKey)) {
+        Verdict::Refuse(reason) => {
+            assert_eq!(reason.kind, Refusal::DropKeyOfAnotherKey);
+            assert!(
+                reason.sentence.contains("ask for the new key"),
+                "{}",
+                reason.sentence
+            );
+            assert!(
+                matches!(reason.error(DRIVE), DriveError::KeyRefused { drive, .. } if drive == DRIVE),
+                "the class of a key that was replaced"
+            );
+        }
+        Verdict::Permit(_) => panic!("a drop key file of another key was let through"),
+    }
+    assert!(matches!(
+        ask(Read::Failed(String::from("no answer"))),
+        Verdict::Refuse(reason) if matches!(reason.kind, Refusal::Unreadable { .. })
+    ));
+    assert!(matches!(
+        ask(Read::Unasked),
+        Verdict::Refuse(reason) if matches!(reason.kind, Refusal::NotAsked(_))
+    ));
+    // Not in any other state, whatever the file is: the file decides only an Active drive's cell.
+    for state in states() {
+        if state.row() == "active" {
+            continue;
+        }
+        let mut e = everything_asked();
+        e.bucket.drop_file = Read::Found(DropFile::Opens);
+        assert!(
+            matches!(judge(&state, Op::DropKey, &e), Verdict::Refuse(_)),
+            "{state:?}"
+        );
+    }
 }
 
 // ==== observe ====

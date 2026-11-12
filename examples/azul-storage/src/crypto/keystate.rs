@@ -25,7 +25,8 @@
 //! - [`Permit`], the verdict that lets an operation through. Only this module makes one (its
 //!   constructor is private), so a function that takes a `&Permit` cannot be handed one by a flow that
 //!   did not ask: `rotate`, `reencrypt_pass`, the removal's [`crate::footprint::RemovalProof`], the
-//!   recovery wraps' removal and restore and `device::withdraw_invite` take one of their own operation;
+//!   recovery wraps' removal and restore, `device::withdraw_invite` and the drop key's `enable_drop` and
+//!   `disable_drop` take one of their own operation;
 //!   `setup_new_drive`, `recover`, `adopt_invite` and `add_recovery_code` read the keyring themselves and ask
 //!   inside, on the reads they act on.
 //! - The facts are witnesses: the keyring's and the bucket's are made by the gatherers of `device.rs` and
@@ -278,6 +279,26 @@ pub struct BucketFacts {
     pub(crate) index_opens: Read<bool>,
     /// How many further recovery codes (second kits) the drive holds.
     pub(crate) extra_codes: Read<u32>,
+    /// What the drive's drop key file (`_drop.key`, incoming mail) is to the drive key this device holds:
+    /// `Absent` is no file, or one that is no drop key file.
+    pub(crate) drop_file: Read<DropFile>,
+}
+
+/// What a refused drop key file is, as the reason of a [`DriveError::KeyRefused`].
+pub(crate) const DROP_KEY_OF_ANOTHER_KEY: &str =
+    "the drop key of its incoming mail is sealed under another drive key: this device's key was replaced";
+
+/// What a drive's drop key file is to the drive key a device holds (the one the file's key would be sealed
+/// under).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropFile {
+    /// A drop key file this device's drive key opens: incoming mail is on, and the key is this device's to
+    /// read.
+    Opens,
+    /// A drop key file sealed under ANOTHER drive key: the mail the Worker sealed to it can be read only
+    /// with that key, and a device that holds the key before it was replaced must not write over the file
+    /// (X-DELTA-KEYS3-2).
+    OtherKey,
 }
 
 /// The recovery record of a drive: what the app that keeps it knows of the drive's recovery code.
@@ -560,11 +581,16 @@ pub enum Op {
     RestoreAsOf,
     /// The account's lockdown: every other device's token, key and link revoked at the token server.
     Lockdown,
+    /// Incoming mail is turned on or off: the drive's drop key - an X25519 key sealed under the drive key,
+    /// `.azlin/keys/_drop.key` - is made, or taken out of the bucket. Mail the Worker sealed to that key
+    /// opens with nothing else, so the file is never written over while it holds a key this device cannot
+    /// read, and not while a key change may replace it (X-DELTA-KEYS3-2).
+    DropKey,
 }
 
 impl Op {
     /// Every operation, in the table's column order.
-    pub const ALL: [Op; 13] = [
+    pub const ALL: [Op; 14] = [
         Op::Setup,
         Op::Enroll,
         Op::Rotate,
@@ -578,6 +604,7 @@ impl Op {
         Op::Reencrypt,
         Op::RestoreAsOf,
         Op::Lockdown,
+        Op::DropKey,
     ];
 
     /// The operation's word in a sentence or a log line.
@@ -597,6 +624,7 @@ impl Op {
             Op::Reencrypt => "reencrypt",
             Op::RestoreAsOf => "restore-as-of",
             Op::Lockdown => "lockdown",
+            Op::DropKey => "drop-key",
         }
     }
 }
@@ -678,6 +706,9 @@ pub enum Refusal {
     NotEncrypted,
     /// The lockdown of this key change was done: a rotation of this device that stopped has had it.
     AlreadyLockedDown,
+    /// The drive's drop key file is sealed under another drive key than this device holds: its key was
+    /// replaced (or the file was made by a device that holds the newer key).
+    DropKeyOfAnotherKey,
 }
 
 impl Refusal {
@@ -770,6 +801,12 @@ impl Refusal {
                 "the lockdown of this key change of \"{drive}\" was done already: a rotation of this \
                  device that stopped has had its lockdown, and it is not repeated"
             ),
+            Refusal::DropKeyOfAnotherKey => format!(
+                "the drop key of \"{drive}\" for incoming mail is sealed under another drive key than the \
+                 one this device holds: this device's key was replaced, and the mail waiting for that drop \
+                 key opens with nothing else - ask for the new key (a join code from a device that has it, \
+                 or the recovery code) before incoming mail is touched"
+            ),
         }
     }
 }
@@ -801,6 +838,13 @@ impl Reason {
             Refusal::EncryptedAlready | Refusal::KeyringKeepsNoKeys(_) => {
                 DriveError::InvalidConfig(self.sentence.clone())
             }
+            // A key this device holds that is not the one the drive's files are sealed under: the
+            // class the apps already tell a user "ask for the new key" for (its sentence names what to
+            // do, so the reason says only what is the matter).
+            Refusal::DropKeyOfAnotherKey => DriveError::KeyRefused {
+                drive: drive.to_string(),
+                reason: String::from(DROP_KEY_OF_ANOTHER_KEY),
+            },
             Refusal::TooManyCodes => DriveError::Unsupported(self.sentence.clone()),
             Refusal::Unreadable { .. } => DriveError::Io(self.sentence.clone()),
             _ => DriveError::Denied {
@@ -820,7 +864,8 @@ impl fmt::Display for Reason {
 /// this module and it has no `Clone`, `Default` or `Deserialize`: whoever holds one asked the judge
 /// about this drive and this operation. The functions that change or erase key material in a bucket
 /// or a keyring take a `&Permit` of their own operation (`rotation::rotate`, `rotation::reencrypt_pass`,
-/// the removal's `RemovalProof`, the recovery codes' removal and restore, `device::withdraw_invite`);
+/// the removal's `RemovalProof`, the recovery codes' removal and restore, `device::withdraw_invite`,
+/// `drops::enable_drop` and `drops::disable_drop`);
 /// the ones that read the keyring themselves (`setup_new_drive`, `recover`, `adopt_invite`,
 /// `add_recovery_code`) ask inside.
 #[derive(Debug, PartialEq, Eq)]
@@ -1111,7 +1156,8 @@ fn fresh(op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::Invite
         | Op::RemoveMember
         | Op::Reencrypt
-        | Op::Lockdown => refuse(Refusal::NoKey, e),
+        | Op::Lockdown
+        | Op::DropKey => refuse(Refusal::NoKey, e),
     }
 }
 
@@ -1129,7 +1175,8 @@ fn planned(op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::Recover
         | Op::Reencrypt
         | Op::RestoreAsOf
-        | Op::Lockdown => refuse(Refusal::SetupUnfinished, e),
+        | Op::Lockdown
+        | Op::DropKey => refuse(Refusal::SetupUnfinished, e),
     }
 }
 
@@ -1158,6 +1205,23 @@ fn active(op: Op, e: &Evidence<'_>) -> Verdict {
         }
         Op::Recover => permit_keeping(op, e, Way::Plain),
         Op::RestoreAsOf => permit(op, e, Way::Plain, RESTORE_STAYS),
+        Op::DropKey => drop_key(e),
+    }
+}
+
+/// What the bucket's drop key file is asked as.
+const DROP_FILE: &str = "the drive's drop key file";
+
+/// DropKey on a drive whose key this device holds: incoming mail is turned on or off through a file this
+/// device's key opens, or that is not there. A file sealed under another drive key is the key a replaced
+/// key's device would overwrite and the mail sealed to it with it (X-DELTA-KEYS3-2): refused. The file is a
+/// fact the cell rests on - not looked at is not "there is none".
+fn drop_key(e: &Evidence<'_>) -> Verdict {
+    match &e.bucket.drop_file {
+        Read::Found(DropFile::OtherKey) => refuse(Refusal::DropKeyOfAnotherKey, e),
+        Read::Failed(why) => refuse(failed(DROP_FILE, why), e),
+        Read::Unasked => refuse(Refusal::NotAsked(DROP_FILE), e),
+        Read::Found(DropFile::Opens) | Read::Absent => permit_plain(Op::DropKey, e),
     }
 }
 
@@ -1181,7 +1245,10 @@ fn rotating(start: Start, op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::RemoveMember
         | Op::Recover
         | Op::Reencrypt
-        | Op::RestoreAsOf => refuse(Refusal::KeyChangeUnfinished, e),
+        | Op::RestoreAsOf
+        // the key change makes the drop key anew (its own step) and keeps the one before it for the
+        // mail still on its way
+        | Op::DropKey => refuse(Refusal::KeyChangeUnfinished, e),
         Op::Lockdown => match start {
             Start::Resume => refuse(Refusal::AlreadyLockedDown, e),
             Start::Adopt | Start::Again => permit_plain(op, e),
@@ -1205,7 +1272,8 @@ fn torn(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::RemoveMember
         | Op::Reencrypt
         | Op::RestoreAsOf
-        | Op::Lockdown => refuse(Refusal::of(why), e),
+        | Op::Lockdown
+        | Op::DropKey => refuse(Refusal::of(why), e),
     }
 }
 
@@ -1231,7 +1299,8 @@ fn locked(op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::RemoveMember
         | Op::Reencrypt
         | Op::RestoreAsOf
-        | Op::Lockdown => refuse(Refusal::Locked, e),
+        | Op::Lockdown
+        | Op::DropKey => refuse(Refusal::Locked, e),
     }
 }
 
@@ -1271,6 +1340,7 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::Recover
         | Op::Reencrypt
         | Op::RestoreAsOf
+        | Op::DropKey
             if *why == Why::NotAsked(JOURNAL) =>
         {
             refuse(Refusal::KeyChangeUnfinished, e)
@@ -1286,7 +1356,8 @@ fn unknown(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
         | Op::RemoveMember
         | Op::Recover
         | Op::Reencrypt
-        | Op::RestoreAsOf => refuse(Refusal::of(why), e),
+        | Op::RestoreAsOf
+        | Op::DropKey => refuse(Refusal::of(why), e),
     }
 }
 
@@ -1720,6 +1791,8 @@ pub const DROPS: Consumer = Consumer {
         "examples/azul-storage/src/crypto/drops.rs#open",
         "examples/azul-storage/src/crypto/drops.rs#rotate_drop_key",
         "examples/azul-storage/src/crypto/drops.rs#replace_drop_key",
+        "examples/azul-storage/src/crypto/drops.rs#enable_drop",
+        "examples/azul-storage/src/crypto/drops.rs#disable_drop",
     ],
 };
 

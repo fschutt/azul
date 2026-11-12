@@ -164,12 +164,32 @@ fn aliases_of(t: &[Located]) -> Vec<(String, String)> {
     found
 }
 
+/// Whether the body writes or takes away the drive's drop key file: `DROP_KEY_FILE` (the name of
+/// `_drop.key`, which holds a secret sealed under the drive key) put, conditionally put or deleted through
+/// a bucket. A function that does is a thing the drive key touches even where it seals nothing itself
+/// (`disable_drop` deletes the file; `enable_drop` puts the key `DropKeyFile::seal` made): the mail the
+/// Worker sealed to that key opens with nothing else, and a writer that forgot the key change was the
+/// finding (X-DELTA-KEYS3-2).
+fn writes_the_drop_key_file(body: &[Located]) -> bool {
+    // `.put(DROP_KEY_FILE`, `.put_if(DROP_KEY_FILE`, `.delete(DROP_KEY_FILE`: the file is the call's first
+    // argument; a function that merely names the file or puts another one is none.
+    body.windows(4).any(|w| {
+        w[0].tok.is_punct('.')
+            && ["put", "put_if", "delete"]
+                .iter()
+                .any(|method| w[1].tok.is_ident(method))
+            && w[2].tok.is_punct('(')
+            && w[3].tok.is_ident("DROP_KEY_FILE")
+    })
+}
+
 /// Whether the tokens of a function's (or a macro's) body put the drive key to work, under the
 /// names of [`NEEDLES`] and the `aliases` the file gives them.
 fn uses_the_drive_key(body: &[Located], aliases: &[(String, String)]) -> bool {
     !method_calls(body, "wrap_file_key").is_empty()
         || !method_calls(body, "unwrap_file_key").is_empty()
         || !method_calls(body, "derive").is_empty()
+        || writes_the_drop_key_file(body)
         || NEEDLES.iter().any(|(needle, functions)| {
             let names = std::iter::once(*needle).chain(
                 aliases
@@ -311,9 +331,14 @@ fn rules() -> Vec<Rule> {
             "type Wrap = keys::MemberWrap; let wrap = Wrap::seal(&key, drive, &member, &public)?;",
             "let sealing = DriveKey::derive(&key, CONTEXT);",
             "let wrapped = DriveKey::wrap_file_key(&key, &file_key, &object);",
+            "bucket.put(DROP_KEY_FILE, &file.to_bytes())?;",
+            "bucket.delete(DROP_KEY_FILE)",
+            "bucket.put_if(DROP_KEY_FILE, &bytes, &Precondition::Absent)?;",
         ],
         &[
             "let id = key.id();",
+            "let bytes = bucket.get(DROP_KEY_FILE)?;",
+            "let at = DROP_KEY_FILE; bucket.put(OTHER_FILE, &bytes)?;",
             "let wrapped = wrap_with(&sealing, id, &file_key);",
             "let chain = load_key_chain(bucket)?;",
             "let wrap = RecoveryWrap::parse(&bytes)?;",
@@ -467,7 +492,7 @@ fn check(base: &Path, roots: &[Root]) -> Result<usize, Vec<String>> {
 /// tree (2026-11-12), not a count written from a read of the sources. A list that grows or shrinks on purpose
 /// changes its number here in the same commit.
 const BASELINE: Counts = Counts {
-    consumers: 25,
+    consumers: 27,
     data_path: 11,
     harness: 1,
 };
@@ -596,6 +621,48 @@ mod tests {\n\
         wrong
             .iter()
             .any(|w| w.contains("crypto/mod.rs#wrap_file_key")),
+        "{wrong:?}"
+    );
+}
+
+/// X-DELTA-KEYS3-2: a function that writes or takes away the drop key file is a consumer of the drive key
+/// even where it seals nothing itself - found, with its line, when no consumer names it; and a function that
+/// only reads the file, or writes another, is not.
+#[test]
+fn x_delta_keys3_2_a_planted_writer_of_the_drop_key_file_is_found_and_a_reader_is_not() {
+    let lib = "pub fn turn_off(bucket: &dyn Drive) {\n\
+    bucket.delete(DROP_KEY_FILE);\n\
+}\n\
+pub fn turn_on(bucket: &dyn Drive) {\n\
+    bucket.put(DROP_KEY_FILE, &bytes);\n\
+}\n\
+pub fn conditionally(bucket: &dyn Drive) {\n\
+    bucket.put_if(DROP_KEY_FILE, &bytes, &Precondition::Absent);\n\
+}\n\
+pub fn looks_at_it(bucket: &dyn Drive) {\n\
+    let bytes = bucket.get(DROP_KEY_FILE);\n\
+}\n\
+pub fn puts_another_file(bucket: &dyn Drive) {\n\
+    bucket.put(OTHER_FILE, &bytes);\n\
+}\n";
+    let base = base_with(
+        "drop-key-file",
+        &[("examples/azul-storage/src/lib.rs", lib), (REGISTRY, "")],
+    );
+    let wrong = check(&base, SMALL).expect_err("three writers that are in no consumer");
+    let _ = std::fs::remove_dir_all(&base);
+    for (name, line) in [("turn_off", 1), ("turn_on", 4), ("conditionally", 7)] {
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.contains(&format!("lib.rs:{line}")) && w.contains(name)),
+            "{name} is found at line {line}: {wrong:?}"
+        );
+    }
+    assert!(
+        wrong
+            .iter()
+            .all(|w| !w.contains("looks_at_it") && !w.contains("puts_another_file")),
         "{wrong:?}"
     );
 }

@@ -520,7 +520,11 @@ mod tests {
         let drive_key = device::load_drive_key(keyring.as_ref(), "d_drops")
             .unwrap()
             .unwrap();
-        let public = drops::enable_drop(bucket.as_ref(), &drive_key, "d_drops").unwrap();
+        // What an app asks before it turns incoming mail on: the key permit's `DropKey`.
+        let permit =
+            device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), "d_drops", &drive_key)
+                .unwrap();
+        let public = drops::enable_drop(&permit, bucket.as_ref(), &drive_key, "d_drops").unwrap();
         let raw = b"From: ben@example.net\r\nSubject: Lunch\r\n\r\nNoon.\r\n";
         let key = drops::new_drop_key().unwrap();
         let sealed =

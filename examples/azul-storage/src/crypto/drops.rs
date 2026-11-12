@@ -53,8 +53,10 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
 use super::{
-    hex_array, keys::associated_data, random_bytes, to_hex, CryptoError, DriveKey, KeyId,
-    KEY_LEN, NONCE_LEN, TAG_LEN,
+    device, hex_array,
+    keys::associated_data,
+    keystate::{DropFile, Op, Permit},
+    random_bytes, to_hex, CryptoError, DriveKey, KeyId, KEY_LEN, NONCE_LEN, TAG_LEN,
 };
 use crate::{ops::list_all, Drive, DriveError};
 
@@ -531,26 +533,119 @@ impl DropKeyFile {
     }
 }
 
-/// The drive's drop key, opened with its drive key; `None` when the bucket holds none, or one
-/// sealed with another drive key (from before a rotation: [`enable_drop`] replaces it), or a file
-/// that is no drop key (damaged, planted: nothing opens it, and it must not stop a rotation or a
-/// new key).
+/// What a drop key file in the bucket is to the drive key a device holds.
+enum Found {
+    /// A drop key file this device's drive key opens.
+    Key(DropSecret),
+    /// A drop key file sealed under ANOTHER drive key (its id): this device cannot read it - its own key
+    /// may be the one that was replaced - and must never write over it.
+    OtherKey(KeyId),
+    /// A drop key file that names THIS device's drive key and does not open with it: damaged, or made for
+    /// another drive. Nobody can say what it held, so nothing writes over it either.
+    Damaged,
+    /// There is no such file, or what is there is no drop key file (cut off, planted, bigger than a key
+    /// file is): nothing that opens with a key is lost when one is put in its place.
+    Nothing,
+}
+
+/// What a damaged drop key file `at` is, as an error.
+fn damaged_file(at: &str) -> DriveError {
+    DriveError::Corrupt {
+        key: at.to_string(),
+        reason: String::from("the drop key file names this drive's key and does not open with it"),
+    }
+}
+
+/// The file `at` as a device that holds `drive_key` reads it. A read that failed is its error and never
+/// `Nothing`; a file that IS a drop key file (it parses, and names a drive key) is either this key's,
+/// another's or damaged - none of them replaced by the flows of this module, for nobody could say what it
+/// held.
+fn drop_file_at(
+    bucket: &dyn Drive,
+    at: &str,
+    drive_key: &DriveKey,
+    drive: &str,
+) -> Result<Found, DriveError> {
+    let bytes = match crate::limits::named::KEY_FILE.read_from(bucket, at) {
+        Ok(bytes) => bytes,
+        Err(DriveError::NotFound { .. }) => return Ok(Found::Nothing),
+        // Too big to be a drop key: nobody who holds a drive key wrote it.
+        Err(DriveError::Corrupt { .. }) => return Ok(Found::Nothing),
+        Err(e) => return Err(e),
+    };
+    let file = match DropKeyFile::parse(&bytes) {
+        Ok(file) => file,
+        // Not a drop key file (planted, cut off): no key, and not a reason to stop.
+        Err(CryptoError::Damaged(_)) => return Ok(Found::Nothing),
+        Err(e) => return Err(e.for_key(at)),
+    };
+    if file.drive_key_id != drive_key.id() {
+        return Ok(Found::OtherKey(file.drive_key_id));
+    }
+    match file.open(drive_key, drive) {
+        Ok(secret) => Ok(Found::Key(secret)),
+        // It names this key and does not authenticate (or is another drive's): damaged, not "another key".
+        Err(CryptoError::WrongKey) => Ok(Found::Damaged),
+        Err(e) => Err(e.for_key(at)),
+    }
+}
+
+/// The refusal of a drop key file that is sealed under another drive key than `held`.
+fn of_another_key(drive: &str, found: &KeyId, held: &DriveKey) -> DriveError {
+    DriveError::KeyRefused {
+        drive: drive.to_string(),
+        reason: format!(
+            "{} (the file's key is {found}, this device holds {})",
+            super::keystate::DROP_KEY_OF_ANOTHER_KEY,
+            held.id()
+        ),
+    }
+}
+
+/// What the bucket's drop key file is to `drive_key`, as the key permit's fact: `None` for no drop key file
+/// (or one that is none), `OtherKey` for one sealed under another drive key. A read that failed is its error.
+pub(crate) fn drop_file_fact(
+    bucket: &dyn Drive,
+    drive_key: &DriveKey,
+    drive: &str,
+) -> Result<Option<DropFile>, DriveError> {
+    match drop_file_at(bucket, DROP_KEY_FILE, drive_key, drive)? {
+        Found::Key(_) => Ok(Some(DropFile::Opens)),
+        Found::OtherKey(_) => Ok(Some(DropFile::OtherKey)),
+        Found::Damaged => Err(damaged_file(DROP_KEY_FILE)),
+        Found::Nothing => Ok(None),
+    }
+}
+
+/// The drive's drop key, opened with its drive key; `None` when the bucket holds none (or a file that is no
+/// drop key file: damaged, planted - nothing opens it, and it must not stop a rotation or a new key).
+///
+/// A drop key file that is sealed under ANOTHER drive key is no "none": it is `KeyRefused` - this device's
+/// key was replaced, and the key it holds opens nothing of the mail that waits (X-DELTA-KEYS3-2: it used to
+/// answer `None`, and [`enable_drop`] then wrote a new key over the one the newer key sealed).
 pub fn load_drop_key(
     bucket: &dyn Drive,
     drive_key: &DriveKey,
     drive: &str,
 ) -> Result<Option<DropSecret>, DriveError> {
-    load_drop_key_at(bucket, DROP_KEY_FILE, drive_key, drive)
+    match drop_file_at(bucket, DROP_KEY_FILE, drive_key, drive)? {
+        Found::Key(secret) => Ok(Some(secret)),
+        Found::Nothing => Ok(None),
+        Found::OtherKey(found) => Err(of_another_key(drive, &found, drive_key)),
+        Found::Damaged => Err(damaged_file(DROP_KEY_FILE)),
+    }
 }
 
-/// The drop key a rotation replaced (see [`PREVIOUS_DROP_KEY_FILE`]); `None` when there is none.
+/// The drop key a rotation replaced (see [`PREVIOUS_DROP_KEY_FILE`]); `None` when there is none, or the file
+/// is sealed under another key than `drive_key` (nothing writes these but a rotation, which reads them as they
+/// are: a key this device cannot open is skipped here, and the mail sealed to it waits for a device that can).
 /// The ones before it: [`load_previous_drop_keys`].
 pub fn load_previous_drop_key(
     bucket: &dyn Drive,
     drive_key: &DriveKey,
     drive: &str,
 ) -> Result<Option<DropSecret>, DriveError> {
-    load_drop_key_at(bucket, PREVIOUS_DROP_KEY_FILE, drive_key, drive)
+    previous_secret(bucket, PREVIOUS_DROP_KEY_FILE, drive_key, drive)
 }
 
 /// Every drop key from before the drive's rotations that `drive_key` opens, the newest first (at
@@ -562,37 +657,24 @@ pub fn load_previous_drop_keys(
 ) -> Result<Vec<DropSecret>, DriveError> {
     let mut keys = Vec::new();
     for n in 1..=MAX_PREVIOUS_DROP_KEYS {
-        if let Some(key) = load_drop_key_at(bucket, &previous_drop_key_file(n), drive_key, drive)? {
+        if let Some(key) = previous_secret(bucket, &previous_drop_key_file(n), drive_key, drive)? {
             keys.push(key);
         }
     }
     Ok(keys)
 }
 
-fn load_drop_key_at(
+/// The key of the previous-key file `at` when `drive_key` opens it, else `None`.
+fn previous_secret(
     bucket: &dyn Drive,
     at: &str,
     drive_key: &DriveKey,
     drive: &str,
 ) -> Result<Option<DropSecret>, DriveError> {
-    let bytes = match crate::limits::named::KEY_FILE.read_from(bucket, at) {
-        Ok(bytes) => bytes,
-        Err(DriveError::NotFound { .. }) => return Ok(None),
-        // Too big to be a drop key: nobody who holds the drive key wrote it.
-        Err(DriveError::Corrupt { .. }) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let file = match DropKeyFile::parse(&bytes) {
-        Ok(file) => file,
-        // Not a drop key file (planted, cut off): no key, and not a reason to stop.
-        Err(CryptoError::Damaged(_)) => return Ok(None),
-        Err(e) => return Err(e.for_key(at)),
-    };
-    match file.open(drive_key, drive) {
-        Ok(secret) => Ok(Some(secret)),
-        Err(CryptoError::WrongKey) => Ok(None),
-        Err(e) => Err(e.for_key(at)),
-    }
+    Ok(match drop_file_at(bucket, at, drive_key, drive)? {
+        Found::Key(secret) => Some(secret),
+        Found::Nothing | Found::OtherKey(_) | Found::Damaged => None,
+    })
 }
 
 /// A key rotation's step: the drive's drop key (opened with `old`, if there is one) is kept as
@@ -601,26 +683,30 @@ fn load_drop_key_at(
 /// public half (for the Worker) when the drive had incoming mail on. Run again after a stop at
 /// any point it finishes: the files are written oldest first, so no key is overwritten before its
 /// successor is in place, and a key found twice (sealed with `old` and with `new`) is kept once.
+///
+/// A drop key file that neither key opens is left as it is (`None`: incoming mail is not on for these keys):
+/// the rotation does not stop on a file it cannot read, and does not write over it either.
 pub fn rotate_drop_key(
     bucket: &dyn Drive,
     old: &DriveKey,
     new: &DriveKey,
     drive: &str,
 ) -> Result<Option<DropPublic>, DriveError> {
-    if let Some(current) = load_drop_key(bucket, new, drive)? {
-        // Done already (a resumed rotation).
+    // Done already (a resumed rotation): the file is `new`'s only once its successors and predecessors are
+    // written - `_drop.key` is the LAST file this step puts.
+    if let Found::Key(current) = drop_file_at(bucket, DROP_KEY_FILE, new, drive)? {
         return Ok(Some(current.public()));
     }
-    let Some(current) = load_drop_key(bucket, old, drive)? else {
+    let Found::Key(current) = drop_file_at(bucket, DROP_KEY_FILE, old, drive)? else {
         return Ok(None);
     };
     let mut history = vec![current];
     for n in 1..=MAX_PREVIOUS_DROP_KEYS {
         let file = previous_drop_key_file(n);
         // Sealed with `old`, or already with `new` by an earlier try of this rotation.
-        let found = match load_drop_key_at(bucket, &file, old, drive)? {
+        let found = match previous_secret(bucket, &file, old, drive)? {
             Some(key) => Some(key),
-            None => load_drop_key_at(bucket, &file, new, drive)?,
+            None => previous_secret(bucket, &file, new, drive)?,
         };
         if let Some(key) = found {
             if !history.iter().any(|kept| kept.public() == key.public()) {
@@ -648,24 +734,73 @@ pub fn forget_previous_drop_key(bucket: &dyn Drive) -> Result<(), DriveError> {
     Ok(())
 }
 
+/// `Ok` when `permit` is the permit of a drop key's flow for `drive`, asked while the keyring held
+/// `drive_key`: the file is written or deleted with that very key.
+fn permitted(permit: &Permit, drive_key: &DriveKey, drive: &str) -> Result<(), DriveError> {
+    permit.allows(Op::DropKey, drive)?;
+    permit.allows_key(Op::DropKey, drive_key.id())
+}
+
 /// Turns incoming mail on for an encrypted drive: its drop key (the bucket's, else a new one,
 /// sealed with `drive_key` into the bucket). Returns the public half for the Worker's
-/// configuration. A new key replaces one that `drive_key` cannot open.
+/// configuration.
+///
+/// The file is replaced only when nothing is there, or what is there is no drop key file. A drop key file
+/// that `drive_key` cannot open is never written over, whatever the reason it cannot (X-DELTA-KEYS3-2: a
+/// device that still held the key before a rotation put a new drop key over the one the new key sealed,
+/// and the mail the Worker had sealed to it opened with nothing): `KeyRefused` for a file sealed under
+/// another drive key, `Corrupt` for one that names this key and does not open. The new key is written
+/// only where nothing is - conditionally, so a device that turned mail on at the same moment wins and its
+/// key stands.
+///
+/// `permit` is the key permit's `DropKey` for `drive` ([`device::drop_key_permit`]), asked while the
+/// keyring held `drive_key`: a key change that is not over, a device that holds no key or a drop key file of
+/// another key refuses it.
+///
+/// # Errors
+///
+/// A permit that does not fit (`Denied`), the refusals above, the bucket's.
 pub fn enable_drop(
+    permit: &Permit,
     bucket: &dyn Drive,
     drive_key: &DriveKey,
     drive: &str,
 ) -> Result<DropPublic, DriveError> {
-    if let Some(secret) = load_drop_key(bucket, drive_key, drive)? {
-        return Ok(secret.public());
+    permitted(permit, drive_key, drive)?;
+    match drop_file_at(bucket, DROP_KEY_FILE, drive_key, drive)? {
+        Found::Key(secret) => Ok(secret.public()),
+        Found::OtherKey(found) => Err(of_another_key(drive, &found, drive_key)),
+        Found::Damaged => Err(damaged_file(DROP_KEY_FILE)),
+        Found::Nothing => {
+            let secret = DropSecret::generate().map_err(|e| e.for_key(DROP_KEY_FILE))?;
+            let file = DropKeyFile::seal(drive_key, drive, &secret)
+                .map_err(|e| e.for_key(DROP_KEY_FILE))?;
+            match device::put_new(bucket, DROP_KEY_FILE, &file.to_bytes()) {
+                Ok(()) => Ok(secret.public()),
+                // Something is there now: another device's key (it stands), or a file that is none
+                // (it was there all along: it goes, nothing opened with it).
+                Err(DriveError::Conflict { .. }) => {
+                    match drop_file_at(bucket, DROP_KEY_FILE, drive_key, drive)? {
+                        Found::Key(first) => Ok(first.public()),
+                        Found::OtherKey(found) => Err(of_another_key(drive, &found, drive_key)),
+                        Found::Damaged => Err(damaged_file(DROP_KEY_FILE)),
+                        Found::Nothing => {
+                            bucket.put(DROP_KEY_FILE, &file.to_bytes())?;
+                            Ok(secret.public())
+                        }
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }
     }
-    replace_drop_key(bucket, drive_key, drive)
 }
 
-/// A new drop key for the drive, sealed with `drive_key` into the bucket in the old one's place
-/// (a key rotation; the Worker must get the new public half). Drops sealed to the old key no
-/// longer open: [`ingest`] them first.
-pub fn replace_drop_key(
+/// A new drop key for the drive, sealed with `drive_key` into the bucket in the old one's place (a key
+/// rotation, after the keys before it were put away; the Worker must get the new public half). Drops sealed
+/// to the old key no longer open: [`ingest`] them first. Only [`rotate_drop_key`] writes over a drop key
+/// file that holds a key.
+pub(crate) fn replace_drop_key(
     bucket: &dyn Drive,
     drive_key: &DriveKey,
     drive: &str,
@@ -676,9 +811,29 @@ pub fn replace_drop_key(
     Ok(secret.public())
 }
 
-/// Turns incoming mail off: the drop key leaves the bucket (drops still there stay unopened).
-pub fn disable_drop(bucket: &dyn Drive) -> Result<(), DriveError> {
-    bucket.delete(DROP_KEY_FILE)
+/// Turns incoming mail off: the drop key leaves the bucket (drops still there stay unopened). A drop key file
+/// of another drive key is not this device's to delete (`KeyRefused`, as [`enable_drop`]); `permit` is the key
+/// permit's `DropKey` ([`device::drop_key_permit`]).
+///
+/// # Errors
+///
+/// As [`enable_drop`].
+pub fn disable_drop(
+    permit: &Permit,
+    bucket: &dyn Drive,
+    drive_key: &DriveKey,
+    drive: &str,
+) -> Result<(), DriveError> {
+    permitted(permit, drive_key, drive)?;
+    match drop_file_at(bucket, DROP_KEY_FILE, drive_key, drive)? {
+        Found::OtherKey(found) => return Err(of_another_key(drive, &found, drive_key)),
+        Found::Damaged => return Err(damaged_file(DROP_KEY_FILE)),
+        Found::Key(_) | Found::Nothing => {}
+    }
+    match bucket.delete(DROP_KEY_FILE) {
+        Ok(()) | Err(DriveError::NotFound { .. }) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// What [`ingest`] did.

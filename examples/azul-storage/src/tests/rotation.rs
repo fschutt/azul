@@ -21,7 +21,7 @@ use crate::{
         },
         drops::{
             enable_drop, load_drop_key, load_previous_drop_key, load_previous_drop_keys,
-            DROP_KEY_FILE,
+            DROP_KEY_FILE, PREVIOUS_DROP_KEY_FILE,
         },
         keys::{
             load_key_chain, KeyChain, RecoveryCode, RecoveryKdf, CHAIN_KEY_FILE, RECOVERY_KEY_FILE,
@@ -110,7 +110,8 @@ fn set_up() -> Setup {
     let other_device = MemoryKeyring::new();
     enroll(bucket.as_ref(), &other_device, DRIVE, &old_key).unwrap();
     seal_invite(bucket.as_ref(), DRIVE, &old_key).unwrap();
-    enable_drop(bucket.as_ref(), &old_key, DRIVE).unwrap();
+    let permit = device::drop_key_permit(bucket.as_ref(), &keyring, DRIVE, &old_key).unwrap();
+    enable_drop(&permit, bucket.as_ref(), &old_key, DRIVE).unwrap();
     share(&drive, &["notes/plan.txt"], None, None, None).unwrap();
     Setup {
         bucket,
@@ -989,6 +990,124 @@ fn x_delta_azdrive_keys_30_the_mail_sealed_to_the_first_drop_key_still_opens_aft
             .map(|key| key.public()),
         Some(second),
         "the single-key reader still gives the newest"
+    );
+}
+
+/// A second process on the same keyring - `azcloud mail-drop` - and a device that holds only the new key:
+/// what asks to turn incoming mail on while a rotation stands between its Members step and its drop key
+/// step. Each must find the drop key file as the rotation left it, and leave it so (X-DELTA-KEYS3-2).
+fn turning_mail_on_is_refused_and_leaves_the_file(
+    s: &Setup,
+    bucket: &Arc<dyn Drive>,
+    new_key: &DriveKey,
+) {
+    let file = s.bucket.object(DROP_KEY_FILE).expect("incoming mail is on");
+    // On the keyring of the rotation (drive key = new key, previous key kept): the key permit refuses
+    // a key change that is not over, before the bucket is read for it.
+    let refused = device::drop_key_permit(bucket.as_ref(), &s.keyring, DRIVE, new_key);
+    assert!(
+        matches!(&refused, Err(DriveError::Denied { message }) if message.contains("not finished")),
+        "{refused:?}"
+    );
+    // On a device that holds the new key and knows nothing of the key change: its key permit is asked
+    // on the file, which the K1 secret still seals - not a key this device reads, not one it writes over.
+    let elsewhere = MemoryKeyring::new();
+    device::store_drive_key(&elsewhere, DRIVE, new_key).unwrap();
+    let refused = device::drop_key_permit(bucket.as_ref(), &elsewhere, DRIVE, new_key);
+    assert!(
+        matches!(refused, Err(DriveError::KeyRefused { .. })),
+        "{refused:?}"
+    );
+    let read = load_drop_key(bucket.as_ref(), new_key, DRIVE);
+    assert!(
+        matches!(read, Err(DriveError::KeyRefused { .. })),
+        "{read:?}"
+    );
+    assert_eq!(
+        s.bucket.object(DROP_KEY_FILE).unwrap(),
+        file,
+        "_drop.key is byte-identical"
+    );
+}
+
+/// X-DELTA-KEYS3-2, the window of the review's second scenario: DK = K2 (the Members step) and `_drop.key`
+/// still sealed under K1 until the drop key step. A second `enable_drop` on the same keyring read the K1 file
+/// as "no key", wrote a new key sealed under K2 over it, and the step then answered "done already" without
+/// ever having saved the secret the Worker's mail was sealed to. Cell R13a: the step stops before its first
+/// write. The window is closed to `enable_drop`, and the resumed step saves the previous key.
+#[test]
+fn x_delta_keys3_2_r13a_a_second_enable_in_the_window_cannot_overwrite_and_the_resume_saves_the_previous_key(
+) {
+    let s = set_up();
+    let faulty = Arc::new(Faulty::new(s.bucket.clone()));
+    let bucket: Arc<dyn Drive> = faulty.clone();
+    let k1 = s.old_key.clone();
+    let before = load_drop_key(bucket.as_ref(), &k1, DRIVE)
+        .unwrap()
+        .unwrap()
+        .public();
+    faulty.fail_write(PREVIOUS_DROP_KEY_FILE, Fail::Refused, 1);
+    assert!(rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).is_err());
+    let k2 = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert_ne!(
+        k2.id(),
+        k1.id(),
+        "premise: the Members step made the new key the drive key"
+    );
+    assert!(
+        s.bucket.object(PREVIOUS_DROP_KEY_FILE).is_none(),
+        "premise: no write of the step landed"
+    );
+
+    turning_mail_on_is_refused_and_leaves_the_file(&s, &bucket, &k2);
+
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap())
+        .expect("the resume finishes the drop key step");
+    let current = load_drop_key(bucket.as_ref(), &k2, DRIVE)
+        .unwrap()
+        .unwrap()
+        .public();
+    assert_eq!(rotated.drop_key, Some(current));
+    assert_ne!(current, before);
+    assert_eq!(
+        load_previous_drop_key(bucket.as_ref(), &k2, DRIVE)
+            .unwrap()
+            .map(|key| key.public()),
+        Some(before),
+        "the secret the Worker's mail was sealed to is saved, sealed under the new key"
+    );
+}
+
+/// X-DELTA-KEYS3-2, cell R13b: the previous key is written, the step stops before it replaces `_drop.key`:
+/// the file is still K1's and the previous file already holds its secret. The same refusal, and the resume
+/// writes the same previous key again and replaces the file.
+#[test]
+fn x_delta_keys3_2_r13b_a_stop_after_the_previous_key_leaves_the_window_closed_and_resumes() {
+    let s = set_up();
+    let faulty = Arc::new(Faulty::new(s.bucket.clone()));
+    let bucket: Arc<dyn Drive> = faulty.clone();
+    let k1 = s.old_key.clone();
+    let before = load_drop_key(bucket.as_ref(), &k1, DRIVE)
+        .unwrap()
+        .unwrap()
+        .public();
+    faulty.fail_write(DROP_KEY_FILE, Fail::Refused, 1);
+    assert!(rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).is_err());
+    let k2 = device::load_drive_key(&s.keyring, DRIVE).unwrap().unwrap();
+    assert!(
+        s.bucket.object(PREVIOUS_DROP_KEY_FILE).is_some(),
+        "premise: the previous key was written"
+    );
+
+    turning_mail_on_is_refused_and_leaves_the_file(&s, &bucket, &k2);
+
+    let rotated = rotate(bucket.clone(), &s.keyring, DRIVE, &s.provider, cheap()).unwrap();
+    assert_ne!(rotated.drop_key.unwrap(), before);
+    assert_eq!(
+        load_previous_drop_key(bucket.as_ref(), &k2, DRIVE)
+            .unwrap()
+            .map(|key| key.public()),
+        Some(before)
     );
 }
 
