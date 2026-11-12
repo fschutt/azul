@@ -21,7 +21,8 @@ use crate::{
             setup_new_drive_reporting, setup_pending, unlock, withdraw_invite,
         },
         keys::{RecoveryCode, RecoveryKdf, RECOVERY_KEY_FILE},
-        to_hex,
+        keystate::Refusal,
+        to_hex, DriveKey,
     },
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
     ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
@@ -1092,4 +1093,97 @@ fn x_delta_keys2_3_a_setup_that_ends_cleanly_reports_nothing_left() {
     let made = setup_new_drive_reporting(&bucket, &keyring, DRIVE, cheap()).unwrap();
     assert!(made.left_over.is_empty(), "{:?}", made.left_over);
     assert!(!setup_pending(&keyring, DRIVE).unwrap());
+}
+
+// ==== X-KEYSTATE-1: the setup reads the drive key ====
+
+/// The drive key of a device, and a bucket that lists no key file of it any more (a bucket writer
+/// deleted them, or the drive was reset): a setup run here made a SECOND key, published its recovery
+/// wrap and let `enroll` keep it in the first one's place - everything sealed under the first (the
+/// index, the files) opened with nothing, and the key files that could have said so were the ones
+/// deleted. `azcloud encrypt --yes` reaches this flow through the kit's `setup_encryption`. The setup
+/// reads the drive key now, asks the key permit's Setup cell, and stops.
+#[test]
+fn x_keystate_1_a_setup_on_a_device_that_holds_the_drive_key_makes_no_second_key() {
+    let bucket = MemBucket::new();
+    let keyring = MemoryKeyring::new();
+    let (first, _code) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+    for key in bucket.keys() {
+        bucket.delete(&key).unwrap();
+    }
+    assert!(!is_encrypted(&bucket).unwrap(), "no key file is left");
+
+    let refused = setup_new_drive(&bucket, &keyring, DRIVE, cheap());
+    match &refused {
+        Err(DriveError::InvalidConfig(said)) => {
+            assert_eq!(said, &Refusal::EncryptedAlready.sentence(DRIVE));
+        }
+        other => panic!("the setup ran on a drive whose key this device holds: {other:?}"),
+    }
+    assert_eq!(
+        load_drive_key(&keyring, DRIVE).unwrap(),
+        Some(first),
+        "the first key is still the drive key"
+    );
+    assert!(
+        bucket.keys().is_empty(),
+        "no recovery key, no member key was published: {:?}",
+        bucket.keys()
+    );
+    assert!(
+        load_key_at(&keyring, &planned_key_entry(DRIVE))
+            .unwrap()
+            .is_none(),
+        "no second key was kept for the setup"
+    );
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-5 at the flow: a planned key of ANOTHER id beside the drive key is no copy
+/// of it. The setup that finishes "the same call" would have replaced the drive key with it.
+#[test]
+fn x_delta_struct_keystate_5_a_setup_does_not_finish_with_a_planned_key_that_is_not_the_drive_key()
+{
+    let bucket = MemBucket::new();
+    let keyring = MemoryKeyring::new();
+    let (first, _code) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+    for key in bucket.keys() {
+        bucket.delete(&key).unwrap();
+    }
+    let planned = DriveKey::generate().unwrap();
+    plan_drive_key(&keyring, DRIVE, &planned).unwrap();
+
+    assert!(matches!(
+        setup_new_drive(&bucket, &keyring, DRIVE, cheap()),
+        Err(DriveError::InvalidConfig(_))
+    ));
+    assert_eq!(load_drive_key(&keyring, DRIVE).unwrap(), Some(first));
+    assert_eq!(
+        load_key_at(&keyring, &planned_key_entry(DRIVE)).unwrap(),
+        Some(planned),
+        "the planned key stays as it was"
+    );
+    assert!(bucket.keys().is_empty(), "{:?}", bucket.keys());
+}
+
+/// A drive key entry the setup could not read (it holds no key) is not "no key": the setup stops with
+/// the keyring's own error. It used to make a key and overwrite the entry.
+#[test]
+fn x_keystate_1_a_drive_key_entry_that_cannot_be_read_is_not_replaced_by_a_setup() {
+    let bucket = MemBucket::new();
+    let keyring = MemoryKeyring::new();
+    keyring.set(&drive_key_entry(DRIVE), "not a key").unwrap();
+
+    assert!(matches!(
+        setup_new_drive(&bucket, &keyring, DRIVE, cheap()),
+        Err(DriveError::InvalidConfig(_))
+    ));
+    assert_eq!(
+        keyring.get(&drive_key_entry(DRIVE)).unwrap().as_deref(),
+        Some("not a key"),
+        "the entry was left as it was"
+    );
+    assert!(bucket.keys().is_empty(), "{:?}", bucket.keys());
+    assert!(load_key_at(&keyring, &planned_key_entry(DRIVE))
+        .unwrap()
+        .is_none());
 }

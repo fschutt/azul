@@ -717,6 +717,12 @@ fn put_new(bucket: &dyn Drive, key: &str, bytes: &[u8]) -> Result<(), DriveError
 /// code was never shown) is replaced by a new one, and the device is enrolled. A bucket whose
 /// recovery wrap holds another key is another device's drive (`KeyRefused`).
 ///
+/// The drive key is read too, and the key permit's `Setup` cell decides ([`keystate::judge`]): a
+/// device that holds the drive key, or whose keyring cannot say, makes no second key - with the key
+/// held and a bucket that lists no key file (a bucket writer deleted them) this flow used to make one
+/// and let [`enroll`] keep it in the first one's place (X-KEYSTATE-1); a planned key of another id than
+/// the drive key is no copy of it (X-DELTA-STRUCT-KEYSTATE-5).
+///
 /// The last step that can fail is [`enroll`]: from the drive key in the keyring on, the recovery
 /// wrap in the bucket is sealed to it and the code must reach the user, so nothing after it returns
 /// an error. What the planted key's removal could not do is [`NewDrive::left_over`] of
@@ -763,54 +769,42 @@ pub fn setup_new_drive_reporting(
     kdf: RecoveryKdf,
 ) -> Result<NewDrive, DriveError> {
     let planned_entry = planned_key_entry(drive);
-    // A key kept before this call: a checkout's, or the one an earlier try of this setup made.
-    let planned = load_key_at(keyring, &planned_entry)?;
     let encrypted_already = || {
         DriveError::InvalidConfig(format!(
             "\"{drive}\" is encrypted already: open it with this device's key, an invite or the \
              recovery code"
         ))
     };
-    let encrypted = is_encrypted(bucket)?;
-    // The key permit's shadow (C7 step 2) beside this flow's guards: a bucket that lists key files
-    // for a device with no planned key, and a keyring that keeps no key (the first key written
-    // refuses). The guards decide; the shadow changes nothing.
-    {
-        let mut evidence = keystate::Evidence::new(drive, crate::time::now_unix());
-        evidence.keyring = key_facts(keyring, drive);
-        evidence.keyring.keeps_keys = keeps_keys_fact(keyring);
-        evidence.bucket.encrypted = Read::Found(encrypted);
-        let guard =
-            if (encrypted && planned.is_none()) || check_keeps_keys(keyring, "the key").is_err() {
-                Guard::Refuses
-            } else if planned.is_some() {
-                Guard::PermitsAs(Way::Finish)
-            } else {
-                Guard::PermitsAs(Way::New)
-            };
-        crate::key_shadow!(
-            "device::setup_new_drive",
-            Op::Setup,
-            evidence,
-            guard,
-            known = [
-                (
-                    "active",
-                    "X-DELTA-AZDRIVE-KEYS-19: this flow never looks at the drive key in the keyring - \
-                     with the key held and a bucket that lists no key file it makes a second key and \
-                     enroll keeps it in the key's place; the table refuses Setup on an active drive"
-                ),
-                (
-                    "unknown",
-                    "the flow reads only the planned key: a keyring that fails on the drive key or the \
-                     new key alone does not stop it (the table refuses on any failed read)"
-                ),
-            ]
-        );
-    }
-    if encrypted && planned.is_none() {
-        return Err(encrypted_already());
-    }
+    // What the keyring holds under the drive's four key entries and what the bucket lists, read ONCE:
+    // the key permit's judge decides on these reads and the flow goes on with the very key it read.
+    // This flow never looked at the drive key: with it held and a bucket that listed no key file it
+    // made a second key, and `enroll` kept it in the first one's place (X-KEYSTATE-1).
+    let entries = read_entries(keyring, drive);
+    let listed = is_encrypted(bucket);
+    let mut evidence = keystate::Evidence::new(drive, crate::time::now_unix());
+    evidence.keyring = entries.facts();
+    evidence.keyring.keeps_keys = keeps_keys_fact(keyring);
+    evidence.bucket.encrypted = Read::value(listed.clone());
+    let way = match keystate::judge(&keystate::observe(&evidence), Op::Setup, &evidence) {
+        keystate::Verdict::Permit(permit) => permit.way(),
+        keystate::Verdict::Refuse(reason) => {
+            return Err(setup_refused(&reason, &entries, &listed));
+        }
+    };
+    // What the judge saw: a read that failed has refused above.
+    let (planned, encrypted) = (entries.planned?, listed?);
+    // `New`: no key kept, one is made. `Finish`: the key kept IS the drive's (a checkout's planned
+    // key, an earlier try of this setup, or the one `enroll` kept before the planned key's deletion).
+    let planned = match (way, planned) {
+        (Way::New, None) => None,
+        (Way::Finish, Some(key)) => Some(key),
+        (other, _) => {
+            return Err(DriveError::Io(format!(
+                "the key permit says {other:?} and the keyring's planned key says otherwise: \
+                 nothing was changed"
+            )))
+        }
+    };
     let generated = planned.is_none();
     let (drive_key, stashed) = match planned {
         // Read from the keyring just now: held.
@@ -899,6 +893,34 @@ pub fn setup_new_drive_reporting(
         code,
         left_over,
     })
+}
+
+/// The error a refused setup is: the sentence the flow always said for an encrypted drive and for a
+/// keyring that keeps no key (`InvalidConfig`), the keyring's or the bucket's own error for a read that
+/// failed (the class the caller knew), and the judge's sentence for anything else.
+fn setup_refused(
+    reason: &keystate::Reason,
+    entries: &KeyEntries,
+    listed: &Result<bool, DriveError>,
+) -> DriveError {
+    match &reason.kind {
+        keystate::Refusal::EncryptedAlready | keystate::Refusal::KeyringKeepsNoKeys(_) => {
+            DriveError::InvalidConfig(reason.sentence.clone())
+        }
+        keystate::Refusal::Unreadable { .. } => [
+            &entries.planned,
+            &entries.drive,
+            &entries.next,
+            &entries.previous,
+        ]
+        .into_iter()
+        .find_map(|read| read.as_ref().err().cloned())
+        .or_else(|| listed.as_ref().err().cloned())
+        .unwrap_or_else(|| DriveError::Io(reason.sentence.clone())),
+        _ => DriveError::Denied {
+            message: reason.sentence.clone(),
+        },
+    }
 }
 
 /// Whether this device has a setup of the drive under way: [`setup_new_drive`] kept the drive's key
