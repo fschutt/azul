@@ -159,6 +159,14 @@ pub struct SendSettings {
     /// test points it somewhere else.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub port25_probe: Vec<String>,
+    /// Why the file could not be read, when it is there and cannot be (a scanner holds it, a
+    /// failing disk) or is no settings file this AzMail understands. Everything above is the
+    /// defaults then, and the defaults are NO stand-in for the account's route, TLS policy and
+    /// DKIM setting: a mail waits instead of leaving by a default route or unsigned
+    /// ([`attempt`]), and the file is never written over ([`SendSettings::save`])
+    /// (X-APPS2-1). Never saved.
+    #[serde(skip)]
+    pub unreadable: Option<String>,
 }
 
 /// What became of a mail.
@@ -283,19 +291,44 @@ pub fn dkim_keyring_key(account_id: &str) -> String {
 }
 
 impl SendSettings {
-    /// The account's settings (`<AzMail folder>/<account>/sending.json`); the defaults when
-    /// there is no such file or it cannot be read.
+    /// The account's settings (`<AzMail folder>/<account>/sending.json`): the defaults when there
+    /// is no such file - and ONLY then. A file that cannot be read or understood is
+    /// [`SendSettings::unreadable`], never the defaults (X-APPS2-1).
     pub fn load(root: &DriveFolder, account_id: &str) -> SendSettings {
-        MailStore::new(account::account_dir(root, account_id))
-            .get(SETTINGS_FILE)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        SendSettings::from_read(
+            MailStore::new(account::account_dir(root, account_id)).get(SETTINGS_FILE),
+        )
+    }
+
+    /// The settings a read of the settings file gave: only a file that is not there is "the
+    /// defaults". A read that failed, a file that is damaged and one a newer AzMail wrote that this
+    /// one cannot take are [`SendSettings::unreadable`].
+    pub fn from_read(read: std::io::Result<Vec<u8>>) -> SendSettings {
+        let unreadable = |why: String| SendSettings {
+            unreadable: Some(why),
+            ..SendSettings::default()
+        };
+        match read {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .unwrap_or_else(|e| unreadable(format!("it cannot be understood: {e}"))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => SendSettings::default(),
+            Err(e) => unreadable(e.to_string()),
+        }
     }
 
     /// Writes the settings file through the AzMail folder's drive and returns where it is. The
-    /// DKIM key in memory is not part of it.
+    /// DKIM key in memory is not part of it. Settings that came from a file that could not be
+    /// read ([`SendSettings::unreadable`]) are not written: they would replace the real ones
+    /// with the defaults.
     pub fn save(&self, root: &DriveFolder, account_id: &str) -> std::io::Result<PathBuf> {
+        if let Some(why) = &self.unreadable {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "{SETTINGS_FILE} could not be read ({why}), so it is not written over: fix or remove it first"
+                ),
+            ));
+        }
         let folder = account::account_dir(root, account_id);
         let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
         text.push('\n');
@@ -407,6 +440,12 @@ pub struct PolicyList {
     /// Whether this connection reaches port 25 at all (the last probe), for every domain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port25: Option<Port25Check>,
+    /// Why the file could not be read, when it is there and cannot be (or is another program's or a
+    /// newer AzMail's): this list is the defaults, in memory, and [`PolicyList::save`] refuses to
+    /// replace the real file with it - the domains the user set to relay and the learned port-25
+    /// state stay where they are (X-DELTA-APPS3-7). Never saved.
+    #[serde(skip)]
+    pub unreadable: Option<String>,
 }
 
 impl Default for PolicyList {
@@ -443,30 +482,53 @@ impl Default for PolicyList {
             version: 1,
             domains,
             port25: None,
+            unreadable: None,
         }
     }
 }
 
 impl PolicyList {
-    /// The account's list; written with the defaults when there is none yet (or it cannot be
-    /// read).
+    /// The account's list; written with the defaults when there is none yet - and ONLY then. A file
+    /// that cannot be read, is damaged or is another program's or a newer AzMail's gives the
+    /// defaults in memory, marked [`PolicyList::unreadable`], and is left as it is (the first one
+    /// is said once on stderr). Any failed read used to replace the file with the defaults
+    /// (X-DELTA-APPS3-7).
     pub fn load(account_dir: &DriveFolder) -> PolicyList {
-        let read = MailStore::new(account_dir.clone())
-            .get(POLICY_FILE)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<PolicyList>(&bytes).ok())
-            .filter(|list| list.format == POLICY_FORMAT);
-        match read {
-            Some(list) => list,
-            None => {
+        let unreadable = |why: String| {
+            static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !SAID.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                eprintln!("[azmail] {POLICY_FILE} cannot be read ({why}): the defaults serve, the file is left as it is");
+            }
+            PolicyList {
+                unreadable: Some(why),
+                ..PolicyList::default()
+            }
+        };
+        match MailStore::new(account_dir.clone()).get(POLICY_FILE) {
+            Ok(bytes) => match serde_json::from_slice::<PolicyList>(&bytes) {
+                Ok(list) if list.format == POLICY_FORMAT => list,
+                Ok(list) => unreadable(format!("its format is \"{}\"", list.format)),
+                Err(e) => unreadable(format!("it cannot be understood: {e}")),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let list = PolicyList::default();
+                // collapse-ok: a list that is not written yet is the same list at the next load.
                 let _ = list.save(account_dir);
                 list
             }
+            Err(e) => unreadable(e.to_string()),
         }
     }
 
+    /// Writes the list - unless it is the defaults a file that could not be read gave
+    /// ([`PolicyList::unreadable`]): that would replace the real list with them.
     pub fn save(&self, account_dir: &DriveFolder) -> std::io::Result<()> {
+        if let Some(why) = &self.unreadable {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{POLICY_FILE} could not be read ({why}), so it is not written over"),
+            ));
+        }
         let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
         text.push('\n');
         MailStore::new(account_dir.clone()).put(POLICY_FILE, text.as_bytes())
@@ -1426,6 +1488,21 @@ fn attempt(
     let pending = entry.pending();
     if pending.is_empty() {
         return Attempted::default();
+    }
+    // The route, the TLS policy and the DKIM setting are in a file that cannot be read: the defaults
+    // are no stand-in for them (a mail would leave by a default route, or unsigned). It waits, no
+    // attempt counted and due again at once, as a mail whose DKIM key is not in memory yet does
+    // (X-APPS2-1).
+    if let Some(why) = &settings.unreadable {
+        hold_back(
+            entry,
+            &pending,
+            &format!("the sending settings cannot be read ({why})"),
+        );
+        return Attempted {
+            sent: None,
+            waiting: true,
+        };
     }
     let wire = match sign(bytes.to_vec(), settings, account_id) {
         Ok(wire) => wire,
@@ -4065,6 +4142,174 @@ mod tests {
         assert!(eml_of(&dir, &entry).exists());
         remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
         assert!(outbox_files(&dir.0).is_empty());
+    }
+
+    // ==== X-DELTA-APPS3-7 and X-APPS2-1: a file that cannot be read is not the defaults ====
+
+    fn account_file(dir: &TempDir, name: &str) -> PathBuf {
+        let folder = dir.0.join(ACCOUNT);
+        std::fs::create_dir_all(&folder).unwrap();
+        folder.join(name)
+    }
+
+    /// RED on the code before: `PolicyList::load` took a policy file it could not understand for
+    /// "none yet" and wrote the defaults over it, and a send that learned a refusal saved its list
+    /// over it again - the domains the user set to relay and the learned port-25 state gone. Now
+    /// the defaults serve in memory, marked, and the file is left as it was by the whole send.
+    #[test]
+    fn x_delta_apps3_7_a_policy_file_that_cannot_be_read_is_left_as_it_is_by_a_send_that_learns() {
+        let another: &[u8] =
+            br#"{"format": "someone.else", "version": 9, "domains": {"example.net": {"route": "direct"}}}"#;
+        for (what, bytes) in [
+            ("damaged", &b"{ not json"[..]),
+            ("another program's", another),
+        ] {
+            let dir = TempDir::new("send-policy-unreadable");
+            let file = account_file(&dir, POLICY_FILE);
+            std::fs::write(&file, bytes).unwrap();
+            let mut fake = Fake::new(|_| RecipientStatus::Rejected {
+                reply: Reply {
+                    code: 550,
+                    enhanced: Some("5.7.1".to_string()),
+                    text: "5.7.1 Client host [203.0.113.7] blocked using Spamhaus PBL".to_string(),
+                },
+                server: "mx.example.net".to_string(),
+            });
+            let status = send_mail_with(
+                &dir.folder(),
+                ACCOUNT,
+                &signing(Some(TEST_KEY)),
+                &mail(),
+                OCT_1,
+                &mut fake,
+            );
+            assert!(
+                matches!(status, SendStatus::Failed { .. }),
+                "{what}: {status:?}"
+            );
+            assert_eq!(
+                std::fs::read(&file).unwrap(),
+                bytes,
+                "{what}: the file is as it was"
+            );
+            let account = account::account_dir(&dir.folder(), ACCOUNT);
+            let loaded = PolicyList::load(&account);
+            assert!(loaded.unreadable.is_some(), "{what}");
+            assert_eq!(
+                loaded.route_for("gmail.com"),
+                DomainRoute::Relay,
+                "{what}: the defaults serve"
+            );
+            assert!(
+                loaded.save(&account).is_err(),
+                "{what}: and are never written"
+            );
+            assert_eq!(std::fs::read(&file).unwrap(), bytes, "{what}");
+        }
+        // A file that is not there is the one case written with the defaults, once.
+        let dir = TempDir::new("send-policy-absent");
+        let account = account::account_dir(&dir.folder(), ACCOUNT);
+        let list = PolicyList::load(&account);
+        assert_eq!(
+            (list.unreadable.as_ref(), list.format.as_str()),
+            (None, POLICY_FORMAT)
+        );
+        let written = std::fs::read_to_string(dir.0.join(ACCOUNT).join(POLICY_FILE)).unwrap();
+        assert!(written.contains(POLICY_FORMAT), "{written}");
+    }
+
+    /// RED on the code before: `SendSettings::load` read a sending file it could not read as the
+    /// defaults - direct delivery, TLS required, no DKIM - so the account's mail left by a default
+    /// route, or unsigned where the account signs. Now the mail waits (nothing is tried, no attempt
+    /// is counted, it is due again at once) and says why, the file is not written over, and the
+    /// repaired file sends it by the account's own route.
+    #[test]
+    fn x_apps2_1_a_send_with_a_sending_file_that_cannot_be_read_waits_and_says_why() {
+        let dir = TempDir::new("send-settings-unreadable");
+        let file = account_file(&dir, SETTINGS_FILE);
+        std::fs::write(&file, b"{ not json").unwrap();
+        let settings = SendSettings::load(&dir.folder(), ACCOUNT);
+        assert!(settings.unreadable.is_some());
+        let mut fake = take_all();
+        let status = send_mail_with(&dir.folder(), ACCOUNT, &settings, &mail(), OCT_1, &mut fake);
+        assert!(
+            fake.calls.is_empty() && fake.messages.is_empty(),
+            "nothing leaves by a default route: {:?}",
+            fake.calls
+        );
+        let SendStatus::Queued { reason } = &status else {
+            panic!("{status:?}");
+        };
+        assert!(
+            reason.contains("sending settings cannot be read"),
+            "{reason}"
+        );
+        let kept = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!(kept.len(), 1, "it waits in the Outbox");
+        assert_eq!((kept[0].attempts, kept[0].state), (0, OutboxState::Queued));
+        // The settings are not written over by whoever saves them next.
+        let refused = settings.save(&dir.folder(), ACCOUNT).unwrap_err();
+        assert!(
+            refused.to_string().contains("not written over"),
+            "{refused}"
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"{ not json");
+        // The file is repaired: the same mail goes by the account's own route.
+        let relay = SendSettings {
+            route: SendRoute::Smtp {
+                host: String::from("relay.example.net"),
+                port: 587,
+            },
+            ..SendSettings::default()
+        };
+        std::fs::write(&file, serde_json::to_vec(&relay).unwrap()).unwrap();
+        let settings = SendSettings::load(&dir.folder(), ACCOUNT);
+        assert_eq!(settings.unreadable, None);
+        let results = retry_outbox_with(
+            &dir.folder(),
+            ACCOUNT,
+            &settings,
+            true,
+            OCT_1 + 60,
+            &mut fake,
+        );
+        assert!(
+            matches!(results[0].1, SendStatus::Sent { .. }),
+            "{results:?}"
+        );
+        assert_eq!(
+            fake.calls[0].0,
+            Some((String::from("relay.example.net"), 587))
+        );
+    }
+
+    /// Only a file that is not there is "the defaults": a read that failed for any other reason
+    /// (a permission, a scanner holding the file) and a file of another version are unreadable.
+    #[test]
+    fn x_apps2_1_only_a_missing_settings_file_gives_the_defaults() {
+        let absent = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
+        assert_eq!(
+            SendSettings::from_read(Err(absent)),
+            SendSettings::default()
+        );
+        for kind in [
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::Other,
+        ] {
+            let read = SendSettings::from_read(Err(std::io::Error::new(kind, "the read failed")));
+            assert!(
+                read.unreadable
+                    .as_deref()
+                    .is_some_and(|why| why.contains("the read failed")),
+                "{kind:?}: {read:?}"
+            );
+        }
+        let newer = SendSettings::from_read(Ok(br#"{"route": {"quantum": 1}}"#.to_vec()));
+        assert!(newer.unreadable.is_some(), "{newer:?}");
+        let good = SendSettings::from_read(Ok(br#"{"direct_port": 2525}"#.to_vec()));
+        assert_eq!((good.unreadable, good.direct_port), (None, 2525));
+        // An empty file is no settings file either.
+        assert!(SendSettings::from_read(Ok(Vec::new())).unreadable.is_some());
     }
 }
 

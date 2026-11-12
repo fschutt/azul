@@ -104,11 +104,10 @@ impl AzMailSubmitter {
     /// The sending settings now, with the secrets they need in memory.
     #[must_use]
     pub fn settings(&self) -> SendSettings {
+        // A settings file that cannot be read is no "defaults": the mail waits (the settings say
+        // `unreadable`), it does not leave by a default route or without its DKIM key (X-APPS2-1).
         let mut settings = match &self.settings_file {
-            Some(path) => std::fs::read(path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<SendSettings>(&bytes).ok())
-                .unwrap_or_default(),
+            Some(path) => SendSettings::from_read(std::fs::read(path)),
             None => SendSettings::load(&self.spool, &self.account_id),
         };
         settings.trusted_roots = self.trusted_roots.clone();
