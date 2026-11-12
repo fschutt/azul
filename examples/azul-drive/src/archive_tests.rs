@@ -1235,6 +1235,12 @@ fn x_delta_sync2_10_a_run_cut_between_two_ledger_writes_loses_one_file_not_every
         "every file was recorded: {:?}",
         end.notes
     );
+    // The landed files of the cut-off run were replayed into the ledger and went with the whole
+    // write that ended this one - the folder with them.
+    assert!(
+        !landed_dir(&state).exists(),
+        "the journal of the cut-off run is folded and gone"
+    );
 }
 
 /// X-DELTA-SYNC2-10: what landed is folded into the ledger and leaves no file behind: after a run
@@ -1258,6 +1264,14 @@ fn x_delta_sync2_10_the_landed_files_are_folded_into_the_ledger_and_leave_nothin
         left.is_empty(),
         "the ledger holds them: {:?}",
         left.iter().map(|e| e.path()).collect::<Vec<_>>()
+    );
+    // And the journal's folder is gone with its files: the run folded at its 25th file and landed
+    // five more after that, so the folder was removed and made again on the way and removed at the
+    // end. (An empty folder left beside every state was red on the first version of the fold:
+    // `x_ar5a_5_the_state_is_written_whole_and_leaves_no_temporary_file`.)
+    assert!(
+        !landed_dir(&state).exists(),
+        "the folder of the landed files went with them"
     );
 }
 

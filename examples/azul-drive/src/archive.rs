@@ -917,15 +917,24 @@ fn read_landed(state: &Path) -> Vec<Landed> {
 }
 
 /// The landed files go once the ledger holds them: after a whole write of it that took, and in
-/// the order they landed, so that a failure in between leaves the later ones.
+/// the order they landed, so that a failure in between leaves the later ones. Their folder goes
+/// with them: the landed files are a journal between two whole writes of the ledger and nothing
+/// that lasts, so a state's folder holds the state and no other file once the ledger holds what
+/// landed (the state is "written whole and leaves no temporary file", X-AR5a-5). Only an empty
+/// folder is removed (`remove_dir`), and the next landed file makes it again
+/// ([`durable::replace`] makes a folder that is missing).
 fn forget_landed(state: &Path) {
     for (_, path) in landed_names(state) {
         // collapse-ok: a landed file that stays is read again by the next run, and says what the
         // ledger says.
         if std::fs::remove_file(path).is_err() {
-            break;
+            return;
         }
     }
+    // collapse-ok: a folder that stays is an empty one the next whole write of the ledger removes,
+    // or one with a file in it that is not a landed file's (`remove_dir` refuses it, and nothing
+    // of the journal is lost either way).
+    let _ = std::fs::remove_dir(landed_dir(state));
 }
 
 /// How long a copy goes between two whole writes of its ledger at most, whatever the count says.
