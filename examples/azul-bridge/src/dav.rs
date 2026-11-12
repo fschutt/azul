@@ -20,11 +20,18 @@
 //!   [`crate::pim`]).
 
 use std::{
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
-use azul_storage::{ops, ByteRange, Drive, DriveError, ObjectInfo};
+use azul_storage::{
+    ops,
+    xfer::{overlap, Overlap},
+    ByteRange, Drive, DriveError, ObjectInfo,
+};
 
 use crate::{
     auth::{self, Credentials, FailureGate},
@@ -1097,8 +1104,11 @@ impl Dav {
             Resource::File(_) => false,
             Resource::Folder => true,
         };
-        if target == key || (folder && target.starts_with(&format!("{key}/"))) {
-            return Ok(Response::text(Status::FORBIDDEN, "Not into itself."));
+        let existing = self.resource(&target, false)?;
+        // Before anything is touched: the destination is not the source, not inside it and not
+        // the folder it lies in (X-DELTA-SYNC4-17).
+        if let Some(refusal) = self.refuse_overlap(key, folder, &target, &existing) {
+            return Ok(refusal);
         }
         if !self.parent_exists(&target)? {
             return Ok(Response::text(Status::CONFLICT, "The destination's folder is not there."));
@@ -1109,32 +1119,75 @@ impl Dav {
         let overwrite = !head
             .header("Overwrite")
             .is_some_and(|o| o.eq_ignore_ascii_case("F"));
-        let existing = self.resource(&target, false)?;
         let replaced = existing != Resource::Missing;
+        if replaced && !overwrite {
+            return Ok(Response::text(Status::PRECONDITION_FAILED, "The destination is there."));
+        }
+        let depth_zero = head.header("Depth") == Some("0");
+        match (&existing, folder) {
+            (Resource::Missing, _) => self.put_in_place(key, &target, folder, moving, depth_zero)?,
+            // A file over a file: the copy replaces the destination in one step, and only when
+            // the source was read; a copy that fails leaves the destination as it was. A move is
+            // that copy and then the source's removal - which only a landed copy licenses.
+            (Resource::File(_), false) => {
+                self.drive.copy(key, &target)?;
+                if moving {
+                    // ARCH30-4: Why::Superseded
+                    self.drive.delete(key)?;
+                }
+            }
+            _ => self.swap_in(
+                key,
+                &target,
+                folder,
+                matches!(existing, Resource::Folder),
+                moving,
+                depth_zero,
+            )?,
+        }
         if replaced {
-            if !overwrite {
-                return Ok(Response::text(Status::PRECONDITION_FAILED, "The destination is there."));
-            }
-            match existing {
-                Resource::File(_) => self.drive.delete(&target)?,
-                _ => self.drive.delete_folder(&format!("{target}/"))?,
-            }
             self.forget_locks_under(&target);
         }
-        if !folder {
-            if moving {
-                self.drive.rename(key, &target)?;
-            } else {
-                self.drive.copy(key, &target)?;
-            }
-        } else if moving {
-            self.drive.rename(&format!("{key}/"), &format!("{target}/"))?;
-        } else {
-            let depth_zero = head.header("Depth") == Some("0");
-            let from = format!("{key}/");
-            let to = format!("{target}/");
-            self.drive.create_folder(&to)?;
-            if !depth_zero {
+        if moving {
+            self.forget_locks_under(key);
+        }
+        Ok(Response::new(if replaced { Status::NO_CONTENT } else { Status::CREATED }))
+    }
+
+    /// The refusal when the destination `target` is the source `key`, lies inside it or is the
+    /// folder it lies in; `None` when the two are apart. Decided by the files the keys name
+    /// ([`azul_storage::xfer::overlap`]: a name in another case on a disk that ignores it, a link,
+    /// a second drive over the folder), never by the spelling - a MOVE onto an ancestor deleted the
+    /// destination first and took the source with it (X-DELTA-SYNC4-17). `existing`: what is at
+    /// the destination now.
+    fn refuse_overlap(&self, key: &str, folder: bool, target: &str, existing: &Resource) -> Option<Response> {
+        let site = self.drive.site();
+        let from = if folder { format!("{key}/") } else { key.to_string() };
+        let to = if *existing == Resource::Folder { format!("{target}/") } else { target.to_string() };
+        let (status, why) = match overlap(&site, &from, &site, &to) {
+            Overlap::Disjoint => return None,
+            Overlap::Same => (Status::FORBIDDEN, "Not onto itself."),
+            Overlap::SourceHoldsTarget => (Status::FORBIDDEN, "Not into itself."),
+            Overlap::TargetHoldsSource => (Status::FORBIDDEN, "Not onto the folder it lies in."),
+            Overlap::Unknown => (Status::FORBIDDEN, "The destination cannot be told from the source."),
+        };
+        Some(Response::text(status, why))
+    }
+
+    /// The source where nothing is: a rename for a move, a copy for a copy (a folder's copy is its
+    /// folder and every object under it, with `Depth: 0` the folder alone).
+    fn put_in_place(&self, key: &str, target: &str, folder: bool, moving: bool, depth_zero: bool) -> Result<(), DriveError> {
+        match (folder, moving) {
+            (false, true) => self.drive.rename(key, target),
+            (false, false) => self.drive.copy(key, target),
+            (true, true) => self.drive.rename(&format!("{key}/"), &format!("{target}/")),
+            (true, false) => {
+                let from = format!("{key}/");
+                let to = format!("{target}/");
+                self.drive.create_folder(&to)?;
+                if depth_zero {
+                    return Ok(());
+                }
                 for object in ops::list_all(&*self.drive, &from)? {
                     let rest = &object.key[from.len()..];
                     if rest.is_empty() {
@@ -1147,12 +1200,93 @@ impl Dav {
                         self.drive.copy(&object.key, &dest)?;
                     }
                 }
+                Ok(())
             }
         }
-        if moving {
-            self.forget_locks_under(key);
+    }
+
+    /// Replaces a destination that is a folder, or a file where the source is a folder - or a
+    /// folder where it is a file: the new content is made BESIDE the destination first and only a
+    /// whole one takes its place. RFC 4918 says the destination is deleted and the source copied;
+    /// in that order a copy that failed left neither (X-DELTA-SYNC4-17). Here the destination
+    /// is not touched until the new content is complete, then it steps aside under a name of its
+    /// own, the new content is renamed into its place, and only then is the old one deleted. A step
+    /// that fails puts back what it moved, deletes nothing but what this call made, and leaves the
+    /// destination under its name. Crash table: after the new content beside it - the destination
+    /// is untouched and a stray `*.azul-new-*` is left; after it stepped aside - the old content is
+    /// whole under `*.azul-old-*` and the new beside it; after the rename - both exist.
+    fn swap_in(
+        &self,
+        key: &str,
+        target: &str,
+        folder: bool,
+        destination_is_folder: bool,
+        moving: bool,
+        depth_zero: bool,
+    ) -> Result<(), DriveError> {
+        let stamp = unique_stamp();
+        let beside = format!("{target}.azul-new-{stamp}");
+        let aside = format!("{target}.azul-old-{stamp}");
+        let (new_slash, old_slash) = (if folder { "/" } else { "" }, if destination_is_folder { "/" } else { "" });
+        // 1. The new content beside the destination.
+        if let Err(e) = self.put_in_place(key, &beside, folder, moving, depth_zero) {
+            if !moving {
+                self.discard_own(&beside, folder);
+            }
+            return Err(e);
         }
-        Ok(Response::new(if replaced { Status::NO_CONTENT } else { Status::CREATED }))
+        // Undoes step 1 when a later step fails: a copy is deleted (this call made it), a move
+        // is renamed back (it is the source itself).
+        let undo_step_1 = |this: &Dav| {
+            if moving {
+                if let Err(e) = this.drive.rename(&format!("{beside}{new_slash}"), &format!("{key}{new_slash}")) {
+                    eprintln!("[azul-bridge] the moved {key} is kept as {beside}: it could not be put back: {e}");
+                }
+            } else {
+                this.discard_own(&beside, folder);
+            }
+        };
+        // 2. The old destination steps aside.
+        if let Err(e) = self.drive.rename(&format!("{target}{old_slash}"), &format!("{aside}{old_slash}")) {
+            undo_step_1(self);
+            return Err(e);
+        }
+        // 3. The new content takes its place.
+        if let Err(e) = self.drive.rename(&format!("{beside}{new_slash}"), &format!("{target}{new_slash}")) {
+            match self.drive.rename(&format!("{aside}{old_slash}"), &format!("{target}{old_slash}")) {
+                Ok(()) => undo_step_1(self),
+                Err(back) => eprintln!(
+                    "[azul-bridge] the old {target} is kept as {aside}: it could not be put back: {back}"
+                ),
+            }
+            return Err(e);
+        }
+        // 4. The old one goes: the replacement landed.
+        let removed = if destination_is_folder {
+            // ARCH30-4: Why::Superseded
+            self.drive.delete_folder(&format!("{aside}/"))
+        } else {
+            // ARCH30-4: Why::Superseded
+            self.drive.delete(&aside)
+        };
+        if let Err(e) = removed {
+            eprintln!("[azul-bridge] the replaced {target} is kept as {aside}: it could not be deleted: {e}");
+        }
+        Ok(())
+    }
+
+    /// Deletes what this very request made beside a destination and no other client knows of.
+    fn discard_own(&self, key: &str, folder: bool) {
+        let removed = if folder {
+            // ARCH30-4: Why::Refused
+            self.drive.delete_folder(&format!("{key}/"))
+        } else {
+            // ARCH30-4: Why::Refused
+            self.drive.delete(key)
+        };
+        if let Err(e) = removed {
+            eprintln!("[azul-bridge] {key} is left over from a copy that failed: {e}");
+        }
     }
 
     fn lock(&self, head: &Head, key: &str, folder_syntax: bool, body: &[u8]) -> Result<Response, DriveError> {
@@ -1266,6 +1400,18 @@ impl Dav {
         }
         Ok(Response::new(Status::NO_CONTENT))
     }
+}
+
+/// A part of a name no other request of any bridge makes twice: the second, the process and a
+/// counter (the names a replacing COPY / MOVE makes beside its destination).
+fn unique_stamp() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}-{}",
+        azul_storage::time::now_unix(),
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// The answer to a request the drive failed.
