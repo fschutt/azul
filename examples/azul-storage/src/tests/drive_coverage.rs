@@ -823,7 +823,11 @@ fn x_delta_struct3_8_the_pointer_impls_send_a_pinned_read_down_with_its_conditio
     let all: Box<Arc<Probe>> = Box::new(Arc::new(probe.clone()));
     pinned_read_arrives(&all, &probe, "object").expect("Box<Arc<D>>");
     assert_eq!(
-        probe.heard().iter().filter(|c| c.method == "get_range_if").count(),
+        probe
+            .heard()
+            .iter()
+            .filter(|c| c.method == "get_range_if")
+            .count(),
         4,
         "one pinned read per pointer, no more"
     );
@@ -870,9 +874,14 @@ fn x_delta_struct3_8_the_call_of_every_method_is_the_list_and_nothing_else() {
     let probe = Probe::new();
     let called = every_method(&probe, dir.path());
     let names: Vec<&str> = called.iter().map(|c| c.name).collect();
-    assert_eq!(names, METHOD_NAMES, "every method of the list is called, once, in the list's order");
+    assert_eq!(
+        names, METHOD_NAMES,
+        "every method of the list is called, once, in the list's order"
+    );
     assert!(
-        called.iter().any(|c| c.name == "get_range_if" && c.outcome.is_ok()),
+        called
+            .iter()
+            .any(|c| c.name == "get_range_if" && c.outcome.is_ok()),
         "the pinned read reached the probe, which answers it"
     );
 }
@@ -903,26 +912,28 @@ fn x_delta_struct3_8_a_drive_filed_as_no_wrapper_holds_no_drive_below_it() {
 
 /// The text of the struct `name` in `source` (its header to the end of its field list), when there is one.
 fn struct_text<'a>(source: &'a str, name: &str) -> Option<&'a str> {
-    ["pub struct ", "pub(crate) struct ", "struct "].iter().find_map(|head| {
-        let at = source
-            .match_indices(&format!("{head}{name}"))
-            .find(|(at, _)| {
-                let rest = &source[at + head.len() + name.len()..];
-                rest.starts_with(['<', ' ', '{', '(', ';', '\n'])
-                    && (*at == 0 || source[..*at].ends_with('\n'))
-            })?
-            .0;
-        let rest = &source[at..];
-        // A struct ends at its closing brace in column 0, or at the `;` of a tuple or unit struct.
-        let end = rest
-            .find("\n}\n")
-            .map(|i| i + 2)
-            .into_iter()
-            .chain(rest.find(";\n").map(|i| i + 1))
-            .min()
-            .unwrap_or(rest.len());
-        Some(&rest[..end])
-    })
+    ["pub struct ", "pub(crate) struct ", "struct "]
+        .iter()
+        .find_map(|head| {
+            let at = source
+                .match_indices(&format!("{head}{name}"))
+                .find(|(at, _)| {
+                    let rest = &source[at + head.len() + name.len()..];
+                    rest.starts_with(['<', ' ', '{', '(', ';', '\n'])
+                        && (*at == 0 || source[..*at].ends_with('\n'))
+                })?
+                .0;
+            let rest = &source[at..];
+            // A struct ends at its closing brace in column 0, or at the `;` of a tuple or unit struct.
+            let end = rest
+                .find("\n}\n")
+                .map(|i| i + 2)
+                .into_iter()
+                .chain(rest.find(";\n").map(|i| i + 1))
+                .min()
+                .unwrap_or(rest.len());
+            Some(&rest[..end])
+        })
 }
 
 /// What shows that `source`'s struct `name` holds a drive below it: a `dyn .. Drive`, an `Arc`, `Box` or
@@ -1064,8 +1075,16 @@ fn x_delta_struct3_8_every_wrapper_that_decides_for_itself_has_a_test_of_what_ar
              read through it over a probe"
         );
     }
-    for must in ["Box, Arc and & of a drive", "Stops", "Stoppable", "NoDriveBelow"] {
-        assert!(BODY_TESTS.iter().any(|(wrapper, _, _)| *wrapper == must), "{must} has no row");
+    for must in [
+        "Box, Arc and & of a drive",
+        "Stops",
+        "Stoppable",
+        "NoDriveBelow",
+    ] {
+        assert!(
+            BODY_TESTS.iter().any(|(wrapper, _, _)| *wrapper == must),
+            "{must} has no row"
+        );
     }
     for (name, file, test) in BODY_TESTS {
         let path = examples_dir().join(file);

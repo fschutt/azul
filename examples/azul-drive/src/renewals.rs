@@ -661,10 +661,7 @@ pub(crate) fn notice_drive_in(slots: &[crate::Slot], drive_id: &str) -> Option<N
 /// A build without the encryption opens no Azlin drive, so `notice_drive_in` has none for it and the rest
 /// is never reached (the type of the drive has no value there: the compiler sees the code after it as
 /// unreachable, which is the point).
-#[cfg_attr(
-    not(feature = "encryption"),
-    allow(unreachable_code, unused_variables)
-)]
+#[cfg_attr(not(feature = "encryption"), allow(unreachable_code, unused_variables))]
 fn save_notices(
     info: &mut CallbackInfo,
     app: &RefAny,

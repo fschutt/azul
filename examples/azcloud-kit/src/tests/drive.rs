@@ -1023,7 +1023,8 @@ fn x_delta_struct3_8_the_drive_below_the_bytes_refuses_every_request_and_answers
 /// drive and opened an account for against the run's server. Nothing is sent for any of it.
 #[cfg(feature = "encryption")]
 #[test]
-fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_and_refuses_what_is_no_azlin_drive() {
+fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_and_refuses_what_is_no_azlin_drive(
+) {
     use crate::drive::{azlin_target, open_azlin, AzlinAccount, AzlinOpen};
     use azul_storage::{
         config::{DriveAuth, DriveEntry, DriveLocation},
@@ -1031,7 +1032,12 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
     };
 
     fn gate(_: &Arc<AzlinAccount>, bytes: Arc<dyn Drive>) -> Arc<AutoEncrypted> {
-        Arc::new(AutoEncrypted::new(bytes, "d_1", Arc::new(MemoryKeyring::new()), None))
+        Arc::new(AutoEncrypted::new(
+            bytes,
+            "d_1",
+            Arc::new(MemoryKeyring::new()),
+            None,
+        ))
     }
     let dir = TempDir::new("struct3-11");
     let fake = cloud_lasting();
@@ -1056,13 +1062,20 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
     // An Azlin drive: the account's server and its drive id are the resolver's answer, whatever the entry names.
     for named in [HOSTILE, LIVE, ""] {
         let entry = azlin_entry(named);
-        let target = azlin_target(&entry, Some(LIVE)).expect("a drive that names a server, or the run's");
+        let target =
+            azlin_target(&entry, Some(LIVE)).expect("a drive that names a server, or the run's");
         let (account, _) = open(&entry, LIVE).expect("an Azlin drive opens");
-        assert_eq!(account.token_url(), target.token_url, "the account chose its server itself ({named:?})");
+        assert_eq!(
+            account.token_url(),
+            target.token_url,
+            "the account chose its server itself ({named:?})"
+        );
         assert_eq!(account.drive_id(), target.drive_id);
     }
     // No server named by the entry or the run: no account.
-    let refused = open(&azlin_entry(""), "").err().expect("no token server to name");
+    let refused = open(&azlin_entry(""), "")
+        .err()
+        .expect("no token server to name");
     assert!(
         matches!(&refused, DriveError::InvalidConfig(why) if why.contains("names no token server")),
         "{refused:?}"
@@ -1087,10 +1100,16 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
             auth: DriveAuth::Keyring,
         },
     };
-    let refused = open(&other, LIVE).err().expect("a bucket of another provider is no Azlin drive");
+    let refused = open(&other, LIVE)
+        .err()
+        .expect("a bucket of another provider is no Azlin drive");
     assert!(
         matches!(&refused, DriveError::InvalidConfig(why) if why.contains("not an Azlin drive")),
         "{refused:?}"
     );
-    assert!(fake.calls().is_empty(), "nothing was sent: {:?}", fake.calls());
+    assert!(
+        fake.calls().is_empty(),
+        "nothing was sent: {:?}",
+        fake.calls()
+    );
 }

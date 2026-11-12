@@ -1084,9 +1084,15 @@ pub fn azlin_target_choice(
 pub(crate) fn target_of(entry: &DriveEntry, run: &str) -> Result<AzlinTarget, DriveError> {
     azlin_target(entry, Some(run)).ok_or_else(|| {
         DriveError::InvalidConfig(if entry.azlin().is_none() {
-            format!("\"{}\" is not an Azlin drive: no token server refreshes its credentials", entry.name)
+            format!(
+                "\"{}\" is not an Azlin drive: no token server refreshes its credentials",
+                entry.name
+            )
         } else {
-            format!("\"{}\" names no token server to refresh its credentials at", entry.name)
+            format!(
+                "\"{}\" names no token server to refresh its credentials at",
+                entry.name
+            )
         })
     })
 }

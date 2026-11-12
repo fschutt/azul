@@ -330,10 +330,16 @@ fn x_delta_struct3_12_every_spelling_of_the_opener_and_a_new_kit_function_that_m
     let base = base_with(
         "spellings",
         &[
-            ("examples/azcloud-kit/src/lib.rs", &format!("mod bytes;\n{KIT_LIB}")),
+            (
+                "examples/azcloud-kit/src/lib.rs",
+                &format!("mod bytes;\n{KIT_LIB}"),
+            ),
             ("examples/azcloud-kit/src/bytes.rs", kit_function),
             ("examples/azcloud-kit/src/drive.rs", KIT_DRIVE),
-            ("examples/azul-drive/src/lib.rs", &format!("mod jobs;\n{drive_lib}")),
+            (
+                "examples/azul-drive/src/lib.rs",
+                &format!("mod jobs;\n{drive_lib}"),
+            ),
             ("examples/azul-drive/src/jobs.rs", spellings.as_str()),
         ],
     );
