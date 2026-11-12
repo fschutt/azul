@@ -32,9 +32,12 @@ use crate::{
         },
         DriveKey,
     },
-    encrypted::{judge as enc_judge, IndexProvider, MemoryIndex, NameIndex, Recorded},
+    encrypted::{
+        judge as enc_judge, open_encrypted, IndexProvider, MemoryIndex, NameIndex, Recorded,
+    },
     footprint::KeyEntry,
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
+    meta::{IndexProfile, MemoryBucket, MetaIndexProvider},
     rotation::{self, JOURNAL_FILE},
     trust::{EncState, Via, Why as Unencrypted},
     Drive, DriveError,
@@ -49,28 +52,96 @@ fn cheap() -> RecoveryKdf {
 
 // ==== The table ====
 
-/// The sentence of a drive whose keys open nothing is the one `rotation::start` refuses with.
+/// X-DELTA-STRUCT-KEYSTATE-10: the sentence of a drive whose keys open nothing, entered through the flow - not
+/// read from two accessors of one constant. A device that kept the key from before another device changed the
+/// keys (the keyring's drive key is K1, the drive's index is K2's) is refused by `rotation::ask`, before the
+/// account's lockdown, in the words the window shows: what happened, that nothing was changed, and the ways
+/// back in - a join code from the device that changed them, or the recovery code. One sentence with single
+/// spaces, and none the window ends itself with a full stop.
 #[test]
-fn the_sentence_of_keys_that_open_nothing_is_the_one_a_rotation_refuses_with() {
-    assert_eq!(
-        rotation::opens_nothing(),
-        DriveError::Denied {
-            message: Refusal::OpensNothing.sentence(DRIVE)
-        }
+fn x_delta_struct_keystate_10_a_device_whose_key_opens_nothing_is_refused_in_the_words_the_window_shows(
+) {
+    let bucket = Arc::new(MemoryBucket::new());
+    let owner = MemoryKeyring::new();
+    let (old, _code) = setup_new_drive(bucket.as_ref(), &owner, DRIVE, cheap()).unwrap();
+    let provider = MetaIndexProvider::new(IndexProfile::in_memory("Laptop"));
+    let plain: Arc<dyn Drive> = bucket.clone();
+    open_encrypted(plain.clone(), &owner, DRIVE, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    // a second device that holds the key from before the owner's key change
+    let behind = MemoryKeyring::new();
+    device::store_drive_key(&behind, DRIVE, &old).unwrap();
+    rotate(plain, &owner, DRIVE, &provider, cheap()).unwrap();
+
+    let refused = rotation::ask(bucket.as_ref(), &behind, DRIVE)
+        .err()
+        .expect("a key that opens nothing is no key to change");
+    let DriveError::Denied { message } = refused else {
+        panic!("{refused:?}");
+    };
+    for words in [
+        "none of the drive keys this device holds",
+        "Nothing was changed here",
+        "a code from that device",
+        "recovery code",
+    ] {
+        assert!(message.contains(words), "{words:?}: {message}");
+    }
+    assert!(
+        !message.contains("  "),
+        "single spaces (d3607fed5): {message}"
     );
     assert!(
-        !Refusal::OpensNothing.sentence(DRIVE).contains("  "),
-        "one sentence with single spaces (d3607fed5)"
+        !message.ends_with('.'),
+        "the window ends it itself: {message}"
+    );
+    // and it is what the table says of the state: torn, with the recovery as the way back
+    assert_eq!(
+        message,
+        Refusal::OpensNothing.sentence(DRIVE),
+        "the flow and the table say it in the same words"
     );
 }
 
-/// The sentence of a locked drive is the error's own.
+/// X-DELTA-STRUCT-KEYSTATE-10: the sentence of a locked drive, entered through the flows: a device that holds no
+/// key of an encrypted drive is told the same by the open and by a key change - `Locked`, in the table's words.
 #[test]
-fn the_sentence_of_a_locked_drive_is_the_one_open_encrypted_answers() {
-    let error = DriveError::Locked {
-        drive: DRIVE.to_string(),
+fn x_delta_struct_keystate_10_a_device_with_no_key_is_told_the_same_by_an_open_and_by_a_key_change()
+{
+    let bucket = Arc::new(MemBucket::new());
+    setup_new_drive(bucket.as_ref(), &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
+    let stranger = MemoryKeyring::new();
+    let plain: Arc<dyn Drive> = bucket.clone();
+    let opened = open_encrypted(plain, &stranger, DRIVE, &Provider::new())
+        .err()
+        .expect("no key, no drive");
+    let asked = rotation::ask(bucket.as_ref(), &stranger, DRIVE)
+        .err()
+        .expect("no key, no key change");
+    assert!(matches!(opened, DriveError::Locked { .. }), "{opened:?}");
+    assert!(matches!(asked, DriveError::Locked { .. }), "{asked:?}");
+    assert_eq!(opened.to_string(), asked.to_string());
+    assert_eq!(asked.to_string(), Refusal::Locked.sentence(DRIVE));
+
+    // and a device that has no key of a drive nobody set up, or whose own setup it did not finish, is told
+    // that in the table's words - not "finish it on the device that started it", of a key change nobody began
+    let nothing = MemBucket::new();
+    let said = |error: DriveError| match error {
+        DriveError::Denied { message } => message,
+        other => panic!("{other:?}"),
     };
-    assert_eq!(Refusal::Locked.sentence(DRIVE), error.to_string());
+    let new_drive = rotation::ask(&nothing, &MemoryKeyring::new(), DRIVE)
+        .err()
+        .expect("no key, no key change");
+    assert_eq!(said(new_drive), Refusal::NoKey.sentence(DRIVE));
+    let half_set_up = MemoryKeyring::new();
+    device::plan_drive_key(&half_set_up, DRIVE, &DriveKey::generate().unwrap()).unwrap();
+    let unfinished = rotation::ask(&nothing, &half_set_up, DRIVE)
+        .err()
+        .expect("a setup that is not finished");
+    assert_eq!(said(unfinished), Refusal::SetupUnfinished.sentence(DRIVE));
 }
 
 /// The sentence of an encrypted drive is the one `setup_new_drive` refuses with: the pair test enters
@@ -143,12 +214,15 @@ fn every_refusal_says_the_drive_or_what_to_do() {
     }
 }
 
-/// The design lists ten things a drive key touches. The registry has eleven: the index is two of them
+/// The design lists ten things a drive key touches. The registry has twelve: the index is two of them
 /// because a rotation seals the index anew (a step an index that cannot be rekeyed stops, before anything
 /// changed) and wraps the entries' file keys anew (a step of its own in the journal) - two functions the
-/// rotation runs with a checkpoint between, and a stop between them is a state the next call goes on from.
+/// rotation runs with a checkpoint between, and a stop between them is a state the next call goes on from -
+/// and the id of the key the apps record (X-DELTA-STRUCT-KEYSTATE-9) is listed, though nothing of it is
+/// sealed under the key.
 #[test]
-fn a_drive_key_touches_eleven_things_the_designs_ten_with_the_index_in_two_steps() {
+fn a_drive_key_touches_twelve_things_the_designs_ten_the_index_in_two_steps_and_the_recorded_key_id(
+) {
     let names: Vec<&str> = CONSUMERS.iter().map(|c| c.name).collect();
     assert_eq!(
         names,
@@ -163,11 +237,12 @@ fn a_drive_key_touches_eleven_things_the_designs_ten_with_the_index_in_two_steps
             "DROPS",
             "REENCRYPT_STATE",
             "CHAIN",
-            "DEVICE_KEY"
+            "DEVICE_KEY",
+            "RECORDED_KEY_ID"
         ]
     );
     let unique: BTreeSet<&str> = names.iter().copied().collect();
-    assert_eq!(unique.len(), 11);
+    assert_eq!(unique.len(), 12);
 }
 
 /// One list of what a drive leaves in the keyring: every kind of entry has an owner, the consumers'
@@ -776,6 +851,110 @@ fn the_key_permit_says_what_each_local_observer_says_over_real_configurations() 
     assert!(rotation::unfinished(&Unreadable, DRIVE).is_err());
     assert!(device::setup_pending(&Unreadable, DRIVE).is_err());
     assert!(rotation::start(bucket.as_ref(), &Unreadable, DRIVE).is_err());
+}
+
+/// X-DELTA-STRUCT-KEYSTATE-9: `encrypted::judge` - the EncState gate every app opens a drive by - and the key
+/// permit read the same three things of a device: whether the keyring holds a drive key, whether a key is
+/// planned for a setup, whether the bucket lists key files. They agree on EVERY combination of them (the test
+/// above is seven picked ones): a drive with a key is encrypted and the permit lets a key change through (a
+/// planned key that IS the drive key is a setup that stopped before its last step: the same call finishes it);
+/// with no key, a planned key is a setup to finish whatever the bucket lists, key files make a locked drive, and
+/// neither is a new one. A change to either reading that the other does not follow fails here.
+#[test]
+fn x_delta_struct_keystate_9_the_key_permit_and_the_enc_state_gate_agree_on_every_combination_they_both_read(
+) {
+    #[derive(Clone, Copy, Debug)]
+    enum Planned {
+        No,
+        Another,
+        TheDriveKey,
+    }
+    for holds_key in [false, true] {
+        for planned in [Planned::No, Planned::Another, Planned::TheDriveKey] {
+            for listed in [false, true] {
+                let combination = format!("key {holds_key}, planned {planned:?}, listed {listed}");
+                // a bucket that lists key files: a drive another device set up
+                let bucket = MemBucket::new();
+                let theirs = DriveKey::generate().unwrap();
+                if listed {
+                    setup_new_drive(&bucket, &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
+                }
+                let keyring = MemoryKeyring::new();
+                if holds_key {
+                    device::store_drive_key(&keyring, DRIVE, &theirs).unwrap();
+                }
+                match planned {
+                    Planned::No => {}
+                    Planned::Another => {
+                        device::plan_drive_key(&keyring, DRIVE, &DriveKey::generate().unwrap())
+                            .unwrap();
+                    }
+                    Planned::TheDriveKey => {
+                        // only a drive key can be the planned one
+                        if !holds_key {
+                            continue;
+                        }
+                        device::plan_drive_key(&keyring, DRIVE, &theirs).unwrap();
+                    }
+                }
+                let gate = enc_judge(&bucket, &keyring, DRIVE, Recorded::default()).unwrap();
+                let permit = says(&gathered(&bucket, &keyring));
+                match (holds_key, planned) {
+                    (true, Planned::TheDriveKey) => {
+                        assert!(
+                            matches!(
+                                gate,
+                                EncState::Encrypted {
+                                    via: Via::KeyInKeyring,
+                                    ..
+                                }
+                            ),
+                            "{combination}: {gate:?}"
+                        );
+                        assert_eq!(permit, "finish", "{combination}");
+                    }
+                    (true, _) => {
+                        assert!(
+                            matches!(
+                                gate,
+                                EncState::Encrypted {
+                                    via: Via::KeyInKeyring,
+                                    ..
+                                }
+                            ),
+                            "{combination}: {gate:?}"
+                        );
+                        assert_eq!(permit, "rotate", "{combination}");
+                    }
+                    (false, Planned::Another) => {
+                        assert_eq!(gate, EncState::SetupPending, "{combination}");
+                        assert_eq!(permit, "finish", "{combination}");
+                    }
+                    (false, _) if listed => {
+                        assert!(
+                            matches!(
+                                gate,
+                                EncState::Encrypted {
+                                    via: Via::KeyFilesListed,
+                                    ..
+                                }
+                            ),
+                            "{combination}: {gate:?}"
+                        );
+                        assert_eq!(permit, "locked", "{combination}");
+                    }
+                    (false, _) => {
+                        assert_eq!(
+                            gate,
+                            EncState::Unencrypted(Unencrypted::New),
+                            "{combination}"
+                        );
+                        assert_eq!(permit, "new", "{combination}");
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// X-DELTA-AZDRIVE-KEYS-6, X-KEYSTATE-4: whatever the keyring could not say, the key change is refused

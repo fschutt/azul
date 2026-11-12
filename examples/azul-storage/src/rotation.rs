@@ -533,7 +533,9 @@ fn changed_since_asked() -> DriveError {
 /// or a bucket that cannot be read, a keyring that keeps no key material, an index the writer cannot
 /// seal again - is refused HERE, while the other devices still have their access (X-DELTA-AZDRIVE-KEYS-1,
 /// -6, -25; X-DELTA-KEYS2-2). A refusal keeps the words and the class the guards had: the keyring's or
-/// the bucket's own error for a read that failed, `Denied` with the sentence of `opens_nothing`.
+/// the bucket's own error for a read that failed, `Denied` with the sentence of `opens_nothing`; a device
+/// with neither the drive key nor the new key of a key change has no guard of its own, and the key permit
+/// says why it cannot (`Locked`, no key, a setup that is not finished) in the table's words.
 ///
 /// # Errors
 ///
@@ -551,6 +553,19 @@ pub fn ask(
     }
     let entries = device::read_entries(keyring, drive);
     let mut seen = BucketFacts::default();
+    // A device with neither the drive key nor the new key of a key change has none to change: the key
+    // permit says why - no key at all, a drive locked here, a setup that is not finished - in its own words,
+    // where the guard of `rotate` would say "finish it on the device that started it" of a key change nobody
+    // began. (The bucket is looked at for that: only a refused request reads it.)
+    if matches!((&entries.drive, &entries.next), (Ok(None), Ok(None))) {
+        seen.encrypted = Read::value(device::is_encrypted(bucket));
+        let evidence = evidence_of(drive, keyring, &entries, seen);
+        return Err(match keystate::ask(Op::Rotate, &evidence) {
+            Verdict::Refuse(reason) => reason.error(drive),
+            // no key to change: whatever the table says, there is nothing for `rotate` to start from
+            Verdict::Permit(_) => missing("old"),
+        });
+    }
     let started = start_seen(bucket, &entries, drive, &mut seen)?;
     let evidence = evidence_of(drive, keyring, &entries, seen);
     let rotate = match keystate::ask(Op::Rotate, &evidence) {

@@ -3061,7 +3061,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                         .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
                 // The key permit's NewCode cell: a key change that is not over replaces the wrap again,
                 // and this code would open nothing once it is done (KEYS-7).
-                device::wraps_permit(Op::NewCode, &keyring, auto.drive())
+                let _permit = device::wraps_permit(Op::NewCode, &keyring, auto.drive())
                     .map_err(|e| e.to_string())?;
                 let code = RecoveryCode::generate().map_err(|e| e.to_string())?;
                 let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
@@ -3235,7 +3235,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
                     device::load_drive_key(&keyring, auto.drive()).map_err(|e| e.to_string())?
                 {
                     // A key change that is not over would hand out the key it replaces.
-                    device::wraps_permit(Op::Invite, &keyring, auto.drive())
+                    let _permit = device::wraps_permit(Op::Invite, &keyring, auto.drive())
                         .map_err(|e| e.to_string())?;
                     let invite = device::seal_invite(auto.bucket().as_ref(), auto.drive(), &drive_key)
                         .map_err(|e| e.to_string())?;

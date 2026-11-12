@@ -366,8 +366,15 @@ fn finish(s: &mut DriveState, device: &str, approver: &str) -> Answer {
             Ok(serde_json::json!({ "joined": true, "device": device }))
         }
         Err(e) => {
-            // An invite nobody opened does not stay behind as a key to the drive.
-            let _ = keys_of::withdraw_invite(&approving.bucket, &invite);
+            // An invite nobody opened does not stay behind as a key to the drive - asked for first: a key
+            // change that is not over deletes the invites itself, and nothing is taken out beside it.
+            if let Ok(permit) = keys_of::wraps_permit(
+                azul_storage::crypto::keystate::Op::RemoveMember,
+                approving.keyring.as_ref(),
+                drive,
+            ) {
+                let _ = keys_of::withdraw_invite(&permit, &approving.bucket, &invite);
+            }
             refused(format!("{device} could not open the approval: {e}"))
         }
     }

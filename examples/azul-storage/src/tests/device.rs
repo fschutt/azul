@@ -18,10 +18,10 @@ use crate::{
             invite_from_text, invite_text, is_encrypted, load_drive_key, load_key_at,
             load_member_secret, member_key_entry, plan_drive_key, planned_key_entry, recover,
             seal_invite, setup_new_drive, setup_new_drive_reporting, setup_pending, unlock,
-            withdraw_invite,
+            withdraw_invite, wraps_permit,
         },
         keys::{RecoveryCode, RecoveryKdf, RECOVERY_KEY_FILE},
-        keystate::Refusal,
+        keystate::{Op, Refusal},
         to_hex, DriveKey,
     },
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
@@ -123,9 +123,16 @@ fn a_second_device_joins_with_an_invite_and_the_invite_opens_the_key_once() {
         Err(DriveError::Denied { .. })
     ));
 
-    // A withdrawn invite opens nothing either.
+    // A withdrawn invite opens nothing either - withdrawn for the permit of a member's removal, which only
+    // the permit of that operation is.
     let unused = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
-    withdraw_invite(&bucket, &unused).unwrap();
+    let wrong = wraps_permit(Op::NewCode, &first, DRIVE).unwrap();
+    assert!(matches!(
+        withdraw_invite(&wrong, &bucket, &unused),
+        Err(DriveError::Denied { .. })
+    ));
+    let permit = wraps_permit(Op::RemoveMember, &first, DRIVE).unwrap();
+    withdraw_invite(&permit, &bucket, &unused).unwrap();
     assert!(matches!(
         adopt_invite(&bucket, &MemoryKeyring::new(), DRIVE, &unused, None),
         Err(DriveError::Denied { .. })

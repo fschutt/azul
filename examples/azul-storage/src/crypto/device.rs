@@ -1305,8 +1305,19 @@ fn invite_left(bucket: &dyn Drive, file: &str) -> Option<DriveError> {
     }
 }
 
-/// Withdraws an invite that was not used (its wrap leaves the bucket).
-pub fn withdraw_invite(bucket: &dyn Drive, invite: &MemberSecret) -> Result<(), DriveError> {
+/// Withdraws an invite that was not used (its wrap leaves the bucket), for the permit of
+/// [`Op::RemoveMember`] ([`wraps_permit`]): a key change that is not over deletes the invites and the
+/// members it did not make itself, so none is taken out beside it.
+///
+/// # Errors
+///
+/// A permit of another operation (`Denied`), the bucket's refusal.
+pub fn withdraw_invite(
+    permit: &keystate::Permit,
+    bucket: &dyn Drive,
+    invite: &MemberSecret,
+) -> Result<(), DriveError> {
+    permit.allows_op(Op::RemoveMember)?;
     let member = invite_member(invite);
     let file = member_key_file(&member).map_err(|e| e.for_key(&member))?;
     bucket.delete(&file)

@@ -1730,6 +1730,26 @@ pub const DEVICE_KEY: Consumer = Consumer {
     functions: &[],
 };
 
+/// The id of the drive key this computer recorded for the drive (the `encryption` record of its entry in the
+/// drives file: [`crate::config::DrivesFile::record_encryption`], which the apps' open paths write - AzDrive's
+/// `take_key_records` - after every open). Not a secret and not sealed under the key: the id of the key the
+/// drive last opened with, which the next open checks the key it holds against (KEYS-18). A key change
+/// makes a new id and the record follows at the next open (the drive opens through the keyring's new key and
+/// records it); a restore leaves the key and the record alone ([`Stays::RecordedKeyId`]).
+pub const RECORDED_KEY_ID: Consumer = Consumer {
+    name: "RECORDED_KEY_ID",
+    entries: &[],
+    reseal: Reseal::Nothing(
+        "the apps record the id of the key a drive opened with at every open (config::DrivesFile::\
+         record_encryption); after a key change the next open records the new id",
+    ),
+    forget: Forget::Nothing(
+        "the record is the drive's own entry in the drives file: the listing store of a removal takes \
+         it with the drive, last",
+    ),
+    functions: &[],
+};
+
 /// Everything a drive key touches, in the order of C7.
 pub const CONSUMERS: &[Consumer] = &[
     INDEX,
@@ -1743,6 +1763,7 @@ pub const CONSUMERS: &[Consumer] = &[
     REENCRYPT_STATE,
     CHAIN,
     DEVICE_KEY,
+    RECORDED_KEY_ID,
 ];
 
 /// Whose a keyring entry is.
