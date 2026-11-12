@@ -1172,19 +1172,8 @@ fn an_announced_restore_reaches_the_pass_and_the_files_after_the_copy_go_up_agai
 fn send_them_again_releases_the_kept_files_for_the_next_pass() {
     use azcloud_kit::sync::{
         local::LocalIndex,
-        problems::{Code, Problem, ProblemList},
-        session::INDEX_FILE,
+        session::{kept_files, INDEX_FILE},
     };
-    let list = ProblemList {
-        problems: vec![
-            Problem::new(Code::DeletedElsewhereKept, "old/report.pdf", "kept"),
-            Problem::new(Code::SymlinkSkipped, "link", "a link"),
-            Problem::new(Code::DeletedElsewhereKept, "", "no file"),
-        ],
-        updated_at: 0,
-    };
-    assert_eq!(sync_view::kept_of(&list), ["old/report.pdf"], "only the kept files, by key");
-
     let drive: Arc<dyn Drive> = Arc::new(MemDrive::default());
     let a = Device::new("send-kept-a", &drive, AutoDownload::Everything);
     a.write("report.pdf", b"kept here");
@@ -1193,14 +1182,11 @@ fn send_them_again_releases_the_kept_files_for_the_next_pass() {
     let mut index = LocalIndex::load(&index_path).unwrap().expect("the first pass's base");
     index.kept.insert(String::from("report.pdf"));
     index.save(&index_path).unwrap();
+    // The keys are the base's own set (X-DELTA-SYNC4-31), not the problem list's capped rows.
+    let keys = kept_files(&a.work().dir).unwrap();
+    assert_eq!(keys, ["report.pdf"]);
 
-    let answer = sync_jobs::run(
-        SyncJob::SendKept {
-            work: a.work(),
-            keys: vec![String::from("report.pdf")],
-        },
-        &mut |_| {},
-    );
+    let answer = sync_jobs::run(SyncJob::SendKept { work: a.work(), keys }, &mut |_| {});
 
     assert!(matches!(
         &answer,

@@ -65,6 +65,23 @@ use crate::{
 pub const STATES_FILE: &str = "files.json";
 /// The pairing's local index (the sync's base), in its state folder.
 pub const INDEX_FILE: &str = "index.json";
+
+/// The files the drive deleted before the pairing whose state folder is `state_dir` knew them, kept
+/// here and not sent (`deleted-elsewhere-kept`): the base's own set, every one of them. "Send them
+/// again" takes its keys from here and not from the problem list: that list shows at most a thousand
+/// rows per kind and one "more" row, so a click sent the first thousand and left the rest on this
+/// device with no action to send them (X-DELTA-SYNC4-31). A pairing that has no base yet keeps none.
+///
+/// # Errors
+///
+/// When the base cannot be read: a failed read is not "nothing is kept".
+pub fn kept_files(state_dir: &Path) -> CloudResult<Vec<String>> {
+    let Some(index) = LocalIndex::load(&state_dir.join(INDEX_FILE))? else {
+        return Ok(Vec::new());
+    };
+    Ok(index.kept.into_iter().collect())
+}
+
 /// The lock a pass of the pairing holds, in the `locks` folder of its state folder (AZ-S16): the
 /// pass of another window or command waits for it, or is told.
 pub const PASS_LOCK: &str = "sync-pass";
@@ -1762,6 +1779,16 @@ impl SyncSession {
             }
         })?;
         Ok(())
+    }
+
+    /// The files the drive deleted before this pairing knew them, kept here and not sent
+    /// ([`kept_files`]).
+    ///
+    /// # Errors
+    ///
+    /// When the base cannot be read.
+    pub fn kept_files(&self) -> CloudResult<Vec<String>> {
+        kept_files(&self.dir)
     }
 
     /// "Send it again": files the drive deleted before this pairing knew them, kept here and

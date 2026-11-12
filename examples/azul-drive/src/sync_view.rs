@@ -1677,25 +1677,17 @@ fn under_mb(setup: &SyncSetup) -> u64 {
 /// The problems shown per pairing at most; the rest is counted.
 const PROBLEMS_SHOWN: usize = 20;
 
-/// The files of the pairing's problem list that the drive deleted before this pairing knew
-/// them and that are kept here (`deleted-elsewhere-kept`): what "Send them again" sends.
+/// The files the drive deleted before this pairing knew them and that are kept here
+/// (`deleted-elsewhere-kept`): what "Send them again" sends - every one of them, read from the pairing's
+/// base. The problem list shows at most a thousand rows per kind, and a click that took its keys from
+/// there left the rest on this device with no action to send them (X-DELTA-SYNC4-31).
 pub(crate) fn kept_keys(s: &DriveState, setup: &SyncSetup) -> Vec<String> {
     let Some(root) = sync_jobs::state_root(s) else {
         return Vec::new();
     };
-    azcloud_kit::sync::problems::ProblemList::load(&setup.state_dir(&root))
-        .map(|list| kept_of(&list))
-        .unwrap_or_default()
-}
-
-/// The keys `list` names as deleted elsewhere and kept here.
-pub(crate) fn kept_of(list: &azcloud_kit::sync::problems::ProblemList) -> Vec<String> {
-    list.problems
-        .iter()
-        .filter(|p| p.code == azcloud_kit::sync::problems::Code::DeletedElsewhereKept)
-        .filter(|p| !p.key.is_empty())
-        .map(|p| p.key.clone())
-        .collect()
+    // collapse-ok: a base that cannot be read offers no "Send them again"; the next pass says what is
+    // wrong, and nothing is sent or dropped on this answer.
+    azcloud_kit::sync::session::kept_files(&setup.state_dir(&root)).unwrap_or_default()
 }
 
 /// The pairing's problem list as its last pass left it (azcloud-kit's `sync::problems`): every

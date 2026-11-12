@@ -764,6 +764,52 @@ fn x_delta_sync6_10_a_blob_another_pass_names_after_the_listing_is_not_collected
     assert_eq!((report.deleted, report.named_since), (0, 1), "{report:?}");
 }
 
+/// X-DELTA-SYNC4-31. "Send them again" took its keys from the problem list, which shows at most a
+/// thousand rows per kind and one "more" row: a click sent the first thousand files the drive had
+/// deleted before this pairing knew them and left the rest here with no action to send them. The keys
+/// are the base's own `kept` set now, all of them; the click's send releases every one. RED on the old
+/// code: there is no such read - the keys came from `kept_of(problem list)`, at most 1,000 of 1,500.
+#[test]
+fn x_delta_sync4_31_send_them_again_takes_every_kept_file_not_the_problem_lists_first_thousand() {
+    use crate::sync::{local::LocalIndex, session::kept_files};
+    let store = Arc::new(S3Bucket::new());
+    let a = Device::new("relook-kept");
+    a.write("a.md", b"one");
+    a.sync(&store);
+    let state = a.index().parent().expect("a state folder").to_path_buf();
+    assert!(kept_files(&state).unwrap().is_empty(), "nothing kept yet");
+    let mut index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    for n in 0..1_500 {
+        index.kept.insert(format!("old/report-{n:04}.pdf"));
+    }
+    index.save(&a.index()).unwrap();
+    let keys = kept_files(&state).unwrap();
+    assert_eq!(
+        keys.len(),
+        1_500,
+        "every kept file, not a capped list's rows"
+    );
+    assert_eq!(keys[0], "old/report-0000.pdf");
+    // The problem list that the old route read is capped: the defect this replaces.
+    let mut list = crate::sync::problems::ProblemList::default();
+    list.publish(
+        keys.iter()
+            .map(|key| crate::sync::problems::Problem::new(Code::DeletedElsewhereKept, key, "kept"))
+            .collect(),
+        true,
+        1,
+    );
+    let shown = list
+        .problems
+        .iter()
+        .filter(|p| p.code == Code::DeletedElsewhereKept && !p.key.is_empty())
+        .count();
+    assert!(
+        shown < 1_500,
+        "the list a click read from shows only {shown} of the 1,500"
+    );
+}
+
 /// A pairing on the plain index (the fake bucket) whose passes hear the fault seam.
 fn plain(device: &str, folder: &Path, state: &Path, store: &Arc<S3Bucket>) -> Arc<SyncSession> {
     let remote: Arc<dyn crate::store::RemoteStore> = store.clone();
