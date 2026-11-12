@@ -645,3 +645,223 @@ fn a_newer_map_a_node_names_makes_the_drive_take_the_token_servers_view_before_i
     drive.list(&ListRequest::folder("")).unwrap();
     assert_eq!(refreshes(&fake), 1, "once");
 }
+
+// ==== The account and the bytes of an Azlin drive (ARCH29 C6d) ====
+
+/// The live token server and a hostile one that `drives.json` (any process of the user can write
+/// it) or a lying token server's bundle names.
+const LIVE: &str = "https://token.azlin.io";
+const HOSTILE: &str = "https://evil.example";
+
+fn azlin_entry(account_url: &str) -> azul_storage::config::DriveEntry {
+    use azul_storage::config::{DriveAuth, DriveEntry, DriveLocation};
+    DriveEntry {
+        id: String::from("d_1"),
+        name: String::from("Photos"),
+        location: DriveLocation::S3 {
+            endpoint: String::from("https://s3.example.test"),
+            region: String::from("us-east-1"),
+            bucket: String::from("d-1"),
+            path_style: true,
+            auth: DriveAuth::Azlin {
+                drive_id: String::from("d_1"),
+                account_url: account_url.to_string(),
+                encrypted: false,
+                key_id: None,
+            },
+        },
+    }
+}
+
+fn target(drive_id: &str, url: &str) -> Option<crate::drive::AzlinTarget> {
+    Some(crate::drive::AzlinTarget {
+        drive_id: drive_id.to_string(),
+        token_url: url.to_string(),
+    })
+}
+
+/// A SHIPPED build sends the drive token, the period tokens, a recovery key, a voucher and a lockdown
+/// to the server the run resolved (the live one), whatever the entry says: the old code took
+/// `account_url` of `drives.json` and the next start's daily look sent the drive token there
+/// (`Authorization: Bearer ...`), which the attacker spends at the real server. The one resolver is
+/// `azlin_target`, in the kit (X-DELTA-AZDRIVE-KEYS-9; it was AzDrive's `periods::azlin_drive`).
+#[test]
+fn x_delta_azdrive_keys_9_a_shipped_build_sends_the_drive_token_to_the_live_server_whatever_the_entry_names(
+) {
+    use crate::drive::azlin_target_choice;
+    assert_eq!(
+        azlin_target_choice(false, &azlin_entry(HOSTILE), Some(LIVE)),
+        target("d_1", LIVE)
+    );
+    // The same for an entry that names the live server, and one that names nothing.
+    assert_eq!(
+        azlin_target_choice(false, &azlin_entry(LIVE), Some(LIVE)),
+        target("d_1", LIVE)
+    );
+    assert_eq!(
+        azlin_target_choice(false, &azlin_entry(""), Some(LIVE)),
+        target("d_1", LIVE)
+    );
+    // A run with no server to name sends nothing - not to the entry's.
+    assert_eq!(
+        azlin_target_choice(false, &azlin_entry(HOSTILE), None),
+        None
+    );
+    assert_eq!(
+        azlin_target_choice(false, &azlin_entry(HOSTILE), Some("  ")),
+        None
+    );
+}
+
+/// A TEST build keeps what it had: the entry's server (a local stack's drive), else the run's; only an
+/// Azlin drive has a token server; and the choice `azlin_target` makes is the anchors' for the build under
+/// test (the shipped branch is the one above).
+#[test]
+fn a_test_build_takes_the_entrys_server_else_the_runs_and_only_an_azlin_drive_has_one() {
+    use crate::drive::{azlin_target, azlin_target_choice};
+    assert_eq!(
+        azlin_target_choice(true, &azlin_entry("http://127.0.0.1:18081"), Some(LIVE)),
+        target("d_1", "http://127.0.0.1:18081")
+    );
+    assert_eq!(
+        azlin_target_choice(true, &azlin_entry("  "), Some("http://127.0.0.1:8081")),
+        target("d_1", "http://127.0.0.1:8081")
+    );
+    assert_eq!(azlin_target_choice(true, &azlin_entry(""), None), None);
+    let local = azul_storage::config::DriveEntry {
+        id: String::from("home"),
+        name: String::from("Home"),
+        location: azul_storage::config::DriveLocation::Local {
+            root: String::from("/tmp/home"),
+        },
+    };
+    assert_eq!(azlin_target_choice(true, &local, Some(LIVE)), None);
+    assert_eq!(azlin_target_choice(false, &local, Some(LIVE)), None);
+    let honoured = azul_appkit::anchors::layers_honoured();
+    assert_eq!(
+        azlin_target(&azlin_entry(HOSTILE), Some(LIVE)),
+        azlin_target_choice(honoured, &azlin_entry(HOSTILE), Some(LIVE))
+    );
+}
+
+/// What the app puts over the bytes: counts what passes through it. The gate of the test.
+struct Gate {
+    below: Arc<dyn Drive>,
+    passed: Arc<AtomicU64>,
+}
+
+impl azul_storage::DriveDelegate for Gate {
+    fn below(&self) -> &dyn Drive {
+        &*self.below
+    }
+
+    fn send<T>(
+        &self,
+        request: impl Fn(&dyn Drive) -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
+        self.passed.fetch_add(1, Ordering::SeqCst);
+        request(&*self.below)
+    }
+}
+
+azul_storage::delegate_drive!(Gate);
+
+/// ARCH29 C6d, X-DELTA-AZDRIVE-KEYS-4 and -9. `open_azlin` hands out the account and the drive the gate
+/// made, nothing else: the gate is called once and is given the bytes of the bucket; a request of the
+/// drive that comes out passes through it and reaches the bucket with the drive's credentials; the account
+/// (a lockdown, the session, the token server it resolved) is the same drive's and has no put and no get.
+#[test]
+fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
+    use crate::drive::{open_azlin, AzlinOpen};
+    let dir = TempDir::new("c6d-open-azlin");
+    let fake = cloud(None);
+    let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
+    let (shared, _) = keyring_with(&first, &dir);
+    let passed = Arc::new(AtomicU64::new(0));
+    let gates = Arc::new(AtomicU64::new(0));
+    let (for_gate, counted) = (passed.clone(), gates.clone());
+    let (account, drive) = open_azlin(
+        &first.entry_named("Cloud", TOKEN),
+        AzlinOpen {
+            session: first.session(),
+            token_url: TOKEN,
+            keyring: shared,
+            transports: factory(&fake),
+            on_rotated: Box::new(|_, _| {}),
+            nodes_file: None,
+            iroh: None,
+        },
+        move |account, bytes| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(
+                account.token_url(),
+                TOKEN,
+                "the resolver's choice is the account's"
+            );
+            Arc::new(Gate {
+                below: bytes,
+                passed: for_gate,
+            })
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        gates.load(Ordering::SeqCst),
+        1,
+        "the gate is made once, over the bytes"
+    );
+    // A request of the drive goes through the gate and to the bucket.
+    assert_eq!(passed.load(Ordering::SeqCst), 0);
+    drive.list(&ListRequest::folder("")).unwrap();
+    assert_eq!(
+        passed.load(Ordering::SeqCst),
+        1,
+        "the request passed the gate"
+    );
+    assert!(
+        fake.calls()
+            .iter()
+            .any(|c| c.method == Method::Get && c.url.contains("127.0.0.1:19000/d-1")),
+        "and reached the bucket: {:?}",
+        fake.calls()
+    );
+    // The account is the same drive's: the credentials of the bundle were out of date (the clock is the
+    // system's), so the request refreshed them - and the account holds the session that refresh made.
+    assert_eq!(
+        account.with_session(|s| s.drive_token.as_str().to_string()),
+        "dt_f.1.bbb"
+    );
+    assert_eq!(refreshes(&fake), 1, "{:?}", fake.calls());
+    // An entry that is no bucket is no Azlin drive: nothing is opened and the gate is not asked.
+    let local = azul_storage::config::DriveEntry {
+        id: String::from("home"),
+        name: String::from("Home"),
+        location: azul_storage::config::DriveLocation::Local {
+            root: String::from("/tmp/home"),
+        },
+    };
+    let (shared, _) = keyring_with(&first, &dir);
+    let asked = Arc::new(AtomicU64::new(0));
+    let counted = asked.clone();
+    let refused = open_azlin(
+        &local,
+        AzlinOpen {
+            session: first.session(),
+            token_url: TOKEN,
+            keyring: shared,
+            transports: factory(&fake),
+            on_rotated: Box::new(|_, _| {}),
+            nodes_file: None,
+            iroh: None,
+        },
+        move |_, bytes| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            bytes
+        },
+    );
+    assert!(
+        refused.is_err(),
+        "a folder on disk has no account at a token server"
+    );
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "the gate was not asked");
+}

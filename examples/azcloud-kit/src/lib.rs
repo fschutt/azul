@@ -134,7 +134,9 @@ pub use bucket::Bucket;
 pub use bundle::{ClaimTicket, DriveBundle, PeriodTokens};
 pub use cash::{ActivationCode, CashError, ClaimCode};
 pub use claim::{ClaimError, ClaimKey};
-pub use drive::AzlinDrive;
+pub use drive::{
+    azlin_target, azlin_target_choice, open_azlin, AzlinAccount, AzlinDrive, AzlinOpen, AzlinTarget,
+};
 pub use endpoints::TokenEndpoint;
 pub use error::{CloudError, CloudResult};
 pub use lock::LockDir;

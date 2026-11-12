@@ -31,9 +31,13 @@ use std::{
 
 use azlin_contract::IdempotentScope;
 use azul_storage::{
-    config::DriveEntry, ops, time::now_unix, ui_thread::NetworkLock, AzlinError, BatchDelete,
-    BatchMove, BatchPut, BatchStream, BucketSpace, ByteRange, Ctl, Drive, DriveError, Limit,
-    ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError, Transport,
+    config::{DriveAuth, DriveEntry, DriveLocation},
+    ops,
+    time::now_unix,
+    ui_thread::NetworkLock,
+    AzlinError, BatchDelete, BatchMove, BatchPut, BatchStream, BucketSpace, ByteRange, Ctl, Drive,
+    DriveError, Limit, ListPage, ListRequest, ObjectInfo, Precondition, S3Drive, ServiceError,
+    Transport,
 };
 
 use crate::{
@@ -801,4 +805,237 @@ impl Drive for AzlinDrive {
             other => other,
         }
     }
+}
+
+// ==== The account of an Azlin drive, and the one place its token server is chosen (ARCH29 C6d) ====
+
+/// An Azlin drive's id at the token server and the token server its credentials are SENT to (a drive
+/// token, a period token, a recovery key, a voucher, a lockdown): what [`azlin_target`] resolves.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AzlinTarget {
+    /// The drive's id at the token server.
+    pub drive_id: String,
+    /// The token server's address.
+    pub token_url: String,
+}
+
+/// The Azlin drive of `entry` and the token server its credentials go to - THE resolver of that address
+/// (X-DELTA-AZDRIVE-KEYS-9, AZ-K20, REVIEW K20): no other function of the apps reads the address a drive
+/// entry carries (`account_url` in `drives.json`), and [`open_azlin`] asks this one. A shipped build
+/// answers `fallback` (the run's, the live server's), whatever the entry says: `drives.json` is a file any
+/// process of the user can write, and a hostile token server can seed the address of a drive it hands out.
+/// A test build answers the entry's, else `fallback` ([`azul_appkit::anchors::token_server_for`]). `None` for
+/// every other drive, and for one with no server to name.
+#[must_use]
+pub fn azlin_target(entry: &DriveEntry, fallback: Option<&str>) -> Option<AzlinTarget> {
+    azlin_target_choice(azul_appkit::anchors::layers_honoured(), entry, fallback)
+}
+
+/// [`azlin_target`] with the build's choice as an argument (the tests set both).
+#[must_use]
+pub fn azlin_target_choice(
+    honour_entry: bool,
+    entry: &DriveEntry,
+    fallback: Option<&str>,
+) -> Option<AzlinTarget> {
+    let DriveLocation::S3 {
+        auth:
+            DriveAuth::Azlin {
+                drive_id,
+                account_url,
+                ..
+            },
+        ..
+    } = &entry.location
+    else {
+        return None;
+    };
+    let url = azul_appkit::anchors::token_server_choice(
+        honour_entry,
+        account_url,
+        fallback.unwrap_or_default(),
+    );
+    if url.is_empty() {
+        return None;
+    }
+    Some(AzlinTarget {
+        drive_id: drive_id.clone(),
+        token_url: url.to_string(),
+    })
+}
+
+/// An Azlin drive's ACCOUNT: its session and the keyring entry it lives in, the token server it is
+/// refreshed at, the node list its requests fail over to, the grant and the restore announcement the
+/// token server last told - what a lockdown, a look at the stored bytes, a month bought and a sync
+/// session's restore notice are about. It has no `put` and no `get`: a job that holds one cannot write
+/// into the drive's bucket, which is how a price notice reached an encrypted drive's bucket in the clear,
+/// below the gate (X-DELTA-AZDRIVE-KEYS-4). The bytes are the drive [`open_azlin`] hands out beside it.
+pub struct AzlinAccount {
+    drive: Arc<AzlinDrive>,
+}
+
+impl fmt::Debug for AzlinAccount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AzlinAccount")
+            .field("entry", &self.drive.entry)
+            .field("token_url", &self.drive.token_url)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AzlinAccount {
+    /// The token server this drive's credentials go to, as [`open_azlin`] resolved it.
+    #[must_use]
+    pub fn token_url(&self) -> &str {
+        &self.drive.token_url
+    }
+
+    /// Locks the drive down from this device ("I was hacked"): see [`AzlinDrive::lockdown`].
+    ///
+    /// # Errors
+    ///
+    /// No answer, the token server's refusal, a lock or keyring that cannot be used.
+    pub fn lockdown(&self) -> Result<(), DriveError> {
+        self.drive.lockdown()
+    }
+
+    /// What the drive's node counts of its bucket (one HeadBucket): see [`AzlinDrive::space`].
+    ///
+    /// # Errors
+    ///
+    /// The bucket's refusal or no answer.
+    pub fn space(&self) -> Result<BucketSpace, DriveError> {
+        self.drive.space()
+    }
+
+    /// The drive's node's signed count of the bytes its bucket holds: see [`AzlinDrive::usage_proof`].
+    ///
+    /// # Errors
+    ///
+    /// The bucket's refusal or no answer.
+    pub fn usage_proof(&self) -> Result<Option<String>, DriveError> {
+        self.drive.usage_proof()
+    }
+
+    /// The token server changed the drive's grant: see [`AzlinDrive::apply`].
+    pub fn apply(&self, changed: GrantChanged) {
+        self.drive.apply(changed);
+    }
+
+    /// The drive's newest restore announcement as the last refresh answered it: see
+    /// [`AzlinDrive::restore_notice`].
+    #[must_use]
+    pub fn restore_notice(&self) -> Option<crate::sync::RestoreNotice> {
+        self.drive.restore_notice()
+    }
+
+    /// Runs `look` on the session as it is now (after any refresh).
+    pub fn with_session<T>(&self, look: impl FnOnce(&AzlinSession) -> T) -> T {
+        self.drive.with_session(look)
+    }
+
+    /// The node list the requests fail over to.
+    #[must_use]
+    pub fn nodes(&self) -> Vec<Node> {
+        self.drive.nodes()
+    }
+
+    /// The failover every request of the drive goes through.
+    #[must_use]
+    pub fn failover(&self) -> &Arc<Failover> {
+        self.drive.failover()
+    }
+
+    /// The iroh lane, when the drive has one: what it did last.
+    #[must_use]
+    pub fn lane(&self) -> Option<Arc<IrohLane>> {
+        self.drive.lane()
+    }
+
+    /// The drive of `drive_id` with the key `keyring` holds (or this device's member wrap in the
+    /// bucket opens), for the vault in the drive: its bucket below the encryption and the drive key.
+    /// The vault is sealed under the drive key and lies where no listing of the drive shows it, so it
+    /// is written below the gate on purpose - by the vault's own code, in this crate, and nowhere else.
+    /// `None` when this device has no key of the drive.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's or the keyring's refusal, a damaged wrap.
+    #[cfg(feature = "encryption")]
+    pub fn unlocked(
+        &self,
+        drive_id: &str,
+        keyring: &dyn azul_storage::keyring::KeyringStore,
+    ) -> crate::CloudResult<Option<crate::UnlockedDrive>> {
+        crate::UnlockedDrive::open(drive_id, self.drive.clone(), keyring)
+    }
+
+    /// The handle the signatures of AzDrive took before the split. TRANSITIONAL: it goes with the old
+    /// public surface once every signature takes an [`AzlinAccount`] (ARCH29 C6d).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn drive(&self) -> &Arc<AzlinDrive> {
+        &self.drive
+    }
+}
+
+/// What [`open_azlin`] needs to open an Azlin drive.
+pub struct AzlinOpen<'a> {
+    /// The drive's session as the keyring has it.
+    pub session: AzlinSession,
+    /// The token server this run resolved: a shipped build uses it whatever the entry names
+    /// ([`azlin_target`]); empty when nobody named one.
+    pub token_url: &'a str,
+    /// Where the drive's session lives between processes, and the lock its refreshes hold.
+    pub keyring: SharedKeyring,
+    /// Makes a transport: one for every S3 drive the credentials open, one for every refresh.
+    pub transports: TransportFactory,
+    /// Hears every session the drive switches to.
+    pub on_rotated: OnRotated,
+    /// Where the node list of every refresh is kept between starts, if anywhere.
+    pub nodes_file: Option<&'a Path>,
+    /// Sends every request over iroh first (the app's dialer, and the relay: `off`, `default` or an
+    /// address); `None`: HTTPS only.
+    pub iroh: Option<(Arc<dyn IrohDialer>, Option<&'a str>)>,
+}
+
+/// Opens the Azlin drive `entry` and hands out its two halves: the [`AzlinAccount`] and the drive of its
+/// bytes - which comes out of `gate` and never otherwise. `gate` is given the account and the bucket's
+/// bytes (the credentials refreshed by themselves, the requests failing over) and returns the drive the
+/// app uses: the layers it puts over them - the retries, the copies kept on this computer, and the
+/// encryption's gate, `AutoEncrypted`, built where the app builds it - are its own. The bytes are called
+/// once, by `gate`, and the bucket's plain store is no value this function returns: a caller that holds
+/// the account has nothing to write with, and the drive it holds is the gate's (X-DELTA-AZDRIVE-KEYS-4).
+///
+/// The token server is [`azlin_target`]'s choice and no other function's (X-DELTA-AZDRIVE-KEYS-9).
+///
+/// # Errors
+///
+/// An entry that is no bucket, or names no token server to refresh its credentials at.
+pub fn open_azlin(
+    entry: &DriveEntry,
+    open: AzlinOpen<'_>,
+    gate: impl FnOnce(&Arc<AzlinAccount>, Arc<dyn Drive>) -> Arc<dyn Drive>,
+) -> Result<(Arc<AzlinAccount>, Arc<dyn Drive>), DriveError> {
+    let mut drive = AzlinDrive::new(
+        entry,
+        open.session,
+        open.token_url,
+        open.keyring,
+        open.transports,
+        open.on_rotated,
+    )?;
+    if let Some(path) = open.nodes_file {
+        drive = drive.with_nodes_file(path);
+    }
+    if let Some((dialer, relay)) = open.iroh {
+        drive = drive.with_iroh(dialer, relay);
+    }
+    let drive = Arc::new(drive);
+    let account = Arc::new(AzlinAccount {
+        drive: Arc::clone(&drive),
+    });
+    let bytes: Arc<dyn Drive> = drive;
+    let gated = gate(&account, bytes);
+    Ok((account, gated))
 }
