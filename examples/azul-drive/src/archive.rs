@@ -1131,6 +1131,12 @@ impl Stops {
             Ok(())
         }
     }
+
+    /// The answer of a batch of `items` once the flag is raised: each one `Cancelled`.
+    fn gone<T>(&self, items: usize) -> Result<(), Vec<Result<T, DriveError>>> {
+        self.alive()
+            .map_err(|stopped| (0..items).map(|_| Err(stopped.clone())).collect())
+    }
 }
 
 /// A request of the copy goes to the drive below unless the flag is raised; a question about the drive
@@ -1154,33 +1160,6 @@ impl azul_storage::DriveDelegate for Stops {
         self.alive()?;
         request(&*self.inner)
     }
-}
-
-
-    /// The answer of a batch of `items` once the flag is raised: each one `Cancelled`.
-    fn gone<T>(&self, items: usize) -> Result<(), Vec<Result<T, DriveError>>> {
-        self.alive()
-            .map_err(|stopped| (0..items).map(|_| Err(stopped.clone())).collect())
-    }
-azul_storage::delegate_drive!(Stops);
-
-/// Whether the copy of a drive whose last state is `last` (none before a first copy) runs now: it
-/// is not running, and it has not ended well yet - files missing, too little room, a record kept
-/// part-way by a run that was cut off (no end time, or fewer files than the drive has) - or a day
-/// passed since it ended (X-DELTA-AZDRIVE-FILES-18: the record of a cut run said "done" and
-/// waited a day).
-pub(crate) fn rescue_due(last: Option<&Rescue>, now: u64) -> bool {
-    last.is_none_or(|r| {
-        !r.running
-            && (!r.missing.is_empty()
-                || r.no_space.is_some()
-                || r.cut_off()
-                || now >= r.at.saturating_add(DAY))
-    })
-}
-
-/// How far a running copy got.
-pub(crate) fn rescue_progress(s: &mut DriveState, azlin_id: &str, copied: usize, total: usize) {
 
     fn put_from(&self, key: &str, body: &mut dyn std::io::Read) -> Result<u64, DriveError> {
         self.alive()?;
@@ -1262,6 +1241,27 @@ pub(crate) fn rescue_progress(s: &mut DriveState, azlin_id: &str, copied: usize,
         }
         self.inner.put_from_many(items)
     }
+}
+
+azul_storage::delegate_drive!(Stops);
+
+/// Whether the copy of a drive whose last state is `last` (none before a first copy) runs now: it
+/// is not running, and it has not ended well yet - files missing, too little room, a record kept
+/// part-way by a run that was cut off (no end time, or fewer files than the drive has) - or a day
+/// passed since it ended (X-DELTA-AZDRIVE-FILES-18: the record of a cut run said "done" and
+/// waited a day).
+pub(crate) fn rescue_due(last: Option<&Rescue>, now: u64) -> bool {
+    last.is_none_or(|r| {
+        !r.running
+            && (!r.missing.is_empty()
+                || r.no_space.is_some()
+                || r.cut_off()
+                || now >= r.at.saturating_add(DAY))
+    })
+}
+
+/// How far a running copy got.
+pub(crate) fn rescue_progress(s: &mut DriveState, azlin_id: &str, copied: usize, total: usize) {
     if let Some(r) = s.rescues.get_mut(azlin_id) {
         r.copied = copied;
         r.total = total;
