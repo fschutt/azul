@@ -908,6 +908,49 @@ fn x_delta_azdrive_sync_8_a_loser_stamped_under_a_reset_clock_is_kept_until_the_
     );
 }
 
+/// X-DELTA-SYNC6-6 (the future-named folder). A pass that ran under a clock a year ahead names its trash
+/// folder by that date, and the folder was never "before the horizon" until the real date passed the
+/// name: kept 13 months for a year, 73 years for a clock set to 2099, while the pairing's own ledger
+/// already proved thirty days. The folder stays until the pairing has watched it for thirty days and
+/// goes then. RED on the old code: it is still there after forty watched days.
+#[test]
+fn x_delta_sync6_6_a_folder_named_in_the_future_goes_once_the_pairing_has_watched_it_for_30_days() {
+    let store = S3Bucket::new();
+    let a = Device::new("sync6-6-future");
+    let mut counter = 0;
+    let mut pass_at = |hours: i64| {
+        counter += 1;
+        a.write(&format!("f{counter}.txt"), counter.to_string().as_bytes());
+        let mut opts = a.opts();
+        opts.clock_offset = hours * 3_600;
+        a.sync_with(&store, &opts).expect("the pass runs")
+    };
+    pass_at(0);
+    let trash = a.path().join(".azlin").join("sync").join("trash");
+    let stamp = root::trash_stamp(crate::now() + 400 * 86_400);
+    fs::create_dir_all(trash.join(&stamp)).unwrap();
+    fs::write(trash.join(&stamp).join("mine.txt"), b"a loser").unwrap();
+    // The clock is believed after a steady day; the folder is named in the future of it.
+    pass_at(20);
+    pass_at(40);
+    for step in 1..=10 {
+        pass_at(40 + step * 48);
+    }
+    assert!(
+        names(&trash).contains(&stamp),
+        "twenty watched days are not thirty: {:?}",
+        names(&trash)
+    );
+    for step in 11..=20 {
+        pass_at(40 + step * 48);
+    }
+    assert!(
+        !names(&trash).contains(&stamp),
+        "thirty watched days release a folder whose name is no date: {:?}",
+        names(&trash)
+    );
+}
+
 /// A system without permission bits (Windows) shows every file as not executable: its volume
 /// keeps none, so an edit made there sends the bit the version had on the drive, never a
 /// cleared one, and a download keeps the drive's bit in the base.

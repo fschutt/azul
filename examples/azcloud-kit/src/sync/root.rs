@@ -290,28 +290,42 @@ pub fn watch_trash(root: &Root, watched: &mut BTreeMap<String, i64>, secs: i64) 
 /// the date is only half of the proof: a "Take theirs" loser stamped under a clock that had been
 /// reset is "old" the day the clock is fixed, and nothing but the time this pairing has itself
 /// watched it can say it is not (AZ-SYNC-8). A folder nobody has watched yet stays.
+///
+/// A folder named LATER than today by that believed clock (a pass that ran under a clock a year ahead
+/// made it) is no date at all, and could never be "before the horizon" until the real date passed its
+/// name - 13 months for a year, decades for a clock set to 2099: the time the pairing has watched it
+/// lie there is the one clock left, and thirty days of it release the folder (X-DELTA-SYNC6-6): the
+/// folder is at least as old as the time this pairing has watched it, whatever its name says.
 pub fn purge_trash(root: &Root, before: i64, watched: &BTreeMap<String, i64>) {
     let Ok(trash) = root.dir_existing(TRASH_DIR) else {
         return;
     };
-    let horizon = crate::rfc3339(before);
-    let horizon: String = horizon
-        .chars()
-        .take(10)
-        .filter(char::is_ascii_digit)
-        .collect();
+    let long_enough = TRASH_DAYS.saturating_mul(86_400);
+    let horizon = day_of(before);
+    // Today by the believed clock: `before` is that clock less the trash's life.
+    let today = day_of(before.saturating_add(long_enough));
     let Ok(names) = trash.names() else {
         return;
     };
-    let long_enough = TRASH_DAYS.saturating_mul(86_400);
     for name in names {
         let Some(name) = name.to_str() else { continue };
         let date = name.get(..8).unwrap_or("");
         let seen = watched.get(name).copied().unwrap_or(0);
-        if dated(name) && date < horizon.as_str() && seen >= long_enough {
+        let named_old = date < horizon.as_str();
+        let named_in_the_future = date > today.as_str();
+        if dated(name) && seen >= long_enough && (named_old || named_in_the_future) {
             remove_tree(&trash, name);
         }
     }
+}
+
+/// The date of `secs` as a trash folder's name starts with it: eight digits, `YYYYMMDD`.
+fn day_of(secs: i64) -> String {
+    crate::rfc3339(secs)
+        .chars()
+        .take(10)
+        .filter(char::is_ascii_digit)
+        .collect()
 }
 
 /// Removes the folder `name` of `dir` with everything in it, never through a link (a link in
