@@ -122,12 +122,20 @@ pub struct FolderReport {
     /// where this computer has the message; a message of which only the header block is here
     /// stays as it is). Never counted in `removed`.
     pub kept_after_restore: u64,
+    /// An Azlin account's: messages the drive no longer lists, kept here because the token server
+    /// could not be asked whether the drive was restored ([`SyncReport::restore_unknown`]). They
+    /// are neither removed nor put back; the next Send/Receive decides. Never counted in `removed`.
+    pub kept_unasked: u64,
 }
 
 /// The whole sync's outcome.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SyncReport {
     pub folders: Vec<FolderReport>,
+    /// An Azlin account's: why the token server could not be asked whether the drive was restored
+    /// (the text of the error), when some folder had mail the drive no longer lists. `None`:
+    /// it was not needed, or it answered.
+    pub restore_unknown: Option<String>,
 }
 
 impl SyncReport {
@@ -149,6 +157,10 @@ impl SyncReport {
 
     pub fn kept_after_restore(&self) -> u64 {
         self.folders.iter().map(|f| f.kept_after_restore).sum()
+    }
+
+    pub fn kept_unasked(&self) -> u64 {
+        self.folders.iter().map(|f| f.kept_unasked).sum()
     }
 }
 

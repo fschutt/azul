@@ -1287,3 +1287,68 @@ fn x_delta_azdrive_keys_21_a_bundle_cannot_carry_the_record_of_a_drives_encrypti
         "nor in the raw entry"
     );
 }
+
+/// X-DELTA-APPS3-2: an app that is about to let go of what the drive no longer lists asks the
+/// token server NOW (`GET /v1/drives/{id}`), because the announcement its session carries is the
+/// one its last sign-in saw, hours old. The answer is read by the same function as a bundle's
+/// (`bundle::restore_of`): an announced restore is its epoch, prefix, kind and moment; `null` is
+/// the server's word that none was announced; and an answer that does not SAY - an empty body, no
+/// `restore`, one that names no epoch, a refusal - is an error, never "none".
+#[test]
+fn x_delta_apps3_2_the_newest_restore_announcement_is_asked_now_and_an_answer_that_does_not_say_is_an_error(
+) {
+    let asked = |status: u16, body: &'static str| {
+        let fake = Fake::new(move |_, _| Ok(json(status, body)));
+        let transport = Shared(fake.clone());
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let answer = server.restore_notice("d_1", "dt_f.0.aaa");
+        (answer, fake.calls())
+    };
+    let (answer, calls) = asked(
+        200,
+        r#"{"id": "d_1", "restore": {"epoch": 4, "prefix": "mail/", "kind": "point_in_time",
+            "as_of": "2026-10-12T10:00:00Z"}}"#,
+    );
+    let notice = answer.unwrap().expect("an announced restore");
+    assert_eq!(
+        (notice.epoch, notice.prefix.as_str()),
+        (4, "mail/"),
+        "{notice:?}"
+    );
+    assert_eq!(notice.kind, crate::sync::RestoreKind::PointInTime);
+    assert_eq!(
+        notice.as_of,
+        azul_storage::time::parse_iso8601("2026-10-12T10:00:00Z").map(|s| s as i64)
+    );
+    // The one call is a GET of the drive's own address with the drive token: nothing is spent.
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].method, Method::Get);
+    assert_eq!(calls[0].url, format!("{TOKEN}/v1/drives/d_1"));
+    assert_eq!(
+        header(&calls[0], "authorization"),
+        Some("Bearer dt_f.0.aaa")
+    );
+    // The server says that none was announced.
+    let (answer, _) = asked(200, r#"{"id": "d_1", "tier": "100GB", "restore": null}"#);
+    assert_eq!(answer.unwrap(), None);
+    // The same reading as a refresh's bundle: one function, one answer.
+    let value: serde_json::Value =
+        serde_json::from_str(r#"{"restore": {"epoch": 2, "kind": "offsite"}}"#).unwrap();
+    assert_eq!(crate::bundle::restore_of(&value).map(|n| n.epoch), Some(2));
+    // Answers that do not say, and a refusal: an error each, never "none".
+    for (status, body) in [
+        (200, ""),
+        (200, r#"{"id": "d_1", "tier": "100GB"}"#),
+        (200, r#"{"id": "d_1", "restore": {}}"#),
+        (200, r#"{"id": "d_1", "restore": 3}"#),
+        (200, "this is not json"),
+        (500, r#"{"error": "boom"}"#),
+        (403, r#"{"error": "forbidden"}"#),
+    ] {
+        let (answer, _) = asked(status, body);
+        assert!(
+            answer.is_err(),
+            "{status} {body:?} must be an error, was {answer:?}"
+        );
+    }
+}

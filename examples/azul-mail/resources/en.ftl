@@ -227,6 +227,10 @@ azmail-outbox-empty-no-account = Nothing waits in the Outbox. To receive mail, a
 azmail-outbox-empty-local = Nothing waits in the Outbox of Local Folders.
 azmail-sending-outbox = Sending the Outbox…
 azmail-outbox-counts = Outbox: { $sent } sent, { $queued } waiting, { $failed } failed.
+azmail-restore-unknown = { $count ->
+    [one] The Azlin drive no longer lists 1 message you have, and the token server could not be asked whether the drive was restored ({ $why }): it stays here until the next Send/Receive.
+   *[other] The Azlin drive no longer lists { $count } messages you have, and the token server could not be asked whether the drive was restored ({ $why }): they stay here until the next Send/Receive.
+ }
 azmail-error-azlin-sign-in-old = the Azlin drive's sign-in is out of date: Send/Receive (F9) signs in again
 azmail-notice-send-receive-first = Send/Receive (F9) first: AzMail signs in to the Azlin drive then.
 azmail-error-azlin-only = This message is in the Azlin drive only: Send/Receive (F9) signs in, then it opens.

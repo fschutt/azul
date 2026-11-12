@@ -438,4 +438,36 @@ impl<'a> TokenServer<'a> {
             archive: serde_json::from_value(info["archive"].clone()).ok(),
         })
     }
+
+    /// The drive's newest restore announcement as the token server says it NOW (the answer of
+    /// [`Self::info`]), not as the last refresh carried it: an app's session lives for hours, and
+    /// a restore announced after the sign-in is in no snapshot. `Ok(None)`: the server says that
+    /// none was announced (`"restore": null`). An error - never "none" - when it could not be
+    /// asked, or its answer does not say: an empty body, no `restore` in it, a `restore` that
+    /// names no epoch. An app that is about to let go of what the drive no longer lists asks
+    /// this first (`iso/docs/AZDRIVE-INTEGRATION.md`: "on an older index, ask `GET /v1/drives/{id}`
+    /// before deciding").
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusal or no answer, or an answer that does not say
+    /// ([`TokenError::Protocol`]).
+    pub fn restore_notice(
+        &self,
+        drive_id: &str,
+        drive_token: &str,
+    ) -> Result<Option<azul_storage::restore::RestoreNotice>, TokenError> {
+        let info = self.info(drive_id, drive_token)?;
+        match info.get("restore") {
+            Some(Value::Null) => Ok(None),
+            Some(Value::Object(_)) => crate::bundle::restore_of(&info).map(Some).ok_or_else(|| {
+                TokenError::Protocol(String::from(
+                    "the token server's restore announcement names no epoch",
+                ))
+            }),
+            _ => Err(TokenError::Protocol(String::from(
+                "the token server's answer does not say whether the drive was restored",
+            ))),
+        }
+    }
 }

@@ -642,6 +642,28 @@ pub fn status_shared(
     server.drive_status(&held.drive_id, spend.token().as_str())
 }
 
+/// The drive's newest restore announcement as the token server says it NOW (`GET /v1/drives/{id}`,
+/// [`TokenServer::restore_notice`]), asked as [`status_shared`] asks: with the NEWEST drive token,
+/// under the keyring entry `key`'s lock, nothing spent. The session's own `restore` is what its
+/// last sign-in carried - hours old by design - and a restore announced after it is in no
+/// snapshot: Send/Receive asks this before it lets go of mail the drive no longer lists
+/// (X-DELTA-APPS3-2). `Ok(None)`: the server says none was announced.
+///
+/// # Errors
+///
+/// The token server's refusal or no answer, an answer that does not say, or
+/// [`TokenError::Connect`] when another AzMail holds the lock longer than a refresh takes: an
+/// unknown, never "none".
+pub fn restore_shared(
+    server: &TokenServer<'_>,
+    keyring: &SharedKeyring,
+    key: &str,
+    held: &AzlinSession,
+) -> Result<Option<RestoreNotice>, TokenError> {
+    let spend = spend_account(keyring, key, held)?;
+    server.restore_notice(&held.drive_id, spend.token().as_str())
+}
+
 // ==== Where the token server is ====
 
 /// The token server's URL in the environment.
@@ -1376,6 +1398,77 @@ mod tests {
         assert_eq!(well_known_name(Role::Inbox), Some("Inbox"));
         assert_eq!(well_known_name(Role::Other), None);
         assert_eq!(well_known_name(Role::All), None);
+    }
+
+    /// X-DELTA-APPS3-2: the token server is asked for the drive's newest restore announcement
+    /// with the NEWEST drive token (the keyring entry's, not the one this process holds), nothing
+    /// is spent (the entry keeps its token), an announced restore is its epoch, `null` is none,
+    /// and a failed or unreadable answer is an error - never "none".
+    #[test]
+    fn x_delta_apps3_2_the_restore_announcement_is_asked_with_the_newest_token_and_spends_nothing()
+    {
+        let fake = Fake {
+            calls: Mutex::new(Vec::new()),
+            answers: Mutex::new(vec![
+                reply(
+                    200,
+                    r#"{"id": "d_42", "restore": {"epoch": 3, "prefix": "", "kind": "offsite"}}"#,
+                ),
+                reply(200, r#"{"id": "d_42", "restore": null}"#),
+                reply(500, r#"{"error": "boom"}"#),
+                reply(200, r#"{"id": "d_42"}"#),
+            ]),
+        };
+        let server = TokenServer::new("http://127.0.0.1:8081/", &fake).unwrap();
+        let dir = azul_storage::testing::TempDir::new("azmail-restore-ask");
+        let keyring = std::sync::Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let shared = azcloud_kit::SharedKeyring::with_lock_root(
+            keyring.clone(),
+            azul_storage::keyring::KeyringNamespace::azlin_shared(),
+            dir.path(),
+        );
+        let key = "AzMail/ada@example.org/azlin";
+        {
+            use azul_storage::keyring::KeyringStore;
+            keyring
+                .set(
+                    key,
+                    &AzlinSession::with_token("d_42", "dt_f.7.newest").to_secret(),
+                )
+                .unwrap();
+        }
+        // This process holds an older token: the keyring's is the newest and the one asked with.
+        let held = AzlinSession::with_token("d_42", "dt_f.6.older");
+        let notice = restore_shared(&server, &shared, key, &held)
+            .unwrap()
+            .expect("an announced restore");
+        assert_eq!(notice.epoch, 3);
+        assert_eq!(
+            restore_shared(&server, &shared, key, &held).unwrap(),
+            None,
+            "null: none"
+        );
+        for _ in 0..2 {
+            assert!(
+                restore_shared(&server, &shared, key, &held).is_err(),
+                "a refusal and an answer that does not say are errors"
+            );
+        }
+        let calls = fake.calls.lock().unwrap();
+        assert_eq!(calls.len(), 4);
+        for call in calls.iter() {
+            assert_eq!(call.method, Method::Get);
+            assert_eq!(call.url, "http://127.0.0.1:8081/v1/drives/d_42");
+            let auth = call
+                .headers
+                .iter()
+                .find(|(n, _)| n == "authorization")
+                .map(|(_, v)| v.as_str());
+            assert_eq!(auth, Some("Bearer dt_f.7.newest"));
+        }
+        use azul_storage::keyring::KeyringStore;
+        let kept = AzlinSession::from_secret(&keyring.get(key).unwrap().unwrap(), "d_42");
+        assert_eq!(kept.drive_token, "dt_f.7.newest", "nothing was spent");
     }
 }
 

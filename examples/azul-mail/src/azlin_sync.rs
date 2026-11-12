@@ -8,23 +8,33 @@
 //! 1. **Push**: mail filed here first (a sent mail, a draft saved while offline: no `remote`
 //!    yet) goes into its folder of the drive under its name (`azlin::object_name`).
 //! 2. **Pull**: the folder's listing against the index. Names that are gone leave the local
-//!    copy - when the drive, asked about the object itself, says it is not there, and never
-//!    after a restore of the drive (below); new ones are fetched - whole up to
-//!    `full_fetch_limit`, else only their first `head_bytes` (the header block;
+//!    copy - when the token server, asked NOW, says the drive was not restored
+//!    ([`AskRestore`]; once per Send/Receive, and only when some folder has a name that is gone),
+//!    and the drive, asked about the object itself, says it is not there; never after a restore of
+//!    the drive (below), and never when the token server cannot be asked; new ones are fetched -
+//!    whole up to `full_fetch_limit`, else only their first `head_bytes` (the header block;
 //!    [`fetch_message`] gets the rest when the message is opened) - and get the next UIDs in
 //!    name (arrival) order.
 //! 3. **Flags**: the marks made here (`flags.json`) are written as markers where the drive says
 //!    otherwise, then dropped; every message's flags are the drive's markers from then on.
 //!
 //! A drive that was RESTORED (an operator's restore from its off-site copy, "Restore as of"; the
-//! token server announces it with an epoch, [`AzlinOptions::restore`]) serves an older state, so
-//! the mail that came after is missing from its listing and exists here only. That is not a
-//! delete: the Send/Receive that takes the announcement deletes no mail here, puts the mail the
-//! drive lacks into it again (a message of which only the header block is here stays as it is)
-//! and says so ([`FolderReport::kept_after_restore`]); the epoch is remembered
-//! ([`DRIVE_FILE`]) once every folder is through, so a pass that stopped takes the restore
-//! again (X-DELTA-SYNC4-20; `restore.rs` is the one protocol of every drive, AzDrive's sync
-//! decides the same way).
+//! token server announces it with an epoch) serves an older state, so the mail that came after is
+//! missing from its listing and exists here only. That is not a delete: the Send/Receive that
+//! takes the announcement deletes no mail here, puts the mail the drive lacks into it again (a
+//! message of which only the header block is here stays as it is) and says so
+//! ([`FolderReport::kept_after_restore`]); the epoch is remembered ([`DRIVE_FILE`]) once every
+//! folder is through, so a pass that stopped takes the restore again (X-DELTA-SYNC4-20;
+//! `restore.rs` is the one protocol of every drive, AzDrive's sync decides the same way).
+//!
+//! WHERE the announcement comes from (X-DELTA-APPS3-2): the session's last sign-in carries the
+//! newest one it saw ([`AzlinOptions::restore`]), hours old by design, so a restore announced
+//! after it - on a drive another device has written to since - is in no snapshot, and the drive's
+//! own answer about an object cannot tell it from a delete. Before the first folder with mail the
+//! drive no longer lists is pulled, Send/Receive asks the token server for the drive's newest
+//! announcement NOW ([`AskRestore`]) and judges with the answer; a failed ask is an unknown: that
+//! mail stays, is not put back either, and the window says so
+//! ([`FolderReport::kept_unasked`]).
 //!
 //! The actions - [`move_messages`], [`delete_messages`], [`upload_message`], [`push_marks`],
 //! [`fetch_message`] - write the drive first and the local copy after, so a refused request
@@ -45,7 +55,7 @@ use azul_storage::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    azlin::{self, MessageState},
+    azlin::{self, AzlinSession, MessageState},
     folders::{LocalMailbox, Role},
     listing::{self, LocalFlags},
     message,
@@ -71,8 +81,23 @@ pub struct AzlinOptions {
     /// The drive's newest restore announcement as the session's last sign-in carried it
     /// ([`crate::azlin::AzlinSession::restore`]); `None`: none was announced. One this copy has
     /// not taken yet makes the Send/Receive a restore's: it deletes no mail here
-    /// ([`sync_account`]).
+    /// ([`sync_account`]). A snapshot: the token server is asked again, when it matters, through
+    /// [`AskRestore`].
     pub restore: Option<RestoreNotice>,
+}
+
+impl AzlinOptions {
+    /// The options of one Send/Receive with `session` at `now`: the restore announcement is the
+    /// one the session's last sign-in carried. The ONE place the session's notice becomes the
+    /// sync's - it was a line in the caller that no test pinned (X-DELTA-APPS3-10).
+    #[must_use]
+    pub fn for_session(session: &AzlinSession, now: i64) -> AzlinOptions {
+        AzlinOptions {
+            now,
+            restore: session.restore.clone(),
+            ..AzlinOptions::default()
+        }
+    }
 }
 
 impl Default for AzlinOptions {
@@ -220,28 +245,130 @@ fn write_restore_epoch(store: &MailStore, epoch: u64) -> std::io::Result<()> {
     store.put(DRIVE_FILE, text.as_bytes())
 }
 
-/// What the drive is to this copy: whether `notice`, the newest announcement, is a restore this
-/// copy has not taken yet ([`Standing::Restored`]). The drive's counter says nothing here (an
-/// Azlin drive's mail is listed, its index is not read), so only the epoch decides
-/// ([`Clock::Own`]); the one decision every drive's sync makes (`azul_storage::restore::judge`).
-fn restore_standing(
-    store: &MailStore,
-    notice: Option<&RestoreNotice>,
-) -> Result<Standing, SyncError> {
-    let Some(notice) = notice else {
-        return Ok(Standing::InSync);
-    };
-    let seen = Seen {
-        epoch: read_restore_epoch(store)?,
-        clock: 0,
-    };
-    Ok(judge(
-        &seen,
-        0,
-        Clock::Own,
-        Some(notice),
-        azlin::MAIL_PREFIX,
-    ))
+/// What a Send/Receive asks the token server before it lets go of mail the drive no longer lists:
+/// the drive's newest restore announcement as the token server says it NOW. The session's own
+/// ([`AzlinOptions::restore`]) is the one its last sign-in carried, hours old, so a restore
+/// announced after it is in no snapshot; and when another device has committed on top of the
+/// restored drive since, the drive's own answer about an object cannot tell the restore from a
+/// delete (X-DELTA-APPS3-2). A closure of the right shape is one.
+pub trait AskRestore {
+    /// `Ok(None)`: the token server says none was announced. An error: it could not be asked, or
+    /// its answer did not say - an unknown, never "none".
+    ///
+    /// # Errors
+    ///
+    /// The token server's refusal, no answer, or an answer that does not say.
+    fn newest(&self) -> Result<Option<RestoreNotice>, SyncError>;
+}
+
+impl<F> AskRestore for F
+where
+    F: Fn() -> Result<Option<RestoreNotice>, SyncError>,
+{
+    fn newest(&self) -> Result<Option<RestoreNotice>, SyncError> {
+        self()
+    }
+}
+
+/// What one Send/Receive knows of a restore of the drive.
+#[derive(Debug)]
+enum Knowledge {
+    /// No announcement this copy has not taken, and the token server not asked yet: it is asked
+    /// before the first folder with mail the drive no longer lists is pulled.
+    Unasked,
+    /// A restore (the session's snapshot, or the token server's answer) that this copy takes now.
+    Restored(RestoreNotice),
+    /// The token server was asked: the drive stands where this copy last saw it.
+    Ordinary,
+    /// The token server could not be asked, or did not say: an unknown, with the error's text.
+    Unknown(String),
+}
+
+/// What a folder's pull does with the mail the drive no longer lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stance {
+    /// The drive was not restored: what it no longer lists leaves, once the drive, asked about the
+    /// object itself, says it is not there.
+    Ordinary,
+    /// The drive was restored: nothing leaves, what it lacks goes back into it.
+    Restore,
+    /// The token server could not be asked: nothing leaves and nothing goes back.
+    Keep,
+}
+
+/// What one Send/Receive knows of the drive's restore standing, from the first folder to the last.
+struct Pass<'a> {
+    /// The newest restore epoch this copy took before this pass.
+    seen: u64,
+    ask: &'a dyn AskRestore,
+    knowledge: Knowledge,
+}
+
+impl<'a> Pass<'a> {
+    /// The pass of a copy that took restore epoch `seen`, with `snapshot`, the newest announcement
+    /// the session's last sign-in carried. Only the epoch decides ([`Clock::Own`]): the drive's
+    /// counter says nothing here (an Azlin drive's mail is listed, its index is not read); the one
+    /// decision every drive's sync makes (`azul_storage::restore::judge`).
+    fn new(seen: u64, snapshot: Option<&RestoreNotice>, ask: &'a dyn AskRestore) -> Pass<'a> {
+        let knowledge = match Pass::judged(seen, snapshot) {
+            Standing::Restored(notice) => Knowledge::Restored(notice),
+            _ => Knowledge::Unasked,
+        };
+        Pass {
+            seen,
+            ask,
+            knowledge,
+        }
+    }
+
+    fn judged(seen: u64, notice: Option<&RestoreNotice>) -> Standing {
+        judge(
+            &Seen {
+                epoch: seen,
+                clock: 0,
+            },
+            0,
+            Clock::Own,
+            notice,
+            azlin::MAIL_PREFIX,
+        )
+    }
+
+    /// What a folder does with what the drive no longer lists. `something_gone`: the listing lacks
+    /// a line of the folder's index. The token server is asked here, once for the whole pass and
+    /// only when something is gone: a Send/Receive with nothing gone costs no request.
+    fn stance(&mut self, something_gone: bool) -> Stance {
+        if something_gone && matches!(self.knowledge, Knowledge::Unasked) {
+            self.knowledge = match self.ask.newest() {
+                Err(e) => Knowledge::Unknown(e.to_string()),
+                Ok(answer) => match Pass::judged(self.seen, answer.as_ref()) {
+                    Standing::Restored(notice) => Knowledge::Restored(notice),
+                    _ => Knowledge::Ordinary,
+                },
+            };
+        }
+        match self.knowledge {
+            Knowledge::Restored(_) => Stance::Restore,
+            Knowledge::Unknown(_) => Stance::Keep,
+            Knowledge::Unasked | Knowledge::Ordinary => Stance::Ordinary,
+        }
+    }
+
+    /// The restore this pass takes, to be remembered once every folder is through.
+    fn restore_taken(&self) -> Option<&RestoreNotice> {
+        match &self.knowledge {
+            Knowledge::Restored(notice) => Some(notice),
+            _ => None,
+        }
+    }
+
+    /// Why the token server could not be asked, when it could not.
+    fn unknown(&self) -> Option<&str> {
+        match &self.knowledge {
+            Knowledge::Unknown(why) => Some(why),
+            _ => None,
+        }
+    }
 }
 
 /// The UID after `last` that no line of `index` has (mail filed here has UIDs far above, from
@@ -318,19 +445,21 @@ pub use crate::azlin::{list_mailbox, list_states, local_folders, RemoteFolder};
 /// documentation). `progress` is told what is happening; when it answers `false` the sync
 /// records what it has and stops with [`SyncError::Stopped`].
 ///
-/// An announced restore of the drive that this copy has not taken ([`AzlinOptions::restore`])
-/// makes the whole call a restore's: no mail leaves this computer, what the drive lacks goes
-/// into it again, and the epoch is remembered only after the last folder was synced.
+/// An announced restore of the drive that this copy has not taken - the session's
+/// ([`AzlinOptions::restore`]) or, asked when a folder has mail the drive no longer lists, the
+/// token server's now (`ask`) - makes the rest of the call a restore's: no mail leaves this
+/// computer, what the drive lacks goes into it again, and the epoch is remembered only after the
+/// last folder was synced. An ask that fails leaves that mail where it is.
 pub fn sync_account(
     drive: &dyn Drive,
     store: &MailStore,
     options: &AzlinOptions,
+    ask: &dyn AskRestore,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
-    // Before anything is listed or written: a restore is told from a delete by the announcement,
-    // never by what the listing lacks.
-    let standing = restore_standing(store, options.restore.as_ref())?;
-    let restored = matches!(standing, Standing::Restored(_));
+    // Before anything is listed or written: a memory of the drive that cannot be read is an
+    // error, never "no restore taken".
+    let mut pass = Pass::new(read_restore_epoch(store)?, options.restore.as_ref(), ask);
     let remote = list_mailbox(drive).map_err(drive_error)?;
     let paths: Vec<String> = remote.iter().map(|folder| folder.path.clone()).collect();
     let mut boxes = local_folders(&paths);
@@ -373,7 +502,7 @@ pub fn sync_account(
             mailbox,
             listed,
             listing.is_some(),
-            restored,
+            &mut pass,
             &mut states,
             options,
             progress,
@@ -381,14 +510,36 @@ pub fn sync_account(
     }
     // Every folder is through: the restore is taken (a pass that stopped before this took it
     // again, which is idempotent: what was put back is listed now).
-    if let Standing::Restored(notice) = &standing {
+    if let Some(notice) = pass.restore_taken() {
         write_restore_epoch(store, notice.epoch).map_err(io)?;
     }
+    report.restore_unknown = pass.unknown().map(str::to_string);
     Ok(report)
 }
 
+/// One Send/Receive of the drive with `session`'s credentials: [`sync_account`] with the options
+/// the session makes ([`AzlinOptions::for_session`]). The one door the app's sync thread goes
+/// through, so a test enters it with a session (X-DELTA-APPS3-10).
+pub fn sync_session(
+    drive: &dyn Drive,
+    store: &MailStore,
+    session: &AzlinSession,
+    now: i64,
+    ask: &dyn AskRestore,
+    progress: &mut dyn FnMut(Progress) -> bool,
+) -> Result<SyncReport, SyncError> {
+    sync_account(
+        drive,
+        store,
+        &AzlinOptions::for_session(session, now),
+        ask,
+        progress,
+    )
+}
+
 /// Syncs one folder: push, pull, flags (the module documentation). `in_drive`: the drive lists
-/// the folder. `restored`: the drive was restored and this copy takes it now (no mail leaves).
+/// the folder. `pass`: what this Send/Receive knows of a restore of the drive - it decides, once
+/// the folder has something the drive no longer lists, what the pull does with it ([`Stance`]).
 #[allow(clippy::too_many_arguments)]
 fn sync_folder(
     drive: &dyn Drive,
@@ -396,7 +547,7 @@ fn sync_folder(
     mailbox: &LocalMailbox,
     listed: &[ObjectInfo],
     in_drive: bool,
-    restored: bool,
+    pass: &mut Pass<'_>,
     states: &mut HashMap<String, MessageState>,
     options: &AzlinOptions,
     progress: &mut dyn FnMut(Progress) -> bool,
@@ -417,11 +568,20 @@ fn sync_folder(
         .cloned()
         .collect();
     let listed = visible.as_slice();
+    let listed_keys: HashSet<&str> = listed.iter().map(|object| object.key.as_str()).collect();
     let mut index = read_index(store, key)?;
     let mut state = FolderState::create(path, &mailbox.display, AZLIN_UIDVALIDITY);
     state.last_uid = read_state(store, key)?.map_or(0, |old| old.last_uid);
     let mut marks = read_marks(store, key)?;
     let marks_before = marks.clone();
+    // What this folder does with what the drive no longer lists, decided BEFORE anything is put or
+    // removed: when a line of the index names an object the listing lacks, the token server is
+    // asked (once per Send/Receive) whether the drive was restored (X-DELTA-APPS3-2).
+    let stance = pass.stance(
+        index
+            .values()
+            .any(|entry| !entry.remote.is_empty() && !listed_keys.contains(entry.remote.as_str())),
+    );
     let mut report = FolderReport {
         key: key.to_string(),
         display: mailbox.display.clone(),
@@ -434,7 +594,7 @@ fn sync_folder(
         //    after the restore's moment and exists here only (its line keeps the old object's
         //    key until the new one is in the drive).
         let mut pushed: HashSet<String> = HashSet::new();
-        let lost: HashSet<u32> = if restored {
+        let lost: HashSet<u32> = if stance == Stance::Restore {
             index
                 .values()
                 .filter(|entry| {
@@ -491,7 +651,6 @@ fn sync_folder(
         report.kept_after_restore = lost.len() as u64;
 
         // 2. Pull: what is gone leaves, what is new comes.
-        let listed_keys: HashSet<&str> = listed.iter().map(|object| object.key.as_str()).collect();
         let gone: Vec<u32> = index
             .values()
             .filter(|entry| {
@@ -502,10 +661,18 @@ fn sync_folder(
             .map(|entry| entry.uid)
             .collect();
         for uid in gone {
-            // After a restore nothing leaves: what the listing lacks was lost, not deleted, and
-            // exists here only (X-DELTA-SYNC4-20).
-            if restored {
-                continue;
+            match stance {
+                // After a restore nothing leaves: what the listing lacks was lost, not deleted,
+                // and exists here only (X-DELTA-SYNC4-20).
+                Stance::Restore => continue,
+                // A drive that could not be asked whether it was restored: the mail stays, and
+                // is not put back either - the next Send/Receive that can ask decides
+                // (X-DELTA-APPS3-2).
+                Stance::Keep => {
+                    report.kept_unasked += 1;
+                    continue;
+                }
+                Stance::Ordinary => {}
             }
             let Some(remote) = index.get(&uid).map(|entry| entry.remote.clone()) else {
                 continue;
@@ -995,6 +1162,35 @@ pub fn sending_refused(
     )
 }
 
+/// What the window says after a Send/Receive about mail the drive no longer lists, one sentence
+/// each, none when nothing was kept: a restored drive that lacks mail this computer has (it stays
+/// and goes back into the drive), and mail that stays because the token server could not be asked
+/// whether the drive was restored.
+#[must_use]
+pub fn drive_sentences(report: &SyncReport) -> Vec<String> {
+    use azul_appkit::l10n::{t_args, Arg};
+    let mut sentences = Vec::new();
+    if report.kept_after_restore() > 0 {
+        sentences.push(t_args(
+            "azmail-restore-kept",
+            &[("count", Arg::from(report.kept_after_restore()))],
+        ));
+    }
+    if report.kept_unasked() > 0 {
+        sentences.push(t_args(
+            "azmail-restore-unknown",
+            &[
+                ("count", Arg::from(report.kept_unasked())),
+                (
+                    "why",
+                    Arg::from(report.restore_unknown.as_deref().unwrap_or_default()),
+                ),
+            ],
+        ));
+    }
+    sentences
+}
+
 #[cfg(test)]
 mod tests {
     use azul_storage::{ListPage, ListRequest, LocalDrive};
@@ -1100,8 +1296,17 @@ mod tests {
         }
     }
 
+    /// The token server says that no restore was announced (and counts nothing: the tests of the
+    /// ask have their own askers).
+    fn no_restore() -> impl AskRestore {
+        || -> Result<Option<RestoreNotice>, SyncError> { Ok(None) }
+    }
+
     fn run(f: &Fixture) -> SyncReport {
-        sync_account(&f.bucket, &f.store, &options(), &mut |_| true).unwrap()
+        sync_account(&f.bucket, &f.store, &options(), &no_restore(), &mut |_| {
+            true
+        })
+        .unwrap()
     }
 
     fn index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
@@ -1260,7 +1465,7 @@ mod tests {
             head_bytes: 512,
             ..options()
         };
-        sync_account(&f.bucket, &f.store, &small, &mut |_| true).unwrap();
+        sync_account(&f.bucket, &f.store, &small, &no_restore(), &mut |_| true).unwrap();
         let entry = index(&f.store, "inbox").remove(0);
         assert_eq!(entry.subject, "Holiday photos");
         assert_eq!(entry.size, big.len() as u64, "the listing's size");
@@ -1606,7 +1811,9 @@ mod tests {
         if !crate::testutil::make_unreadable(&file) {
             return;
         }
-        let failed = sync_account(&f.bucket, &f.store, &options(), &mut |_| true);
+        let failed = sync_account(&f.bucket, &f.store, &options(), &no_restore(), &mut |_| {
+            true
+        });
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
         assert_eq!(
@@ -1627,7 +1834,9 @@ mod tests {
         if !crate::testutil::make_unreadable(&file) {
             return;
         }
-        let failed = sync_account(&f.bucket, &f.store, &options(), &mut |_| true);
+        let failed = sync_account(&f.bucket, &f.store, &options(), &no_restore(), &mut |_| {
+            true
+        });
         crate::testutil::make_readable(&file);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
         assert_eq!(
@@ -1778,7 +1987,7 @@ mod tests {
         f: &Fixture,
         options: &AzlinOptions,
     ) -> Result<SyncReport, SyncError> {
-        sync_account(drive, &f.store, options, &mut |_| true)
+        sync_account(drive, &f.store, options, &no_restore(), &mut |_| true)
     }
 
     /// Every message of `folder` here: its line, its file's bytes, and whether the drive has the
@@ -1970,13 +2179,14 @@ mod tests {
             head_bytes: 512,
             ..options()
         };
-        sync_account(&f.bucket, &f.store, &small, &mut |_| true).unwrap();
+        sync_account(&f.bucket, &f.store, &small, &no_restore(), &mut |_| true).unwrap();
         f.bucket.inner.delete(&key).unwrap();
         let restored = AzlinOptions {
             restore: announced(1).restore,
             ..small
         };
-        let report = sync_account(&f.bucket, &f.store, &restored, &mut |_| true).unwrap();
+        let report =
+            sync_account(&f.bucket, &f.store, &restored, &no_restore(), &mut |_| true).unwrap();
         assert_eq!(
             (
                 report.removed(),
@@ -2108,5 +2318,283 @@ mod tests {
         assert_eq!(read_restore_epoch(&f.store).unwrap(), 0);
         write_restore_epoch(&f.store, 4).unwrap();
         assert_eq!(read_restore_epoch(&f.store).unwrap(), 4);
+    }
+
+    // ==== X-DELTA-APPS3-2: the token server is asked before the pull lets go ====
+
+    /// An asker that answers `answer` and counts its questions.
+    struct Asked {
+        answer: Result<Option<RestoreNotice>, SyncError>,
+        questions: std::cell::Cell<u32>,
+    }
+
+    impl Asked {
+        fn answering(answer: Result<Option<RestoreNotice>, SyncError>) -> Asked {
+            Asked {
+                answer,
+                questions: std::cell::Cell::new(0),
+            }
+        }
+
+        /// The token server announces a restore of epoch `epoch`.
+        fn announcing(epoch: u64) -> Asked {
+            Asked::answering(Ok(Some(RestoreNotice {
+                epoch,
+                ..RestoreNotice::default()
+            })))
+        }
+
+        /// The token server says that none was announced.
+        fn none() -> Asked {
+            Asked::answering(Ok(None))
+        }
+
+        /// The token server cannot be asked.
+        fn failing() -> Asked {
+            Asked::answering(Err(SyncError::Connect(String::from(
+                "the token server did not answer",
+            ))))
+        }
+
+        fn questions(&self) -> u32 {
+            self.questions.get()
+        }
+    }
+
+    impl AskRestore for Asked {
+        fn newest(&self) -> Result<Option<RestoreNotice>, SyncError> {
+            self.questions.set(self.questions.get() + 1);
+            self.answer.clone()
+        }
+    }
+
+    fn sync_asking(
+        f: &Fixture,
+        options: &AzlinOptions,
+        ask: &Asked,
+    ) -> Result<SyncReport, SyncError> {
+        sync_account(&f.bucket, &f.store, options, ask, &mut |_| true)
+    }
+
+    /// RED on the code before: the session's snapshot was the only notice - the last sign-in, hours
+    /// old - so a restore announced AFTER it was an ordinary pull: the drive's listing lacked the
+    /// newer mail, the drive's own answer about each object agreed (another device had committed
+    /// on top of the restored drive, so no look could tell), and the local copies - the only ones -
+    /// went. Now the token server is asked before the first folder with something gone is pulled:
+    /// `options.restore` is `None` here and the asker says epoch 1.
+    #[test]
+    fn x_delta_apps3_2_a_restore_announced_after_the_last_sign_in_deletes_no_mail_and_puts_it_back()
+    {
+        let f = fixture();
+        deliver(&f, "Inbox", &mail(1, "Older"), SEP_30);
+        let newer = deliver(&f, "Inbox", &mail(2, "Newer"), SEP_30 + 60);
+        let archived = deliver(&f, "Archive", &mail(3, "Archived"), SEP_30 + 120);
+        run(&f);
+        f.bucket.inner.delete(&newer).unwrap();
+        f.bucket.inner.delete(&archived).unwrap();
+        assert_eq!(options().restore, None, "the session knows nothing of it");
+        let ask = Asked::announcing(1);
+        let report = sync_asking(&f, &options(), &ask).unwrap();
+        assert_eq!(report.removed(), 0, "a restore deletes no mail here");
+        assert_eq!(report.kept_after_restore(), 2);
+        assert_eq!(
+            report.pushed(),
+            2,
+            "and puts what the drive lacks into it again"
+        );
+        assert_eq!(
+            ask.questions(),
+            1,
+            "one question for the whole Send/Receive, two folders had something gone"
+        );
+        let inbox = held(&f, "inbox");
+        assert_eq!(inbox.len(), 2, "both lines stay");
+        assert_eq!(inbox[1].1, mail(2, "Newer"), "the file is the mail");
+        assert!(inbox.iter().all(|(_, _, on_the_drive)| *on_the_drive));
+        let archive = held(&f, "archive");
+        assert_eq!(
+            (archive[0].1.clone(), archive[0].2),
+            (mail(3, "Archived"), true)
+        );
+        assert_eq!(
+            read_restore_epoch(&f.store).unwrap(),
+            1,
+            "the restore is taken"
+        );
+        crate::l10n::in_english();
+        let said = drive_sentences(&report);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains("restored to an earlier state") && said[0].contains("2 messages"),
+            "{said:?}"
+        );
+        // Taken once: the same answer on the next Send/Receive is the course of things.
+        let again = Asked::announcing(1);
+        let report = sync_asking(&f, &options(), &again).unwrap();
+        assert_eq!(
+            (
+                report.removed(),
+                report.pushed(),
+                report.kept_after_restore()
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(again.questions(), 0, "nothing is gone: nothing is asked");
+    }
+
+    /// A token server that cannot be asked is an unknown, not a "no restore": nothing leaves (and
+    /// nothing is put back: the mail may be one a delete elsewhere took), the window says so in one
+    /// sentence, the memory takes nothing, and the next Send/Receive that can ask decides.
+    #[test]
+    fn x_delta_apps3_2_a_token_server_that_cannot_be_asked_deletes_nothing_and_says_so_once() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Archive", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        f.bucket.inner.delete(&two).unwrap();
+        let ask = Asked::failing();
+        let report = sync_asking(&f, &options(), &ask).unwrap();
+        assert_eq!(
+            (
+                report.removed(),
+                report.pushed(),
+                report.kept_unasked(),
+                report.kept_after_restore()
+            ),
+            (0, 0, 2, 0)
+        );
+        assert_eq!(ask.questions(), 1, "asked once, not once per folder");
+        for folder in ["inbox", "archive"] {
+            let rows = held(&f, folder);
+            assert_eq!(rows.len(), 1, "{folder}: line and file stay");
+            assert!(!rows[0].1.is_empty(), "{folder}: the file is the mail");
+            assert!(!rows[0].2, "{folder}: and is not put back into the drive");
+        }
+        assert_eq!(
+            read_restore_epoch(&f.store).unwrap(),
+            0,
+            "no restore was taken"
+        );
+        assert!(
+            report
+                .restore_unknown
+                .as_deref()
+                .is_some_and(|why| why.contains("did not answer")),
+            "{:?}",
+            report.restore_unknown
+        );
+        crate::l10n::in_english();
+        let said = drive_sentences(&report);
+        assert_eq!(said.len(), 1, "one sentence: {said:?}");
+        assert!(
+            said[0].contains("could not be asked whether the drive was restored")
+                && said[0].contains("2 messages")
+                && said[0].contains("did not answer"),
+            "{said:?}"
+        );
+        // The token server answers again and has announced nothing: the ordinary pull lets both
+        // go, as it did before.
+        let report = sync_asking(&f, &options(), &Asked::none()).unwrap();
+        assert_eq!((report.removed(), report.kept_unasked()), (2, 0));
+        assert!(drive_sentences(&report).is_empty());
+    }
+
+    /// The answer is the epoch this copy already took: the drive stands where it was left, so an
+    /// ordinary delete by another device is an ordinary pull, as it was before.
+    #[test]
+    fn x_delta_apps3_2_an_answer_of_the_epoch_already_taken_lets_the_ordinary_pull_delete() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        f.bucket.inner.delete(&two).unwrap();
+        sync_with(&f.bucket, &f, &announced(1)).unwrap();
+        assert_eq!(read_restore_epoch(&f.store).unwrap(), 1);
+        // Another device deletes `one` for good; the session has no news, the token server still
+        // says epoch 1.
+        f.bucket.inner.delete(&one).unwrap();
+        let ask = Asked::announcing(1);
+        let report = sync_asking(&f, &options(), &ask).unwrap();
+        assert_eq!((report.removed(), report.kept_after_restore()), (1, 0));
+        assert_eq!(ask.questions(), 1);
+        assert_eq!(index(&f.store, "inbox").len(), 1);
+        // And an announcement that does not cover the mail (another prefix) is none for it.
+        let remaining = index(&f.store, "inbox").remove(0);
+        f.bucket.inner.delete(&remaining.remote).unwrap();
+        let elsewhere = Asked::answering(Ok(Some(RestoreNotice {
+            epoch: 7,
+            prefix: String::from("docs/"),
+            ..RestoreNotice::default()
+        })));
+        let report = sync_asking(&f, &options(), &elsewhere).unwrap();
+        assert_eq!((report.removed(), report.kept_after_restore()), (1, 0));
+    }
+
+    /// Only when something is gone, and a snapshot that already says "restored" needs no question.
+    #[test]
+    fn x_delta_apps3_2_the_token_server_is_asked_only_when_something_is_gone() {
+        let f = fixture();
+        let key = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run(&f);
+        let ask = Asked::announcing(9);
+        let report = sync_asking(&f, &options(), &ask).unwrap();
+        assert_eq!(ask.questions(), 0, "nothing is gone: no request");
+        assert_eq!(report.kept_after_restore(), 0);
+        assert_eq!(
+            read_restore_epoch(&f.store).unwrap(),
+            0,
+            "no question, no epoch taken"
+        );
+        // Something is gone and the session's snapshot already says it: no question either.
+        f.bucket.inner.delete(&key).unwrap();
+        let ask = Asked::none();
+        let report = sync_asking(&f, &announced(1), &ask).unwrap();
+        assert_eq!(ask.questions(), 0, "the snapshot decided");
+        assert_eq!((report.removed(), report.kept_after_restore()), (0, 1));
+    }
+
+    /// X-DELTA-APPS3-10 (b), through the door the app's sync thread uses: the notice of the
+    /// session's last sign-in is what the sync takes. RED on a caller that forgets it (the old
+    /// line `restore: session.restore.clone()` was pinned by no test): a session that carries
+    /// epoch 2 makes the pass a restore's, one that does not makes it an ordinary pull.
+    #[test]
+    fn x_delta_apps3_10_the_session_of_the_sign_in_makes_the_options_of_the_sync() {
+        let mut session = AzlinSession::with_token("d_1", "dt_f.0.a");
+        assert_eq!(AzlinOptions::for_session(&session, 77).restore, None);
+        assert_eq!(AzlinOptions::for_session(&session, 77).now, 77);
+        session.restore = Some(RestoreNotice {
+            epoch: 2,
+            ..RestoreNotice::default()
+        });
+        assert_eq!(
+            AzlinOptions::for_session(&session, 77).restore,
+            session.restore
+        );
+        let lost = |session: &AzlinSession| {
+            let f = fixture();
+            let key = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+            run(&f);
+            f.bucket.inner.delete(&key).unwrap();
+            let ask = Asked::none();
+            let report =
+                sync_session(&f.bucket, &f.store, session, SEP_30, &ask, &mut |_| true).unwrap();
+            (
+                report.removed(),
+                report.kept_after_restore(),
+                ask.questions(),
+            )
+        };
+        assert_eq!(
+            lost(&session),
+            (0, 1, 0),
+            "the session's notice: a restore, nothing leaves"
+        );
+        session.restore = None;
+        assert_eq!(
+            lost(&session),
+            (1, 0, 1),
+            "no notice: the token server is asked, and an ordinary pull"
+        );
     }
 }

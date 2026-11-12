@@ -227,6 +227,10 @@ azmail-outbox-empty-no-account = Im Postausgang wartet nichts. Um E-Mails zu emp
 azmail-outbox-empty-local = Im Postausgang der lokalen Ordner wartet nichts.
 azmail-sending-outbox = Der Postausgang wird gesendet…
 azmail-outbox-counts = Postausgang: { $sent } gesendet, { $queued } wartend, { $failed } fehlgeschlagen.
+azmail-restore-unknown = { $count ->
+    [one] Das Azlin-Laufwerk listet 1 Nachricht, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleibt hier bis zum nächsten Senden/Empfangen.
+   *[other] Das Azlin-Laufwerk listet { $count } Nachrichten, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleiben hier bis zum nächsten Senden/Empfangen.
+ }
 azmail-error-azlin-sign-in-old = die Anmeldung des Azlin-Laufwerks ist veraltet: Senden/Empfangen (F9) meldet erneut an
 azmail-notice-send-receive-first = Zuerst Senden/Empfangen (F9): AzMail meldet sich dann beim Azlin-Laufwerk an.
 azmail-error-azlin-only = Diese Nachricht ist nur im Azlin-Laufwerk: Senden/Empfangen (F9) meldet an, dann öffnet sie sich.

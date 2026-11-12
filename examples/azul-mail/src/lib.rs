@@ -1399,12 +1399,40 @@ fn refresh_session(
     Ok(refreshed.session)
 }
 
-/// One sync of the drive with `session`'s credentials.
+/// What the token server says NOW of the drive's newest restore announcement (the session's own
+/// is the last sign-in's, hours old): asked, once per Send/Receive and only when some folder has
+/// mail the drive no longer lists, before that mail is let go of (X-DELTA-APPS3-2). An error is
+/// an unknown: that mail stays.
+fn azlin_restore_now(
+    job: &SyncInit,
+    session: &azlin::AzlinSession,
+    transport: &AzulTransport,
+) -> Result<Option<azul_storage::restore::RestoreNotice>, SyncError> {
+    let link = job
+        .account
+        .azlin
+        .as_ref()
+        .ok_or_else(|| SyncError::Protocol(String::from("not an Azlin account")))?;
+    let url = job
+        .endpoints
+        .token_url_for(&link.token_url)
+        .ok_or_else(|| SyncError::Auth(account::FormError::NoTokenServer.to_string()))?;
+    let server = azlin::TokenServer::new(&url, transport).map_err(azlin_error)?;
+    azlin::restore_shared(
+        &server,
+        &job.keyring,
+        &account::azlin_keyring_key(&job.account.id),
+        session,
+    )
+    .map_err(azlin_error)
+}
+
+/// One sync of the drive with `session`'s credentials at `now`.
 fn sync_drive(
     job: &SyncInit,
     session: &azlin::AzlinSession,
     transport: &AzulTransport,
-    options: &azlin_sync::AzlinOptions,
+    now: i64,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
     // An encrypted drive's incoming mail first: its drops into the folders the sync reads.
@@ -1422,15 +1450,14 @@ fn sync_drive(
         std::sync::Arc::new(azlin_keyring(Asking::User)),
     )
     .map_err(azlin_sync::drive_error)?;
-    // The drive's restore announcement is the session's (a re-sign-in may bring a newer one).
-    let options = azlin_sync::AzlinOptions {
-        restore: session.restore.clone(),
-        ..options.clone()
-    };
-    azlin_sync::sync_account(
+    // The drive's restore announcement is the session's (a re-sign-in may bring a newer one); the
+    // token server is asked again when mail the drive no longer lists is about to go.
+    azlin_sync::sync_session(
         &drive,
         &MailStore::new(job.mail_root.clone()),
-        &options,
+        session,
+        now,
+        &|| azlin_restore_now(job, session, transport),
         progress,
     )
 }
@@ -1469,19 +1496,15 @@ fn run_azlin_sync(
         session = refresh_session(job, link, &session, None, &transport, sender)?;
         refreshed = true;
     }
-    let options = azlin_sync::AzlinOptions {
-        now,
-        ..azlin_sync::AzlinOptions::default()
-    };
     let account = job.account.id.clone();
-    let first = sync_drive(job, &session, &transport, &options, &mut |p| {
+    let first = sync_drive(job, &session, &transport, now, &mut |p| {
         report_progress(sender, receiver, job.thread, &account, p)
     });
     match first {
         Err(SyncError::Auth(_)) if !refreshed => {
             let refused = session.access_key_id.clone();
             session = refresh_session(job, link, &session, Some(&refused), &transport, sender)?;
-            sync_drive(job, &session, &transport, &options, &mut |p| {
+            sync_drive(job, &session, &transport, now, &mut |p| {
                 report_progress(sender, receiver, job.thread, &account, p)
             })
         }
@@ -1632,13 +1655,11 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
             } else {
                 t_args("azmail-new-messages", &[("count", Arg::from(report.fetched()))])
             };
-            // A restored drive lacks mail this computer has: it stays, and the user is told.
-            if report.kept_after_restore() > 0 {
+            // Mail the drive no longer lists that stays here (a restored drive lacks it, or the
+            // token server could not be asked whether it was restored): the user is told.
+            for sentence in azlin_sync::drive_sentences(&report) {
                 text.push(' ');
-                text.push_str(&t_args(
-                    "azmail-restore-kept",
-                    &[("count", Arg::from(report.kept_after_restore()))],
-                ));
+                text.push_str(&sentence);
             }
             if sent + queued + failed > 0 {
                 text.push(' ');
