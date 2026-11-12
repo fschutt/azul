@@ -620,13 +620,33 @@ fn download_ranges_checked(
     ctl.bytes(have);
     let fetched = std::sync::atomic::AtomicU64::new(have);
     let state = Mutex::new(state);
+    // Every range asks for the version the download began with where the drive can say so
+    // ([`Drive::get_range_if`]): an object replaced and put back while the ranges were read would
+    // pass the look at the end that finds the tag it began with, and the file would be the splice of
+    // two versions under the final name. A drive that cannot pin, or names no tag to pin by, is read
+    // as before and looked at when it is done (X-DELTA-SYNC4-12).
+    let cannot_pin = std::sync::atomic::AtomicBool::new(false);
+    let read_range = |range: ByteRange| -> Result<Vec<u8>, DriveError> {
+        if let (Some(tag), false) = (
+            &info.etag,
+            cannot_pin.load(std::sync::atomic::Ordering::SeqCst),
+        ) {
+            match drive.get_range_if(key, range, &Precondition::Matches(tag.clone())) {
+                Err(DriveError::Unsupported(_)) => {
+                    cannot_pin.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                answer => return answer,
+            }
+        }
+        drive.get_range(key, range)
+    };
     let result = in_parallel(missing.len(), PARALLEL_RANGES, |n| {
         // A stop is looked for before every range: the ranges in flight finish, none starts.
         stop_if_asked(ctl)?;
         let i = missing[n];
         let start = i * chunk;
         let len = length(i);
-        let bytes = drive.get_range(key, ByteRange::new(start, Some(start + len - 1)))?;
+        let bytes = read_range(ByteRange::new(start, Some(start + len - 1)))?;
         if bytes.len() as u64 != len {
             return Err(DriveError::Protocol(format!(
                 "\"{key}\": the range {start}-{} came back with {} bytes",

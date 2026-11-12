@@ -780,3 +780,116 @@ fn x_delta_azdrive_files_36_a_refusal_of_an_object_that_did_not_grow_is_not_hidd
     assert!(matches!(refused, DriveError::Protocol(_)), "{refused:?}");
     assert!(!tmp.path().join("small.log").exists());
 }
+
+/// A drive whose object is replaced by other bytes of the same length while its ranges are read, and
+/// put back before the last one: the second range read meets the other version. It can pin a range to
+/// the version a read began with (`Drive::get_range_if`), as S3 does with `If-Match`.
+struct ReplacedAndPutBack {
+    inner: Arc<super::mem_bucket::MemBucket>,
+    original: Vec<u8>,
+    other: Vec<u8>,
+    reads: Mutex<u32>,
+}
+
+impl ReplacedAndPutBack {
+    /// One range read, in the order the reads arrive (the lock is held across it: the ranges are read
+    /// in parallel, and the second must meet what the first left): the first read is of the original
+    /// and leaves the other version in its place, the second meets it and puts the original back.
+    /// `pin`: the version a pinned read asks for.
+    fn read(&self, key: &str, range: ByteRange, pin: Option<&str>) -> Result<Vec<u8>, DriveError> {
+        let mut reads = self.reads.lock().unwrap();
+        *reads += 1;
+        let now = self.inner.head(key)?;
+        let answer = match pin {
+            Some(tag) if now.etag.as_deref() != Some(tag) => Err(DriveError::Conflict {
+                key: key.to_string(),
+            }),
+            _ => self.inner.get_range(key, range),
+        };
+        match *reads {
+            1 => self.inner.set(key, self.other.clone()),
+            2 => self.inner.set(key, self.original.clone()),
+            _ => {}
+        }
+        answer
+    }
+}
+
+impl Drive for ReplacedAndPutBack {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        // Plain: whatever the object holds when the request arrives.
+        self.read(key, range, None)
+    }
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &crate::Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        let crate::Precondition::Matches(tag) = condition else {
+            return Err(DriveError::Unsupported(String::from("only a version")));
+        };
+        self.read(key, range, Some(tag))
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &crate::Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.inner.put_if(key, bytes, condition)
+    }
+}
+
+/// X-DELTA-SYNC4-12. `download_ranges` read its ranges with plain `get_range` and compared the object's
+/// tag, size and date only at the end: an object replaced and put back while the ranges were read (the
+/// tag it began with comes back) was published under the final name as the SPLICE of the two versions.
+/// Every range now asks for the version the download began with where the drive can. RED on the old code:
+/// the file is the splice.
+#[test]
+fn x_delta_sync4_12_a_ranged_download_of_an_object_replaced_and_put_back_is_no_splice() {
+    let dir = TempDir::new("transfer-s12");
+    let dest = dir.path().join("big.bin");
+    let original: Vec<u8> = (0..12u8).collect();
+    let other: Vec<u8> = (0..12u8).map(|b| 100 + b).collect();
+    let inner = Arc::new(super::mem_bucket::MemBucket::new());
+    inner.set("big.bin", original.clone());
+    let drive = ReplacedAndPutBack {
+        inner,
+        original: original.clone(),
+        other,
+        reads: Mutex::new(0),
+    };
+    // Three ranges of four bytes, one at a time.
+    let result = download_to_file(&drive, "big.bin", Some(12), &dest, 4);
+    match result {
+        Ok(_) => assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            original,
+            "a published file is the version the download began with, not a splice"
+        ),
+        Err(e) => assert!(
+            matches!(e, DriveError::Conflict { .. }),
+            "the object changed under the download: {e:?}"
+        ),
+    }
+    assert!(
+        !dest.exists() || std::fs::read(&dest).unwrap() == original,
+        "nothing but the whole original is ever under the final name"
+    );
+}
