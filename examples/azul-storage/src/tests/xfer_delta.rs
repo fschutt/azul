@@ -771,7 +771,11 @@ fn x_delta_azdrive_files_15_a_folder_the_target_refused_stays_at_the_source() {
 /// `LocalDrive::path_of`, which checks the shape only: `.GIT/config` of a shared drive is
 /// `.git/config` on APFS and NTFS (a conflict question, then a file in a real repository). A spelling
 /// the disk would read as a protected name is refused by the plan, each as a failure of its own;
-/// the exact `.git` of a repository the user copies on purpose is not.
+/// the exact `.git` of a repository the user copies on purpose is not. The engine's own folder is the
+/// root's alone: `proj/.AZLIN` is an ordinary folder of the user's - the sync admits `proj/.azlin` the
+/// same way - and is copied (X-DELTA-STRUCT3-17: this test listed it among the refused names, which
+/// only the any-depth rule of the bookkeeping spelling made so; `.AZLIN` as the FIRST name is refused
+/// for every purpose, tests/names.rs).
 #[test]
 fn x_delta_azdrive_files_32_a_name_the_disk_reads_as_git_is_not_written_from_a_drive() {
     let tmp = TempDir::new("dx32-names");
@@ -788,11 +792,7 @@ fn x_delta_azdrive_files_32_a_name_the_disk_reads_as_git_is_not_written_from_a_d
     refused.sort_unstable();
     assert_eq!(
         refused,
-        [
-            "proj/.AZLIN/x",
-            "proj/.GIT/config",
-            "proj/GIT~1/hooks/post-commit"
-        ]
+        ["proj/.GIT/config", "proj/GIT~1/hooks/post-commit"]
     );
     let planned: Vec<&str> = plan.files.iter().map(|f| f.target_key.as_str()).collect();
     assert!(!planned
@@ -804,10 +804,11 @@ fn x_delta_azdrive_files_32_a_name_the_disk_reads_as_git_is_not_written_from_a_d
         .iter()
         .filter(|(_, why)| matches!(why, DriveError::InvalidKey { .. }))
         .count();
-    assert_eq!(refusals, 3, "{report:?}");
-    assert_eq!(report.done, 2, "{report:?}");
+    assert_eq!(refusals, 2, "{report:?}");
+    assert_eq!(report.done, 3, "{report:?}");
     assert_eq!(target.get("proj/readme.txt").unwrap(), b"hello");
     assert_eq!(target.get("proj/.git/config").unwrap(), b"[core]");
+    assert_eq!(target.get("proj/.AZLIN/x").unwrap(), b"y");
     let mut made: Vec<String> = std::fs::read_dir(tmp.path().join("other").join("proj"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -815,7 +816,7 @@ fn x_delta_azdrive_files_32_a_name_the_disk_reads_as_git_is_not_written_from_a_d
     made.sort();
     assert_eq!(
         made,
-        [".git", "readme.txt"],
+        [".AZLIN", ".git", "readme.txt"],
         "nothing was made for the refused names"
     );
     // A move leaves the refused names where they are.
