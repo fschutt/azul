@@ -149,10 +149,11 @@ fn spec(state: &KeyState, op: Op) -> Cell {
 
         // ---- Locked: encrypted, and this device has no key
         (S::Locked, Op::Recover) => Cell::Permit(Way::Plain, NO_STAYS),
+        // the setup's own refusal of an encrypted drive (`the_sentence_of_an_encrypted_drive_...`)
+        (S::Locked, Op::Setup) => Cell::Refuse(Refusal::EncryptedAlready),
         (
             S::Locked,
-            Op::Setup
-            | Op::Enroll
+            Op::Enroll
             | Op::Rotate
             | Op::Remove
             | Op::AddCode
@@ -1818,4 +1819,34 @@ fn x_delta_struct_keystate_1_an_ordinary_open_after_the_member_wrap_leaves_the_k
             }
         }
     }
+}
+
+// ==== X-DELTA-STRUCT-KEYSTATE-5: a planned key finishes a setup only when it is the drive key ====
+
+/// A planned key beside the drive key finishes a setup only when it IS the drive key: the setup that
+/// stopped between its key and the planned key's deletion. A planned key of another id (a checkout's,
+/// for a drive whose key this device holds) is no copy of the drive key: "finishing" would put it in the
+/// drive key's place, and everything sealed under the drive key would open with nothing.
+#[test]
+fn x_delta_struct_keystate_5_a_planned_key_of_another_id_beside_the_drive_key_does_not_finish_a_setup(
+) {
+    let other = keyring(Some(1), None, Some(2));
+    assert_eq!(observe(&other), KeyState::Active);
+    match judge(&KeyState::Active, Op::Setup, &other) {
+        Verdict::Refuse(reason) => assert_eq!(reason.kind, Refusal::EncryptedAlready),
+        Verdict::Permit(permit) => panic!("the setup was let finish ({:?})", permit.way()),
+    }
+    // the same id: the setup that stopped before the planned key's deletion
+    let same = keyring(Some(1), None, Some(1));
+    assert!(matches!(
+        judge(&KeyState::Active, Op::Setup, &same),
+        Verdict::Permit(permit) if permit.way() == Way::Finish
+    ));
+    // a planned key whose read failed is no key to finish with
+    let mut failed = keyring(Some(1), None, Some(1));
+    failed.keyring.planned_key = Read::Failed(String::from("the keyring refused"));
+    assert!(matches!(
+        judge(&KeyState::Active, Op::Setup, &failed),
+        Verdict::Refuse(reason) if reason.kind == Refusal::EncryptedAlready
+    ));
 }

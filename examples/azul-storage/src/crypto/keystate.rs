@@ -879,11 +879,15 @@ fn planned(op: Op, e: &Evidence<'_>) -> Verdict {
 fn active(op: Op, e: &Evidence<'_>) -> Verdict {
     match op {
         // The last step of a setup that stopped between its key and the planned key's deletion: the
-        // same call finishes it (the key was never shown a code). Without a key left behind the
-        // drive is encrypted already.
-        Op::Setup => match &e.keyring.planned_key {
-            Read::Found(_) => permit_keeping(op, e, Way::Finish),
-            Read::Absent | Read::Unasked | Read::Failed(_) => refuse(Refusal::EncryptedAlready, e),
+        // same call finishes it (the key was never shown a code) - when the key left behind IS the
+        // drive key. Without one, or with a planned key of another id (a checkout's, for a drive of
+        // another key), the drive is encrypted already: finishing would put a key nothing seals in the
+        // drive key's place (X-DELTA-STRUCT-KEYSTATE-5).
+        Op::Setup => match (&e.keyring.planned_key, &e.keyring.drive_key) {
+            (Read::Found(planned), Read::Found(drive)) if planned == drive => {
+                permit_keeping(op, e, Way::Finish)
+            }
+            _ => refuse(Refusal::EncryptedAlready, e),
         },
         Op::Enroll => permit_keeping(op, e, Way::Plain),
         Op::Rotate => permit_keeping(op, e, Way::New),
@@ -936,8 +940,10 @@ fn torn(why: &Why, op: Op, e: &Evidence<'_>) -> Verdict {
 fn locked(op: Op, e: &Evidence<'_>) -> Verdict {
     match op {
         Op::Recover => permit_keeping(op, e, Way::Plain),
-        Op::Setup
-        | Op::Enroll
+        // The setup says what it always said of an encrypted drive it has no key for: open it with
+        // an invite or the recovery code.
+        Op::Setup => refuse(Refusal::EncryptedAlready, e),
+        Op::Enroll
         | Op::Rotate
         | Op::Remove
         | Op::AddCode
