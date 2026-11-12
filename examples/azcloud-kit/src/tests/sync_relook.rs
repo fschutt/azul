@@ -679,6 +679,91 @@ fn x_delta_sync4_26_a_blob_uploaded_a_moment_ago_is_young_by_the_buckets_own_clo
     assert!(behind.0.read(&in_flight).is_some(), "the blob stays");
 }
 
+/// A bucket that, once, lets something happen right after the listing of the blobs is made: another
+/// device's pass, while a garbage collection works on the listing it has.
+struct ListedThen {
+    inner: Arc<S3Bucket>,
+    after_the_blob_listing: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl crate::store::RemoteStore for ListedThen {
+    fn get_unless(
+        &self,
+        key: &str,
+        etag: Option<&str>,
+    ) -> crate::error::CloudResult<crate::store::Conditional> {
+        self.inner.get_unless(key, etag)
+    }
+    fn fetch(&self, key: &str, size: u64) -> crate::error::CloudResult<Option<Vec<u8>>> {
+        self.inner.fetch(key, size)
+    }
+    fn put(&self, key: &str, data: &[u8]) -> crate::error::CloudResult<String> {
+        self.inner.put(key, data)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        data: &[u8],
+        if_match: Option<&str>,
+    ) -> crate::error::CloudResult<Option<String>> {
+        self.inner.put_if(key, data, if_match)
+    }
+    fn head(&self, key: &str) -> crate::error::CloudResult<Option<u64>> {
+        self.inner.head(key)
+    }
+    fn delete(&self, key: &str) -> crate::error::CloudResult<()> {
+        self.inner.delete(key)
+    }
+    fn list(&self, prefix: &str) -> crate::error::CloudResult<Vec<crate::store::RemoteObject>> {
+        let listed = self.inner.list(prefix)?;
+        if prefix.ends_with("/blobs/") {
+            if let Some(then) = self.after_the_blob_listing.lock().unwrap().take() {
+                then();
+            }
+        }
+        Ok(listed)
+    }
+}
+
+/// X-DELTA-SYNC6-10. `collect_garbage` read the index once, then listed the blobs, then deleted by
+/// name. A pass of another device that restored a file whose blob an older tombstone left
+/// unreferenced finds the blob whole and commits an index that names it - the blob's date stays old -
+/// and the collection, whose index read and listing are older, deleted it: every other device then
+/// fails "the blob is missing from the drive". The index is read again after the listing, and what it
+/// names now is kept. RED on the old code: the blob is gone.
+#[test]
+fn x_delta_sync6_10_a_blob_another_pass_names_after_the_listing_is_not_collected() {
+    let store = Arc::new(S3Bucket::new());
+    let a = Device::new("relook-gc-stale");
+    a.write("a.md", b"one");
+    a.sync(&store);
+    a.write("a.md", b"two");
+    a.sync(&store);
+    let one = crate::sync::remote::blob_key(PREFIX_GC, &crate::sync::local::hash_bytes(b"one"));
+    assert!(
+        store.read(&one).is_some(),
+        "the blob of the first version is there"
+    );
+    let committing = {
+        let store = Arc::clone(&store);
+        Box::new(move || {
+            // The user went back to the first version; the pass commits an index that names it.
+            a.write("a.md", b"one");
+            a.sync(&store);
+        }) as Box<dyn FnOnce() + Send>
+    };
+    let racing = ListedThen {
+        inner: Arc::clone(&store),
+        after_the_blob_listing: std::sync::Mutex::new(Some(committing)),
+    };
+    let report = crate::sync::collect_garbage(&racing, PREFIX_GC, -1, false).unwrap();
+    assert!(
+        store.read(&one).is_some(),
+        "the blob the new index names was deleted: {report:?}"
+    );
+    assert_eq!((report.deleted, report.named_since), (0, 1), "{report:?}");
+}
+
 /// A pairing on the plain index (the fake bucket) whose passes hear the fault seam.
 fn plain(device: &str, folder: &Path, state: &Path, store: &Arc<S3Bucket>) -> Arc<SyncSession> {
     let remote: Arc<dyn crate::store::RemoteStore> = store.clone();

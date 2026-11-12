@@ -5314,6 +5314,9 @@ pub struct GcReport {
     /// Unreferenced, but younger than the grace period (a run may be about
     /// to commit them).
     pub kept_young: usize,
+    /// Unreferenced by the index read first, but named by an index read after the listing: a pass
+    /// of another device reused or rewrote the blob meanwhile (X-DELTA-SYNC6-10). Kept.
+    pub named_since: usize,
     pub deleted: usize,
     pub bytes_freed: u64,
     pub dry_run: bool,
@@ -5323,15 +5326,25 @@ pub struct GcReport {
 /// tombstone) and that are older than `grace_secs` - a blob a running sync
 /// uploaded but did not commit yet is younger.
 ///
-/// Two things must hold before a blob is deleted (X-DELTA-SYNC4-26): the drive HAS an index - a
-/// missing one has no live set, and "names nothing" would make every blob garbage - and the age is
-/// the bucket's: the newest time any object of the listing (the index among them) says is the
-/// bucket's own "now", so a clock of this device that is days ahead of the bucket's cannot make a
-/// blob that was uploaded a moment ago look old.
+/// Three things must hold before a blob is deleted. The drive HAS an index - a missing one has no live
+/// set, and "names nothing" would make every blob garbage (X-DELTA-SYNC4-26). The age is the bucket's:
+/// the newest time any object of the listing (the index among them) says is the bucket's own "now", so a
+/// clock of this device that is days ahead of the bucket's cannot make a blob that was uploaded a
+/// moment ago look old (X-DELTA-SYNC4-26). And the index is read AGAIN after the listing and every
+/// [`GC_RECHECK_EVERY`] deletes, and a blob any of those reads names is kept (X-DELTA-SYNC6-10): a
+/// listing takes minutes on a big drive, and a pass of another device that restored a file whose blob
+/// an older tombstone left unreferenced finds the blob whole, uploads nothing and commits an index that
+/// names it - its date stays old, so the age alone cannot tell.
+///
+/// What is left is the window between the last read of the index and the delete of one blob (one
+/// round trip each, at most [`GC_RECHECK_EVERY`] deletes apart): the store takes no condition on a
+/// delete, so a commit inside it still loses its blob - the next pass of that device finds the blob
+/// missing and uploads it again. Run it when no device syncs, or with a long grace, where that matters.
 ///
 /// # Errors
 ///
-/// When the index or the listing cannot be read, the drive has no index, or a delete is refused.
+/// When the index or the listing cannot be read (at any of the reads), the drive has no index, or a
+/// delete is refused.
 pub fn collect_garbage<S: RemoteStore + ?Sized>(
     store: &S,
     prefix: &str,
@@ -5355,7 +5368,8 @@ pub fn collect_garbage<S: RemoteStore + ?Sized>(
             newer.join(", ")
         );
     }
-    let referenced = index.referenced();
+    let mut referenced: BTreeSet<String> =
+        index.referenced().into_iter().map(String::from).collect();
     let mut report = GcReport {
         prefix: prefix.clone(),
         dry_run,
@@ -5368,11 +5382,20 @@ pub fn collect_garbage<S: RemoteStore + ?Sized>(
         .chain(&store.list(&index_key)?)
         .filter_map(|object| object.modified)
         .max();
+    // The index as it is after the listing: what a pass of another device committed while the
+    // listing was made names its blobs too. A blob any read names stays.
+    let mut late: BTreeSet<String> = BTreeSet::new();
+    reread_index(store, &prefix, &index_key, &mut referenced, &mut late)?;
+    let mut since_look = 0;
     for blob in blobs {
         report.blobs += 1;
         let hash = blob.key.rsplit('/').next().unwrap_or("");
         if referenced.contains(hash) {
-            report.referenced += 1;
+            if late.contains(hash) {
+                report.named_since += 1;
+            } else {
+                report.referenced += 1;
+            }
             continue;
         }
         let young = match (bucket_now, blob.modified) {
@@ -5385,10 +5408,58 @@ pub fn collect_garbage<S: RemoteStore + ?Sized>(
             continue;
         }
         if !dry_run {
+            // The window between a read of the index and the delete stays short: the index is read
+            // again every GC_RECHECK_EVERY deletes, and what it names now is kept.
+            if since_look >= GC_RECHECK_EVERY {
+                reread_index(store, &prefix, &index_key, &mut referenced, &mut late)?;
+                since_look = 0;
+                if referenced.contains(hash) {
+                    report.named_since += 1;
+                    continue;
+                }
+            }
             store.delete(&blob.key)?;
+            since_look += 1;
         }
         report.deleted += 1;
         report.bytes_freed += blob.size;
     }
     Ok(report)
+}
+
+/// How many blobs [`collect_garbage`] deletes before it reads the index again.
+const GC_RECHECK_EVERY: usize = 100;
+
+/// Reads the drive's index again during a collection and adds the blobs it names to `referenced`;
+/// those the first read did not name go to `late` as well. The index must still be there and still be
+/// one this version knows: anything else stops the collection - a blob is never deleted on a look that
+/// failed.
+fn reread_index<S: RemoteStore + ?Sized>(
+    store: &S,
+    prefix: &str,
+    index_key: &str,
+    referenced: &mut BTreeSet<String>,
+    late: &mut BTreeSet<String>,
+) -> CloudResult<()> {
+    let (fresh, etag) = read_index(store, index_key, None)?;
+    if etag.is_none() {
+        fail!(
+            "the drive's sync index of {prefix:?} is gone while it is collected: nothing more was \
+             collected"
+        );
+    }
+    let newer = fresh.unknown_features();
+    if !newer.is_empty() {
+        fail!(
+            "the drive's sync index of {prefix:?} changed to one this version does not know ({}): \
+             nothing more was collected - update it",
+            newer.join(", ")
+        );
+    }
+    for hash in fresh.referenced() {
+        if referenced.insert(hash.to_string()) {
+            late.insert(hash.to_string());
+        }
+    }
+    Ok(())
 }
