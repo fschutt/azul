@@ -175,13 +175,33 @@ fn the_new_form_problems_are_said_in_english_and_german() {
         FormProblem::NotAKey(credential),
     ];
     set_locale("en-US");
+    // A problem that names no list is the library's own English, word for word: the two cannot
+    // drift apart.
     for problem in problems {
+        if matches!(problem, FormProblem::WrongScheme(_)) {
+            continue;
+        }
         assert_eq!(
             source_words::problem(problem),
             problem.to_string(),
             "{problem:?}"
         );
     }
+    // `WrongScheme` names the schemes of its field, and there the two Englishes differ in one
+    // thing: the library joins them with the word "or", AzDrive's sentence with a sign (" / "),
+    // which the German sentence has no English word to translate for (`source_words::problem`,
+    // `azdrive-form-wrong-scheme`). AzDrive's is the designed text (the resources and the one
+    // join), so it is pinned whole, and the library's is the same sentence but for that joiner.
+    let wrong = FormProblem::WrongScheme(endpoint);
+    assert_eq!(
+        source_words::problem(wrong),
+        "\"Server address\" must start with https:// / http://."
+    );
+    assert_eq!(
+        source_words::problem(wrong).replace(" / ", " or "),
+        wrong.to_string(),
+        "the library's sentence is AzDrive's but for the joiner of the schemes"
+    );
     set_locale("de-DE");
     for problem in problems {
         let german = source_words::problem(problem);
@@ -191,8 +211,9 @@ fn the_new_form_problems_are_said_in_english_and_german() {
             "a missing key shows itself: {german}"
         );
     }
-    assert!(
-        source_words::problem(FormProblem::WrongScheme(endpoint)).contains("https:// / http://")
+    assert_eq!(
+        source_words::problem(wrong),
+        "„Serveradresse“ muss mit https:// / http:// beginnen."
     );
     set_locale("en-US");
 }
