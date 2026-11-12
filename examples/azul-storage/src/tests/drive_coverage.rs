@@ -14,9 +14,11 @@
 //! ARCH29 C6e: a wrapper made with `delegate_drive!` forwards every method of `drive_methods!`
 //! (THE list of the 27) unless it writes the method itself, so a new method of the trait is
 //! forwarded without touching the wrapper - provided the list says the same as the trait, which
-//! the first test below keeps true. `AzlinDrive`, the bytes of an Azlin drive (ARCH29 C6d), is made with
-//! it too: a request goes through its `send` (the credentials renewed), and a method it does not write
-//! is refused - there is no drive below - never answered by the trait's default. The wrappers that must write every method on
+//! the first test below keeps true. `AzlinDrive`, the bytes of an Azlin drive (ARCH29 C6d), and `Stops`
+//! (the copy of a locked drive reads through it; X-DELTA-STRUCT-DRIVE-3: it wrote seven methods and
+//! left twenty to the trait's defaults) are made with it too: a request goes through their `send` (the
+//! credentials renewed; the stop flag asked), and a method they do not write is forwarded - or, where
+//! there is no drive below, refused - never answered by the trait's default. The wrappers that must write every method on
 //! purpose (the encryption wrappers, `ScopedDrive`, the bridge's account drive) stay in `WRAPPERS`
 //! with their per-method census: forwarding as it is would be the bug for a method nobody looked at.
 
@@ -359,6 +361,7 @@ const DELEGATING: &[(&str, &str)] = &[
     ("RetryingDrive", "azcloud-kit/src/sync/retry.rs"),
     ("ObjectCache", "azcloud-kit/src/sync/objects.rs"),
     ("AzlinDrive", "azcloud-kit/src/drive.rs"),
+    ("Stops", "azul-drive/src/archive.rs"),
 ];
 
 /// The drives that sit on top of another drive and write every method themselves, on purpose (a
@@ -418,12 +421,6 @@ const OTHERS: &[(&str, &str)] = &[
     (
         "Stoppable",
         "the six calls a download makes, failing once its process is gone: it forwards no more",
-    ),
-    (
-        "Stops",
-        "the seven calls the copy of a locked drive reads through, failing with Cancelled once the \
-         drive's removal raised its flag: an adapter of the few calls one caller makes, it forwards \
-         no more (X-DELTA-AZDRIVE-KEYS-32)",
     ),
     (
         "NoDriveBelow",

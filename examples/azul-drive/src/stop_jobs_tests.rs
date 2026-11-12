@@ -102,3 +102,42 @@ fn a_rescue_copy_reads_through_a_drive_that_stops_when_the_drive_is_removed() {
     assert_eq!(report.copied, 0);
     assert!(!folder.join("docs").exists(), "nothing was copied");
 }
+
+/// X-DELTA-STRUCT-DRIVE-3: `Stops` wrote seven methods and left twenty to the trait's defaults, so its
+/// `site()` was a place of its own, `local_path` was none and `metadata` was the default's - the FILES-2
+/// shape again, and the census could not see it (it was classified as an adapter that "forwards no more").
+/// It is the drive below for every call that is no request - the place, the path, the conditional
+/// vocabulary - and a request asks the flag first and is answered by the drive below.
+#[test]
+fn x_delta_struct_drive_3_stops_is_the_drive_below_for_the_place_and_the_path_and_asks_the_flag_for_a_request(
+) {
+    let dir = TempDir::new("stops-forwards");
+    let folder: Arc<dyn Drive> = Arc::new(azul_storage::LocalDrive::new(dir.path().to_path_buf()));
+    folder.put("a.txt", b"alpha").unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let drive = Stops {
+        inner: Arc::clone(&folder),
+        stop: Arc::clone(&stop),
+    };
+    // The place and the path are the folder's: the overlap guards and the fast path of a copy rest on them.
+    assert_eq!(drive.site(), folder.site());
+    assert!(matches!(
+        drive.site(),
+        azul_storage::xfer::Site::Disk { .. }
+    ));
+    assert_eq!(drive.local_path("a.txt"), folder.local_path("a.txt"));
+    assert!(drive.local_path("a.txt").is_some());
+    assert_eq!(drive.conditional_writes(), folder.conditional_writes());
+    // A request is the drive below's answer while the flag is down, and a refusal when it is raised -
+    // `metadata` among them, which the old `Stops` left to the trait's default.
+    assert_eq!(drive.get("a.txt").unwrap(), b"alpha");
+    assert_eq!(drive.metadata("a.txt"), folder.metadata("a.txt"));
+    stop.store(true, Ordering::SeqCst);
+    assert_eq!(drive.get("a.txt"), Err(DriveError::Cancelled));
+    assert_eq!(drive.metadata("a.txt"), Err(DriveError::Cancelled));
+    assert_eq!(
+        drive.site(),
+        folder.site(),
+        "a question about the drive waits for no flag"
+    );
+}

@@ -50,7 +50,7 @@ use azul_storage::{
     durable::{self, Expect},
     key::System,
     names::{Policy, Purpose},
-    transfer, ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, LocalDrive, ObjectInfo,
+    transfer, Drive, DriveError, LocalDrive, ObjectInfo,
 };
 use serde::{Deserialize, Serialize};
 
@@ -1142,37 +1142,26 @@ impl Stops {
     }
 }
 
-impl Drive for Stops {
-    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        self.alive()?;
-        self.inner.list(request)
+/// A request of the copy goes to the drive below unless the flag is raised; a call that is no request - a
+/// question about the drive (`site`, `local_path`), a body that is read once, a file's upload, a batch - is
+/// the drive below's own, and so is whatever the trait gets next (X-DELTA-STRUCT-DRIVE-3: it wrote seven
+/// methods and left twenty to the trait's defaults, so `site()` was a place of its own and `local_path` was
+/// none; the census could not see it). The copy reads: nothing it sends is a write.
+impl azul_storage::DriveDelegate for Stops {
+    fn below(&self) -> &dyn Drive {
+        &*self.inner
     }
-    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+
+    fn send<T>(
+        &self,
+        request: impl Fn(&dyn Drive) -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
         self.alive()?;
-        self.inner.get(key)
-    }
-    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        self.alive()?;
-        self.inner.get_range(key, range)
-    }
-    // The inner drive's guard stands: a drive that wraps another forwards the limit.
-    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
-        self.alive()?;
-        self.inner.get_limited(key, limit)
-    }
-    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        self.alive()?;
-        self.inner.put(key, bytes)
-    }
-    fn delete(&self, key: &str) -> Result<(), DriveError> {
-        self.alive()?;
-        self.inner.delete(key)
-    }
-    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        self.alive()?;
-        self.inner.head(key)
+        request(&*self.inner)
     }
 }
+
+azul_storage::delegate_drive!(Stops);
 
 /// Whether the copy of a drive whose last state is `last` (none before a first copy) runs now: it
 /// is not running, and it has not ended well yet - files missing, too little room, a record kept
