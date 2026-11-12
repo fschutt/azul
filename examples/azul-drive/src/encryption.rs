@@ -1633,6 +1633,12 @@ pub(crate) fn guard_unfinished_setup(
             text: t("azdrive-enc-finishing"),
         }));
     }
+    // The new code's wrap replaces the old one's before its sheet is shown: what the record holds of the old
+    // code - its public key, its registration - is no witness from then on, whatever becomes of the job (a
+    // kill after the wrap leaves a drive whose wrap holds a code nobody saw, and a record that still
+    // answers for the one before: a drill passed its paper offline, X-DELTA-KEYS3-1). The marker is the
+    // setup's: a code is owed, made now, nothing of it checked, registered or known.
+    let before = setup_marked_first(s, &drive, false);
     spawn(
         info,
         app,
@@ -1640,6 +1646,7 @@ pub(crate) fn guard_unfinished_setup(
         Job::Encryption(EncryptionJob::NewCode {
             drive_id: drive,
             auto,
+            before,
         }),
     );
 }
@@ -2202,12 +2209,19 @@ pub(crate) fn rotate_confirmed(info: &mut CallbackInfo, app: &RefAny, s: &mut Dr
         text: t("azdrive-enc-rotating"),
     }));
     // The rotation replaces the recovery wrap before the new code is shown: the code typed back
-    // right until now is no witness from here on, whatever becomes of the job (it may stop with
-    // the wrap replaced and the new code never seen). Saved before the job starts; what was
-    // checked is handed to the job, which gives it back to the outcome when it stopped before it
+    // right until now - and the key a drill compares a typed code with - is no witness from here
+    // on, whatever becomes of the job (it may stop with the wrap replaced and the new code never
+    // seen, or be killed in the middle of it). The forgetting is written by the JOB, on its own
+    // thread, before its first irreversible step ([`Before`], X-DELTA-KEYS3-1): a save the window
+    // spawns runs on another thread and nothing orders it before the job's wrap. What was taken
+    // out is handed to the job, which gives it back to the outcome when it stopped before it
     // changed anything ([`rotation_stopped`]).
-    let checked_before = rotation_begins(state_mut(&mut s.settings.recovery.drives, &drive_id));
-    crate::save_settings(info, app, s);
+    let (taken, before) = rotation_marked(
+        s.settings_drive.clone(),
+        &s.settings_base,
+        &mut s.settings,
+        &drive_id,
+    );
     spawn(
         info,
         app,
@@ -2220,31 +2234,70 @@ pub(crate) fn rotate_confirmed(info: &mut CallbackInfo, app: &RefAny, s: &mut Dr
             auto,
             azlin,
             current,
-            checked_before,
+            taken,
+            before,
         }),
     );
 }
 
-/// A rotation is about to start: the code typed back right until now is no witness from here on
-/// (`wrap_may_change`), and what was checked is handed back for [`rotation_stopped`].
-fn rotation_begins(state: &mut crate::recovery_health::RecoveryState) -> Option<u64> {
-    let checked = state.code_checked;
+/// What a drive's recovery record forgot when a rotation began ([`rotation_begins`]), handed to the job
+/// and back by an outcome that says the job stopped before it changed anything ([`rotation_stopped`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RecordTaken {
+    /// The settings' `code_checked`: when the code was last typed back right.
+    pub code_checked: Option<u64>,
+    /// The settings' `recovery_key`: the public key a drill compares a typed code with.
+    pub recovery_key: Option<String>,
+}
+
+/// A rotation is about to start: the code typed back right until now, and the key a drill compares a
+/// typed code with, are no witness from here on ([`RecoveryState::wrap_may_change`]); what was taken
+/// out is handed back for [`rotation_stopped`].
+fn rotation_begins(state: &mut crate::recovery_health::RecoveryState) -> RecordTaken {
+    let taken = RecordTaken {
+        code_checked: state.code_checked,
+        recovery_key: state.recovery_key.clone(),
+    };
     state.wrap_may_change();
-    checked
+    taken
+}
+
+/// The window's side of the first step of a rotation: `mine` (the window's settings) forgets what a
+/// rotation may make stale ([`rotation_begins`]), and the job's [`Before`] writes exactly that to the
+/// settings file - merged, as every save of the settings is - on the job's thread, before the job's
+/// account lockdown and before its first key (X-DELTA-KEYS3-1: the forgetting used to be a save the
+/// window spawned, which nothing ordered before the wrap, and a rotation killed after its wrap left
+/// the old paper's key in the file). `None` without a settings drive: nothing is saved anywhere.
+fn rotation_marked(
+    settings_drive: Option<LocalDrive>,
+    start: &crate::model::Settings,
+    mine: &mut crate::model::Settings,
+    drive_id: &str,
+) -> (RecordTaken, Option<Before>) {
+    let taken = rotation_begins(state_mut(&mut mine.recovery.drives, drive_id));
+    let before =
+        settings_drive.map(|drive| settings_written_first(drive, start.clone(), mine.clone()));
+    (taken, before)
 }
 
 /// A rotation ended in an error. Before it changed anything ([`RotationStopped::begun`] false: the
-/// account's lockdown went wrong, the key permit refused) the wrap is the one that was checked and
-/// the check is put back: left forgotten, the drive read as a setup whose sheet was never passed and
-/// the next folder made a NEW code, which the token server - holding the old one's key - refused to
-/// register unsigned (X-DELTA-KEYS2-1). After it the wrap may be another's, and so may the public
-/// key stored for the code: the check stays forgotten and so does the key, so that a drill asks the
-/// bucket's wrap what it holds.
+/// account's lockdown went wrong, the key permit refused, the settings could not be written) the wrap
+/// is the one that was checked and what was forgotten is put back - the check and the key: left
+/// forgotten, the drive read as a setup whose sheet was never passed and the next folder made a NEW
+/// code, which the token server - holding the old one's key - refused to register unsigned
+/// (X-DELTA-KEYS2-1). After it the wrap may be another's: the check stays forgotten and so does the
+/// key, so that a drill asks the bucket's wrap what it holds (X-DELTA-KEYS3-1: both were forgotten
+/// when the rotation began, and a rotation that never returned is the same record).
 fn rotation_stopped(state: &mut crate::recovery_health::RecoveryState, stopped: &RotationStopped) {
     if stopped.begun {
         state.recovery_key = None;
-    } else if state.code_checked.is_none() {
-        state.code_checked = stopped.checked_before;
+        return;
+    }
+    if state.code_checked.is_none() {
+        state.code_checked = stopped.taken.code_checked;
+    }
+    if state.recovery_key.is_none() {
+        state.recovery_key = stopped.taken.recovery_key.clone();
     }
 }
 
@@ -2584,6 +2637,18 @@ fn mark_setup_first(
         moves_files,
         now,
     );
+    settings_written_first(drive, start, mine)
+}
+
+/// The job's [`Before`] that writes `mine` (the window's settings, with what the job's effect depends on
+/// already set) to the settings file by a merge against `start`, as every save of the settings is: on
+/// the job's own thread, so that it is on disk before the effect exists. The one writer of such a
+/// step - the setup's marker and a rotation's forgetting of the recovery record.
+fn settings_written_first(
+    drive: LocalDrive,
+    start: crate::model::Settings,
+    mine: crate::model::Settings,
+) -> Before {
     Box::new(move || crate::save_settings_merged(&drive, &start, &mine).map_err(|e| e.to_string()))
 }
 
@@ -2699,14 +2764,21 @@ pub(crate) enum EncryptionJob {
         /// has its cursor and its cut-off time there, and a new rotation makes both wrong
         /// (X-DELTA-AZDRIVE-KEYS-29). `None`: no state folder.
         reencrypt_state: Option<PathBuf>,
-        /// The settings' `code_checked` before the job started ([`rotation_begins`]): put back
-        /// when the job stops before it changed anything ([`rotation_stopped`]).
-        checked_before: Option<u64>,
+        /// What the drive's recovery record forgot when the rotation began ([`rotation_begins`]):
+        /// put back when the job stops before it changed anything ([`rotation_stopped`]).
+        taken: RecordTaken,
+        /// Done after the key permit and before the account's lockdown (see [`Before`]): the record's
+        /// forgetting on disk, ahead of the first thing that replaces the recovery wrap
+        /// (X-DELTA-KEYS3-1).
+        before: Option<Before>,
     },
     /// A new recovery code for a drive whose setup never passed its sheet.
     NewCode {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
+        /// Done after the key permit and before the wrap is replaced (see [`Before`]): the record's
+        /// forgetting of the old code on disk, ahead of the new code's wrap (X-DELTA-KEYS3-1).
+        before: Option<Before>,
     },
     /// The drive index's totals (the usage line's original size).
     Totals {
@@ -2832,9 +2904,9 @@ pub(crate) struct RotationStopped {
     /// back right before the job is no witness. Before it - the key permit, the account's
     /// lockdown, the first keyring write - nothing of the drive changed.
     pub begun: bool,
-    /// The settings' `code_checked` as the job started ([`rotation_begins`]), put back by
+    /// What the drive's recovery record forgot as the job started ([`rotation_begins`]), put back by
     /// [`rotation_stopped`] when the job stopped before it changed anything.
-    pub checked_before: Option<u64>,
+    pub taken: RecordTaken,
 }
 
 /// What an encryption task found.
@@ -3035,47 +3107,29 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             azlin,
             current,
             reencrypt_state,
-            checked_before,
+            taken,
+            before,
         } => {
             let result = rotate_job(
                 &auto,
                 &keyring,
-                &|| azlin.lockdown().map_err(|e| e.to_string()),
+                &RotateCalls {
+                    lockdown: &|| azlin.lockdown().map_err(|e| e.to_string()),
+                    kdf: &RecoveryKdf::fresh,
+                },
                 current,
                 reencrypt_state.as_deref(),
-                checked_before,
+                taken,
+                before,
             );
             EncryptionOutcome::Rotated { drive_id, result }
         }
-        EncryptionJob::NewCode { drive_id, auto } => {
-            let result = (|| -> Result<Zeroizing<String>, String> {
-                let bucket = Arc::clone(auto.bucket());
-                // The key is in the keyring after `unlock` (it was, or the device's wrap opened it
-                // and it was kept): read from there, it is the evidence the wrap may be published.
-                device::unlock(bucket.as_ref(), &keyring, auto.drive())
-                    .map_err(|e| e.to_string())?
-                    .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
-                let (key, stashed) =
-                    device::held(&keyring, &device::drive_key_entry(auto.drive()))
-                        .map_err(|e| e.to_string())?
-                        .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
-                // The key permit's NewCode cell: a key change that is not over replaces the wrap again,
-                // and this code would open nothing once it is done (KEYS-7).
-                let _permit = device::wraps_permit(Op::NewCode, &keyring, auto.drive())
-                    .map_err(|e| e.to_string())?;
-                let code = RecoveryCode::generate().map_err(|e| e.to_string())?;
-                let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
-                let wrap = RecoveryWrap::seal(&key, auto.drive(), &code, kdf)
-                    .map_err(|e| e.to_string())?;
-                device::publish_recovery_wrap(
-                    bucket.as_ref(),
-                    &stashed,
-                    &wrap,
-                    device::Publish::FirstReplace,
-                )
-                .map_err(|e| e.to_string())?;
-                Ok(code.to_text())
-            })();
+        EncryptionJob::NewCode {
+            drive_id,
+            auto,
+            before,
+        } => {
+            let result = new_code_job(&auto, &keyring, &RecoveryKdf::fresh, before);
             // The sheet a new drive's making shows (the four groups, the kit, no migration).
             EncryptionOutcome::SetUp {
                 drive_id,
@@ -3195,13 +3249,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             code,
         } => {
             let recovery_key = recovery_key_of(&code, &drive_id).public_base64();
-            let result = load_recovery_wrap(auto.bucket().as_ref())
-                .map_err(|e| e.to_string())
-                .and_then(|wrap| match wrap.open(auto.drive(), &code) {
-                    Ok(_) => Ok(true),
-                    Err(CryptoError::WrongKey) => Ok(false),
-                    Err(e) => Err(e.to_string()),
-                });
+            let result = code_opens_the_wrap(auto.bucket().as_ref(), auto.drive(), &code);
             EncryptionOutcome::CodeChecked {
                 drive_id,
                 recovery_key,
@@ -3298,6 +3346,64 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             }
         }
     }
+}
+
+/// Whether `code` opens the recovery wrap in `bucket` (a drill of a drive whose record holds no key to
+/// compare it with: [`crate::recovery::DrillAnswer::AskTheBucket`]): `Ok(false)` for a code the wrap does
+/// not hold - the paper of a code a rotation replaced - and an error for a wrap that cannot be read or
+/// asked. The wrap is what the drive has NOW, whatever the settings say of it.
+fn code_opens_the_wrap(
+    bucket: &dyn Drive,
+    drive: &str,
+    code: &RecoveryCode,
+) -> Result<bool, String> {
+    load_recovery_wrap(bucket)
+        .map_err(|e| e.to_string())
+        .and_then(|wrap| match wrap.open(drive, code) {
+            Ok(_) => Ok(true),
+            Err(CryptoError::WrongKey) => Ok(false),
+            Err(e) => Err(e.to_string()),
+        })
+}
+
+/// A new recovery code for a drive whose setup never passed its sheet, as the job runs it: the key from
+/// the keyring (or this device's wrap), the key permit's NewCode cell, the record's forgetting on disk
+/// ([`Before`]), then the new code's wrap in the old one's place. `kdf` is the cost of the code's key
+/// derivation, a parameter so that a test pays a small one.
+fn new_code_job(
+    auto: &AutoEncrypted,
+    keyring: &dyn KeyringStore,
+    kdf: &dyn Fn() -> Result<RecoveryKdf, CryptoError>,
+    before: Option<Before>,
+) -> Result<Zeroizing<String>, String> {
+    let bucket = Arc::clone(auto.bucket());
+    // The key is in the keyring after `unlock` (it was, or the device's wrap opened it
+    // and it was kept): read from there, it is the evidence the wrap may be published.
+    device::unlock(bucket.as_ref(), keyring, auto.drive())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
+    let (key, stashed) = device::held(keyring, &device::drive_key_entry(auto.drive()))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
+    // The key permit's NewCode cell: a key change that is not over replaces the wrap again,
+    // and this code would open nothing once it is done (KEYS-7).
+    let _permit =
+        device::wraps_permit(Op::NewCode, keyring, auto.drive()).map_err(|e| e.to_string())?;
+    // The record forgets the old code's witness before its wrap goes (X-DELTA-KEYS3-1).
+    if let Some(before) = before {
+        before()?;
+    }
+    let code = RecoveryCode::generate().map_err(|e| e.to_string())?;
+    let kdf = kdf().map_err(|e| e.to_string())?;
+    let wrap = RecoveryWrap::seal(&key, auto.drive(), &code, kdf).map_err(|e| e.to_string())?;
+    device::publish_recovery_wrap(
+        bucket.as_ref(),
+        &stashed,
+        &wrap,
+        device::Publish::FirstReplace,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(code.to_text())
 }
 
 /// The setup of a drive's encryption as the job runs it: the checks, the marker ([`Before`]), the
@@ -3408,16 +3514,29 @@ fn adopt_join_key_noting(
     )
 }
 
-/// "I was hacked" as the job runs it: the lockdown when it is needed (`lockdown`: the account's call,
-/// a parameter so that a test lets it fail), then the key rotation or the rest of one that stopped.
-/// An error says how far the rotation got ([`RotationStopped::begun`]).
+/// What the rotation's job calls out to, as parameters so that a test lets the first fail and gives the
+/// second a cost a test can pay: the account's lockdown, and the key derivation of the new recovery code.
+pub(crate) struct RotateCalls<'a> {
+    pub lockdown: &'a dyn Fn() -> Result<(), String>,
+    pub kdf: &'a dyn Fn() -> Result<RecoveryKdf, CryptoError>,
+}
+
+/// "I was hacked" as the job runs it: the lockdown when it is needed (`calls.lockdown`: the account's
+/// call), then the key rotation or the rest of one that stopped. An error says how far the rotation got
+/// ([`RotationStopped::begun`]).
+///
+/// The order is the record's: the key permit asks (reads only), then `before` writes what the
+/// rotation makes stale in the drive's recovery record - the check of the code and the key a drill
+/// compares it with - to the settings file, and only then does the lockdown run and the first key
+/// move (X-DELTA-KEYS3-1). A `before` that fails stops the job with nothing done.
 fn rotate_job(
     auto: &AutoEncrypted,
     keyring: &dyn KeyringStore,
-    lockdown: &dyn Fn() -> Result<(), String>,
+    calls: &RotateCalls<'_>,
     current: Option<Zeroizing<String>>,
     reencrypt_state: Option<&Path>,
-    checked_before: Option<u64>,
+    taken: RecordTaken,
+    before: Option<Before>,
 ) -> Result<RotationDone, RotationStopped> {
     let rotated = (|| -> Result<RotationDone, String> {
         let provider = auto
@@ -3429,10 +3548,14 @@ fn rotate_job(
         // access.
         let rotation = rotation::ask(auto.bucket().as_ref(), keyring, auto.drive())
             .map_err(|e| e.to_string())?;
-        if rotation.lockdown().is_some() {
-            lockdown()?;
+        // The record's forgetting is on disk before the first step that can change the wrap.
+        if let Some(before) = before {
+            before()?;
         }
-        let kdf = RecoveryKdf::fresh().map_err(|e| e.to_string())?;
+        if rotation.lockdown().is_some() {
+            (calls.lockdown)()?;
+        }
+        let kdf = (calls.kdf)().map_err(|e| e.to_string())?;
         let rotated = rotation::rotate(
             rotation.permit(),
             Arc::clone(auto.bucket()),
@@ -3470,7 +3593,7 @@ fn rotate_job(
         // collapse-ok: a keyring that cannot be read says "begun" - the conservative answer, the
         // check stays forgotten.
         begun: rotation::begun(keyring, auto.drive()).unwrap_or(true),
-        checked_before,
+        taken,
     })
 }
 
@@ -6772,6 +6895,11 @@ mod tests {
         (auto, code)
     }
 
+    /// The cost of a recovery code's key derivation a test pays (the shipped one is 256 MiB x 3).
+    fn cheap_kdf() -> Result<RecoveryKdf, CryptoError> {
+        RecoveryKdf::with_cost(64, 1, 1)
+    }
+
     /// A drive whose code was made, typed back right and registered at the token server.
     fn checked_and_registered(
         drive: &str,
@@ -6798,9 +6926,18 @@ mod tests {
         let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
         let (auto, code) = drive_with_keys(drive, Arc::clone(&keyring));
         let mut state = checked_and_registered(drive, &code);
+        let key_before = state.recovery_key.clone();
+        assert!(
+            key_before.is_some(),
+            "the record holds the code's public key"
+        );
 
-        let checked_before = rotation_begins(&mut state);
-        assert_eq!(checked_before, Some(200));
+        let taken = rotation_begins(&mut state);
+        assert_eq!(taken.code_checked, Some(200));
+        assert_eq!(
+            taken.recovery_key, key_before,
+            "what was forgotten is kept for the way back"
+        );
         assert_eq!(
             unfinished_setup(Some(&state), false),
             UnfinishedSetup::Drill,
@@ -6810,10 +6947,14 @@ mod tests {
         let stopped = rotate_job(
             &auto,
             keyring.as_ref(),
-            &|| Err(String::from("the network went")),
+            &RotateCalls {
+                lockdown: &|| Err(String::from("the network went")),
+                kdf: &cheap_kdf,
+            },
             None,
             None,
-            checked_before,
+            taken,
+            None,
         )
         .err()
         .expect("the lockdown failed: so did the job");
@@ -6825,6 +6966,10 @@ mod tests {
         rotation_stopped(&mut state, &stopped);
 
         assert_eq!(state.code_checked, Some(200), "the check is back");
+        assert_eq!(
+            state.recovery_key, key_before,
+            "and the key the drill compares a typed code with (X-DELTA-KEYS3-1: forgotten with the check)"
+        );
         assert!(
             !setup_unfinished(Some(&state)),
             "the drive is no setup whose sheet is owed"
@@ -6857,14 +7002,18 @@ mod tests {
         let (auto, code) = drive_with_keys(drive, Arc::clone(&keyring));
         let mut state = checked_and_registered(drive, &code);
 
-        let checked_before = rotation_begins(&mut state);
+        let taken = rotation_begins(&mut state);
         let stopped = rotate_job(
             &auto,
             keyring.as_ref(),
-            &|| Ok(()),
+            &RotateCalls {
+                lockdown: &|| Ok(()),
+                kdf: &cheap_kdf,
+            },
             None,
             None,
-            checked_before,
+            taken,
+            None,
         )
         .err()
         .expect("the keyring refused the new key");
@@ -7224,5 +7373,677 @@ mod tests {
             adopt_join_key_noting(b.as_ref(), &auto, &seal, Some(&new_key.id().to_hex()));
         assert_eq!(left, None);
         assert_eq!(result, Ok(true), "the key is another than the one B held");
+    }
+
+    // ==== X-DELTA-KEYS3-1: a rotation that never returns ====
+
+    /// The call of a rotation's job after which a test lets the process die: everything after it - the
+    /// job's later steps, its outcome, the window's save - never happens, and what the next start finds is
+    /// the keyring, the bucket and the settings FILE as they were at that call. The cells of the review's
+    /// crash table (rotation.rs R0, R15, R16, R17a, R17b).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Last {
+        /// R0: the account's lockdown - the job's first irreversible step, after the record's forgetting.
+        Lockdown,
+        /// R15: the recovery wrap put - the old code's wrap is the new code's now, which nobody has seen.
+        RecoveryWrap,
+        /// R16: the journal deleted.
+        Journal,
+        /// R17a: `drive-key-previous` deleted: the keyring reads as a finished key change.
+        PreviousKey,
+        /// R17b: `drive-key-next` deleted - the key change is over in the keyring and the bucket.
+        NextKey,
+    }
+
+    /// A bucket of a process that dies after its last call: every call after it fails.
+    struct DiesBucket {
+        inner: Arc<azul_storage::meta::MemoryBucket>,
+        dead: Arc<AtomicBool>,
+        /// The put of this key is the last call.
+        last_put: Option<&'static str>,
+        /// The delete of this key is the last call.
+        last_delete: Option<&'static str>,
+    }
+
+    /// What every call of a dead process gets.
+    fn the_process_is_gone() -> azul_storage::DriveError {
+        azul_storage::DriveError::Transport(String::from("the process is gone"))
+    }
+
+    impl Drive for DiesBucket {
+        fn list(
+            &self,
+            request: &azul_storage::ListRequest,
+        ) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(the_process_is_gone());
+            }
+            self.inner.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(the_process_is_gone());
+            }
+            self.inner.get(key)
+        }
+        fn get_range(
+            &self,
+            key: &str,
+            range: azul_storage::ByteRange,
+        ) -> Result<Vec<u8>, azul_storage::DriveError> {
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(the_process_is_gone());
+            }
+            self.inner.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(the_process_is_gone());
+            }
+            self.inner.put(key, bytes)?;
+            if self.last_put == Some(key) {
+                self.dead.store(true, Ordering::SeqCst);
+            }
+            Ok(())
+        }
+        fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(the_process_is_gone());
+            }
+            self.inner.delete(key)?;
+            if self.last_delete == Some(key) {
+                self.dead.store(true, Ordering::SeqCst);
+            }
+            Ok(())
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(the_process_is_gone());
+            }
+            self.inner.head(key)
+        }
+        fn put_if(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            condition: &azul_storage::Precondition,
+        ) -> Result<Option<String>, azul_storage::DriveError> {
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(the_process_is_gone());
+            }
+            let tag = self.inner.put_if(key, bytes, condition)?;
+            if self.last_put == Some(key) {
+                self.dead.store(true, Ordering::SeqCst);
+            }
+            Ok(tag)
+        }
+    }
+
+    /// A keyring of a process that dies after its last call.
+    struct DiesKeyring {
+        inner: azul_storage::keyring::MemoryKeyring,
+        dead: Arc<AtomicBool>,
+        /// The delete of this entry is the last call.
+        last_delete: Option<String>,
+    }
+
+    impl DiesKeyring {
+        fn alive(&self) -> Result<(), azul_storage::keyring::KeyringError> {
+            if self.dead.load(Ordering::SeqCst) {
+                return Err(azul_storage::keyring::KeyringError::Failed(String::from(
+                    "the process is gone",
+                )));
+            }
+            Ok(())
+        }
+    }
+
+    impl KeyringStore for DiesKeyring {
+        fn get(&self, key: &str) -> Result<Option<String>, azul_storage::keyring::KeyringError> {
+            self.alive()?;
+            self.inner.get(key)
+        }
+        fn set(&self, key: &str, secret: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            self.alive()?;
+            self.inner.set(key, secret)
+        }
+        fn delete(&self, key: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            self.alive()?;
+            self.inner.delete(key)?;
+            if self.last_delete.as_deref() == Some(key) {
+                self.dead.store(true, Ordering::SeqCst);
+            }
+            Ok(())
+        }
+    }
+
+    /// A drive whose "I was hacked" job was killed after `last`: the world the next start finds.
+    struct Killed {
+        drive: &'static str,
+        /// The settings folder: what the dead process had written to it, and nothing else.
+        settings: azul_storage::testing::TempDir,
+        /// The bucket, as it was at the last call.
+        bucket: Arc<azul_storage::meta::MemoryBucket>,
+        /// The keyring, as it was at the last call (a read of it does not die).
+        keyring: Arc<DiesKeyring>,
+        /// The code on the paper that was typed back right before the rotation.
+        old_code: RecoveryCode,
+        /// The drive key before the job.
+        old_key: azul_storage::crypto::DriveKey,
+    }
+
+    /// A rotation job killed after `last`: the world the next start finds, and what the job saw.
+    struct KilledRotation {
+        killed: Killed,
+        /// What the job returned before the process died (to nobody).
+        returned: Result<RotationDone, RotationStopped>,
+        /// What the settings file held when the lockdown ran - `None` when no lockdown ran.
+        at_the_lockdown: Arc<Mutex<Option<AtTheLockdown>>>,
+    }
+
+    /// What the settings file held when the lockdown ran: `(code_checked, recovery_key)`, and whether the
+    /// rotation had begun in the keyring.
+    type AtTheLockdown = ((Option<u64>, Option<String>), bool);
+
+    /// The settings file as a start reads it.
+    fn settings_file(dir: &azul_storage::testing::TempDir) -> crate::model::Settings {
+        let text = std::fs::read_to_string(dir.path().join(crate::SETTINGS_KEY)).unwrap();
+        crate::model::Settings::parse(&text).expect("a settings file")
+    }
+
+    /// The job of "I was hacked" as the app runs it - `rotation_marked`, then `rotate_job` - over a drive
+    /// whose code was typed back right and registered, with the process dying after `last`.
+    fn rotation_killed_after(drive: &'static str, last: Last) -> KilledRotation {
+        use azul_storage::{meta::MemoryBucket, testing::TempDir};
+        let dead = Arc::new(AtomicBool::new(false));
+        let bucket = Arc::new(MemoryBucket::new());
+        let (previous_entry, next_entry) = device::rotation_key_entries(drive);
+        let keyring = Arc::new(DiesKeyring {
+            inner: azul_storage::keyring::MemoryKeyring::new(),
+            dead: Arc::clone(&dead),
+            last_delete: match last {
+                Last::PreviousKey => Some(previous_entry),
+                Last::NextKey => Some(next_entry),
+                _ => None,
+            },
+        });
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let (old_key, old_code) =
+            device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), drive, kdf).unwrap();
+
+        // The settings as the first sheet and the drill left them, on disk through the app's own writer.
+        let settings = TempDir::new("killed-rotation");
+        let settings_drive = LocalDrive::new(settings.path().to_path_buf());
+        let mut start = crate::model::Settings::default();
+        start
+            .recovery
+            .drives
+            .push(checked_and_registered(drive, &old_code));
+        crate::save_settings_merged(&settings_drive, &crate::model::Settings::default(), &start)
+            .unwrap();
+        assert_eq!(
+            state_of(&settings_file(&settings).recovery.drives, drive)
+                .and_then(|state| state.code_checked),
+            Some(200),
+            "premise: the code was typed back right, and it is on disk"
+        );
+
+        let dies: Arc<dyn Drive> = Arc::new(DiesBucket {
+            inner: Arc::clone(&bucket),
+            dead: Arc::clone(&dead),
+            last_put: (last == Last::RecoveryWrap)
+                .then_some(azul_storage::crypto::keys::RECOVERY_KEY_FILE),
+            last_delete: (last == Last::Journal).then_some(rotation::JOURNAL_FILE),
+        });
+        let auto = wrap_with(
+            keyring.clone(),
+            Some(Arc::new(RekeyingProvider)),
+            drive,
+            dies,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+
+        // What `rotate_confirmed` does, then what the worker thread does.
+        let mut mine = start.clone();
+        let (taken, before) = rotation_marked(Some(settings_drive), &start, &mut mine, drive);
+        let at_the_lockdown = Arc::new(Mutex::new(None));
+        let lockdown = {
+            let (at, dir, inner, dead) = (
+                Arc::clone(&at_the_lockdown),
+                settings.path().to_path_buf(),
+                Arc::clone(&keyring),
+                Arc::clone(&dead),
+            );
+            move || -> Result<(), String> {
+                let text = std::fs::read_to_string(dir.join(crate::SETTINGS_KEY))
+                    .map_err(|e| e.to_string())?;
+                let saved = crate::model::Settings::parse(&text).ok_or("no settings file")?;
+                let state = state_of(&saved.recovery.drives, drive).ok_or("no record")?;
+                let begun = rotation::begun(&inner.inner, drive).map_err(|e| e.to_string())?;
+                *at.lock().unwrap() =
+                    Some(((state.code_checked, state.recovery_key.clone()), begun));
+                if last == Last::Lockdown {
+                    dead.store(true, Ordering::SeqCst);
+                    return Err(String::from("the process is gone"));
+                }
+                Ok(())
+            }
+        };
+        let returned = rotate_job(
+            &auto,
+            keyring.as_ref(),
+            &RotateCalls {
+                lockdown: &lockdown,
+                kdf: &cheap_kdf,
+            },
+            None,
+            None,
+            taken,
+            before,
+        );
+        assert!(
+            dead.load(Ordering::SeqCst),
+            "premise: the call the process dies after was made ({last:?})"
+        );
+        KilledRotation {
+            killed: Killed {
+                drive,
+                settings,
+                bucket,
+                keyring,
+                old_code,
+                old_key,
+            },
+            returned,
+            at_the_lockdown,
+        }
+    }
+
+    /// What the next start does and finds.
+    struct NextStart {
+        /// The recovery record as the settings file holds it, after the drill.
+        record: crate::recovery_health::RecoveryState,
+        /// What opening a folder does ([`unfinished_setup`]).
+        guard: UnfinishedSetup,
+        /// Whether the drill of the paper `typed` passed (and so set `code_checked`).
+        drill_passed: bool,
+        /// What the drill asked: `Passed` (offline), the bucket's wrap, or neither.
+        asked_the_bucket: bool,
+        /// The keyring entries a "Remove drive" right after kept.
+        kept: Vec<String>,
+        /// The drive key the keyring holds after the removal.
+        key_after: Option<azul_storage::crypto::DriveKey>,
+    }
+
+    /// The next start: the folder's guard, the drill with the paper `typed` as the window answers it
+    /// (`on_drill_check`'s `drill_answer`, the worker's check of the wrap, `drill_passed`'s record), and
+    /// "Remove drive" on what the record says then.
+    fn the_next_start(killed: &Killed, typed: &RecoveryCode) -> NextStart {
+        let mut states = settings_file(&killed.settings).recovery.drives;
+        let drive = killed.drive;
+        // A registration that was pending when the process died is sent again at every start
+        // (`registrations_to_retry`) and the token server has it: what it answers for is the CODE THE
+        // REQUEST NAMES, whatever the wrap holds by then.
+        for state in &mut states {
+            if let Registration::Pending(pending) = state.registration.clone() {
+                state.registration_answered(
+                    &pending.public_key,
+                    RegistrationAnswer::Done { findable: None },
+                );
+            }
+        }
+        let guard = unfinished_setup(state_of(&states, drive), false);
+        let record = state_mut(&mut states, drive);
+        let mut asked_the_bucket = false;
+        let passed = match crate::recovery::drill_answer(
+            record.recovery_key.as_deref(),
+            drive,
+            &typed.to_text(),
+        ) {
+            crate::recovery::DrillAnswer::Passed => {
+                crate::recovery::record_drill_passed(record, 1_000, None);
+                true
+            }
+            crate::recovery::DrillAnswer::AskTheBucket(code) => {
+                asked_the_bucket = true;
+                match code_opens_the_wrap(killed.bucket.as_ref(), drive, &code) {
+                    Ok(true) => {
+                        crate::recovery::record_drill_passed(
+                            record,
+                            1_000,
+                            Some(recovery_key_of(&code, drive).public_base64()),
+                        );
+                        true
+                    }
+                    Ok(false) | Err(_) => false,
+                }
+            }
+            crate::recovery::DrillAnswer::NotTheCode | crate::recovery::DrillAnswer::NotACode => {
+                false
+            }
+        };
+        let record = record.clone();
+        let report = forget_job(
+            &killed.keyring.inner,
+            drive,
+            &no_places(),
+            true,
+            crate::recovery_health::token_facts(&states, drive),
+            None,
+        );
+        assert!(report.complete());
+        NextStart {
+            record,
+            guard,
+            drill_passed: passed,
+            asked_the_bucket,
+            kept: report.kept().iter().map(|k| k.what.clone()).collect(),
+            key_after: device::load_drive_key(&killed.keyring.inner, drive).unwrap(),
+        }
+    }
+
+    /// What every cell after the wrap has in common: the settings file holds neither the check nor the key
+    /// of the old paper, the drill with the old paper asks the bucket's wrap and does not pass it, the
+    /// check stays forgotten, and "Remove drive" keeps the drive key (the only copy of the new one).
+    fn the_old_paper_opens_nothing(killed: &Killed, cell: &str) -> NextStart {
+        the_old_paper_opens_nothing_after(killed, cell, UnfinishedSetup::Drill)
+    }
+
+    /// [`the_old_paper_opens_nothing`] for a record whose guard is `guard` at the next start.
+    fn the_old_paper_opens_nothing_after(
+        killed: &Killed,
+        cell: &str,
+        guard: UnfinishedSetup,
+    ) -> NextStart {
+        let next = the_next_start(killed, &killed.old_code);
+        assert_eq!(
+            next.guard, guard,
+            "{cell}: what opening the drive's folder does at the next start"
+        );
+        assert!(
+            next.asked_the_bucket,
+            "{cell}: the drill compares the typed code with the wrap in the bucket, not with a key of the \
+             settings that may belong to a wrap that is gone: {:?}",
+            next.record
+        );
+        assert!(
+            !next.drill_passed,
+            "{cell}: the old paper does not open the new wrap, and the drill must not pass it"
+        );
+        assert_eq!(
+            next.record.code_checked, None,
+            "{cell}: the check stays forgotten"
+        );
+        assert!(
+            next.kept.contains(&device::drive_key_entry(killed.drive)),
+            "{cell}: Remove drive keeps the drive key: {:?}",
+            next.kept
+        );
+        assert!(
+            next.key_after.is_some(),
+            "{cell}: the keyring still holds the key the drive's index is sealed under"
+        );
+        next
+    }
+
+    /// X-DELTA-KEYS3-1, cell R15 of the crash table (the recovery wrap put, the process dies): the
+    /// settings file has no key to compare the old paper with, so the drill asks the wrap, which holds the
+    /// new code now. The rotation is not over in the keyring (the journal and both keys are there): Remove
+    /// drive is refused for the key change that is not over, drill or no drill.
+    #[test]
+    fn x_delta_keys3_1_r15_a_rotation_killed_after_its_wrap_does_not_pass_the_old_paper() {
+        let KilledRotation { killed, .. } = rotation_killed_after("d_k31_r15", Last::RecoveryWrap);
+        let next = the_old_paper_opens_nothing(&killed, "R15");
+        assert!(
+            rotation::unfinished(&killed.keyring.inner, killed.drive).unwrap(),
+            "the key change is not over: the keyring holds both keys of the rotation"
+        );
+        assert!(next
+            .kept
+            .contains(&device::rotation_key_entries(killed.drive).1));
+    }
+
+    /// X-DELTA-KEYS3-1, cell R16 (the journal deleted too).
+    #[test]
+    fn x_delta_keys3_1_r16_a_rotation_killed_after_its_journal_does_not_pass_the_old_paper() {
+        let KilledRotation { killed, .. } = rotation_killed_after("d_k31_r16", Last::Journal);
+        the_old_paper_opens_nothing(&killed, "R16");
+    }
+
+    /// X-DELTA-KEYS3-1, cell R17a - the one that lost the data: `drive-key-previous` is gone and the keyring
+    /// reads as a finished key change (the new key is the drive key and the next key), the settings file
+    /// held the old paper's public key, the drill passed the old paper offline, `code_checked` was set and
+    /// "Remove drive" erased the only copy of the new key, whose wrap opens with a code nobody saw.
+    #[test]
+    fn x_delta_keys3_1_r17a_a_rotation_killed_after_its_previous_key_does_not_pass_the_old_paper() {
+        let KilledRotation { killed, .. } = rotation_killed_after("d_k31_r17a", Last::PreviousKey);
+        assert!(
+            !rotation::unfinished(&killed.keyring.inner, killed.drive).unwrap(),
+            "premise: with the previous key gone the keyring reads as finished (the judge's Active)"
+        );
+        let next = the_old_paper_opens_nothing(&killed, "R17a");
+        assert!(
+            next.kept
+                .contains(&device::rotation_key_entries(killed.drive).1),
+            "even the next-key entry stays: {:?}",
+            next.kept
+        );
+        let key = next.key_after.expect("the drive key");
+        assert_ne!(
+            key.id(),
+            killed.old_key.id(),
+            "the key the drive has now, not the old one"
+        );
+    }
+
+    /// X-DELTA-KEYS3-1, cell R17b: both entries are gone and the key change is over in the keyring and the
+    /// bucket; only the outcome - the new code, the settings' record of it - never reached the window.
+    #[test]
+    fn x_delta_keys3_1_r17b_a_rotation_killed_after_its_last_step_does_not_pass_the_old_paper() {
+        let KilledRotation {
+            killed, returned, ..
+        } = rotation_killed_after("d_k31_r17b", Last::NextKey);
+        let done = returned
+            .as_ref()
+            .ok()
+            .expect("the job's last call is the process's last, so the job returned - to nobody");
+        assert!(done.left_over.is_empty(), "{:?}", done.left_over);
+        the_old_paper_opens_nothing(&killed, "R17b");
+    }
+
+    /// X-DELTA-KEYS3-1, the cell before the wrap: the process dies at the account's lockdown, the wrap is the
+    /// old paper's still. The record was forgotten on disk BEFORE the lockdown (the job's `before`, with
+    /// nothing of the rotation in the keyring yet), the drill asks the wrap, and the paper that IS the
+    /// wrap's passes it - what the forgetting costs a user is one drill, never a drive nobody can open.
+    #[test]
+    fn x_delta_keys3_1_r0_the_forgetting_is_on_disk_before_the_lockdown_and_the_old_paper_still_passes_the_wrap(
+    ) {
+        let KilledRotation {
+            killed,
+            returned,
+            at_the_lockdown,
+        } = rotation_killed_after("d_k31_r0", Last::Lockdown);
+        assert!(returned.is_err(), "the lockdown never answered");
+        let seen = at_the_lockdown
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("the lockdown ran");
+        assert_eq!(
+            seen,
+            ((None, None), false),
+            "when the lockdown ran, the file held neither the check nor the key, and no key of the \
+             rotation was in the keyring yet"
+        );
+        let next = the_next_start(&killed, &killed.old_code);
+        assert!(next.asked_the_bucket, "{:?}", next.record);
+        assert!(
+            next.drill_passed,
+            "the wrap is the old paper's: the drill passes through the bucket"
+        );
+        assert!(
+            next.record.code_checked.is_some() && next.record.recovery_key.is_some(),
+            "and records both again: {:?}",
+            next.record
+        );
+        assert!(
+            next.kept.is_empty() && next.key_after.is_none(),
+            "a removal after a drill that passed is the one the checked code allows: the drive's keys \
+             were not changed, and the paper opens them ({:?})",
+            next.kept
+        );
+    }
+
+    /// The twin of a rotation, found by the same sweep: a drive whose setup's sheet was never passed (its code
+    /// is not registered at the token server yet) gets a NEW code when its folder opens - the job replaces the
+    /// recovery wrap - and the process dies right after the wrap was put. Returns the world the next start
+    /// finds: the record is the settings file's, the wrap holds a code nobody saw.
+    fn new_code_killed_after_its_wrap(drive: &'static str) -> Killed {
+        use crate::recovery_health::PendingRegistration;
+        use azul_storage::{meta::MemoryBucket, testing::TempDir};
+        let dead = Arc::new(AtomicBool::new(false));
+        let bucket = Arc::new(MemoryBucket::new());
+        let keyring = Arc::new(DiesKeyring {
+            inner: azul_storage::keyring::MemoryKeyring::new(),
+            dead: Arc::clone(&dead),
+            last_delete: None,
+        });
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let (old_key, old_code) =
+            device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), drive, kdf).unwrap();
+
+        // The first sheet was shown and closed unread; the registration of its code is still pending.
+        let settings = TempDir::new("killed-new-code");
+        let settings_drive = LocalDrive::new(settings.path().to_path_buf());
+        let mut start = crate::model::Settings::default();
+        let mut owed = crate::recovery_health::RecoveryState::new(drive);
+        let old_public = recovery_key_of(&old_code, drive).public_base64();
+        owed.code_made(100, Some(old_public.clone()));
+        owed.registration_started(PendingRegistration {
+            public_key: old_public,
+            ..PendingRegistration::default()
+        });
+        assert!(setup_unfinished(Some(&owed)), "premise: the sheet is owed");
+        start.recovery.drives.push(owed);
+        crate::save_settings_merged(&settings_drive, &crate::model::Settings::default(), &start)
+            .unwrap();
+
+        let dies: Arc<dyn Drive> = Arc::new(DiesBucket {
+            inner: Arc::clone(&bucket),
+            dead: Arc::clone(&dead),
+            last_put: Some(azul_storage::crypto::keys::RECOVERY_KEY_FILE),
+            last_delete: None,
+        });
+        let auto = wrap_with(
+            keyring.clone(),
+            Some(Arc::new(RekeyingProvider)),
+            drive,
+            dies,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        // What `guard_unfinished_setup` does, then what the worker thread does.
+        let before = mark_setup_first(settings_drive, start.clone(), start, drive, false, 5_000);
+        let made = new_code_job(&auto, keyring.as_ref(), &cheap_kdf, Some(before));
+        assert!(made.is_ok(), "the job made its code - to nobody: {made:?}");
+        assert!(
+            dead.load(Ordering::SeqCst),
+            "premise: the wrap was the last call"
+        );
+        Killed {
+            drive,
+            settings,
+            bucket,
+            keyring,
+            old_code,
+            old_key,
+        }
+    }
+
+    /// X-DELTA-KEYS3-1, the NewCode twin: the process died after the new code's wrap replaced the first one's,
+    /// before the sheet or the outcome's save. The registration of the OLD code was pending and the token
+    /// server has it at the next start, so the record said "registered, key of the old paper" while the wrap
+    /// held a code nobody saw: a drill with the old paper - which the user still has - passed offline, set
+    /// `code_checked`, and "Remove drive" took the only key of a drive whose wrap opens with the unseen code.
+    /// The job's `before` took the old code's key and registration out of the record before the wrap moved.
+    #[test]
+    fn x_delta_keys3_1_new_code_killed_after_its_wrap_does_not_pass_the_old_paper() {
+        let killed = new_code_killed_after_its_wrap("d_k31_nc");
+        let file = state_of(
+            &settings_file(&killed.settings).recovery.drives,
+            killed.drive,
+        )
+        .cloned()
+        .expect("a record");
+        assert_eq!(
+            file.recovery_key, None,
+            "no key of the old paper in the file"
+        );
+        assert_eq!(
+            file.registration,
+            Registration::Unknown,
+            "nor a registration of it"
+        );
+        let next = the_old_paper_opens_nothing_after(&killed, "NewCode", UnfinishedSetup::NewCode);
+        assert!(
+            next.kept.contains(&device::drive_key_entry(killed.drive)),
+            "{:?}",
+            next.kept
+        );
+    }
+
+    /// X-DELTA-KEYS3-1: the job's `before` is what orders the forgetting ahead of the rotation - it stops the
+    /// job with nothing done when it cannot write, and the outcome puts back what the window forgot.
+    #[test]
+    fn x_delta_keys3_1_a_forgetting_that_cannot_be_written_stops_the_rotation_before_its_lockdown()
+    {
+        let drive = "d_k31_refused";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (auto, code) = drive_with_keys(drive, Arc::clone(&keyring));
+        let mut state = checked_and_registered(drive, &code);
+        let before_forgetting = state.clone();
+        let taken = rotation_begins(&mut state);
+        let lockdown_ran = Arc::new(AtomicBool::new(false));
+        let lockdown = {
+            let ran = Arc::clone(&lockdown_ran);
+            move || -> Result<(), String> {
+                ran.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        };
+        let refusing: Before =
+            Box::new(|| Err(String::from("the settings folder cannot be written")));
+        let stopped = rotate_job(
+            &auto,
+            keyring.as_ref(),
+            &RotateCalls {
+                lockdown: &lockdown,
+                kdf: &cheap_kdf,
+            },
+            None,
+            None,
+            taken,
+            Some(refusing),
+        )
+        .err()
+        .expect("a forgetting that is not on disk stops the rotation");
+        assert!(stopped.why.contains("cannot be written"), "{}", stopped.why);
+        assert!(!stopped.begun, "no key of the rotation was made");
+        assert!(
+            !lockdown_ran.load(Ordering::SeqCst),
+            "and no other device was locked out"
+        );
+        assert!(
+            !rotation::begun(keyring.as_ref(), drive).unwrap(),
+            "the keyring holds nothing of a rotation"
+        );
+        rotation_stopped(&mut state, &stopped);
+        assert_eq!(
+            state, before_forgetting,
+            "what the window forgot is back: the check AND the key"
+        );
     }
 }

@@ -296,8 +296,17 @@ impl RecoveryState {
     /// checked: it would pass every drill and let the drive's keys go with a removal. So the check
     /// is forgotten here, before the job starts; a code is checked again after its sheet
     /// ([`RecoveryState::setup_verified`]).
+    ///
+    /// The code's public key goes with it (X-DELTA-KEYS3-1): a drill compares the typed code with
+    /// THAT key, offline, and a drill that passes is a check. A key that stays is a witness for a
+    /// code the wrap may not hold any more - a rotation killed after its wrap was replaced left the
+    /// old paper's key in the settings, the next drill passed the old paper, and once the rotation's
+    /// last keyring entry was gone a removal of the drive erased the only copy of the new key. With
+    /// no key the drill asks the bucket's wrap ([`crate::recovery::DrillAnswer::AskTheBucket`]),
+    /// which holds the code of the key the drive has now, whatever the settings say.
     pub fn wrap_may_change(&mut self) {
         self.code_checked = None;
+        self.recovery_key = None;
     }
 
     #[must_use]
@@ -946,8 +955,11 @@ mod tests {
         state.registration = Registration::Registered;
         assert!(keys_may_go(&[state.clone()], "d_1", NOW));
         assert_eq!(state.health(NOW), Health::Yellow, "one method: the code");
+        state.recovery_key = Some(String::from("key of the code that was checked"));
         state.wrap_may_change();
         assert_eq!(state.code_checked, None);
+        // X-DELTA-KEYS3-1: and the key the drill compares a typed code with.
+        assert_eq!(state.recovery_key, None);
         assert!(!keys_may_go(&[state.clone()], "d_1", NOW));
         assert_eq!(state.health(NOW), Health::Red, "no checked method any more");
         // The code was made and is not checked: that is the state `setup_unfinished` reads as a

@@ -664,6 +664,19 @@ fn drill_drive(s: &DriveState) -> Option<String> {
     }
 }
 
+/// A drill passed `at`: the code was typed back right, and the key it was checked against - the
+/// wrap's, when the record held none - is the record's from now on.
+pub(crate) fn record_drill_passed(
+    state: &mut RecoveryState,
+    at: u64,
+    recovery_key: Option<String>,
+) {
+    state.drill_passed(at);
+    if state.recovery_key.is_none() {
+        state.recovery_key = recovery_key;
+    }
+}
+
 /// The drill passed: the next one, and a word of it.
 pub(crate) fn drill_passed(
     info: &mut CallbackInfo,
@@ -673,10 +686,7 @@ pub(crate) fn drill_passed(
     recovery_key: Option<String>,
 ) {
     let state = state_mut(&mut s.settings.recovery.drives, drive_id);
-    state.drill_passed(now());
-    if state.recovery_key.is_none() {
-        state.recovery_key = recovery_key;
-    }
+    record_drill_passed(state, now(), recovery_key);
     let next = state.next_drill().map(|at| {
         let day = azul_storage::time::iso8601(at);
         day.get(..10).unwrap_or(&day).to_string()
