@@ -57,6 +57,8 @@ jobs:
       releases_url: ${{ steps.v.outputs.releases_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Filter out regular CI runs that did not deploy to GitHub Pages.
       - id: gate
@@ -84,12 +86,15 @@ jobs:
       - id: v
         if: steps.gate.outputs.deployed == 'true'
         shell: bash
+        env:
+          INPUT_BASE_URL: ${{ github.event.inputs.base_url }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
-          BASE="${{ github.event.inputs.base_url }}"
+          BASE="$INPUT_BASE_URL"
           [ -n "$BASE" ] || BASE="https://azul.rs"
 
-          VERSION="${{ github.event.inputs.version }}"
+          VERSION="$INPUT_VERSION"
           if [ -z "$VERSION" ]; then
             # api.json is the source of truth for the published version.
             VERSION=$(python3 -c 'import json;print(next(iter(json.load(open("api.json")))))')
@@ -162,6 +167,8 @@ jobs:
         run: ${{ matrix.prep }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: "Run the documented command for ${{ matrix.channel }}"
         shell: bash
@@ -189,6 +196,8 @@ jobs:
       HOMEBREW_NO_ANALYTICS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: matrix.channel == 'pypi'
         with:
@@ -215,6 +224,8 @@ jobs:
         channel: [choco, scoop, pypi]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: matrix.channel == 'pypi'
         with:
@@ -256,6 +267,8 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # ---- toolchains (the same actions the AZ_E2E matrix uses) ----
       - name: Linux packages
@@ -422,8 +435,8 @@ jobs:
         include:
           - { lang: c,   variant: linux-dnf,    image: "fedora:40",        setup: "dnf install -y git gcc gcc-c++ curl python3" }
           - { lang: cpp, variant: linux-dnf,    image: "fedora:40",        setup: "dnf install -y git gcc gcc-c++ curl python3" }
-          - { lang: c,   variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm git gcc curl python" }
-          - { lang: cpp, variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm git gcc curl python" }
+          - { lang: c,   variant: linux-pacman, image: "archlinux:latest@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899", setup: "pacman -Sy --noconfirm git gcc curl python" }
+          - { lang: cpp, variant: linux-pacman, image: "archlinux:latest@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899", setup: "pacman -Sy --noconfirm git gcc curl python" }
           - { lang: c,   variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3" }
           - { lang: cpp, variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3" }
           - { lang: c,   variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3", runner: ubuntu-24.04-arm }
@@ -433,6 +446,8 @@ jobs:
       - name: Toolchain (${{ matrix.image }})
         run: ${{ matrix.setup }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Fetch the published api.json
         run: |
           curl -fsSL --retry 3 -o /tmp/api.json \
@@ -485,6 +500,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: The expected artifacts are named on the page
         shell: bash
         run: |
@@ -641,6 +658,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: "1.22"

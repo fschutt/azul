@@ -80,13 +80,15 @@ jobs:
 
       - name: Derive version + azul ref
         id: meta
+        env:
+          INPUT_REF: ${{ github.event.inputs.ref || 'master' }}
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             echo "ver=${GITHUB_REF_NAME}"            >> "$GITHUB_OUTPUT"
             echo "azul_ref=${GITHUB_REF_NAME}"       >> "$GITHUB_OUTPUT"
           else
             echo "ver=dev-${GITHUB_SHA::12}"         >> "$GITHUB_OUTPUT"
-            echo "azul_ref=${{ github.event.inputs.ref || 'master' }}" >> "$GITHUB_OUTPUT"
+            echo "azul_ref=${INPUT_REF}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build (and conditionally push) ${{ matrix.arch }}

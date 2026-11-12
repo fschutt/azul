@@ -26,8 +26,10 @@ runs:
     # Relative paths only: GNU tar under Git Bash reads a drive letter ("D:") as a remote host.
     - name: Unpack the generated bindings
       shell: bash
+      env:
+        TREE_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        mkdir -p "${{ inputs.path }}"
-        tar -xf .codegen-tree-download/codegen-tree.tar -C "${{ inputs.path }}"
+        mkdir -p "$TREE_PATH"
+        tar -xf .codegen-tree-download/codegen-tree.tar -C "$TREE_PATH"
         rm -rf .codegen-tree-download
