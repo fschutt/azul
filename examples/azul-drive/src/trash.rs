@@ -323,9 +323,13 @@ pub(crate) fn purge(
         }
     }
     if !gone.is_empty() {
+        // Both records of a removed delete go: `first_seen` names "each stamp in the trash" and
+        // this one is not any more (X-DELTA-AZDRIVE-FILES-34 added the record, the forget did not
+        // follow; the next pass would have dropped it, a day later).
         doc.update(|marks| {
             for stamp in &gone {
                 marks.expired.remove(stamp);
+                marks.first_seen.remove(stamp);
             }
         })
         .map_err(|e| e.to_string())?;
@@ -347,6 +351,16 @@ mod tests {
             stamp: stamp.to_string(),
             stamped: age_days.map(|d| NOW - d * DAY),
             modified: folder_days.map(|d| NOW - d * DAY),
+        }
+    }
+
+    /// The marks a pass wrote down, read the way the next pass reads them; a file that does not
+    /// read as marks fails the test with what it was.
+    #[cfg(unix)]
+    fn written_marks(file: &Path) -> Marks {
+        match Doc::<Marks>::new(file).read() {
+            DocRead::Found(marks) => marks,
+            other => panic!("the marks file does not read as marks: {other:?}"),
         }
     }
 
@@ -564,10 +578,24 @@ mod tests {
         let first = purge(&drive, &root, &marks_file, NOW).unwrap();
         assert_eq!((first.removed, first.marked), (0, 1), "{first:?}");
         assert!(old_folder.exists(), "the first pass only marks");
-        let written = std::fs::read_to_string(&marks_file).unwrap();
-        assert!(
-            written.contains(&old_stamp) && !written.contains(&new_stamp),
-            "{written}"
+        // What the pass wrote down, read as the marks it is: the old delete is marked expired and
+        // today's is not. Both are in `first_seen` - it holds every delete in the trash, each with
+        // the time its age counts from, which on the first pass ever is its stamp
+        // (X-DELTA-AZDRIVE-FILES-34) - so a search of the text for today's stamp cannot tell the
+        // two records apart.
+        let written = written_marks(&marks_file);
+        assert_eq!(
+            written.expired,
+            BTreeMap::from([(old_stamp.clone(), NOW)]),
+            "{written:?}"
+        );
+        assert_eq!(
+            written.first_seen,
+            BTreeMap::from([
+                (old_stamp.clone(), NOW - 40 * DAY),
+                (new_stamp.clone(), NOW - 60)
+            ]),
+            "{written:?}"
         );
 
         let early = purge(&drive, &root, &marks_file, NOW + 3 * DAY).unwrap();
@@ -578,10 +606,20 @@ mod tests {
         assert_eq!(later.removed, 1, "{later:?}");
         assert!(!old_folder.exists(), "the old delete went with its files");
         assert!(new_folder.join("b.txt").exists(), "today's delete is there");
+        // The marks of what is gone go with it - both of them, the mark that it expired and the
+        // time its age counted from (the doc of `purge`: "forgets the marks of what is gone") -
+        // and today's delete keeps its record.
         let after = std::fs::read_to_string(&marks_file).unwrap();
         assert!(
             !after.contains(&old_stamp),
-            "its mark went with it: {after}"
+            "its marks went with it: {after}"
+        );
+        let after = written_marks(&marks_file);
+        assert!(after.expired.is_empty(), "{after:?}");
+        assert_eq!(
+            after.first_seen,
+            BTreeMap::from([(new_stamp.clone(), NOW - 60)]),
+            "{after:?}"
         );
     }
 
