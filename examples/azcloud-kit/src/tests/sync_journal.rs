@@ -184,6 +184,77 @@ fn a_case_rename_cut_off_half_way_is_finished() {
     assert_eq!(fs::read(root.path().join("report.txt")).unwrap(), b"report");
 }
 
+/// X-DELTA-SYNC4-22, the recovery of a conflict copy. It looks at the copy's name ("still free"), then
+/// renames this side's file to it with a replacing rename: a file that took the name in between was
+/// overwritten. The rename never replaces now, and the seam (`recover_with`) lets the test put the
+/// file there at the moment. RED on the old code: the file that took the name holds this side's bytes.
+#[test]
+fn x_delta_sync4_22_the_recovery_of_a_conflict_never_replaces_a_file_that_took_the_copys_name() {
+    let root = TempDir::new("journal-s22-conflict");
+    let state = TempDir::new("journal-s22-conflict-state");
+    fs::write(root.path().join("plan.txt"), b"this side's plan").unwrap();
+    Journal::new(state.path())
+        .begin(Intent::Conflict {
+            key: String::from("plan.txt"),
+            copy: String::from("plan (B).txt"),
+            hash: hash_bytes(b"this side's plan"),
+        })
+        .unwrap();
+    let folder = root.path().to_path_buf();
+    let recovery = Journal::new(state.path())
+        .recover_with(root.path(), &|name| {
+            if name == "recover-conflict-before-rename" {
+                fs::write(folder.join("plan (B).txt"), b"another file took the name").unwrap();
+            }
+        })
+        .unwrap();
+    assert_eq!(
+        fs::read(root.path().join("plan (B).txt")).unwrap(),
+        b"another file took the name",
+        "{recovery:?}"
+    );
+    assert_eq!(
+        fs::read(root.path().join("plan.txt")).unwrap(),
+        b"this side's plan",
+        "this side's file stays where it was"
+    );
+    assert!(recovery.finished.is_empty(), "{recovery:?}");
+}
+
+/// X-DELTA-SYNC4-22, the recovery of a case rename: the same window, the same answer.
+#[test]
+fn x_delta_sync4_22_the_recovery_of_a_case_rename_never_replaces_a_file_that_took_the_name() {
+    let root = TempDir::new("journal-s22-case");
+    let state = TempDir::new("journal-s22-case-state");
+    fs::write(root.path().join(".azsync-case-1"), b"report").unwrap();
+    Journal::new(state.path())
+        .begin(Intent::CaseRename {
+            from: String::from("Report.txt"),
+            via: String::from(".azsync-case-1"),
+            to: String::from("report.txt"),
+        })
+        .unwrap();
+    let folder = root.path().to_path_buf();
+    let recovery = Journal::new(state.path())
+        .recover_with(root.path(), &|name| {
+            if name == "recover-case-before-rename" {
+                fs::write(folder.join("report.txt"), b"another file took the name").unwrap();
+            }
+        })
+        .unwrap();
+    assert_eq!(
+        fs::read(root.path().join("report.txt")).unwrap(),
+        b"another file took the name",
+        "{recovery:?}"
+    );
+    assert_eq!(
+        fs::read(root.path().join(".azsync-case-1")).unwrap(),
+        b"report",
+        "the half-renamed file stays under its temporary name"
+    );
+    assert!(recovery.finished.is_empty(), "{recovery:?}");
+}
+
 #[test]
 fn the_temp_names_are_azul_storages() {
     assert!(is_download_temp(".a.txt.azul-storage-12-3.tmp", "a.txt"));

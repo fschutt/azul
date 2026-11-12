@@ -206,13 +206,26 @@ impl Journal {
     /// When the emptied journal cannot be written (the steps are done then; the next recovery
     /// finds them done on disk).
     pub fn recover(&self, root: &Path) -> CloudResult<Recovery> {
+        self.recover_with(root, &|_| {})
+    }
+
+    /// [`Journal::recover`] that tells `point` the moments a test plays a window in: right before the
+    /// rename that finishes a conflict copy (`recover-conflict-before-rename`) or a case rename
+    /// (`recover-case-before-rename`), after the look at the name that must still be free
+    /// (X-DELTA-SYNC4-22: the recoveries' renames never replace a file that took the name since that
+    /// look, and until now no test could enter the window).
+    ///
+    /// # Errors
+    ///
+    /// As [`Journal::recover`].
+    pub fn recover_with(&self, root: &Path, point: &dyn Fn(&str)) -> CloudResult<Recovery> {
         let mut out = Recovery::default();
         // Every name is reached from the folder's root without a link: recovery finishes no
         // step in a folder that a link below the synced folder points at.
         let tree = Root::open(root);
         for (_, intent) in self.open_steps() {
             match &tree {
-                Ok(tree) => recover_one(tree, &intent, &mut out),
+                Ok(tree) => recover_one(tree, &intent, &mut out, point),
                 Err(e) => out.left.push(format!(
                     "{}: the folder cannot be opened ({e})",
                     intent.key()
@@ -275,7 +288,7 @@ fn remove_temps(tree: &Root, key: &str, out: &mut Recovery) {
     }
 }
 
-fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
+fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery, point: &dyn Fn(&str)) {
     match intent {
         Intent::Download { key, .. } => remove_temps(tree, key, out),
         Intent::Conflict { key, copy, hash } => {
@@ -297,6 +310,7 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
                 .is_some_and(|h| h == *hash);
             if holds {
                 // Never over a file that took the copy's name since the look above (X-DELTA-SYNC4-22).
+                point("recover-conflict-before-rename");
                 match from_dir.rename_noreplace(&from, &to_dir, &to) {
                     Ok(()) => {
                         to_dir.sync();
@@ -323,6 +337,7 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery) {
             };
             if via_dir.lstat(&via_name).is_ok() && to_dir.lstat(&to_name).is_err() {
                 // Never over a file that took the name since the look above (X-DELTA-SYNC4-22).
+                point("recover-case-before-rename");
                 match via_dir.rename_noreplace(&via_name, &to_dir, &to_name) {
                     Ok(()) => {
                         to_dir.sync();
