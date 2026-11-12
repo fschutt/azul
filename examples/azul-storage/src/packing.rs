@@ -49,7 +49,7 @@
 )]
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -625,6 +625,24 @@ struct Journal {
     /// The state without a folder; with one, the lock that keeps this process's file changes in
     /// order.
     memory: Mutex<JournalMemory>,
+    /// The packs THIS process is committing right now (between the seal and the end of
+    /// `commit_pack`, whatever its outcome): the upkeep never clears one up as abandoned, however
+    /// old its journal stamp is - a slow upload and a contended commit can outlast
+    /// [`JOURNAL_STALE_SECS`] (X-DELTA-SYNC4-9). A writer that stopped is not in it: that is what
+    /// the stamp is for.
+    writing: Mutex<BTreeSet<ObjectId>>,
+}
+
+/// `pack` is being committed by this process until this drops ([`Journal::writing`]).
+struct Writing<'a> {
+    journal: &'a Journal,
+    pack: ObjectId,
+}
+
+impl Drop for Writing<'_> {
+    fn drop(&mut self) {
+        lock(&self.journal.writing).remove(&self.pack);
+    }
 }
 
 #[derive(Default)]
@@ -642,7 +660,22 @@ impl Journal {
         Journal {
             dir,
             memory: Mutex::new(JournalMemory::default()),
+            writing: Mutex::new(BTreeSet::new()),
         }
+    }
+
+    /// Notes that this process is committing `pack`, until the guard drops.
+    fn writing(&self, pack: &ObjectId) -> Writing<'_> {
+        lock(&self.writing).insert(*pack);
+        Writing {
+            journal: self,
+            pack: *pack,
+        }
+    }
+
+    /// Whether this process is committing `pack` right now.
+    fn is_writing(&self, pack: &ObjectId) -> bool {
+        lock(&self.writing).contains(pack)
     }
 
     fn in_flight_file(dir: &Path, pack: &ObjectId) -> PathBuf {
@@ -1408,6 +1441,9 @@ impl<D: Drive> EncryptedDrive<D> {
         if let Err(e) = self.packs.journal.begin(&id, now_unix()) {
             return all(e);
         }
+        // This process is committing the pack until the function returns, whatever it returns: the
+        // upkeep of the same process leaves it alone (X-DELTA-SYNC4-9).
+        let _writing = self.packs.journal.writing(&id);
         if let Err(e) = self.put_object(&id, &sealed.object) {
             // A full drive refuses the pack whole and stores nothing: its members go again as
             // two smaller packs, so the files that still fit go up and only the rest is refused.
@@ -1419,6 +1455,12 @@ impl<D: Drive> EncryptedDrive<D> {
             // Whether it landed is not known: the journal clears it up.
             return all(e);
         }
+        // The upload is over: the stamp counts from here, so the quarter of an hour a process of
+        // another start gives the commit is not spent by the upload (the stamp was taken before it).
+        // collapse-ok: a stamp that cannot be renewed keeps the old one; this process's own upkeep
+        // is held off by `writing`, and a stale stamp only lets ANOTHER process's upkeep look at the
+        // pack, which asks the index and the history before it deletes anything.
+        let _ = self.packs.journal.begin(&id, now_unix());
         let mut alive: Vec<Vec<bool>> = members
             .iter()
             .map(|m| vec![true; m.targets.len()])
@@ -1915,6 +1957,8 @@ impl<D: Drive> EncryptedDrive<D> {
             .into_iter()
             .filter(|(_, created)| created.saturating_add(JOURNAL_STALE_SECS) < now)
             .map(|(id, _)| id)
+            // A pack this process is committing is no abandoned one, whatever its stamp says.
+            .filter(|id| !self.packs.journal.is_writing(id))
             .collect();
         if stale.is_empty() {
             return Ok(0);

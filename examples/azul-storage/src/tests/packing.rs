@@ -6,7 +6,7 @@
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
-        Arc, Barrier,
+        Arc, Barrier, Mutex,
     },
     thread,
 };
@@ -1159,6 +1159,78 @@ fn put_new(
         .map(|(path, bytes)| BatchPut::new(path, bytes).when(&absent))
         .collect();
     drive.put_many(&items)
+}
+
+/// An index whose next `apply` first runs something else (once): another thread of the process, here
+/// the upkeep, while a commit is under way.
+struct DuringApply {
+    inner: MemoryIndex,
+    then: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl NameIndex for DuringApply {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get(path)
+    }
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        let then = self.then.lock().unwrap().take();
+        if let Some(then) = then {
+            then();
+        }
+        self.inner.apply(changes)
+    }
+}
+
+/// X-DELTA-SYNC4-9, the pack in flight. `recover_packs` took a pack for abandoned when its journal
+/// stamp - taken BEFORE the upload - was older than JOURNAL_STALE_SECS, though the commit that names it
+/// was still running in this very process (a slow upload and a commit that waits and retries can outlast
+/// a quarter of an hour): the upkeep deleted the pack under the commit, and the index then named a pack
+/// no bucket held. The process knows what it is writing now, and the stamp is renewed when the upload
+/// is over. RED on the old code: the upkeep clears the pack up (1), and the files read "its object is
+/// missing".
+#[test]
+fn x_delta_sync4_9_a_pack_this_process_is_still_committing_is_not_cleared_up_as_abandoned() {
+    let dir = TempDir::new("pack-writing");
+    let bucket = Arc::new(MemBucket::new());
+    let index = Arc::new(DuringApply {
+        inner: MemoryIndex::new(),
+        then: Mutex::new(None),
+    });
+    let named: Arc<dyn NameIndex> = index.clone();
+    let options = PackOptions::default().with_journal(dir.path().join("packs"));
+    let drive = Arc::new(
+        EncryptedDrive::new(Arc::clone(&bucket), DriveKey::generate().unwrap(), named)
+            .with_packing(options),
+    );
+    // The commit has been running for longer than the journal's stale time when the upkeep comes by.
+    let later = now_unix() + JOURNAL_STALE_SECS + 60;
+    let cleared = Arc::new(AtomicU32::new(u32::MAX));
+    {
+        let (drive, cleared) = (Arc::clone(&drive), Arc::clone(&cleared));
+        *index.then.lock().unwrap() = Some(Box::new(move || {
+            let n = drive.recover_packs(later).unwrap();
+            cleared.store(u32::try_from(n).unwrap(), Ordering::SeqCst);
+        }));
+    }
+    let files = small_files(5, 700);
+    let results = put_new(&drive, &files);
+    assert_eq!(
+        cleared.load(Ordering::SeqCst),
+        0,
+        "the upkeep left the pack that is being committed alone"
+    );
+    assert!(
+        results.iter().all(Result::is_ok),
+        "{:?}",
+        results.iter().filter_map(|r| r.as_ref().err()).next()
+    );
+    for (path, bytes) in &files {
+        assert_eq!(&drive.get(path).unwrap(), bytes, "{path}");
+    }
+    assert!(dangling(&drive).is_empty());
 }
 
 /// X-DELTA-SYNC4-2, row "the change landed, its retry met its own commit". The one index change
