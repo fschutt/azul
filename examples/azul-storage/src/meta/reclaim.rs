@@ -5,10 +5,11 @@
 //! at a dozen places on a dozen proofs, each proof a guess ("the index refused it", "the head does
 //! not name it", "thirty days passed"). The rules of this module are few:
 //!
-//! - **A new object that no change named** is taken back out only by [`drop_new_object`], and
+//! - **A new object that no change named** is taken back out only by [`drop_new_object_after`], and
 //!   only on a [`Refusal`]: the proof that the change was refused for good or never made
-//!   ([`Certainty`]). A change whose outcome is not known - no answer, a service error - may have
-//!   landed; the object it uploaded stays (garbage at worst, never a name without its object).
+//!   ([`Certainty`]), made there of the error and the object and nowhere else. A change whose
+//!   outcome is not known - no answer, a service error - may have landed; the object it uploaded
+//!   stays (garbage at worst, never a name without its object).
 //! - **Nothing else** deletes a data object of a drive that keeps its history (the drive index is
 //!   a repository: every state of the drive is a commit). Deleting is a decision about history,
 //!   and only the reclaimer makes it.

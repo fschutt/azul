@@ -116,8 +116,9 @@ pub enum Why<'a> {
     /// and the proof for that object (feature `encryption`).
     #[cfg(feature = "encryption")]
     Retired(&'a DeleteLicence, &'a Reclaimable),
-    /// The user confirmed that the old versions of every file are erased, and the proof says the
-    /// history released this object before they said so (feature `encryption`).
+    /// The user confirmed that the old versions of every file are erased, and the proof - made by
+    /// the purge's own analysis, whose window is the time since they said so - is for this object
+    /// (feature `encryption`).
     #[cfg(feature = "encryption")]
     Confirmed(&'a PurgeConfirmation, &'a Reclaimable),
     /// A new version landed at the name: what it replaced may go.
