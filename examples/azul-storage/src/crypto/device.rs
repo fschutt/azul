@@ -204,16 +204,17 @@ pub enum Publish<'f> {
 /// Puts a recovery wrap into the bucket, for a drive key the keyring holds (`stashed`): the wrap
 /// must seal exactly that key. The only way a wrap leaves this device.
 ///
-/// A wrap published without a stash cannot be written:
+/// A wrap published without a stash cannot be written - nor without the permit of the flow that writes it:
 ///
 /// ```compile_fail,E0061
 /// use azul_storage::crypto::device::{publish_recovery_wrap, Publish};
 /// use azul_storage::crypto::keys::RecoveryWrap;
+/// use azul_storage::crypto::keystate::Permit;
 /// use azul_storage::Drive;
 ///
-/// fn publish(bucket: &dyn Drive, wrap: &RecoveryWrap) {
+/// fn publish(permit: &Permit, bucket: &dyn Drive, wrap: &RecoveryWrap) {
 ///     // no `Stashed`: the key this wrap seals was not seen in the keyring
-///     let _ = publish_recovery_wrap(bucket, wrap, Publish::FirstNew);
+///     let _ = publish_recovery_wrap(permit, bucket, wrap, Publish::FirstNew);
 /// }
 /// ```
 ///
@@ -222,11 +223,19 @@ pub enum Publish<'f> {
 /// A wrap of another key than the stashed one (`Io`: nothing was written), the bucket's refusal,
 /// [`DriveError::Conflict`] for a wrap that had to be new and is not.
 pub fn publish_recovery_wrap(
+    permit: &keystate::Permit,
     bucket: &dyn Drive,
     stashed: &Stashed,
     wrap: &RecoveryWrap,
     how: Publish<'_>,
 ) -> Result<(), DriveError> {
+    // The permit of the flow that writes the wrap, for the kind of wrap it writes: a setup makes the first one,
+    // a setup that goes on, a new code and a rotation replace it, a further code is a kit's (AddCode).
+    permit.allows_one_op_of(match how {
+        Publish::FirstNew => &[Op::Setup],
+        Publish::FirstReplace => &[Op::Setup, Op::NewCode, Op::Rotate],
+        Publish::Extra(_) => &[Op::AddCode],
+    })?;
     if wrap.drive_key_id != stashed.key_id {
         return Err(DriveError::Io(format!(
             "the recovery wrap seals the drive key {}, and the key the keyring holds is {}",
@@ -772,12 +781,13 @@ pub fn setup_new_drive_reporting(
     evidence.keyring = entries.facts();
     evidence.keyring.keeps_keys = keeps_keys_fact(keyring);
     evidence.bucket.encrypted = Read::value(listed.clone());
-    let way = match keystate::ask(Op::Setup, &evidence) {
-        keystate::Verdict::Permit(permit) => permit.way(),
+    let permit = match keystate::ask(Op::Setup, &evidence) {
+        keystate::Verdict::Permit(permit) => permit,
         keystate::Verdict::Refuse(reason) => {
             return Err(setup_refused(&reason, &entries, &listed));
         }
     };
+    let way = permit.way();
     // What the judge saw: a read that failed has refused above.
     let (planned, encrypted) = (entries.planned?, listed?);
     // `New`: no key kept, one is made. `Finish`: the key kept IS the drive's (a checkout's planned
@@ -838,8 +848,10 @@ pub fn setup_new_drive_reporting(
     // no recovery code opens.
     if own_recovery {
         // The earlier try's code was never shown: this one replaces it.
-        publish_recovery_wrap(bucket, &stashed, &recovery, Publish::FirstReplace)?;
-    } else if let Err(e) = publish_recovery_wrap(bucket, &stashed, &recovery, Publish::FirstNew) {
+        publish_recovery_wrap(&permit, bucket, &stashed, &recovery, Publish::FirstReplace)?;
+    } else if let Err(e) =
+        publish_recovery_wrap(&permit, bucket, &stashed, &recovery, Publish::FirstNew)
+    {
         // The answer of a PUT is not what the bucket holds: a write whose answer got lost lands,
         // and its resend is refused as "the object is there" (a conditional write is sent again
         // blind). So the bucket is looked at before the key made now goes (K3).
@@ -847,7 +859,7 @@ pub fn setup_new_drive_reporting(
             // Our wrap is there: the PUT landed. It is put again the way an earlier try's wrap
             // is replaced (the same bytes, a plain write), and the setup goes on.
             Ok(wrap) if wrap.drive_key_id == drive_key.id() => {
-                publish_recovery_wrap(bucket, &stashed, &recovery, Publish::FirstReplace)?;
+                publish_recovery_wrap(&permit, bucket, &stashed, &recovery, Publish::FirstReplace)?;
             }
             // Another device was first with a wrap of another key: the key made now is for
             // nothing and goes again.
@@ -865,7 +877,7 @@ pub fn setup_new_drive_reporting(
             Err(_) => return Err(e),
         }
     }
-    enroll(bucket, keyring, drive, &drive_key)?;
+    enroll(&permit, bucket, keyring, drive, &drive_key)?;
     // The drive key is the keyring's and the recovery wrap is in the bucket: the code is the
     // drive's now and must reach the user, so nothing from here on returns an error. The planted
     // key is a copy of the drive key; a keyring that refuses to delete it (a prompt answered No)
@@ -1063,12 +1075,22 @@ pub fn setup_pending(keyring: &dyn KeyringStore, drive: &str) -> Result<bool, Dr
 /// bucket holds an index), puts the wrap into the bucket and keeps the drive key in the
 /// keyring. This device holds the key from now on: it is pinned first, so whatever stops the
 /// rest, no wrap of another key is taken afterwards. Returns this device's member id.
+///
+/// `permit` is the permit of the flow that enrols the device: a setup's last step (`Setup`), a recovery or
+/// a join (`Recover`), a rotation's re-enrolment (`Rotate`) or `Enroll` itself - and no other: a function
+/// that writes the member wrap and the keyring's drive key is reached with the ask that said it may.
+///
+/// # Errors
+///
+/// A permit of another operation or drive (`Denied`), the keyring's and the bucket's refusals.
 pub fn enroll(
+    permit: &keystate::Permit,
     bucket: &dyn Drive,
     keyring: &dyn KeyringStore,
     drive: &str,
     drive_key: &DriveKey,
 ) -> Result<String, DriveError> {
+    permit.allows_one_of(&[Op::Setup, Op::Recover, Op::Rotate, Op::Enroll], drive)?;
     let secret = member_secret(keyring, drive)?;
     pin(keyring, drive, &drive_key.id())?;
     let member = secret.public().id();
@@ -1106,6 +1128,25 @@ pub fn unlock(
     };
     store_drive_key(keyring, drive, &drive_key)?;
     Ok(Some(drive_key))
+}
+
+/// [`unlock`] for a restore as of a time: the drive key a restore opens the repository with, from the
+/// keyring or - kept there - from this device's member wrap. `permit` is the key permit's `RestoreAsOf` for
+/// this drive ([`restore_permit`]): a key change that is not over would have the repository opened with the
+/// key it is replacing, and the unlock may write the keyring (X-DELTA-KEYS3-6: the restore asked and kept the
+/// permit in a variable nothing read).
+///
+/// # Errors
+///
+/// A permit of another operation or drive (`Denied`), and what [`unlock`] says.
+pub fn unlock_for_restore(
+    permit: &keystate::Permit,
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+) -> Result<Option<DriveKey>, DriveError> {
+    permit.allows(Op::RestoreAsOf, drive)?;
+    unlock(bucket, keyring, drive)
 }
 
 /// A device from before pins keeps the drive key it holds as its pin: the keyring's key is its
@@ -1214,11 +1255,22 @@ pub fn catch_up(
 /// Seals `drive_key` to a new one-time key for a join code: the wrap goes into the bucket as
 /// `.azlin/keys/invite-<id>.key`, the one-time secret comes back for the code
 /// ([`invite_text`]).
+///
+/// `permit` is the key permit's `Invite` for this drive ([`wraps_permit`]), asked while the keyring held
+/// `drive_key`: a key change that is not over hands out the key it replaces, and deletes the invite
+/// (KEYS-7). The ask comes BEFORE the join code is made at the token server (X-DELTA-KEYS3-6).
+///
+/// # Errors
+///
+/// A permit of another operation, drive or key (`Denied`), the bucket's refusal.
 pub fn seal_invite(
+    permit: &keystate::Permit,
     bucket: &dyn Drive,
     drive: &str,
     drive_key: &DriveKey,
 ) -> Result<MemberSecret, DriveError> {
+    permit.allows(Op::Invite, drive)?;
+    permit.allows_key(Op::Invite, drive_key.id())?;
     let invite = MemberSecret::generate().map_err(|e| e.for_key(drive))?;
     let wrap = MemberWrap::seal(drive_key, drive, &invite_member(&invite), &invite.public())
         .map_err(|e| e.for_key(drive))?;
@@ -1282,7 +1334,7 @@ pub fn adopt_invite_reporting(
 ) -> Result<Adopted, DriveError> {
     // Before the bucket is read: a device whose own setup or key change is not over does not take a key
     // (X-KEYSTATE-5), and a keyring that keeps no key says so.
-    let _permit = recover_permit(keyring, drive)?;
+    let permit = recover_permit(keyring, drive)?;
     let member = invite_member(invite);
     let file = member_key_file(&member).map_err(|e| e.for_key(drive))?;
     let wrap = match load_member_wrap(bucket, &member) {
@@ -1312,7 +1364,7 @@ pub fn adopt_invite_reporting(
         }
     }
     let drive_key = wrap.open(drive, invite).map_err(|e| e.for_key(&file))?;
-    enroll(bucket, keyring, drive, &drive_key)?;
+    enroll(&permit, bucket, keyring, drive, &drive_key)?;
     // The device has the key. A wrap that is gone is as good as deleted; any other failure leaves
     // the invite live, and that is said instead of being turned into a failure of the join.
     Ok(Adopted {
@@ -1386,7 +1438,7 @@ pub fn recover_within(
     // Before the bucket is read and the code's Argon2id is spent: the key permit's Recover cell, judged on
     // the keyring alone. A device whose own setup or key change is not over does not take the recovered
     // key over it (X-KEYSTATE-5), a keyring that cannot be read stops it, a keyring that keeps no key says so.
-    let _permit = recover_permit(keyring, drive)?;
+    let permit = recover_permit(keyring, drive)?;
     // The first code's wrap, then a further code's (a second kit), until one opens. A wrap that
     // is missing, damaged or asks for more than any wrap does is no wrap: the others are still
     // tried (a hostile bucket cannot keep a second kit from opening the drive by spoiling the
@@ -1479,7 +1531,7 @@ pub fn recover_within(
             ));
         }
     }
-    enroll(bucket, keyring, drive, &drive_key)?;
+    enroll(&permit, bucket, keyring, drive, &drive_key)?;
     Ok(drive_key)
 }
 
@@ -1649,7 +1701,7 @@ fn add_recovery_code_named(
     // The key permit's AddCode cell: the device holds the drive key, no setup or key change is not over (a
     // code added while the recovery wrap may be replaced opens nothing once it is: KEYS-7), and the drive
     // holds fewer than the most further codes.
-    let _permit = add_code_permit(bucket, keyring, drive)?;
+    let permit = add_code_permit(bucket, keyring, drive)?;
     let (drive_key, stashed) =
         held(keyring, &drive_key_entry(drive))?.ok_or_else(|| DriveError::Locked {
             drive: drive.to_string(),
@@ -1657,7 +1709,7 @@ fn add_recovery_code_named(
     let code = RecoveryCode::generate().map_err(|e| e.for_key(drive))?;
     let wrap = RecoveryWrap::seal(&drive_key, drive, &code, kdf).map_err(|e| e.for_key(drive))?;
     let file = file_of(&code)?;
-    publish_recovery_wrap(bucket, &stashed, &wrap, Publish::Extra(&file))?;
+    publish_recovery_wrap(&permit, bucket, &stashed, &wrap, Publish::Extra(&file))?;
     Ok((file, code))
 }
 

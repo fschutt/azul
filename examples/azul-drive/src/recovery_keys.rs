@@ -2122,4 +2122,112 @@ mod tests {
             "{said}"
         );
     }
+    /// X-DELTA-KEYS3-6 / X-DELTA-INTEGRITY3-3, through the job: "Remove this kit" asks the key permit's
+    /// RemoveCode on the keyring this computer holds the drive's key in BEFORE the wrap is read or deleted
+    /// and before the token server is asked. A key change that is not over (the keyring holds the new key
+    /// beside the drive's) stops it in the table's sentence: the kit's wrap is where it was (the refusal is
+    /// the wrap's, not the server's: `token_url` is never reached).
+    #[test]
+    fn x_delta_keys3_6_a_kit_is_not_removed_while_a_key_change_is_not_over() {
+        use azul_storage::{
+            crypto::{keystate::Refusal, DriveKey},
+            keyring::{Asking, KeyringNamespace, KeyringStore, MemoryKeyring},
+            meta::MemoryBucket,
+            testing::TempDir,
+            Drive,
+        };
+        crate::l10n::in_english();
+        let drive = "d_k36_removecode";
+        let held = azlin_keyring(Asking::User);
+        let bucket = Arc::new(MemoryBucket::new());
+        device::setup_new_drive(bucket.as_ref(), &held, drive, cheap()).unwrap();
+        let (file, _code) =
+            device::add_recovery_code(bucket.as_ref(), &held, drive, cheap()).unwrap();
+        let wrap = bucket.get(&file).unwrap();
+        let dir = TempDir::new("keys-36-remove");
+        let removal = |extra_file: &str| KeysJob::Remove {
+            drive_id: drive.to_string(),
+            key_id: String::from("rk_kit"),
+            signer: findable_key_of(&code()),
+            extra_file: Some(extra_file.to_string()),
+            auto: Some(Arc::new(azul_storage::AutoEncrypted::new(
+                Arc::clone(&bucket) as Arc<dyn Drive>,
+                drive,
+                Arc::new(azlin_keyring(Asking::User)),
+                None,
+            ))),
+            first_code: false,
+            own: Vec::new(),
+            // never reached: the wrap's permit is asked first
+            token_url: String::from("https://token.invalid"),
+            keyring: SharedKeyring::with_lock_root(
+                Arc::new(MemoryKeyring::new()),
+                KeyringNamespace::azlin_shared(),
+                dir.path(),
+            ),
+        };
+
+        let (_, next) = device::rotation_key_entries(drive);
+        let _planted = device::stash(&held, &next, &DriveKey::generate().unwrap()).unwrap();
+        let KeysDone::Removed { result, .. } = run(removal(&file)) else {
+            panic!("a removal answers Removed");
+        };
+        let sentence = Refusal::WrapMayChange.sentence(drive);
+        match result {
+            Err(RemoveFailed::Wrap(why)) => assert!(why.contains(&sentence), "{why}"),
+            other => panic!("the removal stops at the permit, before the server: {other:?}"),
+        }
+        assert_eq!(
+            bucket.get(&file).unwrap(),
+            wrap,
+            "the kit's wrap is where it was"
+        );
+
+        // The control: with the key change over (the planted key gone) the same job takes the wrap out and
+        // goes on to the token server - which it cannot reach here: the answer is the server's.
+        held.delete(&next).unwrap();
+        let KeysDone::Removed { result, .. } = run(removal(&file)) else {
+            panic!("a removal answers Removed");
+        };
+        assert!(
+            matches!(result, Err(RemoveFailed::Server(_))),
+            "an ordinary drive goes on to the token server: {result:?}"
+        );
+    }
+
+    /// X-DELTA-KEYS3-6 (the undo of a second kit's add): `rolled_back` takes the unused wrap out under the
+    /// RemoveCode permit, and a key change that began meanwhile leaves it to the key change - said, and the
+    /// wrap stays.
+    #[test]
+    fn x_delta_keys3_6_an_unused_kit_wrap_stays_while_a_key_change_is_not_over_and_is_said() {
+        use azul_storage::{
+            crypto::{keystate::Refusal, DriveKey},
+            keyring::MemoryKeyring,
+            meta::MemoryBucket,
+            Drive,
+        };
+        let drive = "d_k36_rolledback";
+        let bucket = MemoryBucket::new();
+        let keyring = MemoryKeyring::new();
+        device::setup_new_drive(&bucket, &keyring, drive, cheap()).unwrap();
+        let (file, _code) = device::add_recovery_code(&bucket, &keyring, drive, cheap()).unwrap();
+        let (_, next) = device::rotation_key_entries(drive);
+        let _planted = device::stash(&keyring, &next, &DriveKey::generate().unwrap()).unwrap();
+
+        let said = rolled_back(&bucket, &keyring, drive, &file, String::from("no answer"));
+        assert!(
+            said.starts_with(&format!(
+                "no answer; the unused key file {file} could not be removed from the drive either"
+            )),
+            "{said}"
+        );
+        assert!(
+            said.contains(&Refusal::WrapMayChange.sentence(drive)),
+            "{said}"
+        );
+        assert!(
+            bucket.head(&file).is_ok(),
+            "the wrap stays for the key change"
+        );
+    }
 }

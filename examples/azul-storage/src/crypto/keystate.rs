@@ -945,6 +945,48 @@ impl Permit {
         }
     }
 
+    /// `Ok` when this permit is for one of `ops` of `drive`: what a function that several flows reach - each
+    /// with a permit of its own - checks first (the member wrap is written by a setup, a recovery, a join and a
+    /// rotation; the recovery wrap by a setup, a new code and a rotation).
+    ///
+    /// # Errors
+    ///
+    /// `Denied`, naming what the permit is for.
+    pub fn allows_one_of(&self, ops: &[Op], drive: &str) -> Result<(), DriveError> {
+        if self.drive == drive && ops.contains(&self.op) {
+            Ok(())
+        } else {
+            Err(self.not_for(ops, Some(drive)))
+        }
+    }
+
+    /// `Ok` when this permit is for one of `ops`, whatever the drive: for a function that is not told which
+    /// drive it works on (a recovery wrap published to the bucket it is handed).
+    ///
+    /// # Errors
+    ///
+    /// `Denied`, naming what the permit is for.
+    pub fn allows_one_op_of(&self, ops: &[Op]) -> Result<(), DriveError> {
+        if ops.contains(&self.op) {
+            Ok(())
+        } else {
+            Err(self.not_for(ops, None))
+        }
+    }
+
+    fn not_for(&self, ops: &[Op], drive: Option<&str>) -> DriveError {
+        let wanted: Vec<&str> = ops.iter().map(|op| op.name()).collect();
+        DriveError::Denied {
+            message: format!(
+                "the permit is for {} of \"{}\", not for {}{}",
+                self.op.name(),
+                self.drive,
+                wanted.join(" or "),
+                drive.map_or_else(String::new, |drive| format!(" of \"{drive}\""))
+            ),
+        }
+    }
+
     /// The operation it permits.
     #[must_use]
     pub fn op(&self) -> Op {
@@ -1611,7 +1653,7 @@ fn reseal_file_keys(permit: &Permit, c: &Change<'_>) -> Result<Done, DriveError>
 fn reseal_members(permit: &Permit, c: &Change<'_>) -> Result<Done, DriveError> {
     permitted(permit, Op::Rotate, c.drive)?;
     device::delete_key_at(c.keyring, &device::member_key_entry(c.drive))?;
-    let me = device::enroll(c.bucket.as_ref(), c.keyring, c.drive, c.new)?;
+    let me = device::enroll(permit, c.bucket.as_ref(), c.keyring, c.drive, c.new)?;
     let (members, codes) = rotation::remove_other_members(c.bucket.as_ref(), c.new, &me)?;
     Ok(Done::Removed { members, codes })
 }
@@ -1636,6 +1678,7 @@ fn reseal_recovery_wrap(permit: &Permit, c: &Change<'_>) -> Result<Done, DriveEr
     let wrap =
         RecoveryWrap::seal(&key, c.drive, &code, c.kdf.clone()).map_err(|e| e.for_key(c.drive))?;
     device::publish_recovery_wrap(
+        permit,
         c.bucket.as_ref(),
         &stashed,
         &wrap,

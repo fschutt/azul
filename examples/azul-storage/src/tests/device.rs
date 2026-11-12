@@ -8,17 +8,18 @@ use std::sync::{
 };
 
 use super::{
+    asked::{enroll, seal_invite},
     faulty::{Fail, Faulty},
     mem_bucket::MemBucket,
 };
 use crate::{
     crypto::{
         device::{
-            add_recovery_code, adopt_invite, adopt_invite_reporting, drive_key_entry, enroll,
+            add_recovery_code, adopt_invite, adopt_invite_reporting, drive_key_entry,
             invite_from_text, invite_text, is_encrypted, load_drive_key, load_key_at,
             load_member_secret, member_key_entry, plan_drive_key, planned_key_entry, recover,
-            seal_invite, setup_new_drive, setup_new_drive_reporting, setup_pending, unlock,
-            withdraw_invite, wraps_permit,
+            setup_new_drive, setup_new_drive_reporting, setup_pending, unlock, withdraw_invite,
+            wraps_permit,
         },
         keys::{RecoveryCode, RecoveryKdf, RECOVERY_KEY_FILE},
         keystate::{Op, Refusal},
@@ -1047,6 +1048,123 @@ fn x_delta_keys3_3_a_setup_run_again_over_the_planted_copy_replaces_no_recovery_
         load_drive_key(&keyring, DRIVE).unwrap(),
         Some(made.drive_key)
     );
+}
+
+/// X-DELTA-KEYS3-6 (the typing half of X-KEYSTATE3-2 and X-DELTA-INTEGRITY3-3): the functions that write a member
+/// wrap, a recovery wrap or an invite, or open the drive key for a restore, take the permit of the flow that
+/// asks for them - and no other. Five flows asked a permit and bound it to `_permit`: deleting the ask changed
+/// no type and no test. A permit of another operation (or another key) is `Denied` and writes nothing; the
+/// permit of the right operation goes through.
+#[test]
+fn x_delta_keys3_6_a_permit_of_another_operation_writes_no_wrap_and_no_invite_and_opens_no_key() {
+    use crate::crypto::device::{
+        add_code_permit, drive_key_entry, held, publish_recovery_wrap, recover_permit,
+        restore_permit, unlock_for_restore, Publish,
+    };
+    use crate::crypto::keys::RecoveryWrap;
+    let bucket = MemBucket::with_conditional_writes();
+    let keyring = MemoryKeyring::new();
+    let (key, code) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+    let before = bucket.keys();
+    let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+    let wrap = RecoveryWrap::seal(&key, DRIVE, &code, cheap()).unwrap();
+    let denied = |result: Result<(), DriveError>, what: &str| {
+        assert!(
+            matches!(result, Err(DriveError::Denied { .. })),
+            "{what}: {result:?}"
+        );
+    };
+
+    // The wrong permit for each function (RemoveCode is no operation of any of them).
+    let wrong = wraps_permit(Op::RemoveCode, &keyring, DRIVE).unwrap();
+    denied(device_enroll(&wrong, &bucket, &keyring, &key), "enroll");
+    denied(
+        seal_invite_with(&wrong, &bucket, &key).map(drop),
+        "seal_invite",
+    );
+    denied(
+        publish_recovery_wrap(&wrong, &bucket, &stashed, &wrap, Publish::FirstReplace),
+        "publish: the first wrap replaced",
+    );
+    denied(
+        publish_recovery_wrap(&wrong, &bucket, &stashed, &wrap, Publish::Extra("x")),
+        "publish: a further code's",
+    );
+    denied(
+        unlock_for_restore(&wrong, &bucket, &keyring, DRIVE).map(drop),
+        "unlock_for_restore",
+    );
+    // A permit of the right KIND of operation for another function is wrong too: a new code replaces the
+    // first wrap, it adds no further one; an invite is no restore.
+    let new_code = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+    denied(
+        publish_recovery_wrap(&new_code, &bucket, &stashed, &wrap, Publish::Extra("x")),
+        "publish: a new code's permit for a further code's wrap",
+    );
+    denied(
+        device_enroll(&new_code, &bucket, &keyring, &key),
+        "enroll under a new code's permit",
+    );
+    let invite_permit = wraps_permit(Op::Invite, &keyring, DRIVE).unwrap();
+    denied(
+        unlock_for_restore(&invite_permit, &bucket, &keyring, DRIVE).map(drop),
+        "unlock_for_restore under an invite's permit",
+    );
+    // An invite is sealed with the key the permit was asked for, and no other.
+    let other = DriveKey::generate().unwrap();
+    denied(
+        seal_invite_with(&invite_permit, &bucket, &other).map(drop),
+        "seal_invite with another key",
+    );
+    assert_eq!(
+        bucket.keys(),
+        before,
+        "nothing was written by a refused call"
+    );
+
+    // The right permit for each.
+    device_enroll(
+        &recover_permit(&keyring, DRIVE).unwrap(),
+        &bucket,
+        &keyring,
+        &key,
+    )
+    .unwrap();
+    seal_invite_with(&invite_permit, &bucket, &key).unwrap();
+    publish_recovery_wrap(&new_code, &bucket, &stashed, &wrap, Publish::FirstReplace).unwrap();
+    let adding = add_code_permit(&bucket, &keyring, DRIVE).unwrap();
+    publish_recovery_wrap(
+        &adding,
+        &bucket,
+        &stashed,
+        &wrap,
+        Publish::Extra(".azlin/keys/recovery-00.key"),
+    )
+    .unwrap();
+    let restore = restore_permit(&keyring, DRIVE, true).unwrap();
+    assert_eq!(
+        unlock_for_restore(&restore, &bucket, &keyring, DRIVE).unwrap(),
+        Some(key)
+    );
+}
+
+/// [`device::enroll`] with `permit`, the error only.
+fn device_enroll(
+    permit: &crate::crypto::keystate::Permit,
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    key: &DriveKey,
+) -> Result<(), DriveError> {
+    crate::crypto::device::enroll(permit, bucket, keyring, DRIVE, key).map(drop)
+}
+
+/// [`seal_invite`](crate::crypto::device::seal_invite) with `permit`.
+fn seal_invite_with(
+    permit: &crate::crypto::keystate::Permit,
+    bucket: &dyn Drive,
+    key: &DriveKey,
+) -> Result<crate::crypto::keys::MemberSecret, DriveError> {
+    crate::crypto::device::seal_invite(permit, bucket, DRIVE, key)
 }
 
 // ==== X-KEYSTATE-1: the setup reads the drive key ====

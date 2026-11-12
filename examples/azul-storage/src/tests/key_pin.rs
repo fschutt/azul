@@ -6,14 +6,14 @@
 
 use std::sync::Arc;
 
-use super::asked::rotate;
+use super::asked::{rotate, seal_invite};
 
 use crate::{
     crypto::{
         device::{
             adopt_invite, catch_up, commit_drive_key, committed_drive_key, drive_key_entry,
-            load_drive_key, load_member_secret, member_key_entry, pinned_drive_key,
-            plan_drive_key, planned_key_entry, recover, seal_invite, setup_new_drive, unlock,
+            load_drive_key, load_member_secret, member_key_entry, pinned_drive_key, plan_drive_key,
+            planned_key_entry, recover, setup_new_drive, unlock,
         },
         keys::{store_member_wrap, MemberWrap, RecoveryKdf},
         to_hex, DriveKey, KeyId,

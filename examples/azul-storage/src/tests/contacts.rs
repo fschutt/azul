@@ -1,7 +1,10 @@
 //! Trusted contacts: a recovery code split 2-of-3, its shares printed or sealed to a contact's
 //! key, a recovery request answered by sealing a share to the request's key.
 
-use super::mem_bucket::MemBucket;
+use super::{
+    asked::{enroll, seal_invite},
+    mem_bucket::MemBucket,
+};
 use crate::crypto::{
     contacts::{
         contact_from_text, contact_text, open_reply, open_share, read_share, request_from_text,
@@ -9,8 +12,8 @@ use crate::crypto::{
         REPLY_PREFIX, SHARES, SHARE_PREFIX,
     },
     device::{
-        contact_key_entry, enroll, forget_request_key, load_contact_key, new_contact_key,
-        other_devices, request_key, request_key_entry, seal_invite, setup_new_drive,
+        contact_key_entry, forget_request_key, load_contact_key, new_contact_key, other_devices,
+        request_key, request_key_entry, setup_new_drive,
     },
     keys::{MemberSecret, RecoveryCode},
     CryptoError,

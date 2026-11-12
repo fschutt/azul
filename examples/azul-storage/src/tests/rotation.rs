@@ -8,17 +8,14 @@ use std::sync::{
 };
 
 use super::{
-    asked::{lockdown_needed, reencrypt_pass, rotate},
+    asked::{enroll, lockdown_needed, reencrypt_pass, rotate, seal_invite},
     faulty::{Fail, Faulty},
     mem_bucket::MemBucket,
 };
 use crate::{
     crypto::{
         azl1::OpenObject,
-        device::{
-            self, add_recovery_code, enroll, recover, rotation_key_entries, seal_invite,
-            setup_new_drive,
-        },
+        device::{self, add_recovery_code, recover, rotation_key_entries, setup_new_drive},
         drops::{
             enable_drop, load_drop_key, load_previous_drop_key, load_previous_drop_keys,
             DROP_KEY_FILE, PREVIOUS_DROP_KEY_FILE,

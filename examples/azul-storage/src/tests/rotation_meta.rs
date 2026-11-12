@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use super::{
-    asked::{lockdown_needed, rotate},
+    asked::{enroll, lockdown_needed, rotate},
     faulty::{Fail, Faulty},
 };
 use crate::{
     crypto::{
-        device::{enroll, load_drive_key, load_key_at, rotation_key_entries, setup_new_drive},
+        device::{load_drive_key, load_key_at, rotation_key_entries, setup_new_drive},
         keys::{RecoveryKdf, CHAIN_KEY_FILE},
         DriveKey,
     },

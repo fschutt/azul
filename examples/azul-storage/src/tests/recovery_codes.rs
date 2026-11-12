@@ -1,14 +1,14 @@
 //! A drive's second recovery code (a second emergency kit, D51): sealed like the first in a
 //! wrap of its own, either code opens the drive, removing one leaves the other.
 
-use super::mem_bucket::MemBucket;
+use super::{asked::enroll, mem_bucket::MemBucket};
 use crate::{
     crypto::{
         device::{
-            add_recovery_code, add_recovery_code_for_key, enroll, other_devices,
-            read_recovery_code, recover, recover_within, recovery_code_file_for,
-            remove_recovery_code, restore_recovery_code, setup_new_drive, unclaimed_recovery_codes,
-            wraps_permit, EXTRA_RECOVERY_PREFIX, MAX_EXTRA_RECOVERY_CODES, RECOVER_WORK_BUDGET,
+            add_recovery_code, add_recovery_code_for_key, other_devices, read_recovery_code,
+            recover, recover_within, recovery_code_file_for, remove_recovery_code,
+            restore_recovery_code, setup_new_drive, unclaimed_recovery_codes, wraps_permit,
+            EXTRA_RECOVERY_PREFIX, MAX_EXTRA_RECOVERY_CODES, RECOVER_WORK_BUDGET,
         },
         keys::{RecoveryCode, RecoveryKdf, RecoveryWrap, RECOVERY_KEY_FILE},
         keystate::{Op, Permit},

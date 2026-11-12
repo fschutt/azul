@@ -11,12 +11,16 @@ use std::{
     time::Duration,
 };
 
-use super::{mem_bucket::MemBucket, TempDir};
+use super::{
+    asked::{enroll, seal_invite},
+    mem_bucket::MemBucket,
+    TempDir,
+};
 use crate::{
     crypto::{
         azl1::{WriteOptions, HEADER_LEN},
         codec::Compression,
-        device::{adopt_invite, seal_invite, setup_new_drive},
+        device::{adopt_invite, setup_new_drive},
         keys::RecoveryKdf,
         random_bytes, DriveKey, ObjectId, ShareKey,
     },
@@ -994,7 +998,7 @@ fn a_drive_recorded_as_encrypted_is_locked_without_its_key_whatever_the_bucket_l
         device.put("a.txt", b"x"),
         Err(DriveError::Locked { .. })
     ));
-    crate::crypto::device::enroll(mem.as_ref(), keyring.as_ref(), "d_1", &key).unwrap();
+    enroll(mem.as_ref(), keyring.as_ref(), "d_1", &key).unwrap();
     device.reopen();
     device.put("a.txt", b"sealed").unwrap();
     assert_eq!(kind(&device), Some(true));

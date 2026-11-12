@@ -36,6 +36,12 @@ fn cheap() -> RecoveryKdf {
 /// `d-1` at the tests' S3 endpoint), a member family's token is exchanged once, every other
 /// call goes to `s3`.
 fn cloud(s3: &Arc<FakeS3>) -> TransportFactory {
+    cloud_recording(s3).0
+}
+
+/// [`cloud`] with the fake that answers it, for the calls it was sent (a test of what the token server was
+/// NOT asked).
+fn cloud_recording(s3: &Arc<FakeS3>) -> (TransportFactory, Arc<Fake>) {
     let s3 = s3.clone();
     let fake = Fake::new(move |call, _| {
         let url = call.url.as_str();
@@ -70,7 +76,11 @@ fn cloud(s3: &Arc<FakeS3>) -> TransportFactory {
         }
         Ok(json(401, r#"{"error": "token_reuse", "message": "reused"}"#))
     });
-    Arc::new(move || Box::new(Shared(fake.clone())) as Box<dyn Transport>)
+    let transports: TransportFactory = {
+        let fake = fake.clone();
+        Arc::new(move || Box::new(Shared(fake.clone())) as Box<dyn Transport>)
+    };
+    (transports, fake)
 }
 
 /// The lockdowns the fake token server answered.
@@ -669,6 +679,82 @@ fn x_delta_keys3_2_a_device_with_the_old_key_cannot_turn_mail_on_over_the_new_ke
         public,
         "turned on again: the same key"
     );
+}
+
+/// X-DELTA-KEYS3-6, through the kit's own entry (`invite_with_key`: AzDrive's "Add a device" and the command
+/// line's invite both come here): the key permit was asked AFTER the token server made the member family of
+/// the join code, so a key change that is not over refused the invite with a family left at the server, unseen,
+/// until a lockdown. Asked first now: the server is not called, and no invite lands in the bucket.
+#[test]
+fn x_delta_keys3_6_an_invite_while_a_key_change_is_not_over_makes_no_member_family() {
+    let s3 = FakeS3::new();
+    let (transports, fake) = cloud_recording(&s3);
+    let dir = TempDir::new("azcloud-enc-invite-unfinished");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let families = || {
+        fake.calls()
+            .iter()
+            .filter(|call| call.url.ends_with("/members"))
+            .count()
+    };
+    let invites = || s3.keys().iter().filter(|k| k.contains("invite-")).count();
+
+    // The ordinary drive: one family at the server, and its code carries the key.
+    let join = a.invite_with_key(None, &keys).unwrap();
+    assert_eq!(families(), 1);
+    assert!(join.key_seal.is_some() && join.key_id.is_some());
+    assert_eq!(invites(), 1);
+
+    // The keyring holds the new key of a rotation that is not the drive key yet.
+    let (_, next) = device::rotation_key_entries("d_1");
+    let _planted = device::stash(&keys, &next, &DriveKey::generate().unwrap()).unwrap();
+    let refused = a
+        .invite_with_key(None, &keys)
+        .expect_err("a key change that is not over hands out no key")
+        .to_string();
+    assert!(refused.contains("not finished"), "{refused}");
+    assert_eq!(
+        families(),
+        1,
+        "the token server made no second member family"
+    );
+    assert_eq!(invites(), 1, "and no second invite is in the bucket");
+}
+
+/// X-DELTA-KEYS3-6 (the other end): the join code's pre-check (asked on the keyring alone, before the code's
+/// token is spent) refuses a code that carries a key while this device's own key change is not over - the
+/// join would spend the token, and the key could not be kept after it.
+#[test]
+fn x_delta_keys3_6_a_code_with_a_key_is_refused_before_it_is_spent_while_this_devices_key_change_is_not_over(
+) {
+    let carries = JoinCode {
+        drive_id: String::from("d_1"),
+        drive_token: String::from("dt_m.0.joins"),
+        member: String::from("m_laptop"),
+        name: String::from("Ann's drive"),
+        token_url: TOKEN.to_string(),
+        key_seal: Some("ab".repeat(32)),
+        key_id: None,
+    };
+    let without = JoinCode {
+        key_seal: None,
+        ..carries.clone()
+    };
+    let keys = MemoryKeyring::new();
+    Account::check_join_key_can_be_kept(&carries, &keys).unwrap();
+
+    let drive_key = DriveKey::generate().unwrap();
+    device::store_drive_key(&keys, "d_1", &drive_key).unwrap();
+    let (_, next) = device::rotation_key_entries("d_1");
+    let _planted = device::stash(&keys, &next, &DriveKey::generate().unwrap()).unwrap();
+    let refused = Account::check_join_key_can_be_kept(&carries, &keys)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("not finished"), "{refused}");
+    // a code without a key asks nothing of the keyring
+    Account::check_join_key_can_be_kept(&without, &keys).unwrap();
 }
 
 #[test]

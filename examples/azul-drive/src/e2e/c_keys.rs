@@ -348,7 +348,15 @@ fn finish(s: &mut DriveState, device: &str, approver: &str) -> Answer {
         Ok(None) => return refused(format!("{approver} holds no key for the drive")),
         Err(e) => return refused(format!("{approver}'s keyring: {e}")),
     };
-    let invite = match keys_of::seal_invite(&approving.bucket, drive, &key) {
+    // Asked before it is sealed, as every flow that hands the key out asks (a key change that is not over
+    // refuses it).
+    let invite = match keys_of::wraps_permit(
+        azul_storage::crypto::keystate::Op::Invite,
+        approving.keyring.as_ref(),
+        drive,
+    )
+    .and_then(|permit| keys_of::seal_invite(&permit, &approving.bucket, drive, &key))
+    {
         Ok(invite) => invite,
         Err(e) => return refused(format!("{approver} could not approve: {e}")),
     };

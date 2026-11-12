@@ -1861,7 +1861,7 @@ fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Result<usize, String> 
     // Only where the restore goes on: the keyring is read here and nowhere before (a refusal of the
     // state's policy touches none). The key permit's RestoreAsOf cell: a key change that is not over
     // refuses it (the repository would be opened with the key the change replaces).
-    let _permit = device::restore_permit(
+    let permit = device::restore_permit(
         &azlin_keyring(Asking::User),
         auto.drive(),
         state.has_drive_index(),
@@ -1869,9 +1869,14 @@ fn restore_encrypted(auto: &AutoEncrypted, as_of: i64) -> Result<usize, String> 
     .map_err(|e| e.to_string())?;
     let bucket = Arc::clone(auto.bucket());
     let restored = (|| -> Result<usize, String> {
-        let key = device::unlock(bucket.as_ref(), &azlin_keyring(Asking::User), auto.drive())
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| String::from("azdrive-enc-err-device-no-key"))?;
+        let key = device::unlock_for_restore(
+            &permit,
+            bucket.as_ref(),
+            &azlin_keyring(Asking::User),
+            auto.drive(),
+        )
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| String::from("azdrive-enc-err-device-no-key"))?;
         let device_id = azul_storage::ids::new_uuid();
         let mut repo = MetaRepo::open(DriveBucket::new(bucket), key, &device_id, "AzDrive")
             .map_err(|e| e.to_string())?;
@@ -1926,9 +1931,9 @@ pub(crate) fn restore_file_version(
     let bucket = versioned_bucket(auto)?;
     // The drive has an index of its own, so it is decided encrypted (`versioned_bucket`); the key
     // permit's RestoreAsOf cell refuses while a key change is not over.
-    let _permit = device::restore_permit(keyring, auto.drive(), auto.state().has_drive_index())
+    let permit = device::restore_permit(keyring, auto.drive(), auto.state().has_drive_index())
         .map_err(|e| e.to_string())?;
-    let drive_key = device::unlock(bucket.as_ref(), keyring, auto.drive())
+    let drive_key = device::unlock_for_restore(&permit, bucket.as_ref(), keyring, auto.drive())
         .map_err(|e| e.to_string())?
         .ok_or_else(|| String::from("azdrive-enc-err-device-no-key"))?;
     let device_id = azul_storage::ids::new_uuid();
@@ -3272,27 +3277,13 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             shared,
             name,
         } => {
-            let result = (|| -> Result<Zeroizing<String>, String> {
+            let result = invite_job(&auto, &keyring, &|| {
                 let transport = AzulTransport::azlin(crate::USER_AGENT);
                 let server = TokenServer::new(&token_url, &transport).map_err(|e| e.to_string())?;
-                let mut code = shared
+                shared
                     .invite(&server, &drive_id, &name, None)
-                    .map_err(|e| e.to_string())?;
-                // the drive key rides along, sealed to a one-time key whose secret is in the code
-                if let Some(drive_key) =
-                    device::load_drive_key(&keyring, auto.drive()).map_err(|e| e.to_string())?
-                {
-                    // A key change that is not over would hand out the key it replaces.
-                    let _permit = device::wraps_permit(Op::Invite, &keyring, auto.drive())
-                        .map_err(|e| e.to_string())?;
-                    let invite = device::seal_invite(auto.bucket().as_ref(), auto.drive(), &drive_key)
-                        .map_err(|e| e.to_string())?;
-                    code.key_seal = Some(device::invite_text(&invite).to_string());
-                    // the joining device takes no other key than this one
-                    code.key_id = Some(drive_key.id().to_hex());
-                }
-                Ok(Zeroizing::new(code.encode()))
-            })();
+                    .map_err(|e| e.to_string())
+            });
             EncryptionOutcome::Invited { drive_id, result }
         }
         EncryptionJob::Forget {
@@ -3366,6 +3357,35 @@ fn code_opens_the_wrap(
         })
 }
 
+/// "Add a device" as the job runs it: a join code for another device whose drive key rides along, sealed to
+/// a one-time key whose secret is in the code. The key permit's `Invite` cell is asked FIRST, before the
+/// token server makes the member family of the code (`make_code`): a key change that is not over would hand
+/// out the key it replaces, and a refusal after the family was made left it at the server, unseen, until a
+/// lockdown (X-DELTA-KEYS3-6). The permit goes into `seal_invite`: a refactor that drops the ask changes a type.
+fn invite_job(
+    auto: &AutoEncrypted,
+    keyring: &dyn KeyringStore,
+    make_code: &dyn Fn() -> Result<azcloud_kit::JoinCode, String>,
+) -> Result<Zeroizing<String>, String> {
+    let key = match device::load_drive_key(keyring, auto.drive()).map_err(|e| e.to_string())? {
+        Some(drive_key) => {
+            let permit = device::wraps_permit(Op::Invite, keyring, auto.drive())
+                .map_err(|e| e.to_string())?;
+            Some((drive_key, permit))
+        }
+        None => None,
+    };
+    let mut code = make_code()?;
+    if let Some((drive_key, permit)) = key {
+        let invite = device::seal_invite(&permit, auto.bucket().as_ref(), auto.drive(), &drive_key)
+            .map_err(|e| e.to_string())?;
+        code.key_seal = Some(device::invite_text(&invite).to_string());
+        // the joining device takes no other key than this one
+        code.key_id = Some(drive_key.id().to_hex());
+    }
+    Ok(Zeroizing::new(code.encode()))
+}
+
 /// A new recovery code for a drive whose setup never passed its sheet, as the job runs it: the key from
 /// the keyring (or this device's wrap), the key permit's NewCode cell, the record's forgetting on disk
 /// ([`Before`]), then the new code's wrap in the old one's place. `kdf` is the cost of the code's key
@@ -3387,7 +3407,7 @@ fn new_code_job(
         .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
     // The key permit's NewCode cell: a key change that is not over replaces the wrap again,
     // and this code would open nothing once it is done (KEYS-7).
-    let _permit =
+    let permit =
         device::wraps_permit(Op::NewCode, keyring, auto.drive()).map_err(|e| e.to_string())?;
     // The record forgets the old code's witness before its wrap goes (X-DELTA-KEYS3-1).
     if let Some(before) = before {
@@ -3397,6 +3417,7 @@ fn new_code_job(
     let kdf = kdf().map_err(|e| e.to_string())?;
     let wrap = RecoveryWrap::seal(&key, auto.drive(), &code, kdf).map_err(|e| e.to_string())?;
     device::publish_recovery_wrap(
+        &permit,
         bucket.as_ref(),
         &stashed,
         &wrap,
@@ -5699,7 +5720,7 @@ mod tests {
         let bucket = Arc::new(MemoryBucket::new());
         let (key, _code) =
             device::setup_new_drive(bucket.as_ref(), &MemoryKeyring::new(), "d_az", kdf).unwrap();
-        let invite = device::seal_invite(bucket.as_ref(), "d_az", &key).unwrap();
+        let invite = invited(bucket.as_ref(), "d_az", &key);
         let seal = device::invite_text(&invite).to_string();
         let key_id = key.id().to_hex();
         let provider: Option<Arc<dyn IndexProvider>> = Some(Arc::new(MemoryProvider));
@@ -6919,6 +6940,19 @@ mod tests {
         RecoveryKdf::with_cost(64, 1, 1)
     }
 
+    /// The invite a device that holds `key` makes, as the apps make one: the key permit's `Invite` is asked
+    /// on a keyring that holds the key, then the invite is sealed with it.
+    fn invited(
+        bucket: &dyn Drive,
+        drive: &str,
+        key: &azul_storage::crypto::DriveKey,
+    ) -> azul_storage::crypto::keys::MemberSecret {
+        let keyring = azul_storage::keyring::MemoryKeyring::new();
+        device::store_drive_key(&keyring, drive, key).unwrap();
+        let permit = device::wraps_permit(Op::Invite, &keyring, drive).unwrap();
+        device::seal_invite(&permit, bucket, drive, key).unwrap()
+    }
+
     /// A drive whose code was made, typed back right and registered at the token server.
     fn checked_and_registered(
         drive: &str,
@@ -7254,7 +7288,8 @@ mod tests {
         let (old_key, old_code) =
             device::setup_new_drive(bucket.as_ref(), &a, drive, kdf.clone()).unwrap();
         // B joins with the old key and keeps a record that its code was checked.
-        device::enroll(bucket.as_ref(), b.as_ref(), drive, &old_key).unwrap();
+        let joining = device::recover_permit(b.as_ref(), drive).unwrap();
+        device::enroll(&joining, bucket.as_ref(), b.as_ref(), drive, &old_key).unwrap();
         let record = checked_and_registered(drive, &old_code);
         // A's rotation, as far as the recovery wrap and the member wraps go: a new key, its wrap
         // under a new code in the old one's place.
@@ -7263,7 +7298,9 @@ mod tests {
         let wrap = RecoveryWrap::seal(&new_key, drive, &new_code, kdf).unwrap();
         let entry = device::planned_key_entry(drive);
         let stashed = device::stash(&a, &entry, &new_key).unwrap();
+        let replacing = device::wraps_permit(Op::NewCode, &a, drive).unwrap();
         device::publish_recovery_wrap(
+            &replacing,
             bucket.as_ref(),
             &stashed,
             &wrap,
@@ -7539,7 +7576,7 @@ mod tests {
                 &crate::KeyRecords::default(),
             )
         };
-        let invite = device::seal_invite(bucket.as_ref(), drive, &new_key).unwrap();
+        let invite = invited(bucket.as_ref(), drive, &new_key);
         let seal = device::invite_text(&invite).to_string();
         let (result, left) = adopt_join_key_noting(
             b.as_ref(),
@@ -7555,7 +7592,7 @@ mod tests {
         );
         // The same join for a computer whose drives file already records the NEW key: nothing changed.
         b.delete(&device::drive_key_entry(drive)).unwrap();
-        let invite = device::seal_invite(bucket.as_ref(), drive, &new_key).unwrap();
+        let invite = invited(bucket.as_ref(), drive, &new_key);
         let seal = device::invite_text(&invite).to_string();
         let (result, _) = adopt_join_key_noting(
             b.as_ref(),
@@ -7573,7 +7610,7 @@ mod tests {
         let drive = "d_k25c";
         let b: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
         let (_code, auto, new_key, bucket, _record) = rotated_elsewhere(drive, Arc::clone(&b));
-        let invite = device::seal_invite(bucket.as_ref(), drive, &new_key).unwrap();
+        let invite = invited(bucket.as_ref(), drive, &new_key);
         let seal = device::invite_text(&invite).to_string();
         let (result, left) =
             adopt_join_key_noting(b.as_ref(), &auto, &seal, Some(&new_key.id().to_hex()));
@@ -8199,6 +8236,181 @@ mod tests {
             "{:?}",
             next.kept
         );
+    }
+
+    // ==== X-DELTA-KEYS3-6 / X-DELTA-INTEGRITY3-3: the jobs that ask the key permits are entered ====
+
+    /// What a job returns for a refusal of the key permit: the drive error's own text
+    /// (`DriveError::Denied` renders "not allowed: ..."), the table's sentence in it.
+    fn not_allowed(why: keystate::Refusal, drive: &str) -> String {
+        azul_storage::DriveError::Denied {
+            message: why.sentence(drive),
+        }
+        .to_string()
+    }
+
+    /// A drive whose "I was hacked" stopped after its Members step (the recovery wrap refused): the keyring
+    /// holds DK = N = K2 and P = K1, the key change is not over. What every job that writes a wrap, hands
+    /// out the key or opens the repository for a restore must refuse - in the sentence of the table.
+    fn a_rotation_stopped_after_its_members_step(
+        drive: &str,
+        keyring: Arc<dyn KeyringStore>,
+    ) -> Arc<azul_storage::meta::MemoryBucket> {
+        use azul_storage::{crypto::keys::RECOVERY_KEY_FILE, meta::MemoryBucket};
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let bucket = Arc::new(MemoryBucket::new());
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), drive, kdf.clone()).unwrap();
+        let refusing: Arc<dyn Drive> =
+            Arc::new(RefusesWritesOf(Arc::clone(&bucket), RECOVERY_KEY_FILE));
+        assert!(
+            rotate_asked(refusing, keyring.as_ref(), drive, &RekeyingProvider, kdf).is_err(),
+            "premise: the recovery wrap is the step that is refused"
+        );
+        assert!(rotation::unfinished(keyring.as_ref(), drive).unwrap());
+        bucket
+    }
+
+    fn drive_over(
+        drive: &str,
+        keyring: Arc<dyn KeyringStore>,
+        bucket: Arc<azul_storage::meta::MemoryBucket>,
+    ) -> Arc<AutoEncrypted> {
+        wrap_with(
+            keyring,
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            bucket,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        )
+    }
+
+    /// The NewCode job (a folder opened on a drive whose sheet was never passed) enters the key permit: with
+    /// a key change that is not over it is refused with the table's sentence and the first wrap stays as it is.
+    #[test]
+    fn x_delta_keys3_6_the_new_code_job_is_refused_while_a_key_change_is_not_over() {
+        let drive = "d_k36_newcode";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let bucket = a_rotation_stopped_after_its_members_step(drive, Arc::clone(&keyring));
+        let wrap = bucket
+            .get(azul_storage::crypto::keys::RECOVERY_KEY_FILE)
+            .unwrap();
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let made = new_code_job(&auto, keyring.as_ref(), &cheap_kdf, None);
+        assert_eq!(
+            made.as_ref().err().map(String::as_str),
+            Some(not_allowed(keystate::Refusal::WrapMayChange, drive).as_str()),
+            "{made:?}"
+        );
+        assert_eq!(
+            bucket
+                .get(azul_storage::crypto::keys::RECOVERY_KEY_FILE)
+                .unwrap(),
+            wrap,
+            "the recovery wrap is as the stopped rotation left it"
+        );
+    }
+
+    /// The Invite job (Add a device): the key permit is asked BEFORE the token server makes the member family of
+    /// the code - a refusal leaves no family at the server and no invite in the bucket - and a drive that holds
+    /// its key gets a seal in the code.
+    #[test]
+    fn x_delta_keys3_6_the_invite_job_asks_before_the_server_makes_a_code_and_a_refusal_leaves_none(
+    ) {
+        use azul_storage::crypto::DriveKey;
+        let made = std::cell::Cell::new(0usize);
+        let code = || {
+            made.set(made.get() + 1);
+            Ok(azcloud_kit::JoinCode {
+                drive_id: String::from("d_k36_invite"),
+                drive_token: String::from("dt_x"),
+                member: String::from("m_x"),
+                name: String::from("Laptop"),
+                token_url: String::from("https://token.test"),
+                key_seal: None,
+                key_id: None,
+            })
+        };
+        let invites = |bucket: &azul_storage::meta::MemoryBucket| {
+            bucket
+                .objects()
+                .into_iter()
+                .filter(|(name, _)| name.starts_with(".azlin/keys/invite-"))
+                .count()
+        };
+
+        // A stopped key change: refused in the table's words, and the server was never asked.
+        let drive = "d_k36_invite";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let bucket = a_rotation_stopped_after_its_members_step(drive, Arc::clone(&keyring));
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let refused = invite_job(&auto, keyring.as_ref(), &code);
+        assert_eq!(
+            refused.as_ref().err().map(String::as_str),
+            Some(not_allowed(keystate::Refusal::KeyChangeUnfinished, drive).as_str()),
+            "{refused:?}"
+        );
+        assert_eq!(
+            made.get(),
+            0,
+            "the token server made no member family for a refused invite"
+        );
+        assert_eq!(invites(&bucket), 0, "and no invite is in the bucket");
+
+        // The same drive without a key change under way: a code that carries the key.
+        let drive = "d_k36_invite_ok";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let bucket = Arc::new(azul_storage::meta::MemoryBucket::new());
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let (key, _) =
+            device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), drive, kdf).unwrap();
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let text = invite_job(&auto, keyring.as_ref(), &code).expect("an ordinary drive invites");
+        let decoded = azcloud_kit::JoinCode::decode(&text).expect("a join code");
+        assert_eq!(made.get(), 1);
+        assert_eq!(decoded.key_id, Some(key.id().to_hex()));
+        assert!(decoded.key_seal.is_some() && invites(&bucket) == 1);
+
+        // A device that holds no key invites with a code that carries none, and asks nothing of the judge.
+        let keyless: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let auto = drive_over(drive, Arc::clone(&keyless), Arc::clone(&bucket));
+        let plain = invite_job(&auto, keyless.as_ref(), &code).unwrap();
+        assert_eq!(
+            azcloud_kit::JoinCode::decode(&plain).unwrap().key_seal,
+            None
+        );
+        let _ = DriveKey::generate();
+    }
+
+    /// The restore flows (as of a time; one file's version) enter the key permit's RestoreAsOf cell: with a key
+    /// change that is not over they are refused in the table's sentence, before the keyring is opened for the
+    /// repository and before anything is committed.
+    #[test]
+    fn x_delta_keys3_6_the_restore_of_a_version_is_refused_while_a_key_change_is_not_over() {
+        let drive = "d_k36_restore";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azlin_keyring(Asking::User));
+        let bucket = a_rotation_stopped_after_its_members_step(drive, Arc::clone(&keyring));
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let manifest = bucket.objects();
+        let refused = restore_file_version(
+            &auto,
+            keyring.as_ref(),
+            "notes/plan.txt",
+            azul_storage::meta::ObjectId([7; 32]),
+        );
+        assert_eq!(
+            refused,
+            Err(not_allowed(keystate::Refusal::KeyChangeUnfinished, drive)),
+            "as of a version"
+        );
+        let refused = restore_encrypted(&auto, 1_000);
+        assert_eq!(
+            refused,
+            Err(not_allowed(keystate::Refusal::KeyChangeUnfinished, drive)),
+            "as of a time"
+        );
+        assert_eq!(bucket.objects(), manifest, "nothing was committed");
     }
 
     /// X-DELTA-KEYS3-1: the job's `before` is what orders the forgetting ahead of the rotation - it stops the

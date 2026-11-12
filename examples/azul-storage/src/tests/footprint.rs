@@ -775,6 +775,21 @@ mod keys {
         let stashed = stash(&keyring, &entry, &key).unwrap();
         assert_eq!(stashed.key_id(), key.id());
         assert_eq!(stashed.entry(), entry);
+        // The key permit's `Setup` of the drive whose key is planned: the ask of the flow that publishes the wrap.
+        let setup = {
+            use crate::crypto::{
+                device::{keeps_keys_fact, key_facts},
+                keystate::{ask, Evidence, Op, Read, Verdict},
+            };
+            let mut evidence = Evidence::new(DRIVE, 1);
+            evidence.keyring = key_facts(&keyring, DRIVE);
+            evidence.keyring.keeps_keys = keeps_keys_fact(&keyring);
+            evidence.bucket.encrypted = Read::Found(false);
+            match ask(Op::Setup, &evidence) {
+                Verdict::Permit(permit) => permit,
+                Verdict::Refuse(reason) => panic!("{reason}"),
+            }
+        };
         let (read, held_again) = held(&keyring, &entry).unwrap().unwrap();
         assert_eq!(read, key);
         assert_eq!(held_again.key_id(), key.id());
@@ -782,8 +797,8 @@ mod keys {
 
         let code = RecoveryCode::generate().unwrap();
         let of_other = RecoveryWrap::seal(&other, DRIVE, &code, cheap()).unwrap();
-        let err =
-            publish_recovery_wrap(&bucket, &stashed, &of_other, Publish::FirstNew).unwrap_err();
+        let err = publish_recovery_wrap(&setup, &bucket, &stashed, &of_other, Publish::FirstNew)
+            .unwrap_err();
         assert!(matches!(err, DriveError::Io(_)), "{err}");
         assert!(
             bucket.keys().is_empty(),
@@ -791,9 +806,9 @@ mod keys {
         );
 
         let wrap = RecoveryWrap::seal(&key, DRIVE, &code, cheap()).unwrap();
-        publish_recovery_wrap(&bucket, &stashed, &wrap, Publish::FirstNew).unwrap();
+        publish_recovery_wrap(&setup, &bucket, &stashed, &wrap, Publish::FirstNew).unwrap();
         assert_eq!(bucket.keys().len(), 1);
-        publish_recovery_wrap(&bucket, &stashed, &wrap, Publish::FirstReplace).unwrap();
+        publish_recovery_wrap(&setup, &bucket, &stashed, &wrap, Publish::FirstReplace).unwrap();
         assert_eq!(bucket.keys().len(), 1);
     }
 

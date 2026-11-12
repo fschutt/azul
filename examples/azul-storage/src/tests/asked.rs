@@ -4,7 +4,12 @@
 use std::sync::Arc;
 
 use crate::{
-    crypto::{device, keys::RecoveryKdf, DriveKey},
+    crypto::{
+        device,
+        keys::{MemberSecret, RecoveryKdf},
+        keystate::Op,
+        DriveKey,
+    },
     encrypted::{EncryptedDrive, IndexProvider},
     keyring::{KeyringStore, MemoryKeyring},
     rotation::{self, ReencryptState, Rotated},
@@ -58,4 +63,29 @@ pub(crate) fn reencrypt_pass_of_parts<D: Drive>(
     let keyring = MemoryKeyring::new();
     device::store_drive_key(&keyring, "d_parts", key)?;
     reencrypt_pass(&keyring, "d_parts", drive, state, save, stop)
+}
+
+/// [`device::enroll`] as the apps enrol a device: the key permit's `Recover` asked on the device's own keyring
+/// first (a device that holds no key, or the key, is permitted; one whose key change is not over is not).
+pub(crate) fn enroll(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    key: &DriveKey,
+) -> Result<String, DriveError> {
+    let permit = device::recover_permit(keyring, drive)?;
+    device::enroll(&permit, bucket, keyring, drive, key)
+}
+
+/// [`device::seal_invite`] for a drive made from parts - a key and a bucket, no keyring of its own: the key goes
+/// into a keyring made for it and the key permit's `Invite` is asked there, as the apps' is on theirs.
+pub(crate) fn seal_invite(
+    bucket: &dyn Drive,
+    drive: &str,
+    key: &DriveKey,
+) -> Result<MemberSecret, DriveError> {
+    let keyring = MemoryKeyring::new();
+    device::store_drive_key(&keyring, drive, key)?;
+    let permit = device::wraps_permit(Op::Invite, &keyring, drive)?;
+    device::seal_invite(&permit, bucket, drive, key)
 }

@@ -156,13 +156,21 @@ impl Account {
         member: Option<&str>,
         keyring: &dyn KeyringStore,
     ) -> CloudResult<JoinCode> {
-        let mut code = self.invite(member)?;
         let drive = self.record().id.clone();
-        if let Some(drive_key) = device::load_drive_key(keyring, &drive)? {
-            // A key change that is not over would hand out the key it replaces, and delete the invite.
-            let _permit = device::wraps_permit(Op::Invite, keyring, &drive)?;
+        // Asked BEFORE the token server makes the member family of the join code (X-DELTA-KEYS3-6: the ask came
+        // after it, and a refusal left a family at the server, unseen, until a lockdown): a key change that is
+        // not over would hand out the key it replaces, and delete the invite.
+        let key = match device::load_drive_key(keyring, &drive)? {
+            Some(drive_key) => {
+                let permit = device::wraps_permit(Op::Invite, keyring, &drive)?;
+                Some((drive_key, permit))
+            }
+            None => None,
+        };
+        let mut code = self.invite(member)?;
+        if let Some((drive_key, permit)) = key {
             let bucket = self.bucket_drive()?;
-            let invite = device::seal_invite(&bucket, &drive, &drive_key)?;
+            let invite = device::seal_invite(&permit, &bucket, &drive, &drive_key)?;
             code.key_seal = Some(device::invite_text(&invite).to_string());
             code.key_id = Some(drive_key.id().to_hex());
         }
