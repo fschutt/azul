@@ -52,6 +52,20 @@ impl Clock {
     }
 }
 
+/// The kit's test issuer key of the tier `100GB` (2048 bits, e = 65537) as `GET /v1/tokens/keys` lists
+/// it: what an issue request of the paid checkout is blinded for.
+const ISSUER_PEM: &str = concat!(
+    "-----BEGIN PUBLIC KEY-----\n",
+    "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqcdVUUjXTD3ssEdaLweK\n",
+    "Ohx8LOi4ZM5BwsrizQ4Vp8jlmTQu36QKmV1CEBucR8C7kbiQhdjIMeVRJ8ek9iHy\n",
+    "Zvg4o8/F8Z2TmGe+1QPKLOSk/A52XU8h+ceOLa2/3e5IsRfq0ttwWggeSMFa5uEM\n",
+    "HZPhwyhZFkUzrIbFsZJWBQ971Ffm2tdNHTbhEpxHULTKQ2um8BH6EOAIDa4//bgy\n",
+    "5cubX4PDiPzodLwQHo/ULWcEHFfqL9hXfDAOtO+kCy7YjZYU7e+qujpTgAJJVNGW\n",
+    "TBVBorf+Y2Suo1ID0lVdK4orF+DsQc+G1MV058CD+YVsWotwM5PDlzUFXIX9RLcm\n",
+    "uQIDAQAB\n",
+    "-----END PUBLIC KEY-----\n",
+);
+
 /// A token server that answers question number n about any checkout with `answer(n)` (a JSON
 /// body, status 200) and remembers when each question came, on the test's clock.
 struct Server {
@@ -1162,4 +1176,162 @@ fn x_delta_money7_3_a_marked_entry_waits_for_the_longer_of_its_count_and_the_run
         (Pace::TakenBack, DAY - 3_600),
         "the longer of the two"
     );
+}
+
+// ==== X-DELTA-MONEY7-5: a stop at the claim, through the claims run ====
+
+/// The token server of a paid `ck_1` whose months a stopped mandate holds back: the issuer keys of
+/// the tier, and `409 mandate_stopped` for every issue request. It counts the questions by path.
+struct StoppedServer {
+    keys: String,
+    keys_asked: AtomicU64,
+    issues_asked: AtomicU64,
+}
+
+impl StoppedServer {
+    fn new() -> StoppedServer {
+        let keys = serde_json::json!({"keys": [{
+            "tier": "100GB", "year": 2026, "key_id": "100GB/2026", "public_key_pem": ISSUER_PEM,
+        }]});
+        StoppedServer {
+            keys: keys.to_string(),
+            keys_asked: AtomicU64::new(0),
+            issues_asked: AtomicU64::new(0),
+        }
+    }
+}
+
+impl Transport for StoppedServer {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        let (status, body) = if call.url.ends_with("/v1/tokens/keys") {
+            self.keys_asked.fetch_add(1, Ordering::SeqCst);
+            (200, self.keys.clone())
+        } else if call.url.ends_with("/v1/tokens/issue") {
+            self.issues_asked.fetch_add(1, Ordering::SeqCst);
+            (
+                409,
+                String::from(r#"{"error": "mandate_stopped", "message": "stopped"}"#),
+            )
+        } else {
+            (404, String::from(r#"{"error": "not_found"}"#))
+        };
+        Ok(HttpReply {
+            status,
+            headers: vec![(
+                String::from("content-type"),
+                String::from("application/json"),
+            )],
+            body: body.into_bytes(),
+        })
+    }
+}
+
+/// A run of the claims against a [`StoppedServer`] at the clock's now.
+fn run_against_a_stop(
+    clock: &Arc<Clock>,
+    server: &StoppedServer,
+    shared: &SharedKeyring,
+    store: &PeriodTokenStore,
+    said: &mut Vec<Outcome>,
+) -> Outcome {
+    let origin = clock.now();
+    let mut say = |outcome: Outcome| said.push(outcome);
+    let sleeper = clock.clone();
+    let mut world = ClaimsWorld {
+        transport: server,
+        mono: &|| clock.now().saturating_sub(origin),
+        wall: &|| clock.now(),
+        sleep: &|secs| sleeper.set(sleeper.now() + secs),
+        say: &mut say,
+    };
+    claim_run(&mut world, shared, Some(TOKEN), store, &HashMap::new(), DAY)
+}
+
+/// X-DELTA-MONEY7-5, the rounds: a paid entry whose first month is refused `mandate_stopped` waits for
+/// the drive's vault (the drive is not open: its grant is on this computer only). The run asks the
+/// token server in its first round - the issuer keys, one issue request, the stop - and its hour of
+/// rounds after that is quiet: nothing said, nothing asked (the end is asked again a week on, not at
+/// every round), the entry stays with its issue key.
+#[test]
+fn x_delta_money7_5_the_rounds_around_a_stop_at_the_claim_are_quiet_and_ask_nothing() {
+    let dir = TempDir::new("azdrive-claims");
+    let shared = keyring(&dir);
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let origin = start();
+    let clock = Clock::at(origin);
+    pending::add(&shared, &waiting_for_its_vault(origin)).unwrap();
+    let server = StoppedServer::new();
+    let mut said = Vec::new();
+    let ended = run_against_a_stop(&clock, &server, &shared, &store, &mut said);
+    assert!(matches!(ended, Outcome::ClaimsDone { .. }));
+    assert!(
+        said.iter()
+            .all(|outcome| !matches!(outcome, Outcome::CheckoutFinished { .. })),
+        "quiet while the grant waits for the vault"
+    );
+    assert_eq!(server.keys_asked.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        server.issues_asked.load(Ordering::SeqCst),
+        1,
+        "the stop was asked once, not in every round"
+    );
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(listed.len(), 1, "the entry stays");
+    assert!(listed[0]
+        .period
+        .as_ref()
+        .is_some_and(|owed| owed.issue_key == ISSUE_KEY));
+}
+
+/// X-DELTA-MONEY7-5, the word: the same stop at the claim of a grant that has waited for the drive's
+/// vault for 31 days. The call that lets the entry go says the stop - once - and the run ends with
+/// nothing left to ask. (`drives` is empty here, so the entry goes as `LocalOnly`, which carries the
+/// stop since X-DELTA-MONEY7-6; the window says both sentences.)
+#[test]
+fn x_delta_money7_5_a_stop_at_the_claim_is_said_once_by_the_call_that_lets_the_entry_go() {
+    use azcloud_kit::Finished;
+    let dir = TempDir::new("azdrive-claims");
+    let shared = keyring(&dir);
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let origin = start();
+    let clock = Clock::at(origin);
+    let mut entry = waiting_for_its_vault(origin);
+    if let Some(owed) = entry.period.as_mut() {
+        // claimed 31 days ago and counted an hour ago: 31 days seen pass, the claims ran every day
+        owed.claimed_at = i64::try_from(origin - 31 * DAY).unwrap();
+        owed.counted_at = i64::try_from(origin - 3_600).unwrap();
+    }
+    pending::add(&shared, &entry).unwrap();
+    let server = StoppedServer::new();
+    let mut said = Vec::new();
+    let ended = run_against_a_stop(&clock, &server, &shared, &store, &mut said);
+    assert!(
+        matches!(ended, Outcome::ClaimsDone { again_in: None, .. }),
+        "nothing is left to ask later"
+    );
+    let finished: Vec<&Finished> = said
+        .iter()
+        .filter_map(|outcome| match outcome {
+            Outcome::CheckoutFinished {
+                result: Ok(Some(finished)),
+                from_claims: true,
+                ..
+            } => Some(finished),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(finished.len(), 1, "said once: {finished:?}");
+    match finished[0] {
+        Finished::LocalOnly {
+            count: 0,
+            stopped: Some(stop),
+            ..
+        } => {
+            assert!(stop.why.contains("mandate was stopped"), "{}", stop.why);
+            assert_eq!(stop.days, 90);
+        }
+        other => panic!("the stop was not said: {other:?}"),
+    }
+    assert!(pending::list(&shared).unwrap().is_empty(), "the entry went");
+    assert_eq!(server.issues_asked.load(Ordering::SeqCst), 1);
 }

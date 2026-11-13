@@ -1143,6 +1143,45 @@ fn claims_done_drops_the_word(t: &[Located]) -> Vec<usize> {
         .collect()
 }
 
+/// A call of `add_flow::claims_done(` with the run's `again_in` among its arguments: the window's
+/// dispatch arm, `Outcome::ClaimsDone { problem, again_in } => add_flow::claims_done(s, problem,
+/// again_in)`. The callee's body is held by [`claims_done_drops_the_word`]; this holds the line that
+/// reaches it - an arm that passed `None` kept every test and that gate green, and a receipt was
+/// asked again only in the first hour of each start (X-DELTA-MONEY7-5). Counted: exactly one such call
+/// in the window's `lib.rs`, so a changed word finds none and a second caller two.
+fn claims_done_arm(t: &[Located]) -> Vec<usize> {
+    (3..t.len())
+        .filter(|&i| {
+            ident_at(t, i, "claims_done")
+                && punct_at(t, i + 1, '(')
+                && punct_at(t, i - 1, ':')
+                && punct_at(t, i - 2, ':')
+                && ident_at(t, i - 3, "add_flow")
+        })
+        .filter(|&i| (i + 1..paren_end(t, i + 1)).any(|k| ident_at(t, k, "again_in")))
+        .map(|i| t[i].line)
+        .collect()
+}
+
+/// A call of `months_stopped(` - the one sentence that says the token server stopped issuing a paid
+/// grant's months and the drive's looks go on asking about them (X-DELTA-MONEY7-6): in the window's
+/// `add_flow.rs` the arm of `Finished::Stopped` and the arm of `Finished::LocalOnly` (which carries the
+/// stop when the entry goes with the grant's second copy) make one each. No test builds the window the
+/// arms run in, so an arm that dropped its call kept every test green and the buyer read "kept on this
+/// computer only" and never that the months stopped. Counted: exactly two calls, so a dropped arm finds
+/// one and a third caller three.
+fn months_stopped_call(t: &[Located]) -> Vec<usize> {
+    (1..t.len())
+        .filter(|&i| {
+            ident_at(t, i, "months_stopped")
+                && punct_at(t, i + 1, '(')
+                && !ident_at(t, i - 1, "fn")
+                && !punct_at(t, i - 1, '.')
+        })
+        .map(|i| t[i].line)
+        .collect()
+}
+
 /// A `start_claims` that does not begin the run through the clock's `.start(` before it spawns the
 /// job: the clock would not know a run goes, and the word of the last run would not be spent (the
 /// third mutant).
@@ -1181,6 +1220,8 @@ pub const CLAIMS_DONE_FN: &str = "claims-done-function";
 pub const CLAIMS_START_FN: &str = "claims-start-function";
 pub const CLAIMS_DUE_FN: &str = "claims-if-due-function";
 pub const CLAIMS_DONE_WORD: &str = "claims-done-hands-on-the-word";
+pub const CLAIMS_DONE_ARM: &str = "claims-done-arm-hands-on-the-word";
+pub const MONTHS_STOPPED_CALL: &str = "claims-dispatch-says-the-months-stopped";
 pub const CLAIMS_START_CLOCK: &str = "claims-start-goes-through-the-clock";
 pub const CLAIMS_DUE_CLOCK: &str = "claims-tick-asks-the-clock";
 
@@ -1230,6 +1271,36 @@ pub fn claims_timer_rules() -> Vec<Rule> {
                 "fn claims_done(s: &mut DriveState, problem: Option<Text>, again_in: Option<u64>) { \
                  let say = s.claims.done(problem, again_in, now_secs(), mono_secs()); }",
                 "fn claims_done_elsewhere() { s.claims.done(problem, None, 0, 0); }",
+            ],
+        ),
+        Rule::new(
+            CLAIMS_DONE_ARM,
+            claims_done_arm,
+            &[
+                "Outcome::ClaimsDone { problem, again_in } => add_flow::claims_done(s, problem, again_in);",
+                "crate::add_flow::claims_done(s, problem, again_in);",
+            ],
+            &[
+                // the word is dropped: the arm hands `None` on
+                "Outcome::ClaimsDone { problem, again_in } => add_flow::claims_done(s, problem, None);",
+                // a definition, a call of another function, a method
+                "fn claims_done(s: &mut DriveState, problem: Option<Text>, again_in: Option<u64>) {}",
+                "add_flow::claims_done_elsewhere(s, problem, again_in);",
+                "s.claims_done(problem, again_in);",
+            ],
+        ),
+        Rule::new(
+            MONTHS_STOPPED_CALL,
+            months_stopped_call,
+            &[
+                "months_stopped(s, checkout_id, &why, days);",
+                "months_stopped(s, checkout_id, &stop.why, stop.days);",
+            ],
+            &[
+                // a definition, a call of another function, a method
+                "fn months_stopped(s: &mut DriveState, checkout_id: &str, why: &str, days: u32) {}",
+                "months_stopped_elsewhere(s, checkout_id, &why, days);",
+                "s.months_stopped(checkout_id);",
             ],
         ),
         Rule::new(
@@ -1470,6 +1541,18 @@ pub const ALLOWED_CLAIMS_TIMER: &[Allow] = &[
         CLAIMS_DONE_FN,
         1,
         "claims_done: the one place the end of a run reaches the window's clock",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/lib.rs",
+        CLAIMS_DONE_ARM,
+        1,
+        "the dispatch arm of a run's end: it hands `again_in` to claims_done, which hands it to the clock",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/add_flow.rs",
+        MONTHS_STOPPED_CALL,
+        2,
+        "checkout_finished: the arms of `Finished::Stopped` and of `Finished::LocalOnly` say it each",
     ),
     Allow::exactly(
         "examples/azul-drive/src/add_flow.rs",

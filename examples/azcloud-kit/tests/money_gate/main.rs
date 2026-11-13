@@ -35,8 +35,11 @@
 //!    (X-DELTA-INTEGRITY3-20);
 //! 8. the background claims' timer is not wired: the period timer's tick does not call
 //!    `claims_if_due`, which does not ask the window's clock and start the claims, `claims_done`
-//!    does not hand the clock the run's `again_in`, or `start_claims` does not begin a run through
-//!    it (X-DELTA-MONEY6-3).
+//!    does not hand the clock the run's `again_in`, the window's dispatch arm of a run's end does not
+//!    hand `claims_done` that `again_in`, or `start_claims` does not begin a run through it
+//!    (X-DELTA-MONEY6-3, X-DELTA-MONEY7-5); and the claims' dispatch does not say that the months of a
+//!    stopped grant stopped in both of the arms that let its entry go (`Stopped` and `LocalOnly`,
+//!    X-DELTA-MONEY7-6).
 //!
 //! The allowances name the file, the rule, how many and why. A hit no allowance takes fails, an
 //! allowance whose count is not the code's fails and so does one nothing uses any more: the
