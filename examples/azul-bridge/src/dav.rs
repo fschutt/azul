@@ -180,6 +180,17 @@ impl SwapRecords {
         }
     }
 
+    /// The folder the records are files in; `None` for records kept in memory only. What `serve` keeps them
+    /// by is pinned by a test of its own (`cli::swap_records_for`, X-DELTA-APPS5-4): a test's reading.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn folder(&self) -> Option<&std::path::Path> {
+        match &self.place {
+            RecordPlace::Folder(folder) => Some(folder),
+            RecordPlace::Memory(_) => None,
+        }
+    }
+
     fn file_of(folder: &std::path::Path, stamp: &str) -> PathBuf {
         folder.join(format!("{stamp}.json"))
     }
@@ -193,7 +204,7 @@ impl SwapRecords {
 
     /// Writes the record of the swap `stamp`; on disk it is whole and synced when this returns
     /// ([`azul_storage::durable::replace`]), private to this user (it names the user's files).
-    fn put(&self, stamp: &str, bytes: &[u8]) -> std::io::Result<()> {
+    pub(crate) fn put(&self, stamp: &str, bytes: &[u8]) -> std::io::Result<()> {
         match &self.place {
             RecordPlace::Folder(folder) => azul_storage::durable::replace(
                 &SwapRecords::file_of(folder, stamp),
@@ -209,7 +220,7 @@ impl SwapRecords {
 
     /// The stamps of the records there are, in order. A folder that is not there holds none; one that
     /// cannot be read is an error, never "none".
-    fn stamps(&self) -> std::io::Result<Vec<String>> {
+    pub(crate) fn stamps(&self) -> std::io::Result<Vec<String>> {
         match &self.place {
             RecordPlace::Folder(folder) => {
                 let entries = match std::fs::read_dir(folder) {
