@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::{
     asked::{enroll, lockdown_needed, rotate},
     faulty::{Fail, Faulty},
+    TempDir,
 };
 use crate::{
     crypto::{
@@ -18,8 +19,10 @@ use crate::{
     meta::{
         keys, wal::narrow_writable_max, IndexProfile, MemoryBucket, MetaIndexProvider, MetaRepo,
     },
+    packing::{PackOptions, JOURNAL_STALE_SECS},
     rotation::{begun, pending, resumable, rewrap_batch, Phase, JOURNAL_FILE},
-    Drive, DriveError, ListRequest,
+    time::now_unix,
+    BatchPut, Drive, DriveError, ListRequest,
 };
 
 const DRIVE: &str = "d_rot_meta";
@@ -791,4 +794,168 @@ fn a_changed_byte_in_the_drives_index_is_damage_and_no_key_to_ask_for() {
         }
         other => panic!("a changed byte is damage: {other:?}"),
     }
+}
+
+// ==== X-EDGE-A-3 (E16b, T16, the in-flight half): a device that lags a rotation, while it is cut and after ====
+
+/// Whether `result` is the sentence a device that holds an old key is to read of a rotated drive: the key to
+/// ask for, naming the drive - not data, not damage, not a network fault.
+fn asks_for_the_key<T: std::fmt::Debug>(result: &Result<T, DriveError>) -> bool {
+    matches!(
+        result,
+        Err(DriveError::KeyRefused { drive, reason })
+            if drive == DRIVE && reason.contains("sealed under another key")
+    )
+}
+
+/// The data objects (the files' own, a pack among them) the bucket holds that `before` did not: their keys.
+fn objects_added(bucket: &MemoryBucket, before: &[(String, Vec<u8>)]) -> Vec<String> {
+    bucket
+        .objects()
+        .into_iter()
+        .map(|(key, _)| key)
+        .filter(|key| crate::crypto::ObjectId::from_bucket_key(key).is_some())
+        .filter(|key| !before.iter().any(|(old, _)| old == key))
+        .collect()
+}
+
+/// Every object of `before` is in the bucket as it was: nothing was deleted, nothing was written over.
+fn nothing_taken_or_changed(bucket: &MemoryBucket, before: &[(String, Vec<u8>)], what: &str) {
+    let now = bucket.objects();
+    for (key, bytes) in before {
+        match now.iter().find(|(k, _)| k == key) {
+            Some((_, same)) if same == bytes => {}
+            Some(_) => panic!("{what}: {key} was written over"),
+            None => panic!("{what}: {key} was deleted"),
+        }
+    }
+}
+
+/// A rotation by a device enrolled with K1 that is cut after the index was sealed under K2 (the network goes
+/// while K1 is put into the key chain), and the rest of it later: [`world`]'s lagging device holds K1 all the
+/// while. The keyring of the device that rotates.
+fn rotating_device(w: &World) -> MemoryKeyring {
+    let a = MemoryKeyring::new();
+    enroll(w.mem.as_ref(), &a, DRIVE, &w.old_key).unwrap();
+    a
+}
+
+fn cut_after_the_switch(w: &World, a: &MemoryKeyring) {
+    w.faulty.fail_write(CHAIN_KEY_FILE, Fail::Refused, 1);
+    assert!(rotate(w.plain.clone(), a, DRIVE, &w.provider, cheap()).is_err());
+    let (_, next) = rotation_key_entries(DRIVE);
+    let k2 = load_key_at(a, &next)
+        .unwrap()
+        .expect("K2 is kept in the rotating device's keyring");
+    assert!(
+        repository_sealed_by(&w.mem, &k2),
+        "the index is K2's now: the rotation is in flight"
+    );
+}
+
+/// The reads of a device that holds K1 while another rotates the drive. Before the rotation its fresh read
+/// lists the files; while the rotation is cut after the index switch, and after it ended, the same read is
+/// told the key to ask for - never the listing it read before, which a copy of the index it already holds
+/// could hand back; never damage; never a network fault a pass retries - and a read writes nothing and
+/// deletes nothing. RED when a refresh that cannot read the drive says nothing and the copy answers.
+#[test]
+fn x_edge_a_3_a_device_that_lags_a_rotation_is_told_the_key_it_needs_where_it_reads_in_flight_and_after(
+) {
+    let w = world();
+    let lagging = open_encrypted(w.plain.clone(), &w.keyring, DRIVE, &w.provider)
+        .expect("the drive opens with K1");
+    let fresh = ListRequest {
+        refresh: true,
+        ..ListRequest::recursive("")
+    };
+    // The control, at the same size: before the rotation the fresh read lists the drive.
+    let listed = lagging
+        .list(&fresh)
+        .expect("before the rotation the drive lists");
+    assert!(
+        listed.objects.iter().any(|o| o.key == "notes/plan.txt"),
+        "{:?}",
+        listed.objects.iter().map(|o| &o.key).collect::<Vec<_>>()
+    );
+    let a = rotating_device(&w);
+    cut_after_the_switch(&w, &a);
+    let in_flight = w.mem.objects();
+    let told = lagging.list(&fresh);
+    assert!(
+        asks_for_the_key(&told),
+        "in flight: the key to ask for, not the listing of the copy: {told:?}"
+    );
+    nothing_taken_or_changed(&w.mem, &in_flight, "a read of the rotated drive");
+    assert_eq!(
+        w.mem.objects().len(),
+        in_flight.len(),
+        "and it wrote nothing"
+    );
+    // The rotation goes on to its end: the same words.
+    rotate(w.plain.clone(), &a, DRIVE, &w.provider, cheap()).expect("the rotation goes on");
+    let done = w.mem.objects();
+    let told = lagging.list(&fresh);
+    assert!(asks_for_the_key(&told), "after: {told:?}");
+    nothing_taken_or_changed(&w.mem, &done, "a read after the rotation");
+    assert_eq!(w.mem.objects().len(), done.len(), "and it wrote nothing");
+}
+
+/// The writes and the upkeep of a device that holds K1 while another rotates the drive. It writes small files:
+/// the pack goes up, its commit meets the index that is K2's and every file is told the key to ask for; the
+/// pack stays in the bucket and in the device's journal, named by nobody. The upkeep of that journal a stale
+/// time later cannot read the drive to prove the pack unnamed: it says so (the same words) and deletes
+/// nothing, in flight and after the rotation ended - an unread drive is no empty one. The device that holds
+/// the new key, over the same journal, reads the drive and answers: the key was all that was missing (in
+/// shadow mode, which this drive is in, nothing is deleted yet). RED when the upkeep takes an index it
+/// cannot read for one that names nothing.
+#[test]
+fn x_edge_a_3_a_device_that_lags_a_rotation_keeps_the_pack_it_could_not_name_and_deletes_nothing() {
+    let w = world();
+    let journal = TempDir::new("rotation-lagging-packs");
+    let options = PackOptions::default().with_journal(journal.path().join("packs"));
+    let lagging = open_encrypted(w.plain.clone(), &w.keyring, DRIVE, &w.provider)
+        .expect("the drive opens with K1")
+        .with_packing(options.clone());
+    let a = rotating_device(&w);
+    cut_after_the_switch(&w, &a);
+    let before = w.mem.objects();
+    let files = [("notes/late-1.txt", b"one"), ("notes/late-2.txt", b"two")];
+    let items: Vec<BatchPut<'_>> = files.iter().map(|(p, b)| BatchPut::new(p, *b)).collect();
+    for result in lagging.put_many(&items) {
+        assert!(
+            asks_for_the_key(&result),
+            "a write told the key to ask for: {result:?}"
+        );
+    }
+    let pack = objects_added(&w.mem, &before);
+    assert_eq!(
+        pack.len(),
+        1,
+        "the pack went up, and nothing else: {pack:?}"
+    );
+    nothing_taken_or_changed(&w.mem, &before, "the refused write");
+    // The upkeep, a stale time later: it cannot read the index, so it proves nothing and deletes nothing.
+    let later = now_unix() + JOURNAL_STALE_SECS + 60;
+    let upkeep = lagging.recover_packs(later);
+    assert!(
+        asks_for_the_key(&upkeep),
+        "in flight: the upkeep says it cannot read the drive and why: {upkeep:?}"
+    );
+    assert_eq!(objects_added(&w.mem, &before), pack, "the pack stays");
+    nothing_taken_or_changed(&w.mem, &before, "the upkeep in flight");
+    // The rotation ends: the same.
+    rotate(w.plain.clone(), &a, DRIVE, &w.provider, cheap()).expect("the rotation goes on");
+    let done = w.mem.objects();
+    let upkeep = lagging.recover_packs(later);
+    assert!(asks_for_the_key(&upkeep), "after: {upkeep:?}");
+    nothing_taken_or_changed(&w.mem, &done, "the upkeep after the rotation");
+    // The control: the key is the only thing missing - the same journal, the new key, and the upkeep answers.
+    let renewed = open_encrypted(w.plain.clone(), &a, DRIVE, &w.provider)
+        .expect("the device that rotated opens the drive")
+        .with_packing(options);
+    assert!(
+        renewed.recover_packs(later).is_ok(),
+        "with the new key the upkeep reads the drive"
+    );
+    nothing_taken_or_changed(&w.mem, &done, "the upkeep with the new key (shadow mode)");
 }
