@@ -1483,7 +1483,16 @@ struct Attempted {
 }
 
 /// Signs the message for this attempt, sends to the entry's pending recipients and records
-/// each outcome.
+/// each outcome - on disk too, as the transport answers (X-DELTA-APPS4-8). The attempt is counted
+/// into the entry on disk BEFORE anything is sent, and every domain's outcome of a direct delivery is
+/// written before the next domain is tried: a process that dies inside the exchange with the second of
+/// five domains - a window closed during "Sending the Outbox...", a crash, a power cut - leaves an entry
+/// that says what the first domain answered and that an attempt was made, so the retry goes to the second
+/// domain and the later ones and never to the first again. The domain that was being tried when the
+/// process died is tried again: it may have taken the mail, and a second copy to it is what the
+/// at-least-once delivery of RFC 5321 accepts - where a mail that never arrived is not. An entry that
+/// cannot be written is no place to record any of this, and a mail sent from it would be sent again by
+/// every retry: the attempt waits, and says why, before anything is sent.
 #[allow(clippy::too_many_arguments)]
 fn attempt(
     root: &DriveFolder,
@@ -1527,6 +1536,19 @@ fn attempt(
     let before = (entry.attempts, entry.last_attempt);
     entry.attempts += 1;
     entry.last_attempt = now;
+    let outbox = MailStore::new(outbox_dir(root, account_id));
+    if let Err(e) = write_entry(&outbox, entry) {
+        (entry.attempts, entry.last_attempt) = before;
+        hold_back(
+            entry,
+            &pending,
+            &format!("the Outbox entry cannot be written ({e}), so nothing is sent from it"),
+        );
+        return Attempted {
+            sent: None,
+            waiting: true,
+        };
+    }
     match &settings.route {
         SendRoute::Submission => {
             let failure = match submit_target(root, account_id, settings, &entry.from) {
@@ -1534,6 +1556,7 @@ fn attempt(
                 Ok(target) => match transport.submit(&target, &entry.from, &pending, &wire) {
                     Ok(outcomes) => {
                         record(entry, &outcomes);
+                        answered(&outbox, entry);
                         None
                     }
                     Err(failure) => Some(failure),
@@ -1558,11 +1581,12 @@ fn attempt(
             let outcomes =
                 transport.deliver(Some((host.as_str(), *port)), &entry.from, &pending, &wire);
             record(entry, &outcomes);
+            answered(&outbox, entry);
         }
         SendRoute::Direct => {
             let signed = settings.dkim.is_some();
             deliver_direct(
-                root, account_id, settings, entry, pending, &wire, signed, now, transport,
+                root, account_id, &outbox, settings, entry, pending, &wire, signed, now, transport,
             );
         }
     }
@@ -1570,6 +1594,17 @@ fn attempt(
         sent: Some(wire),
         waiting: false,
     }
+}
+
+/// Writes the entry down right after a transport's ONE answer for every pending recipient (a
+/// submission, a relay): the outcomes are on disk before anything else is done, so a kill after this
+/// never has the mail sent again (X-DELTA-APPS4-8). A write that fails changes nothing here: nothing
+/// more is sent in this attempt, and [`finish`] writes the entry again.
+fn answered(outbox: &MailStore, entry: &OutboxEntry) {
+    // collapse-ok: nothing is sent after this; `finish` writes the entry again, and a disk that
+    // cannot be written stops the next attempt before it sends (`attempt`).
+    let _ = write_entry(outbox, entry);
+    die_if_killed(Step::Answered);
 }
 
 /// Puts `why` on the pending recipients among `group` (they stay pending).
@@ -1585,11 +1620,15 @@ fn hold_back(entry: &mut OutboxEntry, group: &[String], why: &str) {
 /// policy list: a connection whose port 25 was found blocked waits (and is probed again after
 /// [`PORT25_RECHECK_SECS`]); a domain that needs a relay waits; a refusal that says something
 /// about this sender is learned with its cause; when no exchanger of a domain could even be
-/// connected to, the port-25 probe tells a dead domain from a blocked connection.
+/// connected to, the port-25 probe tells a dead domain from a blocked connection. Each domain's
+/// outcome is written into the entry before the next domain is tried ([`attempt`]); when that write
+/// fails the domains after it wait for the next try with the reason, instead of being sent a mail
+/// whose delivery to the ones before cannot be recorded.
 #[allow(clippy::too_many_arguments)]
 fn deliver_direct(
     root: &DriveFolder,
     account_id: &str,
+    outbox: &MailStore,
     settings: &SendSettings,
     entry: &mut OutboxEntry,
     pending: Vec<String>,
@@ -1639,7 +1678,13 @@ fn deliver_direct(
     let mut unreached: Vec<String> = Vec::new();
     // Some exchanger answered: port 25 is open.
     let mut reached = false;
+    // Set when the entry could not be written after a domain: nothing more is sent from it.
+    let mut unwritten: Option<String> = None;
     for (domain, group) in domains {
+        if let Some(why) = &unwritten {
+            hold_back(entry, &group, why);
+            continue;
+        }
         if !settings.ignore_policy {
             if let Some(held) = policy.holds_back(&domain, signed) {
                 let why = if held.source == PolicySource::Default {
@@ -1669,6 +1714,12 @@ fn deliver_direct(
             }
         }
         record(entry, &outcomes);
+        // This domain's outcome is on disk before the next domain is tried.
+        if let Err(e) = write_entry(outbox, entry) {
+            unwritten = Some(format!(
+                "the Outbox entry cannot be written ({e}), so nothing more is sent from it"
+            ));
+        }
         for outcome in &outcomes {
             let RecipientStatus::Rejected { reply, server } = &outcome.status else {
                 continue;
@@ -1880,10 +1931,12 @@ fn finish(
     }
 }
 
-/// The writes of [`finish`] a delivered mail's filing goes through, in order: a test stops the
-/// process after one of them ([`killed`]) and runs the retry - the crash table of the filing.
+/// The writes a delivered mail goes through, in order: a test stops the process after one of them
+/// ([`killed`]) and runs the retry - the crash table of the delivery and of the filing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
+    /// A submission's or a relay's answer is written into the entry ([`attempt`]).
+    Answered,
     /// The delivery is written into the entry.
     Recorded,
     /// The message is in the Sent folder.
@@ -1912,6 +1965,18 @@ fn killed(step: Step) -> bool {
         false
     }
 }
+
+/// A kill inside [`attempt`], which has no status to return: the process dies (a panic the test
+/// catches) right after `step`; never outside a test.
+#[cfg(test)]
+fn die_if_killed(step: Step) {
+    if killed(step) {
+        panic!("the process died after {step:?} (a test's kill)");
+    }
+}
+
+#[cfg(not(test))]
+fn die_if_killed(_: Step) {}
 
 /// What a killed [`finish`] returns where a real kill returns nothing at all.
 fn stopped() -> SendStatus {
@@ -2125,6 +2190,12 @@ mod tests {
         probes: usize,
         submit_failure: Option<SubmitFailure>,
         submits: Vec<(SubmitTarget, Vec<String>)>,
+        /// The process DIES - a panic - inside the exchange of this call of `deliver` (counted from 1),
+        /// after the call is recorded and before any outcome is returned.
+        die_at_call: Option<usize>,
+        /// Runs at the end of each call of `deliver`, with the number of the call, before the outcomes
+        /// are returned.
+        on_call: Option<Box<dyn FnMut(usize)>>,
     }
 
     impl Fake {
@@ -2137,6 +2208,8 @@ mod tests {
                 probes: 0,
                 submit_failure: None,
                 submits: Vec::new(),
+                die_at_call: None,
+                on_call: None,
             }
         }
     }
@@ -2152,13 +2225,21 @@ mod tests {
             self.calls
                 .push((relay.map(|(h, p)| (h.to_string(), p)), recipients.to_vec()));
             self.messages.push(message.to_vec());
-            recipients
+            if self.die_at_call == Some(self.calls.len()) {
+                panic!("the process died inside the exchange with {recipients:?}");
+            }
+            let outcomes: Vec<RecipientOutcome> = recipients
                 .iter()
                 .map(|r| RecipientOutcome {
                     address: r.clone(),
                     status: (self.answer)(r),
                 })
-                .collect()
+                .collect();
+            let call = self.calls.len();
+            if let Some(hook) = self.on_call.as_mut() {
+                hook(call);
+            }
+            outcomes
         }
 
         fn probe_port_25(&mut self) -> Port25Probe {
@@ -4151,6 +4232,302 @@ mod tests {
         assert!(eml_of(&dir, &entry).exists());
         remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
         assert!(outbox_files(&dir.0).is_empty());
+    }
+
+    // ==== X-DELTA-APPS4-8: each outcome is on disk before the next domain is tried ====
+
+    /// Five recipients at five domains: direct delivery is one exchange for each domain.
+    fn five_domains() -> OutgoingMail {
+        let mut mail = mail();
+        mail.to = [
+            "a@one.test",
+            "b@two.test",
+            "c@three.test",
+            "d@four.test",
+            "e@five.test",
+        ]
+        .iter()
+        .map(|address| address.to_string())
+        .collect();
+        mail
+    }
+
+    /// Every address a transport was asked to deliver to, in the order of its calls.
+    fn asked_of(fake: &Fake) -> Vec<String> {
+        fake.calls
+            .iter()
+            .flat_map(|(_, recipients)| recipients.iter().cloned())
+            .collect()
+    }
+
+    /// RED on the code before: the outcomes lived in memory until `finish`, so a process that died
+    /// inside the exchange with the k-th domain left the entry on disk as it was before the attempt -
+    /// every recipient pending, no attempt counted - and the retry sent the mail to ALL five again: the
+    /// domains that had taken it got it twice. Now each domain's outcome is written before the next
+    /// domain is tried and the attempt before the first: the kill inside ANY of the five exchanges
+    /// (the table: the first domain's, which no outcome precedes, to the last) is retried at the domain
+    /// it died in and the ones after it, the ones before it are never asked again, and the mail
+    /// ends delivered once to each of them, filed once in Sent, with no entry left.
+    #[test]
+    fn x_delta_apps4_8_a_kill_inside_the_exchange_with_any_domain_retries_that_domain_and_the_later_ones_only(
+    ) {
+        for dies_in in 1..=5_usize {
+            let dir = TempDir::new("send-domains");
+            let mut first = take_all();
+            first.die_at_call = Some(dies_in);
+            let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                send_mail_with(
+                    &dir.folder(),
+                    ACCOUNT,
+                    &SendSettings::default(),
+                    &five_domains(),
+                    OCT_1,
+                    &mut first,
+                )
+            }));
+            assert!(died.is_err(), "the process died inside domain {dies_in}");
+            let begun = asked_of(&first);
+            assert_eq!(
+                begun.len(),
+                dies_in,
+                "it began the domains up to the one it died in: {begun:?}"
+            );
+            // The entry on disk: the attempt counted, the domains before the one it died in recorded.
+            let entries = outbox_entries(&dir.folder(), ACCOUNT);
+            assert_eq!(entries.len(), 1, "domain {dies_in}");
+            assert_eq!(
+                entries[0].attempts, 1,
+                "domain {dies_in}: the attempt was counted before anything was sent"
+            );
+            let recorded: Vec<String> = entries[0]
+                .recipients
+                .iter()
+                .filter(|r| r.state == RecipientProgress::Sent)
+                .map(|r| r.address.clone())
+                .collect();
+            assert_eq!(
+                recorded,
+                begun[..dies_in - 1].to_vec(),
+                "domain {dies_in}: what the domains before it answered is on disk"
+            );
+            // The process starts again.
+            let mut again = take_all();
+            let results = retry_at(&dir, true, OCT_1 + 400, &mut again);
+            assert!(
+                matches!(results[0].1, SendStatus::Sent { .. }),
+                "domain {dies_in}: {results:?}"
+            );
+            let retried = asked_of(&again);
+            assert_eq!(
+                retried.len(),
+                5 - (dies_in - 1),
+                "domain {dies_in}: only the domain it died in and the later ones: {retried:?}"
+            );
+            for address in &begun[..dies_in - 1] {
+                assert!(
+                    !retried.contains(address),
+                    "domain {dies_in}: {address} took the mail before the kill and got it twice"
+                );
+            }
+            assert!(
+                retried.contains(&begun[dies_in - 1]),
+                "domain {dies_in}: the domain it died in is tried again: it may not have taken the mail"
+            );
+            // The domains that took it before the kill saw ONE message, the others one or two.
+            for address in &begun[..dies_in - 1] {
+                let times = asked_of(&first)
+                    .iter()
+                    .chain(retried.iter())
+                    .filter(|asked| *asked == address)
+                    .count();
+                assert_eq!(times, 1, "domain {dies_in}: {address}");
+            }
+            assert_eq!(
+                sent_index(&dir.0).len(),
+                1,
+                "domain {dies_in}: one copy in Sent"
+            );
+            assert!(
+                outbox_entries(&dir.folder(), ACCOUNT).is_empty(),
+                "domain {dies_in}: no entry is left"
+            );
+        }
+    }
+
+    /// The same for the routes with ONE exchange for everyone (a submission server, a relay): the
+    /// answer is written into the entry before anything else is done, so a kill right after it never
+    /// has the mail sent again. RED on the code before: the answer lived in memory until `finish`.
+    #[test]
+    fn x_delta_apps4_8_a_kill_after_a_submission_or_a_relay_answered_never_sends_the_mail_again() {
+        for route in ["submission", "relay"] {
+            let dir = TempDir::new("send-answered");
+            let settings = if route == "submission" {
+                submission_account(
+                    &dir.folder(),
+                    "smtp.example.org",
+                    587,
+                    account::AuthKind::Password,
+                );
+                submission(Some("app-password-1234"))
+            } else {
+                SendSettings {
+                    route: SendRoute::Smtp {
+                        host: String::from("relay.example.org"),
+                        port: 587,
+                    },
+                    ..SendSettings::default()
+                }
+            };
+            let mut first = take_all();
+            KILL_AFTER.with(|kill| kill.set(Some(Step::Answered)));
+            let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                send_mail_with(
+                    &dir.folder(),
+                    ACCOUNT,
+                    &settings,
+                    &mail(),
+                    OCT_1,
+                    &mut first,
+                )
+            }));
+            KILL_AFTER.with(|kill| kill.set(None));
+            assert!(died.is_err(), "{route}: the process died after the answer");
+            assert_eq!(first.messages.len(), 1, "{route}: handed over once");
+            let entries = outbox_entries(&dir.folder(), ACCOUNT);
+            assert_eq!(entries.len(), 1, "{route}");
+            assert!(
+                entries[0]
+                    .recipients
+                    .iter()
+                    .all(|r| r.state == RecipientProgress::Sent),
+                "{route}: the answer is on disk: {:?}",
+                entries[0].recipients
+            );
+            // The process starts again: the entry has nothing pending, so nothing is sent.
+            let mut again = take_all();
+            let results = retry_outbox_with(
+                &dir.folder(),
+                ACCOUNT,
+                &settings,
+                true,
+                OCT_1 + 400,
+                &mut again,
+            );
+            assert!(
+                again.calls.is_empty() && again.submits.is_empty() && again.messages.is_empty(),
+                "{route}: never sent twice"
+            );
+            assert!(
+                results
+                    .iter()
+                    .all(|(_, status)| matches!(status, SendStatus::Sent { .. })),
+                "{route}: {results:?}"
+            );
+            assert_eq!(sent_index(&dir.0).len(), 1, "{route}: one copy in Sent");
+            assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty(), "{route}");
+        }
+    }
+
+    /// Takes the right to write into the Outbox's folder away (a full or a read-only disk, a virus
+    /// scanner): reads still work. Fails loudly where that cannot be done (root, a volume that ignores
+    /// it) - a test never passes without its failure. Returns what puts it back.
+    #[cfg(unix)]
+    fn make_outbox_read_only(root: &Path) -> impl FnOnce() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = root.join(ACCOUNT).join(OUTBOX_DIR);
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let probe = folder.join("probe");
+        assert!(
+            std::fs::write(&probe, b"x").is_err(),
+            "the premise of the test: the Outbox cannot be written (running as root?)"
+        );
+        move || {
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    /// An entry that cannot be written is no place to record what an attempt does: a mail sent from it
+    /// would be sent again by every retry. So the attempt waits BEFORE anything is sent, says why, and
+    /// the mail goes out as soon as the Outbox can be written. RED on the code before: it was sent, and
+    /// the entry still said "pending".
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_apps4_8_an_outbox_entry_that_cannot_be_written_starts_no_attempt() {
+        let dir = TempDir::new("send-readonly");
+        queued(&dir);
+        let restore = make_outbox_read_only(&dir.0);
+        let mut fake = take_all();
+        let results = retry_at(&dir, true, OCT_1 + 400, &mut fake);
+        assert!(
+            fake.calls.is_empty() && fake.messages.is_empty(),
+            "nothing is sent: {:?}",
+            fake.calls
+        );
+        let SendStatus::Queued { reason } = &results[0].1 else {
+            panic!("{results:?}");
+        };
+        assert!(reason.contains("cannot be written"), "{reason}");
+        restore();
+        let entry = outbox_entries(&dir.folder(), ACCOUNT).remove(0);
+        assert_eq!(
+            entry.attempts, 1,
+            "the attempt that was not made is not counted: {entry:?}"
+        );
+        // The disk can be written again: the mail goes out.
+        let mut again = take_all();
+        let results = retry_at(&dir, true, OCT_1 + 800, &mut again);
+        assert!(
+            matches!(results[0].1, SendStatus::Sent { .. }),
+            "{results:?}"
+        );
+        assert_eq!(again.calls.len(), 1);
+    }
+
+    /// A domain whose outcome cannot be written down is the last one tried: the domains after it wait
+    /// for the next try, with the reason, instead of being sent a mail whose delivery to the ones before
+    /// cannot be recorded. Here the disk turns read-only while the first domain is being tried.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_apps4_8_a_domain_whose_outcome_cannot_be_written_is_the_last_one_tried() {
+        let dir = TempDir::new("send-readonly-midway");
+        // The folder exists before the attempt: an earlier mail made it.
+        queued(&dir);
+        let restore = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let mut fake = take_all();
+        {
+            let (dir_path, restore) = (dir.0.clone(), restore.clone());
+            fake.on_call = Some(Box::new(move |call| {
+                if call == 1 {
+                    *restore.borrow_mut() = Some(make_outbox_read_only(&dir_path));
+                }
+            }));
+        }
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &SendSettings::default(),
+            &five_domains(),
+            OCT_1 + 400,
+            &mut fake,
+        );
+        let put_back = restore
+            .borrow_mut()
+            .take()
+            .expect("the disk turned read-only");
+        put_back();
+        assert_eq!(
+            fake.calls.len(),
+            1,
+            "no domain after the unwritten one is tried: {:?}",
+            fake.calls
+        );
+        let SendStatus::Queued { reason } = &status else {
+            panic!("{status:?}");
+        };
+        for waiting in ["b@two.test", "c@three.test", "d@four.test", "e@five.test"] {
+            assert!(reason.contains(waiting), "{waiting} waits: {reason}");
+        }
+        assert!(reason.contains("cannot be written"), "{reason}");
     }
 
     // ==== X-DELTA-APPS3-7 and X-APPS2-1: a file that cannot be read is not the defaults ====
