@@ -6715,6 +6715,17 @@ impl CallbackInfo {
         self.get_gesture_drag_manager().detect_pinch().into()
     }
 
+    /// How long this window's frames take: the frames presented so far, the
+    /// time between the last two, the work of the last one (layout to
+    /// presentation) and its layout pass alone, in microseconds.
+    ///
+    /// What an app that adapts its own work to the frame rate reads - a map
+    /// that draws fewer tiles while frames are slow - without a profiler.
+    #[must_use]
+    pub fn get_frame_timings(&self) -> crate::window::FrameTimings {
+        self.get_layout_window().frame_timings()
+    }
+
     /// Returns the active rotation gesture (radians + center), if any.
     #[must_use]
     pub fn get_rotation(&self) -> crate::managers::gesture::OptionDetectedRotation {

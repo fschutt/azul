@@ -8116,3 +8116,8 @@ mod virtual_view_events_tests;
 #[cfg(test)]
 #[path = "hover_keys_tests.rs"]
 mod hover_keys_tests;
+
+// ==== a window times the frames it presents (`get_frame_timings`) ====
+#[cfg(test)]
+#[path = "frame_timings_tests.rs"]
+mod frame_timings_tests;
