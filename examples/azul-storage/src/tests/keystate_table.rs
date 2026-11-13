@@ -243,16 +243,30 @@ fn spec(state: &KeyState, op: Op) -> Cell {
 }
 
 /// The facts the state of a drive's key rests on (`observe`), in the table's words: each of them can be
-/// unreadable or not asked, and `states()` holds every one of those twelve pairs, so that the exhaustive test
-/// decides them and no arm of the judge can be wider than the table without a red test (X-DELTA-INTEGRITY3-4).
-const FACTS: [&str; 6] = [
+/// unreadable, and each but the last can be not asked too, and `states()` holds every one of those thirteen
+/// pairs, so that the exhaustive test decides them and no arm of the judge can be wider than the table without a
+/// red test (X-DELTA-INTEGRITY3-4; the seventh, the index, X-DELTA-KEYS4-4: `observe` made the unreadable one
+/// since the beginning and the table did not state it).
+const FACTS: [&str; 7] = [
     "the drive key",
     "whether the drive is encrypted",
     "the new key of a key change",
     "the key a key change replaces",
     "the key kept for the drive's setup",
     "the key change's journal",
+    INDEX_OPENS,
 ];
+
+/// The seventh fact in the table's words (the production's own is `INDEX_FACT`, which the test of the facts
+/// compares it with).
+const INDEX_OPENS: &str = "whether the drive's index opens with this device's keys";
+
+/// Whether `what` not asked is a state `observe` makes. The index is the one fact that is not: a bucket nobody
+/// asked leaves the state as it is, and the CELLS that rest on it refuse ([`Refusal::NotAsked`], the table
+/// below: `index_not_asked`).
+fn not_asked_is_a_state(what: &str) -> bool {
+    what != INDEX_OPENS
+}
 
 /// One state of every row, and each payload that a cell depends on.
 fn states() -> Vec<KeyState> {
@@ -273,7 +287,9 @@ fn states() -> Vec<KeyState> {
             what,
             why: String::from("the keyring refused"),
         }));
-        states.push(KeyState::Unknown(Why::NotAsked(what)));
+        if not_asked_is_a_state(what) {
+            states.push(KeyState::Unknown(Why::NotAsked(what)));
+        }
     }
     states
 }
@@ -333,7 +349,9 @@ fn the_table_is_the_specification_and_judge_answers_every_cell_by_it() {
 /// four the table states: the bucket's listing not asked, and the new key, the key it replaces and the
 /// setup's key unreadable. The production arm took eight (a listing that FAILED and each of those three keyring
 /// entries NOT ASKED too) while `states()` held none of the extra rows, so the exhaustive test could not tell.
-/// (The facts are the production's own: a renamed or added fact shows here.)
+/// (The facts are the production's own: a renamed or added fact shows here.) X-DELTA-KEYS4-4: the seventh fact,
+/// whether the index opens, is unreadable in a state `observe` makes (its not-asked case is a refusal of the
+/// cells, not a state), and its pair is decided too: thirteen pairs, four permit.
 #[test]
 fn x_delta_integrity3_4_a_recovery_is_permitted_on_exactly_four_why_fact_pairs_of_an_unknown_state()
 {
@@ -345,11 +363,13 @@ fn x_delta_integrity3_4_a_recovery_is_permitted_on_exactly_four_why_fact_pairs_o
             NEW_KEY,
             PREVIOUS_KEY,
             PLANNED_KEY,
-            JOURNAL
+            JOURNAL,
+            INDEX_FACT
         ],
         "the facts the state rests on"
     );
     let mut permitted = Vec::new();
+    let mut pairs = 0;
     for what in FACTS {
         for (kind, why) in [
             (
@@ -361,6 +381,10 @@ fn x_delta_integrity3_4_a_recovery_is_permitted_on_exactly_four_why_fact_pairs_o
             ),
             ("not asked", Why::NotAsked(what)),
         ] {
+            if kind == "not asked" && !not_asked_is_a_state(what) {
+                continue;
+            }
+            pairs += 1;
             if matches!(
                 judge(&KeyState::Unknown(why), Op::Recover, &everything_asked()),
                 Verdict::Permit(_)
@@ -369,6 +393,11 @@ fn x_delta_integrity3_4_a_recovery_is_permitted_on_exactly_four_why_fact_pairs_o
             }
         }
     }
+    assert_eq!(pairs, 13, "the (why, fact) pairs of the unknown state");
+    assert_eq!(
+        pairs,
+        states().iter().filter(|s| s.row() == "unknown").count()
+    );
     assert_eq!(
         permitted,
         [

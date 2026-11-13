@@ -164,22 +164,47 @@ fn aliases_of(t: &[Located]) -> Vec<(String, String)> {
     found
 }
 
+/// The calls that write a file or take it away: `put`, `put_if`, `delete` and `put_new` (the helper
+/// `enable_drop` writes its key with: the file is its SECOND argument).
+const WRITES: [&str; 4] = ["put", "put_if", "put_new", "delete"];
+
+/// The tokens between the parenthesis at `open` and its match (the call's arguments, nested calls included);
+/// to the end of `t` when it is never closed.
+fn arguments_of(t: &[Located], open: usize) -> &[Located] {
+    let mut depth = 0i32;
+    for (k, x) in t.iter().enumerate().skip(open) {
+        match &x.tok {
+            Tok::Punct('(') => depth += 1,
+            Tok::Punct(')') => {
+                depth -= 1;
+                if depth == 0 {
+                    return &t[open + 1..k];
+                }
+            }
+            _ => {}
+        }
+    }
+    &t[(open + 1).min(t.len())..]
+}
+
 /// Whether the body writes or takes away the drive's drop key file: `DROP_KEY_FILE` (the name of
-/// `_drop.key`, which holds a secret sealed under the drive key) put, conditionally put or deleted through
-/// a bucket. A function that does is a thing the drive key touches even where it seals nothing itself
-/// (`disable_drop` deletes the file; `enable_drop` puts the key `DropKeyFile::seal` made): the mail the
-/// Worker sealed to that key opens with nothing else, and a writer that forgot the key change was the
-/// finding (X-DELTA-KEYS3-2).
+/// `_drop.key`, which holds a secret sealed under the drive key) is among the arguments of a call that puts,
+/// conditionally puts, creates (`put_new`) or deletes - as a method (`bucket.put(..)`), a path
+/// (`device::put_new(bucket, DROP_KEY_FILE, ..)`) or a bare name, whichever argument it is. A function that
+/// does is a thing the drive key touches even where it seals nothing itself (`disable_drop` deletes the file;
+/// `enable_drop` creates the key `DropKeyFile::seal` made): the mail the Worker sealed to that key opens with
+/// nothing else, and a writer that forgot the key change was the finding (X-DELTA-KEYS3-2). The rule read
+/// the first argument of a method only, and `enable_drop`'s own helper put the file second
+/// (X-DELTA-KEYS4-8); a function that merely names the file, reads it or puts another one is none.
 fn writes_the_drop_key_file(body: &[Located]) -> bool {
-    // `.put(DROP_KEY_FILE`, `.put_if(DROP_KEY_FILE`, `.delete(DROP_KEY_FILE`: the file is the call's first
-    // argument; a function that merely names the file or puts another one is none.
-    body.windows(4).any(|w| {
-        w[0].tok.is_punct('.')
-            && ["put", "put_if", "delete"]
+    body.iter().enumerate().any(|(i, x)| {
+        WRITES.iter().any(|write| x.tok.is_ident(write))
+            && body.get(i + 1).is_some_and(|open| open.tok.is_punct('('))
+            // not the definition of a function of that name
+            && !(i > 0 && body[i - 1].tok.is_ident("fn"))
+            && arguments_of(body, i + 1)
                 .iter()
-                .any(|method| w[1].tok.is_ident(method))
-            && w[2].tok.is_punct('(')
-            && w[3].tok.is_ident("DROP_KEY_FILE")
+                .any(|argument| argument.tok.is_ident("DROP_KEY_FILE"))
     })
 }
 
@@ -334,11 +359,18 @@ fn rules() -> Vec<Rule> {
             "bucket.put(DROP_KEY_FILE, &file.to_bytes())?;",
             "bucket.delete(DROP_KEY_FILE)",
             "bucket.put_if(DROP_KEY_FILE, &bytes, &Precondition::Absent)?;",
+            // the file is not the first argument: the helper `enable_drop` puts its key with (X-DELTA-KEYS4-8)
+            "device::put_new(bucket, DROP_KEY_FILE, &file.to_bytes())?;",
+            "put_new(bucket, drops::DROP_KEY_FILE, &bytes)?;",
+            "bucket.put(&name_of(DROP_KEY_FILE), &bytes)?;",
         ],
         &[
             "let id = key.id();",
             "let bytes = bucket.get(DROP_KEY_FILE)?;",
             "let at = DROP_KEY_FILE; bucket.put(OTHER_FILE, &bytes)?;",
+            "device::put_new(bucket, OTHER_FILE, &bytes)?;",
+            "let at = DROP_KEY_FILE; device::put_new(bucket, at_other, &bytes)?;",
+            "fn put_new(bucket: &dyn Drive, DROP_KEY_FILE: &str) {}",
             "let wrapped = wrap_with(&sealing, id, &file_key);",
             "let chain = load_key_chain(bucket)?;",
             "let wrap = RecoveryWrap::parse(&bytes)?;",
@@ -627,7 +659,8 @@ mod tests {\n\
 
 /// X-DELTA-KEYS3-2: a function that writes or takes away the drop key file is a consumer of the drive key
 /// even where it seals nothing itself - found, with its line, when no consumer names it; and a function that
-/// only reads the file, or writes another, is not.
+/// only reads the file, or writes another, is not. X-DELTA-KEYS4-8: also where the file is not the first
+/// argument - `device::put_new(bucket, DROP_KEY_FILE, ..)`, the helper `enable_drop` creates its key with.
 #[test]
 fn x_delta_keys3_2_a_planted_writer_of_the_drop_key_file_is_found_and_a_reader_is_not() {
     let lib = "pub fn turn_off(bucket: &dyn Drive) {\n\
@@ -644,14 +677,25 @@ pub fn looks_at_it(bucket: &dyn Drive) {\n\
 }\n\
 pub fn puts_another_file(bucket: &dyn Drive) {\n\
     bucket.put(OTHER_FILE, &bytes);\n\
+}\n\
+pub fn creates_it(bucket: &dyn Drive) {\n\
+    device::put_new(bucket, DROP_KEY_FILE, &bytes);\n\
+}\n\
+pub fn creates_another_file(bucket: &dyn Drive) {\n\
+    device::put_new(bucket, OTHER_FILE, &bytes);\n\
 }\n";
     let base = base_with(
         "drop-key-file",
         &[("examples/azul-storage/src/lib.rs", lib), (REGISTRY, "")],
     );
-    let wrong = check(&base, SMALL).expect_err("three writers that are in no consumer");
+    let wrong = check(&base, SMALL).expect_err("four writers that are in no consumer");
     let _ = std::fs::remove_dir_all(&base);
-    for (name, line) in [("turn_off", 1), ("turn_on", 4), ("conditionally", 7)] {
+    for (name, line) in [
+        ("turn_off", 1),
+        ("turn_on", 4),
+        ("conditionally", 7),
+        ("creates_it", 16),
+    ] {
         assert!(
             wrong
                 .iter()
@@ -660,9 +704,9 @@ pub fn puts_another_file(bucket: &dyn Drive) {\n\
         );
     }
     assert!(
-        wrong
-            .iter()
-            .all(|w| !w.contains("looks_at_it") && !w.contains("puts_another_file")),
+        wrong.iter().all(|w| !w.contains("looks_at_it")
+            && !w.contains("puts_another_file")
+            && !w.contains("creates_another_file")),
         "{wrong:?}"
     );
 }

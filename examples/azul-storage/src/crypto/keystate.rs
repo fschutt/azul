@@ -432,14 +432,13 @@ fn entry(read: &Read<KeyId>, what: &'static str) -> Result<Option<KeyId>, KeySta
 }
 
 /// The state of a drive whose keys this device holds, or of a rotation it adopts: torn when the
-/// drive's index opens with none of them.
+/// drive's index opens with none of them, unknown when that could not be read ([`INDEX_FACT`]: the
+/// seventh fact a state can be `Unreadable` about; nobody having asked is no state but the refusal of the
+/// cells that rest on it, [`index_not_asked`]).
 fn if_the_index_opens(e: &Evidence<'_>, then: KeyState) -> KeyState {
     match &e.bucket.index_opens {
         Read::Found(false) => KeyState::Torn(Why::OpensNothing),
-        Read::Failed(why) => unreadable(
-            "whether the drive's index opens with this device's keys",
-            why,
-        ),
+        Read::Failed(why) => unreadable(INDEX_FACT, why),
         Read::Found(true) | Read::Absent | Read::Unasked => then,
     }
 }
@@ -456,6 +455,9 @@ const PREVIOUS_KEY: &str = "the key a key change replaces";
 const PLANNED_KEY: &str = "the key kept for the drive's setup";
 /// What the key change's journal is asked as.
 const JOURNAL: &str = "the key change's journal";
+/// What the drive's index is asked as: the state is `Unknown` when it could not be read, and the cells of a
+/// key change and a re-encryption refuse when nobody asked ([`index_not_asked`]).
+const INDEX_FACT: &str = "whether the drive's index opens with this device's keys";
 
 /// The state of a device that holds no key and keeps none for a rotation.
 fn without_a_key(e: &Evidence<'_>) -> KeyState {
@@ -1074,8 +1076,6 @@ pub fn keyring_refusal(drive: &str, keeps: &Read<Keeps>) -> Option<Reason> {
 
 /// What a keyring's protection is asked as.
 const KEEPS: &str = "whether the keyring keeps key material";
-/// What the drive's index is asked as.
-const INDEX_FACT: &str = "whether the drive's index opens with this device's keys";
 
 /// A key change and a re-encryption rest on the drive's index opening with a key this device holds: a
 /// bucket nobody asked is not a bucket whose index opens (X-DELTA-STRUCT-KEYSTATE-2).
@@ -1418,7 +1418,7 @@ pub fn ask(op: Op, e: &Evidence<'_>) -> Verdict {
     judge(&observe(e), op, e)
 }
 
-/// What `op` may do in `state`, given what was read (`e`). TOTAL: all 7 x 13 cells answer, and no
+/// What `op` may do in `state`, given what was read (`e`). TOTAL: all 7 x 14 cells answer, and no
 /// cell is a catch-all - `tests/keystate_table.rs` states the table as an exhaustive match over
 /// `(KeyState, Op)`.
 ///
