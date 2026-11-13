@@ -1991,13 +1991,17 @@ fn x_delta_apps4_1_the_record_of_another_process_is_left_for_its_grace_and_settl
         // The grace is over: the next request settles it.
         now.store(written_at + SWAP_GRACE_SECS, Ordering::SeqCst);
         assert_eq!(options(), Status::OK, "{kind}");
-        let keys = keys_of(&*base);
+        // Read through a handle opened AFTER the settle: the encrypted drive's handle of the killed
+        // process keeps the index it had (it is polled, not pushed), and the settle was made through the
+        // next process's own.
+        let fresh = (rig.open)();
+        let keys = keys_of(&*fresh);
         assert!(
             keys.iter().all(|key| !key.contains(".azul-")),
             "{kind}: {keys:?}"
         );
         assert!(rig.records.stamps().unwrap().is_empty(), "{kind}");
-        let files = files_of(&*base);
+        let files = files_of(&*fresh);
         assert_eq!(
             files.get("dest/keep.txt").map(Vec::as_slice),
             Some(&b"old"[..]),
