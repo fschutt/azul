@@ -1239,7 +1239,10 @@ fn active(op: Op, e: &Evidence<'_>) -> Verdict {
         Op::AddCode => add_code(e),
         Op::Reencrypt => permit_over_an_index(op, e),
         // A wrap written or taken out, an invite made, a member taken out: nothing of the keyring is
-        // written and no fact is read.
+        // written and no fact is read. A new code replaces the drive's first wrap, which this cell does not
+        // look at: the flow does, before it forgets anything, and the put takes that look
+        // (`device::look_at_first_wrap`, `Publish::Replacing`): a wrap that seals another key stays byte for
+        // byte (X-DELTA-KEYS4-2).
         Op::RemoveCode | Op::NewCode | Op::Invite | Op::RemoveMember | Op::Lockdown => {
             permit_plain(op, e)
         }
