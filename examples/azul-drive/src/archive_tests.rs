@@ -16,8 +16,9 @@ use azul_storage::{
 use azul_appkit::phrase::{Arg, Phrase};
 
 use crate::archive::{
-    flush_due, folder_name_among, keep_due, landed_dir, months_needed, rescue_due, rescue_phrase,
-    run_rescue, stage_of, stage_phrase, target_of, target_of_on, Rescue, Stage, KEEP_EVERY,
+    decide, flush_due, folder_name_among, keep_due, landed_dir, months_needed, rescue_due,
+    rescue_phrase, run_rescue, stage_of, stage_phrase, target_of, target_of_on, Rescue, Stage,
+    Step, Written, KEEP_EVERY,
 };
 
 /// A disk whose free space the test's system cannot tell.
@@ -1238,6 +1239,138 @@ fn x_delta_sync4_14_a_state_that_cannot_be_read_now_stops_the_copy_and_is_not_se
         std::fs::read(folder.join("a.txt")).unwrap(),
         b"the drive's newer a"
     );
+}
+
+/// X-DELTA-SYNC8-7. The same flaw as SYNC4-14, in the same function, for the files that landed since the ledger's last whole write:
+/// a landed record that cannot be READ now was dropped without a word, the run went on and wrote the ledger whole without it, and
+/// the whole write unlinked every landed file, that one included - the record of a file the copy wrote destroyed by a transient
+/// read error. Now the run stops as it does for the ledger and the record stays. The record here is a FOLDER named like a landed file:
+/// no user can read it. RED on the old code: the run goes on and copies over the file.
+#[test]
+fn x_delta_sync8_7_a_landed_record_that_cannot_be_read_now_stops_the_copy_and_stays() {
+    let tmp = TempDir::new("dsync8-7-landed");
+    let drive = source_with(&tmp, &[("a.txt", b"one")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("state").join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    let record = landed_dir(&state).join("000000000001.json");
+    std::fs::create_dir_all(&record).unwrap();
+    drive.put("a.txt", b"the drive's newer a").unwrap();
+    let busy = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert!(
+        busy.missing
+            .iter()
+            .any(|m| m.contains("cannot be read now")),
+        "{busy:?}"
+    );
+    assert_eq!(
+        std::fs::read(folder.join("a.txt")).unwrap(),
+        b"one",
+        "nothing was copied on a record that could not be read"
+    );
+    assert!(record.is_dir(), "the record stays where it was");
+    // It reads again: the copy goes on.
+    std::fs::remove_dir(&record).unwrap();
+    let next = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert!(next.missing.is_empty(), "{next:?}");
+    assert_eq!(
+        std::fs::read(folder.join("a.txt")).unwrap(),
+        b"the drive's newer a"
+    );
+}
+
+/// X-DELTA-SYNC8-6. The rescue copy's change-time check is ONE derivation for every system (`beneath::Dir::lstat`) and the rule
+/// that reads it is entered with the `Stat` of any system on any host: where the system keeps a status-change time - Windows'
+/// ChangeTime included - an edit that keeps the length and puts the modification time back is the user's and is never copied over;
+/// a ledger an older AzDrive wrote (no change time) keeps the old rule; a name that is no file, or not there, is as before.
+/// RED when the comparison is taken out: the edited file is copied over.
+#[test]
+fn x_delta_sync8_6_the_change_time_decides_for_every_system_and_an_older_ledger_keeps_the_old_rule()
+{
+    use azul_storage::beneath::{Kind, Stat};
+
+    let stat = |kind, size, mtime_ns, ctime_ns| Stat {
+        kind,
+        size,
+        mtime_ns,
+        ctime_ns,
+        ino: 0,
+        dev: 0,
+        mode: 0o644,
+        nlink: 1,
+    };
+    let written = |ctime_ns| Written {
+        len: 3,
+        mtime_ns: 10,
+        ctime_ns,
+        etag: Some(String::from("v1")),
+        modified: None,
+        target: String::from("a.bin"),
+    };
+    let object = |etag: &str| ObjectInfo {
+        key: String::from("a.bin"),
+        size: 3,
+        modified: None,
+        etag: Some(etag.to_string()),
+    };
+
+    // As the copy left it, the drive's file the same version: nothing to do.
+    assert!(matches!(
+        decide(
+            Some(&written(20)),
+            Some(stat(Kind::File, 3, 10, 20)),
+            &object("v1")
+        ),
+        Step::Have
+    ));
+    // As the copy left it, the drive's file another version: copied over - the copy is the program's.
+    assert!(matches!(
+        decide(
+            Some(&written(20)),
+            Some(stat(Kind::File, 3, 10, 20)),
+            &object("v2")
+        ),
+        Step::Copy(_)
+    ));
+    // The edit that kept the length and put the modification time back: its change time moved. The user's.
+    assert!(matches!(
+        decide(
+            Some(&written(20)),
+            Some(stat(Kind::File, 3, 10, 99)),
+            &object("v2")
+        ),
+        Step::Kept
+    ));
+    // A ledger an older AzDrive wrote has no change time: the length and the time are all there is.
+    assert!(matches!(
+        decide(
+            Some(&written(0)),
+            Some(stat(Kind::File, 3, 10, 99)),
+            &object("v2")
+        ),
+        Step::Copy(_)
+    ));
+    // A system that tells no change time now, against a ledger that recorded one: not the same, the careful side.
+    assert!(matches!(
+        decide(
+            Some(&written(20)),
+            Some(stat(Kind::File, 3, 10, 0)),
+            &object("v2")
+        ),
+        Step::Kept
+    ));
+    // Nothing there: the name is free. A link, a folder: the user's.
+    assert!(matches!(decide(None, None, &object("v1")), Step::Copy(_)));
+    for kind in [Kind::Link, Kind::Dir, Kind::Other] {
+        assert!(matches!(
+            decide(
+                Some(&written(20)),
+                Some(stat(kind, 3, 10, 20)),
+                &object("v1")
+            ),
+            Step::Kept
+        ));
+    }
 }
 
 /// X-DELTA-SYNC4-24. The rescue copy told "the copy nobody touched" by length and modification time: an
