@@ -4,13 +4,13 @@
 //! and an encrypted file must never end up named without its object.
 
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex,
 };
 
 use crate::meta::{
-    keys, Bucket, Fetched, Kind, Listed, MemoryBucket, MetaError, MetaStore, PackWriter, Publish,
-    RefUpdate, TestSealer, Version,
+    keys, wal::reseal, Bucket, Fetched, Kind, Listed, MemoryBucket, MetaError, MetaStore,
+    PackWriter, Publish, RefUpdate, TestSealer, Version,
 };
 use crate::{ByteRange, DriveError};
 
@@ -349,6 +349,153 @@ fn x_delta_sync6_2_a_policy_refusal_of_the_resent_commit_keeps_the_log_entry_the
         main_ref_as_another_device_sees_it(&bucket.inner).as_deref(),
         Some("one"),
         "the entry the landed manifest names was not removed"
+    );
+}
+
+/// A bucket whose next manifest swap is answered "precondition failed" (it did not land) and whose manifest
+/// then reads "no such object": a lagging replica, a cache, a bucket that lost it. Nothing else changes.
+struct ForgetsTheManifest {
+    inner: MemoryBucket,
+    /// The next swap of the manifest is refused with a 412, and every read of the manifest after it says
+    /// "no such object".
+    armed: Mutex<bool>,
+    forgetting: AtomicBool,
+}
+
+impl ForgetsTheManifest {
+    fn new(inner: MemoryBucket) -> ForgetsTheManifest {
+        ForgetsTheManifest {
+            inner,
+            armed: Mutex::new(false),
+            forgetting: AtomicBool::new(false),
+        }
+    }
+
+    fn lose_the_next_swap(&self) {
+        *self.armed.lock().unwrap() = true;
+    }
+
+    fn the_keys_under(&self, prefix: &str) -> Vec<String> {
+        self.inner
+            .list_keys(prefix)
+            .unwrap()
+            .into_iter()
+            .map(|listed| listed.key)
+            .collect()
+    }
+}
+
+impl Bucket for ForgetsTheManifest {
+    fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
+        if key == keys::MANIFEST && self.forgetting.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
+        self.inner.read(key)
+    }
+    fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
+        self.inner.read_if_changed(key, known)
+    }
+    fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {
+        Bucket::read_range(&self.inner, key, range)
+    }
+    fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
+        self.inner.create(key, bytes)
+    }
+    fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
+        if key == keys::MANIFEST && std::mem::take(&mut *self.armed.lock().unwrap()) {
+            self.forgetting.store(true, Ordering::SeqCst);
+            return Err(MetaError::Conflict {
+                key: key.to_string(),
+            });
+        }
+        self.inner.replace(key, bytes, known)
+    }
+    fn remove(&self, key: &str) -> Result<(), MetaError> {
+        self.inner.remove(key)
+    }
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        self.inner.list_keys(prefix)
+    }
+}
+
+/// X-DELTA-SYNC7-7. Two read-backs of the manifest answered a missing manifest differently: `swap_outcome`
+/// (the rotation) said "unknown - nobody removes the manifest", `swap_landed` (a commit, a checkpoint) said
+/// "no manifest of ours" and the 412 arm REMOVED the log entry or the checkpoint - which the manifest may
+/// name, if the bucket that said "no such object" is a lagging replica. Now the two ask one function
+/// (`read_back_manifest`) and are unknown: nothing is removed and the caller is told the outcome is not
+/// known; the rotation is the third arm of the same bucket. RED on the old code: the log entry (and the
+/// checkpoint) are gone from the bucket.
+#[test]
+fn x_delta_sync7_7_a_manifest_that_reads_missing_after_a_412_removes_neither_entry_nor_checkpoint()
+{
+    // A commit.
+    let bucket = ForgetsTheManifest::new(MemoryBucket::new());
+    let mut store = MetaStore::create(&bucket, sealer(), "laptop").unwrap();
+    assert!(matches!(publish_main(&mut store, "one"), Ok(Some(_))));
+    let before = bucket.the_keys_under(keys::LOG_DIR);
+    bucket.lose_the_next_swap();
+    let published = publish_main(&mut store, "two");
+    assert!(
+        matches!(published, Err(MetaError::OutcomeUnknown { .. })),
+        "a missing manifest is no answer: {published:?}"
+    );
+    let after = bucket.the_keys_under(keys::LOG_DIR);
+    assert!(
+        after.len() > before.len(),
+        "the log entry of the swap that may have landed was removed: {before:?} -> {after:?}"
+    );
+
+    // A checkpoint.
+    let bucket = ForgetsTheManifest::new(MemoryBucket::new());
+    let mut store = MetaStore::create(&bucket, sealer(), "laptop").unwrap();
+    assert!(matches!(publish_main(&mut store, "one"), Ok(Some(_))));
+    assert!(matches!(publish_main(&mut store, "two"), Ok(Some(_))));
+    let before = bucket.the_keys_under(keys::CHECKPOINT_DIR);
+    bucket.lose_the_next_swap();
+    let checkpointed = store.checkpoint();
+    assert!(
+        matches!(checkpointed, Err(MetaError::OutcomeUnknown { .. })),
+        "a missing manifest is no answer: {checkpointed:?}"
+    );
+    let after = bucket.the_keys_under(keys::CHECKPOINT_DIR);
+    assert!(
+        after.len() > before.len(),
+        "the checkpoint the manifest may name was removed: {before:?} -> {after:?}"
+    );
+
+    // A rotation (`reseal`): the same answer to the read-back of ITS swap. The new checkpoint, which the
+    // landed manifest may name, stays, and so does every object of the old key.
+    let seeded = MemoryBucket::new();
+    {
+        let mut store = MetaStore::create(seeded.clone(), sealer(), "laptop").unwrap();
+        assert!(matches!(publish_main(&mut store, "one"), Ok(Some(_))));
+        assert!(matches!(publish_main(&mut store, "two"), Ok(Some(_))));
+    }
+    let bucket = ForgetsTheManifest::new(seeded);
+    let old_log = bucket.the_keys_under(keys::LOG_DIR);
+    let old_checkpoints = bucket.the_keys_under(keys::CHECKPOINT_DIR);
+    bucket.lose_the_next_swap();
+    let resealed = reseal(
+        &bucket,
+        &sealer(),
+        &TestSealer::new([24; 32]),
+        "laptop",
+        1_800_000_000,
+    );
+    assert!(
+        matches!(resealed, Err(MetaError::OutcomeUnknown { .. })),
+        "a missing manifest is no answer: {resealed:?}"
+    );
+    let log = bucket.the_keys_under(keys::LOG_DIR);
+    let checkpoints = bucket.the_keys_under(keys::CHECKPOINT_DIR);
+    assert!(
+        old_log.iter().all(|key| log.contains(key))
+            && old_checkpoints.iter().all(|key| checkpoints.contains(key)),
+        "an object of the old key was removed on a missing manifest: {log:?} {checkpoints:?}"
+    );
+    assert!(
+        checkpoints.len() > old_checkpoints.len(),
+        "the new checkpoint the manifest may name was removed: {old_checkpoints:?} -> {checkpoints:?}"
     );
 }
 

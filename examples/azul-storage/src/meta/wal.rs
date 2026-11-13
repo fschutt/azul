@@ -1078,16 +1078,15 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     }
 
     /// Whether the manifest in the bucket now is one this device's swap made (`mine` says so);
-    /// it is adopted then. `None` when the bucket cannot be read now. After a swap whose
+    /// it is adopted then. `None` when [`read_back_manifest`] has nothing to believe - the one rule
+    /// of what a read-back of the manifest says, which [`swap_outcome`] asks too. After a swap whose
     /// outcome is unknown this decides, never the swap's own error.
     fn swap_landed(
         &mut self,
         mine: impl Fn(&Manifest) -> bool,
     ) -> Result<Option<bool>, MetaError> {
-        let (bytes, version) = match self.bucket.read(keys::MANIFEST) {
-            Ok(Some(found)) => found,
-            Ok(None) => return Ok(Some(false)),
-            Err(_) => return Ok(None),
+        let Some((bytes, version)) = read_back_manifest(&self.bucket) else {
+            return Ok(None);
         };
         let Ok(manifest) = self.open_sealed::<Manifest>(keys::MANIFEST, &bytes) else {
             return Ok(None);
@@ -1977,6 +1976,20 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
     })
 }
 
+/// The manifest as a read-back after a swap whose answer is not the truth may believe it: its sealed
+/// bytes and version, or `None` when nothing of it can be believed - the bucket cannot be read now, or
+/// it says there is no manifest. THE derivation of that rule (X-DELTA-SYNC7-7: `MetaStore::swap_landed`,
+/// for a commit and a checkpoint, and [`swap_outcome`], for the rotation, each wrote it, and disagreed
+/// about a missing manifest): nobody removes the manifest, so "no such object" is a lagging replica, a
+/// cache or a bucket that lost it - not to be believed with the removal of a log entry or a checkpoint
+/// the manifest may name, nor with the delete of the old key's objects.
+fn read_back_manifest<B: Bucket + ?Sized>(bucket: &B) -> Option<(Vec<u8>, Version)> {
+    match bucket.read(keys::MANIFEST) {
+        Ok(Some(found)) => Some(found),
+        Ok(None) | Err(_) => None,
+    }
+}
+
 /// What a read of the manifest says about the swap of [`reseal`] after it answered anything but
 /// success.
 enum Swap {
@@ -1999,11 +2012,8 @@ fn swap_outcome<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
     new: &N,
     checkpoint_key: &str,
 ) -> Swap {
-    let (bytes, version) = match bucket.read(keys::MANIFEST) {
-        Ok(Some(found)) => found,
-        // Nobody removes the manifest: a bucket that says there is none is not to be believed
-        // with a delete.
-        Ok(None) | Err(_) => return Swap::Unknown,
+    let Some((bytes, version)) = read_back_manifest(bucket) else {
+        return Swap::Unknown;
     };
     match open_json::<Manifest, N>(new, keys::MANIFEST, &bytes) {
         Ok(manifest)
