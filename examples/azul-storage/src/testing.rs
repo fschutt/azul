@@ -191,6 +191,8 @@ pub struct Heard {
 #[derive(Clone, Default)]
 pub struct Probe {
     heard: std::sync::Arc<std::sync::Mutex<Vec<Heard>>>,
+    /// The writes still to refuse, and with what ([`Probe::failing_first`]).
+    failing: std::sync::Arc<std::sync::Mutex<(usize, Option<crate::DriveError>)>>,
 }
 
 impl Probe {
@@ -198,6 +200,34 @@ impl Probe {
     #[must_use]
     pub fn new() -> Probe {
         Probe::default()
+    }
+
+    /// A probe whose first `times` WRITES (a put, a conditional put, a batch's item, a delete, a move) answer `error` - after
+    /// they were heard - and every later one is taken: what a wrapper that retries does with a call that failed for a
+    /// moment is seen from here (a retry that sends a write again with another condition than the first try's turns an
+    /// `If-Match` write into an overwrite of what another device just wrote).
+    #[must_use]
+    pub fn failing_first(self, times: usize, error: crate::DriveError) -> Probe {
+        *self
+            .failing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = (times, Some(error));
+        self
+    }
+
+    /// What a write answers: the failure the probe was told to give while it has some left, else `taken`.
+    fn written<T>(&self, taken: T) -> Result<T, crate::DriveError> {
+        let mut failing = self
+            .failing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match (failing.0, failing.1.clone()) {
+            (left, Some(error)) if left > 0 => {
+                failing.0 = left - 1;
+                Err(error)
+            }
+            _ => Ok(taken),
+        }
     }
 
     /// What it heard, in the order it heard it.
@@ -253,17 +283,100 @@ impl crate::Drive for Probe {
     }
     fn put(&self, key: &str, _bytes: &[u8]) -> Result<(), crate::DriveError> {
         self.hear("put", key, None);
-        Ok(())
+        self.written(())
     }
     fn delete(&self, key: &str) -> Result<(), crate::DriveError> {
         self.hear("delete", key, None);
-        Ok(())
+        self.written(())
     }
     fn head(&self, key: &str) -> Result<crate::ObjectInfo, crate::DriveError> {
         self.hear("head", key, None);
         Err(crate::DriveError::NotFound {
             key: key.to_string(),
         })
+    }
+    // The writes that carry a CONDITION, each heard with it (X-DELTA-STRUCT4-4): a wrapper that answers `put_if` with
+    // `put`, or sends it again with another condition, shows here. A batch is heard per item, under its own name.
+    fn conditional_writes(&self) -> bool {
+        true
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        _bytes: &[u8],
+        condition: &crate::Precondition,
+    ) -> Result<Option<String>, crate::DriveError> {
+        self.hear("put_if", key, Some(condition));
+        self.written(Some(String::from("tag-2")))
+    }
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn std::io::Read,
+        condition: &crate::Precondition,
+    ) -> Result<Option<String>, crate::DriveError> {
+        let _ = std::io::copy(body, &mut std::io::sink());
+        self.hear("put_from_if", key, Some(condition));
+        self.written(Some(String::from("tag-2")))
+    }
+    fn put_file_if(
+        &self,
+        key: &str,
+        _path: &std::path::Path,
+        condition: &crate::Precondition,
+        _ctl: &dyn crate::Ctl,
+    ) -> Result<Option<String>, crate::DriveError> {
+        self.hear("put_file_if", key, Some(condition));
+        self.written(Some(String::from("tag-2")))
+    }
+    fn put_many(
+        &self,
+        items: &[crate::BatchPut<'_>],
+    ) -> Vec<Result<Option<String>, crate::DriveError>> {
+        items
+            .iter()
+            .map(|item| {
+                self.hear("put_many", item.key, item.condition);
+                self.written(Some(String::from("tag-2")))
+            })
+            .collect()
+    }
+    fn put_from_many(
+        &self,
+        items: &mut [crate::BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, crate::DriveError>> {
+        items
+            .iter_mut()
+            .map(|item| {
+                let _ = std::io::copy(&mut *item.body, &mut std::io::sink());
+                self.hear("put_from_many", item.key, item.condition);
+                self.written(Some(String::from("tag-2")))
+            })
+            .collect()
+    }
+    fn delete_many(&self, items: &[crate::BatchDelete<'_>]) -> Vec<Result<(), crate::DriveError>> {
+        items
+            .iter()
+            .map(|item| {
+                let version = item
+                    .version
+                    .map(|etag| crate::Precondition::Matches(etag.to_string()));
+                self.hear("delete_many", item.key, version.as_ref());
+                self.written(())
+            })
+            .collect()
+    }
+    fn move_many(&self, items: &[crate::BatchMove<'_>]) -> Vec<Result<(), crate::DriveError>> {
+        items
+            .iter()
+            .map(|item| {
+                let version = item
+                    .version
+                    .map(|etag| crate::Precondition::Matches(etag.to_string()));
+                self.hear("move_many", item.from, version.as_ref());
+                self.written(())
+            })
+            .collect()
     }
 }
 
@@ -311,6 +424,178 @@ pub fn pinned_read_arrives(
     } else {
         Err(PinnedRead::NotPinned(heard))
     }
+}
+
+/// What [`conditional_write_arrives`] and [`versioned_batches_arrive`] found wrong with a wrapper.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ConditionalWrite {
+    /// The wrapper refused the write with this error.
+    Refused {
+        /// The method that was called.
+        call: &'static str,
+        /// What the wrapper answered.
+        error: crate::DriveError,
+    },
+    /// What reached the probe is not ONE write carrying the condition: these writes did (a write whose condition was
+    /// dropped is a `put`, a retry that asked something else carries another condition).
+    NotConditional {
+        /// The method that was called.
+        call: &'static str,
+        /// The writes the probe heard for it.
+        heard: Vec<Heard>,
+    },
+}
+
+/// What one write the probe heard must look like for the call that made it to count as arrived.
+struct Arrival<'a> {
+    call: &'static str,
+    /// The methods at the probe that count: the call's own, and the single write the trait's default makes of it (a wrapper
+    /// that does not write `put_many` itself reaches the probe with `put_if`: the condition travels the same way).
+    methods: &'a [&'static str],
+}
+
+/// Sends `write` through the wrapper and says whether ONE write reached `probe` that is `arrival`'s, with `condition` and
+/// the key `arrives_as`. What the probe heard from here on counts, writes only: a wrapper that looks before it writes (a
+/// head, a listing) is not what is asked about.
+fn arrives(
+    probe: &Probe,
+    arrival: &Arrival<'_>,
+    condition: &crate::Precondition,
+    arrives_as: &str,
+    write: &mut dyn FnMut() -> Result<(), crate::DriveError>,
+) -> Result<(), ConditionalWrite> {
+    let before = probe.heard().len();
+    write().map_err(|error| ConditionalWrite::Refused {
+        call: arrival.call,
+        error,
+    })?;
+    let heard: Vec<Heard> = probe
+        .heard()
+        .into_iter()
+        .skip(before)
+        .filter(|heard| {
+            !matches!(
+                heard.method,
+                "list" | "get" | "get_range" | "get_range_if" | "head"
+            )
+        })
+        .collect();
+    let arrived = matches!(
+        heard.as_slice(),
+        [one] if arrival.methods.contains(&one.method)
+            && one.key == arrives_as
+            && one.condition.as_ref() == Some(condition)
+    );
+    if arrived {
+        Ok(())
+    } else {
+        Err(ConditionalWrite::NotConditional {
+            call: arrival.call,
+            heard,
+        })
+    }
+}
+
+/// Sends every write that carries a condition - `put_if`, `put_from_if`, `put_file_if`, and one item of `put_many` and
+/// `put_from_many` - through `wrapper`, which stands over `probe`, with the condition `Matches("tag-1")`, and says whether
+/// each arrived as it was sent: ONE write at the probe, with that condition and the key `arrives_as` (a wrapper that
+/// rewrites keys names the rewrite), by the method it was sent by or by the single write the trait's default makes of it.
+/// `file` is a file that exists (the one the upload of a file reads; the caller makes it, this module writes no file). A
+/// wrapper that answers a conditional write with an unconditional one turns it into an overwrite of what another device
+/// saved in the meantime (AZ-M1, X-DELTA-SYNC4-1): the census of the wrappers read their NAMES and the pinned read only;
+/// this reads what each write does (X-DELTA-STRUCT4-4). The versions of a batch delete and a batch move are
+/// [`versioned_batches_arrive`]'s.
+///
+/// # Errors
+///
+/// [`ConditionalWrite`]: the wrapper refused a write, or what arrived is not that write with its condition.
+pub fn conditional_write_arrives(
+    wrapper: &dyn crate::Drive,
+    probe: &Probe,
+    file: &Path,
+    arrives_as: &str,
+) -> Result<(), ConditionalWrite> {
+    use crate::{BatchPut, BatchStream, Precondition};
+
+    let condition = Precondition::Matches(String::from("tag-1"));
+    let quiet = crate::ctl::Quiet;
+    let first = |answers: Vec<Result<Option<String>, crate::DriveError>>| {
+        answers.into_iter().next().unwrap_or(Ok(None)).map(|_| ())
+    };
+    let put_if = Arrival {
+        call: "put_if",
+        methods: &["put_if"],
+    };
+    arrives(probe, &put_if, &condition, arrives_as, &mut || {
+        wrapper.put_if("object", b"x", &condition).map(|_| ())
+    })?;
+    let put_from_if = Arrival {
+        call: "put_from_if",
+        methods: &["put_from_if", "put_if"],
+    };
+    arrives(probe, &put_from_if, &condition, arrives_as, &mut || {
+        wrapper
+            .put_from_if("object", &mut &b"x"[..], &condition)
+            .map(|_| ())
+    })?;
+    let put_file_if = Arrival {
+        call: "put_file_if",
+        methods: &["put_file_if", "put_from_if", "put_if"],
+    };
+    arrives(probe, &put_file_if, &condition, arrives_as, &mut || {
+        wrapper
+            .put_file_if("object", file, &condition, &quiet)
+            .map(|_| ())
+    })?;
+    let put_many = Arrival {
+        call: "put_many",
+        methods: &["put_many", "put_if"],
+    };
+    arrives(probe, &put_many, &condition, arrives_as, &mut || {
+        first(wrapper.put_many(&[BatchPut::new("object", b"x").when(&condition)]))
+    })?;
+    let put_from_many = Arrival {
+        call: "put_from_many",
+        methods: &["put_from_many", "put_from_if", "put_if"],
+    };
+    arrives(probe, &put_from_many, &condition, arrives_as, &mut || {
+        let mut body: &[u8] = b"x";
+        first(wrapper.put_from_many(&mut [BatchStream::new("object", &mut body).when(&condition)]))
+    })
+}
+
+/// Sends a batch delete and a batch move, each of one item with the version `tag-1`, through `wrapper`, which stands over
+/// `probe`, and says whether each arrived as ONE call of the same method with that version and the key `arrives_as`. For
+/// the wrappers that forward the batch methods themselves (the delegating ones, the pointers); a wrapper that leaves them to
+/// the trait's defaults checks the version with a `head` first and has no such call to hear (X-DELTA-STRUCT4-4).
+///
+/// # Errors
+///
+/// [`ConditionalWrite`]: the wrapper refused a call, or what arrived is not that call with its version.
+pub fn versioned_batches_arrive(
+    wrapper: &dyn crate::Drive,
+    probe: &Probe,
+    arrives_as: &str,
+) -> Result<(), ConditionalWrite> {
+    use crate::{BatchDelete, BatchMove, Precondition};
+
+    let condition = Precondition::Matches(String::from("tag-1"));
+    let first_unit =
+        |answers: Vec<Result<(), crate::DriveError>>| answers.into_iter().next().unwrap_or(Ok(()));
+    let delete_many = Arrival {
+        call: "delete_many",
+        methods: &["delete_many"],
+    };
+    arrives(probe, &delete_many, &condition, arrives_as, &mut || {
+        first_unit(wrapper.delete_many(&[BatchDelete::new("object").of_version("tag-1")]))
+    })?;
+    let move_many = Arrival {
+        call: "move_many",
+        methods: &["move_many"],
+    };
+    arrives(probe, &move_many, &condition, arrives_as, &mut || {
+        first_unit(wrapper.move_many(&[BatchMove::new("object", "object-2").of_version("tag-1")]))
+    })
 }
 
 /// What one call of [`every_method`] did.

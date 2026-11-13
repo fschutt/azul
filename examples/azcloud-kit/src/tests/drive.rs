@@ -1470,3 +1470,67 @@ fn x_delta_struct4_2_a_lockdown_answer_for_another_drive_is_not_kept_and_the_cal
     assert!(keys[0].is_some(), "a key on the first try: {keys:?}");
     assert_eq!(keys[0], keys[1], "the same idempotency key on both tries");
 }
+
+// ==== The bytes' conditional writes (X-DELTA-STRUCT4-4) ====
+
+/// X-DELTA-STRUCT4-4. The bytes of an Azlin drive write `put_from_if`, `put_file_if`, `put_many` and the other batches
+/// by hand (they have no drive below: 13 methods are `pass`, written out), so the census read their NAMES: a
+/// `put_file_if` that sent `Precondition::Absent`, or a `put_many` that dropped its items' conditions, turned an
+/// `If-Match` write into an overwrite of what another device had saved. The probe here is the transport: each
+/// conditional write reaches the bucket as ONE PUT of the object with `If-Match: "tag-1"`, and the control - a plain
+/// `put` - asks nothing.
+#[test]
+fn x_delta_struct4_4_an_azlin_drive_sends_its_conditional_writes_to_the_bucket_with_their_condition(
+) {
+    use azul_storage::BatchPut;
+
+    let dir = TempDir::new("struct4-4-azlin");
+    let file = dir.path().join("one-byte.txt");
+    std::fs::write(&file, b"x").unwrap();
+    // The credentials are good for hours: no refresh. The bucket takes every write and names the version it made.
+    let fake = Fake::new(|call, _| {
+        if call.url.starts_with(TOKEN) {
+            return Ok(json(
+                200,
+                &bundle("AKID2", "2099-01-01T12:00:00Z", "dt_f.1.bbb"),
+            ));
+        }
+        Ok(HttpReply {
+            status: 200,
+            headers: vec![(String::from("etag"), String::from("\"tag-2\""))],
+            body: Vec::new(),
+        })
+    });
+    let (drive, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir);
+    let tag = Precondition::Matches(String::from("tag-1"));
+    drive.put_if("object", b"x", &tag).unwrap();
+    drive.put_from_if("object", &mut &b"x"[..], &tag).unwrap();
+    drive
+        .put_file_if("object", &file, &tag, &azul_storage::ctl::Quiet)
+        .unwrap();
+    let answers = drive.put_many(&[BatchPut::new("object", b"x").when(&tag)]);
+    assert!(answers.iter().all(Result::is_ok), "{answers:?}");
+    let puts: Vec<_> = fake
+        .calls()
+        .into_iter()
+        .filter(|call| call.method == Method::Put && call.url.ends_with("/d-1/object"))
+        .collect();
+    assert_eq!(puts.len(), 4, "one PUT of the object for each: {puts:?}");
+    for put in &puts {
+        assert_eq!(
+            header(put, "if-match"),
+            Some("\"tag-1\""),
+            "the condition reached the bucket: {put:?}"
+        );
+    }
+    // The control: an unconditional write asks nothing of the bucket.
+    drive.put("other", b"x").unwrap();
+    let plain: Vec<_> = fake
+        .calls()
+        .into_iter()
+        .filter(|call| call.method == Method::Put && call.url.ends_with("/d-1/other"))
+        .collect();
+    assert_eq!(plain.len(), 1, "{plain:?}");
+    assert_eq!(header(&plain[0], "if-match"), None);
+    assert_eq!(header(&plain[0], "if-none-match"), None);
+}

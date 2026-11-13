@@ -503,3 +503,86 @@ fn x_delta_azdrive_files_13_a_cancel_is_heard_during_the_backoff_between_the_tri
         "the file was sent again after the cancel"
     );
 }
+
+/// X-DELTA-STRUCT4-4. A retrying drive sends EVERY write that carries a condition - `put_if`, `put_from_if`,
+/// `put_file_if`, an item of `put_many`, `put_from_many`, `delete_many`, `move_many` - to the drive below as ONE write
+/// of the same method with that condition (the census read its method names, and the pinned read only): a `put_file_if`
+/// answered with `Precondition::Absent`, or a retry that sends the write again with another condition than the first
+/// try's, turns an `If-Match` write into an overwrite of what another device just wrote (AZ-M1, X-DELTA-SYNC4-1). And a
+/// write that failed for a moment is sent again under the condition it had: the probe hears the first try and the
+/// second, both `Matches("tag-1")`.
+#[test]
+fn x_delta_struct4_4_a_retrying_drive_sends_every_conditional_write_with_its_condition_and_asks_the_same_condition_on_every_try(
+) {
+    use azul_storage::{
+        testing::{conditional_write_arrives, versioned_batches_arrive, Probe},
+        BatchPut, Drive, Precondition,
+    };
+
+    let dir = azul_storage::testing::TempDir::new("struct4-4-retry");
+    let file = dir.path().join("one-byte.txt");
+    std::fs::write(&file, b"x").unwrap();
+    // Every conditional write arrives as it was sent.
+    let probe = Probe::new();
+    let mut drive = crate::sync::retry::RetryingDrive::new(std::sync::Arc::new(probe.clone()));
+    drive.policy = FAST;
+    conditional_write_arrives(&drive, &probe, &file, "object").expect("a retrying drive");
+    versioned_batches_arrive(&drive, &probe, "object").expect("a retrying drive's batches");
+    // A write that fails for a moment is sent again with the condition the first try had.
+    let tag = Precondition::Matches(String::from("tag-1"));
+    let retried = |method: &str, send: &dyn Fn(&dyn Drive) -> Result<(), DriveError>| {
+        let probe = Probe::new().failing_first(
+            1,
+            DriveError::Transport(String::from("a dropped connection")),
+        );
+        let mut drive = crate::sync::retry::RetryingDrive::new(std::sync::Arc::new(probe.clone()));
+        drive.policy = FAST;
+        send(&drive).unwrap_or_else(|e| panic!("{method}: sent again and taken: {e:?}"));
+        let conditions: Vec<Option<Precondition>> = probe
+            .heard()
+            .into_iter()
+            .filter(|heard| heard.method == method)
+            .map(|heard| heard.condition)
+            .collect();
+        assert_eq!(
+            conditions,
+            vec![Some(tag.clone()), Some(tag.clone())],
+            "{method}: the first try and the retry carry the condition the write had"
+        );
+    };
+    retried("put_if", &|drive| {
+        drive.put_if("object", b"x", &tag).map(|_| ())
+    });
+    retried("put_file_if", &|drive| {
+        drive
+            .put_file_if("object", &file, &tag, &azul_storage::ctl::Quiet)
+            .map(|_| ())
+    });
+    retried("put_many", &|drive| {
+        drive
+            .put_many(&[BatchPut::new("object", b"x").when(&tag)])
+            .into_iter()
+            .next()
+            .unwrap_or(Ok(None))
+            .map(|_| ())
+    });
+}
+
+/// X-DELTA-STRUCT4-4. The cache of encrypted copies below an encrypted drive sends every write that carries a condition
+/// down to the drive below as it is - a `put_if` it answered with `put` (the copy dropped, the write unconditional)
+/// overwrote what another device saved - and drops its copy only after a write that took.
+#[test]
+fn x_delta_struct4_4_the_object_cache_sends_every_conditional_write_down_with_its_condition() {
+    use azul_storage::testing::{conditional_write_arrives, versioned_batches_arrive, Probe};
+
+    let dir = azul_storage::testing::TempDir::new("struct4-4-cache");
+    let file = dir.path().join("one-byte.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let probe = Probe::new();
+    let cache = crate::sync::objects::ObjectCache::new(
+        std::sync::Arc::new(probe.clone()),
+        dir.path().join("kept"),
+    );
+    conditional_write_arrives(&cache, &probe, &file, "object").expect("an object cache");
+    versioned_batches_arrive(&cache, &probe, "object").expect("an object cache's batches");
+}

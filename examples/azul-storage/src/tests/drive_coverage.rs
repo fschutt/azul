@@ -809,7 +809,10 @@ fn x_delta_azdrive_files_2_every_shipped_impl_of_drive_is_classified() {
 use std::sync::Arc;
 
 use crate::erase::{Chose, Target, Why};
-use crate::testing::{every_method, pinned_read_arrives, Probe, METHOD_NAMES};
+use crate::testing::{
+    conditional_write_arrives, every_method, pinned_read_arrives, versioned_batches_arrive,
+    ConditionalWrite, Probe, METHOD_NAMES,
+};
 
 /// `Box`, `Arc` and `&` of a drive are drives (`forward_drive!`): each sends a pinned read down with its
 /// condition, as a read of the key it was given. RED against a pointer impl that answers `get_range_if` with
@@ -952,10 +955,20 @@ fn struct_text<'a>(source: &'a str, name: &str) -> Option<&'a str> {
 }
 
 /// What shows that `source`'s struct `name` holds a drive below it: a `dyn .. Drive`, an `Arc`, `Box` or
-/// reference of a drive, a type parameter bounded by `Drive`. `None` for a leaf.
+/// reference of a drive, a type parameter bounded by `Drive` - in the header or in a `where` clause on any line, behind
+/// any path (`D: Drive`, `D: Send + Drive`, `D: crate::Drive`, `D: azul_storage::Drive`). `None` for a leaf. It read
+/// the struct's first line for `: Drive` only (X-DELTA-STRUCT4-4: a `where` clause, `crate::Drive` and `D: Send + Drive`
+/// passed, and a new wrapper `struct Mirror<D> where D: Drive` was filed in OTHERS and never looked at); the type a
+/// wrapper holds when it is a concrete one (`Arc<S3Drive>`) is the limit: the census cannot tell it from a leaf's field.
 fn holds_a_drive(source: &str, name: &str) -> Option<String> {
     let text = struct_text(source, name)?;
-    let mut rest = text;
+    // Comments say what they like: a doc line that spells `D: Drive` is no bound.
+    let code: String = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut rest = code.as_str();
     while let Some(at) = rest.find("dyn ") {
         rest = &rest[at + 4..];
         let path: String = rest
@@ -966,9 +979,31 @@ fn holds_a_drive(source: &str, name: &str) -> Option<String> {
             return Some(format!("`dyn {path}`"));
         }
     }
-    let header = text.lines().next().unwrap_or_default();
-    if header.contains(": Drive") || header.contains(": azul_storage::Drive") {
-        return Some(String::from("a type parameter bounded by `Drive`"));
+    bounded_by_drive(&code)
+}
+
+/// Whether `code` (a struct's text, comments left out) bounds a type by the trait `Drive`: the word `Drive` - not
+/// `DriveError`, not `Drives` - behind a `:` or a `+`, whatever path it is spelled with.
+fn bounded_by_drive(code: &str) -> Option<String> {
+    let bytes = code.as_bytes();
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    for (at, _) in code.match_indices("Drive") {
+        let whole_word = (at == 0 || !is_word(bytes[at - 1]))
+            && bytes.get(at + "Drive".len()).is_none_or(|b| !is_word(*b));
+        if !whole_word {
+            continue;
+        }
+        // Back over a path (`crate::`, `azul_storage::`).
+        let mut start = at;
+        while let Some(path) = code[..start].trim_end().strip_suffix("::") {
+            let path = path.trim_end();
+            let name = path.bytes().rev().take_while(|b| is_word(*b)).count();
+            start = path.len() - name;
+        }
+        let before = code[..start].trim_end();
+        if (before.ends_with(':') && !before.ends_with("::")) || before.ends_with('+') {
+            return Some(String::from("a type parameter bounded by `Drive`"));
+        }
     }
     None
 }
@@ -1132,6 +1167,328 @@ fn x_delta_struct3_8_every_wrapper_that_decides_for_itself_has_a_test_of_what_ar
                 .iter()
                 .any(|word| body.contains(word)),
             "{name}: `{test}` does not send a pinned read or call every method"
+        );
+    }
+}
+
+/// X-DELTA-STRUCT4-4. `holds_a_drive` read the first line of a struct for `: Drive`: a wrapper with its bound in a `where`
+/// clause, behind `crate::`, or after another bound was filed in OTHERS and never looked at. Every spelling is found
+/// now, and what is no bound is not: a doc line that spells one, `DriveError`, a field called `drives`.
+#[test]
+fn x_delta_struct4_4_a_drive_bound_is_found_wherever_the_struct_spells_it() {
+    let found = |text: &str| holds_a_drive(text, "Mirror").is_some();
+    for (what, text) in [
+        (
+            "the first line",
+            "pub struct Mirror<D: Drive> {\n    inner: D,\n}\n",
+        ),
+        (
+            "a where clause on the first line",
+            "struct Mirror<D> where D: Drive {\n    inner: D,\n}\n",
+        ),
+        (
+            "a where clause on its own lines",
+            "pub struct Mirror<D>\nwhere\n    D: Send + Sync + Drive,\n{\n    inner: D,\n}\n",
+        ),
+        (
+            "another bound before it",
+            "struct Mirror<D: Send + Drive> {\n    inner: D,\n}\n",
+        ),
+        (
+            "a path of the crate",
+            "struct Mirror<D: crate::Drive> {\n    inner: D,\n}\n",
+        ),
+        (
+            "a path of the storage crate",
+            "struct Mirror<D>\nwhere\n    D: azul_storage::Drive,\n{\n    inner: D,\n}\n",
+        ),
+        (
+            "a boxed trait object",
+            "struct Mirror {\n    inner: Box<dyn Drive>,\n}\n",
+        ),
+        (
+            "an arc of a trait object by path",
+            "struct Mirror {\n    inner: Arc<dyn azul_storage::Drive>,\n}\n",
+        ),
+    ] {
+        assert!(found(text), "{what}: not found in {text:?}");
+    }
+    for (what, text) in [
+        ("no drive", "struct Mirror {\n    count: usize,\n}\n"),
+        (
+            "a doc line that spells a bound",
+            "struct Mirror {\n    // D: Drive would make it a wrapper\n    count: usize,\n}\n",
+        ),
+        (
+            "an error",
+            "struct Mirror {\n    last: Option<DriveError>,\n}\n",
+        ),
+        (
+            "a name that holds the word",
+            "struct Mirror {\n    drives: usize,\n    my: MyDrive,\n}\n",
+        ),
+    ] {
+        assert!(!found(text), "{what}: found in {text:?}");
+    }
+}
+
+/// The one-byte file the uploads of a file read; the support module writes none.
+fn one_byte_file(what: &str) -> (crate::testing::TempDir, std::path::PathBuf) {
+    let dir = crate::testing::TempDir::new(what);
+    let file = dir.path().join("one-byte.txt");
+    std::fs::write(&file, b"x").unwrap();
+    (dir, file)
+}
+
+/// X-DELTA-STRUCT4-4. `Box`, `Arc` and `&` of a drive send EVERY write that carries a condition down with it - `put_if`,
+/// `put_from_if`, `put_file_if`, and an item of `put_many`, `put_from_many`, `delete_many`, `move_many` with a version - as
+/// ONE write of the same method at the drive below. RED against a pointer impl that answers `put_if` with `put`: the
+/// probe hears an unconditional write.
+#[test]
+fn x_delta_struct4_4_the_pointer_impls_send_every_conditional_write_down_with_its_condition() {
+    let (_dir, file) = one_byte_file("struct4-4-pointers");
+    let probe = Probe::new();
+    let both = |wrapper: &dyn crate::Drive, what: &str| {
+        conditional_write_arrives(wrapper, &probe, &file, "object")
+            .unwrap_or_else(|why| panic!("{what}: {why:?}"));
+        versioned_batches_arrive(wrapper, &probe, "object")
+            .unwrap_or_else(|why| panic!("{what}: {why:?}"));
+    };
+    both(&Arc::new(probe.clone()), "Arc<D>");
+    both(&Box::new(probe.clone()), "Box<D>");
+    both(&&probe, "&D");
+    both(&Box::new(Arc::new(probe.clone())), "Box<Arc<D>>");
+    assert_eq!(
+        probe
+            .heard()
+            .iter()
+            .filter(|call| call.method == "put_if")
+            .count(),
+        4,
+        "one conditional write per pointer, no more"
+    );
+}
+
+/// X-DELTA-STRUCT4-4. A grant's drive rewrites the key of a conditional write - `p/` in front of it - and sends the
+/// condition as it is. A read-only grant refuses the write and reaches nothing. RED against a `put_if` that calls `put`, a
+/// batch that drops its version, or one that sends the key unscoped.
+#[test]
+fn x_delta_struct4_4_a_scoped_drive_sends_every_conditional_write_with_its_condition_under_the_scope(
+) {
+    let (_dir, file) = one_byte_file("struct4-4-scoped");
+    let probe = Probe::new();
+    let scoped = crate::scoped::ScopedDrive::new(probe.clone(), "p/", true).unwrap();
+    conditional_write_arrives(&scoped, &probe, &file, "p/object")
+        .unwrap_or_else(|why| panic!("a grant that writes: {why:?}"));
+    let heard = probe.heard().len();
+    let read_only = crate::scoped::ScopedDrive::new(probe.clone(), "p/", false).unwrap();
+    assert!(
+        matches!(
+            conditional_write_arrives(&read_only, &probe, &file, "p/object"),
+            Err(ConditionalWrite::Refused { .. })
+        ),
+        "a read-only grant takes no write"
+    );
+    assert_eq!(
+        probe.heard().len(),
+        heard,
+        "and nothing reaches the drive below"
+    );
+}
+
+/// X-DELTA-STRUCT4-4. The encryption's gate over a NEW drive takes no write: every conditional write is refused and no
+/// write of any kind reaches the bucket below it (a gate that let one through without its condition would overwrite
+/// what another device saved). What an encrypted drive does with the condition against what is stored is the other
+/// row's test (`EncryptedDrive`: the write holds only while the file is unchanged).
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_struct4_4_the_encryption_gate_lets_no_write_through_without_its_condition() {
+    let (_dir, file) = one_byte_file("struct4-4-gate");
+    let probe = Probe::new();
+    let auto = crate::AutoEncrypted::new(
+        Arc::new(probe.clone()),
+        "d_1",
+        Arc::new(crate::keyring::MemoryKeyring::new()),
+        None,
+    );
+    assert!(
+        matches!(
+            conditional_write_arrives(&auto, &probe, &file, "object"),
+            Err(ConditionalWrite::Refused { call: "put_if", .. })
+        ),
+        "a new drive takes no write"
+    );
+    let writes: Vec<_> = probe
+        .heard()
+        .into_iter()
+        .filter(|call| {
+            !matches!(
+                call.method,
+                "list" | "get" | "get_range" | "get_range_if" | "head"
+            )
+        })
+        .collect();
+    assert_eq!(writes, Vec::new(), "nothing was written below the gate");
+}
+
+/// The methods of `DriveDelegate` that write something and carry a condition or a version: a wrapper that writes one of
+/// them decides for itself what happens to it (X-DELTA-STRUCT4-4).
+const CONDITIONAL: &[&str] = &[
+    "put_if",
+    "put_from_if",
+    "put_file_if",
+    "put_many",
+    "put_from_many",
+    "delete_many",
+    "move_many",
+];
+
+/// The test that looks at what a CONDITIONAL WRITE does below each wrapper that decides for itself what to do with one:
+/// `(wrapper, file below examples/, the test)`. Over a probe (a leaf that listens; the key as it arrives, the condition
+/// as it is) or - for a wrapper whose leaf is a fake bucket - at the transport; the two encryption wrappers rewrite the
+/// write and their rows name the test of what the condition does to what is stored. A wrapper that retries has the
+/// other half of it: the condition of the second try is the first's.
+const CONDITION_TESTS: &[(&str, &str, &str)] = &[
+    (
+        "Box, Arc and & of a drive",
+        "azul-storage/src/tests/drive_coverage.rs",
+        "x_delta_struct4_4_the_pointer_impls_send_every_conditional_write_down_with_its_condition",
+    ),
+    (
+        "ScopedDrive",
+        "azul-storage/src/tests/drive_coverage.rs",
+        "x_delta_struct4_4_a_scoped_drive_sends_every_conditional_write_with_its_condition_under_the_scope",
+    ),
+    (
+        "AutoEncrypted",
+        "azul-storage/src/tests/drive_coverage.rs",
+        "x_delta_struct4_4_the_encryption_gate_lets_no_write_through_without_its_condition",
+    ),
+    (
+        "EncryptedDrive",
+        "azul-storage/src/tests/encrypted.rs",
+        "a_conditional_write_holds_only_while_the_file_is_unchanged",
+    ),
+    (
+        "AccountDrive",
+        "azul-bridge/src/account.rs",
+        "x_delta_struct4_4_the_bridges_account_drive_sends_every_conditional_write_with_its_if_match",
+    ),
+    (
+        "Stops",
+        "azul-drive/src/stop_jobs_tests.rs",
+        "x_delta_struct4_4_stops_sends_every_conditional_write_down_with_its_condition_and_refuses_them_once_the_flag_is_up",
+    ),
+    (
+        "Stoppable",
+        "azcloud-kit/src/tests/sync_hostile.rs",
+        "x_delta_struct4_4_the_downloads_drive_sends_every_conditional_write_down_with_its_condition",
+    ),
+    (
+        "RetryingDrive",
+        "azcloud-kit/src/tests/sync_retry.rs",
+        "x_delta_struct4_4_a_retrying_drive_sends_every_conditional_write_with_its_condition_and_asks_the_same_condition_on_every_try",
+    ),
+    (
+        "ObjectCache",
+        "azcloud-kit/src/tests/sync_retry.rs",
+        "x_delta_struct4_4_the_object_cache_sends_every_conditional_write_down_with_its_condition",
+    ),
+    (
+        "AzlinDrive",
+        "azcloud-kit/src/tests/drive.rs",
+        "x_delta_struct4_4_an_azlin_drive_sends_its_conditional_writes_to_the_bucket_with_their_condition",
+    ),
+    (
+        "NoDriveBelow",
+        "azcloud-kit/src/tests/drive.rs",
+        "x_delta_struct3_8_the_drive_below_the_bytes_refuses_every_request_and_answers_every_question_with_no",
+    ),
+];
+
+/// X-DELTA-STRUCT4-4. The census learns CONDITIONS: every wrapper that writes a method of `CONDITIONAL` for itself - the
+/// hand-written ones (`WRAPPERS`), the pointer impls and every delegating wrapper whose `DriveDelegate` has one of the
+/// seven (`RetryingDrive`, `ObjectCache`, `AzlinDrive`, `Stops`, `Stoppable`: read from the file, so a new one is
+/// found) - has a named test that exists, is not ignored and sends a conditional write through it. A wrapper that
+/// answers `put_if` with `put`, or retries a write with `Precondition::Absent`, turns an `If-Match` write into an
+/// overwrite of what another device just wrote (the AZ-M1 / SYNC4-1 class); the old census passed it.
+#[test]
+fn x_delta_struct4_4_every_wrapper_that_writes_a_conditional_body_has_a_test_that_its_conditions_arrive(
+) {
+    let rows = |name: &str| {
+        CONDITION_TESTS
+            .iter()
+            .any(|(wrapper, _, _)| *wrapper == name)
+    };
+    for (name, _, _) in WRAPPERS {
+        assert!(
+            rows(name),
+            "{name} writes every method for itself and has no row in CONDITION_TESTS"
+        );
+    }
+    for must in ["Box, Arc and & of a drive", "NoDriveBelow"] {
+        assert!(rows(must), "{must} has no row in CONDITION_TESTS");
+    }
+    for (name, file) in DELEGATING {
+        let path = examples_dir().join(file);
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{name}: {} cannot be read ({e})", path.display()));
+        let spelled = if source.contains(&format!("azul_storage::delegate_drive!({name}<'_>);")) {
+            format!("{name}<'_>")
+        } else {
+            (*name).to_string()
+        };
+        let written = methods_of(
+            &source,
+            &format!("impl azul_storage::DriveDelegate for {spelled} {{"),
+        );
+        let decides: Vec<&str> = written
+            .iter()
+            .map(String::as_str)
+            .filter(|method| CONDITIONAL.contains(method))
+            .collect();
+        if !decides.is_empty() {
+            assert!(
+                rows(name),
+                "{name} ({file}) writes {decides:?} for itself and has no row in CONDITION_TESTS: a test that sends a \
+                 conditional write through it over a probe"
+            );
+        }
+    }
+    for (name, file, test) in CONDITION_TESTS {
+        let path = examples_dir().join(file);
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{name}: {} cannot be read ({e})", path.display()));
+        let header = format!("fn {test}(");
+        let at = source
+            .find(&header)
+            .unwrap_or_else(|| panic!("{name}: the test `{test}` is not in {file}"));
+        let above = source[..at].trim_end_matches([' ', '\t']);
+        let attributes: Vec<&str> = above
+            .lines()
+            .rev()
+            .take_while(|line| !line.trim().is_empty())
+            .collect();
+        assert!(
+            attributes.iter().any(|line| line.trim() == "#[test]"),
+            "{name}: `{test}` is no #[test] ({attributes:?})"
+        );
+        assert!(
+            !attributes.iter().any(|line| line.contains("ignore")),
+            "{name}: `{test}` is ignored"
+        );
+        let body = &source[at..];
+        let body = &body[..body.find("\n}\n").unwrap_or(body.len())];
+        assert!(
+            [
+                "conditional_write_arrives",
+                "put_if",
+                "if-match",
+                "every_method"
+            ]
+            .iter()
+            .any(|word| body.contains(word)),
+            "{name}: `{test}` sends no conditional write"
         );
     }
 }

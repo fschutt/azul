@@ -730,3 +730,43 @@ fn x_delta_struct3_8_the_downloads_drive_pins_a_read_and_refuses_every_request_o
         "nothing reached the drive below once the pass was gone"
     );
 }
+
+/// X-DELTA-STRUCT4-4. The download's drive sends EVERY write that carries a condition down as ONE write of the same
+/// method with that condition (it writes nine methods of its own: the census read their names), and refuses them all
+/// once its pass is gone - nothing reaches the drive below then.
+#[test]
+fn x_delta_struct4_4_the_downloads_drive_sends_every_conditional_write_down_with_its_condition() {
+    use crate::sync::drive_store::Stoppable;
+    use azul_storage::testing::{
+        conditional_write_arrives, versioned_batches_arrive, ConditionalWrite, Probe,
+    };
+
+    let dir = TempDir::new("azcloud-struct4-4-stoppable");
+    let file = dir.path().join("one-byte.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let probe = Probe::new();
+    let below: Arc<dyn azul_storage::Drive> = Arc::new(probe.clone());
+    let stopped = AtomicBool::new(false);
+    let drive = Stoppable {
+        inner: &*below,
+        stopped: &stopped,
+    };
+    conditional_write_arrives(&drive, &probe, &file, "object")
+        .expect("the conditional writes arrive as sent");
+    versioned_batches_arrive(&drive, &probe, "object")
+        .expect("the batches' versions arrive as sent");
+    stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+    let heard = probe.heard().len();
+    assert!(matches!(
+        conditional_write_arrives(&drive, &probe, &file, "object"),
+        Err(ConditionalWrite::Refused {
+            error: DriveError::Transport(_),
+            ..
+        })
+    ));
+    assert_eq!(
+        probe.heard().len(),
+        heard,
+        "nothing reached the drive below once the pass was gone"
+    );
+}

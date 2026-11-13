@@ -423,6 +423,67 @@ mod tests {
         assert_eq!(header(&both[1], "if-match"), None);
     }
 
+    /// X-DELTA-STRUCT4-4. The bridge's drive writes `put_from_if`, `put_file_if` and the batches by hand too: each
+    /// conditional write has to reach the bucket as a PUT of the object with the `If-Match` it was given (the census
+    /// read the names only), and the control - a plain `put` - asks nothing. The probe is the transport.
+    #[test]
+    fn x_delta_struct4_4_the_bridges_account_drive_sends_every_conditional_write_with_its_if_match()
+    {
+        use azul_storage::BatchPut;
+
+        let dir = TempDir::new("bridge-conditional-writes");
+        let state = device(&dir);
+        let file = dir.path().join("one-byte.txt");
+        std::fs::write(&file, b"x").unwrap();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let transports: TransportFactory =
+            Arc::new(move || Box::new(Recorder(seen.clone())) as Box<dyn Transport>);
+        let drive = AccountDrive::open(&state, TOKEN, transports, None).unwrap();
+        let tag = Precondition::Matches(String::from("tag-1"));
+        drive.put_if("object", b"x", &tag).unwrap();
+        drive.put_from_if("object", &mut &b"x"[..], &tag).unwrap();
+        drive
+            .put_file_if("object", &file, &tag, &azul_storage::ctl::Quiet)
+            .unwrap();
+        let answers = drive.put_many(&[BatchPut::new("object", b"x").when(&tag)]);
+        assert!(answers.iter().all(Result::is_ok), "{answers:?}");
+        let header = |call: &HttpCall, name: &str| {
+            call.headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.clone())
+        };
+        let puts: Vec<HttpCall> = calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| {
+                call.url.ends_with("/d-1/object") && call.method == azul_storage::Method::Put
+            })
+            .cloned()
+            .collect();
+        assert_eq!(puts.len(), 4, "one PUT of the object for each: {puts:?}");
+        for put in &puts {
+            assert_eq!(
+                header(put, "if-match").as_deref(),
+                Some("\"tag-1\""),
+                "the condition reached the bucket: {put:?}"
+            );
+        }
+        // The control: an unconditional write asks nothing of the bucket.
+        drive.put("other", b"x").unwrap();
+        let plain: Vec<HttpCall> = calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| call.url.ends_with("/d-1/other"))
+            .cloned()
+            .collect();
+        assert_eq!(plain.len(), 1, "{plain:?}");
+        assert_eq!(header(&plain[0], "if-match"), None);
+    }
+
     #[test]
     fn the_bridges_drive_fails_over_to_the_nodes_its_refresh_listed() {
         let dir = TempDir::new("bridge-failover");

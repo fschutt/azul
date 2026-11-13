@@ -272,3 +272,43 @@ fn x_delta_struct3_8_stops_sends_a_pinned_read_down_with_its_condition_and_refus
         "nothing reached the drive below"
     );
 }
+
+/// X-DELTA-STRUCT4-4. `Stops` sends EVERY write that carries a condition down as ONE write of the same method with that
+/// condition (it overrides nine write and batch methods by hand: the census read their names), and refuses them all
+/// with `Cancelled` once the flag is up - nothing reaches the drive below. RED against a `put_file_if` that sends
+/// `Precondition::Absent`, or a batch that drops its version.
+#[test]
+fn x_delta_struct4_4_stops_sends_every_conditional_write_down_with_its_condition_and_refuses_them_once_the_flag_is_up(
+) {
+    use azul_storage::testing::{
+        conditional_write_arrives, versioned_batches_arrive, ConditionalWrite, Probe,
+    };
+
+    let dir = TempDir::new("struct4-4-stops");
+    let file = dir.path().join("one-byte.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let probe = Probe::new();
+    let stop = Arc::new(AtomicBool::new(false));
+    let drive = Stops {
+        inner: Arc::new(probe.clone()),
+        stop: Arc::clone(&stop),
+    };
+    conditional_write_arrives(&drive, &probe, &file, "object")
+        .expect("the conditional writes arrive as sent");
+    versioned_batches_arrive(&drive, &probe, "object")
+        .expect("the batches' versions arrive as sent");
+    stop.store(true, Ordering::SeqCst);
+    let heard = probe.heard().len();
+    assert_eq!(
+        conditional_write_arrives(&drive, &probe, &file, "object"),
+        Err(ConditionalWrite::Refused {
+            call: "put_if",
+            error: DriveError::Cancelled
+        })
+    );
+    assert_eq!(
+        probe.heard().len(),
+        heard,
+        "nothing reached the drive below"
+    );
+}
