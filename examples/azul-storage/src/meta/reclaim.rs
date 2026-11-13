@@ -605,8 +605,10 @@ pub const STANDING_FRESH_SECS: u64 = 2 * super::shadow::EVERY_SECS;
 
 /// What the drive's kill switch says ([`keys::RECLAIM_HOLD`](super::keys::RECLAIM_HOLD)): an object that is
 /// there or not. Read by every deleter right before it asks the one gate - the reclaimer's round, each batch of
-/// its delete run, the pack upkeep - and never remembered: a hold takes effect at the next delete, not at the
-/// next round (X-DELTA-AZDRIVE-SYNC-6). What cannot be read is its own answer, and the gate holds on it.
+/// its delete run (up to [`Caps::batch`] objects), each batch of the pack upkeep's deletes
+/// ([`crate::packing::UPKEEP_DELETE_BATCH`], sixteen) - and never remembered across batches: a hold takes effect
+/// at the next batch, not at the next round or the next call (X-DELTA-AZDRIVE-SYNC-6, X-DELTA-SYNC9-7). What
+/// cannot be read is its own answer, and the gate holds on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Switch {
     /// No hold: the object is not there.

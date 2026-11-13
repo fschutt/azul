@@ -49,6 +49,8 @@ pub(crate) struct Faulty {
     deletes: Mutex<Vec<(String, u32)>>,
     /// Keys whose GET (and ranged GET) fails (`Transport`), with how many times.
     reads: Mutex<Vec<(String, u32)>>,
+    /// Keys whose HEAD fails (`Transport`), with how many times.
+    heads: Mutex<Vec<(String, u32)>>,
 }
 
 impl Faulty {
@@ -59,6 +61,7 @@ impl Faulty {
             nth_writes: Mutex::new(Vec::new()),
             deletes: Mutex::new(Vec::new()),
             reads: Mutex::new(Vec::new()),
+            heads: Mutex::new(Vec::new()),
         }
     }
 
@@ -99,6 +102,14 @@ impl Faulty {
     /// The next `times` reads of `key` fail.
     pub(crate) fn fail_read(&self, key: &str, times: u32) {
         self.reads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((key.to_string(), times));
+    }
+
+    /// The next `times` HEADs of `key` fail: the object may or may not be there, and the bucket cannot say.
+    pub(crate) fn fail_head(&self, key: &str, times: u32) {
+        self.heads
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push((key.to_string(), times));
@@ -196,6 +207,9 @@ impl Drive for Faulty {
     }
 
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        if Self::counted(&self.heads, key) {
+            return Err(Self::went());
+        }
         self.inner.head(key)
     }
 

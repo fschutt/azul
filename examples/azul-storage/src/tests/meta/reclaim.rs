@@ -2804,6 +2804,308 @@ fn x_delta_azdrive_sync_6_the_pack_upkeep_keeps_a_due_pack_while_the_kill_switch
     assert!(!lab.data_objects().contains(&pack));
 }
 
+// ==== X-DELTA-SYNC9-7, -8: the switch is looked at before every batch, and a switch nobody could read stops the deleting ====
+
+/// A bucket that cannot say whether the kill switch's object is there (its HEAD fails) and is the memory bucket
+/// for everything else.
+struct HoldUnreadable(MemoryBucket);
+
+impl crate::meta::Bucket for HoldUnreadable {
+    fn read(&self, key: &str) -> Result<Option<(Vec<u8>, String)>, MetaError> {
+        self.0.read(key)
+    }
+    fn read_if_changed(&self, key: &str, known: &str) -> Result<crate::meta::Fetched, MetaError> {
+        self.0.read_if_changed(key, known)
+    }
+    fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {
+        crate::meta::Bucket::read_range(&self.0, key, range)
+    }
+    fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<String>, MetaError> {
+        self.0.create(key, bytes)
+    }
+    fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<String>, MetaError> {
+        self.0.replace(key, bytes, known)
+    }
+    fn remove(&self, key: &str) -> Result<(), MetaError> {
+        crate::meta::Bucket::remove(&self.0, key)
+    }
+    fn list_keys(&self, prefix: &str) -> Result<Vec<crate::meta::Listed>, MetaError> {
+        self.0.list_keys(prefix)
+    }
+    fn exists(&self, key: &str) -> Result<bool, MetaError> {
+        if key == keys::RECLAIM_HOLD {
+            return Err(MetaError::Drive(DriveError::Transport(
+                "the network went".to_string(),
+            )));
+        }
+        self.0.exists(key)
+    }
+}
+
+/// X-DELTA-SYNC9-8. The arms nothing entered: a switch whose object cannot be asked for - the HEAD fails - is
+/// `Unread` through BOTH readers (`read_drive`, `read_bucket`: a failed look is never "no hold"), a round's gate
+/// holds on it (`SwitchNotRead`, whichever branch of the round asks: one function makes the question), and the
+/// reclaimer's delete run stops before its first batch with `NotYet::Switch(Unread)` and deletes nothing. RED on
+/// the mutants that read a failed look as a clear switch (`Err(_) => Some(false)`, `.ok()` -> `.unwrap_or(false)`,
+/// `Switch::Clear` in the round's gate): each of them deletes.
+#[test]
+fn x_delta_sync9_8_a_switch_that_cannot_be_read_is_unread_by_both_readers_and_no_gate_or_run_deletes_on_it(
+) {
+    use crate::{
+        meta::{index::gate_of_round, Switch},
+        tests::faulty::Faulty,
+    };
+
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    lab.at(T0 + 100 * DAY);
+
+    // The two readers, over a drive whose HEAD of the hold fails: Unread, not Clear.
+    let faulty = Arc::new(Faulty::new(Arc::new(lab.bucket.clone())));
+    faulty.fail_head(keys::RECLAIM_HOLD, 10);
+    assert_eq!(Switch::read_drive(faulty.as_ref()), Switch::Unread);
+    assert_eq!(
+        Switch::read_bucket(&DriveBucket::new(Arc::clone(&faulty) as Arc<dyn Drive>)),
+        Switch::Unread
+    );
+    assert_eq!(
+        Switch::read_drive(&lab.bucket),
+        Switch::Clear,
+        "the control: the look works"
+    );
+
+    // The gate a judged round asks, with a standing in which nothing is lacking: clear, held, unread.
+    let standing = (proven())(T0).expect("a standing");
+    let gate = |bucket: &dyn Drive| gate_of_round(ReclaimMode::Delete, &standing, bucket, T0);
+    assert!(gate(&lab.bucket).is_ok(), "clear: the evidence decides");
+    lab.bucket.put(keys::RECLAIM_HOLD, b"held").unwrap();
+    assert_eq!(gate(&lab.bucket).unwrap_err(), Hold::KillSwitch);
+    lab.bucket.delete(keys::RECLAIM_HOLD).unwrap();
+    faulty.fail_head(keys::RECLAIM_HOLD, 1);
+    assert_eq!(gate(faulty.as_ref()).unwrap_err(), Hold::SwitchNotRead);
+
+    // The run, over a bucket that cannot say: stopped at its first batch.
+    let mut repo = MetaRepo::open_with(
+        HoldUnreadable(lab.bucket.clone()),
+        lab.key.clone(),
+        "maintenance",
+        "Maintenance",
+        &RepoOptions::default(),
+    )
+    .unwrap()
+    .with_clock(clock_reader(&lab.clock));
+    let report = reclaim(
+        &mut repo,
+        &options(ReclaimMode::Delete),
+        Ok(DeleteLicence::lab()),
+    )
+    .unwrap();
+    assert_eq!(
+        report.stopped,
+        Some(NotYet::Switch(crate::meta::Switch::Unread)),
+        "{}",
+        report.line()
+    );
+    assert!(
+        report
+            .line()
+            .contains("kill switch for the deleting could not be read"),
+        "{}",
+        report.line()
+    );
+    assert_eq!(report.deleted, 0);
+    assert_eq!(
+        lab.data_objects().len(),
+        2,
+        "nothing was deleted on a switch nobody could read"
+    );
+}
+
+/// A drive whose delete of a data object sets the kill switch after the n-th of them: the operator who finds a
+/// defect while one call of the upkeep works through its list.
+struct HoldsAfter {
+    inner: MemoryBucket,
+    deleted: Arc<std::sync::atomic::AtomicUsize>,
+    after: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl crate::DriveDelegate for HoldsAfter {
+    fn below(&self) -> &dyn Drive {
+        &self.inner
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.inner.delete(key)?;
+        if key.starts_with("data/")
+            && self.deleted.fetch_add(1, Ordering::SeqCst) + 1 == self.after.load(Ordering::SeqCst)
+        {
+            self.inner.put(keys::RECLAIM_HOLD, b"held")?;
+        }
+        Ok(())
+    }
+}
+
+crate::delegate_drive!(HoldsAfter);
+
+/// A drive that packs, deletes by its upkeep and holds the evidence the gate wants, over `HoldsAfter`.
+struct UpkeepLab {
+    drive: EncryptedDrive<HoldsAfter>,
+    bucket: MemoryBucket,
+    clock: Arc<AtomicU64>,
+    after: Arc<std::sync::atomic::AtomicUsize>,
+    deleted: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl UpkeepLab {
+    /// The hold is set by the `n`-th delete of a data object from now on.
+    fn hold_after(&self, n: usize) {
+        self.after
+            .store(self.deleted.load(Ordering::SeqCst) + n, Ordering::SeqCst);
+    }
+}
+
+fn upkeep_lab() -> UpkeepLab {
+    let clock = Arc::new(AtomicU64::new(T0));
+    let key = DriveKey::generate().unwrap();
+    let bucket = MemoryBucket::new();
+    let repo = Repo::create_with(
+        bucket.clone(),
+        key.clone(),
+        "laptop",
+        "Laptop",
+        &RepoOptions::default(),
+    )
+    .unwrap()
+    .with_clock(clock_reader(&clock));
+    let index: Arc<dyn NameIndex> = Arc::new(Index::new(repo).with_poll_every(0));
+    let after = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+    let deleted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let wrapped = HoldsAfter {
+        inner: bucket.clone(),
+        deleted: Arc::clone(&deleted),
+        after: Arc::clone(&after),
+    };
+    let drive = EncryptedDrive::new(wrapped, key, index)
+        .with_packing(PackOptions {
+            retired_grace_secs: 0,
+            ..PackOptions::default()
+        })
+        .with_reclaim(ReclaimMode::Delete)
+        .with_reclaim_standing(proven());
+    UpkeepLab {
+        drive,
+        bucket,
+        clock,
+        after,
+        deleted,
+    }
+}
+
+/// X-DELTA-SYNC9-7 (the retired packs). A call of the pack upkeep works through more retired packs than a batch
+/// ([`crate::packing::UPKEEP_DELETE_BATCH`]); the operator sets the hold after the second delete. The old code read the
+/// switch once, at the start of the call, and deleted every pack; the gate now asks again before every batch, so the
+/// call stops at the next one - after exactly one batch - and the rest stays retired until the hold is released.
+/// RED on the old code: all of them are deleted.
+#[test]
+fn x_delta_sync9_7_a_hold_set_while_the_pack_upkeep_deletes_stops_it_at_the_next_batch() {
+    use crate::packing::UPKEEP_DELETE_BATCH;
+
+    let lab = upkeep_lab();
+    let packs = UPKEEP_DELETE_BATCH + 4;
+    let mut paths = Vec::new();
+    for i in 0..packs {
+        let first = (
+            format!("f{i}a.txt"),
+            format!("the first small file of pack {i}"),
+        );
+        let second = (
+            format!("f{i}b.txt"),
+            format!("the second small file of pack {i}"),
+        );
+        let items = [
+            BatchPut::new(&first.0, first.1.as_bytes()),
+            BatchPut::new(&second.0, second.1.as_bytes()),
+        ];
+        for result in lab.drive.put_many(&items) {
+            result.unwrap();
+        }
+        paths.push(first.0);
+        paths.push(second.0);
+    }
+    lab.clock.store(T0 + DAY, Ordering::SeqCst);
+    for path in &paths {
+        lab.drive.delete(path).unwrap();
+    }
+    lab.drive.repack(T0 + 2 * DAY).unwrap();
+    assert_eq!(
+        lab.drive.retired_packs().len(),
+        packs,
+        "every pack was emptied and retired"
+    );
+
+    lab.hold_after(2);
+    let far = T0 + 200 * DAY;
+    let deleted = lab.drive.collect_retired(far).unwrap();
+    assert_eq!(
+        deleted, UPKEEP_DELETE_BATCH,
+        "the hold was set after the second delete: the call stops at the next look, one batch on"
+    );
+    assert_eq!(
+        lab.drive.retired_packs().len(),
+        packs - UPKEEP_DELETE_BATCH,
+        "the rest stays retired"
+    );
+    assert!(
+        lab.bucket.head(keys::RECLAIM_HOLD).is_ok(),
+        "the hold is there"
+    );
+
+    // Released: the next call deletes the rest.
+    lab.bucket.delete(keys::RECLAIM_HOLD).unwrap();
+    assert_eq!(
+        lab.drive.collect_retired(far).unwrap(),
+        packs - UPKEEP_DELETE_BATCH
+    );
+    assert!(lab.drive.retired_packs().is_empty());
+}
+
+/// X-DELTA-SYNC9-7 (the objects in flight): the other loop of the upkeep, `recover_packs`, asks the same way.
+#[test]
+fn x_delta_sync9_7_a_hold_set_while_the_upkeep_clears_up_objects_in_flight_stops_it_at_the_next_batch(
+) {
+    use crate::packing::UPKEEP_DELETE_BATCH;
+
+    let lab = upkeep_lab();
+    let objects = UPKEEP_DELETE_BATCH + 4;
+    let mut ids = Vec::new();
+    for _ in 0..objects {
+        let id = crate::crypto::ObjectId::generate().unwrap();
+        lab.bucket.put(&id.bucket_key(), b"an orphan").unwrap();
+        lab.drive.note_in_flight(&id);
+        ids.push(id);
+    }
+    lab.hold_after(2);
+    let far = crate::time::now_unix() + 3_600;
+    assert_eq!(
+        lab.drive.recover_packs(far).unwrap(),
+        UPKEEP_DELETE_BATCH,
+        "stopped at the look after the first batch"
+    );
+    let left = lab
+        .bucket
+        .objects()
+        .into_iter()
+        .filter(|(key, _)| key.starts_with("data/"))
+        .count();
+    assert_eq!(left, objects - UPKEEP_DELETE_BATCH);
+    lab.bucket.delete(keys::RECLAIM_HOLD).unwrap();
+    assert_eq!(
+        lab.drive.recover_packs(far).unwrap(),
+        objects - UPKEEP_DELETE_BATCH
+    );
+}
+
 // ==== X-DELTA-SYNC2-2: two rounds a day apart agree about what they share ====
 
 /// A round is clean only if the candidates it names that were released before the window of the round BEFORE it

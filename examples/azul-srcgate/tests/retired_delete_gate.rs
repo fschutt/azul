@@ -495,8 +495,8 @@ const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azul-storage/src/meta/index.rs",
         ASKED,
-        2,
-        "the reclaimer's own round, which asks it with the standing it has just made: the licence it hands the run, and the reason a round that stopped before it judged anything says",
+        1,
+        "gate_of_round: the reclaimer's own round asks it with the standing it has just made and the kill switch read now - the licence it hands the run, and the reason a round that stopped before it judged anything says, both through this one function (X-DELTA-SYNC9-8; there were two calls)",
     ),
     Allow::exactly(
         "examples/azul-storage/src/encrypted.rs",

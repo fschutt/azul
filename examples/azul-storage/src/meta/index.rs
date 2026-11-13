@@ -51,8 +51,8 @@ use crate::{
     key::folder_of,
     meta::reclaim::{
         analyse, ask_retired_delete, manifest_pack_bytes, pack_bytes_of, purge_options, reclaim,
-        reclaim_judged, stamp_agrees, Analysis, Caps, DeleteLicence, GoEvidence, History, Hold,
-        LiveObjects, NotYet, PurgeConfirmation, ReclaimMode, ReclaimOptions, ReclaimReport,
+        reclaim_judged, stamp_agrees, Analysis, Caps, DeleteLicence, Gate, GoEvidence, History,
+        Hold, LiveObjects, NotYet, PurgeConfirmation, ReclaimMode, ReclaimOptions, ReclaimReport,
         Released, ServerClock, Standing, Switch,
     },
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
@@ -1227,15 +1227,8 @@ impl MetaIndexProvider {
                     // run asks it now, with the standing it has just made.
                     let standing = Standing { at: now, evidence };
                     self.note_standing(drive, standing);
-                    let gate = ask_retired_delete(
-                        History::Kept {
-                            mode,
-                            standing: Some(&standing),
-                            // Read when the run asks, after the minutes the analysis took.
-                            switch: Switch::read_drive(bucket.as_ref()),
-                        },
-                        now,
-                    );
+                    // The switch is read when the run asks, after the minutes the analysis took.
+                    let gate = gate_of_round(mode, &standing, bucket.as_ref(), now);
                     if let (Err(hold), ReclaimMode::Delete) = (&gate, mode) {
                         report.held = Some(*hold);
                     }
@@ -1275,14 +1268,7 @@ impl MetaIndexProvider {
                 report.evidence = Some(evidence);
                 let standing = Standing { at: now, evidence };
                 report.held = (mode == ReclaimMode::Delete).then(|| {
-                    match ask_retired_delete(
-                        History::Kept {
-                            mode,
-                            standing: Some(&standing),
-                            switch: Switch::read_drive(bucket.as_ref()),
-                        },
-                        now,
-                    ) {
+                    match gate_of_round(mode, &standing, bucket.as_ref(), now) {
                         Err(hold) => hold,
                         Ok(_) => Hold::NotRederived,
                     }
@@ -1579,10 +1565,33 @@ fn unclean_why(rederived: Option<bool>, window: Option<bool>, agreed: Option<boo
     }
 }
 
+/// The answer of the one gate for a judged round ([`MetaIndexProvider::reclaim`]): [`ask_retired_delete`] with the
+/// standing the round has just made and the drive's kill switch read NOW from `bucket`. Both branches of a round that
+/// asks - the one that judged the analysis and the one that stopped before it - make the question here, so that
+/// neither can ask without the switch (X-DELTA-SYNC9-8).
+pub(crate) fn gate_of_round(
+    mode: ReclaimMode,
+    standing: &Standing,
+    bucket: &dyn Drive,
+    now: u64,
+) -> Gate {
+    ask_retired_delete(
+        History::Kept {
+            mode,
+            standing: Some(standing),
+            switch: Switch::read_drive(bucket),
+        },
+        now,
+    )
+}
+
 impl MetaIndexProvider {
     /// Sets the KILL SWITCH of the drive in `bucket` (X-DELTA-AZDRIVE-SYNC-6): while the hold is there, nothing
     /// the drive's history may still name is deleted - not by the reclaimer's run, which looks before every
-    /// batch, and not by the pack upkeep of any device, which looks before every delete. The hold is an
+    /// batch of its caps, and not by the pack upkeep of any device, which looks before every batch of sixteen
+    /// deletes ([`crate::packing::UPKEEP_DELETE_BATCH`]): a hold set while a call works stops it at its next
+    /// batch. Nothing in the app sets it yet: no command or dialog calls this - the switch is not operable
+    /// until one does (X-DELTA-SYNC10-1). The hold is an
     /// object of the drive (sealed with its key: who set it and why), so it reaches every device that opens
     /// the drive and survives a restart; a deleter that cannot read it does not delete. Setting it twice is
     /// setting it.

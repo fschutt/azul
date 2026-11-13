@@ -113,6 +113,13 @@ pub const SMALL_PACK: u64 = 1 << 20;
 pub const RETIRED_GRACE_SECS: u64 = crate::meta::retention::RETENTION.versions.as_secs();
 /// A pack in the journal for longer than this is no longer in flight: its writer stopped.
 pub const JOURNAL_STALE_SECS: u64 = 15 * 60;
+/// How many objects the pack upkeep deletes before it looks at the drive's kill switch again
+/// ([`crate::meta::Switch`], X-DELTA-AZDRIVE-SYNC-6): a hold that is set while one call works through thousands
+/// of retired packs - one network delete each - stops it at the next batch, not at the next call. A look costs a
+/// HEAD, so it is made per batch, not per object: the bound of the cost and of the time a hold waits (sixteen
+/// deletes, a few seconds). The reclaimer's own run looks per batch of its caps
+/// ([`crate::meta::Caps::batch`]).
+pub(crate) const UPKEEP_DELETE_BATCH: usize = 16;
 /// Reads of one pack after which it is fetched whole and kept (a sync reading a folder).
 pub const HOT_READS: u32 = 3;
 /// Whole packs kept in memory, as ciphertext: at most 4 MiB each.
@@ -578,6 +585,47 @@ fn seal_pack(drive_key: &DriveKey, members: &[Member]) -> Result<SealedPack, Cry
         wrapped_key: summary.wrapped_key,
         offsets: layout.offsets,
     })
+}
+
+/// The gate of ONE call of the pack upkeep, asked again before every batch of its deletes
+/// ([`UPKEEP_DELETE_BATCH`]): on a drive that keeps history the gate reads the drive's kill switch, and the
+/// answer of the start of the call is not the answer of the thousandth delete (X-DELTA-SYNC9-7). A refusal
+/// stays for the rest of the call - a hold that is released is picked up by the next call - and a drive whose
+/// index keeps no history has no switch to look at (its licence is the one of [`History::None`]).
+struct BatchGate<'d, D: Drive> {
+    drive: &'d EncryptedDrive<D>,
+    now: u64,
+    /// Whether the index keeps history: the only kind of drive whose gate reads a switch.
+    kept: bool,
+    gate: Gate,
+    /// The deletes left before the next look.
+    left: usize,
+}
+
+impl<'d, D: Drive> BatchGate<'d, D> {
+    /// The gate `live_objects` answered at the start of the call, for the first batch.
+    fn new(drive: &'d EncryptedDrive<D>, now: u64, kept: bool, gate: Gate) -> Self {
+        BatchGate {
+            drive,
+            now,
+            kept,
+            gate,
+            left: UPKEEP_DELETE_BATCH,
+        }
+    }
+
+    /// The gate for the next delete: the one in hand within a batch, a new one - the switch read now - at the
+    /// start of every later batch.
+    fn next(&mut self) -> &Gate {
+        if self.kept && self.gate.is_ok() {
+            if self.left == 0 {
+                self.gate = self.drive.retired_delete_gate(self.now);
+                self.left = UPKEEP_DELETE_BATCH;
+            }
+            self.left -= 1;
+        }
+        &self.gate
+    }
 }
 
 /// The mutex's value, also after a thread panicked while holding it.
@@ -1914,7 +1962,8 @@ impl<D: Drive> EncryptedDrive<D> {
         if !retired.iter().any(|(_, at)| at.saturating_add(grace) <= now) {
             return Ok(0);
         }
-        let (live, gate, _) = self.live_objects(now)?;
+        let (live, gate, kept) = self.live_objects(now)?;
+        let mut gate = BatchGate::new(self, now, kept, gate);
         let mut keep = Vec::new();
         let mut deleted = Vec::new();
         for (id, at) in retired {
@@ -1930,7 +1979,7 @@ impl<D: Drive> EncryptedDrive<D> {
                 keep.push((id, at));
                 continue;
             };
-            match delete_reclaimable(&self.inner, &gate, proof) {
+            match delete_reclaimable(&self.inner, gate.next(), proof) {
                 Ok(Deleted::Gone) => {
                     self.forget_pack(&id);
                     deleted.push(id);
@@ -1964,7 +2013,8 @@ impl<D: Drive> EncryptedDrive<D> {
         if stale.is_empty() {
             return Ok(0);
         }
-        let (live, gate, _) = self.live_objects(now)?;
+        let (live, gate, kept) = self.live_objects(now)?;
+        let mut gate = BatchGate::new(self, now, kept, gate);
         let mut cleared = 0;
         for id in &stale {
             if live.names(id) {
@@ -1976,7 +2026,7 @@ impl<D: Drive> EncryptedDrive<D> {
                 continue;
             };
             if matches!(
-                delete_reclaimable(&self.inner, &gate, proof)?,
+                delete_reclaimable(&self.inner, gate.next(), proof)?,
                 Deleted::Gone
             ) {
                 self.forget_pack(id);
