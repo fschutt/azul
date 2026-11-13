@@ -364,6 +364,10 @@ struct Inner<B: Bucket, S: Sealer> {
     /// listing of N entries in pages of P would cost N * N / P). Any change of the tree makes a
     /// new root, and the next listing walks again.
     listed: Option<Listing>,
+    /// How many times a listing walked the tree and read every pointer: the paging test counts them
+    /// (X-SYNC4L-1: a paged listing walks the tree once, not once per page).
+    #[cfg(test)]
+    walks: usize,
 }
 
 /// One listing of [`Inner::listed`]: the tree, the request it answers, its keys.
@@ -396,6 +400,8 @@ impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
                 repo,
                 last_poll: None,
                 listed: None,
+                #[cfg(test)]
+                walks: 0,
             }),
             poll_every: DEFAULT_POLL_SECS,
             history_budget: Some(Caps::default().pack_bytes),
@@ -419,6 +425,13 @@ impl<B: Bucket, S: Sealer> MetaIndex<B, S> {
 
     fn lock(&self) -> MutexGuard<'_, Inner<B, S>> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// How many times a listing walked the tree and read every pointer (a page cut from the listing
+    /// before is no walk): the paging test's measure, where a wall clock was its bound.
+    #[cfg(test)]
+    pub(crate) fn listing_walks(&self) -> usize {
+        self.lock().walks
     }
 
     /// Runs `f` with the device's copy (to commit, to restore, for maintenance).
@@ -598,6 +611,10 @@ impl<B: Bucket, S: Sealer> NameIndex for MetaIndex<B, S> {
         }
         let keys = sorted_keys(found, request);
         let page = page_from(&keys, request);
+        #[cfg(test)]
+        {
+            inner.walks += 1;
+        }
         inner.listed = Some(Listing {
             root,
             prefix: request.prefix.clone(),
