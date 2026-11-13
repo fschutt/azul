@@ -46,13 +46,21 @@ impl Running {
 #[derive(Debug)]
 pub struct Instance {
     _lock: HeldLock,
-    file: PathBuf,
+    state: PathBuf,
 }
 
 impl Instance {
     /// Writes who serves on which ports, for a second `serve` and `status`.
     pub fn announce(&self, running: &Running) {
-        let _ = azcloud_kit::state::write_json(&self.file, running, false);
+        let _ = azcloud_kit::state::write_json(&self.state.join(RUNNING_FILE), running, false);
+    }
+
+    /// Whether `folder` is the state folder this lock protects, or one below it: no other `serve` runs on it while
+    /// this lock is held, so whatever another process left there is a dead process's (the records of a replacing COPY
+    /// or MOVE, [`crate::dav::SwapRecords::guarded_by`]).
+    #[must_use]
+    pub fn guards(&self, folder: &Path) -> bool {
+        folder.starts_with(&self.state)
     }
 }
 
@@ -65,7 +73,7 @@ pub fn claim(state: &Path) -> Result<Instance, String> {
     match LockDir::new(state.join(LOCKS_DIR)).lock(LOCK_NAME, Duration::ZERO) {
         Ok(lock) => Ok(Instance {
             _lock: lock,
-            file: state.join(RUNNING_FILE),
+            state: state.to_path_buf(),
         }),
         Err(_) => Err(match read_running(state) {
             Some(running) => running.sentence(),

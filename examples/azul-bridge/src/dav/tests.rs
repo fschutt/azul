@@ -1528,6 +1528,8 @@ struct Rig {
     open: Box<dyn Fn() -> Arc<dyn Drive>>,
     /// The records, a folder below a state folder: the same value is the same records.
     records: SwapRecords,
+    /// The state folder the records are below: where a bridge's lock is taken ([`crate::single::claim`]).
+    state: std::path::PathBuf,
     _keep: Vec<Box<dyn std::any::Any>>,
 }
 
@@ -1537,13 +1539,15 @@ impl Rig {
         let dir = azul_storage::testing::TempDir::new("bridge-dav-swap-folder");
         let root = dir.0.join("shared");
         std::fs::create_dir_all(&root).unwrap();
-        let records = SwapRecords::of_drive(&dir.0.join("state"), Some("folder:shared"));
+        let state = dir.0.join("state");
+        let records = SwapRecords::of_drive(&state, Some("folder:shared"));
         Rig {
             kind: "a served folder",
             open: Box::new(move || {
                 Arc::new(azul_storage::LocalDrive::without_manifest(root.clone())) as Arc<dyn Drive>
             }),
             records,
+            state,
             _keep: vec![Box::new(dir)],
         }
     }
@@ -1575,6 +1579,7 @@ impl Rig {
                 )
             }),
             records,
+            state: state.0.clone(),
             _keep: vec![Box::new(state)],
         }
     }
@@ -2104,6 +2109,171 @@ fn x_delta_apps4_1_a_record_that_cannot_be_written_starts_no_swap_on_the_real_dr
             "{kind}: the swap is not left running"
         );
     }
+}
+
+/// X-DELTA-APPS5-5, RED on the code before: a record of another process id waited ten minutes by the wall clock for a
+/// bridge that the instance lock (`single::claim`, taken by `serve` before the `Dav` exists, on the state folder the
+/// records are in) already proves is gone. A login item that started the bridge a second after a crash that cut a swap
+/// between its steps 2 and 3 left the user's destination missing from every listing for ten minutes - and a client that
+/// re-created it meanwhile turned the record's state into one `settle_swap` never touches. Now a `Dav` whose records are
+/// guarded by the lock settles the record at its FIRST request, on the drives the bridge serves, by the same table; the
+/// same record with no lock (a `Dav` built by a test) still waits for its grace.
+#[test]
+fn x_delta_apps5_5_the_first_request_settles_the_record_of_another_process_when_the_bridge_holds_the_lock_of_its_state_folder(
+) {
+    for guarded in [false, true] {
+        for make in rigs() {
+            let rig = make();
+            let kind = rig.kind;
+            let base = (rig.open)();
+            lay_out(&*base);
+            // Cut after the first FILE of the new content is beside the destination.
+            let dying = Dying::new(base.clone(), 2);
+            let dav = dav_keeping(dying, rig.records.clone());
+            let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"")
+            }));
+            assert!(died.is_err(), "{kind}");
+            drop(dav);
+            let stamps = rig.records.stamps().unwrap();
+            assert_eq!(stamps.len(), 1, "{kind}");
+            let bytes = rig.records.get(&stamps[0]).unwrap().unwrap();
+            let written_at: u64 = stamps[0].split('-').next().unwrap().parse().unwrap();
+            rig.records.remove(&stamps[0]).unwrap();
+            // A record of ANOTHER process id: the bridge that was killed.
+            let foreign = format!("{written_at}-{}-0", std::process::id() + 1);
+            rig.records.put(&foreign, &bytes).unwrap();
+            // The next process, one second after the record was written; it holds the lock of its state folder
+            // (or, in the control, was built without it).
+            std::fs::create_dir_all(&rig.state).unwrap();
+            let instance = crate::single::claim(&rig.state).unwrap();
+            let records = if guarded {
+                rig.records.clone().guarded_by(&instance)
+            } else {
+                rig.records.clone()
+            };
+            assert_eq!(records.guarded(), guarded, "{kind}");
+            let mut next = dav_keeping((rig.open)(), records);
+            next.clock = Some(Box::new(move || written_at + 1));
+            let first = next.respond(&head("OPTIONS", "/", &[]), b"").status;
+            assert_eq!(first, Status::OK, "{kind}");
+            let fresh = (rig.open)();
+            let keys = keys_of(&*fresh);
+            if guarded {
+                assert!(
+                    keys.iter().all(|key| !key.contains(".azul-")),
+                    "{kind}: settled at the first request: {keys:?}"
+                );
+                assert!(rig.records.stamps().unwrap().is_empty(), "{kind}");
+            } else {
+                assert!(
+                    keys.iter().any(|key| key.contains(".azul-new-")),
+                    "{kind}: with no lock the grace stays, and the stray with it: {keys:?}"
+                );
+                assert_eq!(rig.records.stamps().unwrap(), vec![foreign], "{kind}");
+            }
+            let files = files_of(&*fresh);
+            assert_eq!(
+                files.get("dest/keep.txt").map(Vec::as_slice),
+                Some(&b"old"[..]),
+                "{kind}: the destination was never touched: {files:?}"
+            );
+            assert!(files.contains_key("src/one.txt"), "{kind}: {files:?}");
+        }
+    }
+}
+
+/// X-DELTA-APPS5-5, the second scenario of the finding: the stamp of a record is `now_unix()` at the swap, and a clock
+/// that was wrong AHEAD at that moment puts the grace years ahead (`now < at + 600` until then) - nothing ever settled
+/// it. Under the lock the stamp's time does not matter at all: the record whose stamp says 2096 is settled at the
+/// first request of a bridge whose clock says 2026, and without the lock it is left (the grace is a wall clock's).
+#[test]
+fn x_delta_apps5_5_a_record_dated_by_a_clock_that_was_wrong_ahead_is_settled_under_the_lock() {
+    for guarded in [false, true] {
+        let state = azul_storage::testing::TempDir::new("bridge-dav-swap-ahead");
+        let drive = Killing::new(usize::MAX);
+        drive
+            .inner
+            .put("dest.azul-new-4000000000-4242-0/one.txt", b"one")
+            .unwrap();
+        let intent = SwapIntent {
+            key: String::from("src"),
+            target: String::from("dest"),
+            beside: String::from("dest.azul-new-4000000000-4242-0"),
+            aside: String::from("dest.azul-old-4000000000-4242-0"),
+            folder: true,
+            destination_is_folder: true,
+            moving: false,
+        };
+        let instance = crate::single::claim(&state.0).unwrap();
+        let mut records = SwapRecords::of_drive(&state.0, Some("folder:shared"));
+        if guarded {
+            records = records.guarded_by(&instance);
+        }
+        // Dated 2096 by the clock of the swap; written by a process that is not this one.
+        records
+            .put(
+                "4000000000-4294967295-0",
+                &serde_json::to_vec(&intent).unwrap(),
+            )
+            .unwrap();
+        let mut dav = dav_keeping(drive.clone(), records.clone());
+        dav.clock = Some(Box::new(|| 1_790_757_720));
+        assert_eq!(
+            dav.respond(&head("OPTIONS", "/", &[]), b"").status,
+            Status::OK
+        );
+        let strays = drive
+            .inner
+            .keys()
+            .iter()
+            .filter(|key| key.contains(".azul-"))
+            .count();
+        if guarded {
+            assert_eq!(
+                strays,
+                0,
+                "settled at the first request: {:?}",
+                drive.inner.keys()
+            );
+            assert!(records.stamps().unwrap().is_empty());
+        } else {
+            assert_eq!(
+                strays, 1,
+                "no lock: a wall clock decides, and it is far from 2096"
+            );
+            assert_eq!(records.stamps().unwrap().len(), 1);
+        }
+        assert_eq!(drive.inner.get("dest/keep.txt").unwrap(), b"old");
+    }
+}
+
+/// The records say whether they are guarded, and only by a lock that really protects their folder: records below
+/// ANOTHER state folder than the one the lock is on, and records in memory, are not (their grace stays).
+#[test]
+fn x_delta_apps5_5_only_records_below_the_folder_the_lock_protects_are_guarded() {
+    let state = azul_storage::testing::TempDir::new("bridge-dav-guard-state");
+    let other = azul_storage::testing::TempDir::new("bridge-dav-guard-other");
+    let instance = crate::single::claim(&state.0).unwrap();
+    assert!(instance.guards(&state.0.join("dav-swaps")));
+    assert!(!instance.guards(&other.0.join("dav-swaps")));
+    assert!(SwapRecords::of_drive(&state.0, Some("azlin:d_1"))
+        .guarded_by(&instance)
+        .guarded());
+    assert!(
+        !SwapRecords::of_drive(&other.0, Some("azlin:d_1"))
+            .guarded_by(&instance)
+            .guarded(),
+        "another state folder is no folder this lock keeps another bridge out of"
+    );
+    assert!(
+        !SwapRecords::in_memory().guarded_by(&instance).guarded(),
+        "memory has no other process"
+    );
+    assert!(
+        !SwapRecords::of_drive(&state.0, Some("azlin:d_1")).guarded(),
+        "a Dav built without the lock keeps the grace"
+    );
 }
 
 /// `serve` keeps the records of each drive in a folder of the state folder, beside the UID maps - one

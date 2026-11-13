@@ -50,7 +50,9 @@ pub const HIDDEN: &str = ".azlin";
 /// The folder of the swaps' records ([`SwapRecords`]) in the bridge's state folder, the place of the UID
 /// maps ([`crate::uids::UIDS_DIR`]): one folder for each drive the bridge serves.
 pub const SWAPS_DIR: &str = "dav-swaps";
-/// A record of another process is left alone for this long: it may be a swap that is running.
+/// A record of another process is left alone for this long when nothing proves that process is gone: it may be a swap
+/// that is running. A bridge that holds the lock of its state folder knows it is ([`SwapRecords::guarded_by`]); the
+/// grace is for a [`Dav`] that was built without it (the tests).
 const SWAP_GRACE_SECS: u64 = 600;
 /// A lock lasts at most this long without a refresh.
 pub const MAX_LOCK_SECS: u64 = 3600;
@@ -140,6 +142,8 @@ pub struct Dav {
 #[derive(Debug, Clone)]
 pub struct SwapRecords {
     place: RecordPlace,
+    /// The bridge holds the OS lock of the state folder these records are in ([`SwapRecords::guarded_by`]).
+    guarded: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +158,7 @@ impl SwapRecords {
     pub fn in_folder(folder: PathBuf) -> SwapRecords {
         SwapRecords {
             place: RecordPlace::Folder(folder),
+            guarded: false,
         }
     }
 
@@ -162,7 +167,29 @@ impl SwapRecords {
     pub fn in_memory() -> SwapRecords {
         SwapRecords {
             place: RecordPlace::Memory(Arc::new(Mutex::new(BTreeMap::new()))),
+            guarded: false,
         }
+    }
+
+    /// These records, made by a bridge that holds `instance`, the OS lock of its state folder
+    /// ([`crate::single::claim`]): when the records are files below that folder, no other bridge serves it, so a
+    /// record of ANOTHER process id is a dead process's and the first request settles it - it needs no grace
+    /// (X-DELTA-APPS5-5: a bridge that a login item started a second after a crash left the user's destination
+    /// missing for ten minutes, and a record dated by a clock that was wrong ahead waited for years). Records
+    /// that are not below the lock's folder, and records in memory, are not guarded: their grace stays.
+    #[must_use]
+    pub fn guarded_by(mut self, instance: &crate::single::Instance) -> SwapRecords {
+        self.guarded = match &self.place {
+            RecordPlace::Folder(folder) => instance.guards(folder),
+            RecordPlace::Memory(_) => false,
+        };
+        self
+    }
+
+    /// Whether a record of another process is a dead one's ([`SwapRecords::guarded_by`]).
+    #[must_use]
+    pub(crate) fn guarded(&self) -> bool {
+        self.guarded
     }
 
     /// The records of the drive `label` the bridge serves, below the state folder `state`: one folder
@@ -1672,9 +1699,11 @@ impl Dav {
     }
 
     /// Finishes or undoes the swaps recorded in [`SwapRecords`] that are not running now. A record of
-    /// this process that is not running was cut by a panic; one of another process is left alone for
-    /// [`SWAP_GRACE_SECS`] (`now`: seconds since 1970) - it may be a swap that is running - and the
-    /// look says when that is over ([`Recovery::wait_until`]). A record that cannot be read stays, and
+    /// this process that is not running was cut by a panic; one of another process is settled at once
+    /// when the bridge holds the lock of the state folder the records are in ([`SwapRecords::guarded_by`]: the
+    /// process that made it is gone), and else left alone for [`SWAP_GRACE_SECS`] (`now`: seconds since 1970) -
+    /// it may be a swap that is running - and the look says when that is over ([`Recovery::wait_until`]). A
+    /// record that cannot be read stays, and
     /// so does one whose names are not where the table of [`Dav::swap_in`] expects them: nothing is
     /// guessed.
     ///
@@ -1700,6 +1729,10 @@ impl Dav {
                 match at {
                     // A name this bridge did not make: not its to settle.
                     None => continue,
+                    // The bridge holds the lock of the state folder the records are in: no other bridge is serving
+                    // it, so the process that made this record is gone - settled at the first request, whatever
+                    // the clock said then or says now (X-DELTA-APPS5-5).
+                    Some(_) if self.records.guarded() => {}
                     Some(at) if now < at.saturating_add(SWAP_GRACE_SECS) => {
                         let until = at.saturating_add(SWAP_GRACE_SECS);
                         found.wait_until =

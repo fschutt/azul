@@ -672,7 +672,9 @@ fn served_drive(
 /// `<state>/dav-swaps/`, so a record is never settled on another drive than the one it was made on - and a process that
 /// starts again finds the records of the one that was killed. An account's drive without an id has no place to keep
 /// them: an error, never records in memory (the swap's intent would be lost with the process, the strays and the
-/// half-swapped destination of X-DELTA-APPS3-14 would be back, and nothing would say so).
+/// half-swapped destination of X-DELTA-APPS3-14 would be back, and nothing would say so). The records are made under
+/// `instance`, the lock of the state folder ([`crate::single::claim`]): the `Dav` that gets them knows no other bridge
+/// serves the folder, so it settles a record of another process at its first request ([`SwapRecords::guarded_by`]).
 ///
 /// # Errors
 ///
@@ -681,23 +683,22 @@ fn swap_records_for(
     options: &Options,
     state: &Path,
     drive_id: Option<&str>,
+    instance: &crate::single::Instance,
 ) -> Result<SwapRecords, String> {
-    if options.memory {
-        return Ok(SwapRecords::of_drive(state, None));
-    }
-    if let Some(folder) = &options.folder {
+    let records = if options.memory {
+        SwapRecords::of_drive(state, None)
+    } else if let Some(folder) = &options.folder {
         let whole = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
-        return Ok(SwapRecords::of_drive(
-            state,
-            Some(&format!("folder:{}", whole.display())),
-        ));
-    }
-    let id = drive_id.ok_or_else(|| {
-        String::from(
-            "the drive has no id: the records of its replacing copies and moves cannot be kept",
-        )
-    })?;
-    Ok(SwapRecords::of_drive(state, Some(&format!("azlin:{id}"))))
+        SwapRecords::of_drive(state, Some(&format!("folder:{}", whole.display())))
+    } else {
+        let id = drive_id.ok_or_else(|| {
+            String::from(
+                "the drive has no id: the records of its replacing copies and moves cannot be kept",
+            )
+        })?;
+        SwapRecords::of_drive(state, Some(&format!("azlin:{id}")))
+    };
+    Ok(records.guarded_by(instance))
 }
 
 fn serve(
@@ -755,18 +756,11 @@ fn serve(
             UidMaps::in_folder(state.join(UIDS_DIR)),
         )
     };
-    // The records of a replacing COPY or MOVE (WebDAV): files in the state folder beside the UID maps - never in the
-    // drive, which refuses its own bookkeeping's names (X-DELTA-APPS4-1) - one folder for each drive. ONE function makes
-    // them (X-DELTA-APPS5-4: nothing pinned that `serve` kept them there, and records handed to the wrong arm lose the
-    // swap's intent with the process, without a word).
-    let swaps = swap_records_for(
-        options,
-        state,
-        match &backing {
-            Backing::Azlin { id, .. } => Some(id.as_str()),
-            Backing::Local(_) => None,
-        },
-    )?;
+    // The id of the account's drive: the key of its swap records, below (a `Backing::Local` has none).
+    let drive_id: Option<String> = match &backing {
+        Backing::Azlin { id, .. } => Some(id.clone()),
+        Backing::Local(_) => None,
+    };
     // An Azlin drive goes through the encryption, as AzMail's does (azul-mail-core's mail_drive:
     // AutoEncrypted with the drive index, its copy in the state folder; the drive key from the
     // bridge's keyring; a drive that is not encrypted is neither read nor written), and the drops
@@ -812,6 +806,13 @@ fn serve(
     };
     // One bridge per user: refused here, before a port is taken, naming the one that serves.
     let instance = crate::single::claim(state)?;
+    // The records of a replacing COPY or MOVE (WebDAV): files in the state folder beside the UID maps - never in the
+    // drive, which refuses its own bookkeeping's names (X-DELTA-APPS4-1) - one folder for each drive, made under the
+    // lock just taken: no other bridge serves this state folder, so a record of another process is a dead process's
+    // and the first request settles it (X-DELTA-APPS5-5). ONE function makes them (X-DELTA-APPS5-4: nothing pinned that
+    // `serve` kept them there, and records handed to the wrong arm lose the swap's intent with the process, without
+    // a word).
+    let swaps = swap_records_for(options, state, drive_id.as_deref(), &instance)?;
     let imap_listener = bind(options.imap_port.unwrap_or(config.imap_port), "IMAP")?;
     let smtp_listener = bind(options.smtp_port.unwrap_or(config.smtp_port), "SMTP")?;
     let dav_listener = bind(options.dav_port.unwrap_or(config.dav_port), "WebDAV")?;
@@ -923,42 +924,49 @@ mod tests {
     /// no word). Each arm of the function `serve` calls, by the options it is given: `--memory` keeps them in memory (no
     /// file anywhere); `--folder DIR` a file in a folder of its own below `<state>/dav-swaps/`, keyed by the canonical
     /// path; an account's drive another folder, keyed by its id; and an account's drive with no id is refused - it is never
-    /// the memory arm.
+    /// the memory arm. X-DELTA-APPS5-5: the records of the two arms that are files are made under the lock of the state
+    /// folder (`Instance`), which is what lets the `Dav` settle a record of another process at once; memory has none.
     #[test]
     fn x_delta_apps5_4_serve_keeps_the_records_of_a_swap_in_the_state_folder_by_the_drive_it_serves(
     ) {
         let state = azul_storage::testing::TempDir::new("bridge-cli-swaps-state");
         let documents = azul_storage::testing::TempDir::new("bridge-cli-swaps-documents");
         let options = |line: &str| parse_args(&args(line)).unwrap();
+        let instance = crate::single::claim(&state.0).unwrap();
 
         // `--memory`: records that die with the process, and not one file below the state folder.
-        let memory = swap_records_for(&options("serve --memory"), &state.0, None).unwrap();
+        let memory =
+            swap_records_for(&options("serve --memory"), &state.0, None, &instance).unwrap();
         memory.put("1000-4242-0", b"{}").unwrap();
         assert_eq!(memory.folder(), None, "memory");
         assert_eq!(memory.stamps().unwrap(), vec![String::from("1000-4242-0")]);
         assert!(!state.0.join("dav-swaps").exists(), "no file for --memory");
+        assert!(!memory.guarded(), "no other process can see them");
 
         // `--folder DIR`: a file in the folder of that directory's records, keyed by its canonical path.
         let line = format!("serve --folder {}", documents.0.display());
-        let folder = swap_records_for(&options(&line), &state.0, None).unwrap();
+        let folder = swap_records_for(&options(&line), &state.0, None, &instance).unwrap();
         folder.put("1000-4242-0", b"{}").unwrap();
         let whole = std::fs::canonicalize(&documents.0).unwrap();
         let place = swaps_of(&state.0, &format!("folder:{}", whole.display()));
         assert_eq!(folder.folder(), Some(place.as_path()), "folder");
         assert!(place.join("1000-4242-0.json").is_file(), "{place:?}");
+        assert!(folder.guarded(), "made under the lock of the state folder");
 
         // An account's drive: a folder of its own, keyed by its id.
-        let account = swap_records_for(&options("serve"), &state.0, Some("d_42")).unwrap();
+        let account =
+            swap_records_for(&options("serve"), &state.0, Some("d_42"), &instance).unwrap();
         account.put("1000-4242-0", b"{}").unwrap();
         let place = swaps_of(&state.0, "azlin:d_42");
         assert_eq!(account.folder(), Some(place.as_path()), "account");
         assert!(place.join("1000-4242-0.json").is_file(), "{place:?}");
+        assert!(account.guarded(), "made under the lock of the state folder");
         assert_ne!(
             account.folder(),
             folder.folder(),
             "one folder for each drive"
         );
-        let other = swap_records_for(&options("serve"), &state.0, Some("d_43")).unwrap();
+        let other = swap_records_for(&options("serve"), &state.0, Some("d_43"), &instance).unwrap();
         assert_eq!(
             other.folder(),
             Some(swaps_of(&state.0, "azlin:d_43").as_path()),
@@ -970,11 +978,11 @@ mod tests {
         );
 
         // The same account in a process that starts again finds the record of the one that was killed.
-        let again = swap_records_for(&options("serve"), &state.0, Some("d_42")).unwrap();
+        let again = swap_records_for(&options("serve"), &state.0, Some("d_42"), &instance).unwrap();
         assert_eq!(again.stamps().unwrap(), vec![String::from("1000-4242-0")]);
 
         // An account's drive that has no id has no place to keep them: refused, never the memory arm.
-        let none = swap_records_for(&options("serve"), &state.0, None).unwrap_err();
+        let none = swap_records_for(&options("serve"), &state.0, None, &instance).unwrap_err();
         assert!(none.contains("has no id"), "{none}");
     }
 
