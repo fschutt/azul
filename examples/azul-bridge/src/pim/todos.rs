@@ -128,6 +128,36 @@ pub fn ics_of(task: &Task, list_name: &str, info: &ObjectInfo, uid: Option<&str>
     }
 }
 
+/// The name a list shows whose own file is damaged ([`TaskStore::damaged`]): the list, and the tasks
+/// in it, are served as they are; nothing is written into it until the file is repaired.
+pub const UNREADABLE_LIST: &str = "unreadable list";
+
+/// What the task files hold: [`Pim::task_store`].
+#[derive(Debug, Clone)]
+pub(crate) struct TaskStore {
+    /// AzTasks' lists - a list without its `list.json` too, as AzTasks shows it, and a list whose file
+    /// is damaged under [`UNREADABLE_LIST`].
+    pub lists: Vec<TaskList>,
+    /// Every task file, under the name the programs gave it.
+    pub files: Vec<TodoFile>,
+    /// The ids of the lists whose `list.json` is there and is no list of that id (bytes that are no
+    /// JSON, another program's file, a list of another id): shown read-only, never rebuilt - a write
+    /// that replaces the file is refused, so a repair by hand finds the file as it was
+    /// (X-DELTA-APPS4-9).
+    pub damaged: HashSet<String>,
+}
+
+/// The refusal of a write into a list whose own file is damaged: the list is shown as it is, and
+/// nothing is written into it until the file is repaired.
+fn damaged_refusal(list: &str) -> Response {
+    Response::text(
+        Status::FORBIDDEN,
+        &format!(
+            "The file of the list {list} is damaged: it is shown as it is, and nothing is written into it until it is repaired."
+        ),
+    )
+}
+
 /// A task file and the name its href has.
 #[derive(Debug, Clone)]
 pub(crate) struct TodoFile {
@@ -178,10 +208,15 @@ impl Pim {
     }
 
     /// AzTasks' lists (a list without its `list.json` too, as AzTasks shows it) and every task
-    /// file, under the names the programs gave them.
-    pub(crate) fn task_store(&self) -> Result<(Vec<TaskList>, Vec<TodoFile>), DriveError> {
+    /// file, under the names the programs gave them. A list file that is there and is no list of its
+    /// id is a DAMAGED list, listed read-only under its id ([`TaskStore::damaged`]): one bad file
+    /// does not take the whole calendar home down for every client until someone repairs it by
+    /// hand; a read that FAILED is another matter - the drive did not answer, and that is the
+    /// answer.
+    pub(crate) fn task_store(&self) -> Result<TaskStore, DriveError> {
         let prefix = format!("{}/", task::TASKS_DIR);
         let mut lists: Vec<TaskList> = Vec::new();
+        let mut damaged: HashSet<String> = HashSet::new();
         let mut files = Vec::new();
         let mut keys = HashSet::new();
         let mut ids = HashSet::new();
@@ -192,9 +227,9 @@ impl Pim {
                     // made up below with the default name and the next order, and the next
                     // PROPPATCH or MKCALENDAR would write that over the real file - its name,
                     // colour and order gone (X-DELTA-APPS3-9). Only a file that is gone since the
-                    // listing is "not there"; a read that failed, and a file that is there and is
-                    // no list of this id, end the call: the answer is the drive's, nothing is
-                    // written.
+                    // listing is "not there"; a read that failed ends the call: the answer is
+                    // the drive's, nothing is written. A file that was read and is no list of
+                    // this id is damaged: it is listed below, read-only (X-DELTA-APPS4-9).
                     let bytes = match self.contacts.get(&info.key) {
                         Ok(bytes) => bytes,
                         Err(DriveError::NotFound { .. }) => continue,
@@ -207,10 +242,7 @@ impl Pim {
                     match read {
                         Some(read) => lists.push(read),
                         None => {
-                            return Err(DriveError::Io(format!(
-                                "the file of the task list \"{}\" cannot be read",
-                                info.key
-                            )))
+                            damaged.insert(list);
                         }
                     }
                 }
@@ -232,6 +264,13 @@ impl Pim {
             }
         }
         let mut next = lists.iter().map(|l| l.order).max().unwrap_or(0);
+        // A damaged list is listed under its id, last, with the name that says so.
+        let mut broken: Vec<&String> = damaged.iter().collect();
+        broken.sort();
+        for id in broken {
+            next += 1;
+            lists.push(TaskList::new(id.clone(), UNREADABLE_LIST.to_string(), next));
+        }
         let mut missing: Vec<String> = files
             .iter()
             .map(|file| file.task.list.clone())
@@ -247,7 +286,11 @@ impl Pim {
         lists.sort_by(|a, b| (a.order, a.name.to_lowercase()).cmp(&(b.order, b.name.to_lowercase())));
         self.lock_tasks().retain(|key, _| keys.contains(key));
         self.names.keep_only(Kind::Todo, &ids);
-        Ok((lists, files))
+        Ok(TaskStore {
+            lists,
+            files,
+            damaged,
+        })
     }
 
     /// A list's URL segment: the path a program made it under, else `tasks-<id>`.
@@ -275,7 +318,11 @@ impl Pim {
 
     /// Every list as a calendar collection of to-dos, with its CTag.
     pub(crate) fn task_list_items(&self) -> Result<Vec<Item>, DriveError> {
-        let (lists, files) = self.task_store()?;
+        let TaskStore {
+            lists,
+            files,
+            damaged,
+        } = self.task_store()?;
         let ids: HashSet<String> = lists.iter().map(|l| l.id.clone()).collect();
         self.names.keep_only(Kind::TaskList, &ids);
         let mut items = Vec::new();
@@ -286,6 +333,7 @@ impl Pim {
             }
             items.push(Item::TaskList {
                 segment: self.segment_of_list(&list.id),
+                damaged: damaged.contains(&list.id),
                 list,
                 ctag: super::ctag_of(&text),
             });
@@ -298,7 +346,7 @@ impl Pim {
         let Some(id) = self.list_id(segment) else {
             return Ok(Vec::new());
         };
-        let (lists, files) = self.task_store()?;
+        let TaskStore { lists, files, .. } = self.task_store()?;
         let Some(list) = lists.into_iter().find(|l| l.id == id) else {
             return Ok(Vec::new());
         };
@@ -339,7 +387,7 @@ impl Pim {
         task.list = list.clone();
         let list_name = self
             .task_store()?
-            .0
+            .lists
             .into_iter()
             .find(|l| l.id == list)
             .map(|l| l.name)
@@ -379,10 +427,13 @@ impl Pim {
     }
 
     pub(crate) fn put_todo(&self, head: &Head, segment: &str, name: &str, body: &[u8]) -> Result<Response, DriveError> {
-        let (lists, _) = self.task_store()?;
+        let TaskStore { lists, damaged, .. } = self.task_store()?;
         let Some(list) = self.list_id(segment).filter(|id| lists.iter().any(|l| l.id == *id)) else {
             return Ok(Response::text(Status::CONFLICT, "No list has this path."));
         };
+        if damaged.contains(&list) {
+            return Ok(damaged_refusal(&list));
+        }
         let Ok(text) = std::str::from_utf8(body) else {
             return Ok(dav_error(Status::FORBIDDEN, "<C:valid-calendar-data/>"));
         };
@@ -441,6 +492,9 @@ impl Pim {
         if let Some(refusal) = precondition(head, Some(version_of(&info).as_str())) {
             return Ok(refusal);
         }
+        if self.task_store()?.damaged.contains(&task.list) {
+            return Ok(damaged_refusal(&task.list));
+        }
         self.contacts.delete(&info.key)?;
         self.names.forget(Kind::Todo, name);
         self.names.forget(Kind::TaskUid, &task.id);
@@ -451,7 +505,7 @@ impl Pim {
     /// the body (else "Tasks" and the first colour), last in the order; its id the segment's
     /// `tasks-<id>` when that is one, else a new one kept for the segment.
     pub(crate) fn make_task_list(&self, segment: &str, props: &[Patched]) -> Result<Response, DriveError> {
-        let (lists, _) = self.task_store()?;
+        let TaskStore { lists, .. } = self.task_store()?;
         if self.list_id(segment).is_some_and(|id| lists.iter().any(|l| l.id == id)) {
             return Ok(Response::text(Status::METHOD_NOT_ALLOWED, "A list is there."));
         }

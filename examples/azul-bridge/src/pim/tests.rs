@@ -890,13 +890,157 @@ fn x_delta_apps3_9_a_task_list_whose_file_cannot_be_read_is_not_rebuilt_and_not_
         (7, task::ListColor::Green),
         "{stored:?}"
     );
-    // A list file that is there and is no list at all is no "unnamed list" either.
+    // A list file that is there and is no list at all is no "unnamed list" either, and no rename:
+    // it is shown as it is (X-DELTA-APPS4-9) and the PROPPATCH is refused, property by property.
     contacts.put(&list.key(), b"{ not a list").unwrap();
     let answer = ask(&pim, "PROPPATCH", &href, &[], rename);
-    assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
+    assert_eq!(answer.status, Status::MULTI_STATUS, "{}", text(&answer));
+    assert!(text(&answer).contains("403 Forbidden"), "{}", text(&answer));
     assert_eq!(
         contacts.get(&list.key()).unwrap(),
         b"{ not a list",
         "the damaged file is left for repair"
+    );
+}
+
+/// X-DELTA-APPS4-9, RED on the code before: ONE `list.json` that was there and was no list of its id
+/// ended `task_store` with an error, and the calendar home's PROPFIND - which lists the calendars and
+/// the task lists together - answered 502 to every client, events included, until someone repaired
+/// the file by hand. Now the damaged list is listed read-only under its id (named `unreadable list`,
+/// its tasks served), the home answers, the good list works, and only the writes that would replace
+/// the file are refused - PROPPATCH, MKCALENDAR, a PUT or a DELETE in it - with the file byte-identical
+/// afterwards. (A read that FAILED stays the drive's 502: the first half of the test above.)
+#[test]
+fn x_delta_apps4_9_one_damaged_list_file_is_shown_read_only_and_does_not_take_the_calendar_home_down(
+) {
+    const BROKEN: &str = "8b7a6958-4736-4251-a0f9-e8d7c6b5a493";
+    const BROKEN_TASK: &str = "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e";
+    let f = fixture();
+    let made = day(2026, 10, 1).and_time(at(8, 0));
+    let good = TaskList::new(LIST.to_string(), String::from("Home"), 1);
+    f.contacts
+        .put(&good.key(), task::list_to_json(&good).as_bytes())
+        .unwrap();
+    let rent = Task::new(
+        TASK.to_string(),
+        LIST.to_string(),
+        String::from("Pay rent"),
+        made,
+    );
+    f.contacts
+        .put(&rent.key(), task::task_to_json(&rent).as_bytes())
+        .unwrap();
+    // The second list: its own file is no list, its task is fine.
+    let damaged_file: &[u8] = b"{ not a list";
+    f.contacts
+        .put(&task::list_key(BROKEN), damaged_file)
+        .unwrap();
+    let passport = Task::new(
+        BROKEN_TASK.to_string(),
+        BROKEN.to_string(),
+        String::from("Renew passport"),
+        made,
+    );
+    f.contacts
+        .put(&passport.key(), task::task_to_json(&passport).as_bytes())
+        .unwrap();
+    let keys_before = f.contacts.keys();
+
+    // The calendar home lists everything: the events' calendars, the good list and the damaged one.
+    let home = ask(
+        &f.pim,
+        "PROPFIND",
+        "/calendars/",
+        &[("Depth", "1")],
+        CALENDAR_PROPS,
+    );
+    assert_eq!(home.status, Status::MULTI_STATUS, "{}", text(&home));
+    let home = text(&home);
+    for href in [
+        "/calendars/default/".to_string(),
+        format!("/calendars/tasks-{LIST}/"),
+        format!("/calendars/tasks-{BROKEN}/"),
+    ] {
+        assert!(
+            home.contains(&format!("<D:href>{href}</D:href>")),
+            "{href}: {home}"
+        );
+    }
+    assert!(
+        home.contains("<D:displayname>Home</D:displayname>"),
+        "{home}"
+    );
+    assert!(
+        home.contains("<D:displayname>unreadable list</D:displayname>"),
+        "{home}"
+    );
+    // Its task is served, read-only.
+    let broken = format!("/calendars/tasks-{BROKEN}/");
+    let listing = text(&ask(&f.pim, "PROPFIND", &broken, &[("Depth", "1")], ""));
+    assert!(
+        listing.contains(&format!("{broken}{BROKEN_TASK}.ics")),
+        "{listing}"
+    );
+    let served = text(&ask(
+        &f.pim,
+        "GET",
+        &format!("{broken}{BROKEN_TASK}.ics"),
+        &[],
+        "",
+    ));
+    assert!(served.contains("SUMMARY:Renew passport"), "{served}");
+
+    // Every write that would replace the file, or add to a list nobody can name, is refused.
+    let rename = "<D:propertyupdate xmlns:D=\"DAV:\"><D:set><D:prop>\
+         <D:displayname>Renamed</D:displayname></D:prop></D:set></D:propertyupdate>";
+    let answer = ask(&f.pim, "PROPPATCH", &broken, &[], rename);
+    assert_eq!(answer.status, Status::MULTI_STATUS, "{}", text(&answer));
+    assert!(text(&answer).contains("403 Forbidden"), "{}", text(&answer));
+    let mk = "<C:mkcalendar xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><D:set><D:prop>\
+         <D:displayname>Again</D:displayname><C:supported-calendar-component-set><C:comp name=\"VTODO\"/>\
+         </C:supported-calendar-component-set></D:prop></D:set></C:mkcalendar>";
+    assert_eq!(
+        ask(&f.pim, "MKCALENDAR", &broken, &[], mk).status,
+        Status::METHOD_NOT_ALLOWED,
+        "a list is there"
+    );
+    let new_todo = vtodo("UID:C0FFEE-REMINDER\r\nSUMMARY:Call the plumber\r\n");
+    let answer = ask(
+        &f.pim,
+        "PUT",
+        &format!("{broken}C0FFEE-REMINDER.ics"),
+        &[],
+        &new_todo,
+    );
+    assert_eq!(answer.status, Status::FORBIDDEN, "{}", text(&answer));
+    let answer = ask(
+        &f.pim,
+        "DELETE",
+        &format!("{broken}{BROKEN_TASK}.ics"),
+        &[],
+        "",
+    );
+    assert_eq!(answer.status, Status::FORBIDDEN, "{}", text(&answer));
+    assert_eq!(
+        f.contacts.get(&task::list_key(BROKEN)).unwrap(),
+        damaged_file,
+        "the damaged file is byte-identical"
+    );
+    assert_eq!(
+        f.contacts.keys(),
+        keys_before,
+        "nothing was written anywhere"
+    );
+
+    // The good list works as it did.
+    let good_href = format!("/calendars/tasks-{LIST}/C0FFEE-REMINDER.ics");
+    assert_eq!(
+        ask(&f.pim, "PUT", &good_href, &[], &new_todo).status,
+        Status::CREATED
+    );
+    assert_eq!(
+        f.contacts.get(&task::list_key(BROKEN)).unwrap(),
+        damaged_file,
+        "and still the damaged file is as it was"
     );
 }

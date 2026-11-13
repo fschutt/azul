@@ -378,11 +378,13 @@ pub(crate) enum Item {
     },
     /// A contact: its resource name and its file.
     Card { name: String, info: ObjectInfo },
-    /// One of AzTasks' lists as a calendar of to-dos: its URL segment, the list, its CTag.
+    /// One of AzTasks' lists as a calendar of to-dos: its URL segment, the list, its CTag, and
+    /// whether its own file is damaged (shown read-only: [`todos::TaskStore::damaged`]).
     TaskList {
         segment: String,
         list: TaskList,
         ctag: String,
+        damaged: bool,
     },
     /// A to-do: its list's segment and name, its resource name, its file.
     Todo {
@@ -1303,8 +1305,12 @@ impl Pim {
         let Some(props) = patched_props(body) else {
             return Ok(Response::text(Status::BAD_REQUEST, "Not a PROPPATCH body."));
         };
-        // What a PROPPATCH can change: a calendar's or a to-do list's name and colour.
-        let named = matches!(item, Item::Calendar { .. } | Item::TaskList { .. });
+        // What a PROPPATCH can change: a calendar's or a to-do list's name and colour - not those of
+        // a list whose file is damaged: it is shown read-only, and a rename would replace the file.
+        let named = matches!(
+            item,
+            Item::Calendar { .. } | Item::TaskList { damaged: false, .. }
+        );
         let refused: Vec<&Patched> = props
             .iter()
             .filter(|p| !named || !events::patchable(p))
