@@ -1459,3 +1459,93 @@ fn x_delta_keys5_2_a_stream_is_not_made_again_but_the_replaced_drive_is_dropped(
     assert_eq!(w.auto.get("notes/s.txt").unwrap(), b"streamed again");
     assert_eq!(w.counting.opens(), 2);
 }
+
+/// A keyring that answers like the one it holds until it is told to break: what a keychain that locks or a prompt
+/// the user declines is to a call that already has its drive.
+struct Breaks {
+    inner: Arc<MemoryKeyring>,
+    broken: std::sync::atomic::AtomicBool,
+}
+
+impl Breaks {
+    fn fails(&self) -> Option<crate::keyring::KeyringError> {
+        self.broken
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .then(|| crate::keyring::KeyringError::Failed(String::from("the keychain is locked")))
+    }
+}
+
+impl crate::keyring::KeyringStore for Breaks {
+    fn get(&self, key: &str) -> Result<Option<String>, crate::keyring::KeyringError> {
+        match self.fails() {
+            Some(error) => Err(error),
+            None => crate::keyring::KeyringStore::get(self.inner.as_ref(), key),
+        }
+    }
+
+    fn set(&self, key: &str, secret: &str) -> Result<(), crate::keyring::KeyringError> {
+        match self.fails() {
+            Some(error) => Err(error),
+            None => crate::keyring::KeyringStore::set(self.inner.as_ref(), key, secret),
+        }
+    }
+
+    fn delete(&self, key: &str) -> Result<(), crate::keyring::KeyringError> {
+        match self.fails() {
+            Some(error) => Err(error),
+            None => crate::keyring::KeyringStore::delete(self.inner.as_ref(), key),
+        }
+    }
+}
+
+/// X-DELTA-KEYS5-2, the keyring that cannot be read: the one keyring read of the failure path is the only evidence
+/// that the drive was replaced, and "unknown" is never "replaced". A refusal whose keychain cannot be read stays the
+/// refusal (not the keyring's error, nothing reopened, nothing written); once the keychain answers, the next call
+/// is the one that heals.
+#[test]
+fn x_delta_keys5_2_a_keyring_that_cannot_be_read_on_the_failure_path_leaves_the_refusal_and_reopens_nothing(
+) {
+    use crate::keyring::KeyringStore;
+    let w = normal_world();
+    let switch = Arc::new(Breaks {
+        inner: w.keyring.clone(),
+        broken: std::sync::atomic::AtomicBool::new(false),
+    });
+    let auto = crate::encrypted::AutoEncrypted::new(
+        w.plain.clone(),
+        DRIVE,
+        switch.clone() as Arc<dyn KeyringStore>,
+        Some(w.counting.clone() as Arc<dyn IndexProvider>),
+    )
+    .encrypted_only();
+    assert_eq!(auto.get("notes/plan.txt").unwrap(), b"the plan");
+    assert_eq!(w.counting.opens(), 1, "premise: opened once, kept");
+    // The rotation of another process (the same keychain, read through the inner keyring).
+    w.rotated_through_the_same_keychain();
+    let manifest = w.mem.head(keys::MANIFEST).unwrap().etag;
+    switch
+        .broken
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let put = auto.put("notes/late.txt", b"x").map(|_| ());
+    assert!(
+        asks_for_the_key(&put),
+        "the refusal stands - not the keyring's error: {put:?}"
+    );
+    assert_eq!(
+        w.counting.opens(),
+        1,
+        "nothing was reopened on a failed read"
+    );
+    assert_eq!(
+        w.mem.head(keys::MANIFEST).unwrap().etag,
+        manifest,
+        "and the refused call committed nothing: the manifest did not move"
+    );
+    // The keychain answers again: the next call heals.
+    switch
+        .broken
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    auto.put("notes/late.txt", b"x")
+        .expect("the keychain holds the new key: the refused call is made again");
+    assert_eq!(w.counting.opens(), 2);
+}
