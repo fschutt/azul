@@ -646,14 +646,19 @@ struct OutboxRemoval {
     removed: usize,
     /// Mails that are still being sent: they stay.
     waiting: usize,
+    /// Send/Receive is using the Outbox ([`crate::send::remove_failed_entry`] never waits for it):
+    /// nothing was removed after this; the window says to try again in a moment (X-DELTA-APPS4-6).
+    busy: bool,
     /// Why a mail could not be removed, one text each.
     problems: Vec<String>,
 }
 
-/// Delete in the Outbox: the selected rows whose mail says "Not sent" are taken out of it - its
-/// entry first, its message file after ([`crate::send::remove_failed_entry`]); that is the only
-/// way a failed entry whose message file is gone leaves the list (X-DELTA-APPS3-4). A mail that is
-/// still being sent stays. `entries` are the Outbox's rows, `waiting` their entries by row path.
+/// Delete in the Outbox: the selected rows whose mail says "Not sent" are taken out of it - held in
+/// `removed/outbox/` first, then its entry, then its message file
+/// ([`crate::send::remove_failed_entry`]); that is the only way a failed entry whose message file is
+/// gone leaves the list (X-DELTA-APPS3-4). A mail that is still being sent stays; so does everything
+/// when Send/Receive is using the Outbox at that moment (the click does not wait for it).
+/// `entries` are the Outbox's rows, `waiting` their entries by row path.
 fn remove_from_outbox(
     root: &crate::store::DriveFolder,
     mailbox_id: &str,
@@ -676,6 +681,12 @@ fn remove_from_outbox(
         }
         match crate::send::remove_failed_entry(root, mailbox_id, &entry.id) {
             Ok(()) => done.removed += 1,
+            // The lock Send/Receive holds across its SMTP sessions: not waited for, not a problem
+            // of the mail - the rest of the selection would meet the same lock.
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                done.busy = true;
+                break;
+            }
             Err(e) => done.problems.push(e.to_string()),
         }
     }
@@ -694,6 +705,7 @@ fn delete_from_outbox(s: &mut MailApp) {
     };
     let done = remove_from_outbox(&s.root, &id, &s.entries, &s.outbox_waiting, &uids);
     s.notice = match (done.problems.first(), done.removed, done.waiting) {
+        _ if done.busy => t("azmail-notice-outbox-busy"),
         (Some(why), _, _) => t_args(
             "azmail-notice-outbox-remove-failed",
             &[("why", Arg::from(why.as_str()))],
@@ -2713,6 +2725,7 @@ mod tests {
             OutboxRemoval {
                 removed: 2,
                 waiting: 1,
+                busy: false,
                 problems: Vec::new()
             }
         );
@@ -2730,5 +2743,123 @@ mod tests {
             ["c-waiting.eml", "c-waiting.json"],
             "nothing else is left"
         );
+        // What Delete took out is held, not gone (X-DELTA-APPS4-7): the entry of both rows and the
+        // message file of the one that has one, under `removed/outbox/<stamp>/` of the account's
+        // folder, where the sweep deletes it after 90 days.
+        let held = crate::store::MailStore::new(crate::account::account_dir(&root, id))
+            .keys(crate::store::REMOVED_PREFIX);
+        let names: Vec<&str> = held
+            .iter()
+            .map(|key| key.rsplit('/').next().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "a-failed-and-gone.json",
+                "b-failed-with-file.eml",
+                "b-failed-with-file.json"
+            ],
+            "{held:?}"
+        );
+        assert!(
+            held.iter().all(|key| key.starts_with("removed/outbox/")),
+            "{held:?}"
+        );
+    }
+
+    /// X-DELTA-APPS4-6, RED on the code before: Delete took the Outbox's lock with `lock()` inside
+    /// the click callback, and Send/Receive holds that lock across every SMTP session of a retry: the
+    /// window did not repaint until the sends ended. Now Delete answers at once - nothing removed,
+    /// `busy` - and the notice says to try again in a moment, in both languages.
+    #[test]
+    fn x_delta_apps4_6_delete_in_the_outbox_answers_at_once_while_send_receive_holds_it() {
+        use crate::{
+            send::{self, OutboxState},
+            testutil::{MailFolder, TempDir},
+        };
+        let dir = TempDir::new("outbox-delete-busy");
+        let root = dir.folder();
+        let id = "ada@example.org";
+        let outbox = crate::store::MailStore::new(send::outbox_dir(&root, id));
+        let failed = send::OutboxEntry {
+            format: String::from(send::OUTBOX_FORMAT),
+            version: 1,
+            id: String::from("a-failed"),
+            message_id: String::from("a-failed@example.org"),
+            from: String::from("ada@example.org"),
+            subject: String::from("a-failed"),
+            created: 1_790_843_400,
+            attempts: 1,
+            last_attempt: 0,
+            next_attempt: 0,
+            state: OutboxState::Failed,
+            recipients: Vec::new(),
+        };
+        outbox
+            .put(
+                "a-failed.json",
+                serde_json::to_string(&failed).unwrap().as_bytes(),
+            )
+            .unwrap();
+        outbox
+            .put("a-failed.eml", b"Subject: x\r\n\r\nbody")
+            .unwrap();
+        let listed = send::outbox_entries(&root, id);
+        let index = send::outbox_index(&listed);
+        let waiting: std::collections::BTreeMap<String, send::OutboxEntry> = index
+            .iter()
+            .zip(&listed)
+            .map(|(row, entry)| (row.path.clone(), entry.clone()))
+            .collect();
+        let all: Vec<u32> = index.iter().map(|row| row.uid).collect();
+        // Send/Receive is in the middle of a retry.
+        let guard = send::lock_outbox();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let (thread_root, thread_index, thread_waiting, thread_all) =
+            (root.clone(), index.clone(), waiting.clone(), all.clone());
+        let delete = std::thread::spawn(move || {
+            let _ = sender.send(remove_from_outbox(
+                &thread_root,
+                id,
+                &thread_index,
+                &thread_waiting,
+                &thread_all,
+            ));
+        });
+        let answered = receiver.recv_timeout(std::time::Duration::from_secs(5));
+        // Released before anything is judged, so that a Delete that does wait can end.
+        drop(guard);
+        delete.join().unwrap();
+        let done = answered.expect("it answered at once and did not wait for Send/Receive");
+        assert_eq!(
+            done,
+            OutboxRemoval {
+                removed: 0,
+                waiting: 0,
+                busy: true,
+                problems: Vec::new()
+            }
+        );
+        assert_eq!(
+            send::outbox_entries(&root, id).len(),
+            1,
+            "nothing was removed"
+        );
+        // The notice says what to do, in both languages.
+        crate::l10n::in_english();
+        assert_eq!(
+            t("azmail-notice-outbox-busy"),
+            "Send/Receive is using the Outbox: try again in a moment."
+        );
+        azul_appkit::l10n::set_locale("de-DE");
+        let german = t("azmail-notice-outbox-busy");
+        crate::l10n::in_english();
+        assert!(
+            german.starts_with("Senden/Empfangen benutzt den Postausgang"),
+            "{german}"
+        );
+        // Send/Receive is done: the same Delete goes through.
+        let done = remove_from_outbox(&root, id, &index, &waiting, &all);
+        assert_eq!((done.removed, done.busy), (1, false));
     }
 }

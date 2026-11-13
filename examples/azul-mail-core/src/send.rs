@@ -2020,11 +2020,36 @@ fn file_sent_once(
 /// already gone is fine: removing the row of a mail whose file is gone is what this is for
 /// (X-DELTA-APPS3-4; the retry keeps such an entry as a failed one and nothing else removed it).
 ///
+/// The mail's text is the only copy of what the user wrote, and Delete is the key that moves every
+/// other mail to Deleted Items where it can be taken back: so the entry and the message file are
+/// COPIED into the holding area of `removed/` first - `removed/outbox/<stamp>/<id>.json` and
+/// `<id>.eml` of the account's mail folder, where the sweep of an Azlin account deletes them after
+/// 90 days like any other held copy - and only then taken out of the Outbox (X-DELTA-APPS4-7). The
+/// order is every step a crash cell: after the copies nothing is gone yet (the row is still there; a
+/// second Delete holds a second copy); after the entry went the row is gone and the message file is a
+/// harmless orphan beside its held copy. A message file that cannot be READ is an error, never "no
+/// file": nothing is removed then. A clock that is not set dates no hold: nothing is removed.
+///
+/// It never waits: Send/Receive holds [`OUTBOX_LOCK`] across every SMTP session of a retry (30 to 120
+/// seconds per exchanger that does not answer), and this runs in the window's click callback. A
+/// lock that is taken is [`std::io::ErrorKind::WouldBlock`] - the window says to try again in a moment
+/// (X-DELTA-APPS4-6).
+///
 /// # Errors
 ///
-/// The entry cannot be read, is not a failed one, or a file cannot be removed.
+/// The Outbox is in use, the entry cannot be read, is not a failed one, the hold cannot be written,
+/// or a file cannot be removed.
 pub fn remove_failed_entry(root: &DriveFolder, account_id: &str, id: &str) -> std::io::Result<()> {
-    let _lock = OUTBOX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = match OUTBOX_LOCK.try_lock() {
+        Ok(lock) => lock,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "Send/Receive is using the Outbox",
+            ))
+        }
+    };
     let outbox = MailStore::new(outbox_dir(root, account_id));
     let text = outbox.get(&format!("{id}.json"))?;
     let entry: OutboxEntry = serde_json::from_slice(&text)
@@ -2035,7 +2060,24 @@ pub fn remove_failed_entry(root: &DriveFolder, account_id: &str, id: &str) -> st
             "the mail is still being sent: only a mail that says \"Not sent\" can be removed",
         ));
     }
-    // ARCH30-4: Why::UserChose (the user's Delete on the row).
+    // The text first: what cannot be read is not "no file".
+    let message = match outbox.get(&format!("{id}.eml")) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let Some(at) = u64::try_from(now_secs()).ok().filter(|secs| *secs > 0) else {
+        return Err(std::io::Error::other(
+            "the clock of this computer is not set: nothing is removed from the Outbox",
+        ));
+    };
+    let held = MailStore::new(sent_store_root(root, account_id));
+    let place = store::removed_prefix(OUTBOX_DIR, &azul_storage::time::amz_date(at));
+    if let Some(bytes) = &message {
+        held.put(&format!("{place}/{id}.eml"), bytes)?;
+    }
+    held.put(&format!("{place}/{id}.json"), &text)?;
+    // ARCH30-4: Why::UserChose (the user's Delete on the row; both are held first).
     outbox.delete(&format!("{id}.json"))?;
     outbox.delete(&format!("{id}.eml"))
 }
@@ -4528,6 +4570,124 @@ mod tests {
             assert!(reason.contains(waiting), "{waiting} waits: {reason}");
         }
         assert!(reason.contains("cannot be written"), "{reason}");
+    }
+
+    // ==== X-DELTA-APPS4-6 + X-DELTA-APPS4-7: Delete in the Outbox waits for no lock and loses nothing ====
+
+    /// A mail whose every recipient refused it: "Not sent", still in the Outbox with its file.
+    fn failed(dir: &TempDir) -> OutboxEntry {
+        let entry = queued(dir);
+        let mut refusing = Fake::new(|_| RecipientStatus::Rejected {
+            reply: reply(550, "5.1.1 no such user"),
+            server: String::from("mx.test"),
+        });
+        retry_at(dir, true, OCT_1 + 400, &mut refusing);
+        let kept = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!((kept.len(), kept[0].state), (1, OutboxState::Failed));
+        entry
+    }
+
+    /// The keys of the holding area, under the account's folder (`removed/...`).
+    fn held_keys(dir: &TempDir) -> Vec<String> {
+        MailStore::new(account::account_dir(&dir.folder(), ACCOUNT)).keys(store::REMOVED_PREFIX)
+    }
+
+    /// RED on the code before: Delete on a row that says "Not sent" removed the entry and then the
+    /// message file at once - the only copy of what the user wrote, gone with the key that moves every
+    /// other mail to Deleted Items where it can be taken back. Now both are copied into
+    /// `removed/outbox/<stamp>/` first (where the sweep of an Azlin account deletes them after 90 days)
+    /// and the row goes from the Outbox; a mail whose file is already gone holds its entry alone.
+    #[test]
+    fn x_delta_apps4_7_a_deleted_outbox_mail_is_held_and_not_gone() {
+        let dir = TempDir::new("send-remove-held");
+        let entry = failed(&dir);
+        let text = std::fs::read(eml_of(&dir, &entry)).unwrap();
+        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        assert!(
+            outbox_entries(&dir.folder(), ACCOUNT).is_empty(),
+            "the row is gone"
+        );
+        assert!(
+            outbox_files(&dir.0).is_empty(),
+            "and the Outbox holds nothing of it"
+        );
+        let held = held_keys(&dir);
+        assert_eq!(held.len(), 2, "{held:?}");
+        assert!(
+            held.iter().all(|key| key.starts_with("removed/outbox/20")),
+            "dated by the moment of the Delete: {held:?}"
+        );
+        let place = MailStore::new(account::account_dir(&dir.folder(), ACCOUNT));
+        let eml = held.iter().find(|key| key.ends_with(".eml")).unwrap();
+        assert_eq!(place.get(eml).unwrap(), text, "the text, byte for byte");
+        let json = held.iter().find(|key| key.ends_with(".json")).unwrap();
+        let record: OutboxEntry = serde_json::from_slice(&place.get(json).unwrap()).unwrap();
+        assert_eq!(
+            (record.id.as_str(), record.state),
+            (entry.id.as_str(), OutboxState::Failed)
+        );
+        // A mail whose message file is gone already: its entry alone is held.
+        let dir = TempDir::new("send-remove-held-gone");
+        let entry = queued(&dir);
+        std::fs::remove_file(eml_of(&dir, &entry)).unwrap();
+        retry_at(&dir, true, OCT_1 + 400, &mut take_all());
+        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        let held = held_keys(&dir);
+        assert_eq!(held.len(), 1, "{held:?}");
+        assert!(held[0].ends_with(".json"), "{held:?}");
+        assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty());
+    }
+
+    /// A message file that cannot be READ is no "no file": the text is not held, so nothing is removed.
+    #[test]
+    fn x_delta_apps4_7_a_message_file_that_cannot_be_read_is_not_removed_unheld() {
+        let dir = TempDir::new("send-remove-unreadable");
+        let entry = failed(&dir);
+        let bytes = make_unreadable(&dir, &entry);
+        let refused = remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap_err();
+        assert_ne!(refused.kind(), std::io::ErrorKind::NotFound, "{refused}");
+        assert_eq!(
+            outbox_entries(&dir.folder(), ACCOUNT).len(),
+            1,
+            "the row stays"
+        );
+        assert!(held_keys(&dir).is_empty(), "nothing was held");
+        crate::testutil::make_readable(&eml_of(&dir, &entry));
+        assert_eq!(std::fs::read(eml_of(&dir, &entry)).unwrap(), bytes);
+        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        assert_eq!(held_keys(&dir).len(), 2);
+    }
+
+    /// RED on the code before: `remove_failed_entry` took `OUTBOX_LOCK` with `lock()`, which Send/Receive
+    /// holds across every SMTP session of a retry - 30 to 120 seconds for each exchanger that does not
+    /// answer - and it runs in the window's click callback: the window did not repaint until the sends
+    /// ended. Now it never waits: a lock that is taken is `WouldBlock`, at once, with nothing removed.
+    #[test]
+    fn x_delta_apps4_6_delete_in_the_outbox_does_not_wait_for_send_receive() {
+        let dir = TempDir::new("send-remove-busy");
+        let entry = failed(&dir);
+        // Send/Receive is in the middle of a retry.
+        let guard = lock_outbox();
+        let (root, id) = (dir.folder(), entry.id.clone());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let delete = std::thread::spawn(move || {
+            let _ = sender.send(remove_failed_entry(&root, ACCOUNT, &id));
+        });
+        let answered = receiver.recv_timeout(std::time::Duration::from_secs(5));
+        // Released before anything is judged, so that a Delete that does wait can end.
+        drop(guard);
+        delete.join().unwrap();
+        let result = answered.expect("it answered at once and did not wait for Send/Receive");
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(
+            outbox_entries(&dir.folder(), ACCOUNT).len(),
+            1,
+            "nothing was removed"
+        );
+        assert!(held_keys(&dir).is_empty());
+        // Send/Receive is done: the same Delete goes through.
+        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty());
     }
 
     // ==== X-DELTA-APPS3-7 and X-APPS2-1: a file that cannot be read is not the defaults ====
