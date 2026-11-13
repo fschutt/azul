@@ -730,6 +730,13 @@ fn lower_open_files_to(soft: libc::rlim_t) {
 /// listing of each folder the process holds at most 64 descriptors (the scan opens a sub-folder when
 /// its turn comes). The limit is the process's, and the other tests of this binary open files
 /// beside this one, so the scan runs in a child process (this test again, told by its environment).
+///
+/// X-DELTA-INTEGRITY3-18: a libtest binary that is given a filter that matches no test runs none and
+/// exits 0, so the parent that read only the child's status stayed green on a renamed or moved test
+/// and the scan under 256 descriptors was never played. The parent now reads what the child SAID:
+/// it ran exactly one test, and that one passed. The child's name is not a second spelling of this
+/// function's: it is the path of an item declared inside it (`here`), less the crate's name and the
+/// item's own.
 #[cfg(unix)]
 #[test]
 fn a_folder_with_more_sibling_folders_than_the_fd_limit_allows_is_scanned_whole() {
