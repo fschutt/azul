@@ -1343,6 +1343,10 @@ mod an_svg_with_absurd_geometry_renders_in_bounded_time;
 mod an_arabic_letter_keeps_its_dots_and_marks;
 #[path = "a_dotted_circle_the_shaper_inserts_stands_for_no_text.rs"]
 mod a_dotted_circle_the_shaper_inserts_stands_for_no_text;
+#[path = "a_vowel_sign_in_two_parts_is_shaped_around_its_consonant.rs"]
+mod a_vowel_sign_in_two_parts_is_shaped_around_its_consonant;
+#[path = "arabic_marks_are_reordered_before_shaping.rs"]
+mod arabic_marks_are_reordered_before_shaping;
 #[path = "a_right_to_left_paragraph_breaks_its_lines_in_reading_order.rs"]
 mod a_right_to_left_paragraph_breaks_its_lines_in_reading_order;
 #[path = "a_noncharacter_in_html_text_keeps_its_page.rs"]

@@ -1106,11 +1106,13 @@ pub enum MaskEntry {
         width: u32,
         height: u32,
     },
-    /// Opacity layer.
+    /// Opacity layer: an isolated group put onto `snapshot` (what was
+    /// below it) at `opacity` with `blend` (`mix-blend-mode`).
     Opacity {
         snapshot: Vec<u8>,
         rect: AzRect,
         opacity: f32,
+        blend: azul_css::props::style::effects::StyleMixBlendMode,
     },
     /// The rounded corners of a `PushClip` with a border radius
     /// (`overflow: hidden` on a `border-radius` box).
@@ -3460,6 +3462,7 @@ pub fn render_single_item(
             bounds,
             opacity,
             opacity_key,
+            mix_blend_mode,
         } => {
             // Live value first — the damaged/incremental path must fade at the
             // same opacity the composited path shows.
@@ -3481,7 +3484,9 @@ pub fn render_single_item(
             // The group is isolated, as the compositor's layer for it is:
             // its region is set aside and cleared, the group paints into the
             // cleared pixels, and the pop composites them over what was set
-            // aside with the layer blend (`blend_over`).
+            // aside with the layer blend (`blend_over`), or with the node's
+            // `mix-blend-mode` (`blend_pixel`): a multiply needs the pixels
+            // below, so a blending group is never a layer of its own.
             let snap = snapshot_region(
                 pixmap,
                 rect.x as i32,
@@ -3501,6 +3506,7 @@ pub fn render_single_item(
                 snapshot: snap,
                 rect,
                 opacity: *opacity,
+                blend: *mix_blend_mode,
             });
         }
         DisplayListItem::PopOpacity => {
@@ -3515,6 +3521,7 @@ pub fn render_single_item(
                 snapshot,
                 rect,
                 opacity,
+                blend,
             }) = entry
             {
                 let x = rect.x as i32;
@@ -3544,7 +3551,7 @@ pub fn render_single_item(
                             continue;
                         }
                         let src = [painted[si], painted[si + 1], painted[si + 2], painted[si + 3]];
-                        blend_over(&mut pixmap.data[pi..pi + 4], src, op);
+                        blend_pixel(&mut pixmap.data[pi..pi + 4], src, op, blend);
                     }
                 }
             }
@@ -5128,6 +5135,15 @@ fn render_text_shadow(
         .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
         .max(0.0);
     let radius = shadow_blur_radius(blur_logical, dpi_factor);
+    // The spread (the fourth length) grows the glyphs before the blur: with
+    // no blur, a solid halo of that width around the letters.
+    let spread = shadow_spread_px(
+        shadow
+            .spread_radius
+            .inner
+            .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
+        dpi_factor,
+    );
 
     let shadow_clip_rect = LogicalRect {
         origin: LogicalPosition {
@@ -5139,7 +5155,8 @@ fn render_text_shadow(
     let Some(source) = text_run_clip(&shadow_clip_rect, source_clip, dpi_factor) else {
         return;
     };
-    let Some(boxes) = text_shadow_boxes(source, radius, clip, (pixmap.width, pixmap.height))
+    let reach = radius.saturating_add(spread.ceil() as u32);
+    let Some(boxes) = text_shadow_boxes(source, reach, clip, (pixmap.width, pixmap.height))
     else {
         return;
     };
@@ -5165,6 +5182,7 @@ fn render_text_shadow(
         color,
         buffer,
         radius,
+        spread,
         renderer_resources,
         font_manager,
         dpi_factor,
@@ -5202,6 +5220,74 @@ pub(super) fn shadow_blur_radius(blur_logical: f32, dpi_factor: f32) -> u32 {
     }
 }
 
+/// A shadow's spread in device pixels, from its CSS `spread` length: at
+/// most 64, and none for a negative spread (text does not shrink).
+pub(super) fn shadow_spread_px(spread_logical: f32, dpi_factor: f32) -> f32 {
+    let spread = spread_logical * dpi_factor;
+    if spread.is_finite() && spread > 0.0 {
+        spread.min(64.0)
+    } else {
+        0.0
+    }
+}
+
+/// Grows what `p` paints by `r` pixels all round: every pixel takes the most
+/// of its neighbours within a disk of radius `r`, whose rim is antialiased
+/// (a neighbour half a pixel beyond `r` counts half). Over glyphs drawn in
+/// one colour it is their outline stroked `2r` wide with round joins and
+/// caps - the solid halo of a printed map's labels. Premultiplied pixels of
+/// one colour keep that colour, as each channel is grown alike.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::many_single_char_names,
+    clippy::needless_range_loop
+)] // a bounded radius and pixel indices
+pub(super) fn dilate_disk(p: &mut AzulPixmap, r: f32) {
+    if r.is_nan() || r <= 0.0 {
+        return;
+    }
+    let reach = (r + 0.5).ceil() as i32;
+    // The disk's offsets with their weights, the full ones first.
+    let mut taps: Vec<(i32, i32, u32)> = Vec::new();
+    for dy in -reach..=reach {
+        for dx in -reach..=reach {
+            let d = ((dx * dx + dy * dy) as f32).sqrt();
+            let w = (r + 0.5 - d).clamp(0.0, 1.0);
+            if w > 0.0 {
+                taps.push((dx, dy, (w * 256.0).round() as u32));
+            }
+        }
+    }
+    let (w, h) = (p.width as i32, p.height as i32);
+    let src = p.data.to_vec();
+    let out = &mut p.data;
+    for y in 0..h {
+        for x in 0..w {
+            let mut best = [0u32; 4];
+            for &(dx, dy, weight) in &taps {
+                let (sx, sy) = (x + dx, y + dy);
+                if sx < 0 || sy < 0 || sx >= w || sy >= h {
+                    continue;
+                }
+                let i = ((sy * w + sx) * 4) as usize;
+                if src[i + 3] == 0 {
+                    continue;
+                }
+                for c in 0..4 {
+                    best[c] = best[c].max(u32::from(src[i + c]) * weight);
+                }
+            }
+            let i = ((y * w + x) * 4) as usize;
+            for c in 0..4 {
+                out[i + c] = ((best[c] + 128) >> 8).min(255) as u8;
+            }
+        }
+    }
+}
+
 /// One glyph run drawn into a shadow's buffer: its glyphs and clip rect in
 /// CSS px of the target, its clip in device px of the target.
 pub(super) struct BufferedRun<'a> {
@@ -5213,15 +5299,17 @@ pub(super) struct BufferedRun<'a> {
 }
 
 /// `runs` drawn in `color` into a transparent `buffer` - device px of the
-/// target, where it will land - and blurred by `radius` pixels: a text
-/// shadow before it is composited. Always grayscale coverage: the buffer is
-/// transparent, and LCD text assumes an opaque backdrop.
+/// target, where it will land - grown by `spread` pixels ([`dilate_disk`])
+/// and blurred by `radius` pixels: a text shadow before it is composited.
+/// Always grayscale coverage: the buffer is transparent, and LCD text
+/// assumes an opaque backdrop.
 #[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::too_many_arguments)]
 pub(super) fn blurred_glyphs(
     runs: &[BufferedRun<'_>],
     color: ColorU,
     buffer: PixelBox,
     radius: u32,
+    spread: f32,
     renderer_resources: &RendererResources,
     font_manager: &FontManager<FontRef>,
     dpi_factor: f32,
@@ -5266,6 +5354,7 @@ pub(super) fn blurred_glyphs(
             true,
         );
     }
+    dilate_disk(&mut tmp, spread);
     if radius > 0 {
         let (w, h) = (tmp.width, tmp.height);
         let stride = (w * 4) as i32;
@@ -7579,6 +7668,108 @@ mod text_shadow_tests {
         );
     }
 
+    /// `text-shadow: 0 0 0 3px red` - no offset, no blur, a spread - is a
+    /// solid halo: the letters grown by 3px all round, in full red, and
+    /// nothing farther out. Measured on the shadow alone (transparent text):
+    /// against the same shadow without a spread, which is the letters' shape.
+    #[test]
+    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)] // small test pixmaps
+    fn text_shadow_spread_is_a_solid_halo() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = renderer_resources_with(&font);
+        let (w, h) = (200u32, 60u32);
+        let font_size = 32.0;
+        let glyphs = shape(&font, "Hi", font_size, 20.0, 42.0);
+        #[allow(clippy::cast_precision_loss)]
+        let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: w as f32,
+                height: h as f32,
+            },
+        }
+        .into();
+        let px = |v: f32| PixelValueNoPercent { inner: PixelValue::px(v) };
+        // The red shadow's coverage (0..1) at every pixel, the text itself
+        // transparent.
+        let coverage = |spread: f32| -> Vec<f32> {
+            let shadow = StyleBoxShadow {
+                offset_x: px(0.0),
+                offset_y: px(0.0),
+                blur_radius: px(0.0),
+                spread_radius: px(spread),
+                color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+            };
+            let text_item = DisplayListItem::Text {
+                glyphs: glyphs.clone(),
+                font_hash,
+                font_size_px: font_size,
+                color: ColorU { r: 0, g: 0, b: 0, a: 0 },
+                clip_rect,
+                source_node_index: None,
+            };
+            let mut p = AzulPixmap::new(w, h).unwrap();
+            p.fill(255, 255, 255, 255);
+            let dl = DisplayList {
+                items: vec![
+                    DisplayListItem::PushTextShadow { shadow },
+                    text_item,
+                    DisplayListItem::PopTextShadow,
+                ],
+                ..Default::default()
+            };
+            render_display_list(&dl, &mut p, 1.0, &rr, &fm, &mut GlyphCache::new()).unwrap();
+            p.data()
+                .chunks_exact(4)
+                .map(|c| 1.0 - f32::from(c[1]) / 255.0)
+                .collect()
+        };
+        let letters = coverage(0.0);
+        let halo = coverage(3.0);
+        let at = |img: &[f32], x: i32, y: i32| {
+            if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 {
+                0.0
+            } else {
+                img[(y as u32 * w + x as u32) as usize]
+            }
+        };
+        // Whether `letters` reaches `level` within distance `d` of (x, y).
+        let near = |x: i32, y: i32, d: f32, level: f32| {
+            let r = d.ceil() as i32;
+            (-r..=r).any(|dy| {
+                (-r..=r).any(|dx| {
+                    ((dx * dx + dy * dy) as f32).sqrt() <= d && at(&letters, x + dx, y + dy) >= level
+                })
+            })
+        };
+        let (mut inside, mut solid, mut stray) = (0, 0, 0);
+        for y in 0..h as i32 {
+            for x in 0..w as i32 {
+                let c = at(&halo, x, y);
+                if near(x, y, 2.0, 0.95) {
+                    // Within 2px of a fully covered pixel of a letter: the
+                    // 3px halo covers it fully.
+                    inside += 1;
+                    if c >= 0.97 {
+                        solid += 1;
+                    }
+                } else if !near(x, y, 4.5, 0.01) && c > 0.01 {
+                    // Farther than the spread and its rim from any ink.
+                    stray += 1;
+                }
+            }
+        }
+        assert!(inside > 300, "premise: the letters cover something ({inside} px)");
+        assert_eq!(solid, inside, "the halo is solid up to 2px out from the letters");
+        assert_eq!(stray, 0, "nothing is painted beyond the spread");
+        let grown: f32 = halo.iter().sum::<f32>() - letters.iter().sum::<f32>();
+        assert!(grown > 200.0, "the halo is larger than the letters ({grown} px)");
+    }
+
     /// With a blurred shadow, the shadow region should be larger (blur spreads
     /// coverage) than with a hard-edged shadow.
     #[test]
@@ -9348,6 +9539,7 @@ mod autotest_generated {
                 snapshot: vec![255; 64],
                 rect: AzRect::from_xywh(0.0, 0.0, 4.0, 4.0).unwrap(),
                 opacity: 0.5,
+                blend: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
         );
         assert_eq!(
@@ -10372,6 +10564,7 @@ mod autotest_generated {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
                     opacity: op,
                     opacity_key: None,
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 DisplayListItem::Rect {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -10431,6 +10624,7 @@ mod autotest_generated {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
                     opacity: 0.7,
                     opacity_key: None,
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 DisplayListItem::Rect {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -10469,6 +10663,7 @@ mod autotest_generated {
                 bounds: wrect(0.0, 0.0, f32::NAN, 0.0),
                 opacity: 0.5,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             &mut p,
             &mut st,

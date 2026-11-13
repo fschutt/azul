@@ -25,7 +25,9 @@ use azul_core::{
 };
 use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU, FontRef};
 
-use super::raster::{blurred_glyphs, shadow_blur_radius, text_run_clip, BufferedRun, PixelBox};
+use super::raster::{
+    blurred_glyphs, shadow_blur_radius, shadow_spread_px, text_run_clip, BufferedRun, PixelBox,
+};
 use crate::{
     glyph_cache::GlyphCache,
     image_memo::ImageMemo,
@@ -60,7 +62,7 @@ pub struct TextHalo {
 }
 
 /// The text shadows of `items` that are drawn as pictures at `dpi`: blurred
-/// shadows over nothing but text (decorations or anything else under a
+/// or spread shadows over nothing but text (decorations or anything else under a
 /// shadow leave it to the renderer's own). With `fonts` a halo that is not
 /// kept yet is drawn and kept; without, only kept ones are found. The GPU
 /// backend draws them while it collects a frame's images, before it builds
@@ -150,6 +152,10 @@ struct Scope<'a> {
     offset: (f32, f32),
     /// Its blur radius, CSS px.
     blur: f32,
+    /// Its spread, CSS px: how far the glyphs grow before the blur (a solid
+    /// halo when there is no blur). `WebRender`'s own shadow has none, so a
+    /// spread shadow is always a picture.
+    spread: f32,
     /// The text under the shadow, in list order; never empty.
     runs: Vec<Run<'a>>,
 }
@@ -159,9 +165,9 @@ fn shadow_px(value: &azul_css::props::basic::pixel::PixelValue) -> f32 {
     value.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
 }
 
-/// The shadows of `items` a halo can stand for: blurred, over text alone. An
-/// unblurred shadow is not one: `WebRender` draws it as a plain copy of the
-/// text, without a surface.
+/// The shadows of `items` a halo can stand for: blurred or spread, over text
+/// alone. A shadow with neither is not one: `WebRender` draws it as a plain
+/// copy of the text, without a surface.
 fn scopes(items: &[DisplayListItem]) -> Vec<Scope<'_>> {
     let mut out = Vec::new();
     for (push, item) in items.iter().enumerate() {
@@ -169,7 +175,8 @@ fn scopes(items: &[DisplayListItem]) -> Vec<Scope<'_>> {
             continue;
         };
         let blur = shadow_px(&shadow.blur_radius.inner).max(0.0);
-        if blur <= 0.0 || shadow.color.a == 0 {
+        let spread = shadow_px(&shadow.spread_radius.inner).max(0.0);
+        if (blur <= 0.0 && spread <= 0.0) || shadow.color.a == 0 {
             continue;
         }
         let mut runs = Vec::new();
@@ -212,6 +219,7 @@ fn scopes(items: &[DisplayListItem]) -> Vec<Scope<'_>> {
                     shadow_px(&shadow.offset_y.inner),
                 ),
                 blur,
+                spread,
                 runs,
             });
         }
@@ -235,6 +243,7 @@ impl Scope<'_> {
         let step = |v: f32| (v * 64.0).round() as i64;
         let mut h = DefaultHasher::new();
         self.blur.to_bits().hash(&mut h);
+        self.spread.to_bits().hash(&mut h);
         dpi.to_bits().hash(&mut h);
         for run in &self.runs {
             run.font_hash.font_hash.hash(&mut h);
@@ -313,7 +322,8 @@ impl Scope<'_> {
         }
         let (x0, y0, x1, y1) = reach?;
         let radius = shadow_blur_radius(self.blur, dpi);
-        let r = radius as i32;
+        let spread = shadow_spread_px(self.spread, dpi);
+        let r = radius as i32 + spread.ceil() as i32;
         let buffer = PixelBox {
             x: x0.floor() as i32 - r,
             y: y0.floor() as i32 - r,
@@ -332,6 +342,7 @@ impl Scope<'_> {
                 ColorU::WHITE,
                 buffer,
                 radius,
+                spread,
                 renderer_resources,
                 font_manager,
                 dpi,

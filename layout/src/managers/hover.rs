@@ -190,6 +190,10 @@ pub struct HoverManager {
     /// (9b-ii): two cursors can hold Left at once, and the second press must
     /// not overwrite the first's target.
     press_targets: Vec<(u64, MouseButton, DomNodeId)>,
+    /// The doms [`Self::purge_dom`] forgot, per input point, until that
+    /// point's next hit test: that one stands in for what was hovered before
+    /// the rebuild too (see [`Self::push_hit_test`]).
+    rebuilt_doms: std::collections::BTreeSet<(InputPointId, azul_core::dom::DomId)>,
 }
 
 impl HoverManager {
@@ -199,6 +203,7 @@ impl HoverManager {
         Self {
             hover_histories: BTreeMap::new(),
             press_targets: Vec::new(),
+            rebuilt_doms: std::collections::BTreeSet::new(),
         }
     }
 
@@ -357,6 +362,14 @@ impl HoverManager {
     ///
     /// The most recent result is always at index 0 for that input point.
     /// If the history is full, the oldest frame is dropped.
+    ///
+    /// A dom rebuilt in place since this point's last hit test
+    /// ([`Self::purge_dom`]) has no hits in the older frames: the new frame's
+    /// hits of that dom are copied into the frame before it, as if the pointer
+    /// had been over the same nodes all along. Otherwise every node under a
+    /// still pointer was "entered" again after each rebuild - a `VirtualView`
+    /// re-rendered on every move of a pan sent `MouseEnter` and a bubbling
+    /// `MouseOver` for each of them, on every move.
     pub fn push_hit_test(&mut self, input_id: InputPointId, hit_test: FullHitTest) {
         let history = self
             .hover_histories
@@ -365,6 +378,20 @@ impl HoverManager {
 
         // Add to front (most recent)
         history.push_front(hit_test);
+
+        let rebuilt: Vec<azul_core::dom::DomId> = self
+            .rebuilt_doms
+            .iter()
+            .filter(|(point, _)| *point == input_id)
+            .map(|(_, dom)| *dom)
+            .collect();
+        for dom in rebuilt {
+            self.rebuilt_doms.remove(&(input_id, dom));
+            let now = history[0].hovered_nodes.get(&dom).cloned();
+            if let (Some(now), Some(before)) = (now, history.get_mut(1)) {
+                before.hovered_nodes.insert(dom, now);
+            }
+        }
 
         // Remove oldest if we exceed the limit
         if history.len() > MAX_HOVER_HISTORY {
@@ -432,12 +459,17 @@ impl HoverManager {
     /// bounds (the `hit_test.rs` cursor panic: "len is 25 but the index is 27")
     /// or target the wrong node. Unlike incremental reconciles there is no
     /// `NodeId` map to `remap` with, so the only safe option is to forget that
-    /// DOM's hits; the next pointer move re-populates them from a fresh
-    /// hit test.
+    /// DOM's hits; the next hit test re-populates them, and stands in for the
+    /// frame before it as well ([`Self::push_hit_test`]), so a still pointer
+    /// enters nothing anew.
     pub fn purge_dom(&mut self, dom_id: &azul_core::dom::DomId) {
-        for history in self.hover_histories.values_mut() {
+        for (point, history) in &mut self.hover_histories {
+            let mut had_hits = false;
             for frame in history.iter_mut() {
-                frame.hovered_nodes.remove(dom_id);
+                had_hits |= frame.hovered_nodes.remove(dom_id).is_some();
+            }
+            if had_hits {
+                self.rebuilt_doms.insert((*point, *dom_id));
             }
         }
         // A press on a node of a purged (rebuilt) dom can never be released
@@ -448,6 +480,7 @@ impl HoverManager {
     /// Clear all hover history for all input points
     pub fn clear(&mut self) {
         self.hover_histories.clear();
+        self.rebuilt_doms.clear();
     }
 
     /// Clear history for a specific input point
@@ -1468,6 +1501,34 @@ mod autotest_generated {
         }
         assert_eq!(hm.current_hover_node_full(), Some(dom_node(0, 3)));
         assert_eq!(hm.previous_hover_node_full(), Some(dom_node(0, 1)));
+    }
+
+    /// After a dom is rebuilt in place (purged), the next hit test of a
+    /// point stands in for the frame before it too: a pointer that did not
+    /// move enters nothing again.
+    #[test]
+    fn a_purged_dom_is_rebaselined_by_the_next_hit_test() {
+        let mut hm = HoverManager::new();
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, &[1]), (1, &[2, 3])]));
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, &[1]), (1, &[2, 3])]));
+        hm.purge_dom(&dom(1));
+        // The same nodes under the pointer after the rebuild.
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, &[1]), (1, &[2, 3])]));
+        let now = hm.get_frame(&InputPointId::Mouse, 0).unwrap();
+        let before = hm.get_frame(&InputPointId::Mouse, 1).unwrap();
+        assert_eq!(
+            before.hovered_nodes.get(&dom(1)),
+            now.hovered_nodes.get(&dom(1))
+        );
+        // Only once: a later frame is diffed against what was recorded.
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, &[1])]));
+        let before = hm.get_frame(&InputPointId::Mouse, 1).unwrap();
+        assert!(before.hovered_nodes.contains_key(&dom(1)));
+        let now = hm.get_frame(&InputPointId::Mouse, 0).unwrap();
+        assert!(
+            !now.hovered_nodes.contains_key(&dom(1)),
+            "the pointer left the view"
+        );
     }
 
     #[test]

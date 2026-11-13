@@ -849,6 +849,63 @@ fn source_spans(infos: &[gpos::Info], text: &str) -> Vec<(usize, usize)> {
     spans
 }
 
+/// Glyph spans of the preprocessed text `shaped` (see `shape_text_internal`)
+/// as spans of the source `text` it was made from.
+///
+/// Preprocessing edits the text locally - a vowel sign decomposed into two, a
+/// dotted circle inserted, marks reordered or recomposed - so the two are
+/// aligned character by character, and each run `shaped` has instead of a
+/// run of `text` starts where that run starts. The map is monotone, so every
+/// span stays inside `text` and in order; a glyph made from an inserted or
+/// split-off character gets an empty span at its run, as a mark does.
+#[allow(clippy::many_single_char_names)] // s, t: the two texts; i, j, a, b: positions in them
+fn spans_onto_source(spans: &[(usize, usize)], shaped: &str, text: &str) -> Vec<(usize, usize)> {
+    /// How far ahead the alignment looks for the end of an edit, in chars.
+    const WINDOW: usize = 8;
+    let s: Vec<(usize, char)> = shaped.char_indices().collect();
+    let t: Vec<(usize, char)> = text.char_indices().collect();
+    // `at[j]`: the byte of `text` where the shaped char `j` came from;
+    // `at[s.len()]` is the end of `text`.
+    let mut at = vec![text.len(); s.len() + 1];
+    let (mut i, mut j) = (0usize, 0usize);
+    while j < s.len() {
+        if i < t.len() && s[j].1 == t[i].1 {
+            at[j] = t[i].0;
+            i += 1;
+            j += 1;
+            continue;
+        }
+        // The edit ends at the nearest pair of equal chars after it.
+        let resync = (1..2 * WINDOW).find_map(|k| {
+            (0..=k).find_map(|a| {
+                let b = k - a;
+                (a < WINDOW
+                    && b < WINDOW
+                    && i + a < t.len()
+                    && j + b < s.len()
+                    && t[i + a].1 == s[j + b].1)
+                    .then_some((a, b))
+            })
+        });
+        let (a, b) = resync.unwrap_or((t.len() - i, s.len() - j));
+        let start = t.get(i).map_or(text.len(), |c| c.0);
+        for slot in &mut at[j..j + b] {
+            *slot = start;
+        }
+        i += a;
+        j += b;
+    }
+    // A byte of `shaped` (a char boundary, or the end) to its byte of `text`.
+    let map = |byte: usize| at[s.partition_point(|&(b, _)| b < byte)];
+    spans
+        .iter()
+        .map(|&(start, len)| {
+            let from = map(start);
+            (from, map(start + len).saturating_sub(from))
+        })
+        .collect()
+}
+
 /// Whether a glyph's first character is a dotted circle (U+25CC) the shaper
 /// inserted to carry a vowel sign or mark that has no base, rather than one
 /// of the text.
@@ -1119,11 +1176,31 @@ fn shape_text_internal(
 
     let opt_gdef = parsed_font.opt_gdef_table.as_deref();
 
+    // allsorts shapes PREPROCESSED text (`allsorts::scripts::preprocess_text`,
+    // which its own `Font::map_glyphs` runs): an Indic vowel sign drawn in two
+    // parts decomposed into them, vowel combinations a font must not fuse
+    // split, marks in canonical order, Arabic marks reordered. Without it a
+    // Bengali "ো" (U+09CB) reached the Indic shaper whole: drawn after its
+    // consonant instead of around it, and in allsorts-azul 0.17.2 an
+    // assertion failure ("যশোর", Jessore). The glyphs are mapped from the
+    // preprocessed text and their source spans moved back onto `text`.
+    let preprocessed: String = {
+        let mut chars: Vec<char> = text.chars().collect();
+        allsorts::scripts::preprocess_text(&mut chars, script_tag);
+        chars.into_iter().collect()
+    };
+    let preprocessing_changed = preprocessed != text;
+    let shaped_text: &str = if preprocessing_changed {
+        &preprocessed
+    } else {
+        text
+    };
+
     let mut raw_glyphs: Vec<gsub::RawGlyph<()>> = Vec::new();
     {
         let mut ci = 0usize;
-        while ci < text.len() {
-            let Some(ch) = text[ci..].chars().next() else {
+        while ci < shaped_text.len() {
+            let Some(ch) = shaped_text[ci..].chars().next() else {
                 break;
             };
             let glyph_index = parsed_font.lookup_glyph_index(ch as u32).unwrap_or(0);
@@ -1240,7 +1317,11 @@ fn shape_text_internal(
     let style_arc = Arc::new(style.clone());
     let bidi_level = BidiLevel::new(u8::from(direction.is_rtl()));
 
-    let spans = source_spans(&infos, text);
+    let spans = if preprocessing_changed {
+        spans_onto_source(&source_spans(&infos, shaped_text), shaped_text, text)
+    } else {
+        source_spans(&infos, text)
+    };
     // Each glyph's own advance, before GPOS attaches glyphs to each other.
     let mut advances = Vec::with_capacity(infos.len());
     for (info, &(_, byte_len)) in infos.iter().zip(&spans) {
@@ -2958,5 +3039,74 @@ mod gpos_attachments {
             (200.0, 570.0),
             "the mark should sit on its letter after the letter moved"
         );
+    }
+}
+
+#[cfg(test)]
+mod spans_onto_source_tests {
+    use super::spans_onto_source;
+
+    /// Bengali "যশোর" shaped as ya, sha, e sign, aa sign, ra: the two parts
+    /// of the o sign map onto the sign, the first with no text of its own.
+    #[test]
+    fn a_decomposed_vowel_sign_maps_onto_the_sign() {
+        let text = "\u{09AF}\u{09B6}\u{09CB}\u{09B0}";
+        let shaped = "\u{09AF}\u{09B6}\u{09C7}\u{09BE}\u{09B0}";
+        let spans = [(0, 3), (3, 3), (6, 3), (9, 3), (12, 3)];
+        assert_eq!(
+            spans_onto_source(&spans, shaped, text),
+            [(0, 3), (3, 3), (6, 0), (6, 3), (9, 3)]
+        );
+    }
+
+    /// Arabic marks moved before shaping (shadda first) stay on their letter.
+    #[test]
+    fn reordered_marks_stay_on_their_letter() {
+        let text = "\u{0644}\u{064E}\u{0651}\u{0647}";
+        let shaped = "\u{0644}\u{0651}\u{064E}\u{0647}";
+        let spans = [(0, 2), (2, 2), (4, 2), (6, 2)];
+        assert_eq!(
+            spans_onto_source(&spans, shaped, text),
+            [(0, 2), (2, 0), (2, 4), (6, 2)]
+        );
+    }
+
+    /// A dotted circle the preprocessing inserted (a vowel that must not fuse
+    /// with the sign after it) stands for no text.
+    #[test]
+    fn an_inserted_dotted_circle_takes_no_text() {
+        let text = "\u{0985}\u{09BE}";
+        let shaped = "\u{0985}\u{25CC}\u{09BE}";
+        let spans = [(0, 3), (3, 3), (6, 3)];
+        assert_eq!(
+            spans_onto_source(&spans, shaped, text),
+            [(0, 3), (3, 0), (3, 3)]
+        );
+    }
+
+    /// Whatever the edit, every span stays inside the text and in order.
+    #[test]
+    fn spans_never_leave_the_text() {
+        let text = "ab\u{0301}c";
+        for shaped in [
+            "",
+            "x",
+            "ab\u{0301}cxyz",
+            "\u{0301}ba",
+            "zzzzzzzzzzzzzzzzzzzzzz",
+        ] {
+            let spans: Vec<(usize, usize)> = shaped
+                .char_indices()
+                .map(|(i, c)| (i, c.len_utf8()))
+                .collect();
+            let mut end = 0;
+            for (start, len) in spans_onto_source(&spans, shaped, text) {
+                assert!(
+                    start >= end && start + len <= text.len(),
+                    "{shaped:?}: {start}+{len}"
+                );
+                end = start;
+            }
+        }
     }
 }

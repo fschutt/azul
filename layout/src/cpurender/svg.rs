@@ -7,7 +7,7 @@ use agg_rust::{
     trans_affine::TransAffine,
 };
 use azul_core::resources::ImageRef;
-use azul_css::props::basic::color::ColorU;
+use azul_css::props::{basic::color::ColorU, style::effects::StyleMixBlendMode};
 
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
@@ -263,6 +263,7 @@ fn rasterize_svg_with(
             None,
             paint,
             &mut text(svg_node),
+            &SvgDoc::of(svg_node),
         );
         Ok(pixmap)
     })?
@@ -600,6 +601,7 @@ fn render_svg_group_painted(
         None,
         paint,
         &mut SvgText::for_document(node),
+        &SvgDoc::of(node),
     );
 }
 
@@ -657,13 +659,15 @@ fn render_svg_group_with_style(
         None,
         &SvgPaintContext::default(),
         &mut SvgText::for_document(node),
+        &SvgDoc::of(node),
     );
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
-                                 // (one branch per case)
+// (one branch per case)
+#[allow(clippy::too_many_arguments)]
 fn render_svg_group_inner(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,
@@ -672,6 +676,7 @@ fn render_svg_group_inner(
     parent_color: Option<&str>,
     paint: &SvgPaintContext,
     text: &mut SvgText,
+    doc: &SvgDoc<'_>,
 ) {
     use azul_core::xml::XmlNodeChild;
 
@@ -718,128 +723,724 @@ fn render_svg_group_inner(
 
         let tag = child_node.node_type.as_str().to_lowercase();
 
-        match tag.as_str() {
-            "g" | "svg" => {
-                render_svg_group_inner(
-                    child_node,
-                    pixmap,
-                    &group_transform,
-                    &group_style,
-                    group_color.as_deref(),
-                    paint,
-                    text,
-                );
+        // A group or an element that blends (`mix-blend-mode`), or a group
+        // at an `opacity` below 1, is drawn on its own - onto transparent
+        // pixels - and then put onto what is below it as one picture
+        // (Compositing and Blending s3.2: such an element is a group that
+        // composites as a whole).
+        let blend = svg_mix_blend_mode(child_node);
+        let group_opacity = match tag.as_str() {
+            "g" | "svg" | "use" => svg_opacity(child_node),
+            // A shape's `opacity` multiplies its fill and stroke (below).
+            _ => 1.0,
+        };
+        if blend != StyleMixBlendMode::Normal || group_opacity < 1.0 {
+            if group_opacity <= 0.0 {
+                continue;
             }
-            "text" => {
-                draw_text_element(
-                    child_node,
-                    pixmap,
-                    &group_transform,
-                    &group_style,
-                    group_color.as_deref(),
-                    paint,
-                    text,
-                );
+            let Some(mut layer) = AzulPixmap::new(pixmap.width, pixmap.height) else {
+                continue;
+            };
+            layer.fill(0, 0, 0, 0);
+            render_svg_child(
+                child_node,
+                &tag,
+                &mut layer,
+                &group_transform,
+                &group_style,
+                group_color.as_deref(),
+                paint,
+                text,
+                doc,
+            );
+            blend_premultiplied(
+                pixmap.data_mut(),
+                layer.data(),
+                group_opacity as f32,
+                blend,
+            );
+            continue;
+        }
+        render_svg_child(
+            child_node,
+            &tag,
+            pixmap,
+            &group_transform,
+            &group_style,
+            group_color.as_deref(),
+            paint,
+            text,
+            doc,
+        );
+    }
+}
+
+/// `opacity` of an element, 0..1 (1 when absent or unreadable).
+#[cfg(all(feature = "std", feature = "xml"))]
+fn svg_opacity(node: &azul_core::xml::XmlNode) -> f64 {
+    presentation_property(node, "opacity")
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|o| o.is_finite())
+        .map_or(1.0, |o| o.clamp(0.0, 1.0))
+}
+
+/// `mix-blend-mode` of an element (a property, so `style="..."` or the
+/// attribute); `normal` when absent or unknown.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn svg_mix_blend_mode(node: &azul_core::xml::XmlNode) -> StyleMixBlendMode {
+    presentation_property(node, "mix-blend-mode")
+        .and_then(|v| azul_css::props::style::effects::parsers::parse_style_mix_blend_mode(&v).ok())
+        .unwrap_or_default()
+}
+
+/// One child element of a group, drawn into `pixmap` under the group's
+/// transform, style and colour.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::too_many_arguments)]
+fn render_svg_child(
+    child_node: &azul_core::xml::XmlNode,
+    tag: &str,
+    pixmap: &mut AzulPixmap,
+    group_transform: &TransAffine,
+    group_style: &SvgInheritedStyle,
+    group_color: Option<&str>,
+    paint: &SvgPaintContext,
+    text: &mut SvgText,
+    doc: &SvgDoc<'_>,
+) {
+    match tag {
+        "g" | "svg" | "a" | "switch" => {
+            render_svg_group_inner(
+                child_node,
+                pixmap,
+                group_transform,
+                group_style,
+                group_color,
+                paint,
+                text,
+                doc,
+            );
+        }
+        "text" => {
+            draw_text_element(
+                child_node,
+                pixmap,
+                group_transform,
+                group_style,
+                group_color,
+                paint,
+                text,
+            );
+        }
+        "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
+            draw_svg_shape(
+                child_node,
+                pixmap,
+                group_transform,
+                group_style,
+                group_color,
+                paint,
+                text,
+                doc,
+            );
+        }
+        "use" => draw_svg_use(
+            child_node,
+            pixmap,
+            group_transform,
+            group_style,
+            group_color,
+            paint,
+            text,
+            doc,
+        ),
+        "image" => draw_svg_image(child_node, pixmap, group_transform),
+        // Never drawn where they stand (SVG 2 s5.6 ff.): definitions, drawn
+        // only where a `<use>` (or a paint) references them, and what is
+        // not a picture at all - a stylesheet (its `@font-face`s were read
+        // when the document's text painter was made), metadata, scripts.
+        // A `<symbol>` is drawn through a `<use>` only.
+        "defs" | "symbol" | "style" | "title" | "desc" | "metadata" | "script" | "clippath"
+        | "mask" | "marker" | "pattern" | "lineargradient" | "radialgradient" | "filter"
+        | "foreignobject" | "view" | "cursor" => {}
+        _ => {
+            // Recurse into unknown containers
+            render_svg_group_inner(
+                child_node,
+                pixmap,
+                group_transform,
+                group_style,
+                group_color,
+                paint,
+                text,
+                doc,
+            );
+        }
+    }
+}
+
+/// What a document's elements can reference: its elements by `id`.
+#[cfg(all(feature = "std", feature = "xml"))]
+struct SvgDoc<'a> {
+    ids: alloc::collections::BTreeMap<&'a str, &'a azul_core::xml::XmlNode>,
+    /// `<use>`s being drawn inside each other: a reference cycle (an element
+    /// using itself or its ancestor) stops at [`SvgDoc::MAX_USE_DEPTH`].
+    use_depth: core::cell::Cell<u32>,
+}
+
+#[cfg(all(feature = "std", feature = "xml"))]
+impl<'a> SvgDoc<'a> {
+    const MAX_USE_DEPTH: u32 = 16;
+
+    /// The elements under `root` (itself included) by their `id`; the first
+    /// one wins where two share an id.
+    fn of(root: &'a azul_core::xml::XmlNode) -> Self {
+        fn walk<'a>(
+            node: &'a azul_core::xml::XmlNode,
+            ids: &mut alloc::collections::BTreeMap<&'a str, &'a azul_core::xml::XmlNode>,
+        ) {
+            if let Some(id) = node.attributes.get_key("id") {
+                ids.entry(id.as_str()).or_insert(node);
             }
-            // A stylesheet is no picture: its `@font-face`s were read when
-            // the document's text painter was made.
-            "style" => {}
-            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
-                let Some(path_storage) = build_agg_path(child_node) else {
-                    continue;
-                };
-
-                // Flatten bezier curves into line segments for the rasterizer
-                let mut curved = agg_rust::conv_curve::ConvCurve::new(path_storage);
-
-                // Per-element transform
-                let elem_transform =
-                    child_node
-                        .attributes
-                        .get_key("transform")
-                        .map_or(group_transform, |t| {
-                            let mut tf = parse_svg_transform(t.as_str());
-                            tf.multiply(&group_transform);
-                            tf
-                        });
-
-                let elem_color =
-                    presentation_property(child_node, "color").or_else(|| group_color.clone());
-
-                // Fill: element overrides group
-                let fill_attr =
-                    presentation_property(child_node, "fill").or_else(|| group_style.fill.clone());
-                let fill_color = match fill_attr.as_deref() {
-                    Some("none") => None,
-                    Some(c) => paint.resolve(c, elem_color.as_deref()),
-                    None => Some(paint.remap(SVG_BLACK)), // SVG default
-                };
-
-                let fill_opacity = presentation_property(child_node, "fill-opacity")
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .unwrap_or(1.0);
-
-                let opacity = presentation_property(child_node, "opacity")
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .unwrap_or(1.0);
-
-                if let Some(mut color) = fill_color {
-                    color.a = (f64::from(color.a) * fill_opacity * opacity).min(255.0) as u8;
-
-                    let fill_rule_str = presentation_property(child_node, "fill-rule");
-                    let rule = match fill_rule_str.as_deref() {
-                        Some("evenodd") => FillingRule::EvenOdd,
-                        _ => FillingRule::NonZero,
-                    };
-
-                    let mut transformed = ConvTransform::new(&mut curved, elem_transform);
-                    agg_fill_path(pixmap, &mut transformed, &color, rule);
+            for child in node.children.as_ref() {
+                if let azul_core::xml::XmlNodeChild::Element(e) = child {
+                    walk(e, ids);
                 }
-
-                // Stroke: element overrides group
-                let stroke_attr = presentation_property(child_node, "stroke")
-                    .or_else(|| group_style.stroke.clone());
-                let stroke_color = match stroke_attr.as_deref() {
-                    Some("none") | None => None,
-                    Some(c) => paint.resolve(c, elem_color.as_deref()),
-                };
-
-                if let Some(mut color) = stroke_color {
-                    let stroke_opacity = presentation_property(child_node, "stroke-opacity")
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .unwrap_or(1.0);
-                    color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
-
-                    // The stroke in user space (dashed, then outlined),
-                    // then the element's transform.
-                    let stroke = SvgStrokeStyle::of(child_node, &group_style);
-                    if stroke.dashes.is_empty() {
-                        let mut conv_stroke = ConvStroke::new(&mut curved);
-                        stroke.configure(&mut conv_stroke);
-                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
-                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
-                    } else {
-                        let mut dashed = agg_rust::conv_dash::ConvDash::new(&mut curved);
-                        stroke.dash(&mut dashed);
-                        let mut conv_stroke = ConvStroke::new(&mut dashed);
-                        stroke.configure(&mut conv_stroke);
-                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
-                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
-                    }
-                }
             }
-            _ => {
-                // Recurse into unknown containers (defs, symbol, etc.)
-                render_svg_group_inner(
-                    child_node,
-                    pixmap,
-                    &group_transform,
-                    &group_style,
-                    group_color.as_deref(),
-                    paint,
-                    text,
-                );
+        }
+        let mut ids = alloc::collections::BTreeMap::new();
+        walk(root, &mut ids);
+        Self {
+            ids,
+            use_depth: core::cell::Cell::new(0),
+        }
+    }
+
+    /// The paint server a `fill` / `stroke` value names: `url(#id)`, with or
+    /// without quotes and a fallback after it.
+    fn paint_server(&self, value: &str) -> Option<&'a azul_core::xml::XmlNode> {
+        let inner = value.trim().strip_prefix("url(")?;
+        let id = inner[..inner.find(')')?]
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'');
+        self.ids.get(id.strip_prefix('#')?).copied()
+    }
+
+    /// The element an `href` / `xlink:href` of `node` names (`#id`).
+    fn referenced(&self, node: &azul_core::xml::XmlNode) -> Option<&'a azul_core::xml::XmlNode> {
+        let href = node
+            .attributes
+            .get_key("href")
+            .or_else(|| node.attributes.get_key("xlink:href"))?;
+        self.ids
+            .get(href.as_str().trim().strip_prefix('#')?)
+            .copied()
+    }
+}
+
+/// `<use>` (SVG 2 s5.6): the referenced element drawn as if it stood in a
+/// `<g>` in the `<use>`'s place, with the `<use>`'s attributes (it inherits
+/// from the `<use>`, not from where it is defined) and its transform
+/// followed by `translate(x, y)`. A `<symbol>` is drawn as a nested `<svg>`:
+/// its `viewBox` fitted into the `<use>`'s `width` x `height`.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::too_many_arguments)]
+fn draw_svg_use(
+    node: &azul_core::xml::XmlNode,
+    pixmap: &mut AzulPixmap,
+    group_transform: &TransAffine,
+    group_style: &SvgInheritedStyle,
+    group_color: Option<&str>,
+    paint: &SvgPaintContext,
+    text: &mut SvgText,
+    doc: &SvgDoc<'_>,
+) {
+    use azul_core::{
+        window::AzStringPair,
+        xml::{XmlAttributeMap, XmlNode, XmlNodeChild},
+    };
+    let Some(target) = doc.referenced(node) else {
+        return;
+    };
+    if doc.use_depth.get() >= SvgDoc::MAX_USE_DEPTH {
+        return;
+    }
+    let (x, y) = (attr_f64(node, "x"), attr_f64(node, "y"));
+    // The `<use>` as a `<g>`: its attributes but `x`, `y`, `width`,
+    // `height` and the reference, its transform followed by the move.
+    let mut transform = node
+        .attributes
+        .get_key("transform")
+        .map(|t| t.as_str().to_string())
+        .unwrap_or_default();
+    if x != 0.0 || y != 0.0 {
+        use core::fmt::Write as _;
+        let _ = write!(transform, " translate({x} {y})");
+    }
+    let mut attributes: Vec<AzStringPair> = node
+        .attributes
+        .inner
+        .as_ref()
+        .iter()
+        .filter(|a| {
+            !matches!(
+                a.key.as_str(),
+                "x" | "y" | "width" | "height" | "href" | "xlink:href" | "transform"
+            )
+        })
+        .cloned()
+        .collect();
+    if !transform.trim().is_empty() {
+        attributes.push(AzStringPair {
+            key: "transform".into(),
+            value: transform.into(),
+        });
+    }
+    let content = if target.node_type.as_str().eq_ignore_ascii_case("symbol") {
+        // The symbol's children inside a `<g>` that fits its viewBox into
+        // the use's box (no viewBox: user units as they are).
+        let mut inner: Vec<AzStringPair> = target
+            .attributes
+            .inner
+            .as_ref()
+            .iter()
+            .filter(|a| {
+                !matches!(
+                    a.key.as_str(),
+                    "id" | "viewBox" | "x" | "y" | "width" | "height"
+                )
+            })
+            .cloned()
+            .collect();
+        if let Some((vx, vy, vw, vh)) = parse_viewbox(target) {
+            let w = node
+                .attributes
+                .get_key("width")
+                .and_then(|v| v.as_str().trim().parse::<f64>().ok())
+                .unwrap_or(vw);
+            let h = node
+                .attributes
+                .get_key("height")
+                .and_then(|v| v.as_str().trim().parse::<f64>().ok())
+                .unwrap_or(vh);
+            if vw > 0.0 && vh > 0.0 {
+                // xMidYMid meet, the default `preserveAspectRatio`
+                let scale = (w / vw).min(h / vh);
+                let (dx, dy) = ((w - vw * scale) / 2.0, (h - vh * scale) / 2.0);
+                inner.push(AzStringPair {
+                    key: "transform".into(),
+                    value: format!(
+                        "translate({} {}) scale({scale}) translate({} {})",
+                        dx, dy, -vx, -vy
+                    )
+                    .into(),
+                });
             }
+        }
+        XmlNode {
+            node_type: "g".into(),
+            attributes: XmlAttributeMap {
+                inner: inner.into(),
+            },
+            children: target.children.clone(),
+        }
+    } else {
+        target.clone()
+    };
+    let group = XmlNode {
+        node_type: "g".into(),
+        attributes: XmlAttributeMap {
+            inner: attributes.into(),
+        },
+        children: vec![XmlNodeChild::Element(content)].into(),
+    };
+    doc.use_depth.set(doc.use_depth.get() + 1);
+    render_svg_child(
+        &group,
+        "g",
+        pixmap,
+        group_transform,
+        group_style,
+        group_color,
+        paint,
+        text,
+        doc,
+    );
+    doc.use_depth.set(doc.use_depth.get() - 1);
+}
+
+/// `<image>` with a `data:` URI (a PNG, or with `image_decoding` any image
+/// the image crate reads): the picture fitted into `x`, `y`, `width`,
+/// `height` (`xMidYMid meet`; `width` / `height` default to the picture's
+/// size), under the element's transform. Images by URL are not fetched.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::many_single_char_names
+)] // image sizes, opacity; x, y, w, h as SVG names them
+fn draw_svg_image(
+    node: &azul_core::xml::XmlNode,
+    pixmap: &mut AzulPixmap,
+    group_transform: &TransAffine,
+) {
+    let Some(href) = node
+        .attributes
+        .get_key("href")
+        .or_else(|| node.attributes.get_key("xlink:href"))
+    else {
+        return;
+    };
+    let Some(image) = decode_data_uri_image(href.as_str()) else {
+        return;
+    };
+    let (iw, ih) = (f64::from(image.width), f64::from(image.height));
+    if iw <= 0.0 || ih <= 0.0 {
+        return;
+    }
+    let length = |key: &str, default: f64| {
+        node.attributes
+            .get_key(key)
+            .and_then(|v| v.as_str().trim().trim_end_matches("px").parse::<f64>().ok())
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .unwrap_or(default)
+    };
+    let (x, y) = (attr_f64(node, "x"), attr_f64(node, "y"));
+    let (w, h) = (length("width", iw), length("height", ih));
+    let preserve = node
+        .attributes
+        .get_key("preserveAspectRatio")
+        .map(|v| v.as_str().trim().to_string())
+        .unwrap_or_default();
+    let (sx, sy, dx, dy) = if preserve.starts_with("none") {
+        (w / iw, h / ih, 0.0, 0.0)
+    } else {
+        let scale = (w / iw).min(h / ih);
+        (scale, scale, (w - iw * scale) / 2.0, (h - ih * scale) / 2.0)
+    };
+    // Image pixels to the element's user space, then to the target.
+    let mut m = TransAffine::new_custom(sx, 0.0, 0.0, sy, x + dx, y + dy);
+    let element = node
+        .attributes
+        .get_key("transform")
+        .map_or(*group_transform, |t| {
+            let mut tf = parse_svg_transform(t.as_str());
+            tf.multiply(group_transform);
+            tf
+        });
+    m.multiply(&element);
+    let opacity = svg_opacity(node) as f32;
+    blit_pixmap_affine(&image, pixmap, &m, opacity);
+}
+
+/// A `data:` URI's image as a premultiplied pixmap.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::cast_possible_truncation)] // (c * a + 127) / 255 <= 255
+fn decode_data_uri_image(uri: &str) -> Option<AzulPixmap> {
+    let bytes = crate::data_uri::base64_payload(uri.trim())?;
+    let premultiply = |p: &mut AzulPixmap| {
+        for px in p.data_mut().chunks_exact_mut(4) {
+            let a = u32::from(px[3]);
+            for c in &mut px[..3] {
+                *c = ((u32::from(*c) * a + 127) / 255) as u8;
+            }
+        }
+    };
+    if bytes.starts_with(b"\x89PNG") {
+        if let Ok(mut p) = AzulPixmap::decode_png(&bytes) {
+            premultiply(&mut p);
+            return Some(p);
+        }
+    }
+    #[cfg(feature = "image_decoding")]
+    {
+        let rgba = image::load_from_memory(&bytes).ok()?.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let mut p = AzulPixmap::new(w, h)?;
+        p.data_mut().copy_from_slice(rgba.as_raw());
+        premultiply(&mut p);
+        return Some(p);
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+/// A basic shape (`path`, `circle`, `rect`, `ellipse`, `line`, `polygon`,
+/// `polyline`): its fill, then its stroke.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)] // alpha clamped to 0..=255
+fn draw_svg_shape(
+    child_node: &azul_core::xml::XmlNode,
+    pixmap: &mut AzulPixmap,
+    group_transform: &TransAffine,
+    group_style: &SvgInheritedStyle,
+    group_color: Option<&str>,
+    paint: &SvgPaintContext,
+    text: &mut SvgText,
+    doc: &SvgDoc<'_>,
+) {
+    let group_transform = *group_transform;
+    let group_color = group_color.map(str::to_string);
+    let Some(path_storage) = build_agg_path(child_node) else {
+        return;
+    };
+    let bbox = path_bounds(&path_storage);
+
+    // Flatten bezier curves into line segments for the rasterizer
+    let mut curved = agg_rust::conv_curve::ConvCurve::new(path_storage);
+
+    // Per-element transform
+    let elem_transform = child_node
+        .attributes
+        .get_key("transform")
+        .map_or(group_transform, |t| {
+            let mut tf = parse_svg_transform(t.as_str());
+            tf.multiply(&group_transform);
+            tf
+        });
+
+    let elem_color = presentation_property(child_node, "color").or_else(|| group_color.clone());
+
+    // Fill: element overrides group
+    let fill_attr = presentation_property(child_node, "fill").or_else(|| group_style.fill.clone());
+    let fill_color = match fill_attr.as_deref() {
+        Some("none") => None,
+        Some(c) => paint.resolve(c, elem_color.as_deref()),
+        None => Some(paint.remap(SVG_BLACK)), // SVG default
+    };
+
+    let fill_opacity = presentation_property(child_node, "fill-opacity")
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
+
+    let opacity = presentation_property(child_node, "opacity")
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
+
+    let rule = match presentation_property(child_node, "fill-rule").as_deref() {
+        Some("evenodd") => FillingRule::EvenOdd,
+        _ => FillingRule::NonZero,
+    };
+    if let Some(mut color) = fill_color {
+        color.a = (f64::from(color.a) * fill_opacity * opacity).min(255.0) as u8;
+        let mut transformed = ConvTransform::new(&mut curved, elem_transform);
+        agg_fill_path(pixmap, &mut transformed, &color, rule);
+    } else if let Some(pattern) = fill_attr
+        .as_deref()
+        .and_then(|f| doc.paint_server(f))
+        .filter(|n| n.node_type.as_str().eq_ignore_ascii_case("pattern"))
+    {
+        let mut transformed = ConvTransform::new(&mut curved, elem_transform);
+        fill_svg_pattern(
+            pattern,
+            bbox,
+            &mut transformed,
+            &elem_transform,
+            rule,
+            fill_opacity * opacity,
+            pixmap,
+            paint,
+            text,
+            doc,
+        );
+    }
+
+    // Stroke: element overrides group
+    let stroke_attr =
+        presentation_property(child_node, "stroke").or_else(|| group_style.stroke.clone());
+    let stroke_color = match stroke_attr.as_deref() {
+        Some("none") | None => None,
+        Some(c) => paint.resolve(c, elem_color.as_deref()),
+    };
+
+    if let Some(mut color) = stroke_color {
+        let stroke_opacity = presentation_property(child_node, "stroke-opacity")
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(1.0);
+        color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
+
+        // The stroke in user space (dashed, then outlined),
+        // then the element's transform.
+        let stroke = SvgStrokeStyle::of(child_node, group_style);
+        if stroke.dashes.is_empty() {
+            let mut conv_stroke = ConvStroke::new(&mut curved);
+            stroke.configure(&mut conv_stroke);
+            let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+            agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+        } else {
+            let mut dashed = agg_rust::conv_dash::ConvDash::new(&mut curved);
+            stroke.dash(&mut dashed);
+            let mut conv_stroke = ConvStroke::new(&mut dashed);
+            stroke.configure(&mut conv_stroke);
+            let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+            agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+        }
+    }
+}
+
+/// The bounding box `(x, y, width, height)` of a path's points, in its own
+/// user space (curve control points included).
+#[cfg(all(feature = "std", feature = "xml"))]
+fn path_bounds(path: &PathStorage) -> (f64, f64, f64, f64) {
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    let (mut x, mut y) = (0.0, 0.0);
+    for i in 0..path.total_vertices() {
+        if agg_rust::basics::is_vertex(path.vertex_idx(i, &mut x, &mut y)) {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+    }
+    if x1 < x0 || y1 < y0 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+    (x0, y0, x1 - x0, y1 - y0)
+}
+
+/// Fills `shape` (already in device space) with the tiles of a `<pattern>`
+/// (SVG 2 s14.3): the tile `x`, `y`, `width`, `height` in the shape's user
+/// space (`patternUnits="userSpaceOnUse"`) or as fractions of its bounding
+/// box `bbox` (the default, `objectBoundingBox`), under `patternTransform`;
+/// the tile's content in user units, fitted by a `viewBox`, or in fractions
+/// of the bounding box (`patternContentUnits="objectBoundingBox"`). The tile
+/// is drawn once at the device's resolution and repeated, each device pixel
+/// of the shape taking the tile pixel it maps to.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::many_single_char_names,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)] // device pixel indices and a tile size clamped to 1..=2048; x, y, w, h as SVG names them
+fn fill_svg_pattern(
+    pattern: &azul_core::xml::XmlNode,
+    bbox: (f64, f64, f64, f64),
+    shape: &mut dyn agg_rust::basics::VertexSource,
+    transform: &TransAffine,
+    rule: FillingRule,
+    opacity: f64,
+    pixmap: &mut AzulPixmap,
+    paint: &SvgPaintContext,
+    text: &mut SvgText,
+    doc: &SvgDoc<'_>,
+) {
+    if doc.use_depth.get() >= SvgDoc::MAX_USE_DEPTH || opacity.is_nan() || opacity <= 0.0 {
+        return;
+    }
+    let attr = |key: &str| {
+        pattern
+            .attributes
+            .get_key(key)
+            .map(|v| v.as_str().trim().to_string())
+    };
+    let number = |key: &str| {
+        attr(key)
+            .and_then(|v| v.trim_end_matches("px").parse::<f64>().ok())
+            .filter(|v| v.is_finite())
+    };
+    let (bx, by, bw, bh) = bbox;
+    let (mut x, mut y) = (number("x").unwrap_or(0.0), number("y").unwrap_or(0.0));
+    let (mut w, mut h) = (
+        number("width").unwrap_or(0.0),
+        number("height").unwrap_or(0.0),
+    );
+    if attr("patternUnits").as_deref() != Some("userSpaceOnUse") {
+        x = bx + x * bw;
+        y = by + y * bh;
+        w *= bw;
+        h *= bh;
+    }
+    if w.is_nan() || h.is_nan() || w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    // Tile space (0..w x 0..h) to device space.
+    let mut tile_to_device = TransAffine::new_translation(x, y);
+    if let Some(t) = attr("patternTransform") {
+        tile_to_device.multiply(&parse_svg_transform(&t));
+    }
+    tile_to_device.multiply(transform);
+    if tile_to_device.determinant().abs() < 1e-12 {
+        return;
+    }
+    // The tile in device pixels, at the device's scale.
+    let scale = tile_to_device.get_scale().max(1e-6);
+    let tw = ((w * scale).ceil() as u32).clamp(1, 2048);
+    let th = ((h * scale).ceil() as u32).clamp(1, 2048);
+    let Some(mut tile) = AzulPixmap::new(tw, th) else {
+        return;
+    };
+    tile.fill(0, 0, 0, 0);
+    // The content's units to tile pixels.
+    let mut content = if let Some((vx, vy, vw, vh)) = parse_viewbox(pattern) {
+        if vw > 0.0 && vh > 0.0 {
+            let s = (w / vw).min(h / vh);
+            let mut m = TransAffine::new_translation(-vx, -vy);
+            m.multiply(&TransAffine::new_scaling_uniform(s));
+            m.multiply(&TransAffine::new_translation(
+                (w - vw * s) / 2.0,
+                (h - vh * s) / 2.0,
+            ));
+            m
+        } else {
+            TransAffine::new()
+        }
+    } else if attr("patternContentUnits").as_deref() == Some("objectBoundingBox") {
+        TransAffine::new_scaling(bw, bh)
+    } else {
+        TransAffine::new()
+    };
+    content.multiply(&TransAffine::new_scaling(
+        f64::from(tw) / w,
+        f64::from(th) / h,
+    ));
+    doc.use_depth.set(doc.use_depth.get() + 1);
+    render_svg_group_inner(
+        pattern,
+        &mut tile,
+        &content,
+        &SvgInheritedStyle::default(),
+        None,
+        paint,
+        text,
+        doc,
+    );
+    doc.use_depth.set(doc.use_depth.get() - 1);
+
+    // The shape's coverage, then each covered pixel takes its tile pixel.
+    let Some(mut mask) = AzulPixmap::new(pixmap.width, pixmap.height) else {
+        return;
+    };
+    mask.fill(0, 0, 0, 0);
+    agg_fill_path(&mut mask, shape, &Rgba8::new(255, 255, 255, 255), rule);
+    let op = (opacity.min(1.0) * 255.0).round() as u32;
+    let (pw, ph) = (pixmap.width as usize, pixmap.height as usize);
+    let (twu, thu) = (tw as usize, th as usize);
+    let mask = mask.data();
+    let tile = tile.data();
+    let out = pixmap.data_mut();
+    for py in 0..ph {
+        for px in 0..pw {
+            let i = (py * pw + px) * 4;
+            let coverage = u32::from(mask[i + 3]);
+            if coverage == 0 {
+                continue;
+            }
+            let (mut u, mut v) = (px as f64 + 0.5, py as f64 + 0.5);
+            tile_to_device.inverse_transform(&mut u, &mut v);
+            let tu = ((u.rem_euclid(w) / w * f64::from(tw)) as usize).min(twu - 1);
+            let tv = ((v.rem_euclid(h) / h * f64::from(th)) as usize).min(thu - 1);
+            let t = (tv * twu + tu) * 4;
+            let src = [tile[t], tile[t + 1], tile[t + 2], tile[t + 3]];
+            blend_over(&mut out[i..i + 4], src, (op * coverage + 127) / 255);
         }
     }
 }
@@ -1095,9 +1696,13 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
     let tag = node.node_type.as_str().to_lowercase();
     match tag.as_str() {
         "path" => {
+            // A subpath without a closepath stays open: its stroke has caps
+            // at both ends and no segment back to its start (a road, a
+            // contour line). The fill closes it anyway.
             let d = node.attributes.get_key("d")?;
-            let mp = azul_core::path_parser::parse_svg_path_d(d.as_str()).ok()?;
-            Some(svg_multi_polygon_to_path_storage(&mp))
+            let (mp, closed) =
+                azul_core::path_parser::parse_svg_path_d_subpaths(d.as_str()).ok()?;
+            Some(svg_subpaths_to_path_storage(&mp, &closed))
         }
         "circle" => {
             let cx = attr_f64(node, "cx");
@@ -1229,6 +1834,27 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
         &|p| (f64::from(p.x), f64::from(p.y)),
         RingEnd::ClosePolygon,
     );
+    path.finish()
+}
+
+/// [`svg_multi_polygon_to_path_storage`] for a `<path>`'s subpaths: ring
+/// `i` closed when `closed[i]` (it ended in a closepath), left open
+/// otherwise.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn svg_subpaths_to_path_storage(
+    mp: &azul_core::svg::SvgMultiPolygon,
+    closed: &[bool],
+) -> PathStorage {
+    use crate::geometry_guard::{add_svg_rings_each, BoundedPath, ClampBox, RingEnd, COORD_LIMIT};
+
+    let mut path = BoundedPath::new(ClampBox::around_origin(COORD_LIMIT));
+    add_svg_rings_each(&mut path, mp, &|p| (f64::from(p.x), f64::from(p.y)), &|i| {
+        if closed.get(i).copied().unwrap_or(false) {
+            RingEnd::ClosePolygon
+        } else {
+            RingEnd::Open
+        }
+    });
     path.finish()
 }
 
@@ -2011,8 +2637,13 @@ mod autotest_generated {
         let p = build_agg_path(&el("path", &[("d", "M 0 0 L 10 10")])).expect("valid d");
         assert!(p.total_vertices() >= 2, "move_to + line_to at minimum");
         assert!(
+            !agg_rust::basics::is_end_poly(p.last_command()),
+            "a subpath without Z is left open"
+        );
+        let p = build_agg_path(&el("path", &[("d", "M 0 0 L 10 10 L 0 10 Z")])).expect("valid d");
+        assert!(
             agg_rust::basics::is_end_poly(p.last_command()),
-            "every ring is terminated by close_polygon()"
+            "a subpath with Z is terminated by close_polygon()"
         );
     }
 
@@ -2575,32 +3206,267 @@ mod autotest_generated {
         );
     }
 
+    /// What `<defs>` and `<symbol>` hold is drawn only where a `<use>`
+    /// references it (SVG 2 s5.6), not where it stands.
     #[test]
-    fn render_svg_group_defs_children_are_painted() {
-        // SPEC GAP: the `_ =>` arm recurses into *any* unknown container, so
-        // <defs> / <symbol> / <clipPath> content is rasterised even though the
-        // SVG spec says those are definitions and must never be painted directly.
-        // Characterization — see the report.
+    fn render_svg_group_defs_and_symbol_children_are_not_painted() {
+        for container in ["defs", "symbol", "clipPath", "pattern", "linearGradient"] {
+            let svg = el_with(
+                "svg",
+                &[],
+                vec![el_with(
+                    container,
+                    &[],
+                    vec![el(
+                        "rect",
+                        &[("width", "8"), ("height", "8"), ("fill", "red")],
+                    )],
+                )],
+            );
+            let mut p = pixmap(8, 8);
+            p.fill(255, 255, 255, 255);
+            render_svg_group(&svg, &mut p, &TransAffine::new());
+            assert!(
+                is_all_white(&p),
+                "<{container}> content is not painted where it stands"
+            );
+        }
+    }
+
+    /// `<use>` draws the element it references where it stands, moved by
+    /// `x` / `y` after its own transform, inheriting the `<use>`'s paints; a
+    /// `<symbol>` is fitted into the `<use>`'s width and height.
+    #[test]
+    fn render_svg_group_use_draws_the_referenced_element() {
+        let rect = || el("rect", &[("id", "r"), ("width", "4"), ("height", "4")]);
         let svg = el_with(
             "svg",
             &[],
-            vec![el_with(
-                "defs",
-                &[],
-                vec![el(
-                    "rect",
-                    &[("width", "8"), ("height", "8"), ("fill", "red")],
-                )],
-            )],
+            vec![
+                el_with("defs", &[], vec![rect()]),
+                el(
+                    "use",
+                    &[("href", "#r"), ("x", "2"), ("y", "2"), ("fill", "red")],
+                ),
+                el(
+                    "use",
+                    &[
+                        ("xlink:href", "#r"),
+                        ("transform", "translate(8 0)"),
+                        ("y", "8"),
+                        ("fill", "#0000ff"),
+                    ],
+                ),
+            ],
         );
-        let mut p = pixmap(8, 8);
+        let mut p = pixmap(16, 16);
         p.fill(255, 255, 255, 255);
         render_svg_group(&svg, &mut p, &TransAffine::new());
         assert_eq!(
-            px(&p, 4, 4),
-            [255, 0, 0, 255],
-            "<defs> content is painted (the spec says it must not be)"
+            px(&p, 0, 0),
+            [255, 255, 255, 255],
+            "the definition itself is not drawn"
         );
+        assert_eq!(
+            px(&p, 3, 3),
+            [255, 0, 0, 255],
+            "the first use, at 2,2, in its own red"
+        );
+        assert_eq!(
+            px(&p, 9, 9),
+            [0, 0, 255, 255],
+            "the second at 8,8: transform, then y"
+        );
+        assert_eq!(px(&p, 13, 13), [255, 255, 255, 255]);
+
+        // A symbol with a viewBox, fitted into the use's 8 x 8.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![
+                el_with(
+                    "symbol",
+                    &[("id", "s"), ("viewBox", "0 0 2 2")],
+                    vec![el(
+                        "rect",
+                        &[("width", "1"), ("height", "1"), ("fill", "black")],
+                    )],
+                ),
+                el(
+                    "use",
+                    &[
+                        ("href", "#s"),
+                        ("x", "4"),
+                        ("y", "4"),
+                        ("width", "8"),
+                        ("height", "8"),
+                    ],
+                ),
+            ],
+        );
+        let mut p = pixmap(16, 16);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        assert_eq!(
+            px(&p, 5, 5),
+            [0, 0, 0, 255],
+            "the symbol's unit square is 4 px at 4,4"
+        );
+        assert_eq!(px(&p, 7, 7), [0, 0, 0, 255]);
+        assert_eq!(px(&p, 9, 9), [255, 255, 255, 255]);
+
+        // A use that references itself (or an unknown id) draws nothing and
+        // ends.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![
+                el_with(
+                    "g",
+                    &[("id", "loop")],
+                    vec![el("use", &[("href", "#loop")])],
+                ),
+                el("use", &[("href", "#nothing")]),
+            ],
+        );
+        let mut p = pixmap(4, 4);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+    }
+
+    /// A `fill="url(#p)"` with a `<pattern>` repeats the pattern's tile:
+    /// in user units (`userSpaceOnUse`) or as a fraction of the shape's box
+    /// (the default).
+    #[test]
+    fn render_svg_group_pattern_fill_repeats_its_tile() {
+        // A 4 x 4 tile with a 2 x 2 black square in its top-left corner.
+        let pattern = |id: &str, attrs: &[(&str, &str)]| {
+            let mut all = vec![("id", id)];
+            all.extend_from_slice(attrs);
+            el_with(
+                "pattern",
+                &all,
+                vec![el(
+                    "rect",
+                    &[("width", "2"), ("height", "2"), ("fill", "black")],
+                )],
+            )
+        };
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![
+                el_with(
+                    "defs",
+                    &[],
+                    vec![pattern(
+                        "p",
+                        &[
+                            ("width", "4"),
+                            ("height", "4"),
+                            ("patternUnits", "userSpaceOnUse"),
+                        ],
+                    )],
+                ),
+                el(
+                    "rect",
+                    &[("width", "16"), ("height", "16"), ("fill", "url(#p)")],
+                ),
+            ],
+        );
+        let mut p = pixmap(16, 16);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        for (x, y, black) in [
+            (0, 0, true),
+            (1, 1, true),
+            (2, 2, false),
+            (3, 3, false),
+            (5, 4, true),
+            (9, 13, true),
+            (10, 14, false),
+            (14, 1, false),
+        ] {
+            let expected = if black {
+                [0, 0, 0, 255]
+            } else {
+                [255, 255, 255, 255]
+            };
+            assert_eq!(px(&p, x, y), expected, "pixel {x},{y}");
+        }
+
+        // objectBoundingBox: a quarter of the 8..24 box is an 8px tile.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![
+                pattern(
+                    "q",
+                    &[("width", "0.5"), ("height", "0.5"), ("viewBox", "0 0 4 4")],
+                ),
+                el(
+                    "rect",
+                    &[
+                        ("x", "8"),
+                        ("y", "8"),
+                        ("width", "16"),
+                        ("height", "16"),
+                        ("fill", "url(#q)"),
+                    ],
+                ),
+            ],
+        );
+        let mut p = pixmap(32, 32);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        assert_eq!(px(&p, 4, 4), [255, 255, 255, 255], "outside the rect");
+        assert_eq!(
+            px(&p, 9, 9),
+            [0, 0, 0, 255],
+            "the first tile's square (8..12)"
+        );
+        assert_eq!(px(&p, 13, 13), [255, 255, 255, 255]);
+        assert_eq!(px(&p, 17, 9), [0, 0, 0, 255], "the next tile (16..20)");
+        assert!(is_all_white_at(&p, 20, 20, 4), "the rest of the last tile");
+    }
+
+    fn is_all_white_at(p: &AzulPixmap, x: u32, y: u32, n: u32) -> bool {
+        (y..y + n).all(|yy| (x..x + n).all(|xx| px(p, xx, yy) == [255, 255, 255, 255]))
+    }
+
+    /// `<image>` with a PNG `data:` URI is drawn into its box.
+    #[test]
+    fn render_svg_group_image_draws_a_data_uri_png() {
+        // A 2 x 2 PNG: opaque red, made with the encoder here.
+        let mut red = pixmap(2, 2);
+        red.fill(255, 0, 0, 255);
+        let png = red.encode_png().expect("encode");
+        let uri = {
+            use base64::Engine as _;
+            format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(png)
+            )
+        };
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el(
+                "image",
+                &[
+                    ("href", &uri),
+                    ("x", "4"),
+                    ("y", "4"),
+                    ("width", "8"),
+                    ("height", "8"),
+                ],
+            )],
+        );
+        let mut p = pixmap(16, 16);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        assert_eq!(px(&p, 8, 8), [255, 0, 0, 255], "inside the image's box");
+        assert_eq!(px(&p, 2, 2), [255, 255, 255, 255], "outside it");
+        assert_eq!(px(&p, 14, 14), [255, 255, 255, 255]);
     }
 
     #[test]
@@ -2716,6 +3582,156 @@ mod autotest_generated {
             !is_all_white(&p),
             "a stroked line across the middle must paint something"
         );
+    }
+
+    /// `mix-blend-mode` on a group (attribute or `style`) puts the group
+    /// onto what the document drew below it with that blend: yellow over cyan
+    /// multiplies to green. `opacity` on a group fades the group as one
+    /// picture: two overlapping squares at 50 % do not darken where they
+    /// overlap.
+    #[test]
+    fn render_svg_group_mix_blend_mode_and_group_opacity() {
+        let square = |x: &str, fill: &str| {
+            el(
+                "rect",
+                &[
+                    ("x", x),
+                    ("y", "0"),
+                    ("width", "16"),
+                    ("height", "32"),
+                    ("fill", fill),
+                ],
+            )
+        };
+        for blend in [
+            vec![("mix-blend-mode", "multiply")],
+            vec![("style", "mix-blend-mode: multiply")],
+        ] {
+            let svg = el_with(
+                "svg",
+                &[],
+                vec![
+                    square("0", "#00ffff"),
+                    el_with("g", &blend, vec![square("8", "#ffff00")]),
+                ],
+            );
+            let mut p = pixmap(32, 32);
+            p.fill(255, 255, 255, 255);
+            render_svg_group(&svg, &mut p, &TransAffine::new());
+            assert_eq!(px(&p, 4, 16), [0, 255, 255, 255], "{blend:?}: cyan alone");
+            assert_eq!(px(&p, 12, 16), [0, 255, 0, 255], "{blend:?}: cyan x yellow");
+            assert_eq!(
+                px(&p, 20, 16),
+                [255, 255, 0, 255],
+                "{blend:?}: yellow x white"
+            );
+            assert_eq!(px(&p, 28, 16), [255, 255, 255, 255], "{blend:?}: nothing");
+        }
+        // Without the blend the yellow covers the cyan.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![
+                square("0", "#00ffff"),
+                el_with("g", &[], vec![square("8", "#ffff00")]),
+            ],
+        );
+        let mut p = pixmap(32, 32);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        assert_eq!(px(&p, 12, 16), [255, 255, 0, 255]);
+
+        // Group opacity: black squares at 0..16 and 8..24 in a group at 0.5
+        // are one grey where they overlap and where they do not.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el_with(
+                "g",
+                &[("opacity", "0.5")],
+                vec![square("0", "black"), square("8", "black")],
+            )],
+        );
+        let mut p = pixmap(32, 32);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        let alone = px(&p, 4, 16);
+        assert!((126..=129).contains(&alone[0]), "{alone:?}");
+        assert_eq!(px(&p, 12, 16), alone, "the overlap is no darker");
+        assert_eq!(px(&p, 28, 16), [255, 255, 255, 255]);
+    }
+
+    /// A `<path>` subpath without `Z` is stroked open: nothing joins its
+    /// last point to its first (a road drawn as `M..L..L` got a straight line
+    /// back across the map). With `Z` the closing segment is there, and the
+    /// fill closes both.
+    #[test]
+    fn render_svg_group_open_path_stroke_has_no_closing_segment() {
+        // Two sides of a square, 4..28; the closing segment would be the
+        // diagonal from (28, 28) back to (4, 4), through (16, 16).
+        let stroked = |d: &str| {
+            let svg = el_with(
+                "svg",
+                &[],
+                vec![el(
+                    "path",
+                    &[
+                        ("d", d),
+                        ("fill", "none"),
+                        ("stroke", "black"),
+                        ("stroke-width", "3"),
+                    ],
+                )],
+            );
+            let mut p = pixmap(32, 32);
+            p.fill(255, 255, 255, 255);
+            render_svg_group(&svg, &mut p, &TransAffine::new());
+            p
+        };
+        let open = stroked("M4 4 L28 4 L28 28");
+        assert_eq!(
+            px(&open, 16, 4),
+            [0, 0, 0, 255],
+            "the first side is stroked"
+        );
+        assert_eq!(
+            px(&open, 28, 16),
+            [0, 0, 0, 255],
+            "the second side is stroked"
+        );
+        assert_eq!(
+            px(&open, 16, 16),
+            [255, 255, 255, 255],
+            "no closing diagonal"
+        );
+        let closed = stroked("M4 4 L28 4 L28 28 Z");
+        assert_eq!(
+            px(&closed, 16, 16),
+            [0, 0, 0, 255],
+            "Z strokes the diagonal"
+        );
+        // An open subpath followed by a closed one: each keeps its own end.
+        let both = stroked("M4 4 L28 4 L28 28 M4 20 L12 20 L4 28 Z");
+        assert_eq!(
+            px(&both, 16, 16),
+            [255, 255, 255, 255],
+            "the first stays open"
+        );
+        // (4, 24) lies on the second one's closing segment only.
+        assert_eq!(px(&both, 4, 24), [0, 0, 0, 255], "the second is closed");
+        assert_eq!(px(&open, 4, 24), [255, 255, 255, 255]);
+
+        // The fill closes an open subpath all the same.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el("path", &[("d", "M4 4 L28 4 L28 28"), ("fill", "black")])],
+        );
+        let mut p = pixmap(32, 32);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        assert_eq!(px(&p, 24, 8), [0, 0, 0, 255], "inside the implied triangle");
+        assert_eq!(px(&p, 8, 24), [255, 255, 255, 255], "outside it");
     }
 
     #[test]

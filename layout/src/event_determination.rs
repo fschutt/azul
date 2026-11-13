@@ -920,13 +920,27 @@ pub fn determine_all_events(
                 timestamp.clone(),
                 EventData::None,
             ));
-            events.push(SyntheticEvent::new(
-                EventType::MouseOut,
-                EventSource::User,
-                target,
-                timestamp.clone(),
-                EventData::None,
-            ));
+        }
+        // MouseOut / MouseOver go to the TOPMOST node only, once, when it
+        // changes (UI Events s4.3.3: "mouseover ... when a pointing device is
+        // moved onto the boundaries of an element", dispatched to the hit
+        // target, and they bubble). One per node of the chain that changed,
+        // each bubbling, told an ancestor the same entry once per node below
+        // it: entering a label inside a VirtualView was six MouseOvers at the
+        // map around the view, and a page whose nodes were rebuilt under a
+        // still pointer sent them again.
+        let previous_top = hover_manager.previous_hover_node_full();
+        let current_top = hover_manager.current_hover_node_full();
+        if previous_top != current_top {
+            if let Some(out) = previous_top {
+                events.push(SyntheticEvent::new(
+                    EventType::MouseOut,
+                    EventSource::User,
+                    out,
+                    timestamp.clone(),
+                    EventData::None,
+                ));
+            }
         }
 
         // Nodes that gained hover -> MouseEnter, and its bubbling twin
@@ -950,13 +964,17 @@ pub fn determine_all_events(
                 timestamp.clone(),
                 EventData::None,
             ));
-            events.push(SyntheticEvent::new(
-                EventType::MouseOver,
-                EventSource::User,
-                target,
-                timestamp.clone(),
-                EventData::None,
-            ));
+        }
+        if previous_top != current_top {
+            if let Some(over) = current_top {
+                events.push(SyntheticEvent::new(
+                    EventType::MouseOver,
+                    EventSource::User,
+                    over,
+                    timestamp.clone(),
+                    EventData::None,
+                ));
+            }
         }
     }
 
@@ -2995,6 +3013,30 @@ mod autotest_generated {
             let ev = only(&events, ty);
             assert_eq!(ev.target, expected, "{ty:?} went to the wrong node");
         }
+    }
+
+    /// Entering a node three levels down gains the whole chain: one
+    /// MouseEnter per node, but ONE MouseOver, at the topmost node (it
+    /// bubbles to the rest) - not one per node, each bubbling to every
+    /// ancestor. Leaving is the mirror: one MouseOut at the old topmost node.
+    #[test]
+    fn mouseover_and_mouseout_fire_once_at_the_topmost_node() {
+        let s = state();
+        let hm = hover_with(hits(&[(0, 0)]), hits(&[(0, 0), (0, 1), (0, 2), (0, 3)]));
+        let events = run(&s, &s, &hm, None, None);
+        assert_eq!(count(&events, EventType::MouseEnter), 3);
+        let over = only(&events, EventType::MouseOver);
+        assert_eq!(over.target, node(0, 3), "the topmost (deepest) node");
+        let out = only(&events, EventType::MouseOut);
+        assert_eq!(out.target, node(0, 0), "the topmost node before");
+
+        // The topmost node is unchanged (a node behind it appeared): no
+        // MouseOver, no MouseOut.
+        let hm = hover_with(hits(&[(0, 0), (0, 3)]), hits(&[(0, 0), (0, 2), (0, 3)]));
+        let events = run(&s, &s, &hm, None, None);
+        assert_eq!(count(&events, EventType::MouseEnter), 1);
+        assert_eq!(count(&events, EventType::MouseOver), 0);
+        assert_eq!(count(&events, EventType::MouseOut), 0);
     }
 
     #[test]

@@ -8104,3 +8104,8 @@ mod close_protocol_tests {
 #[cfg(test)]
 #[path = "focus_across_virtual_view_tests.rs"]
 mod focus_across_virtual_view_tests;
+
+// ==== pointer events on the nodes of a `VirtualView`'s child document ====
+#[cfg(test)]
+#[path = "virtual_view_events_tests.rs"]
+mod virtual_view_events_tests;

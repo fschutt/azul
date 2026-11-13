@@ -42,6 +42,7 @@ use azul_css::{
             background::{ConicGradient, ExtendMode, LinearGradient, RadialGradient},
             border_radius::StyleBorderRadius,
             box_shadow::{BoxShadowClipMode, StyleBoxShadow},
+            effects::StyleMixBlendMode,
             filter::{StyleFilter, StyleFilterVec},
             BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
             LayoutBorderTopWidth, StyleBorderBottomColor, StyleBorderBottomStyle,
@@ -2601,6 +2602,10 @@ pub enum DisplayListItem {
         /// `GpuValueCache` animation channel, so the cached list serves every
         /// tick while the fade advances. `None` for plain CSS opacity.
         opacity_key: Option<OpacityKey>,
+        /// How the group is put onto what is below it (CSS
+        /// `mix-blend-mode`): `Normal` is source-over. A node that blends
+        /// pushes the group at its opacity, 1.0 included.
+        mix_blend_mode: StyleMixBlendMode,
     },
     /// Pop an opacity layer.
     PopOpacity,
@@ -2993,17 +2998,19 @@ impl DisplayListItem {
                     bounds: b1,
                     opacity: o1,
                     opacity_key: k1,
+                    mix_blend_mode: m1,
                 },
                 Self::PushOpacity {
                     bounds: b2,
                     opacity: o2,
                     opacity_key: k2,
+                    mix_blend_mode: m2,
                 },
             ) => {
                 // The key participates: two lists binding different keys draw
                 // from different animation channels and are NOT interchangeable
                 // (same rule the GPU-damage diff relies on).
-                b1 == b2 && o1 == o2 && k1 == k2
+                b1 == b2 && o1 == o2 && k1 == k2 && m1 == m2
             }
             // Pop items with no fields are always equal (discriminant already matched)
             (Self::PopClip, Self::PopClip)
@@ -6337,11 +6344,26 @@ where
                         .map(|(k, _)| *k)
                 })
             };
-            if opacity < 1.0 || anim_opacity_key.is_some() {
+            // `mix-blend-mode`: the node's content is one group put onto
+            // what is below it with the blend - the same group an opacity
+            // makes, so one push carries both.
+            let mix_blend_mode = self
+                .ctx
+                .styled_dom
+                .css_property_cache
+                .ptr
+                .get_mix_blend_mode(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().copied())
+                .unwrap_or_default();
+            if opacity < 1.0
+                || anim_opacity_key.is_some()
+                || mix_blend_mode != StyleMixBlendMode::Normal
+            {
                 builder.push_item(DisplayListItem::PushOpacity {
                     bounds: node_bounds.into(),
                     opacity,
                     opacity_key: anim_opacity_key.or_else(css_opacity_key),
+                    mix_blend_mode,
                 });
                 pushed_opacity = true;
             }
@@ -7790,6 +7812,7 @@ where
                 bounds: area.into(),
                 opacity,
                 opacity_key: Some(opacity_key),
+                mix_blend_mode: StyleMixBlendMode::Normal,
             });
             // No owner: the frame moves the highlight, not the node.
             builder.push_reference_frame(transform_key, transform, highlight, None);
@@ -13621,10 +13644,12 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             bounds,
             opacity,
             opacity_key,
+            mix_blend_mode,
         } => DisplayListItem::PushOpacity {
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             opacity: *opacity,
             opacity_key: *opacity_key,
+            mix_blend_mode: *mix_blend_mode,
         },
         DisplayListItem::PopOpacity => DisplayListItem::PopOpacity,
         DisplayListItem::ScrollBarStyled { info } => {
@@ -15200,6 +15225,7 @@ mod autotest_generated {
                 bounds: WindowLogicalRect::zero(),
                 opacity: 0.5,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             DisplayListItem::PushTextShadow {
                 shadow: StyleBoxShadow::default(),

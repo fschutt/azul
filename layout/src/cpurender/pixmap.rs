@@ -93,7 +93,7 @@ pub fn copy_pixmap_clipped(
 /// Hands every pixel of `src` placed at (`px_x`, `px_y`) in `dst` that lands
 /// inside `dst` and the optional DEST-space clip `(x0, y0, x1, y1)` to
 /// `apply`, with the destination pixel to write.
-fn for_each_clipped_pixel(
+pub(crate) fn for_each_clipped_pixel(
     src: &AzulPixmap,
     dst: &mut AzulPixmap,
     px_x: i32,

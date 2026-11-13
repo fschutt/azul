@@ -16,10 +16,11 @@ instead of "roughly this wide".
   `(advance-50, 700)`. Nothing about glyph *shape* matters; only *metrics* and
   the presence/behaviour of OpenType layout tables (GSUB/GPOS/vmtx) do. A CPU
   rasterizer will draw these as visible coloured boxes.
-* **Except sections 7 to 9:** those are small subsets of real OFL fonts, kept
-  for what real Arabic and Devanagari fonts do and the synthetic ones cannot
-  (dots split off their letters, mark and cursive anchors, dotted circles for
-  broken syllables). They are not made by the script above; each one's licence
+* **Except sections 7 to 11:** those are small subsets of real OFL fonts, kept
+  for what real Arabic, Devanagari and Bengali fonts do and the synthetic ones
+  cannot (dots split off their letters, mark and cursive anchors, dotted
+  circles for broken syllables, vowel signs drawn in two parts, a shadda
+  under the vowel mark on it). They are not made by the script above; each one's licence
   text sits next to it.
 
 ## Shared conventions (unless a font overrides them)
@@ -332,3 +333,58 @@ HarfBuzz 15.0.0 gives (glyphs in order, clusters in UTF-8 bytes):
 | `ाक` | dotted circle (0), aa sign (0), ka (3) |
 | `िक` | i sign (0), dotted circle (0), ka (3) - the i sign is drawn before its base |
 | `◌िक` | i sign (0), dotted circle (0), ka (6) - here the dotted circle is the text's own |
+
+## 10. NotoSansBengali-Jessore.ttf — a vowel sign in two parts
+
+| | |
+|---|---|
+| family name | **Noto Sans Bengali** (Bold 3.011, a subset) |
+| licence | SIL OFL 1.1, `NotoSansBengali-OFL.txt` |
+| upem | 1000 |
+| numGlyphs | 14 |
+| cmap | U+0020, U+09AF ya, U+09B0 ra, U+09B6 sha, U+09BE aa sign, U+09C7 e sign, U+09CB o sign, U+25CC dotted circle |
+| GSUB | `init`, `pres`; GPOS |
+
+**Made with:** `pyftsubset NotoSansBengali-Bold.ttf
+--unicodes=U+0020,U+09AF,U+09B0,U+09B6,U+09BE,U+09C7,U+09CB,U+25CC
+--layout-features='*' --no-hinting`.
+
+The o sign (U+09CB) is drawn in two parts, the e sign before its consonant
+and the aa sign after it: the shaper decomposes it (U+09C7 U+09BE) and moves
+the first part in front. "যশোর" (Jessore, U+09AF U+09B6 U+09CB U+09B0) in
+HarfBuzz 15.0.0 (glyph ids, clusters in UTF-8 bytes):
+
+| text | glyphs (cluster) |
+|------|------------------|
+| `যশোর` | 4 ya (0), 11 e sign, long (3), 6 sha (3), 8 aa sign (3), 5 ra (9) |
+
+## 11. NotoSansArabic-Sample.ttf — contextual forms, a vowel mark on a shadda
+
+| | |
+|---|---|
+| family name | **Noto Sans Arabic** (Regular 2.013, a subset) |
+| licence | SIL OFL 1.1, `NotoSansArabic-OFL.txt` |
+| upem | 1000 |
+| numGlyphs | 58 |
+| cmap | U+0020, U+0627 U+0628 U+0629 U+062D U+0631 U+0639 U+0642 U+0644 U+0645 U+0647 U+064A, U+064E fatha, U+0650 kasra, U+0651 shadda |
+| GSUB | `ccmp init medi fina rlig locl dlig aalt`; `ccmp` splits beh and qaf into a dotless letter and its dots |
+| GPOS | `mark`, `mkmk`, `kern` |
+
+**Made with:** `pyftsubset NotoSansArabic-Regular.ttf
+--unicodes=U+0020,U+0627,U+0628,U+062D,U+0631,U+0639,U+0642,U+0644,U+0645,U+0647,U+0629,U+064A,U+064E,U+0650,U+0651
+--layout-features='*' --no-hinting`.
+
+What HarfBuzz 15.0.0 gives, glyph ids in the text's order:
+
+| text | glyphs |
+|------|--------|
+| `مرحبا بالعالم` | 37 17 15 8 48 3 1 10 48 3 30 20 3 30 35 |
+| `القاهرة` (Cairo) | 2 30 22 47 3 41 17 42 47 |
+| `اللَّهِ` | 2 30 28 50 52 39 53 |
+
+Text usually spells a doubled consonant with a vowel as fatha + shadda
+(`اللَّهِ`: U+064E U+0651, the canonical order, ccc 30 before 33). The shaper
+moves the shadda first (HarfBuzz's and allsorts' Arabic mark reordering), so
+it sits on the letter and the fatha stacks on it (mark to mark): the shadda
+(50) at (-27, 256), the fatha (52) at (-35, 456) font units. Shaped in the
+text's order, the fatha sat on the letter under the shadda.
