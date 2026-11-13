@@ -3413,6 +3413,17 @@ fn code_opens_the_wrap(
 /// token server makes the member family of the code (`make_code`): a key change that is not over would hand
 /// out the key it replaces, and a refusal after the family was made left it at the server, unseen, until a
 /// lockdown (X-DELTA-KEYS3-6). The permit goes into `seal_invite`: a refactor that drops the ask changes a type.
+///
+/// The invite's wrap goes into the bucket BEFORE the member family is made (X-KEYS4-2): the family is the
+/// step that cannot be taken back, so it comes last, and nothing that can fail comes after it. The crash table
+/// (each row is a stop after the step; the next "Add a device" finds):
+///
+/// | after | the bucket | the token server | what is left |
+/// |---|---|---|---|
+/// | the ask | nothing | nothing | nothing |
+/// | the wrap | an invite wrap whose one-time secret was in memory only | no family | a wrap nobody can open (a key change takes it out) |
+/// | a family that was not made | the wrap is taken back ([`device::take_back_invite`]) | no family | nothing |
+/// | the family | the wrap | a family, the code in memory only | the one window left: a family nobody holds the code of, until a lockdown, a removal or its idle expiry |
 fn invite_job(
     auto: &AutoEncrypted,
     keyring: &dyn KeyringStore,
@@ -3426,11 +3437,28 @@ fn invite_job(
         }
         None => None,
     };
-    let mut code = make_code()?;
-    if let Some((drive_key, permit)) = key {
-        let invite = device::seal_invite(&permit, auto.bucket().as_ref(), auto.drive(), &drive_key)
-            .map_err(|e| e.to_string())?;
-        code.key_seal = Some(device::invite_text(&invite).to_string());
+    let sealed = match &key {
+        Some((drive_key, permit)) => Some(
+            device::seal_invite(permit, auto.bucket().as_ref(), auto.drive(), drive_key)
+                .map_err(|e| e.to_string())?,
+        ),
+        None => None,
+    };
+    let mut code = match make_code() {
+        Ok(code) => code,
+        Err(why) => {
+            if let Some(invite) = &sealed {
+                if let Err(left) =
+                    device::take_back_invite(keyring, auto.bucket().as_ref(), auto.drive(), invite)
+                {
+                    eprintln!("AZDRIVE_INVITE_NOT_TAKEN_BACK {}: {left}", auto.drive());
+                }
+            }
+            return Err(why);
+        }
+    };
+    if let (Some((drive_key, _)), Some(invite)) = (&key, &sealed) {
+        code.key_seal = Some(device::invite_text(invite).to_string());
         // the joining device takes no other key than this one
         code.key_id = Some(drive_key.id().to_hex());
     }
@@ -8922,6 +8950,256 @@ mod tests {
             None
         );
         let _ = DriveKey::generate();
+    }
+
+    // ==== X-KEYS4-2: the invite's wrap is in the bucket before the member family is made ====
+
+    /// A join code as the token server makes it, with no key.
+    fn a_join_code(drive: &str) -> azcloud_kit::JoinCode {
+        azcloud_kit::JoinCode {
+            drive_id: drive.to_string(),
+            drive_token: String::from("dt_x"),
+            member: String::from("m_x"),
+            name: String::from("Laptop"),
+            token_url: String::from("https://token.test"),
+            key_seal: None,
+            key_id: None,
+        }
+    }
+
+    /// The invite wraps (`.azlin/keys/invite-<id>.key`) in a bucket.
+    fn invite_wraps(bucket: &azul_storage::meta::MemoryBucket) -> usize {
+        bucket
+            .objects()
+            .into_iter()
+            .filter(|(name, _)| name.starts_with(".azlin/keys/invite-"))
+            .count()
+    }
+
+    /// A bucket that refuses to put an invite wrap, and lets everything else through.
+    struct RefusesInviteWraps(Arc<azul_storage::meta::MemoryBucket>);
+
+    impl RefusesInviteWraps {
+        fn is_invite(key: &str) -> bool {
+            key.starts_with(".azlin/keys/invite-")
+        }
+    }
+
+    impl Drive for RefusesInviteWraps {
+        fn list(
+            &self,
+            request: &azul_storage::ListRequest,
+        ) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+            self.0.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.0.get(key)
+        }
+        fn get_range(
+            &self,
+            key: &str,
+            range: azul_storage::ByteRange,
+        ) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.0.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+            if RefusesInviteWraps::is_invite(key) {
+                return Err(azul_storage::DriveError::Transport(String::from(
+                    "the connection was cut",
+                )));
+            }
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+            self.0.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+            self.0.head(key)
+        }
+        fn put_if(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            condition: &azul_storage::Precondition,
+        ) -> Result<Option<String>, azul_storage::DriveError> {
+            if RefusesInviteWraps::is_invite(key) {
+                return Err(azul_storage::DriveError::Transport(String::from(
+                    "the connection was cut",
+                )));
+            }
+            self.0.put_if(key, bytes, condition)
+        }
+    }
+
+    /// X-KEYS4-2: the order of the invite. The token server's member family was made first and the wrap second,
+    /// so a process that died between them left a family at the server that nobody held the code of, unseen,
+    /// until a lockdown. The wrap is in the bucket when the family is asked for now.
+    #[test]
+    fn x_keys4_2_the_invite_wrap_is_in_the_bucket_before_the_token_server_makes_the_family() {
+        let drive = "d_k42i_order";
+        let (keyring, bucket, _old_code) = a_drive_made_here(drive);
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let seen = std::cell::Cell::new(None);
+        let make = || {
+            seen.set(Some(invite_wraps(&bucket)));
+            Ok(a_join_code(drive))
+        };
+        let text = invite_job(&auto, keyring.as_ref(), &make).expect("an ordinary drive invites");
+        assert_eq!(
+            seen.get(),
+            Some(1),
+            "the invite's wrap was in the bucket when the family was asked for"
+        );
+        let decoded = azcloud_kit::JoinCode::decode(&text).expect("a join code");
+        assert!(decoded.key_seal.is_some() && decoded.key_id.is_some());
+        assert_eq!(
+            invite_wraps(&bucket),
+            1,
+            "and it stays: the code opens it once"
+        );
+    }
+
+    /// X-KEYS4-2: the wrap is what can fail on this side - the bucket does not answer - and then no family is
+    /// made at the server (the old order made it first and left it).
+    #[test]
+    fn x_keys4_2_a_bucket_that_refuses_the_wrap_makes_no_member_family() {
+        let drive = "d_k42i_refused";
+        let (keyring, bucket, _old_code) = a_drive_made_here(drive);
+        let refusing: Arc<dyn Drive> = Arc::new(RefusesInviteWraps(Arc::clone(&bucket)));
+        let auto = wrap_with(
+            Arc::clone(&keyring),
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            refusing,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        let made = std::cell::Cell::new(0usize);
+        let make = || {
+            made.set(made.get() + 1);
+            Ok(a_join_code(drive))
+        };
+        let refused = invite_job(&auto, keyring.as_ref(), &make);
+        assert!(refused.is_err(), "{refused:?}");
+        assert_eq!(made.get(), 0, "the token server made no member family");
+        assert_eq!(invite_wraps(&bucket), 0);
+    }
+
+    /// X-KEYS4-2: the family cannot be made (the token server does not answer): the wrap that no code carries is
+    /// taken back, and the error is the server's own.
+    #[test]
+    fn x_keys4_2_a_family_that_was_not_made_takes_the_wrap_back() {
+        let drive = "d_k42i_taken_back";
+        let (keyring, bucket, _old_code) = a_drive_made_here(drive);
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let seen = std::cell::Cell::new(None);
+        let make = || {
+            seen.set(Some(invite_wraps(&bucket)));
+            Err(String::from("the token server did not answer"))
+        };
+        let refused = invite_job(&auto, keyring.as_ref(), &make);
+        assert_eq!(
+            refused.as_ref().err().map(String::as_str),
+            Some("the token server did not answer"),
+            "{refused:?}"
+        );
+        assert_eq!(
+            seen.get(),
+            Some(1),
+            "the wrap was there when the server was asked"
+        );
+        assert_eq!(
+            invite_wraps(&bucket),
+            0,
+            "and it is out of the bucket again"
+        );
+    }
+
+    /// X-KEYS4-2, the row after the wrap of the crash table: the process dies right after the wrap and before the
+    /// family (the bucket answers nothing from then on, so the wrap cannot be taken back either). A wrap nobody
+    /// can open stays and no family was made; the next "Add a device" works, and its code carries ITS wrap - the
+    /// orphan is no one's.
+    #[test]
+    fn x_keys4_2_a_kill_between_the_wrap_and_the_family_leaves_a_wrap_nobody_can_open_and_no_family(
+    ) {
+        let drive = "d_k42i_kill";
+        let (keyring, bucket, _old_code) = a_drive_made_here(drive);
+        let dead = Arc::new(AtomicBool::new(false));
+        let dies: Arc<dyn Drive> = Arc::new(DiesBucket {
+            inner: Arc::clone(&bucket),
+            dead: Arc::clone(&dead),
+            last_put: None,
+            last_delete: None,
+        });
+        let auto = wrap_with(
+            Arc::clone(&keyring),
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            dies,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        let families = std::cell::Cell::new(0usize);
+        let dying = Arc::clone(&dead);
+        let make = || {
+            // the process dies as the request goes out: no family, no answer
+            dying.store(true, Ordering::SeqCst);
+            Err(String::from("the process is gone"))
+        };
+        let refused = invite_job(&auto, keyring.as_ref(), &make);
+        assert!(refused.is_err());
+        assert_eq!(families.get(), 0, "no family was made");
+        assert_eq!(invite_wraps(&bucket), 1, "a wrap nobody can open stays");
+        // The next "Add a device", in a living process.
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let make = || {
+            families.set(families.get() + 1);
+            Ok(a_join_code(drive))
+        };
+        let text = invite_job(&auto, keyring.as_ref(), &make).expect("the next invite works");
+        assert_eq!(families.get(), 1);
+        assert_eq!(invite_wraps(&bucket), 2, "the orphan and the new wrap");
+        let decoded = azcloud_kit::JoinCode::decode(&text).unwrap();
+        let secret = device::invite_from_text(decoded.key_seal.as_deref().expect("a seal"))
+            .expect("the code's secret");
+        let own = format!(".azlin/keys/invite-{}.key", secret.public().id());
+        assert!(
+            bucket.get(&own).is_ok(),
+            "the code's secret names a wrap in the bucket: {own}"
+        );
+    }
+
+    /// X-KEYS4-2, the last row of the crash table - what is NOT closed (the finding stays PARTIAL): the member
+    /// family is made and the process dies before the code reaches the user. Nothing that can fail comes after
+    /// the family any more, so only a kill in that instant leaves it: a family nobody holds the code of and the
+    /// wrap of its invite. The token server keeps it until a lockdown, a removal of the device or its idle expiry
+    /// (90 days); closing it needs the server to expire a family that was never used, or to list it as invited
+    /// and not joined. Pinned as it is, so that the day the server does, this test says what changed.
+    #[test]
+    fn x_keys4_2_a_kill_after_the_family_leaves_a_family_nobody_holds_the_code_of_the_one_window_that_is_left(
+    ) {
+        let drive = "d_k42i_family";
+        let (keyring, bucket, _old_code) = a_drive_made_here(drive);
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let families = std::cell::Cell::new(0usize);
+        let make = || {
+            families.set(families.get() + 1);
+            Ok(a_join_code(drive))
+        };
+        // The job made its code and the process died before the window got it.
+        drop(
+            invite_job(&auto, keyring.as_ref(), &make).expect("the job made its code - to nobody"),
+        );
+        assert_eq!(
+            (families.get(), invite_wraps(&bucket)),
+            (1, 1),
+            "a family at the server and the wrap of its invite, and nobody holds the code"
+        );
+        // The next "Add a device" makes a family of its own: the first one is nobody's.
+        drop(invite_job(&auto, keyring.as_ref(), &make).expect("the next invite works"));
+        assert_eq!((families.get(), invite_wraps(&bucket)), (2, 2));
     }
 
     /// The restore flows (as of a time; one file's version) enter the key permit's RestoreAsOf cell: with a key

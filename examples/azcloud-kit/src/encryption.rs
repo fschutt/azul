@@ -167,11 +167,36 @@ impl Account {
             }
             None => None,
         };
-        let mut code = self.invite(member)?;
-        if let Some((drive_key, permit)) = key {
-            let bucket = self.bucket_drive()?;
-            let invite = device::seal_invite(&permit, &bucket, &drive, &drive_key)?;
-            code.key_seal = Some(device::invite_text(&invite).to_string());
+        // The invite's wrap goes into the bucket BEFORE the member family is made (X-KEYS4-2: the family came
+        // first, and a process that died before the wrap left a family nobody held the code of): the family is
+        // the step that cannot be taken back, so it comes last and nothing that can fail comes after it. A
+        // process that dies between the two leaves a wrap nobody can open and no family.
+        let bucket = match &key {
+            Some(_) => Some(self.bucket_drive()?),
+            None => None,
+        };
+        let sealed = match (&key, &bucket) {
+            (Some((drive_key, permit)), Some(bucket)) => {
+                Some(device::seal_invite(permit, bucket, &drive, drive_key)?)
+            }
+            _ => None,
+        };
+        let mut code = match self.invite(member) {
+            Ok(code) => code,
+            Err(why) => {
+                // No family was made: the wrap that no code carries goes out again (it opens for nobody
+                // either way; this keeps the bucket from collecting them).
+                if let (Some(invite), Some(bucket)) = (&sealed, &bucket) {
+                    // collapse-ok: the failure that matters is the token server's, which is returned; a wrap
+                    // that stays is unopenable (its secret was in this process only) and a key change takes it
+                    // out with the other invites.
+                    let _ = device::take_back_invite(keyring, bucket, &drive, invite);
+                }
+                return Err(why);
+            }
+        };
+        if let (Some((drive_key, _)), Some(invite)) = (&key, &sealed) {
+            code.key_seal = Some(device::invite_text(invite).to_string());
             code.key_id = Some(drive_key.id().to_hex());
         }
         Ok(code)

@@ -1528,6 +1528,26 @@ pub fn withdraw_invite(
     bucket.delete(&file)
 }
 
+/// Takes back an invite that was sealed for a join code the token server then did not make: the invite's wrap
+/// goes into the bucket FIRST ([`seal_invite`]) and the token server's member family second, so that a process
+/// that dies between the two leaves a wrap nobody can open and no family at the server (X-KEYS4-2: the family
+/// first left one at the server, unseen, until a lockdown). The wrap seals the drive key to a one-time secret
+/// that no join code carries now, so nobody opens it; taking it out only keeps the bucket from collecting such
+/// wraps (a key change takes them out too). The permit of [`Op::RemoveMember`] is asked ([`wraps_permit`]).
+///
+/// # Errors
+///
+/// What [`wraps_permit`] and [`withdraw_invite`] say: the wrap stays, unopenable.
+pub fn take_back_invite(
+    keyring: &dyn KeyringStore,
+    bucket: &dyn Drive,
+    drive: &str,
+    invite: &MemberSecret,
+) -> Result<(), DriveError> {
+    let permit = wraps_permit(Op::RemoveMember, keyring, drive)?;
+    withdraw_invite(&permit, bucket, invite)
+}
+
 /// All the work the Argon2id derivations of ONE recovery together may ask for (KiB of memory times
 /// passes): the first wrap and every further code's, each at the cost this software writes, with
 /// room to spare. The cost of a wrap is the bucket's word and is paid before the code is known to

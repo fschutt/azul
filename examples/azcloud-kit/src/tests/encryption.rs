@@ -723,6 +723,152 @@ fn x_delta_keys3_6_an_invite_while_a_key_change_is_not_over_makes_no_member_fami
     assert_eq!(invites(), 1, "and no second invite is in the bucket");
 }
 
+/// [`cloud_recording`] where the token server's member answer and the bucket's put of an invite wrap can be made
+/// to fail: `members` is the status the `/members` call answers (201: it makes the family), `refuse_wrap` makes the
+/// bucket refuse the put of any invite wrap.
+fn cloud_failing(
+    s3: &Arc<FakeS3>,
+    members: u16,
+    refuse_wrap: bool,
+) -> (TransportFactory, Arc<Fake>) {
+    let s3 = s3.clone();
+    let fake = Fake::new(move |call, _| {
+        let url = call.url.as_str();
+        if !url.starts_with(TOKEN) {
+            if refuse_wrap && call.method == Method::Put && url.contains("/.azlin/keys/invite-") {
+                return Ok(HttpReply {
+                    status: 403,
+                    headers: Vec::new(),
+                    body: b"<Error><Code>AccessDenied</Code><Message>no</Message></Error>".to_vec(),
+                });
+            }
+            return Ok(s3.answer(call));
+        }
+        if url.ends_with("/v1/drives") {
+            return Ok(json(
+                201,
+                &bundle("AKID1", "2099-01-01T00:00:00Z", "dt_f.0.a"),
+            ));
+        }
+        if url.ends_with("/members") {
+            return Ok(if members == 201 {
+                json(
+                    201,
+                    r#"{"member": "m_laptop", "drive_token": "dt_m.0.joins"}"#,
+                )
+            } else {
+                json(
+                    members,
+                    r#"{"error": "too_many_devices", "message": "a drive takes at most 5 devices"}"#,
+                )
+            });
+        }
+        Ok(json(
+            401,
+            r#"{"error": "token_reuse", "message": "reused"}"#,
+        ))
+    });
+    let transports: TransportFactory = {
+        let fake = fake.clone();
+        Arc::new(move || Box::new(Shared(fake.clone())) as Box<dyn Transport>)
+    };
+    (transports, fake)
+}
+
+/// X-KEYS4-2, through the kit's own entry: the invite's wrap is PUT into the bucket BEFORE the token server is
+/// asked for the member family (the family came first, and a process that died between the two left a family at
+/// the server that nobody held the code of, unseen, until a lockdown).
+#[test]
+fn x_keys4_2_the_invite_wrap_is_put_before_the_member_family_is_made() {
+    let s3 = FakeS3::new();
+    let (transports, fake) = cloud_recording(&s3);
+    let dir = TempDir::new("azcloud-enc-invite-order");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let before = fake.calls().len();
+    let join = a.invite_with_key(None, &keys).unwrap();
+    assert!(join.key_seal.is_some() && join.key_id.is_some());
+    let calls = fake.calls();
+    let calls = &calls[before..];
+    let wrap = calls
+        .iter()
+        .position(|call| call.method == Method::Put && call.url.contains("/.azlin/keys/invite-"))
+        .expect("the invite's wrap was put");
+    let family = calls
+        .iter()
+        .position(|call| call.url.ends_with("/members"))
+        .expect("the member family was asked for");
+    assert!(
+        wrap < family,
+        "the wrap (call {wrap}) comes before the family (call {family}): {:?}",
+        calls
+            .iter()
+            .map(|c| (c.method, c.url.clone()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// X-KEYS4-2: a bucket that refuses the wrap means no member family - the token server is not asked at all.
+#[test]
+fn x_keys4_2_a_bucket_that_refuses_the_wrap_makes_no_member_family() {
+    let s3 = FakeS3::new();
+    let (transports, fake) = cloud_failing(&s3, 201, true);
+    let dir = TempDir::new("azcloud-enc-invite-wrap-refused");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let refused = a.invite_with_key(None, &keys);
+    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(
+        fake.calls()
+            .iter()
+            .filter(|call| call.url.ends_with("/members"))
+            .count(),
+        0,
+        "the token server made no member family"
+    );
+    assert!(s3.keys().iter().all(|k| !k.contains("invite-")));
+}
+
+/// X-KEYS4-2: the family cannot be made (the token server refuses): the wrap that no code carries is taken back
+/// out of the bucket, and the error is the server's own.
+#[test]
+fn x_keys4_2_a_family_that_was_not_made_takes_the_wrap_back() {
+    let s3 = FakeS3::new();
+    let (transports, fake) = cloud_failing(&s3, 409, false);
+    let dir = TempDir::new("azcloud-enc-invite-no-family");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let refused = a
+        .invite_with_key(None, &keys)
+        .expect_err("the token server refused the family");
+    let text = refused.to_string();
+    assert!(
+        text.contains("devices") || text.contains("409"),
+        "the token server's own words: {text}"
+    );
+    assert_eq!(
+        fake.calls()
+            .iter()
+            .filter(|call| call.url.ends_with("/members"))
+            .count(),
+        1,
+        "the family was asked for once"
+    );
+    assert!(
+        s3.keys().iter().all(|k| !k.contains("invite-")),
+        "the wrap is out of the bucket again: {:?}",
+        s3.keys()
+    );
+    assert_eq!(
+        s3.count_under("DELETE", ".azlin/keys/invite-"),
+        1,
+        "and it was taken out by a delete"
+    );
+}
+
 /// X-DELTA-KEYS3-6 (the other end): the join code's pre-check (asked on the keyring alone, before the code's
 /// token is spent) refuses a code that carries a key while this device's own key change is not over - the
 /// join would spend the token, and the key could not be kept after it.
