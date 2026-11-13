@@ -1098,6 +1098,39 @@ fn x_delta_sync8_4_a_checkpoint_whose_412_is_read_back_from_a_lagging_replica_st
     );
 }
 
+/// X-DELTA-SYNC9-2, the cell a look must not move: a key THIS run wrote down a moment ago is young by the monotonic clock, and the first
+/// look at it - the next publish, healthy - keeps it on the list and in the bucket; two days of the run's own time later it goes. RED
+/// on an age that takes every key for old at its first look: the refused try's entry, pack and index are removed at once.
+#[test]
+fn x_delta_sync9_2_a_key_this_run_wrote_down_a_moment_ago_is_not_removed_by_the_next_look() {
+    let data = MemoryBucket::new();
+    let late = Arc::new(LateSwap::new(data.clone()));
+    let mut store = MetaStore::create(Arc::clone(&late), sealer(), "laptop").unwrap();
+    publish_main(&mut store, "one").unwrap();
+    let named = repo_keys(&data);
+    late.answer_next(keys::MANIFEST, Answer::Denied);
+    assert!(publish_main(&mut store, "two").is_err());
+    let left: Vec<String> = repo_keys(&data)
+        .into_iter()
+        .filter(|key| !named.contains(key))
+        .collect();
+    assert_eq!(left.len(), 3);
+    // The next publish lands and looks at the list for the first time: the keys are seconds old.
+    publish_main(&mut store, "three").unwrap();
+    assert!(
+        left.iter().all(|key| repo_keys(&data).contains(key)),
+        "kept: the swap that refused them may still be on its way"
+    );
+    assert_eq!(sorted(store.leftover_keys()), left);
+    // Two days of the run's own time later, the look that is due goes through them.
+    crate::time::advance_monotonic(2 * DAY);
+    publish_main(&mut store, "four").unwrap();
+    assert!(
+        left.iter().all(|key| !repo_keys(&data).contains(key)),
+        "two days old and named by nothing: gone"
+    );
+}
+
 /// X-DELTA-SYNC9-2 (a): the pack of an attempt whose ENTRY the bucket refuses is written down. The pack and its index
 /// went up, the entry's create is refused (the allowance ended between two objects, a freeze began) and the swap is
 /// never tried: nothing named the pack, and the leftover of the old code was only noted after the swap's refusal. Two
