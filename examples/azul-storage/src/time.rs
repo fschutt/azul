@@ -34,8 +34,9 @@ thread_local! {
 
 /// How long something has taken by the MONOTONIC clock: what carries a time of day read at the start
 /// forward to the moment it is compared with another clock, when the device's own clock may have been
-/// stepped in between ([`crate::meta::reclaim::stamp_agrees`]).
-#[cfg(feature = "encryption")]
+/// stepped in between ([`crate::meta::reclaim::stamp_agrees`]), and what ages a leftover of a refused
+/// publish without any clock of the computer or the bucket deciding (`MetaStore::clear_leftovers`):
+/// it never runs ahead of real time, so an age it measures can only be too short.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Stopwatch {
     at: std::time::Instant,
@@ -44,7 +45,6 @@ pub(crate) struct Stopwatch {
     extra_at_start: u64,
 }
 
-#[cfg(feature = "encryption")]
 impl Stopwatch {
     /// Starts it now.
     #[must_use]
@@ -66,14 +66,14 @@ impl Stopwatch {
     }
 }
 
-#[cfg(all(test, feature = "encryption"))]
+#[cfg(test)]
 thread_local! {
     static TEST_MONOTONIC: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Lets every [`Stopwatch`] of THIS thread read `secs` seconds more: a test that plays a long analysis
 /// moves the device's clock AND the monotonic one, a test that plays a step moves the first only.
-#[cfg(all(test, feature = "encryption"))]
+#[cfg(test)]
 pub(crate) fn advance_monotonic(secs: u64) {
     TEST_MONOTONIC.with(|extra| extra.set(extra.get() + secs));
 }

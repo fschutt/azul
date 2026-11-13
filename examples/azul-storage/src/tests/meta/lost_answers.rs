@@ -589,7 +589,13 @@ impl Bucket for Dated {
         Ok(made)
     }
     fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
-        self.inner.replace(key, bytes, known)
+        let made = self.inner.replace(key, bytes, known)?;
+        // S3's Last-Modified moves with every PUT of the key, the manifest's with every swap.
+        self.born
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), self.clock.load(Ordering::SeqCst));
+        Ok(made)
     }
     fn remove(&self, key: &str) -> Result<(), MetaError> {
         self.inner.remove(key)?;
@@ -611,6 +617,13 @@ impl Bucket for Dated {
 }
 
 const DAY: u64 = 86_400;
+
+/// `secs` pass: the bucket's clock moves and so does the monotonic one - the two clocks a store's clear of leftovers
+/// is judged by (never the device's: a test that moves only the device's clock `skew` changes nothing).
+fn pass(time: &Arc<AtomicU64>, secs: u64) {
+    time.fetch_add(secs, Ordering::SeqCst);
+    crate::time::advance_monotonic(secs);
+}
 
 /// The keys of the repository's own objects under the folders the orphan sweep looks at.
 fn repo_keys(bucket: &MemoryBucket) -> Vec<String> {
@@ -646,6 +659,218 @@ fn dated_store(
         .with_clock(device)
 }
 
+/// A bucket of the test: [`Dated`] over [`LateSwap`], shared by the runs of one test (a restart opens the same
+/// bucket again).
+fn dated_bucket(late: &Arc<LateSwap>, dates: bool, time: &Arc<AtomicU64>) -> Arc<Dated> {
+    let dated = Dated::new(Arc::clone(late), time);
+    Arc::new(if dates { dated } else { dated.dating_nothing() })
+}
+
+/// The device's clock: the bucket's time and `skew` seconds.
+fn device_clock(
+    time: &Arc<AtomicU64>,
+    skew: &Arc<AtomicU64>,
+) -> impl Fn() -> u64 + Send + Sync + 'static {
+    let (time, skew) = (Arc::clone(time), Arc::clone(skew));
+    move || time.load(Ordering::SeqCst) + skew.load(Ordering::SeqCst)
+}
+
+/// Where a test's store keeps the journal of its leftovers: the sealed bytes of the last write (a file of the
+/// device, as far as the test goes).
+#[derive(Clone, Default)]
+struct Kept(Arc<Mutex<Option<Vec<u8>>>>);
+
+impl Kept {
+    fn sink(&self) -> impl Fn(&[u8]) + Send + Sync + 'static {
+        let cell = Arc::clone(&self.0);
+        move |sealed| *cell.lock().unwrap() = Some(sealed.to_vec())
+    }
+
+    fn bytes(&self) -> Option<Vec<u8>> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+/// What a bucket refuses (changing nothing) when a test says so: the create of a log entry, every write, one manifest
+/// swap - and what a read does for a while after that swap. The refusals of a frozen drive between two PUTs.
+struct Refusing {
+    inner: MemoryBucket,
+    /// Every create of a log entry answers `Denied`.
+    entries: AtomicBool,
+    /// Every create of a pack's index answers `Denied` (the pack, put first, went up).
+    indexes: AtomicBool,
+    /// Every create and replace answers `Denied` (the allowance is spent): deletes still go through.
+    frozen: AtomicBool,
+    /// The next replace of the manifest fails with this and does not land; every read fails `down` times after it.
+    swap: Mutex<Option<(MetaError, usize)>>,
+    reads_down: AtomicUsize,
+}
+
+impl Refusing {
+    fn new(inner: MemoryBucket) -> Refusing {
+        Refusing {
+            inner,
+            entries: AtomicBool::new(false),
+            indexes: AtomicBool::new(false),
+            frozen: AtomicBool::new(false),
+            swap: Mutex::new(None),
+            reads_down: AtomicUsize::new(0),
+        }
+    }
+
+    fn denied() -> MetaError {
+        MetaError::Drive(DriveError::Denied {
+            message: "the drive is frozen".to_string(),
+        })
+    }
+
+    fn reading(&self) -> Result<(), MetaError> {
+        let down = self.reads_down.load(Ordering::SeqCst);
+        if down == 0 {
+            return Ok(());
+        }
+        self.reads_down.store(down - 1, Ordering::SeqCst);
+        Err(MetaError::Drive(DriveError::Transport(
+            "connection reset by peer".to_string(),
+        )))
+    }
+}
+
+impl Bucket for Refusing {
+    fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
+        self.reading()?;
+        self.inner.read(key)
+    }
+    fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
+        self.reading()?;
+        self.inner.read_if_changed(key, known)
+    }
+    fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {
+        self.reading()?;
+        Bucket::read_range(&self.inner, key, range)
+    }
+    fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
+        if self.frozen.load(Ordering::SeqCst)
+            || (self.entries.load(Ordering::SeqCst) && key.starts_with(keys::LOG_DIR))
+            || (self.indexes.load(Ordering::SeqCst)
+                && key.starts_with(keys::WAL_DIR)
+                && key.ends_with(".idx"))
+        {
+            return Err(Refusing::denied());
+        }
+        self.inner.create(key, bytes)
+    }
+    fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
+        if self.frozen.load(Ordering::SeqCst) {
+            return Err(Refusing::denied());
+        }
+        if key == keys::MANIFEST {
+            if let Some((error, down)) = self.swap.lock().unwrap().take() {
+                self.reads_down.store(down, Ordering::SeqCst);
+                return Err(error);
+            }
+        }
+        self.inner.replace(key, bytes, known)
+    }
+    fn remove(&self, key: &str) -> Result<(), MetaError> {
+        self.inner.remove(key)
+    }
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        self.inner.list_keys(prefix)
+    }
+    fn exists(&self, key: &str) -> Result<bool, MetaError> {
+        self.inner.exists(key)
+    }
+}
+
+/// Counts the looks a store takes at single objects (a HEAD each): `exists` and `modified_of`.
+struct Counting<B> {
+    inner: B,
+    looks: AtomicUsize,
+}
+
+impl<B: Bucket> Bucket for Counting<B> {
+    fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
+        self.inner.read(key)
+    }
+    fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
+        self.inner.read_if_changed(key, known)
+    }
+    fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {
+        self.inner.read_range(key, range)
+    }
+    fn create(&self, key: &str, bytes: &[u8]) -> Result<Option<Version>, MetaError> {
+        self.inner.create(key, bytes)
+    }
+    fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
+        self.inner.replace(key, bytes, known)
+    }
+    fn remove(&self, key: &str) -> Result<(), MetaError> {
+        self.inner.remove(key)
+    }
+    fn list_keys(&self, prefix: &str) -> Result<Vec<Listed>, MetaError> {
+        self.inner.list_keys(prefix)
+    }
+    fn exists(&self, key: &str) -> Result<bool, MetaError> {
+        self.looks.fetch_add(1, Ordering::SeqCst);
+        self.inner.exists(key)
+    }
+    fn modified_of(&self, key: &str) -> Result<Option<u64>, MetaError> {
+        self.looks.fetch_add(1, Ordering::SeqCst);
+        self.inner.modified_of(key)
+    }
+}
+
+/// The keys the store's manifest names (the manifest itself, the log, the packs and their indexes).
+fn named_by(store: &MetaStore<impl Bucket, TestSealer>) -> std::collections::HashSet<String> {
+    let manifest = store.manifest().expect("a manifest");
+    let mut named: std::collections::HashSet<String> =
+        manifest.log.iter().map(|entry| entry.key.clone()).collect();
+    for pack in &manifest.packs {
+        named.insert(keys::pack(&pack.name));
+        named.insert(keys::idx(&pack.name));
+    }
+    named
+}
+
+/// The repository's own objects in `bucket` that no manifest of `store` names, sorted.
+fn unnamed_in(bucket: &MemoryBucket, store: &MetaStore<impl Bucket, TestSealer>) -> Vec<String> {
+    let named = named_by(store);
+    repo_keys(bucket)
+        .into_iter()
+        .filter(|key| !named.contains(key))
+        .collect()
+}
+
+fn sorted(mut keys: Vec<String>) -> Vec<String> {
+    keys.sort();
+    keys
+}
+
+/// Sets the main ref to a value that carries the head it was built on: a retry after a lost race builds another
+/// pack than the attempt that lost.
+fn publish_at_head(
+    store: &mut MetaStore<impl Bucket, TestSealer>,
+    value: &str,
+) -> Result<Option<crate::meta::Published>, MetaError> {
+    store.publish(|state| {
+        let mut pack = PackWriter::new();
+        pack.add(
+            Kind::Blob,
+            format!("{value} at {}", state.head_seq).into_bytes(),
+        );
+        Ok(Some(Publish {
+            pack: Some(pack),
+            updates: vec![RefUpdate {
+                name: MAIN.to_string(),
+                old: state.refs.get(MAIN).cloned(),
+                new: Some(format!("{value} at {}", state.head_seq)),
+            }],
+            message: format!("set {value}"),
+        }))
+    })
+}
+
 /// X-DELTA-SYNC7-4. A drive that refuses every manifest swap (frozen, over its quota) is tried again by every
 /// pass, and each try leaves its log entry, its pack and the pack's index: the sweep that would free them is a
 /// swap itself, which such a drive refuses too, and what they weigh is the allowance the drive keeps for its
@@ -666,7 +891,7 @@ fn x_delta_sync7_4_what_refused_publishes_leave_is_removed_by_the_store_once_it_
 
     let mut counts = Vec::new();
     for value in ["two", "three", "four", "five", "six"] {
-        time.fetch_add(2 * DAY, Ordering::SeqCst);
+        pass(&time, 2 * DAY);
         late.answer_next(keys::MANIFEST, Answer::Denied);
         let refused = publish_main(&mut store, value);
         assert!(
@@ -698,7 +923,7 @@ fn x_delta_sync7_4_what_refused_publishes_leave_is_removed_by_the_store_once_it_
     skew.store(0, Ordering::SeqCst);
 
     // The drive thaws: the next publish lands, and the repository is what the swaps said.
-    time.fetch_add(2 * DAY, Ordering::SeqCst);
+    pass(&time, 2 * DAY);
     publish_main(&mut store, "eight").unwrap();
     assert_eq!(
         main_ref_as_another_device_sees_it(&data).as_deref(),
@@ -711,26 +936,60 @@ fn x_delta_sync7_4_what_refused_publishes_leave_is_removed_by_the_store_once_it_
     );
 }
 
-/// X-DELTA-SYNC7-4: a bucket that tells no date at all clears nothing - what it cannot date is not old.
+/// X-DELTA-SYNC7-4, X-DELTA-SYNC9-2: a bucket that tells no date at all does not matter to what THIS run left - the
+/// monotonic clock ages it - and clears nothing an earlier run left, which only the bucket's dates could age: what it
+/// cannot date is not old (the control of the old test, split in two since the age of a key of this run no longer
+/// comes from the bucket).
 #[test]
-fn x_delta_sync7_4_a_bucket_that_dates_nothing_clears_nothing() {
+fn x_delta_sync7_4_a_bucket_that_dates_nothing_ages_what_this_run_left_by_the_monotonic_clock_and_nothing_else(
+) {
     let time = Arc::new(AtomicU64::new(1_000_000));
     let skew = Arc::new(AtomicU64::new(0));
     let data = MemoryBucket::new();
     let late = Arc::new(LateSwap::new(data.clone()));
-    let mut store = dated_store(&late, false, &time, &skew);
+    let kept = Kept::default();
+    let bucket = dated_bucket(&late, false, &time);
+    let mut store = MetaStore::create(Arc::clone(&bucket), sealer(), "laptop")
+        .unwrap()
+        .with_clock(device_clock(&time, &skew))
+        .keep_leftovers(None, kept.sink());
     publish_main(&mut store, "one").unwrap();
     let named = repo_keys(&data).len();
+    // This run: removed after two days of its own time, whatever the bucket says (or does not say).
     for (n, value) in ["two", "three", "four"].into_iter().enumerate() {
-        time.fetch_add(5 * DAY, Ordering::SeqCst);
+        pass(&time, 3 * DAY);
         late.answer_next(keys::MANIFEST, Answer::Denied);
         assert!(publish_main(&mut store, value).is_err());
         assert_eq!(
             repo_keys(&data).len(),
-            named + 3 * (n + 1),
-            "nothing could be dated, nothing was removed"
+            named + 3,
+            "try {n}: the leftovers of the one before it went, by the monotonic clock"
         );
     }
+    // An earlier run's: the bucket dates nothing, so nothing can be said to be old, however long ago.
+    let saved = kept.bytes().expect("the journal");
+    drop(store);
+    let before = repo_keys(&data);
+    pass(&time, 30 * DAY);
+    let mut again = MetaStore::open(Arc::clone(&bucket), sealer(), "laptop")
+        .unwrap()
+        .with_clock(device_clock(&time, &skew))
+        .keep_leftovers(Some(&saved), kept.sink());
+    assert_eq!(
+        again.leftover_keys().len(),
+        3,
+        "the journal brought the keys"
+    );
+    publish_main(&mut again, "five").unwrap();
+    assert!(
+        before.iter().all(|key| repo_keys(&data).contains(key)),
+        "a bucket that dates nothing clears nothing of an earlier run's: what it cannot date is not old"
+    );
+    assert_eq!(
+        again.leftover_keys().len(),
+        3,
+        "they stay on the list for a later look"
+    );
 }
 
 /// X-DELTA-SYNC7-4, the cell that must not move: the swap the transport sent again was refused for policy, the
@@ -748,7 +1007,7 @@ fn x_delta_sync7_4_a_leftover_a_manifest_names_after_all_is_never_removed() {
     assert!(publish_main(&mut store, "one").is_err());
     assert!(late.on_its_way());
     // Three days later the first request lands: the manifest names what the refused try left.
-    time.fetch_add(3 * DAY, Ordering::SeqCst);
+    pass(&time, 3 * DAY);
     late.land_now();
     // The next publish polls, finds the leftovers named, and removes nothing.
     publish_main(&mut store, "two").unwrap();
@@ -756,6 +1015,580 @@ fn x_delta_sync7_4_a_leftover_a_manifest_names_after_all_is_never_removed() {
         main_ref_as_another_device_sees_it(&data).as_deref(),
         Some("two"),
         "every entry the manifest names is still there"
+    );
+}
+
+/// X-DELTA-SYNC9-2 (a): the pack of an attempt whose ENTRY the bucket refuses is written down. The pack and its index
+/// went up, the entry's create is refused (the allowance ended between two objects, a freeze began) and the swap is
+/// never tried: nothing named the pack, and the leftover of the old code was only noted after the swap's refusal. Two
+/// days later the store removes both. RED on the old code: they stay in the bucket for good (only the orphan sweep,
+/// which is a swap itself, could find them).
+#[test]
+fn x_delta_sync9_2_the_pack_of_an_entry_the_bucket_refuses_is_written_down_and_removed_once_it_is_old(
+) {
+    let data = MemoryBucket::new();
+    let bucket = Arc::new(Refusing::new(data.clone()));
+    let mut store = MetaStore::create(Arc::clone(&bucket), sealer(), "laptop").unwrap();
+    publish_main(&mut store, "one").unwrap();
+    let named = repo_keys(&data);
+
+    bucket.entries.store(true, Ordering::SeqCst);
+    let refused = publish_main(&mut store, "two");
+    assert!(
+        matches!(refused, Err(MetaError::Drive(DriveError::Denied { .. }))),
+        "{refused:?}"
+    );
+    let left: Vec<String> = repo_keys(&data)
+        .into_iter()
+        .filter(|key| !named.contains(key))
+        .collect();
+    assert_eq!(
+        left.len(),
+        2,
+        "the pack and its index went up, the entry did not: {left:?}"
+    );
+    assert!(
+        left.iter().all(|key| store.leftover_keys().contains(key)),
+        "the pack of the refused entry is on the list: {:?}",
+        store.leftover_keys()
+    );
+
+    // The drive takes entries again; two days later a publish removes them before it uploads anything.
+    bucket.entries.store(false, Ordering::SeqCst);
+    crate::time::advance_monotonic(2 * DAY);
+    publish_main(&mut store, "three").unwrap();
+    assert!(
+        left.iter().all(|key| !repo_keys(&data).contains(key)),
+        "two days old and named by nothing: gone"
+    );
+    assert_eq!(
+        main_ref_as_another_device_sees_it(&data).as_deref(),
+        Some("three")
+    );
+}
+
+/// X-DELTA-SYNC9-2 (a), the other half of the same cell: the PACK went up and its INDEX is refused. The pack is written
+/// down before the error is handed on - `put_pack` returns, the publish ends, and the entry is never tried - and goes
+/// two days later. RED when `put_pack` does not write it down: it stays in the bucket for good.
+#[test]
+fn x_delta_sync9_2_a_pack_whose_index_the_bucket_refuses_is_written_down_and_removed_once_it_is_old(
+) {
+    let data = MemoryBucket::new();
+    let bucket = Arc::new(Refusing::new(data.clone()));
+    let mut store = MetaStore::create(Arc::clone(&bucket), sealer(), "laptop").unwrap();
+    publish_main(&mut store, "one").unwrap();
+    let named = repo_keys(&data);
+
+    bucket.indexes.store(true, Ordering::SeqCst);
+    let refused = publish_main(&mut store, "two");
+    assert!(
+        matches!(refused, Err(MetaError::Drive(DriveError::Denied { .. }))),
+        "{refused:?}"
+    );
+    let left: Vec<String> = repo_keys(&data)
+        .into_iter()
+        .filter(|key| !named.contains(key))
+        .collect();
+    assert_eq!(left.len(), 1, "only the pack went up: {left:?}");
+    assert!(
+        left[0].ends_with(".pack") && store.leftover_keys().contains(&left[0]),
+        "the pack is on the list: {:?}",
+        store.leftover_keys()
+    );
+
+    bucket.indexes.store(false, Ordering::SeqCst);
+    crate::time::advance_monotonic(2 * DAY);
+    publish_main(&mut store, "three").unwrap();
+    assert!(
+        !repo_keys(&data).contains(&left[0]),
+        "two days old and named by nothing: gone"
+    );
+}
+
+/// X-DELTA-SYNC9-2 (c): a drive whose allowance the leftovers have spent refuses the pack's PUT first, and the clear
+/// that would make room must not wait for a write: it runs at the top of the publish, before the first byte. RED on
+/// the old code: the clear sat behind the entry's create, which the refused pack never reached, so the leftovers
+/// stayed for good and the owner's next commit stayed refused.
+#[test]
+fn x_delta_sync9_2_a_publish_the_bucket_refuses_at_its_first_put_still_clears_what_is_old() {
+    let data = MemoryBucket::new();
+    let bucket = Arc::new(Refusing::new(data.clone()));
+    let mut store = MetaStore::create(Arc::clone(&bucket), sealer(), "laptop").unwrap();
+    publish_main(&mut store, "one").unwrap();
+    let named = repo_keys(&data);
+    *bucket.swap.lock().unwrap() = Some((Refusing::denied(), 0));
+    assert!(publish_main(&mut store, "two").is_err());
+    let left: Vec<String> = repo_keys(&data)
+        .into_iter()
+        .filter(|key| !named.contains(key))
+        .collect();
+    assert_eq!(left.len(), 3);
+
+    // Now nothing is taken: the allowance is spent. Days pass; the next publish is refused at its pack ...
+    bucket.frozen.store(true, Ordering::SeqCst);
+    crate::time::advance_monotonic(3 * DAY);
+    let refused = publish_main(&mut store, "three");
+    assert!(
+        matches!(refused, Err(MetaError::Drive(DriveError::Denied { .. }))),
+        "{refused:?}"
+    );
+    // ... and has removed the leftovers first: deletes are what a frozen drive still takes.
+    assert!(
+        left.iter().all(|key| !repo_keys(&data).contains(key)),
+        "the leftovers are gone, so the room is back: {:?}",
+        repo_keys(&data)
+    );
+}
+
+/// X-DELTA-SYNC9-2 (b): the journal is the device's state - written before the refused publish returns, read at the
+/// start of the next run - so a kill between the refusal and the clear loses nothing. An earlier run's keys have no
+/// age of this process: the bucket's own dates judge them, against the newest object the store knows of (the manifest,
+/// the last key), a lower bound of the bucket's time, so a run that finds them not old yet looks again at the next
+/// start. RED on a store that does not read its journal: the keys stay in the bucket for good.
+#[test]
+fn x_delta_sync9_2_the_journal_survives_a_kill_and_a_later_start_removes_what_the_bucket_dates_old()
+{
+    let time = Arc::new(AtomicU64::new(1_000_000));
+    let skew = Arc::new(AtomicU64::new(0));
+    let data = MemoryBucket::new();
+    let late = Arc::new(LateSwap::new(data.clone()));
+    let bucket = dated_bucket(&late, true, &time);
+    let kept = Kept::default();
+    let mut store = MetaStore::create(Arc::clone(&bucket), sealer(), "laptop")
+        .unwrap()
+        .with_clock(device_clock(&time, &skew))
+        .keep_leftovers(None, kept.sink());
+    publish_main(&mut store, "one").unwrap();
+    let named = repo_keys(&data);
+    pass(&time, 2 * DAY);
+    late.answer_next(keys::MANIFEST, Answer::Denied);
+    assert!(publish_main(&mut store, "two").is_err());
+    let left = unnamed_in(&data, &store);
+    assert_eq!(left.len(), 3, "{left:?} of {named:?}");
+    assert_eq!(
+        sorted(store.leftover_keys()),
+        left,
+        "the journal names what the try left"
+    );
+    let saved = kept
+        .bytes()
+        .expect("the journal was written before the refused publish returned");
+    // The kill.
+    drop(store);
+
+    // A new process, two days later by the bucket's clock. Its first publish finds the keys not old against what it
+    // knows of the bucket's time (the manifest was last swapped before them): they stay, on the list.
+    pass(&time, 2 * DAY);
+    let mut again = MetaStore::open(Arc::clone(&bucket), sealer(), "laptop")
+        .unwrap()
+        .with_clock(device_clock(&time, &skew))
+        .keep_leftovers(Some(&saved), kept.sink());
+    assert_eq!(
+        sorted(again.leftover_keys()),
+        left,
+        "the new process has the journal"
+    );
+    publish_main(&mut again, "three").unwrap();
+    assert!(
+        left.iter().all(|key| repo_keys(&data).contains(key)),
+        "not old against the manifest of the last swap: kept for now"
+    );
+    drop(again);
+
+    // The next start: the manifest was swapped two days after them.
+    pass(&time, DAY);
+    let saved = kept.bytes().expect("the journal");
+    let mut third = MetaStore::open(Arc::clone(&bucket), sealer(), "laptop")
+        .unwrap()
+        .with_clock(device_clock(&time, &skew))
+        .keep_leftovers(Some(&saved), kept.sink());
+    publish_main(&mut third, "four").unwrap();
+    assert!(
+        left.iter().all(|key| !repo_keys(&data).contains(key)),
+        "two days older than the last swap by the bucket's own dates, named by nothing: gone"
+    );
+    assert!(
+        third.leftover_keys().is_empty(),
+        "{:?}",
+        third.leftover_keys()
+    );
+    assert_eq!(
+        main_ref_as_another_device_sees_it(&data).as_deref(),
+        Some("four")
+    );
+}
+
+/// X-DELTA-SYNC9-2: the journal is bounded to the newest keys, and a restart reads exactly what was written. (The bound is
+/// narrowed to 30 keys for this thread: fifteen refused tries leave 45.)
+#[test]
+fn x_delta_sync9_2_the_journal_is_bounded_and_a_restart_reads_what_was_written() {
+    let _narrow = crate::meta::wal::narrow_leftovers_kept(30);
+    let data = MemoryBucket::new();
+    let late = Arc::new(LateSwap::new(data.clone()));
+    let kept = Kept::default();
+    let mut store = MetaStore::create(Arc::clone(&late), sealer(), "laptop")
+        .unwrap()
+        .keep_leftovers(None, kept.sink());
+    publish_main(&mut store, "one").unwrap();
+    for i in 0..15 {
+        late.answer_next(keys::MANIFEST, Answer::Denied);
+        assert!(publish_main(&mut store, &format!("v{i}")).is_err());
+    }
+    let list = store.leftover_keys();
+    assert_eq!(
+        list.len(),
+        30,
+        "bounded: 45 keys were left, the newest 30 are kept"
+    );
+    let saved = kept.bytes().expect("the journal");
+    let again = MetaStore::open(Arc::clone(&late), sealer(), "laptop")
+        .unwrap()
+        .keep_leftovers(Some(&saved), kept.sink());
+    assert_eq!(
+        again.leftover_keys(),
+        list,
+        "a restart reads exactly the keys that were written, in order"
+    );
+}
+
+/// X-DELTA-SYNC9-2, the file of a device: a repository over a cache folder keeps the journal there, next to its
+/// state, written before the refused commit returns, and the next run of the same folder has it.
+#[test]
+fn x_delta_sync9_2_a_device_with_a_cache_folder_keeps_the_journal_in_a_file_the_next_run_reads() {
+    use crate::meta::{merge::keep_both, Change, MetaRepo, RepoOptions};
+
+    let dir = super::TempDir::new("leftovers-journal");
+    let options = RepoOptions {
+        cache_dir: Some(dir.path().to_path_buf()),
+        ..RepoOptions::default()
+    };
+    let data = MemoryBucket::new();
+    let late = Arc::new(LateSwap::new(data.clone()));
+    let mut repo = MetaRepo::create_with(
+        Arc::clone(&late),
+        sealer(),
+        "dev-laptop",
+        "Laptop",
+        &options,
+    )
+    .unwrap();
+    let id = repo.write_blob(b"the first file");
+    let first = [Change::Put {
+        path: "a.txt".to_string(),
+        id,
+    }];
+    repo.commit(&first, "first", &mut keep_both).unwrap();
+    let named = repo_keys(&data);
+    late.answer_next(keys::MANIFEST, Answer::Denied);
+    let id = repo.write_blob(b"the second file");
+    let second = [Change::Put {
+        path: "b.txt".to_string(),
+        id,
+    }];
+    assert!(repo.commit(&second, "second", &mut keep_both).is_err());
+    let left: Vec<String> = repo_keys(&data)
+        .into_iter()
+        .filter(|key| !named.contains(key))
+        .collect();
+    assert_eq!(
+        left.len(),
+        3,
+        "the refused commit left its entry, its pack and its index"
+    );
+    assert!(
+        dir.path().join("leftovers").exists(),
+        "the journal is a file in the cache folder"
+    );
+    drop(repo);
+
+    let again = MetaRepo::open_with(
+        Arc::clone(&late),
+        sealer(),
+        "dev-laptop",
+        "Laptop",
+        &options,
+    )
+    .unwrap();
+    assert_eq!(
+        sorted(again.store().leftover_keys()),
+        left,
+        "the next run of the same folder has what the refused commit left"
+    );
+}
+
+/// X-DELTA-SYNC9-3: the leftovers are looked at once per start and once per two days, not at every attempt of every
+/// publish. 67 refused tries leave 201 keys; a new run brings them and publishes five times: the keys are not old
+/// yet, so the first look ends at the first of them (the two dates of what the store knows of the bucket's time and
+/// that one: three HEADs) and the other publishes look at nothing. Two days later it looks again. RED on the old
+/// loop: every attempt asked 1 + 2 x 201 HEADs before its swap.
+#[test]
+fn x_delta_sync9_3_a_long_list_of_young_leftovers_costs_a_look_at_the_first_and_nothing_per_publish(
+) {
+    let time = Arc::new(AtomicU64::new(1_000_000));
+    let skew = Arc::new(AtomicU64::new(0));
+    let data = MemoryBucket::new();
+    let late = Arc::new(LateSwap::new(data.clone()));
+    let bucket = dated_bucket(&late, true, &time);
+    let kept = Kept::default();
+    let mut store = MetaStore::create(Arc::clone(&bucket), sealer(), "laptop")
+        .unwrap()
+        .with_clock(device_clock(&time, &skew))
+        .keep_leftovers(None, kept.sink());
+    publish_main(&mut store, "one").unwrap();
+    for i in 0..67 {
+        late.answer_next(keys::MANIFEST, Answer::Denied);
+        assert!(publish_main(&mut store, &format!("v{i}")).is_err());
+    }
+    assert_eq!(store.leftover_keys().len(), 201);
+    let saved = kept.bytes().expect("the journal");
+    drop(store);
+
+    let counting = Arc::new(Counting {
+        inner: Arc::clone(&bucket),
+        looks: AtomicUsize::new(0),
+    });
+    let mut again = MetaStore::open(Arc::clone(&counting), sealer(), "laptop")
+        .unwrap()
+        .with_clock(device_clock(&time, &skew))
+        .keep_leftovers(Some(&saved), kept.sink());
+    let looks = || counting.looks.load(Ordering::SeqCst);
+    publish_main(&mut again, "five-a").unwrap();
+    let first = looks();
+    assert!(
+        first <= 4,
+        "the first publish of a start looks at the first key only: {first} looks"
+    );
+    for value in ["five-b", "five-c", "five-d", "five-e"] {
+        publish_main(&mut again, value).unwrap();
+    }
+    assert_eq!(
+        looks(),
+        first,
+        "no later publish of the two days looks at anything"
+    );
+    assert_eq!(again.leftover_keys().len(), 201, "young: all kept");
+
+    pass(&time, 2 * DAY);
+    publish_main(&mut again, "later").unwrap();
+    assert!(looks() > first, "two days later the store looks again");
+}
+
+/// X-DELTA-SYNC9-4: the premise of the removal stated where the deleter is. A signed request lands within
+/// [`REQUEST_WINDOW_SECS`] of its signing or never - the node's own rule, which `crate::s3::MAX_CLOCK_SKEW_SECS` is
+/// the client's copy of - and a leftover must have outlived a generous number of such windows (192: two days, what an
+/// orphan waits before the sweep deletes it). The test ties the constants to each other and to the window.
+#[test]
+fn x_delta_sync9_4_the_age_a_leftover_must_reach_is_many_windows_of_the_nodes_request_window() {
+    use crate::meta::{wal, Maintenance};
+
+    assert_eq!(
+        wal::REQUEST_WINDOW_SECS,
+        crate::s3::MAX_CLOCK_SKEW_SECS,
+        "the window is the node's"
+    );
+    assert_eq!(wal::REQUEST_WINDOW_SECS, 15 * 60, "SigV4's fifteen minutes");
+    assert_eq!(
+        wal::LEFTOVER_MIN_AGE_SECS,
+        wal::LEFTOVER_WINDOWS * wal::REQUEST_WINDOW_SECS,
+        "the age is a number of windows"
+    );
+    assert!(
+        wal::LEFTOVER_MIN_AGE_SECS >= 96 * wal::REQUEST_WINDOW_SECS,
+        "at least ninety-six windows: a day by the node's own rule"
+    );
+    assert_eq!(wal::LEFTOVER_MIN_AGE_SECS, 2 * DAY);
+    let orphans = Maintenance::default();
+    assert!(
+        wal::LEFTOVER_MIN_AGE_SECS >= orphans.orphan_age,
+        "never less than an orphan waits before the sweep retires it"
+    );
+    assert!(
+        wal::LEFTOVER_EVERY_SECS >= wal::LEFTOVER_MIN_AGE_SECS,
+        "a look is not due before a key can be old"
+    );
+}
+
+/// X-DELTA-SYNC9-4, the cell the age exists for, pinned: a request that lands AFTER the age - the node did not keep
+/// its window - makes a manifest that names the entry and the pack the clear has removed, and every device then reads
+/// "the manifest names it, but it is missing". The age is the only guard, which is why it is a number of windows and
+/// not the poll: against a request that lands after the poll the poll is no guard.
+#[test]
+fn x_delta_sync9_4_a_request_that_lands_after_the_clear_breaks_the_manifest_the_age_is_the_only_guard(
+) {
+    let data = MemoryBucket::new();
+    let late = Arc::new(LateSwap::new(data.clone()).held());
+    let mut store = MetaStore::create(Arc::clone(&late), sealer(), "laptop").unwrap();
+    late.answer_next(keys::MANIFEST, Answer::DeniedFirstLands);
+    assert!(publish_main(&mut store, "one").is_err());
+    assert!(late.on_its_way());
+    // Three days pass (the premise says the request is gone by now); the next publish clears what the refused try left
+    // - and the first request lands right before that publish's own swap.
+    crate::time::advance_monotonic(3 * DAY);
+    let parked = Arc::clone(&late);
+    data.before_next_replace(keys::MANIFEST, move || parked.land_now());
+    let broken = publish_main(&mut store, "two");
+    assert!(
+        matches!(&broken, Err(MetaError::Corrupt { reason, .. }) if reason.contains("is missing")),
+        "a manifest that names a removed entry: {broken:?}"
+    );
+    let other = MetaStore::open(data.clone(), sealer(), "phone");
+    assert!(
+        matches!(&other, Err(MetaError::Corrupt { reason, .. }) if reason.contains("is missing")),
+        "every other device reads the same: {:?}",
+        other.map(|_| ())
+    );
+}
+
+/// X-DELTA-SYNC9-5: a pack of identical objects meets an old leftover's name. "six" is refused (its swap), two days
+/// pass, "six" is published again: the same objects, the same pack name. The old clear ran after the new entry was
+/// written and before its swap, found `pack/H` old and named by nothing - the swap that names it was not made yet - and
+/// removed the pack the swap then named. The clear now runs before the attempt's first byte, so the pack the swap names
+/// is made after it. RED on the old code: the repository's pack is missing.
+#[test]
+fn x_delta_sync9_5_a_pack_of_identical_objects_meets_an_old_leftover_and_the_pack_the_swap_names_is_there(
+) {
+    let time = Arc::new(AtomicU64::new(1_000_000));
+    let skew = Arc::new(AtomicU64::new(0));
+    let data = MemoryBucket::new();
+    let late = Arc::new(LateSwap::new(data.clone()));
+    let mut store = dated_store(&late, true, &time, &skew);
+    publish_main(&mut store, "one").unwrap();
+    late.answer_next(keys::MANIFEST, Answer::Denied);
+    assert!(publish_main(&mut store, "six").is_err());
+    pass(&time, 2 * DAY);
+    publish_main(&mut store, "six").unwrap();
+
+    let other = MetaStore::open(data.clone(), sealer(), "phone").unwrap();
+    assert_eq!(
+        other.state().refs.get(MAIN).map(String::as_str),
+        Some("six")
+    );
+    for pack in &other.state().packs {
+        let mut objects = crate::meta::Objects::new();
+        other
+            .fetch_pack(pack, &mut objects)
+            .unwrap_or_else(|e| panic!("the pack {} the manifest names is there: {e}", pack.name));
+    }
+}
+
+/// X-DELTA-SYNC9-6 (the 409 arm): a swap that answers 409 may be the swap itself, still under way: its entry stays
+/// and is written down, with the pack. Here the first swap never lands and the retry does; the entry the retry
+/// replaced is unnamed, and the pack - the same objects - is named. Two days later the entry goes and the pack stays.
+/// RED when the arm does not write the entry down: it stays in the bucket for good.
+#[test]
+fn x_delta_sync9_6_the_409_arm_writes_the_entry_down_and_the_clear_leaves_what_a_manifest_names() {
+    let data = MemoryBucket::new();
+    let late = Arc::new(LateSwap::new(data.clone()).held());
+    let mut store = MetaStore::create(Arc::clone(&late), sealer(), "laptop").unwrap();
+    publish_main(&mut store, "one").unwrap();
+    late.answer_next(keys::MANIFEST, Answer::Raced);
+    let published = publish_main(&mut store, "two")
+        .unwrap()
+        .expect("the retry lands");
+    assert_eq!(published.attempts, 2, "the first swap answered 409");
+    let unnamed = unnamed_in(&data, &store);
+    assert_eq!(
+        unnamed.len(),
+        1,
+        "the first attempt's entry stays: {unnamed:?}"
+    );
+    assert!(unnamed[0].starts_with(keys::LOG_DIR));
+    assert!(
+        store.leftover_keys().contains(&unnamed[0]),
+        "the 409 arm wrote the entry down: {:?}",
+        store.leftover_keys()
+    );
+    let pack_keys: Vec<String> = store
+        .leftover_keys()
+        .into_iter()
+        .filter(|key| key.starts_with(keys::WAL_DIR))
+        .collect();
+    assert_eq!(pack_keys.len(), 2, "and the pack with its index");
+
+    crate::time::advance_monotonic(2 * DAY);
+    publish_main(&mut store, "three").unwrap();
+    assert!(
+        !repo_keys(&data).contains(&unnamed[0]),
+        "two days old and named by nothing: the entry is gone"
+    );
+    assert!(
+        pack_keys.iter().all(|key| repo_keys(&data).contains(key)),
+        "the pack the manifest names is not removed"
+    );
+}
+
+/// X-DELTA-SYNC9-6 (the unknown arm): a swap whose conflict cannot be read back is an unknown outcome - the entry, the
+/// pack and its index stay, written down. Here the swap did not land. Two days later all three are gone. RED when the
+/// arm does not write them down.
+#[test]
+fn x_delta_sync9_6_the_unknown_arm_writes_the_entry_and_the_pack_down() {
+    let data = MemoryBucket::new();
+    let bucket = Arc::new(Refusing::new(data.clone()));
+    let mut store = MetaStore::create(Arc::clone(&bucket), sealer(), "laptop").unwrap();
+    publish_main(&mut store, "one").unwrap();
+    let named = repo_keys(&data);
+    *bucket.swap.lock().unwrap() = Some((
+        MetaError::Conflict {
+            key: keys::MANIFEST.to_string(),
+        },
+        1_000,
+    ));
+    let unknown = publish_main(&mut store, "two");
+    assert!(
+        matches!(unknown, Err(MetaError::OutcomeUnknown { .. })),
+        "{unknown:?}"
+    );
+    bucket.reads_down.store(0, Ordering::SeqCst);
+    let left: Vec<String> = repo_keys(&data)
+        .into_iter()
+        .filter(|key| !named.contains(key))
+        .collect();
+    assert_eq!(left.len(), 3, "{left:?}");
+    assert_eq!(
+        sorted(store.leftover_keys()),
+        left,
+        "the unknown arm wrote all three down"
+    );
+
+    crate::time::advance_monotonic(2 * DAY);
+    publish_main(&mut store, "three").unwrap();
+    assert!(
+        left.iter().all(|key| !repo_keys(&data).contains(key)),
+        "two days old and named by nothing: gone"
+    );
+}
+
+/// X-DELTA-SYNC9-6 (the lost race): the attempt that loses (412, another device's manifest) removes its entry at once
+/// and leaves its pack and index, which the retry does not need - it builds another - and writes them down. RED when
+/// the arm does not write them down: they stay in the bucket for good.
+#[test]
+fn x_delta_sync9_6_the_lost_race_writes_the_pack_down_and_the_entry_goes_at_once() {
+    let data = MemoryBucket::new();
+    let mut store = MetaStore::create(data.clone(), sealer(), "laptop").unwrap();
+    publish_main(&mut store, "one").unwrap();
+    let mut phone = MetaStore::open(data.clone(), sealer(), "phone").unwrap();
+    // Another device's publish lands right before the laptop's swap.
+    data.before_next_replace(keys::MANIFEST, move || {
+        publish_main(&mut phone, "phone").unwrap();
+    });
+    let landed = publish_at_head(&mut store, "two")
+        .unwrap()
+        .expect("the retry lands");
+    assert_eq!(landed.attempts, 2, "the first attempt lost the race");
+    let unnamed = unnamed_in(&data, &store);
+    assert_eq!(
+        unnamed.len(),
+        2,
+        "the lost attempt's pack and index, not its entry: {unnamed:?}"
+    );
+    assert!(unnamed.iter().all(|key| key.starts_with(keys::WAL_DIR)));
+    assert_eq!(sorted(store.leftover_keys()), unnamed, "written down");
+
+    crate::time::advance_monotonic(2 * DAY);
+    publish_main(&mut store, "three").unwrap();
+    assert!(
+        unnamed.iter().all(|key| !repo_keys(&data).contains(key)),
+        "two days old and named by nothing: gone"
     );
 }
 

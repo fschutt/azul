@@ -64,6 +64,13 @@ const EPOCH_CONTEXT: &[u8] = b"azul-storage meta: the newest restore of the driv
 /// it.
 const EPOCH_FILE: &str = "restore-epoch";
 
+/// The file of the objects this device's refused publishes left in the bucket, in the cache folder
+/// ([`MetaStore::keep_leftovers`], sealed with the drive's key): the device's own state, written each time
+/// the list changes and read at the start, so that a restart does not lose what a store is to remove
+/// (X-DELTA-SYNC9-2). Dropping the copy of a restored drive leaves it: the keys it names are judged by the
+/// bucket again.
+const LEFTOVERS_FILE: &str = "leftovers";
+
 /// Where a repository learns that its drive was restored: the token server's announcement as the
 /// app last read it (`AzlinAccount::restore_notice`), NEVER the bucket - whoever controls the storage
 /// could announce a "restore" of its own to roll a device back (ARCH28 RF45). Without a source no
@@ -700,6 +707,19 @@ pub struct MetaRepo<B: Bucket, S: Sealer> {
 
 impl<B: Bucket, S: Sealer> MetaRepo<B, S> {
     fn with_store(store: MetaStore<B, S>, device_name: &str, options: &RepoOptions) -> Self {
+        // A device with a cache folder keeps the journal of its leftovers there; one without has it in memory.
+        let store = match options.cache_dir.as_deref() {
+            Some(dir) => {
+                let file = dir.join(LEFTOVERS_FILE);
+                // collapse-ok: a journal that cannot be read is no list of leftovers: the orphan sweep finds
+                // what it named, and nothing is removed on the word of a file that did not open.
+                let saved = read_cached(Some(file.as_path()));
+                store.keep_leftovers(saved.as_deref(), move |sealed| {
+                    write_cached(Some(file.as_path()), sealed);
+                })
+            }
+            None => store,
+        };
         MetaRepo {
             store,
             local: Local::new(options),

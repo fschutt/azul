@@ -26,9 +26,13 @@
 //!    entry, poll again, rebuild, retry. Any other error is ambiguous (the swap may have
 //!    landed): a fresh read decides by whether the manifest lists the own entry.
 //!
-//! A pack left behind by a lost swap is not removed: its name could be another
-//! device's (the same objects), and a later attempt usually needs its objects
-//! again. Orphans are for a sweep over the listing (later; maintenance only).
+//! A pack left behind by a lost swap is not removed by the attempt that lost: its name could be
+//! another device's (the same objects), and a later attempt usually needs its objects again. What
+//! a store leaves in the bucket (a refused or unanswered publish's entry, pack and index, a lost
+//! race's pack) it writes down in a journal that survives a restart ([`MetaStore::keep_leftovers`]),
+//! and removes itself once it is old and no manifest names it ([`MetaStore::publish_with`] looks at
+//! it at its first publish and then once per two days, never per attempt). Anything else no
+//! manifest names is for the sweep over the listing (maintenance only).
 //!
 //! # Sealing
 //!
@@ -48,6 +52,7 @@ use super::{
     pack::{PackIndex, PackWriter, SealedPack},
     MetaError, SealError, Sealer,
 };
+use crate::time::Stopwatch;
 
 /// The manifest format this code writes and reads.
 pub const FORMAT: u32 = 1;
@@ -60,6 +65,45 @@ pub const DEFAULT_ATTEMPTS: u32 = 16;
 
 /// The name of the lease for compaction and garbage collection.
 pub const MAINTENANCE: &str = "maintenance";
+
+/// How long a signed request of a client can still land at the node, in seconds: the node refuses a
+/// request whose signing time (`x-amz-date`) is farther than this from ITS clock, either way - the
+/// front's `MAX_SKEW_SECS` (azul-apps `iso/crates/azinit/src/s3d/s3/mod.rs`, SigV4's 15 minutes),
+/// which [`crate::s3::MAX_CLOCK_SKEW_SECS`] is the client's copy of. A manifest swap that the
+/// transport sent again and that waits somewhere on its way (a proxy, a queue of the node) therefore
+/// lands within this span of the moment it was signed, or never. THE PREMISE the removal of a
+/// leftover rests on ([`MetaStore::clear_leftovers`], X-DELTA-SYNC9-4): a swap that did not land is
+/// no longer on its way once a number of these windows have passed - and until then it may still
+/// land and name the log entry and the pack the refused try left.
+pub(crate) const REQUEST_WINDOW_SECS: u64 = crate::s3::MAX_CLOCK_SKEW_SECS;
+
+/// How many request windows a leftover must have outlived before its store removes it: 192, which is
+/// two days - the time the orphan sweep waits before it retires an object and again before it deletes
+/// it ([`Maintenance::default`]), and nearly two hundred times the longest a request can wait. A test ties
+/// the product to the window (`x_delta_sync9_4_*`).
+pub(crate) const LEFTOVER_WINDOWS: u64 = 192;
+
+/// How old a leftover must be before it is removed (seconds): [`LEFTOVER_WINDOWS`] request windows. Judged by
+/// the monotonic clock for a key this process wrote down, by the bucket's own dates for a key an earlier run's
+/// journal brought; never by the clock of this computer.
+pub(crate) const LEFTOVER_MIN_AGE_SECS: u64 = LEFTOVER_WINDOWS * REQUEST_WINDOW_SECS;
+
+/// How often a store looks at its leftovers again, by the monotonic clock (seconds): at its first publish
+/// and then once per two days - never per commit attempt (X-DELTA-SYNC9-3).
+pub(crate) const LEFTOVER_EVERY_SECS: u64 = 2 * 86_400;
+
+/// How soon a store looks again after a look that could not date what it had brought from an earlier run
+/// (the bucket does not say, or could not be asked): an hour.
+const LEFTOVER_RETRY_SECS: u64 = 3_600;
+
+/// The most keys one look at the leftovers examines (each costs at most a HEAD and a delete): a longer
+/// list is worked through by the next publishes, one look each.
+const LEFTOVER_LOOKS: usize = 48;
+
+/// The context the journal of leftovers is sealed with (a file of the device, never an object of the
+/// bucket).
+const LEFTOVERS_CONTEXT: &str =
+    "azul-storage meta: the objects a device's refused publishes left behind";
 
 /// A pack the repository holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -582,15 +626,96 @@ pub struct MetaStore<B: Bucket, S: Sealer> {
     /// The highest manifest revision this device has seen.
     seen_revision: u64,
     /// The objects a publish of THIS store left in the bucket that no manifest named when it ended - the log
-    /// entry and the pack (with its index) of an attempt whose swap was refused or got no answer
-    /// ([`MetaStore::note_leftovers`]): [`MetaStore::clear_leftovers`] removes them once they are old and still
-    /// named by nothing (X-DELTA-SYNC7-4). Not kept across a restart: the orphan sweep finds them then.
-    leftovers: Vec<String>,
+    /// entry and the pack (with its index) of an attempt whose swap was refused, got no answer or lost the
+    /// race, and the pack of an attempt whose entry was refused ([`MetaStore::note_leftovers`]), oldest first:
+    /// [`MetaStore::clear_leftovers`] removes them once they are old and still named by nothing
+    /// (X-DELTA-SYNC7-4). Kept across a restart where a journal is attached ([`MetaStore::keep_leftovers`]);
+    /// what falls out of the bound is the orphan sweep's.
+    leftovers: Vec<Leftover>,
+    /// Where the journal of the leftovers is written, each time it changes; `None`: in memory only.
+    journal: Option<LeftoverSink>,
+    /// When the leftovers are looked at again ([`MetaStore::clear_leftovers_if_due`]); `None`: not yet.
+    clear_plan: Option<ClearPlan>,
 }
 
 /// The most keys of leftovers a store remembers: a drive that refuses for months does not grow the list without
 /// end; what falls out of it is the orphan sweep's.
 const LEFTOVERS_KEPT: usize = 4096;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's narrower bound ([`narrow_leftovers_kept`]), for this thread only: no switch of a shipped build.
+    static NARROWED_KEPT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// The most keys of leftovers a store remembers now ([`LEFTOVERS_KEPT`], or a test's narrower bound).
+fn leftovers_kept() -> usize {
+    #[cfg(test)]
+    {
+        if let Some(kept) = NARROWED_KEPT.with(std::cell::Cell::get) {
+            return kept;
+        }
+    }
+    LEFTOVERS_KEPT
+}
+
+/// What [`narrow_leftovers_kept`] gives back when it drops.
+#[cfg(test)]
+pub(crate) struct NarrowedKept(Option<usize>);
+
+#[cfg(test)]
+impl Drop for NarrowedKept {
+    fn drop(&mut self) {
+        NARROWED_KEPT.with(|kept| kept.set(self.0));
+    }
+}
+
+/// A test: the journal keeps `kept` keys at the most on this thread until the guard drops, so that the bound is tried by
+/// a few refused publishes and not by fourteen hundred.
+#[cfg(test)]
+pub(crate) fn narrow_leftovers_kept(kept: usize) -> NarrowedKept {
+    NarrowedKept(NARROWED_KEPT.with(|cell| cell.replace(Some(kept))))
+}
+
+/// One key a publish of this store left in the bucket.
+#[derive(Debug, Clone)]
+struct Leftover {
+    key: String,
+    /// When THIS process wrote it down, by the monotonic clock: it never runs ahead of real time, so the age
+    /// it measures is a lower bound. `None` for a key an earlier run's journal brought: its age is the
+    /// bucket's to say.
+    noted: Option<Stopwatch>,
+}
+
+/// Where a store's journal of leftovers goes: handed the sealed bytes of the whole list, best effort - a
+/// journal that cannot be written only leaves its keys to the orphan sweep after a restart.
+type LeftoverSink = Box<dyn Fn(&[u8]) + Send + Sync>;
+
+/// When a store looks at its leftovers next: `wait_secs` of monotonic time after `since`.
+#[derive(Debug, Clone, Copy)]
+struct ClearPlan {
+    since: Stopwatch,
+    wait_secs: u64,
+}
+
+/// The journal of the leftovers as it is written (sealed): the keys, oldest first.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct LeftoverJournal {
+    #[serde(default)]
+    keys: Vec<String>,
+}
+
+/// What one look at a leftover found.
+enum Age {
+    /// Old enough, and nothing names it: it goes.
+    Old,
+    /// Not old enough: it stays, and so does every key after it (the list is in the order the keys were written).
+    Young,
+    /// The bucket does not hold it: off the list.
+    Gone,
+    /// Its age or presence could not be told: it stays.
+    Unknown,
+}
 
 impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     fn new(bucket: B, sealer: S, device: &str) -> Self {
@@ -604,6 +729,8 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             state: RepoState::default(),
             seen_revision: 0,
             leftovers: Vec::new(),
+            journal: None,
+            clear_plan: None,
         }
     }
 
@@ -740,6 +867,46 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         self
     }
 
+    /// Keeps the journal of this store's leftovers ([`MetaStore::publish_with`] clears them once they
+    /// are old): `saved` is the sealed journal an earlier run left (what does not open with this store's
+    /// key, or names an object a publish of this store never writes, is dropped: the orphan sweep finds it),
+    /// and `sink` is handed the sealed journal each time the list changes - before the publish that
+    /// changed it returns, so a kill right after a refused publish does not lose it. The keys it brings
+    /// have no age of this process: the bucket's dates judge them (X-DELTA-SYNC9-2).
+    #[must_use]
+    pub fn keep_leftovers(
+        mut self,
+        saved: Option<&[u8]>,
+        sink: impl Fn(&[u8]) + Send + Sync + 'static,
+    ) -> Self {
+        if let Some(sealed) = saved {
+            if let Ok(journal) =
+                open_json::<LeftoverJournal, S>(&self.sealer, LEFTOVERS_CONTEXT, sealed)
+            {
+                let mut brought: Vec<Leftover> = journal
+                    .keys
+                    .into_iter()
+                    .filter(|key| is_own_object(key))
+                    .map(|key| Leftover { key, noted: None })
+                    .collect();
+                if brought.len() > leftovers_kept() {
+                    brought.drain(..brought.len() - leftovers_kept());
+                }
+                // What this run has noted already (nothing, at the start) comes after what an earlier run left.
+                brought.append(&mut self.leftovers);
+                self.leftovers = brought;
+            }
+        }
+        self.journal = Some(Box::new(sink));
+        self
+    }
+
+    /// The keys of the leftovers, oldest first (a test).
+    #[cfg(test)]
+    pub(crate) fn leftover_keys(&self) -> Vec<String> {
+        self.leftovers.iter().map(|left| left.key.clone()).collect()
+    }
+
     #[must_use]
     pub fn bucket(&self) -> &B {
         &self.bucket
@@ -874,7 +1041,11 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// is deleting it, or will - the writer does not take the object for its own, which would let
     /// the collection delete a pack the manifest names the moment the writer's swap lands: it gives
     /// the pack another name and uploads it anew (AZ-M9).
-    fn put_pack(&self, writer: &PackWriter, seq: u64) -> Result<PackRef, MetaError> {
+    ///
+    /// A pack or an index that went up and whose attempt then failed (the index refused after the pack
+    /// went up, a lost answer) is written down as a leftover before the error is handed on - the entry
+    /// that would name it is not even tried (X-DELTA-SYNC9-2).
+    fn put_pack(&mut self, writer: &PackWriter, seq: u64) -> Result<PackRef, MetaError> {
         let ordinary = writer.name(&self.sealer);
         let burned = self.synced.as_ref().is_some_and(|synced| {
             synced
@@ -888,7 +1059,17 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
         } else {
             ordinary
         };
-        put_sealed_pack(&self.bucket, writer.seal_as(&self.sealer, &name)?, seq)
+        let sealed = writer.seal_as(&self.sealer, &name)?;
+        // Refused before a byte goes up: nothing to write down.
+        check_writable(sealed.pack.len(), sealed.idx.len())?;
+        let objects = [keys::pack(&sealed.name), keys::idx(&sealed.name)];
+        match put_sealed_pack(&self.bucket, sealed, seq) {
+            Ok(pack) => Ok(pack),
+            Err(e) => {
+                self.note_keys(objects);
+                Err(e)
+            }
+        }
     }
 
     /// Opens the index of `pack`.
@@ -932,6 +1113,11 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     {
         for attempt in 1..=self.attempts {
             self.sync()?;
+            if attempt == 1 {
+                // BEFORE the first byte of this publish goes up: a drive whose allowance the leftovers
+                // used refuses the pack, and only their removal makes room again (X-DELTA-SYNC9-2).
+                self.clear_leftovers_if_due();
+            }
             let packs = Packs {
                 bucket: &self.bucket,
                 sealer: &self.sealer,
@@ -1014,11 +1200,13 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             // The key holds this attempt's random id, so nobody else writes it: a conflict is
             // this very create, sent again after its answer was lost.
             Ok(_) | Err(MetaError::Conflict { .. }) => {}
-            Err(e) => return Err(e),
+            // The entry may have landed, and the pack and its index went up before it: nothing names
+            // any of them, and this attempt ends here (X-DELTA-SYNC9-2).
+            Err(e) => {
+                self.note_leftovers(Some(&log_key), entry.pack.as_ref());
+                return Err(e);
+            }
         }
-        // What earlier tries of this store left behind goes now, when it is old by the bucket's own dates: the
-        // entry just written says what time the bucket has (X-DELTA-SYNC7-4).
-        self.clear_leftovers(&log_key);
 
         let mut next = base;
         next.head_seq = entry.seq;
@@ -1112,65 +1300,188 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// Writes down the objects a publish left in the bucket that no manifest named when it ended: the log
     /// entry (when it stays) and the pack and index of the attempt ([`MetaStore::clear_leftovers`]).
     fn note_leftovers(&mut self, entry: Option<&str>, pack: Option<&PackRef>) {
-        self.leftovers.extend(entry.map(str::to_string));
+        let mut found: Vec<String> = entry.map(str::to_string).into_iter().collect();
         if let Some(pack) = pack {
-            self.leftovers.push(keys::pack(&pack.name));
-            self.leftovers.push(keys::idx(&pack.name));
+            found.push(keys::pack(&pack.name));
+            found.push(keys::idx(&pack.name));
         }
-        if self.leftovers.len() > LEFTOVERS_KEPT {
-            let extra = self.leftovers.len() - LEFTOVERS_KEPT;
+        self.note_keys(found);
+    }
+
+    /// Writes `found` down at the end of the list (a key that is on it already stays where it is), keeps the
+    /// list within [`LEFTOVERS_KEPT`] and the journal up to date.
+    fn note_keys(&mut self, found: impl IntoIterator<Item = String>) {
+        let noted = Stopwatch::start();
+        let mut added = false;
+        for key in found {
+            if self.leftovers.iter().any(|left| left.key == key) {
+                continue;
+            }
+            self.leftovers.push(Leftover {
+                key,
+                noted: Some(noted),
+            });
+            added = true;
+        }
+        if self.leftovers.len() > leftovers_kept() {
+            let extra = self.leftovers.len() - leftovers_kept();
             self.leftovers.drain(..extra);
         }
+        if added {
+            self.write_journal();
+        }
+    }
+
+    /// Hands the sealed journal to where it is kept.
+    fn write_journal(&self) {
+        let Some(sink) = &self.journal else {
+            return;
+        };
+        let journal = LeftoverJournal {
+            keys: self.leftovers.iter().map(|left| left.key.clone()).collect(),
+        };
+        // collapse-ok: a journal that cannot be sealed or written only leaves the keys to the orphan sweep
+        // after a restart; the list in memory is the one this run works from.
+        if let Ok(sealed) = seal_json(&self.sealer, LEFTOVERS_CONTEXT, &journal) {
+            sink(&sealed);
+        }
+    }
+
+    /// [`MetaStore::clear_leftovers`] when it is time: the first time this store publishes with leftovers on its
+    /// list (a start), then once per [`LEFTOVER_EVERY_SECS`] of monotonic time - or sooner, after a look that was cut
+    /// short or could not date what an earlier run brought. A list with nothing on it costs nothing, a look that is
+    /// not due costs nothing, and no attempt of a publish repeats it (X-DELTA-SYNC9-3).
+    fn clear_leftovers_if_due(&mut self) {
+        if self.leftovers.is_empty() {
+            return;
+        }
+        if self
+            .clear_plan
+            .is_some_and(|plan| plan.since.secs() < plan.wait_secs)
+        {
+            return;
+        }
+        let wait_secs = self.clear_leftovers();
+        self.clear_plan = Some(ClearPlan {
+            since: Stopwatch::start(),
+            wait_secs,
+        });
     }
 
     /// Removes the objects earlier publishes of this store left behind ([`MetaStore::note_leftovers`]) that are
     /// old and that no manifest names - for the sweep's own reason, by its own rule, and without the swap the
     /// sweep needs: a drive that refuses commits refuses that swap too, and a delete is what such a drive still
-    /// takes. "Old" is by the BUCKET's dates alone, against the date of `written`, the entry this call just
-    /// created (a device's clock that runs ahead cannot make a fresh object old), and as old as an orphan is
-    /// before the sweep deletes it ([`Maintenance::orphan_age`] to retire it and [`Maintenance::grace`]
-    /// before it goes). The age is what makes it safe: a swap the transport sent again may land at the node
-    /// long after the repeat was refused (X-DELTA-SYNC6-2), and the manifest it makes names the entry and
-    /// the pack; two days later it cannot. A key a manifest names now is not ours any more and goes off the
-    /// list unharmed; so is a key the bucket does not hold; a key whose age or presence the bucket cannot
-    /// tell, or whose delete it refuses, stays on the list - and a bucket that dates nothing clears nothing.
-    fn clear_leftovers(&mut self, written: &str) {
-        if self.leftovers.is_empty() {
-            return;
-        }
-        let Some(bucket_now) = self.bucket.modified_of(written).ok().flatten() else {
-            return;
-        };
+    /// takes. The manifest is the one this publish has just polled, so a key it names is not ours any more and
+    /// goes off the list unharmed, as does a key the bucket does not hold.
+    ///
+    /// # What makes it safe: the age
+    ///
+    /// A leftover is removed only when it is [`LEFTOVER_MIN_AGE_SECS`] old - [`LEFTOVER_WINDOWS`] times
+    /// [`REQUEST_WINDOW_SECS`], the time a signed request can still land at the node. The late request is the
+    /// only way a manifest comes to name a leftover after the poll: a swap the transport sent again, refused
+    /// for policy, whose first request lands later (X-DELTA-SYNC6-2) and makes a manifest that names the entry
+    /// and the pack. Against it the poll is no guard (its snapshot is as old as the attempt), the age alone
+    /// is: once the request cannot be on its way any longer, nothing can name the key but a writer of the
+    /// same objects (a pack is named by the keyed hash of them; a user's commit carries its device and its
+    /// second, and a compaction runs in a store of its own that keeps no list). What a node that did not keep
+    /// its window would do is pinned by a test.
+    ///
+    /// The age is told by clocks that cannot run ahead: for a key THIS process wrote down, the monotonic time
+    /// since (it can only be too short; no clock of the computer or the bucket decides, and a bucket that dates
+    /// nothing does not matter); for a key an earlier run's journal brought, the bucket's own dates - how far
+    /// it is older than the newest object this store knows of (the manifest, the last key of the list), which
+    /// is a lower bound of the bucket's time. The first key that is not old ends the look: the list is in the
+    /// order the keys were written. A key whose age or presence cannot be told, or whose delete is refused,
+    /// stays on the list. At most [`LEFTOVER_LOOKS`] keys are looked at; the wait until the next look says
+    /// whether more are due.
+    fn clear_leftovers(&mut self) -> u64 {
         let Some(synced) = self.synced.as_ref() else {
-            return;
+            return LEFTOVER_RETRY_SECS;
         };
         let mut named = live_keys(&synced.manifest);
         named.extend(synced.manifest.retired.iter().map(|r| r.key.clone()));
-        let rules = Maintenance::default();
-        let min_age = rules.orphan_age.saturating_add(rules.grace);
-        let mut kept = Vec::new();
-        for key in std::mem::take(&mut self.leftovers) {
-            if named.contains(&key) {
+        let newest = self.leftovers.last().map(|left| left.key.clone());
+        let mut bucket_now: Option<Option<u64>> = None;
+        let before = self.leftovers.len();
+        let mut wait = LEFTOVER_EVERY_SECS;
+        let mut kept: Vec<Leftover> = Vec::new();
+        let mut looked = 0;
+        // Whether this look took a key off the list: if it did and more are waiting, the next publish goes on.
+        let mut progress = false;
+        let mut rest = std::mem::take(&mut self.leftovers).into_iter();
+        while let Some(left) = rest.next() {
+            if named.contains(&left.key) {
+                progress = true;
                 continue;
             }
-            match self.bucket.exists(&key) {
-                Ok(false) => continue,
-                Ok(true) => {}
-                Err(_) => {
-                    kept.push(key);
-                    continue;
+            if looked == LEFTOVER_LOOKS {
+                wait = if progress { 0 } else { LEFTOVER_RETRY_SECS };
+                kept.push(left);
+                kept.extend(rest.by_ref());
+                break;
+            }
+            looked += 1;
+            let age = match left.noted {
+                Some(noted) if noted.secs() >= LEFTOVER_MIN_AGE_SECS => Age::Old,
+                Some(_) => Age::Young,
+                None => {
+                    let now =
+                        *bucket_now.get_or_insert_with(|| self.bucket_time(newest.as_deref()));
+                    match now {
+                        Some(now) => self.age_by_the_bucket(&left.key, now),
+                        None => {
+                            wait = wait.min(LEFTOVER_RETRY_SECS);
+                            Age::Unknown
+                        }
+                    }
+                }
+            };
+            match age {
+                Age::Old => {
+                    if self.bucket.remove(&left.key).is_err() {
+                        kept.push(left);
+                    } else {
+                        progress = true;
+                    }
+                }
+                Age::Gone => progress = true,
+                Age::Unknown => kept.push(left),
+                Age::Young => {
+                    kept.push(left);
+                    kept.extend(rest.by_ref());
+                    break;
                 }
             }
-            let old = matches!(
-                self.bucket.modified_of(&key),
-                Ok(Some(at)) if at.saturating_add(min_age) <= bucket_now
-            );
-            if old && self.bucket.remove(&key).is_ok() {
-                continue;
-            }
-            kept.push(key);
         }
         self.leftovers = kept;
+        if self.leftovers.len() != before {
+            self.write_journal();
+        }
+        wait
+    }
+
+    /// What time the bucket has, as far as this store can know: the later of the dates of the manifest and
+    /// of `newest` (the last key of the list) - objects the bucket dated when it took them, so the time now is
+    /// at least that. `None` when the bucket tells neither.
+    fn bucket_time(&self, newest: Option<&str>) -> Option<u64> {
+        let dated = |key: &str| self.bucket.modified_of(key).ok().flatten();
+        let manifest = dated(keys::MANIFEST);
+        let newest = newest.and_then(dated);
+        manifest.max(newest)
+    }
+
+    /// Whether the key an earlier run left is old by the bucket's dates against `bucket_now`: one HEAD (and
+    /// a second to tell a key that is not there from one the bucket does not date).
+    fn age_by_the_bucket(&self, key: &str, bucket_now: u64) -> Age {
+        match self.bucket.modified_of(key) {
+            Ok(Some(at)) if at.saturating_add(LEFTOVER_MIN_AGE_SECS) <= bucket_now => Age::Old,
+            Ok(Some(_)) => Age::Young,
+            Ok(None) => match self.bucket.exists(key) {
+                Ok(false) => Age::Gone,
+                Ok(true) | Err(_) => Age::Unknown,
+            },
+            Err(_) => Age::Unknown,
+        }
     }
 
     /// Whether the manifest in the bucket now is one this device's swap made (`mine` says so);
@@ -2215,6 +2526,14 @@ fn remove_old<B: Bucket + ?Sized, N: Sealer>(
         }
     }
     Ok(removed)
+}
+
+/// Whether `key` is an object a publish of a store writes: a log entry or a pack's object, a plain key
+/// ([`crate::key::check_key`]). What a journal of leftovers may name, and nothing else - not the manifest, not
+/// a lease, not a data object.
+fn is_own_object(key: &str) -> bool {
+    (key.starts_with(keys::LOG_DIR) || key.starts_with(keys::WAL_DIR))
+        && crate::key::check_key(key).is_ok()
 }
 
 /// Every key the manifest names: itself, the live packs and their indexes, the
