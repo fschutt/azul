@@ -345,6 +345,19 @@ def signals_caught():
             signal.signal(s, h)
 
 
+@contextlib.contextmanager
+def signals_blocked():
+    """The restore is not interrupted by a second Ctrl-C or SIGTERM: they wait (pending) until it is done and the journal is gone."""
+    block = hasattr(signal, "pthread_sigmask")
+    mask = {signal.SIGINT, signal.SIGTERM, signal.SIGHUP}
+    old = signal.pthread_sigmask(signal.SIG_BLOCK, mask) if block else None
+    try:
+        yield
+    finally:
+        if block:
+            signal.pthread_sigmask(signal.SIG_SETMASK, old)
+
+
 # --- one patch ------------------------------------------------------------------------------------------------------
 
 
@@ -746,13 +759,14 @@ def replay_patch(ctx: Ctx, info: Info) -> Result:
             else:
                 result = mutant_phase(ctx, info)
     finally:
-        problems = restore(ctx, info, pre, applied)
-        if problems:
-            ctx.say("  RESTORE FAILED: " + "; ".join(problems) + " (the journal stays: `mutants.py --recover`)")
-        else:
-            with contextlib.suppress(OSError):
-                journal.unlink()
-            ctx.say("  patch reversed; proved: hashes equal, git status and git diff --stat empty, mtimes bumped")
+        with signals_blocked():  # a second signal waits until the tree is back and the journal is gone
+            problems = restore(ctx, info, pre, applied)
+            if problems:
+                ctx.say("  RESTORE FAILED: " + "; ".join(problems) + " (the journal stays: `mutants.py --recover`)")
+            else:
+                with contextlib.suppress(OSError):
+                    journal.unlink()
+                ctx.say("  patch reversed; proved: hashes equal, git status and git diff --stat empty, mtimes bumped")
     if problems:
         return Result("RESTORE-FAILED", info.row, info.rel, "; ".join(problems) + f" -- by hand: git apply -R {info.rel}")
     assert result is not None
@@ -775,7 +789,7 @@ def range_patches(ctx: Ctx, spec: str) -> List[Path]:
         if git(ctx.root, "rev-parse", "--verify", "--quiet", s + "^{commit}").returncode != 0:
             raise Refusal("NOAPPLY", f"`{s}` is no commit of this repository (does the checkout hold the whole history?)")
     rel = rel_to_root(ctx.root, ctx.patch_dir)
-    done = git(ctx.root, "diff", "--name-only", "--diff-filter=AM", "-z", sides[0], sides[1], "--", rel)
+    done = git(ctx.root, "diff", "--name-only", "--no-renames", "--diff-filter=AM", "-z", sides[0], sides[1], "--", rel)
     out: List[Path] = []
     for name in done.stdout.split("\0"):
         if name.endswith(".patch") and "/" not in name[len(rel) + 1:]:

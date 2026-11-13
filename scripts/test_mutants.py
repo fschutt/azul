@@ -571,6 +571,40 @@ class TheSelection(FixtureCase):
         code, out = self.fx.run("--range=--output=x..HEAD", "--many")
         self.assertEqual(code, 2, out)
 
+    def test_a_patch_renamed_in_the_range_is_replayed_under_its_new_name(self):
+        a = self.fx.patch("N-A", GUARD_OFF, row="N-A")
+        c1 = self.fx.git("rev-parse", "HEAD").strip()
+        self.fx.git("mv", a, "mutants/N-A2.patch")
+        c2 = self.fx.commit("rename the patch")
+        code, out = self.fx.run("--range", f"{c1}..{c2}", "--many")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([r[3] for r in self.fx.results(out)], ["mutants/N-A2.patch"])
+
+    def test_a_second_signal_waits_until_the_restore_is_done(self):
+        seen = []
+        with mutants.signals_caught():
+            try:
+                with mutants.signals_blocked():
+                    os.kill(os.getpid(), signal.SIGTERM)  # held: the handler has not run
+                    seen.append("inside")
+                seen.append("not reached")
+            except mutants.Interrupted as e:
+                seen.append(("interrupted", e.code))  # delivered when the block is left
+        self.assertEqual(seen, ["inside", ("interrupted", 128 + signal.SIGTERM)])
+
+    def test_the_restore_of_a_replay_runs_with_the_signals_blocked(self):
+        rel = self.fx.patch("G-16", GUARD_OFF)
+        seen = []
+        real = mutants.restore
+
+        def spy(ctx, info, pre, applied):
+            seen.append(signal.SIGTERM in signal.pthread_sigmask(signal.SIG_BLOCK, []))
+            return real(ctx, info, pre, applied)
+
+        with mock.patch.object(mutants, "restore", spy):
+            code, out = self.fx.run("--patch", rel)
+        self.assertEqual((code, seen), (0, [True]), out)
+
     def test_several_replays_are_refused_outside_ci_and_run_inside_it(self):
         self.fx.patch("M-1", GUARD_OFF, row="M-1")
         self.fx.patch("M-2", GUARD_OFF, row="M-2")
