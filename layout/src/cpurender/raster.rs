@@ -5242,6 +5242,7 @@ pub(super) fn shadow_spread_px(spread_logical: f32, dpi_factor: f32) -> f32 {
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss,
+    clippy::many_single_char_names,
     clippy::needless_range_loop
 )] // a bounded radius and pixel indices
 pub(super) fn dilate_disk(p: &mut AzulPixmap, r: f32) {

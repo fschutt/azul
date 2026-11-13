@@ -858,6 +858,7 @@ fn source_spans(infos: &[gpos::Info], text: &str) -> Vec<(usize, usize)> {
 /// run of `text` starts where that run starts. The map is monotone, so every
 /// span stays inside `text` and in order; a glyph made from an inserted or
 /// split-off character gets an empty span at its run, as a mark does.
+#[allow(clippy::many_single_char_names)] // s, t: the two texts; i, j, a, b: positions in them
 fn spans_onto_source(spans: &[(usize, usize)], shaped: &str, text: &str) -> Vec<(usize, usize)> {
     /// How far ahead the alignment looks for the end of an edit, in chars.
     const WINDOW: usize = 8;

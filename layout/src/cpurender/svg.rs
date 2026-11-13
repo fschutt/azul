@@ -753,7 +753,7 @@ fn render_svg_group_inner(
                 text,
                 doc,
             );
-            super::blend::blend_premultiplied(
+            blend_premultiplied(
                 pixmap.data_mut(),
                 layer.data(),
                 group_opacity as f32,
@@ -974,7 +974,8 @@ fn draw_svg_use(
         .map(|t| t.as_str().to_string())
         .unwrap_or_default();
     if x != 0.0 || y != 0.0 {
-        transform.push_str(&format!(" translate({x} {y})"));
+        use core::fmt::Write as _;
+        let _ = write!(transform, " translate({x} {y})");
     }
     let mut attributes: Vec<AzStringPair> = node
         .attributes
@@ -1073,7 +1074,11 @@ fn draw_svg_use(
 /// `height` (`xMidYMid meet`; `width` / `height` default to the picture's
 /// size), under the element's transform. Images by URL are not fetched.
 #[cfg(all(feature = "std", feature = "xml"))]
-#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // image sizes, opacity
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::many_single_char_names
+)] // image sizes, opacity; x, y, w, h as SVG names them
 fn draw_svg_image(
     node: &azul_core::xml::XmlNode,
     pixmap: &mut AzulPixmap,
@@ -1125,7 +1130,7 @@ fn draw_svg_image(
         });
     m.multiply(&element);
     let opacity = svg_opacity(node) as f32;
-    super::blit_pixmap_affine(&image, pixmap, &m, opacity);
+    blit_pixmap_affine(&image, pixmap, &m, opacity);
 }
 
 /// A `data:` URI's image as a premultiplied pixmap.
@@ -1261,7 +1266,7 @@ fn draw_svg_shape(
 
         // The stroke in user space (dashed, then outlined),
         // then the element's transform.
-        let stroke = SvgStrokeStyle::of(child_node, &group_style);
+        let stroke = SvgStrokeStyle::of(child_node, group_style);
         if stroke.dashes.is_empty() {
             let mut conv_stroke = ConvStroke::new(&mut curved);
             stroke.configure(&mut conv_stroke);
@@ -1312,9 +1317,10 @@ fn path_bounds(path: &PathStorage) -> (f64, f64, f64, f64) {
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss,
+    clippy::many_single_char_names,
     clippy::too_many_arguments,
     clippy::too_many_lines
-)] // device pixel indices and a tile size clamped to 1..=2048
+)] // device pixel indices and a tile size clamped to 1..=2048; x, y, w, h as SVG names them
 fn fill_svg_pattern(
     pattern: &azul_core::xml::XmlNode,
     bbox: (f64, f64, f64, f64),
@@ -1434,7 +1440,7 @@ fn fill_svg_pattern(
             let tv = ((v.rem_euclid(h) / h * f64::from(th)) as usize).min(thu - 1);
             let t = (tv * twu + tu) * 4;
             let src = [tile[t], tile[t + 1], tile[t + 2], tile[t + 3]];
-            super::blend_over(&mut out[i..i + 4], src, (op * coverage + 127) / 255);
+            blend_over(&mut out[i..i + 4], src, (op * coverage + 127) / 255);
         }
     }
 }
