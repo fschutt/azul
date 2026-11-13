@@ -298,32 +298,61 @@ fn a_folder_whose_files_carry_attributes_is_noted_once_as_a_warning_and_its_cont
     assert_eq!(remote_keys(&store).len(), 3, "the content syncs");
 }
 
-/// X-DELTA-EDGE-3 (E15a, T12). A hostile (or just broken) drive whose index holds a hundred thousand
-/// keys no folder can hold (20,000 here, see below): every one was a problem in the pass's report, a line in the list and a
-/// row in `problems.json`, and the list was made by a scan of itself for each - minutes of one core
-/// and a file of tens of megabytes every pass. The index below has one good file and 20,000 keys with
-/// a name of 260 bytes (the brief's 5,000-byte keys of 10,000 levels are half a gigabyte of JSON: a
-/// name past 255 bytes is as much a name no folder holds): one pass on the engine, which publishes
-/// the list. The good file arrives, no folder is made, the report names the first thousand and says
-/// how many more there are in one row, the list does the same, and the pass ends within a minute.
-#[test]
-fn a_hostile_index_with_tens_of_thousands_of_over_long_keys_is_listed_once_per_code_and_never_written(
-) {
+/// The CPU time this thread has used so far: what a pass costs in work, whatever else this machine
+/// runs beside it (a wall clock under a load of 30 doubles it). Where the system has no such clock
+/// (not Unix) the time since the first call, which is the pass's own to the test's reading.
+fn thread_cpu_time() -> std::time::Duration {
+    #[cfg(unix)]
+    {
+        let mut at = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: clock_gettime only writes the struct it is given.
+        let read = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut at) };
+        assert_eq!(read, 0, "the thread's CPU clock reads");
+        std::time::Duration::new(
+            u64::try_from(at.tv_sec).unwrap_or(0),
+            u32::try_from(at.tv_nsec).unwrap_or(0),
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        START.get_or_init(std::time::Instant::now).elapsed()
+    }
+}
+
+/// One pass of the engine over a drive whose index holds one good file and `bad` keys no folder
+/// can hold (a name of 260 bytes), with what it left behind.
+struct HostilePass {
+    store: Arc<S3Bucket>,
+    device: super::sync::Device,
+    state: TempDir,
+    report: crate::sync::SyncReport,
+    summary: crate::sync::engine::PassSummary,
+    /// What the pass took (a wall clock: the hang guard's).
+    took: std::time::Duration,
+    /// What the pass cost in CPU time of the thread that ran it (the linearity guard's).
+    cpu: std::time::Duration,
+}
+
+const GOOD: &[u8] = b"the one good file";
+
+/// Makes the hostile drive and runs one pass over it on a thread of its own (a pass that never ends
+/// fails the test after a minute instead of hanging it).
+fn hostile_pass(name: &'static str, bad: usize) -> HostilePass {
     use super::sync::{Device, PREFIX};
     use crate::sync::{
-        engine::Engine, local::hash_bytes, problems::LISTED_PER_CODE, quarantine::OwnDevices,
-        remote::blob_key, sync_to, LocalRoot, RemoteFile, RunHooks, SyncOptions, Target,
+        engine::Engine, local::hash_bytes, quarantine::OwnDevices, remote::blob_key, sync_to,
+        LocalRoot, RemoteFile, RunHooks, SyncOptions, Target,
     };
-    // The brief's hundred thousand: a pass over that many takes 22 s unoptimised, and the counts below
-    // fail on the old code at any size past a thousand.
-    const BAD: usize = 20_000;
     let store = Arc::new(S3Bucket::new());
-    let good = b"the one good file";
-    let hash = hash_bytes(good);
-    store.write(&blob_key(PREFIX, &hash), good.to_vec());
+    let hash = hash_bytes(GOOD);
+    store.write(&blob_key(PREFIX, &hash), GOOD.to_vec());
     let entry = |gen: u64| RemoteFile {
         hash: hash.clone(),
-        size: good.len() as u64,
+        size: GOOD.len() as u64,
         mtime: 1_700_000_000,
         mtime_ns: 0,
         gen,
@@ -335,22 +364,22 @@ fn a_hostile_index_with_tens_of_thousands_of_over_long_keys_is_listed_once_per_c
     index.generation = 1;
     index.files.insert(String::from("good.txt"), entry(1));
     let long = "x".repeat(260);
-    for i in 0..BAD {
+    for i in 0..bad {
         index.files.insert(format!("deep/{i:06}-{long}"), entry(1));
     }
     store.write(&index_key(PREFIX), index.to_bytes());
     drop(index);
 
-    let device = Device::new("hostile-index");
+    let device = Device::new(name);
     let folder = device.path().to_path_buf();
-    let state = TempDir::new("azcloud-hostile-index-state");
+    let state = TempDir::new(&format!("azcloud-{name}-state"));
     let state_dir = state.path().to_path_buf();
     let (sent, done) = std::sync::mpsc::channel();
     {
         let store = Arc::clone(&store);
-        let folder = folder.clone();
         std::thread::spawn(move || {
             let started = std::time::Instant::now();
+            let cpu_before = thread_cpu_time();
             let engine = Engine::new(
                 &state_dir,
                 &folder,
@@ -368,16 +397,33 @@ fn a_hostile_index_with_tens_of_thousands_of_over_long_keys_is_listed_once_per_c
                     hooks,
                 )
             });
-            let _ = sent.send((result, summary, started.elapsed()));
+            let cpu = thread_cpu_time().saturating_sub(cpu_before);
+            let _ = sent.send((result, summary, started.elapsed(), cpu));
         });
     }
-    let (result, summary, took) = done
+    let (result, summary, took, cpu) = done
         .recv_timeout(std::time::Duration::from_secs(60))
         .expect("the pass over a hostile index takes more than a minute");
-    let report = result.expect("the pass succeeds");
+    HostilePass {
+        store,
+        device,
+        state,
+        report: result.expect("the pass succeeds"),
+        summary,
+        took,
+        cpu,
+    }
+}
+
+/// What the pass over `bad` hostile keys must have done, however many there are: the good file
+/// arrives, no folder is made, the report and the list name the first thousand and say how many more
+/// there are in one row, the file the list is saved as is small, and the drive is as it was.
+fn assert_the_hostile_pass_is_bounded(pass: &HostilePass, bad: usize) {
+    use crate::sync::problems::LISTED_PER_CODE;
+    let folder = pass.device.path();
     assert_eq!(
         fs::read(folder.join("good.txt")).unwrap(),
-        good,
+        GOOD,
         "the good file arrives"
     );
     assert!(
@@ -387,22 +433,26 @@ fn a_hostile_index_with_tens_of_thousands_of_over_long_keys_is_listed_once_per_c
     // The report: the first thousand by name, and one row for the rest.
     let named = |p: &&crate::sync::problems::Problem| p.code == Code::BadRemoteName && p.more == 0;
     assert_eq!(
-        report.problems.iter().filter(named).count(),
+        pass.report.problems.iter().filter(named).count(),
         LISTED_PER_CODE
     );
-    let more: Vec<_> = report.problems.iter().filter(|p| p.more > 0).collect();
+    let more: Vec<_> = pass.report.problems.iter().filter(|p| p.more > 0).collect();
     assert_eq!(more.len(), 1, "{more:?}");
     assert_eq!(
         (more[0].code, more[0].more),
-        (Code::BadRemoteName, (BAD - LISTED_PER_CODE) as u64)
+        (Code::BadRemoteName, (bad - LISTED_PER_CODE) as u64)
     );
-    assert!(report.problems.len() <= 1_100, "{}", report.problems.len());
+    assert!(
+        pass.report.problems.len() <= 1_100,
+        "{}",
+        pass.report.problems.len()
+    );
     // The list the pass published: the same, and a file a pass can write.
-    let list = &summary.problems;
+    let list = &pass.summary.problems;
     assert_eq!(list.problems.iter().filter(named).count(), LISTED_PER_CODE);
     assert_eq!(
         list.total(),
-        BAD as u64,
+        bad as u64,
         "every one is counted, listed or not"
     );
     let bytes = serde_json::to_vec(list).unwrap();
@@ -411,15 +461,63 @@ fn a_hostile_index_with_tens_of_thousands_of_over_long_keys_is_listed_once_per_c
         "problems.json is {} bytes",
         bytes.len()
     );
-    let saved = crate::sync::problems::ProblemList::load(state.path()).unwrap();
+    let saved = crate::sync::problems::ProblemList::load(pass.state.path()).unwrap();
     assert_eq!(
         saved.total(),
-        BAD as u64,
+        bad as u64,
         "and it is what the state folder holds"
     );
-    assert!(took < std::time::Duration::from_secs(60), "{took:?}");
     // The drive is as it was: nothing of the hostile entries is touched.
-    assert_eq!(super::sync::index_of(&store).files.len(), BAD + 1);
+    assert_eq!(super::sync::index_of(&pass.store).files.len(), bad + 1);
+}
+
+/// X-DELTA-EDGE-3 (E15a, T12). A hostile (or just broken) drive whose index holds a hundred thousand
+/// keys no folder can hold (20,000 here, see below): every one was a problem in the pass's report, a line in the list and a
+/// row in `problems.json`, and the list was made by a scan of itself for each - minutes of one core
+/// and a file of tens of megabytes every pass. The index below has one good file and 20,000 keys with
+/// a name of 260 bytes (the brief's 5,000-byte keys of 10,000 levels are half a gigabyte of JSON: a
+/// name past 255 bytes is as much a name no folder holds): one pass on the engine, which publishes
+/// the list. The good file arrives, no folder is made, the report names the first thousand and says
+/// how many more there are in one row, the list does the same.
+///
+/// X-DELTA-INTEGRITY3-21: the bound on the pass was `recv_timeout(60 s)` - a hang guard, under which
+/// a step that is quadratic in the keys (a scan of the problems so far for each, a nested loop over
+/// the index: seconds at 20,000 keys) still passed. A LINEARITY guard now: the same pass over 2,000
+/// keys is run first and the pass over 20,000 may cost at most `SLOPE_BOUND` times its CPU time
+/// (the keys are ten times as many: linear work costs about ten times as much, a quadratic step a
+/// hundred times; the bound is twice the first for the cache that ten times the keys outgrows). The
+/// time is the pass thread's CPU time, not the wall clock a load of 30 doubles; the hang guard stays
+/// as the guard of a pass that never ends. No peak-memory bound: `memory::peak_bytes` is the whole
+/// test binary's peak, which the many tests beside this one move.
+#[test]
+fn a_hostile_index_with_tens_of_thousands_of_over_long_keys_is_listed_once_per_code_and_never_written(
+) {
+    // What the pass over BIG keys may cost over the pass over SMALL ones, in CPU time: twice the
+    // ratio of the sizes.
+    const SLOPE_BOUND: u32 = 20;
+    // The brief's hundred thousand: a pass over that many takes 22 s unoptimised, and the counts below
+    // fail on the old code at any size past a thousand.
+    const SMALL: usize = 2_000;
+    const BIG: usize = 20_000;
+    let small = hostile_pass("hostile-index-small", SMALL);
+    assert_the_hostile_pass_is_bounded(&small, SMALL);
+    let big = hostile_pass("hostile-index", BIG);
+    assert_the_hostile_pass_is_bounded(&big, BIG);
+    // What a run with `--nocapture` shows: the two measures, to read the bound against.
+    eprintln!(
+        "hostile index: {SMALL} keys {:?} of CPU ({:?} of wall clock), {BIG} keys {:?} of CPU ({:?} of wall clock)",
+        small.cpu, small.took, big.cpu, big.took
+    );
+    assert!(
+        big.cpu <= small.cpu * SLOPE_BOUND,
+        "the pass over {BIG} hostile keys took {:?} of CPU ({:?} of wall clock), over {SLOPE_BOUND} times \
+         the {:?} of the pass over {SMALL} ({:?} of wall clock): something in the pass is worse than \
+         linear in the keys",
+        big.cpu,
+        big.took,
+        small.cpu,
+        small.took
+    );
 }
 
 /// An object another device replaces between two ranges of a download and puts back: it is `a` for the first

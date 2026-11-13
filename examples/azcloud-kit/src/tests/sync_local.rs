@@ -900,15 +900,20 @@ fn remove_tree(path: &Path) {
 /// every folder (a hundred megabytes of keys for ten thousand levels) and went on down a folder no
 /// file of which can sync, its key being past 4,096 bytes. A chain of 500 levels of eight-letter
 /// folders (the key of the folder at level n is 9n - 1 bytes: 456 is the first past a key; the
-/// brief's 10,000 levels of one letter took minutes to make and longer to remove on APFS, where every
+/// audit's 10,000 levels of one letter took minutes to make and longer to remove on APFS, where every
 /// operation costs the depth, and the walk never goes below the first folder past a key), a file in
 /// each of the first 100 and one at the bottom, scanned on a thread with a stack of 128 KiB (a
 /// recursion of a frame a level overflows it within a few hundred levels): Ok within ten seconds, the
 /// 100 files are found, the one folder past the longest key is told once and nothing below it is
 /// walked, and what the scan holds in keys and sentences is megabytes.
+///
+/// X-DELTA-INTEGRITY3-21: the test was called after the audit's 10,000 levels and built 500; its name
+/// says its size now (what it guards - no recursion, nothing below the first key past 4,096 bytes - is
+/// the same at 500 levels, and a recursion of a frame a level overflows its 128 KiB stack within a
+/// few hundred).
 #[cfg(unix)]
 #[test]
-fn a_tree_ten_thousand_levels_deep_is_walked_without_recursion_and_the_refused_names_are_summarised(
+fn a_tree_five_hundred_levels_deep_is_walked_without_recursion_and_the_refused_names_are_summarised(
 ) {
     use crate::sync::problems::Code;
     let dir = TempDir::new("azcloud-deep");
