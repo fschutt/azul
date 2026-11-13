@@ -26,6 +26,16 @@ fn never() -> WriteOptions {
     }
 }
 
+/// The default's compression with no time limit: a test that asks WHICH transform a file gets must not
+/// depend on how fast this machine is (X-DRIVEB-1: the upload's budget is wall-clock time, and a debug
+/// build on a busy machine missed it - the transform was left out, and the test failed passing alone).
+fn unhurried() -> WriteOptions {
+    WriteOptions {
+        compression: Compression::Unhurried,
+        ..WriteOptions::default()
+    }
+}
+
 fn file_key_of(drive: &DriveKey, summary: &ObjectSummary) -> FileKey {
     drive
         .unwrap_file_key(&summary.wrapped_key, &summary.object_id)
@@ -80,7 +90,7 @@ fn transformed_round_trip(name: &str, plain: &[u8], transform: TransformId) -> V
     let drive = DriveKey::generate().unwrap();
     let id = ObjectId::generate().unwrap();
     let hint = FileHint::for_path(name, None);
-    let (object, summary) = encrypt_as(plain, id, &drive, &WriteOptions::default(), &hint).unwrap();
+    let (object, summary) = encrypt_as(plain, id, &drive, &unhurried(), &hint).unwrap();
     assert_eq!(summary.transform, Some(transform), "{name}");
     assert_eq!(version_of(&object), VERSION_TRANSFORMED, "{name}");
     assert!(summary.compressed, "{name}");
@@ -145,8 +155,7 @@ fn a_streamed_jpeg_of_unknown_length_is_transformed_too() {
     let id = ObjectId::generate().unwrap();
     let mut sink = Cursor::new(Vec::new());
     let mut source = BASELINE_JPEG;
-    let summary = encrypt_stream(&mut source, &mut sink, id, &drive, &WriteOptions::default())
-        .unwrap();
+    let summary = encrypt_stream(&mut source, &mut sink, id, &drive, &unhurried()).unwrap();
     assert_eq!(summary.transform, Some(TransformId::Jpeg));
     let object = sink.into_inner();
     assert_eq!(object.len() as u64, summary.object_len);
@@ -199,7 +208,7 @@ fn without_compression_a_jpeg_stays_version_1_and_stored() {
 fn a_changed_transform_block_or_version_is_refused() {
     let drive = DriveKey::generate().unwrap();
     let id = ObjectId::generate().unwrap();
-    let (object, summary) = encrypt(BASELINE_JPEG, id, &drive, &WriteOptions::default()).unwrap();
+    let (object, summary) = encrypt(BASELINE_JPEG, id, &drive, &unhurried()).unwrap();
     assert_eq!(summary.transform, Some(TransformId::Jpeg));
     let key = file_key_of(&drive, &summary);
 
@@ -242,7 +251,7 @@ fn a_changed_transform_block_or_version_is_refused() {
 fn a_flipped_segment_of_a_transformed_file_is_caught() {
     let drive = DriveKey::generate().unwrap();
     let id = ObjectId::generate().unwrap();
-    let (object, summary) = encrypt(&docx(), id, &drive, &WriteOptions::default()).unwrap();
+    let (object, summary) = encrypt(&docx(), id, &drive, &unhurried()).unwrap();
     assert_eq!(summary.transform, Some(TransformId::Containers));
     let mut changed = object.clone();
     changed[HEADER_LEN + 40] ^= 1;

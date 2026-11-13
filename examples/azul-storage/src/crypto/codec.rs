@@ -19,6 +19,8 @@
 //! segment it covers (AZ-C9). There is no padding option: padded to the size it would have
 //! uncompressed, a segment is a stored one.
 
+#[cfg(test)]
+use azlin_compress::Budget;
 use azlin_compress::{
     detect,
     segment::{decode_segment as decode, Segment, SegmentEncoder},
@@ -89,6 +91,13 @@ pub enum Compression {
     Never,
     /// The recompression pass: the transform and the highest levels the idle budget allows.
     Idle,
+    /// [`Compression::Auto`] with no time limit on the transform and the codecs, for the tests that ask
+    /// WHICH transform a file gets. The budget of an upload is wall-clock time (two seconds and half a
+    /// second a MiB for the transform), and a debug build on a busy machine misses it: the file is then
+    /// stored as it is and the test that checks its transform fails, passing alone (X-DRIVEB-1). Not a
+    /// shipped setting: it exists in the test build only.
+    #[cfg(test)]
+    Unhurried,
 }
 
 impl Compression {
@@ -100,6 +109,13 @@ impl Compression {
             Compression::Never => return None,
             Compression::Auto => Options::upload(),
             Compression::Idle => Options::idle(),
+            #[cfg(test)]
+            Compression::Unhurried => {
+                let mut options = Options::upload();
+                options.limits.transform_time = Budget::UNLIMITED;
+                options.limits.codec_time = Budget::UNLIMITED;
+                options
+            }
         };
         options.segment_size = segment_size;
         options.poison_dir = marker_dir();
