@@ -268,6 +268,19 @@ impl AzlinAccount {
     /// build never takes the address from it, REVIEW K20; X-DELTA-STRUCT3-11: the account chose it again
     /// itself, and a later change of the one choice did not reach the refresh) - and read and write the
     /// drive's entry of `keyring` under its lock. Sends nothing.
+    ///
+    /// The drive's id has two sources here: the entry's (`target`, the drives file's `drive_id`: what the
+    /// keys, the vault and the grants are kept under) and the session's (the keyring's text: what the
+    /// credentials are spent, refreshed and locked down under). The account takes the first as its own and
+    /// spends the second, so a drives file that names the id of ANOTHER drive this computer holds a key for
+    /// - any process of the user can write it - got the other drive's key looked up under this bucket, and for
+    /// a bucket with no index yet its first files sealed under it. The two are compared before anything is
+    /// made (X-DELTA-STRUCT4-2).
+    ///
+    /// # Errors
+    ///
+    /// An entry that is no bucket, and a session of another drive than the entry's: nothing is made and
+    /// nothing is sent.
     pub(crate) fn new(
         entry: &DriveEntry,
         session: AzlinSession,
@@ -276,6 +289,13 @@ impl AzlinAccount {
         transports: TransportFactory,
         on_rotated: OnRotated,
     ) -> Result<AzlinAccount, DriveError> {
+        if session.drive_id != target.drive_id {
+            return Err(DriveError::InvalidConfig(format!(
+                "\"{}\" is the drive {} in the drives file, but the session the keyring holds for it is the \
+                 drive {}'s: the file and the keyring disagree, so nothing is opened with either",
+                entry.name, target.drive_id, session.drive_id
+            )));
+        }
         let Some(config) = entry.s3_config() else {
             return Err(DriveError::InvalidConfig(format!(
                 "\"{}\" is not a bucket",
@@ -604,6 +624,16 @@ impl AzlinAccount {
         };
         // an answer that does not read leaves the call open: the grant is asked for again
         let bundle = DriveBundle::from_value(&answer).map_err(|e| drive_error_of(&e))?;
+        // The answer is for the drive the token was spent for, as a refresh's is (`TokenServer::refresh`): one for
+        // another drive would be kept as this drive's session and the account would go on under another id than
+        // the one it was opened with (X-DELTA-STRUCT4-2). It is no grant of this drive, so the call stays open.
+        if bundle.drive_id() != spend.drive_id() {
+            return Err(drive_error_of(&TokenError::Protocol(format!(
+                "the lockdown's answer is for the drive {}, not {}",
+                bundle.drive_id(),
+                spend.drive_id()
+            ))));
+        }
         self.learn_nodes(&bundle);
         let kept = spend.answered(bundle).keep();
         call.close();
@@ -1190,7 +1220,9 @@ struct OpenAzlinGate;
 /// # Errors
 ///
 /// An entry that is no Azlin drive (a folder; a bucket of another provider), or names no token server to refresh
-/// its credentials at.
+/// its credentials at, and a session of another drive than the entry's: the drives file's `drive_id` and the
+/// keyring's session are compared before the account is made, and nothing is made or sent when they differ
+/// (X-DELTA-STRUCT4-2).
 pub fn open_azlin<G: EncryptionGate>(
     entry: &DriveEntry,
     open: AzlinOpen<'_>,

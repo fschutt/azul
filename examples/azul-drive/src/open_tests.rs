@@ -65,6 +65,11 @@ impl FakeS3 {
             .collect()
     }
 
+    /// Every request that reached the bucket, reads included.
+    fn calls(&self) -> Vec<(Method, String)> {
+        self.calls.lock().unwrap().clone()
+    }
+
     fn answer(&self, call: &HttpCall) -> HttpReply {
         self.calls
             .lock()
@@ -179,11 +184,11 @@ fn azlin_entry(id: &str, drive_id: &str) -> DriveEntry {
     }
 }
 
-/// The text of the drive's keyring entry: credentials that never run out, so the opening and the calls after it
-/// send nothing to the token server.
-fn session_text() -> String {
+/// The text of the keyring entry of the drive `drive_id`: credentials that never run out, so the opening and the
+/// calls after it send nothing to the token server.
+fn session_text_of(drive_id: &str) -> String {
     serde_json::json!({
-        "drive_id": DRIVE,
+        "drive_id": drive_id,
         "drive_token": "dt_f.0.aaa",
         "access_key_id": "AKID",
         "secret_access_key": "secret",
@@ -191,51 +196,79 @@ fn session_text() -> String {
     .to_string()
 }
 
+/// The text of the keyring entry of the drive `DRIVE`.
+fn session_text() -> String {
+    session_text_of(DRIVE)
+}
+
+/// This computer's side of an opening: its folder, the keyring the Azlin sessions live in, the keyring the drives'
+/// keys live in (the layers'), and the key ids the opening writes down for the UI thread.
+struct Machine {
+    dir: TempDir,
+    sessions: Arc<MemoryKeyring>,
+    keys: Arc<MemoryKeyring>,
+    records: KeyRecords,
+}
+
+impl Machine {
+    fn new() -> Machine {
+        Machine {
+            dir: TempDir::new("open-azlin"),
+            sessions: Arc::new(MemoryKeyring::new()),
+            keys: Arc::new(MemoryKeyring::new()),
+            records: KeyRecords::default(),
+        }
+    }
+
+    /// Opens `slot` over `fake` through the function the window calls.
+    fn open(&self, slot: &mut Slot, fake: &Arc<FakeS3>) -> Result<Arc<dyn Drive>, DriveError> {
+        let keyring = azcloud_kit::SharedKeyring::with_lock_root(
+            self.sessions.clone(),
+            KeyringNamespace::azlin_shared(),
+            self.dir.path(),
+        );
+        let transports = {
+            let fake = fake.clone();
+            Arc::new(move || Box::new(Handle(fake.clone())) as Box<dyn Transport>)
+        };
+        let world = AzlinWorld {
+            transports,
+            nodes_file: self.dir.path().join("nodes.json"),
+            iroh: None,
+            layers: Layers {
+                keyring: self.keys.clone(),
+                index_root: Some(self.dir.path().join("drive-index")),
+            },
+        };
+        slot.open_azlin_in(
+            &RotatedSessions::default(),
+            &self.records,
+            Some("https://token.example.test"),
+            &keyring,
+            world,
+        )
+    }
+}
+
 struct Opened {
     slot: Slot,
     fake: Arc<FakeS3>,
     drive: Arc<dyn Drive>,
-    _dir: TempDir,
+    machine: Machine,
 }
 
 /// A slot of the drive `DRIVE`, opened through the function the window calls, over `fake` and a keyring of the
 /// test's own.
 fn open(fake: &Arc<FakeS3>) -> Opened {
-    let dir = TempDir::new("open-azlin");
-    let keyring = azcloud_kit::SharedKeyring::with_lock_root(
-        Arc::new(MemoryKeyring::new()),
-        KeyringNamespace::azlin_shared(),
-        dir.path(),
-    );
+    let machine = Machine::new();
     let mut slot = Slot::new(azlin_entry("slot-1", DRIVE));
     slot.secret = Some(azcloud_kit::Zeroizing::new(session_text()));
-    let transports = {
-        let fake = fake.clone();
-        Arc::new(move || Box::new(Handle(fake.clone())) as Box<dyn Transport>)
-    };
-    let world = AzlinWorld {
-        transports,
-        nodes_file: dir.path().join("nodes.json"),
-        iroh: None,
-        layers: Layers {
-            keyring: Arc::new(MemoryKeyring::new()),
-            index_root: Some(dir.path().join("drive-index")),
-        },
-    };
-    let drive = slot
-        .open_azlin_in(
-            &RotatedSessions::default(),
-            &KeyRecords::default(),
-            Some("https://token.example.test"),
-            &keyring,
-            world,
-        )
-        .expect("the slot opens");
+    let drive = machine.open(&mut slot, fake).expect("the slot opens");
     Opened {
         slot,
         fake: fake.clone(),
         drive,
-        _dir: dir,
+        machine,
     }
 }
 
@@ -492,4 +525,58 @@ fn x_delta_struct3_16_an_account_is_never_asked_for_another_drives_vault() {
     assert_eq!(fake.writes(), Vec::new(), "and nothing reached A's bucket");
     // The control: its own id is answered (this computer's vault: the key is not here).
     assert!(jobs::drive_tokens(&store, DRIVE, Some(&account)).is_ok());
+}
+
+/// X-DELTA-STRUCT4-2. The drives file is a file any process of the user can write, and the drive's id has two
+/// sources in it: the entry's `drive_id` (what the keys are looked up under) and the session's (what the
+/// credentials are spent under). An entry of drive A that carried the id of drive B - a drive this computer holds
+/// a key for - was opened: the gate was built under B's id, and B's key was looked up over A's bucket. The opening
+/// refuses a slot whose session is another drive's, with a sentence that names both ids; nothing is sent to the
+/// bucket, nothing is written to either keyring, and the slot keeps no handle. Entered through the function the window
+/// calls.
+#[test]
+fn x_delta_struct4_2_a_slot_whose_session_is_another_drives_than_its_entrys_is_refused_and_nothing_is_sent(
+) {
+    let fake = FakeS3::with(&[]);
+    let machine = Machine::new();
+    // The drives file says `d_photos`; the keyring's text for the slot is the session of `d_other`.
+    let mut slot = Slot::new(azlin_entry("slot-1", DRIVE));
+    slot.secret = Some(azcloud_kit::Zeroizing::new(session_text_of("d_other")));
+    let refused = match machine.open(&mut slot, &fake) {
+        Err(refused) => refused,
+        Ok(_) => panic!("a slot whose entry and session name two drives was opened"),
+    };
+    match &refused {
+        DriveError::InvalidConfig(why) => assert!(
+            why.contains(DRIVE) && why.contains("d_other"),
+            "the sentence names both ids: {why}"
+        ),
+        wrong => panic!("not refused as a configuration that disagrees with itself: {wrong:?}"),
+    }
+    assert_eq!(fake.calls(), Vec::new(), "nothing was sent to the bucket");
+    assert!(fake.objects().is_empty(), "and nothing is in it");
+    assert_eq!(
+        machine.keys.names(),
+        Vec::<String>::new(),
+        "no key was made or looked up into"
+    );
+    assert_eq!(
+        machine.sessions.names(),
+        Vec::<String>::new(),
+        "nothing was written to the sessions' keyring"
+    );
+    assert!(
+        slot.drive.is_none()
+            && slot.auto.is_none()
+            && slot.azlin.is_none()
+            && slot.objects.is_none(),
+        "the slot keeps no handle of a drive that did not open"
+    );
+    // The control: the same slot with its own drive's session opens.
+    let mut slot = Slot::new(azlin_entry("slot-1", DRIVE));
+    slot.secret = Some(azcloud_kit::Zeroizing::new(session_text()));
+    assert!(
+        machine.open(&mut slot, &fake).is_ok(),
+        "the entry's own session opens"
+    );
 }

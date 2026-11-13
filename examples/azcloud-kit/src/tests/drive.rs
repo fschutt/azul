@@ -1109,3 +1109,202 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
         fake.calls()
     );
 }
+
+// ==== The entry's drive id and the session's (X-DELTA-STRUCT4-2) ====
+
+/// The bundle of `bundle()` for the drive `d_2` instead of `d_1`: this computer's other drive.
+fn bundle_of_d_2(key: &str, expires: &str, token: &str) -> String {
+    bundle(key, expires, token).replace("d_1", "d_2")
+}
+
+/// X-DELTA-STRUCT4-2. A drive's id has two sources: the entry's (`drives.json`, a file any process of the user can
+/// write) and the session's (the keyring's text). The account took the entry's for its keys and spent the session's
+/// for its credentials without comparing them, so an entry of drive A that carried the id of drive B - a drive this
+/// computer holds a key for - had B's key looked up under A's bucket. The account is made only when the two agree:
+/// refused with a sentence that names both ids, nothing sent, nothing written to the keyring.
+#[test]
+fn x_delta_struct4_2_a_session_of_another_drive_than_the_entrys_opens_no_account_and_sends_nothing()
+{
+    let dir = TempDir::new("struct4-2");
+    let fake = cloud_lasting();
+    let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
+    let other = DriveBundle::parse(&bundle_of_d_2(
+        "AKID2",
+        "2026-10-08T21:15:00Z",
+        "dt_f.9.zzz",
+    ))
+    .unwrap();
+    let (shared, keyring) = keyring_with(&first, &dir);
+    let before = keyring
+        .get(&keyring_key("d_1"))
+        .unwrap()
+        .map(|text| text.to_string());
+    // The entry says the drive is d_1; the session handed to the opening is d_2's.
+    let entry = first.entry_named("Cloud", TOKEN);
+    let rotated: Rotations = Arc::new(Mutex::new(Vec::new()));
+    let kept = rotated.clone();
+    let refused = AzlinDrive::new(
+        &entry,
+        other.session(),
+        TOKEN,
+        shared,
+        factory(&fake),
+        Box::new(move |session: &AzlinSession, saved: Result<(), String>| {
+            kept.lock().unwrap().push((copy(session), saved));
+        }),
+    )
+    .expect_err("a session of another drive than the entry's opens no account");
+    match &refused {
+        DriveError::InvalidConfig(why) => assert!(
+            why.contains("d_1") && why.contains("d_2"),
+            "the sentence names both ids: {why}"
+        ),
+        wrong => panic!("not refused as a configuration that disagrees with itself: {wrong:?}"),
+    }
+    assert!(
+        fake.calls().is_empty(),
+        "nothing was sent: {:?}",
+        fake.calls()
+    );
+    assert!(
+        rotated.lock().unwrap().is_empty(),
+        "no session was handed over"
+    );
+    assert_eq!(
+        keyring
+            .get(&keyring_key("d_1"))
+            .unwrap()
+            .map(|text| text.to_string()),
+        before,
+        "the entry's own keyring text is as it was"
+    );
+    assert!(
+        keyring.get(&keyring_key("d_2")).unwrap().is_none(),
+        "nothing was written for the other drive"
+    );
+    // The control: the entry's own session opens it.
+    let (shared, _) = keyring_with(&first, &dir);
+    AzlinDrive::new(
+        &entry,
+        first.session(),
+        TOKEN,
+        shared,
+        factory(&fake),
+        Box::new(|_: &AzlinSession, _: Result<(), String>| {}),
+    )
+    .expect("the entry's own session opens the account");
+}
+
+/// X-DELTA-STRUCT4-2, the cell "a refresh brings another id after the open". The token server answers the
+/// refresh of drive d_1 with the bundle of drive d_2: refused at the token server's door
+/// (`TokenServer::refresh` compares the answer's drive with the spent token's), the token stays in the keyring
+/// to be asked again, no session is handed over and nothing reaches the bucket.
+#[test]
+fn x_delta_struct4_2_a_refresh_that_brings_another_drives_session_is_refused_and_the_token_stays() {
+    let dir = TempDir::new("struct4-2-refresh");
+    let fake = Fake::new(|call, _| {
+        if call.url.starts_with(TOKEN) {
+            return Ok(json(
+                200,
+                &bundle_of_d_2("AKID2", "2099-01-01T12:00:00Z", "dt_x.0.yyy"),
+            ));
+        }
+        Ok(empty_listing())
+    });
+    let (drive, rotated, keyring) = drive(&fake, EXPIRES - 600, &dir);
+    let refused = drive
+        .list(&ListRequest::folder(""))
+        .expect_err("the answer is for another drive");
+    match &refused {
+        DriveError::Protocol(why) => assert!(
+            why.contains("d_1") && why.contains("d_2"),
+            "the sentence names both ids: {why}"
+        ),
+        wrong => panic!("not refused as an answer that is not this drive's: {wrong:?}"),
+    }
+    assert_eq!(
+        held_token(&drive),
+        "dt_f.0.aaa",
+        "the session did not change"
+    );
+    assert_eq!(
+        kept_token(&keyring),
+        "dt_f.0.aaa",
+        "the token stays to be asked again"
+    );
+    assert!(keyring.get(&keyring_key("d_2")).unwrap().is_none());
+    assert!(
+        rotated.lock().unwrap().is_empty(),
+        "no session was handed over"
+    );
+    assert!(
+        fake.calls().iter().all(|c| c.url.starts_with(TOKEN)),
+        "nothing reached the bucket: {:?}",
+        fake.calls()
+    );
+}
+
+/// X-DELTA-STRUCT4-2, the same cell for the lockdown. Its answer is a bundle too, and was kept as the drive's
+/// session without comparing its drive with the token's: an answer for drive d_2 made the account of d_1 hold
+/// d_2's session (and its keyring entry hold d_2's token). It is refused now, the call stays open - asked again
+/// with the same idempotency key, the right answer ends it.
+#[test]
+fn x_delta_struct4_2_a_lockdown_answer_for_another_drive_is_not_kept_and_the_call_stays_open() {
+    let dir = TempDir::new("struct4-2-lockdown");
+    let keys: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = keys.clone();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/lockdown") {
+            let asked = {
+                let mut keys = seen.lock().unwrap();
+                keys.push(header(call, "x-azlin-idempotency").map(String::from));
+                keys.len()
+            };
+            // The first answer is for another drive, the second for this one.
+            return Ok(json(
+                200,
+                &if asked == 1 {
+                    bundle_of_d_2("AKID9", "2099-01-01T12:00:00Z", "dt_x.0.yyy")
+                } else {
+                    bundle("AKIDG", "2099-01-01T12:00:00Z", "dt_g.0.g0")
+                },
+            ));
+        }
+        Ok(empty_listing())
+    });
+    let (drive, rotated, keyring) = drive(&fake, EXPIRES - 6 * 3600, &dir);
+    let refused = drive
+        .lockdown()
+        .expect_err("an answer for another drive is no grant of this one");
+    match &refused {
+        DriveError::Protocol(why) => assert!(
+            why.contains("d_1") && why.contains("d_2"),
+            "the sentence names both ids: {why}"
+        ),
+        wrong => panic!("not refused as an answer that is not this drive's: {wrong:?}"),
+    }
+    assert_eq!(
+        held_token(&drive),
+        "dt_f.0.aaa",
+        "the session did not change"
+    );
+    assert_eq!(
+        kept_token(&keyring),
+        "dt_f.0.aaa",
+        "d_2's token was not kept as this drive's"
+    );
+    assert!(keyring.get(&keyring_key("d_2")).unwrap().is_none());
+    assert!(
+        rotated.lock().unwrap().is_empty(),
+        "no session was handed over"
+    );
+    // Asked again: the call was left open, so the same key goes and the right answer ends it.
+    drive
+        .lockdown()
+        .expect("the lockdown asked again ends with this drive's grant");
+    assert_eq!(held_token(&drive), "dt_g.0.g0");
+    let keys = keys.lock().unwrap().clone();
+    assert_eq!(keys.len(), 2, "{keys:?}");
+    assert!(keys[0].is_some(), "a key on the first try: {keys:?}");
+    assert_eq!(keys[0], keys[1], "the same idempotency key on both tries");
+}
