@@ -3595,7 +3595,7 @@ mod tests {
     #[test]
     fn x_delta_apps4_4_messages_moved_to_another_folder_are_not_held_fetched_again_or_said() {
         let f = fixture();
-        let keys: Vec<String> = (0..30_u32)
+        let keys: Vec<String> = (0..300_u32)
             .map(|n| {
                 deliver(
                     &f,
@@ -3606,7 +3606,7 @@ mod tests {
             })
             .collect();
         run(&f);
-        assert_eq!(index(&f.store, "inbox").len(), 30);
+        assert_eq!(index(&f.store, "inbox").len(), 300);
         let fetched = downloads(&f);
         let archived: Vec<String> = keys
             .iter()
@@ -3628,7 +3628,7 @@ mod tests {
         assert_eq!(downloads(&f), fetched, "nothing is downloaded again");
         assert!(index(&f.store, "inbox").is_empty());
         let lines = index(&f.store, "archive");
-        assert_eq!(lines.len(), 30);
+        assert_eq!(lines.len(), 300);
         for line in &lines {
             assert!(
                 archived.contains(&line.remote),
@@ -3647,7 +3647,7 @@ mod tests {
         uids.sort_unstable();
         assert_eq!(
             uids,
-            (1..=30).collect::<Vec<u32>>(),
+            (1..=300).collect::<Vec<u32>>(),
             "the new folder's own UIDs"
         );
         // The next Send/Receive changes nothing.

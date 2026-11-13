@@ -1295,12 +1295,12 @@ fn x_delta_apps3_14_a_record_of_another_process_waits_for_its_grace_and_a_runnin
         moving: false,
     };
     records
-        .put("1000-4242-0", &serde_json::to_vec(&intent).unwrap())
+        .put("1000-4294967295-0", &serde_json::to_vec(&intent).unwrap())
         .unwrap();
-    records.put("1000-4242-1", b"{ not an intent").unwrap();
+    records.put("1000-4294967295-1", b"{ not an intent").unwrap();
     records.put("no-stamp", b"whatever").unwrap();
     let dav = dav_keeping(drive.clone(), records.clone());
-    // Five minutes after it was written, by another process (4242 is not this one): left alone, and
+    // Five minutes after it was written, by another process (4294967295 is no process of this computer): left alone, and
     // the look says when the grace is over.
     assert_eq!(
         dav.recover_swaps(1000 + 300).unwrap(),
@@ -1327,7 +1327,7 @@ fn x_delta_apps3_14_a_record_of_another_process_waits_for_its_grace_and_a_runnin
     // The record that is no intent stays for a person to look at, and so does a name that is no stamp.
     assert_eq!(
         records.stamps().unwrap(),
-        vec![String::from("1000-4242-1"), String::from("no-stamp")]
+        vec![String::from("1000-4294967295-1"), String::from("no-stamp")]
     );
     // This process's own running swap is not recovered under it.
     let stamp = format!("1-{}-0", std::process::id());
@@ -1372,7 +1372,7 @@ fn x_delta_apps4_1_a_record_left_for_its_grace_is_settled_by_a_later_request() {
         moving: false,
     };
     records
-        .put("1000-4242-0", &serde_json::to_vec(&intent).unwrap())
+        .put("1000-4294967295-0", &serde_json::to_vec(&intent).unwrap())
         .unwrap();
     let now = Arc::new(AtomicU64::new(1000 + 5));
     let mut dav = dav_keeping(drive.clone(), records.clone());
@@ -1399,11 +1399,11 @@ fn x_delta_apps4_1_a_record_left_for_its_grace_is_settled_by_a_later_request() {
     // Nothing waits any more: a later request does not look again (a record put now stays until the
     // next start - there is none that could be running but this process's own).
     records
-        .put("1000-4242-9", &serde_json::to_vec(&intent).unwrap())
+        .put("1000-4294967295-9", &serde_json::to_vec(&intent).unwrap())
         .unwrap();
     now.store(1000 + 10 * SWAP_GRACE_SECS, Ordering::SeqCst);
     assert_eq!(options(), Status::OK);
-    assert_eq!(records.stamps().unwrap(), vec![String::from("1000-4242-9")]);
+    assert_eq!(records.stamps().unwrap(), vec![String::from("1000-4294967295-9")]);
 }
 
 /// A [`Flaky`] drive that, while `refuse` is set, refuses to delete what a swap staged (`*.azul-*`):
@@ -1943,7 +1943,7 @@ fn x_delta_apps4_1_a_kill_after_each_step_of_a_swap_is_settled_by_the_next_dav_o
     }
 }
 
-/// A kill leaves the record of ANOTHER process (here: the same record under a stamp of process 4242,
+/// A kill leaves the record of ANOTHER process (here: the same record under a stamp of another process id,
 /// as a bridge that a login item started a second after a crash finds the one before it): it is left
 /// alone while it is younger than the grace - the stray beside the destination stays - and the first
 /// request after the grace settles it, on the drives the bridge serves.
@@ -1968,7 +1968,7 @@ fn x_delta_apps4_1_the_record_of_another_process_is_left_for_its_grace_and_settl
         let bytes = rig.records.get(&stamps[0]).unwrap().unwrap();
         let written_at: u64 = stamps[0].split('-').next().unwrap().parse().unwrap();
         rig.records.remove(&stamps[0]).unwrap();
-        let foreign = format!("{written_at}-4242-0");
+        let foreign = format!("{written_at}-{}-0", std::process::id() + 1);
         rig.records.put(&foreign, &bytes).unwrap();
         // The next process, five minutes after the record was written.
         let now = Arc::new(AtomicU64::new(written_at + 300));
@@ -2110,10 +2110,10 @@ fn x_delta_apps4_1_the_records_of_a_served_drive_are_files_in_the_state_folder_o
     let state = azul_storage::testing::TempDir::new("bridge-dav-swap-state");
     let documents = SwapRecords::of_drive(&state.0, Some("folder:/home/ada/Documents"));
     let account = SwapRecords::of_drive(&state.0, Some("azlin:d_1"));
-    documents.put("1000-4242-0", b"{}").unwrap();
+    documents.put("1000-4294967295-0", b"{}").unwrap();
     assert_eq!(
         documents.stamps().unwrap(),
-        vec![String::from("1000-4242-0")]
+        vec![String::from("1000-4294967295-0")]
     );
     assert!(
         account.stamps().unwrap().is_empty(),
@@ -2133,13 +2133,13 @@ fn x_delta_apps4_1_the_records_of_a_served_drive_are_files_in_the_state_folder_o
     // A process that starts again finds it.
     let again = SwapRecords::of_drive(&state.0, Some("folder:/home/ada/Documents"));
     assert_eq!(
-        again.get("1000-4242-0").unwrap().as_deref(),
+        again.get("1000-4294967295-0").unwrap().as_deref(),
         Some(&b"{}"[..])
     );
-    again.remove("1000-4242-0").unwrap();
+    again.remove("1000-4294967295-0").unwrap();
     assert!(documents.stamps().unwrap().is_empty());
     // A record that is gone is removed without a word.
-    again.remove("1000-4242-0").unwrap();
+    again.remove("1000-4294967295-0").unwrap();
     // What a write stages beside a record is no record.
     std::fs::write(
         folders[0]
