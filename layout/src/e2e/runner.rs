@@ -1888,12 +1888,14 @@ impl Runner {
                         EventFilter::Hover(_) => {
                             // The shell's plan (core's, one for both): along the
                             // path that goes on past a `VirtualView` page's root
-                            // at its host.
+                            // at its host; a key along the hovered node's path
+                            // too (`key_event_pointer_target`).
                             let layout_results = &lw.layout_results;
                             let virtual_views = &lw.virtual_view_manager;
-                            let reached = azul_core::events::hover_callbacks_along_path(
+                            let reached = azul_core::events::hover_callbacks_along_paths(
                                 event,
                                 *filter,
+                                lw.key_event_pointer_target(event),
                                 &|dom| layout_results.get(&dom).map(|lr| &lr.styled_dom),
                                 &|dom| virtual_views.host_of_nested_dom(dom),
                             );
@@ -8109,3 +8111,8 @@ mod focus_across_virtual_view_tests;
 #[cfg(test)]
 #[path = "virtual_view_events_tests.rs"]
 mod virtual_view_events_tests;
+
+// ==== a key reaches the hovered node's path, unless a field takes the typing ====
+#[cfg(test)]
+#[path = "hover_keys_tests.rs"]
+mod hover_keys_tests;

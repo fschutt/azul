@@ -1575,12 +1575,96 @@ pub fn hover_callbacks_along_path<'a>(
             .parent_id()
     };
     let path = get_event_path(event.target, &parent_of, host_of);
+    hover_callbacks_on(event, filter, &path, &node_data_of)
+}
 
+/// [`hover_callbacks_along_path`] for an event that ALSO reaches the nodes
+/// under the pointer: a key, which `HoverEventFilter::VirtualKeyDown` /
+/// `VirtualKeyUp` promise to the hovered element ("pressed while element is
+/// hovered"), while the event itself is aimed at the focused node (or the
+/// root, when nothing has the focus).
+///
+/// Every listener on either path runs once, in bubbling order over the two
+/// paths as one tree: the event target's own branch (target first), then
+/// the pointer's branch (the node under the pointer first), then the
+/// ancestors the two share, up to the root. A key with nothing focused (the
+/// root is its target) therefore bubbles from the hovered node up exactly as
+/// a press there does; a focused node's listeners still run first, and stop
+/// the event for the hovered branch as for its own ancestors.
+///
+/// `pointer` `None` (no pointer over the window) or on the target's own path
+/// plans what [`hover_callbacks_along_path`] plans.
+// `'a`: see `propagate_event_along`.
+#[allow(single_use_lifetimes)]
+#[must_use]
+pub fn hover_callbacks_along_paths<'a>(
+    event: &SyntheticEvent,
+    filter: EventFilter,
+    pointer: Option<DomNodeId>,
+    styled_dom_of: &dyn Fn(DomId) -> Option<&'a crate::styled_dom::StyledDom>,
+    host_of: &dyn Fn(DomId) -> Option<(DomId, NodeId)>,
+) -> Vec<(DomNodeId, crate::callbacks::CoreCallbackData)> {
+    let node_data_of = |at: DomNodeId| -> Option<&'a crate::dom::NodeData> {
+        let node = at.node.into_crate_internal()?;
+        styled_dom_of(at.dom)?
+            .node_data
+            .as_slice()
+            .get(node.index())
+    };
+    let parent_of = |dom: DomId, node: NodeId| -> Option<NodeId> {
+        styled_dom_of(dom)?
+            .node_hierarchy
+            .as_slice()
+            .get(node.index())?
+            .parent_id()
+    };
+    let own = get_event_path(event.target, &parent_of, host_of);
+    let pointer_path = pointer
+        .map(|p| get_event_path(p, &parent_of, host_of))
+        .unwrap_or_default();
+    let path = merged_event_path(&own, &pointer_path);
+    hover_callbacks_on(event, filter, &path, &node_data_of)
+}
+
+/// The one path (root first, target last) whose target-then-bubble walk is
+/// the bubbling order of an event aimed at `own`'s last node that also
+/// reaches `pointer`'s last node ([`hover_callbacks_along_paths`]): the
+/// shared ancestors, then the pointer's branch, then the target's branch.
+///
+/// Walked backwards that is the target's branch from the target up, the
+/// pointer's branch from the pointer up, and the shared ancestors up to the
+/// root - every node once. A pointer on the target's own path (or none)
+/// leaves `own` as it is; a target that is an ancestor of the pointer (the
+/// root, when nothing is focused) makes the pointer the walk's first node.
+#[must_use]
+pub fn merged_event_path(own: &[DomNodeId], pointer: &[DomNodeId]) -> Vec<DomNodeId> {
+    if pointer.is_empty() || pointer.iter().all(|node| own.contains(node)) {
+        return own.to_vec();
+    }
+    let shared = own
+        .iter()
+        .zip(pointer)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut path = Vec::with_capacity(own.len() + pointer.len() - shared);
+    path.extend_from_slice(&own[..shared]);
+    path.extend_from_slice(&pointer[shared..]);
+    path.extend_from_slice(&own[shared..]);
+    path
+}
+
+/// The plan of [`hover_callbacks_along_path`] over a path already built.
+fn hover_callbacks_on<'a>(
+    event: &SyntheticEvent,
+    filter: EventFilter,
+    path: &[DomNodeId],
+    node_data_of: &dyn Fn(DomNodeId) -> Option<&'a crate::dom::NodeData>,
+) -> Vec<(DomNodeId, crate::callbacks::CoreCallbackData)> {
     // A node is on the plan once, whatever number of callbacks it has for
     // `filter`: the plan below takes all of them, in their order.
     let listens = [filter];
     let mut walked = event.clone();
-    let reached = propagate_event_along(&mut walked, &path, &|at: DomNodeId| {
+    let reached = propagate_event_along(&mut walked, path, &|at: DomNodeId| {
         node_data_of(at)?
             .get_callbacks()
             .as_slice()

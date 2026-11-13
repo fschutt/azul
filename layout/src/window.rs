@@ -15060,6 +15060,58 @@ impl LayoutWindow {
         self.node_is_self_or_descendant(edom, caret_node, fnode)
     }
 
+    /// The node under the pointer that a key event ALSO reaches, besides the
+    /// focused node it is aimed at - or `None`.
+    ///
+    /// `HoverEventFilter::VirtualKeyDown` / `VirtualKeyUp` promise a key "while
+    /// the element is hovered", but a key is aimed at the focused node (the
+    /// root when nothing has the focus), so a listener on a node that was only
+    /// hovered never ran: the map of an editor, which takes no focus, got none
+    /// of its tool keys. The dispatchers plan the hover listeners of a key
+    /// along both paths ([`azul_core::events::hover_callbacks_along_paths`]).
+    ///
+    /// Not while the focused node edits text (`contenteditable`, inherited, or
+    /// an `<input>` / `<textarea>`): typing into a field is the field's, and a
+    /// hovered node that took those keys too (and perhaps prevented their
+    /// default) would act on every letter typed. Only the primary seat's keys
+    /// (the mouse is its pointer), and only while the pointer is over a node
+    /// (the shells clear the hover hit test when it leaves the window).
+    #[must_use]
+    pub fn key_event_pointer_target(
+        &self,
+        event: &azul_core::events::SyntheticEvent,
+    ) -> Option<DomNodeId> {
+        use azul_core::events::EventType;
+        if !matches!(event.event_type, EventType::KeyDown | EventType::KeyUp) {
+            return None;
+        }
+        if crate::managers::hover::seat_of_event(event) != azul_core::window::PRIMARY_POINTER_SEAT {
+            return None;
+        }
+        if let Some(focused) = self.focus_manager.get_focused_node() {
+            if self.node_edits_text(*focused) {
+                return None;
+            }
+        }
+        self.hover_manager.current_hover_node_full()
+    }
+
+    /// Whether keys at `node` are typing: an editable node (or one inside
+    /// an editable), an `<input>` or a `<textarea>`.
+    fn node_edits_text(&self, node: DomNodeId) -> bool {
+        let Some(node_id) = node.node.into_crate_internal() else {
+            return false;
+        };
+        let is_field = self.layout_results.get(&node.dom).is_some_and(|lr| {
+            lr.styled_dom
+                .node_data
+                .as_container()
+                .get(node_id)
+                .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::Input | NodeType::TextArea))
+        });
+        is_field || self.is_node_contenteditable_inherited_internal(node.dom, node_id)
+    }
+
     /// Collapse `dom_id`'s document selection for a plain (non-extending)
     /// move, by `move_all_cursors_with`'s rule for a range in one block: its
     /// start for a character step backward, its end forward, its focus for

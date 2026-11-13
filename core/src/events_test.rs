@@ -5166,8 +5166,9 @@ mod event_path_across_doms_tests {
         callbacks::CoreCallbackData,
         dom::{Dom, DomId, DomNodeId},
         events::{
-            get_event_path, hover_callbacks_along_path, EventData, EventFilter, EventSource,
-            EventType, HoverEventFilter, SyntheticEvent,
+            get_event_path, hover_callbacks_along_path, hover_callbacks_along_paths,
+            merged_event_path, EventData, EventFilter, EventSource, EventType, HoverEventFilter,
+            SyntheticEvent,
         },
         id::NodeId,
         refany::RefAny,
@@ -5306,6 +5307,60 @@ mod event_path_across_doms_tests {
             vec![(at(1, 1), 3), (at(0, 1), 7), (at(0, 1), 8), (at(0, 0), 9)],
             "the target first, then up through the host, each callback once"
         );
+    }
+
+    /// A key with nothing focused is aimed at the root; the pointer is on the
+    /// tile. The tile's `Hover` key listener runs, before the root's: the walk
+    /// bubbles from the hovered node as a press there would.
+    #[test]
+    fn a_key_reaches_the_hovered_node_before_the_root_it_is_aimed_at() {
+        let key = HoverEventFilter::VirtualKeyDown;
+        let (host, page) = tile_with_a_bar(&[on(key, 9)], &[on(key, 7)], &[on(key, 3)]);
+        let doms = |d: DomId| match d.inner {
+            0 => Some(&host),
+            1 => Some(&page),
+            _ => None,
+        };
+        let aimed_at_root = event(EventType::KeyDown, at(0, 0));
+        // Without a pointer: the root only, as before.
+        let plan = hover_callbacks_along_paths(
+            &aimed_at_root,
+            EventFilter::Hover(key),
+            None,
+            &doms,
+            &page_in_node_2,
+        );
+        assert_eq!(planned_ids(&plan), vec![(at(0, 0), 9)]);
+        // The pointer on the bar inside the page: the bar, the tile, the root.
+        let plan = hover_callbacks_along_paths(
+            &aimed_at_root,
+            EventFilter::Hover(key),
+            Some(at(1, 1)),
+            &doms,
+            &page_in_node_2,
+        );
+        assert_eq!(
+            planned_ids(&plan),
+            vec![(at(1, 1), 3), (at(0, 1), 7), (at(0, 0), 9)]
+        );
+    }
+
+    /// The two paths as one tree: the target's own branch, then the pointer's,
+    /// then the ancestors they share - every node once.
+    #[test]
+    fn the_merged_path_walks_both_branches_then_the_shared_ancestors() {
+        let own = [at(0, 0), at(0, 1), at(0, 4), at(0, 5)];
+        let pointer = [at(0, 0), at(0, 1), at(0, 2), at(0, 3)];
+        // Walked backwards (target, then bubbling): 5, 4, 3, 2, 1, 0.
+        assert_eq!(
+            merged_event_path(&own, &pointer),
+            vec![at(0, 0), at(0, 1), at(0, 2), at(0, 3), at(0, 4), at(0, 5)]
+        );
+        // A pointer on the target's own path changes nothing.
+        assert_eq!(merged_event_path(&own, &own[..2]), own.to_vec());
+        assert_eq!(merged_event_path(&own, &[]), own.to_vec());
+        // A target that is the pointer's ancestor: the pointer's path.
+        assert_eq!(merged_event_path(&own[..2], &pointer), pointer.to_vec());
     }
 
     #[test]

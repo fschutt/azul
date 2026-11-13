@@ -10043,12 +10043,15 @@ pub trait PlatformWindow {
                             // the e2e runner's): past a `VirtualView` page's root
                             // it goes on at the page's host in the parent dom, so
                             // a double-click on a tile's progress bar reaches the
-                            // tile.
+                            // tile. A key also reaches the hovered node's path
+                            // (`key_event_pointer_target`): what a `Hover` key
+                            // filter promises.
                             let layout_results = &layout_window.layout_results;
                             let virtual_views = &layout_window.virtual_view_manager;
-                            let reached = azul_core::events::hover_callbacks_along_path(
+                            let reached = azul_core::events::hover_callbacks_along_paths(
                                 event,
                                 *filter,
+                                layout_window.key_event_pointer_target(event),
                                 &|dom| layout_results.get(&dom).map(|lr| &lr.styled_dom),
                                 &|dom| virtual_views.host_of_nested_dom(dom),
                             );
