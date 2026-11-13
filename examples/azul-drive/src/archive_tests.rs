@@ -1183,6 +1183,113 @@ fn x_delta_azdrive_files_34_a_state_that_does_not_read_is_set_aside_not_replaced
     assert_eq!(kept.copied, 1);
 }
 
+/// X-DELTA-SYNC4-14. A ledger that cannot be read NOW - a failing read, a share that answers late, no
+/// permission - was set aside whole like a damaged one, and the next run found every file of the copy
+/// with no record: it took each for the copy's own ("same size") or the user's and never refreshed it.
+/// A read that fails is not "damaged": the run stops, says so, and leaves the record where it is. RED on
+/// the old code: the ledger is renamed `.damaged-<time>` and the run goes on without it.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync4_14_a_state_that_cannot_be_read_now_stops_the_copy_and_is_not_set_aside() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new("dsync4-14-busy");
+    let drive = source_with(&tmp, &[("a.txt", b"one")]);
+    let folder = tmp.path().join("copy");
+    let state = tmp.path().join("state").join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert!(state.exists(), "the first run wrote its record");
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read_to_string(&state).is_ok() {
+        // A user who can read anything (root): the case cannot be made here.
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+        return;
+    }
+    drive.put("a.txt", b"the drive's newer a").unwrap();
+    let busy = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(
+        busy.missing
+            .iter()
+            .any(|m| m.contains("cannot be read now")),
+        "{busy:?}"
+    );
+    assert_eq!(
+        std::fs::read(folder.join("a.txt")).unwrap(),
+        b"one",
+        "nothing was copied"
+    );
+    let aside = std::fs::read_dir(state.parent().unwrap())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().contains(".damaged-"))
+        .count();
+    assert_eq!(
+        aside, 0,
+        "a record that could not be read now is not set aside"
+    );
+    assert!(state.exists(), "it is where it was");
+    // The share answers again: the copy goes on from the record and refreshes the file.
+    let next = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    assert!(next.missing.is_empty(), "{next:?}");
+    assert_eq!(
+        std::fs::read(folder.join("a.txt")).unwrap(),
+        b"the drive's newer a"
+    );
+}
+
+/// X-DELTA-SYNC4-24. The rescue copy told "the copy nobody touched" by length and modification time: an
+/// edit that keeps both (`touch -r` after an in-place write, a fixed-size container) was overwritten by
+/// a newer version of the drive's file. The status-change time is in the ledger now; no program sets it
+/// back. RED on the old code: the user's edit is gone.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync4_24_an_edit_that_keeps_the_length_and_the_time_is_never_copied_over() {
+    let tmp = TempDir::new("dsync4-24-touch");
+    let drive = source_with(&tmp, &[("a.bin", b"one")]);
+    let folder = tmp.path().join("Azlin rescue").join("Photos");
+    let state = tmp.path().join("state").join("d_x.rescue.json");
+    run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+    let path = folder.join("a.bin");
+    let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+    // The edit: the same length, in place, the modification time put back.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&path, b"me!").unwrap();
+    let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    file.set_modified(mtime).unwrap();
+    drop(file);
+    drive.put("a.bin", b"the drive's newer a").unwrap();
+    for _ in 0..2 {
+        let again = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
+        assert!(again.missing.is_empty(), "{again:?}");
+        assert_eq!(again.kept, vec![String::from("a.bin")], "{again:?}");
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), b"me!");
+    // The control: a copy nobody touched is still refreshed (the old test of AZ-U6 pins the same).
+    let untouched = source_with(&tmp, &[("b.bin", b"one")]);
+    let state_b = tmp.path().join("state").join("d_y.rescue.json");
+    let folder_b = tmp.path().join("copy-b");
+    run_rescue(
+        &untouched,
+        &folder_b,
+        NO_PROBE,
+        Some(&state_b),
+        &mut |_, _| {},
+    );
+    untouched.put("b.bin", b"the drive's newer b").unwrap();
+    let again = run_rescue(
+        &untouched,
+        &folder_b,
+        NO_PROBE,
+        Some(&state_b),
+        &mut |_, _| {},
+    );
+    assert!(again.kept.is_empty(), "{again:?}");
+    assert_eq!(
+        std::fs::read(folder_b.join("b.bin")).unwrap(),
+        b"the drive's newer b"
+    );
+}
+
 /// X-DELTA-SYNC2-10. The rescue copy wrote its ledger whole every max(25, ledger/8) files: a kill (or a
 /// power cut) after file 12,000 of a 100,000-file drive lost the entries of up to 12,500 files that
 /// had landed, and the next run found each present, took it for the copy's own ("same size") or the

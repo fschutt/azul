@@ -816,6 +816,13 @@ pub(crate) struct Written {
     pub len: u64,
     /// Its modification time, nanoseconds since 1970.
     pub mtime_ns: u64,
+    /// Its status-change time, nanoseconds since 1970, as the copy left it (0: a ledger an older AzDrive
+    /// wrote, or a system that has none). A program that edits the file in place and sets the
+    /// modification time back (`touch -r`, a fixed-size container) cannot set this back: the file is
+    /// then the user's and is never copied over (X-DELTA-SYNC4-24). A later `chmod` moves it too, and
+    /// the copy leaves the file as it is - the careful side.
+    #[serde(default)]
+    pub ctime_ns: u64,
     /// The drive's own version of the file the copy was made from, as the listing named it (the
     /// entity tag, the date): a file of the drive written to again with the length it had is told
     /// from the one that was copied by this, never by its size (X-DELTA-AZDRIVE-FILES-17). Nothing
@@ -1036,7 +1043,15 @@ fn set_aside_unread(path: &Path) -> Option<Rescue> {
 /// not read is no state - but it is not lost: it is set aside whole (`<name>.damaged-<time>`), so
 /// the next run's state does not replace the only record of what the copy wrote
 /// (X-DELTA-AZDRIVE-FILES-34).
-fn rescue_read(path: &Path) -> Option<Rescue> {
+///
+/// # Errors
+///
+/// A read that fails now - an `EIO`, a share that answers late, no permission - says nothing about the
+/// state: it may be whole. It is neither "no state" nor "damaged": nothing is set aside and the copy
+/// does not run on a record it could not read (X-DELTA-SYNC4-14: the whole ledger used to be renamed to
+/// `.damaged-<time>` on any read error, and the next run found every file of the copy with no record -
+/// the copy was never refreshed again while the bar said done).
+fn rescue_read(path: &Path) -> Result<Option<Rescue>, std::io::Error> {
     let ledger = match std::fs::read_to_string(path) {
         Ok(text) => match serde_json::from_str::<Rescue>(&text) {
             Ok(rescue) => Some(rescue),
@@ -1044,23 +1059,24 @@ fn rescue_read(path: &Path) -> Option<Rescue> {
         },
         // No state before a first copy.
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        // A state that is there and cannot be read - not UTF-8, a failing read, no permission - is no
-        // "no state" either: the next whole write of the ledger would replace the only record of what
-        // the copy wrote (X-DELTA-AZDRIVE-FILES-34).
-        Err(_) => set_aside_unread(path),
+        // Not UTF-8: the file is damaged, not busy. It is no "no state" either: the next whole write
+        // of the ledger would replace the only record of what the copy wrote
+        // (X-DELTA-AZDRIVE-FILES-34).
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => set_aside_unread(path),
+        Err(e) => return Err(e),
     };
     // The files that landed after the ledger's last whole write: what a run that was cut off had
     // written down one by one (X-DELTA-SYNC2-10). A cut-off run before its first whole write has
     // only these.
     let landed = read_landed(path);
     if landed.is_empty() {
-        return ledger;
+        return Ok(ledger);
     }
     let mut rescue = ledger.unwrap_or_default();
     for file in landed {
         rescue.written.insert(file.key, file.written);
     }
-    Some(rescue)
+    Ok(Some(rescue))
 }
 
 /// After a look: every read-only drive whose copy is not running and is due (none yet, files
@@ -1079,7 +1095,12 @@ pub(crate) fn after_look(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
     for azlin_id in read_only {
         let state = rescue_file(s, &azlin_id);
         if !s.rescues.contains_key(&azlin_id) {
-            if let Some(kept) = state.as_deref().and_then(rescue_read) {
+            // collapse-ok: a record that cannot be read now is shown as none; the run that follows reads
+            // it again, and stops on the error instead of copying without it (X-DELTA-SYNC4-14).
+            if let Some(kept) = state
+                .as_deref()
+                .and_then(|path| rescue_read(path).ok().flatten())
+            {
                 s.rescues.insert(azlin_id.clone(), kept);
             }
         }
@@ -1419,6 +1440,22 @@ enum Step {
     Missing,
 }
 
+/// The nanoseconds since 1970 of a file's last status change: a write by anyone moves it and no program
+/// sets it back. 0 where the system keeps none.
+#[cfg(unix)]
+fn ctime_ns(meta: &std::fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    u64::try_from(meta.ctime())
+        .unwrap_or(0)
+        .saturating_mul(1_000_000_000)
+        .saturating_add(u64::try_from(meta.ctime_nsec()).unwrap_or(0))
+}
+
+#[cfg(not(unix))]
+fn ctime_ns(_meta: &std::fs::Metadata) -> u64 {
+    0
+}
+
 /// The nanoseconds since 1970 of a file's modification.
 fn mtime_ns(meta: &std::fs::Metadata) -> u64 {
     meta.modified()
@@ -1447,7 +1484,11 @@ fn step(written: Option<&Written>, target: Option<&Path>, o: &ObjectInfo) -> Ste
         // one. A file of the drive written to again with the length it had (a database, a disk
         // image, a fixed-size container) is another version; a size alone is not one
         // (X-DELTA-AZDRIVE-FILES-17). A drive that names none, then or now, has only the size.
-        Some(w) if w.len == meta.len() && w.mtime_ns == mtime_ns(&meta) => {
+        Some(w)
+            if w.len == meta.len()
+                && w.mtime_ns == mtime_ns(&meta)
+                && (w.ctime_ns == 0 || w.ctime_ns == ctime_ns(&meta)) =>
+        {
             let same = o.size == w.len
                 && match w.same_version(o) {
                     Some(same) => same,
@@ -1489,7 +1530,21 @@ pub(crate) fn run_rescue(
     state: Option<&Path>,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Rescue {
-    let earlier = state.and_then(rescue_read).unwrap_or_default();
+    let earlier = match state.map(rescue_read).transpose() {
+        Ok(earlier) => earlier.flatten().unwrap_or_default(),
+        // The record of what the copy wrote cannot be read now: nothing is copied and nothing is written
+        // - not even the ledger, which this run would have made out of nothing. The next look tries
+        // again (X-DELTA-SYNC4-14).
+        Err(e) => {
+            return Rescue {
+                folder: folder.to_path_buf(),
+                missing: vec![format!(
+                    "(the copy's record cannot be read now: {e}; nothing was copied)"
+                )],
+                ..Rescue::default()
+            }
+        }
+    };
     // `at` stays 0 while the copy runs: the record kept on the way is a run that did not end
     // (X-DELTA-AZDRIVE-FILES-18); `keep_report` says when it ended.
     let mut report = Rescue {
@@ -1619,10 +1674,12 @@ pub(crate) fn run_rescue(
                 match (result, landed) {
                     (Some(Ok(len)), Some((path, name))) => {
                         report.copied += 1;
-                        let mtime = std::fs::metadata(path).map_or(0, |meta| mtime_ns(&meta));
+                        let (mtime, ctime) = std::fs::metadata(path)
+                            .map_or((0, 0), |meta| (mtime_ns(&meta), ctime_ns(&meta)));
                         let written = Written {
                             len,
                             mtime_ns: mtime,
+                            ctime_ns: ctime,
                             // The version the listing named: a file that changed on the drive
                             // since is another version, and is copied again at the next run.
                             etag: o.etag.clone(),
