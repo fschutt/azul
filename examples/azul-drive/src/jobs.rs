@@ -3234,11 +3234,19 @@ pub(crate) enum Pace {
     /// says ([`pending::TakenBack::look_is_due`]) - the token server may put the payment back, and
     /// the entry is the only thing that can open its drive (X-DELTA-MONEY5-1).
     TakenBack,
+    /// A checkout that has waited longer than a run of the claims is long ([`waited_long`]): an
+    /// order whose payment is not in yet (a voucher, a bank transfer, a SEPA debit that settles in
+    /// days), a paid grant that still waits for the drive's vault. Once in a run, and then every
+    /// [`RECEIPT_LOOK_SECS`], in a run or, between runs, by the window's timer: the buyer is not at
+    /// the door any more, and a request every ten seconds for as long as the app runs would be
+    /// the rounds' pace for ever (X-DELTA-MONEY7-4).
+    Patient,
 }
 
 /// Seconds between two looks of the background claims for the receipt of one checkout: ten
 /// minutes - the token server's tick that books the sales that the approval's own request did
-/// not is five.
+/// not is five. Also the pace of every checkout that has waited longer than a run is long
+/// ([`Pace::Patient`]).
 pub(crate) const RECEIPT_LOOK_SECS: u64 = 600;
 
 /// How `checkout` is asked about, and how many seconds are left until it is due (0: now).
@@ -3256,6 +3264,7 @@ pub(crate) fn look_in(
     let in_run = asked.map_or(0, |(at, every)| {
         at.saturating_add(every).saturating_sub(now)
     });
+    let long = waited_long(checkout, wall);
     if checkout.period.is_none() {
         if let Some(back) = &checkout.taken_back {
             let wait = if back.look_is_due(wall) {
@@ -3273,21 +3282,42 @@ pub(crate) fn look_in(
         if checkout.is_cash() {
             return (Pace::Cash, in_run);
         }
-        // asked in this run and found taken back, with no count in the entry (the list could not
-        // take it): not again in every round
+        // asked in this run: found taken back, with no count in the entry (the list could not take
+        // it), or waiting patiently - not again in every round
         if asked.is_some() {
-            return (Pace::TakenBack, in_run);
+            return (if long { Pace::Patient } else { Pace::TakenBack }, in_run);
         }
     }
     if checkout.period.is_some() && checkout.receipt_due == Some(ReceiptDue::GrantKept) {
         return (Pace::Receipt, in_run);
     }
+    if long {
+        return (Pace::Patient, in_run);
+    }
     (Pace::Rounds, 0)
 }
 
-/// Seconds until the earliest of the `checkouts` that wait at a pace of their own - a receipt, a
-/// payment taken back - is due again: what the window's timer starts the next run for. `None`:
-/// there is none (a cash order has the period timer's daily look of its own).
+/// Whether `checkout` has waited longer than one run of the claims is long ([`CLAIM_WAIT_SECS`]) at
+/// `wall` (seconds since 1970): an unclaimed order older than that, a claimed one - its grant waits
+/// for the drive's vault - claimed longer ago than that. A moment that is not recorded (`<= 0`) or
+/// not yet reached (a clock set back) is no age: the entry is young, asked in every round for the
+/// hour a run lasts.
+fn waited_long(checkout: &PendingCheckout, wall: i64) -> bool {
+    let since = match &checkout.period {
+        Some(period) => period.claimed_at,
+        None => checkout.started_at,
+    };
+    let run = i64::try_from(CLAIM_WAIT_SECS).unwrap_or(i64::MAX);
+    since > 0 && wall.saturating_sub(since) >= run
+}
+
+/// Seconds until the earliest of the `checkouts` that wait is due again: what the window's timer
+/// starts the next run for. A checkout that is asked in every round (a payment that may arrive at
+/// any moment, a grant that waits for its drive's vault) is due now: a run that ends by its hour
+/// with one left says so, and the next run asks it again - in rounds while it is young, at the
+/// patient pace after ([`Pace::Patient`]) - where it used to say nothing and leave a paid drive to
+/// the next start of the app (X-DELTA-MONEY7-4). `None`: there is none (a cash order has the
+/// period timer's daily look of its own).
 #[must_use]
 fn next_look(
     checkouts: &[PendingCheckout],
@@ -3299,8 +3329,10 @@ fn next_look(
         .iter()
         .filter_map(
             |c| match look_in(c, asked.get(&c.checkout_id).copied(), now, wall) {
-                (Pace::Receipt | Pace::TakenBack, wait) => Some(wait),
-                (Pace::Rounds | Pace::Cash, _) => None,
+                (Pace::Receipt | Pace::TakenBack | Pace::Patient | Pace::Rounds, wait) => {
+                    Some(wait)
+                }
+                (Pace::Cash, _) => None,
             },
         )
         .min()
@@ -3451,6 +3483,11 @@ pub(crate) fn claim_run(
             };
             rounds_asked += 1;
             let (pace, _) = look_in(&checkout, None, now, wall);
+            // It has waited longer than a run is long: asked now, and then every ten minutes
+            // (X-DELTA-MONEY7-4); whatever the answer, a claimed one's or a poll's.
+            if pace == Pace::Patient {
+                asked.insert(checkout.checkout_id.clone(), (now, RECEIPT_LOOK_SECS));
+            }
             // Its grant is in two places already: what is left is its receipt, asked for at its
             // own pace and without opening the drive.
             if pace == Pace::Receipt {

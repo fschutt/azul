@@ -191,6 +191,13 @@ fn waiting_for_its_receipt(at: u64) -> PendingCheckout {
     ck
 }
 
+/// `ck_1` after its claim, its grant waiting for the drive's vault (no receipt awaited), claimed at `at`.
+fn waiting_for_its_vault(at: u64) -> PendingCheckout {
+    let mut ck = waiting_for_its_receipt(at);
+    ck.receipt_due = None;
+    ck
+}
+
 /// X-DELTA-MONEY5-4. A card sale the token server's tick has not booked within the hour (a tick
 /// that fails, a Turso outage, any foreign-currency sale) was asked for at 0, 10, ..., 60 minutes
 /// of ONE claims run, and the run ended: nothing started another until the next start or purchase
@@ -806,4 +813,246 @@ fn x_delta_money6_6_an_entry_the_list_cannot_mark_is_asked_once_per_run_and_said
         "unmarked: the list took no write"
     );
     assert!(!listed[0].claim_secret.is_empty(), "with its claim secret");
+}
+
+// ==== X-DELTA-MONEY7-4: after the hour of rounds ====
+
+/// A token server that answers every question about `ck_1` `pending` until the test's clock reaches
+/// `settles_at`, and `declined` from then on: a voucher, a bank transfer or a SEPA debit - nothing the
+/// app can see for hours, then an answer.
+fn settling_server(clock: &Arc<Clock>, settles_at: u64) -> Server {
+    let at = clock.clone();
+    Server::new(clock, move |_| {
+        if at.now() >= settles_at {
+            String::from(
+                r#"{"checkout_id": "ck_1", "status": "declined", "reason": "the debit failed"}"#,
+            )
+        } else {
+            String::from(r#"{"checkout_id": "ck_1", "status": "pending"}"#)
+        }
+    })
+}
+
+/// X-DELTA-MONEY7-4, the finding's scenario: AzDrive stays open with an order whose payment settles
+/// in days - nothing but `pending` for hours. The claims ask it in every round for the hour a run
+/// lasts and the run ends; the old run named no next one for an entry it asked in rounds, the timer
+/// was disarmed, and the drive that was paid an hour later waited for the next start of the app.
+/// Now the run says when the next is due, the window's timer starts it, and the entry - older than a
+/// run is long - is asked at the patient pace: never faster than every ten minutes after that hour,
+/// so the hour of rounds is not repeated for ever (the questions stay a few hundred, not a thousand),
+/// until the token server says how the payment ended (here: declined), once. On the old code the
+/// first run is the last: nothing asks after its hour.
+#[test]
+fn x_delta_money7_4_a_checkout_pending_for_hours_is_asked_again_after_the_runs_hour_at_the_patient_pace(
+) {
+    let dir = TempDir::new("azdrive-claims");
+    let shared = keyring(&dir);
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let origin = start();
+    let clock = Clock::at(origin);
+    pending::add(&shared, &entry()).unwrap();
+    let server = settling_server(&clock, origin + 3 * 3_600 + 100);
+    let mut said = Vec::new();
+    let runs = until_nothing_is_left(&clock, &server, &shared, &store, &mut said, 200);
+    let asked = server.asked();
+    assert!(
+        runs > 1,
+        "the run that ended by its hour named the next one: {runs} runs"
+    );
+    assert!(runs < 200, "and the claims end when the payment does");
+    assert!(
+        asked.iter().any(|at| *at - origin > 2 * 3_600),
+        "asked after the first hours: {} questions, the last at {}",
+        asked.len(),
+        asked.last().map_or(0, |last| *last - origin)
+    );
+    let late: Vec<u64> = asked
+        .iter()
+        .copied()
+        .filter(|at| *at - origin >= 3_700)
+        .collect();
+    assert!(late.len() >= 10, "{late:?}");
+    assert!(
+        late.windows(2).all(|w| w[1] - w[0] >= RECEIPT_LOOK_SECS),
+        "never faster than the patient pace after the first hour: {late:?}"
+    );
+    assert!(
+        asked.len() < 500,
+        "the hour of rounds is not repeated for ever: {} questions",
+        asked.len()
+    );
+    let dropped = said
+        .iter()
+        .filter(|outcome| matches!(outcome, Outcome::CheckoutDropped { .. }))
+        .count();
+    assert_eq!(dropped, 1, "the end of the payment is said once");
+    assert!(pending::list(&shared).unwrap().is_empty());
+}
+
+/// X-DELTA-MONEY7-4, the second class the finding names: a PAID checkout whose grant still waits for
+/// the drive's vault (the drive keeps none yet) was asked in every round of a run and, after the
+/// hour, never again before the next start. Now the run that ends by its hour names the next, the
+/// timer starts it, and the entry - claimed longer ago than a run is long - is asked every ten
+/// minutes, quietly, with its claim secret and issue key kept on the list.
+#[test]
+fn x_delta_money7_4_a_grant_waiting_for_the_drives_vault_is_asked_again_after_the_runs_hour() {
+    let dir = TempDir::new("azdrive-claims");
+    let shared = keyring(&dir);
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let origin = start();
+    let clock = Clock::at(origin);
+    pending::add(&shared, &waiting_for_its_vault(origin)).unwrap();
+    let server = Server::new(&clock, |_| String::from(r#"{"keys": []}"#));
+    let mut said = Vec::new();
+    let runs = until_nothing_is_left(&clock, &server, &shared, &store, &mut said, 6);
+    assert_eq!(runs, 6, "every run named the next: the timer never ran dry");
+    let asked = server.asked();
+    let late: Vec<u64> = asked
+        .iter()
+        .copied()
+        .filter(|at| *at - origin >= 3_700)
+        .collect();
+    assert!(
+        late.len() >= 4 && late.windows(2).all(|w| w[1] - w[0] >= RECEIPT_LOOK_SECS),
+        "asked after the first hour, at the patient pace: {late:?}"
+    );
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(
+        listed.len(),
+        1,
+        "still waiting for the vault: the entry stays"
+    );
+    assert!(
+        listed[0]
+            .period
+            .as_ref()
+            .is_some_and(|owed| owed.issue_key == ISSUE_KEY),
+        "with its issue key"
+    );
+    assert!(
+        said.iter()
+            .all(|outcome| !matches!(outcome, Outcome::CheckoutFinished { .. })),
+        "quiet: nothing new to say while the grant waits"
+    );
+}
+
+/// X-DELTA-MONEY7-4: what decides how a checkout is asked after its first hour - an order older than
+/// a run is long, a grant claimed longer ago than that - is the entry's own age on the wall clock,
+/// not anything the run remembers: a young one is asked in every round, an older one is due at once
+/// the first time in a run and then every ten minutes. A moment that is not recorded or not reached
+/// yet (a clock set back) is no age.
+#[test]
+fn x_delta_money7_4_the_pace_of_a_checkout_that_waited_longer_than_a_run_is_long() {
+    let wall = 1_791_450_000_i64;
+    let hour = 3_600_i64;
+    let order = |age: i64| {
+        let mut ck = entry();
+        ck.started_at = wall - age;
+        ck
+    };
+    let claimed = |age: i64| {
+        let mut ck = waiting_for_its_vault(0);
+        if let Some(owed) = ck.period.as_mut() {
+            owed.claimed_at = wall - age;
+            owed.counted_at = wall - age;
+        }
+        ck
+    };
+    // young: every round
+    assert_eq!(
+        look_in(&order(hour - 1), None, 5_000, wall),
+        (Pace::Rounds, 0)
+    );
+    assert_eq!(
+        look_in(&claimed(hour - 1), None, 5_000, wall),
+        (Pace::Rounds, 0)
+    );
+    // older than a run: due at once the first time, then every ten minutes
+    for ck in [
+        order(hour),
+        order(3 * 86_400),
+        claimed(hour),
+        claimed(7 * 86_400),
+    ] {
+        assert_eq!(look_in(&ck, None, 5_000, wall), (Pace::Patient, 0));
+        assert_eq!(
+            look_in(&ck, Some((4_990, RECEIPT_LOOK_SECS)), 5_000, wall),
+            (Pace::Patient, RECEIPT_LOOK_SECS - 10)
+        );
+        assert_eq!(
+            look_in(
+                &ck,
+                Some((4_990, RECEIPT_LOOK_SECS)),
+                5_000 + RECEIPT_LOOK_SECS,
+                wall
+            )
+            .1,
+            0,
+            "due after its interval"
+        );
+    }
+    // a moment that is not recorded, or not reached yet, is no age
+    assert_eq!(look_in(&claimed(wall), None, 5_000, wall).0, Pace::Rounds);
+    assert_eq!(
+        look_in(&order(-5 * hour), None, 5_000, wall).0,
+        Pace::Rounds
+    );
+    assert_eq!(look_in(&order(wall), None, 5_000, wall).0, Pace::Rounds);
+    // the paces of the other kinds keep their order of precedence: a receipt, a cash order and a
+    // payment taken back are decided before the age is
+    let mut receipt = claimed(7 * 86_400);
+    receipt.receipt_due = Some(ReceiptDue::GrantKept);
+    assert_eq!(look_in(&receipt, None, 5_000, wall).0, Pace::Receipt);
+    let mut cash = order(7 * 86_400);
+    cash.method = String::from("cash");
+    assert_eq!(look_in(&cash, None, 5_000, wall).0, Pace::Cash);
+    let mut back = order(7 * 86_400);
+    back.taken_back = Some(TakenBack {
+        since: wall - 3 * 86_400,
+        counted_at: wall - 3_600,
+    });
+    assert_eq!(look_in(&back, None, 5_000, wall).0, Pace::TakenBack);
+}
+
+/// X-DELTA-MONEY7-4, the word a run leaves with: an entry asked in every round is due now, so a run
+/// that ends - by its hour - with one on the list says the next run is due (`Some(0)`); the old
+/// `next_look` skipped it (`None`) and the window's timer was disarmed. A cash order keeps its own
+/// daily look and names nothing.
+#[test]
+fn x_delta_money7_4_a_run_that_ends_with_a_checkout_asked_in_rounds_names_a_next_run() {
+    let dir = TempDir::new("azdrive-claims");
+    let shared = keyring(&dir);
+    let origin = start();
+    let clock = Clock::at(origin);
+    let transport = Server::new(&clock, |_| String::new());
+    let mut say = |_outcome: Outcome| {};
+    let world = ClaimsWorld {
+        transport: &transport,
+        mono: &|| clock.now(),
+        wall: &|| clock.now(),
+        sleep: &|_| {},
+        say: &mut say,
+    };
+    let asked = HashMap::new();
+    assert_eq!(
+        next_look_now(&world, &shared, &asked),
+        None,
+        "nothing on the list"
+    );
+    pending::add(&shared, &entry()).unwrap();
+    assert_eq!(
+        next_look_now(&world, &shared, &asked),
+        Some(0),
+        "an order asked in every round is due now"
+    );
+    let dir = TempDir::new("azdrive-claims");
+    let shared = keyring(&dir);
+    let mut cash = entry();
+    cash.method = String::from("cash");
+    pending::add(&shared, &cash).unwrap();
+    assert_eq!(
+        next_look_now(&world, &shared, &asked),
+        None,
+        "a cash order has the period timer's daily look"
+    );
 }
