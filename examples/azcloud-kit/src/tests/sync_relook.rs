@@ -764,6 +764,113 @@ fn x_delta_sync6_10_a_blob_another_pass_names_after_the_listing_is_not_collected
     assert_eq!((report.deleted, report.named_since), (0, 1), "{report:?}");
 }
 
+/// A bucket that, once, lets something happen right after its `after`-th delete: another device's pass,
+/// while a garbage collection works through the blobs it listed.
+struct AfterDeletes {
+    inner: Arc<S3Bucket>,
+    deletes: std::sync::atomic::AtomicUsize,
+    after: usize,
+    then: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl crate::store::RemoteStore for AfterDeletes {
+    fn get_unless(
+        &self,
+        key: &str,
+        etag: Option<&str>,
+    ) -> crate::error::CloudResult<crate::store::Conditional> {
+        self.inner.get_unless(key, etag)
+    }
+    fn fetch(&self, key: &str, size: u64) -> crate::error::CloudResult<Option<Vec<u8>>> {
+        self.inner.fetch(key, size)
+    }
+    fn put(&self, key: &str, data: &[u8]) -> crate::error::CloudResult<String> {
+        self.inner.put(key, data)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        data: &[u8],
+        if_match: Option<&str>,
+    ) -> crate::error::CloudResult<Option<String>> {
+        self.inner.put_if(key, data, if_match)
+    }
+    fn head(&self, key: &str) -> crate::error::CloudResult<Option<u64>> {
+        self.inner.head(key)
+    }
+    fn delete(&self, key: &str) -> crate::error::CloudResult<()> {
+        self.inner.delete(key)?;
+        let done = self
+            .deletes
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        if done == self.after {
+            if let Some(then) = self.then.lock().unwrap().take() {
+                then();
+            }
+        }
+        Ok(())
+    }
+    fn list(&self, prefix: &str) -> crate::error::CloudResult<Vec<crate::store::RemoteObject>> {
+        self.inner.list(prefix)
+    }
+}
+
+/// X-DELTA-SYNC7-5 (a): the re-read of the index every `GC_RECHECK_EVERY` = 100 deletes, which the
+/// commit of X-DELTA-SYNC6-10 states and no test entered (only the read after the listing was). 250 blobs
+/// nothing names; right after the 100th delete another device's pass commits an index that names the very
+/// next blob the collection would delete (the 101st in the listing's order): the collection reads the index
+/// again before its 101st delete and keeps it. RED on a collection that never re-reads in its loop, or
+/// one whose count is off by one (a re-read after 101 deletes comes a blob too late): that blob is gone.
+#[test]
+fn x_delta_sync7_5_the_collection_reads_the_index_again_after_every_hundred_deletes() {
+    use crate::sync::{local::hash_bytes, remote::blob_key};
+    let store = Arc::new(S3Bucket::new());
+    let a = Device::new("relook-gc-100-a");
+    a.write("a.md", b"the one file the index names");
+    a.sync(&store);
+    // 250 blobs of an old tombstone's versions: nothing names them, and with a grace of -1 all are old.
+    let mut blobs: Vec<(String, Vec<u8>)> = (0..250)
+        .map(|n| {
+            let bytes = format!("an old version, number {n}").into_bytes();
+            (blob_key(PREFIX_GC, &hash_bytes(&bytes)), bytes)
+        })
+        .collect();
+    blobs.sort();
+    for (key, bytes) in &blobs {
+        store.write(key, bytes.clone());
+    }
+    let (late_key, late_bytes) = blobs[100].clone();
+    let b = Device::new("relook-gc-100-b");
+    let committing = {
+        let store = Arc::clone(&store);
+        Box::new(move || {
+            // The user brought the old version back: the pass finds its blob whole and commits an index that
+            // names it.
+            b.write("back.md", &late_bytes);
+            b.sync(&store);
+        }) as Box<dyn FnOnce() + Send>
+    };
+    let racing = AfterDeletes {
+        inner: Arc::clone(&store),
+        deletes: std::sync::atomic::AtomicUsize::new(0),
+        after: 100,
+        then: std::sync::Mutex::new(Some(committing)),
+    };
+    let report = crate::sync::collect_garbage(&racing, PREFIX_GC, -1, false).unwrap();
+    assert!(
+        store.read(&late_key).is_some(),
+        "the blob the index named after the 100th delete was deleted: {report:?}"
+    );
+    assert_eq!((report.deleted, report.named_since), (249, 1), "{report:?}");
+    for (key, _) in blobs.iter().filter(|(key, _)| *key != late_key) {
+        assert!(
+            store.read(key).is_none(),
+            "{key} was nothing's and old: collected"
+        );
+    }
+}
+
 /// X-DELTA-SYNC4-31. "Send them again" took its keys from the problem list, which shows at most a
 /// thousand rows per kind and one "more" row: a click sent the first thousand files the drive had
 /// deleted before this pairing knew them and left the rest here with no action to send them. The keys

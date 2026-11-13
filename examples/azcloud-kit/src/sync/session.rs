@@ -1781,16 +1781,6 @@ impl SyncSession {
         Ok(())
     }
 
-    /// The files the drive deleted before this pairing knew them, kept here and not sent
-    /// ([`kept_files`]).
-    ///
-    /// # Errors
-    ///
-    /// When the base cannot be read.
-    pub fn kept_files(&self) -> CloudResult<Vec<String>> {
-        kept_files(&self.dir)
-    }
-
     /// "Send it again": files the drive deleted before this pairing knew them, kept here and
     /// listed (`deleted-elsewhere-kept`), go up with the next pass. (To let them go, the user
     /// deletes them here.)
