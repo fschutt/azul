@@ -3473,7 +3473,7 @@ fn check_wrap(
 /// | the ask | nothing | nothing | nothing |
 /// | the wrap | an invite wrap whose one-time secret was in memory only | no family | a wrap nobody can open (a key change takes it out) |
 /// | a family that was not made | the wrap is taken back ([`device::take_back_invite`]) | no family | nothing |
-/// | the family | the wrap | a family, the code in memory only | the one window left: a family nobody holds the code of, until a lockdown, a removal or its idle expiry |
+/// | the family | the wrap | a family, the code in memory only | the one window left: a family nobody holds the code of, until a lockdown or the device's removal; the idle expiry (90 days) is for a drive that is not paid, so a PAID drive's family stays while the drive is paid and in its grace (X-DELTA-KEYS5-5) |
 fn invite_job(
     auto: &AutoEncrypted,
     keyring: &dyn KeyringStore,
@@ -9881,9 +9881,13 @@ mod tests {
     /// X-KEYS4-2, the last row of the crash table - what is NOT closed (the finding stays PARTIAL): the member
     /// family is made and the process dies before the code reaches the user. Nothing that can fail comes after
     /// the family any more, so only a kill in that instant leaves it: a family nobody holds the code of and the
-    /// wrap of its invite. The token server keeps it until a lockdown, a removal of the device or its idle expiry
-    /// (90 days); closing it needs the server to expire a family that was never used, or to list it as invited
-    /// and not joined. Pinned as it is, so that the day the server does, this test says what changed.
+    /// wrap of its invite. The token server keeps it until a lockdown or a removal of the device. Its idle expiry
+    /// (90 days) applies only to a drive that is neither paid nor in its read-only grace: a PAID drive's family
+    /// - the product's normal state - does not expire while the drive is paid plus its grace, so an unseen one
+    /// shows on the device list and counts toward the device limit until then (X-DELTA-KEYS5-5). Closing it
+    /// needs the server to expire a family that was never used (a join deadline when the member is added), or
+    /// to list it as invited and not joined. Pinned as it is, so that the day the server does, this test says
+    /// what changed.
     #[test]
     fn x_keys4_2_a_kill_after_the_family_leaves_a_family_nobody_holds_the_code_of_the_one_window_that_is_left(
     ) {
