@@ -73,6 +73,18 @@ fn new_drive() -> EncryptedDrive<Arc<MemBucket>> {
     drive_with(WriteOptions::default())
 }
 
+/// A new drive whose uploads have no time limit on the transform and the codecs ([`Compression::Unhurried`]),
+/// for the tests that ask whether a file WAS transformed. The default's budget is wall-clock time (two seconds
+/// and half a second a MiB for the transform): a debug build on a busy machine misses it, the file is stored as
+/// it is, and such a test fails where it passes alone (X-DRIVEB-1). That the default is `Auto` is asserted by
+/// `compression_is_on_by_default_and_text_is_stored_smaller`.
+fn unhurried_drive() -> EncryptedDrive<Arc<MemBucket>> {
+    drive_with(WriteOptions {
+        compression: Compression::Unhurried,
+        ..WriteOptions::default()
+    })
+}
+
 /// Small segments, none compressed: exact offsets.
 fn small_segments() -> WriteOptions {
     WriteOptions {
@@ -1895,10 +1907,11 @@ const BASELINE_JPEG: &[u8] = include_bytes!("../../../azlin-compress/tests/fixtu
 
 /// A new drive compresses without being told: a JPEG goes through Lepton, a PDF's text is
 /// compressed (the skip list stored both as they were), and the totals count the stored bytes,
-/// which are what the quota counts.
+/// which are what the quota counts. The drive here has no time limit on the transform
+/// ([`unhurried_drive`], X-DRIVEB-1): a busy machine would otherwise store the JPEG as it is.
 #[test]
 fn a_new_drive_stores_a_jpeg_and_a_pdf_smaller_and_counts_the_stored_bytes() {
-    let drive = new_drive();
+    let drive = unhurried_drive();
     let mut pdf = b"%PDF-1.7\n".to_vec();
     pdf.extend(text(300_000));
     drive.put("photos/IMG_0001.jpg", BASELINE_JPEG).unwrap();
@@ -1928,10 +1941,11 @@ fn a_new_drive_stores_a_jpeg_and_a_pdf_smaller_and_counts_the_stored_bytes() {
     assert!(totals.stored_bytes < totals.original_bytes);
 }
 
-/// A streamed write (a sync's upload) transforms a JPEG as a write from memory does.
+/// A streamed write (a sync's upload) transforms a JPEG as a write from memory does (on a drive with no
+/// time limit on the transform: [`unhurried_drive`], X-DRIVEB-1).
 #[test]
 fn a_streamed_jpeg_is_stored_as_a_transformed_object() {
-    let drive = new_drive();
+    let drive = unhurried_drive();
     let mut body = BASELINE_JPEG;
     drive
         .write_from("photos/streamed.jpg", &mut body, crate::encrypted::Expect::Any)
