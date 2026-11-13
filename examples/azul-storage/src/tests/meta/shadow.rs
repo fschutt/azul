@@ -241,6 +241,7 @@ fn round(day: u64, device: &str, clean: bool) -> Round {
         candidate_bytes: 300,
         live: 10,
         rules: ANALYSIS_RULES,
+        window_start: 0,
         clean,
         unclean: if clean {
             String::new()

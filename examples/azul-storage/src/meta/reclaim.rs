@@ -1134,6 +1134,9 @@ pub(crate) struct Analysis {
     /// Whether everything a restore could still bring back ([`restorable`]) is in `live`
     /// (set by whoever read: it needs the repository's objects at the head).
     pub(crate) window_agrees: Option<bool>,
+    /// Whether the scan went on from the manifest's mark: it then names the candidates of the commits after
+    /// the mark only, and its digest says nothing about the objects the earlier runs dealt with.
+    pub(crate) used_mark: bool,
 }
 
 /// One commit of the graph.
@@ -1526,6 +1529,7 @@ fn analyse_by(
             .collect::<HashSet<usize>>()
             .len(),
         window_agrees: None,
+        used_mark: false,
     };
     if live_only {
         return Ok(analysis);
@@ -1666,6 +1670,18 @@ pub(crate) fn restorable(
 }
 
 impl Analysis {
+    /// The digest ([`ReclaimReport::digest`]'s own) of the candidates a commit before `before` released: the part
+    /// of the candidates the round before this one could already see, when `before` is the start of ITS window
+    /// (X-DELTA-SYNC2-2: two rounds a day apart must agree about it).
+    pub(crate) fn digest_before(&self, before: u64) -> String {
+        digest_of(
+            self.candidates
+                .iter()
+                .filter(|(_, candidate)| candidate.at < before)
+                .map(|(id, _)| id),
+        )
+    }
+
     /// The proof that `id` may leave the bucket, if the analysis shows it released by an old
     /// commit and named by nothing live.
     pub(crate) fn prove(&self, id: &ObjectId) -> Result<Reclaimable, NotYet> {
@@ -2061,6 +2077,7 @@ pub(crate) fn reclaim_judged<B: Bucket, S: Sealer>(
     };
     analysis.revision = revision;
     analysis.started = started;
+    analysis.used_mark = after.is_some();
     // What the restore dialog still offers, derived its own way, against the window just analysed.
     // collapse-ok: a derivation that cannot be made is "not checked" (`None`), and a round that was
     // not checked is not clean: the failure only holds the switch back.

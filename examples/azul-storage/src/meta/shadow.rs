@@ -48,7 +48,10 @@ pub const KEEP_ROUNDS: usize = 64;
 /// window, of the head's listing or of the clock check of a round: the ledgers of the builds before
 /// it then count for nothing, and the streak starts again (a round that does not count only holds
 /// the switch back).
-pub const ANALYSIS_RULES: u32 = 1;
+///
+/// 2 (X-DELTA-SYNC2-2): a round is also clean only when the candidates it names that were released before the
+/// window of the round before it began are the candidates that round named ([`Round::window_start`]).
+pub const ANALYSIS_RULES: u32 = 2;
 
 /// Attempts at the compare-and-swap of the ledger before the round is left unrecorded.
 const WRITE_ATTEMPTS: u32 = 3;
@@ -77,6 +80,11 @@ pub struct Round {
     /// before rounds were versioned: such a round never counts.
     #[serde(default)]
     pub rules: u32,
+    /// When the window its analysis cut began (seconds since 1970; 0: the round judged no window): every
+    /// candidate of the round was released by a commit before it. The next round compares the candidates it
+    /// shares with this span against [`Round::digest`] ([`super::reclaim::Analysis::digest_before`]).
+    #[serde(default)]
+    pub window_start: u64,
     /// Whether it ran to its end, fitted the budget and the independent listing agreed.
     pub clean: bool,
     /// Why it was not clean (empty when it was).

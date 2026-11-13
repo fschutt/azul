@@ -2804,3 +2804,55 @@ fn x_delta_azdrive_sync_6_the_pack_upkeep_keeps_a_due_pack_while_the_kill_switch
     assert!(!lab.data_objects().contains(&pack));
 }
 
+// ==== X-DELTA-SYNC2-2: two rounds a day apart agree about what they share ====
+
+/// A round is clean only if the candidates it names that were released before the window of the round BEFORE it
+/// began are exactly the candidates that round named (its digest): two rounds over one history that disagree
+/// about what an old commit released are not evidence for the switch to deleting - a defect of the analysis, a
+/// window that drifted, an object that was named again. RED on the old code: nothing compared a round with the
+/// one before it, and the planted disagreement was one more clean round toward the switch.
+#[test]
+fn x_delta_sync2_2_a_round_whose_old_candidates_are_not_the_ones_the_round_before_named_is_not_clean() {
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 130 * DAY, |drive| drive);
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(now - 120 * DAY);
+    // Version one is released 120 days ago: past the 90 days, a candidate of every round.
+    lab.drive.put("a.txt", b"version two").unwrap();
+    let provider = provider_with(90, ServerClock::Unchecked);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let dbucket = DriveBucket::new(Arc::clone(&bucket));
+
+    // The control: two real rounds over the same history agree, and both are clean.
+    let first = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    assert_eq!(first.candidates, 1, "{}", first.line());
+    let second = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    let (ledger, _) = Ledger::read(&dbucket, &lab.key).unwrap();
+    assert_eq!(ledger.rounds.len(), 2);
+    assert!(
+        ledger.rounds.iter().all(|round| round.clean && round.window_start > 0),
+        "{:?}",
+        ledger.rounds
+    );
+    assert_eq!(second.evidence.expect("the evidence").clean_rounds, 2);
+
+    // The round before names other candidates than the history shows for the same span: planted.
+    let (mut planted, version) = Ledger::read(&dbucket, &lab.key).unwrap();
+    planted.rounds.last_mut().expect("a round").digest =
+        String::from("the digest of some other candidates");
+    assert!(planted.write(&dbucket, &lab.key, version.as_deref()).unwrap());
+    let third = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    let (ledger, _) = Ledger::read(&dbucket, &lab.key).unwrap();
+    let round = ledger.rounds.last().expect("written down");
+    assert!(
+        !round.clean && round.unclean.contains("round before"),
+        "{round:?}"
+    );
+    assert_eq!(
+        third.evidence.expect("the evidence").clean_rounds,
+        0,
+        "it ends the streak toward the switch"
+    );
+    // Nothing was deleted by any of this: the evidence is a few rounds, not the seven the switch to deleting waits for.
+    assert!(lab.data_objects().len() >= 2);
+}

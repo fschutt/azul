@@ -1127,6 +1127,7 @@ impl MetaIndexProvider {
                 candidate_bytes: 0,
                 live: 0,
                 rules: ANALYSIS_RULES,
+                window_start: 0,
                 clean: false,
                 unclean: why.to_string(),
             };
@@ -1179,7 +1180,11 @@ impl MetaIndexProvider {
                     // own way: the first can fail only on a defect of the tree walk, the second on
                     // a window that is not the one the user was promised (X-DELTA-SYNC2-2).
                     let window = analysis.window_agrees;
-                    let clean = rederived == Some(true) && window == Some(true);
+                    // The candidates this round shares with the round before it - the ones released before
+                    // that round's window began - are what that round named (X-DELTA-SYNC2-2).
+                    let agreed = digest_agrees(&before, analysis);
+                    let clean =
+                        rederived == Some(true) && window == Some(true) && agreed != Some(false);
                     let round = Round {
                         at: now,
                         device: device.clone(),
@@ -1189,11 +1194,18 @@ impl MetaIndexProvider {
                         candidate_bytes: report.candidate_bytes,
                         live: u64::try_from(report.live_objects).unwrap_or(u64::MAX),
                         rules: ANALYSIS_RULES,
+                        // A scan that went on from the manifest's mark names the newest candidates only: its digest
+                        // is no span to compare the next round with (0: none).
+                        window_start: if analysis.used_mark {
+                            0
+                        } else {
+                            analysis.window_start
+                        },
                         clean,
                         unclean: if clean {
                             String::new()
                         } else {
-                            unclean_why(rederived, window)
+                            unclean_why(rederived, window, agreed)
                         },
                     };
                     let evidence = self.record_round(
@@ -1247,6 +1259,7 @@ impl MetaIndexProvider {
                     candidate_bytes: 0,
                     live: 0,
                     rules: ANALYSIS_RULES,
+                    window_start: 0,
                     clean: false,
                     unclean: why,
                 };
@@ -1518,10 +1531,34 @@ pub(crate) fn rederive(
     Some(named.iter().all(|id| analysis.live.contains_key(id)))
 }
 
+/// Whether the candidates `analysis` names that a commit before the window of the round before it released
+/// are exactly what that round named: `Some(true)` they are, `Some(false)` they are not, `None` there is
+/// nothing to compare with - no round before, one that was not clean, of another definition of "clean" or with
+/// no window, or a scan that went on from the manifest's mark and so lists the newest candidates only.
+/// Plain equality of the whole candidate sets would block every drive that is used (a version ages out of the
+/// window every day); this compares the part that cannot have changed. A restore that names an old object
+/// again, or a commit that arrives late, makes the round unclean: it holds the streak and costs days, never
+/// a delete.
+fn digest_agrees(before: &Ledger, analysis: &Analysis) -> Option<bool> {
+    let last = before.rounds.last()?;
+    if !last.clean
+        || last.rules != ANALYSIS_RULES
+        || last.window_start == 0
+        || last.digest.is_empty()
+        || analysis.used_mark
+    {
+        return None;
+    }
+    Some(analysis.digest_before(last.window_start) == last.digest)
+}
+
 /// Why a round whose re-derivations were `rederived` (the head listed again) and `window` (what the
 /// restore dialog still offers) was not clean: the first thing that did not agree.
-fn unclean_why(rederived: Option<bool>, window: Option<bool>) -> String {
+fn unclean_why(rederived: Option<bool>, window: Option<bool>, agreed: Option<bool>) -> String {
     match (rederived, window) {
+        (Some(true), Some(true)) if agreed == Some(false) => String::from(
+            "its candidates that the round before could already see are not the ones that round named",
+        ),
         (Some(true), Some(true)) => String::new(),
         (Some(false), _) => NotYet::Unreadable {
             what: String::from("the live set"),
