@@ -2529,6 +2529,8 @@ fn x_delta_sync7_2_a_pass_that_left_a_damaged_head_gives_no_licence_to_erase() {
         "the pass is over: it counts the file it could not read and goes on"
     );
     assert_eq!((state.done, state.failed), (1, 1), "{state:?}");
+    // X-DELTA-SYNC8-3: the file that could not be read is NAMED, so the refusal can say which to restore or delete.
+    assert_eq!(state.failed_paths, ["a.txt"], "{state:?}");
     assert!(state.packs_done);
     assert!(state.purge_confirmation().is_some(), "they did confirm it");
     let refused = state

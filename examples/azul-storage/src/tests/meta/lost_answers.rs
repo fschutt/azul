@@ -24,6 +24,9 @@ pub(crate) enum Lost {
     /// The client sent the request again by itself, and the repeat met the version the first
     /// one made: a conflict.
     Resent,
+    /// [`Lost::Resent`], and the read after it is served by a replica that lags: it still holds the
+    /// manifest as it was BEFORE the swap (X-DELTA-SYNC8-4).
+    ResentLagging,
 }
 
 /// A bucket whose next create or replace of a key containing a given fragment lands and loses
@@ -32,6 +35,8 @@ pub(crate) struct LostAnswers {
     pub inner: MemoryBucket,
     next: Mutex<Option<(String, Lost, usize)>>,
     reads_down: AtomicUsize,
+    /// The manifest as it was before a [`Lost::ResentLagging`] swap: the next read of the manifest serves it.
+    lagging: Mutex<Option<(Vec<u8>, Version)>>,
 }
 
 impl LostAnswers {
@@ -40,7 +45,19 @@ impl LostAnswers {
             inner,
             next: Mutex::new(None),
             reads_down: AtomicUsize::new(0),
+            lagging: Mutex::new(None),
         }
+    }
+
+    /// Whether the next create or replace of `key` is a [`Lost::ResentLagging`] one.
+    fn will_lag(&self, key: &str) -> bool {
+        self.next
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|(fragment, how, _)| {
+                matches!(how, Lost::ResentLagging) && key.contains(fragment.as_str())
+            })
     }
 
     /// The next create or replace of a key containing `fragment` lands and answers as `how`;
@@ -84,7 +101,7 @@ impl LostAnswers {
             Some(Lost::Transport) => Err(MetaError::Drive(DriveError::Transport(
                 "connection reset by peer".to_string(),
             ))),
-            Some(Lost::Resent) => Err(MetaError::Conflict {
+            Some(Lost::Resent | Lost::ResentLagging) => Err(MetaError::Conflict {
                 key: key.to_string(),
             }),
         }
@@ -94,6 +111,11 @@ impl LostAnswers {
 impl Bucket for LostAnswers {
     fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
         self.reading()?;
+        if key == keys::MANIFEST {
+            if let Some(old) = self.lagging.lock().unwrap().take() {
+                return Ok(Some(old));
+            }
+        }
         self.inner.read(key)
     }
     fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
@@ -109,7 +131,15 @@ impl Bucket for LostAnswers {
         self.answer(key, landed)
     }
     fn replace(&self, key: &str, bytes: &[u8], known: &str) -> Result<Option<Version>, MetaError> {
+        let before = if self.will_lag(key) {
+            self.inner.read(key)?
+        } else {
+            None
+        };
         let landed = self.inner.replace(key, bytes, known)?;
+        if let Some(old) = before {
+            *self.lagging.lock().unwrap() = Some(old);
+        }
         self.answer(key, landed)
     }
     fn remove(&self, key: &str) -> Result<(), MetaError> {
@@ -1015,6 +1045,56 @@ fn x_delta_sync7_4_a_leftover_a_manifest_names_after_all_is_never_removed() {
         main_ref_as_another_device_sees_it(&data).as_deref(),
         Some("two"),
         "every entry the manifest names is still there"
+    );
+}
+
+/// X-DELTA-SYNC8-4 (the commit): a swap that LANDED and answered 412 (its repeat met its own version), and the
+/// read-back that follows is served by a replica that lags - it still holds the manifest as it was before the swap.
+/// That read is no word that the swap did not land: the manifest the bucket holds names the entry, and the old code
+/// removed it. The outcome is unknown, the entry stays, and every device reads the repository. RED on the old code:
+/// the entry is removed and the next read says "the manifest names it, but it is missing".
+#[test]
+fn x_delta_sync8_4_a_412_whose_read_back_serves_the_old_manifest_is_an_unknown_outcome_and_the_entry_stays(
+) {
+    let bucket = LostAnswers::new(MemoryBucket::new());
+    let mut store = MetaStore::create(&bucket, sealer(), "laptop").unwrap();
+    bucket.lose_next(keys::MANIFEST, Lost::ResentLagging, 0);
+    let published = publish_main(&mut store, "one");
+    assert!(
+        matches!(published, Err(MetaError::OutcomeUnknown { .. })),
+        "{published:?}"
+    );
+    assert_eq!(
+        main_ref_as_another_device_sees_it(&bucket.inner).as_deref(),
+        Some("one"),
+        "the swap landed: the entry the manifest names is there"
+    );
+    assert!(
+        matches!(publish_main(&mut store, "two"), Ok(Some(_))),
+        "and the device goes on"
+    );
+}
+
+/// X-DELTA-SYNC8-4 (the checkpoint): the same read-back after a checkpoint's swap that landed. The checkpoint
+/// stays - the manifest names it - and the call says the outcome is unknown. RED on the old code: the checkpoint is
+/// removed and no device can open the repository.
+#[test]
+fn x_delta_sync8_4_a_checkpoint_whose_412_is_read_back_from_a_lagging_replica_stays() {
+    let bucket = LostAnswers::new(MemoryBucket::new());
+    let mut store = MetaStore::create(&bucket, sealer(), "laptop").unwrap();
+    for value in ["one", "two", "three"] {
+        publish_main(&mut store, value).unwrap();
+    }
+    bucket.lose_next(keys::MANIFEST, Lost::ResentLagging, 0);
+    let checkpoint = store.checkpoint();
+    assert!(
+        matches!(checkpoint, Err(MetaError::OutcomeUnknown { .. })),
+        "{checkpoint:?}"
+    );
+    assert_eq!(
+        main_ref_as_another_device_sees_it(&bucket.inner).as_deref(),
+        Some("three"),
+        "the manifest names a checkpoint, and it is there"
     );
 }
 

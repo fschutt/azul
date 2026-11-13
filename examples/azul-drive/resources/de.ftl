@@ -701,6 +701,7 @@ azdrive-legacy-copies-kept = { $files ->
        *[other] { $files } unverschlüsselte Kopien von Dateien, die ein älteres AzDrive geöffnet hat, bleiben auf diesem Computer, weil sie Änderungen enthalten können, die du gemacht hast und die nichts synchronisiert hat: { $folders }. Lösche die Ordner, wenn du die Kopien nicht brauchst.
     }
 azdrive-sync-send-kept = Erneut senden
+azdrive-sync-kept-unreadable = Die behaltenen Dateien können jetzt nicht erneut gesendet werden: der Synchronisierungsstand ist nicht lesbar ({ $why }). Die nächste Synchronisierung sagt mehr.
 azdrive-sync-sent-again = { $count ->
         [one] Die behaltene Datei geht mit der nächsten Synchronisierung wieder auf das Laufwerk.
        *[other] Die { $count } behaltenen Dateien gehen mit der nächsten Synchronisierung wieder auf das Laufwerk.

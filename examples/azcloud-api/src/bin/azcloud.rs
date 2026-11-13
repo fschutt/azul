@@ -1418,11 +1418,44 @@ fn reencrypt_output(
                 "stopped": report.stopped.as_ref().map(|why| format!("{why:?}")),
             });
             text.push_str(&format!("{}\n", report.line()));
+            // A purge that stopped (the lease, the fence, the clock ...), whose deletes the bucket refused or that a
+            // cap cut short has erased some of the old versions at the most: no success a script could take for
+            // "the old versions are gone" - `ok: false`, exit 1, and the sentence says what is left to do
+            // (X-DELTA-SYNC8-3).
+            let why = match (&report.stopped, report.failed, report.capped) {
+                (Some(why), _, _) => Some(format!("it stopped: {why}")),
+                (None, failed, _) if failed > 0 => {
+                    Some(format!("the storage refused {failed} deletes"))
+                }
+                (None, _, true) => Some(String::from("a cap cut the scan short")),
+                _ => None,
+            };
+            if let Some(why) = why {
+                value["ok"] = json!(false);
+                value["erased"]["complete"] = json!(false);
+                text.push_str(&format!(
+                    "the old versions are NOT all erased from drive {id}: {why}; run the command again to go on\n"
+                ));
+            }
         }
         Some(Err(refused)) => {
             value["ok"] = json!(false);
             value["erased"] = json!({"refused": refused});
             text.push_str(&format!("{refused}\n"));
+            // The files the refusal is about: the user restores or deletes them, the only way to lift it.
+            if !state.failed_paths.is_empty() {
+                value["erased"]["damaged"] = json!(state.failed_paths);
+                let more = state.failed.saturating_sub(state.failed_paths.len() as u64);
+                text.push_str(&format!(
+                    "the files that could not be read: {}{}\n",
+                    state.failed_paths.join(", "),
+                    if more > 0 {
+                        format!(" (and {more} more, not named here)")
+                    } else {
+                        String::new()
+                    }
+                ));
+            }
         }
     }
     (value, text)
@@ -1906,6 +1939,96 @@ mod tests {
         let (value, text) = reencrypt_output("d_1", true, &state, None);
         assert_eq!(text.lines().count(), 1, "{text}");
         assert!(value.get("erased").is_none());
+    }
+
+    /// X-DELTA-SYNC8-3: a purge that stopped, one whose deletes the storage refused and one a cap cut short are NOT a success:
+    /// `ok: false` (the exit code of the command), and the sentence says the old versions are not all erased. One that ran
+    /// through is. The refusal after a damaged pass names the first files that could not be read, and the JSON lists them.
+    /// RED on the old output: `ok: true` and exit 0 for all three; no file named.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_sync8_3_a_purge_that_stopped_or_failed_is_no_success_and_a_refusal_names_the_files()
+    {
+        use azul_storage::{
+            meta::{
+                reclaim::{ReclaimMode, ReclaimReport},
+                NotYet,
+            },
+            rotation::ReencryptState,
+        };
+
+        let state = ReencryptState::new(0);
+        let report = |shape: &dyn Fn(&mut ReclaimReport)| {
+            let mut report = ReclaimReport::none(ReclaimMode::Delete);
+            shape(&mut report);
+            reencrypt_output("d_1", true, &state, Some(Ok(report)))
+        };
+        let (value, text) = report(&|r| r.stopped = Some(NotYet::Lease));
+        assert_eq!(
+            value["ok"],
+            json!(false),
+            "a purge that stopped on the lease: {text}"
+        );
+        assert_eq!(value["erased"]["complete"], json!(false));
+        assert!(
+            text.contains("NOT all erased") && text.contains("it stopped"),
+            "{text}"
+        );
+        let (value, text) = report(&|r| r.failed = 2);
+        assert_eq!(
+            value["ok"],
+            json!(false),
+            "deletes the storage refused: {text}"
+        );
+        assert!(text.contains("refused 2 deletes"), "{text}");
+        let (value, text) = report(&|r| r.capped = true);
+        assert_eq!(value["ok"], json!(false), "a cap: {text}");
+        let (value, text) = report(&|_| {});
+        assert_eq!(
+            value["ok"],
+            json!(true),
+            "a purge that ran through is a success: {text}"
+        );
+        assert!(!text.contains("NOT all erased"), "{text}");
+
+        // The refusal after a damaged pass names the files (the first few, and how many more).
+        let mut damaged = ReencryptState::new(0);
+        damaged.failed = 3;
+        damaged.failed_paths = vec![String::from("docs/a.docx"), String::from("b.bin")];
+        let refused = String::from("nothing was erased from drive d_1: 3 files could not be read");
+        let (value, text) = reencrypt_output("d_1", true, &damaged, Some(Err(refused)));
+        assert_eq!(value["ok"], json!(false));
+        assert_eq!(value["erased"]["damaged"], json!(["docs/a.docx", "b.bin"]));
+        assert!(
+            text.contains("docs/a.docx, b.bin") && text.contains("and 1 more"),
+            "{text}"
+        );
+    }
+
+    /// X-DELTA-SYNC8-8: `run` is the one place the refusal of `--dry-run` is called, and the test enters `run` - not the helper:
+    /// the refusal comes before anything is read or written, so a transport that fails every call is never asked. RED when the
+    /// call in `run` is taken out: the command goes on to the account, and the error is another one.
+    #[test]
+    fn x_delta_sync8_8_run_refuses_a_dry_run_the_command_does_not_read_before_it_asks_the_network()
+    {
+        use azul_storage::transport::{HttpCall, HttpReply};
+
+        struct Down;
+        impl Transport for Down {
+            fn send(&self, _call: &HttpCall) -> std::result::Result<HttpReply, String> {
+                Err(String::from("the network must not be asked"))
+            }
+        }
+        let net = Net {
+            transports: Arc::new(|| Box::new(Down) as Box<dyn Transport>),
+            dialer: None,
+        };
+        let args = Args::parse(&argv("reencrypt --erase-old-versions --yes --dry-run")).unwrap();
+        let refused = run(&args, &net).expect_err("refused").to_string();
+        assert!(
+            refused.contains("has no --dry-run") && refused.contains("nothing was done"),
+            "{refused}"
+        );
     }
 
     /// A run of `azcloud reencrypt` that writes down what it was asked and in what order.

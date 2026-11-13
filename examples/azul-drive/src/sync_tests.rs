@@ -1235,6 +1235,31 @@ fn x_delta_sync7_8_the_button_is_offered_from_the_problem_list_and_the_base_is_n
     assert!(!crate::sync_view::kept_listed(state.path()));
 }
 
+/// X-DELTA-SYNC8-5: the click on "Send them again" reads the base, and a base that cannot be read is no list of nothing: the
+/// answer is the sentence of what is wrong - the click used to find no keys, send nothing and say nothing. The base here is a
+/// FOLDER named like the base file: any read of it fails (for every user, root too). A base that reads gives its keys.
+/// RED on the old `kept_keys`: `unwrap_or_default()` - no error to tell.
+#[test]
+fn x_delta_sync8_5_a_base_that_cannot_be_read_is_told_to_the_click_and_is_no_empty_list() {
+    use azcloud_kit::sync::session::INDEX_FILE;
+    let state = TempDir::new("azdrive-kept-unreadable");
+    fs::create_dir_all(state.path().join(INDEX_FILE)).unwrap();
+    let told = crate::sync_view::kept_keys_in(state.path());
+    let why = told.expect_err("a base nobody can read says so");
+    assert!(!why.to_string().is_empty(), "{why:?}");
+    // The sentence the click shows has its words in both languages.
+    let phrase =
+        azul_appkit::l10n::Phrase::new("azdrive-sync-kept-unreadable").arg("why", why.to_string());
+    assert_eq!(phrase.key, "azdrive-sync-kept-unreadable");
+
+    // No base at all (a pairing that never synced) is an empty list, not an error.
+    let none = TempDir::new("azdrive-kept-none");
+    assert_eq!(
+        crate::sync_view::kept_keys_in(none.path()).unwrap(),
+        Vec::<String>::new()
+    );
+}
+
 /// The sync trash's rows: each file by its key, the day it was deleted and the day the trash
 /// lets it go, in the window's language.
 #[test]

@@ -703,6 +703,7 @@ azdrive-legacy-copies-kept = { $files ->
        *[other] { $files } unencrypted copies of files that an older AzDrive opened stay on this computer, because they may hold changes you made that nothing synced: { $folders }. Delete the folders when you do not need the copies.
     }
 azdrive-sync-send-kept = Send them again
+azdrive-sync-kept-unreadable = The kept files cannot be sent again now: the sync record cannot be read ({ $why }). The next sync says more.
 azdrive-sync-sent-again = { $count ->
         [one] The kept file goes to the drive again with the next sync.
        *[other] The { $count } kept files go to the drive again with the next sync.

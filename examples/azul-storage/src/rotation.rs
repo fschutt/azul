@@ -1128,6 +1128,12 @@ pub struct ReencryptState {
     /// ([`ReencryptState::erase_licence`], X-DELTA-SYNC7-2).
     #[serde(default)]
     pub failed: u64,
+    /// The first of those files of their own that could not be read, by path (at most
+    /// [`ReencryptState::NAMED_DAMAGED`]): what a refusal to erase names, so that the user can find the
+    /// files and restore or delete them - the only way to lift the refusal (X-DELTA-SYNC8-3). A member of a
+    /// pack is counted in `failed` and named nowhere.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed_paths: Vec<String>,
     /// Whether the packs of small files were written anew (after the files of their own).
     #[serde(default)]
     pub packs_done: bool,
@@ -1152,10 +1158,14 @@ impl ReencryptState {
             cursor: None,
             done: 0,
             failed: 0,
+            failed_paths: Vec::new(),
             packs_done: false,
             purge_confirmed_at: None,
         }
     }
+
+    /// How many damaged files a state names by path ([`ReencryptState::failed_paths`]).
+    pub const NAMED_DAMAGED: usize = 10;
 
     /// The user confirmed, at `at`, that the old versions of every file are erased with the
     /// re-encryption: for good, the history before it cannot be restored afterwards. Record it
@@ -1368,7 +1378,12 @@ pub fn reencrypt_pass<D: Drive>(
         match result {
             Ok(Rewrite::Replaced(_)) => state.done += 1,
             Ok(Rewrite::Declined | Rewrite::Conflict) | Err(DriveError::NotFound { .. }) => {}
-            Err(DriveError::Corrupt { .. }) => state.failed += 1,
+            Err(DriveError::Corrupt { .. }) => {
+                state.failed += 1;
+                if state.failed_paths.len() < ReencryptState::NAMED_DAMAGED {
+                    state.failed_paths.push(path.clone());
+                }
+            }
             Err(e) => return Err(e),
         }
         state.cursor = Some(path);

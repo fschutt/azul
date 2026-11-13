@@ -117,6 +117,36 @@ fn x_delta_sync4_1_a_swap_that_landed_and_answered_with_a_conflict_keeps_its_che
     );
 }
 
+/// Row "412, the very manifest the swap carried" (X-DELTA-SYNC8-4): the swap landed, answered 412, and the read that
+/// follows is served by a replica that lags - the OLD key's manifest as it was before. It is no word that nothing landed:
+/// the new checkpoint stays, the old objects stay, and the call says the outcome is unknown. RED on the old code: the new
+/// checkpoint was removed on that word, the manifest names it, and no device could open the repository.
+#[test]
+fn x_delta_sync8_4_a_412_read_back_from_a_lagging_replica_keeps_the_new_checkpoint() {
+    let seeded = seeded();
+    let old_objects = keys_of(&seeded);
+    let bucket = LostAnswers::new(seeded.clone());
+    bucket.lose_next(keys::MANIFEST, Lost::ResentLagging, 0);
+    let done = reseal(&bucket, &old_key(), &new_key(), "laptop", NOW);
+    assert!(
+        matches!(done, Err(MetaError::OutcomeUnknown { .. })),
+        "{done:?}"
+    );
+    assert_eq!(
+        opens_with_new(&seeded).as_deref(),
+        Ok("three"),
+        "the checkpoint the manifest names is in the bucket: {:?}",
+        keys_of(&seeded)
+    );
+    assert!(
+        old_objects
+            .iter()
+            .filter(|key| key.starts_with(keys::LOG_DIR))
+            .all(|key| keys_of(&seeded).contains(key)),
+        "nothing of the old key was deleted on an unknown outcome"
+    );
+}
+
 /// Row "any, cannot be read": the swap landed, answered 412 and the bucket cannot be read. The
 /// outcome is unknown: both sets stay and the call says so. Run again when the bucket answers, it
 /// finishes. RED on the old code: the checkpoint the manifest names was removed unread.

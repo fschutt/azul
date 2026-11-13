@@ -1188,25 +1188,28 @@ fn x_delta_azdrive_files_34_a_state_that_does_not_read_is_set_aside_not_replaced
 /// with no record: it took each for the copy's own ("same size") or the user's and never refreshed it.
 /// A read that fails is not "damaged": the run stops, says so, and leaves the record where it is. RED on
 /// the old code: the ledger is renamed `.damaged-<time>` and the run goes on without it.
-#[cfg(unix)]
 #[test]
 fn x_delta_sync4_14_a_state_that_cannot_be_read_now_stops_the_copy_and_is_not_set_aside() {
-    use std::os::unix::fs::PermissionsExt;
     let tmp = TempDir::new("dsync4-14-busy");
     let drive = source_with(&tmp, &[("a.txt", b"one")]);
     let folder = tmp.path().join("copy");
     let state = tmp.path().join("state").join("d_x.rescue.json");
     run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
     assert!(state.exists(), "the first run wrote its record");
-    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o000)).unwrap();
-    if std::fs::read_to_string(&state).is_ok() {
-        // A user who can read anything (root): the case cannot be made here.
-        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
-        return;
-    }
+    // A record nobody can read - a FOLDER where the file is, which fails for every user, root too (a mode of 000 let a run
+    // as root pass this test without playing the case: X-DELTA-SYNC8-9, the shape of X-DELTA-INTEGRITY3-19).
+    let record = std::fs::read(&state).unwrap();
+    std::fs::remove_file(&state).unwrap();
+    std::fs::create_dir(&state).unwrap();
+    assert!(
+        std::fs::read_to_string(&state).is_err(),
+        "the case is made: the record cannot be read"
+    );
     drive.put("a.txt", b"the drive's newer a").unwrap();
     let busy = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
-    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(state.is_dir(), "it is where it was");
+    std::fs::remove_dir(&state).unwrap();
+    std::fs::write(&state, &record).unwrap();
     assert!(
         busy.missing
             .iter()
@@ -1227,7 +1230,7 @@ fn x_delta_sync4_14_a_state_that_cannot_be_read_now_stops_the_copy_and_is_not_se
         aside, 0,
         "a record that could not be read now is not set aside"
     );
-    assert!(state.exists(), "it is where it was");
+    assert!(state.exists(), "and the record is back where it was");
     // The share answers again: the copy goes on from the record and refreshes the file.
     let next = run_rescue(&drive, &folder, NO_PROBE, Some(&state), &mut |_, _| {});
     assert!(next.missing.is_empty(), "{next:?}");

@@ -1465,9 +1465,15 @@ pub(crate) fn answer_burst(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
 /// "Send them again" for `drive_id`: every file its problem list keeps after the drive deleted
 /// it elsewhere goes up with the next pass, on a worker thread. Whether there was any.
 pub(crate) fn send_kept(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, drive_id: &str) -> bool {
-    let keys = sync_view::setup_of(s, drive_id)
-        .map(|setup| sync_view::kept_keys(s, setup))
-        .unwrap_or_default();
+    let keys = match sync_view::setup_of(s, drive_id).map(|setup| sync_view::kept_keys(s, setup)) {
+        Some(Ok(keys)) => keys,
+        // The base cannot be read: the click says why (it used to do nothing and say nothing).
+        Some(Err(why)) => {
+            s.warn(Phrase::new("azdrive-sync-kept-unreadable").arg("why", why.to_string()));
+            return false;
+        }
+        None => Vec::new(),
+    };
     if keys.is_empty() {
         return false;
     }
