@@ -34,6 +34,10 @@
 
 use azul_srcgate::{calls, method_calls, Allow, Budget, Gate, Located, Orphans, Root, Rule, Tok};
 
+/// Every crate that depends on azul-storage and could delete a drive's objects (X-DELTA-SYNC4-6): the
+/// gate read three of the six, so a deleter written in the bridge, the mail crates, the appkit or the
+/// command line was not looked at. The floors are below today's counts of compiled files (38, 27, 18, 36
+/// and 2): a root that holds fewer was read in the wrong place.
 const ROOTS: &[Root] = &[
     Root {
         dir: "examples/azul-storage/src",
@@ -46,6 +50,26 @@ const ROOTS: &[Root] = &[
     Root {
         dir: "examples/azul-drive/src",
         min_files: 88,
+    },
+    Root {
+        dir: "examples/azul-bridge/src",
+        min_files: 30,
+    },
+    Root {
+        dir: "examples/azul-mail/src",
+        min_files: 20,
+    },
+    Root {
+        dir: "examples/azul-mail-core/src",
+        min_files: 12,
+    },
+    Root {
+        dir: "examples/azul-appkit/src",
+        min_files: 30,
+    },
+    Root {
+        dir: "examples/azcloud-api/src",
+        min_files: 2,
     },
 ];
 
@@ -154,18 +178,70 @@ fn method_call_args(t: &[Located], name: &str) -> Vec<(usize, usize)> {
     found
 }
 
+/// The names a function binds from the maker of an object's key - `let key = id.bucket_key();`,
+/// `let key: String = pack.object.bucket_object().bucket_key();` - whose initializer, up to its `;`, names
+/// `bucket_key` or `bucket_object`. A delete of such a local is a delete by the object's key, whatever its
+/// arguments spell (X-DELTA-SYNC4-6: `let key = pack.id.bucket_key(); self.inner.delete(&key)?` was not
+/// found, its arguments name a local). A binding's name is the first one of its pattern (a tuple binds none).
+fn key_locals(body: &[Located]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut i = 0;
+    while i < body.len() {
+        if !body[i].tok.is_ident("let") {
+            i += 1;
+            continue;
+        }
+        let name = body[i + 1..]
+            .iter()
+            .map_while(|x| x.tok.ident())
+            .find(|name| !matches!(*name, "mut" | "ref"));
+        // The initializer: after the `=` of the binding, up to the `;` that ends it.
+        let mut j = i + 1;
+        while j < body.len() && !body[j].tok.is_punct('=') && !body[j].tok.is_punct(';') {
+            j += 1;
+        }
+        if j >= body.len() || !body[j].tok.is_punct('=') {
+            i = j.max(i + 1);
+            continue;
+        }
+        let mut depth = 0i32;
+        let mut keyed = false;
+        let mut k = j + 1;
+        while k < body.len() {
+            match &body[k].tok {
+                Tok::Punct('(' | '[' | '{') => depth += 1,
+                Tok::Punct(')' | ']' | '}') => depth -= 1,
+                Tok::Punct(';') if depth <= 0 => break,
+                tok if tok.is_ident("bucket_key") || tok.is_ident("bucket_object") => keyed = true,
+                _ => {}
+            }
+            k += 1;
+        }
+        if let (true, Some(name)) = (keyed, name) {
+            found.push(name.to_string());
+        }
+        i = k.max(i + 1);
+    }
+    found
+}
+
 /// The lines of the `fn` of each function that deletes a data object by its bucket key: a `.delete(` or
-/// `.remove(` whose arguments name `bucket_key` or `bucket_object`, or a `.delete_many(` in a function
-/// that names `bucket_key` (the keys are made before the batch is built). A `.remove(` on a map of this
-/// process (`known.remove(&id)`) names no key of the bucket and is no deleter.
+/// `.remove(` whose arguments name `bucket_key` or `bucket_object` or a local the function bound from them
+/// ([`key_locals`]), or a `.delete_many(` in a function that names `bucket_key` (the keys are made before
+/// the batch is built). A `.remove(` on a map of this process (`known.remove(&id)`) names no key of the
+/// bucket and is no deleter.
 fn raw_data_deleters(t: &[Located]) -> Vec<usize> {
     functions(t)
         .into_iter()
         .filter(|(_, open, close)| {
             let body = &t[*open..*close];
+            let locals = key_locals(body);
             let by_argument = ["delete", "remove"].iter().any(|name| {
                 method_call_args(body, name).into_iter().any(|(at, end)| {
-                    names(&body[at..end], "bucket_key") || names(&body[at..end], "bucket_object")
+                    let args = &body[at..end];
+                    names(args, "bucket_key")
+                        || names(args, "bucket_object")
+                        || locals.iter().any(|local| names(args, local))
                 })
             });
             let by_batch =
@@ -287,9 +363,13 @@ fn rules() -> Vec<Rule> {
                 "for id in ids { drive.delete(&id.bucket_key())?; }",
                 "bucket.remove(&object.bucket_object().bucket_key())?;",
                 "let keys: Vec<String> = ids.iter().map(ObjectId::bucket_key).collect(); drive.delete_many(&items);",
+                "let key = pack.id.bucket_key(); self.inner.delete(&key)?;",
+                "let key: String = object.bucket_object().bucket_key(); bucket.remove(&key)?;",
             ],
             &[
                 "let key = id.bucket_key();",
+                "let key = id.bucket_key(); self.inner.delete(&name)?;",
+                "let name = pack.name(); self.inner.delete(&name)?;",
                 "self.inner.delete(&name)?;",
                 "map.remove(&id);",
                 "let key = pack.id.bucket_key(); hot.reads.remove(&pack.id);",
@@ -387,6 +467,12 @@ const ALLOWED: &[Allow] = &[
         RAW,
         4,
         "the four deleters of a data object: drop_new_object (the compensation of a change that was refused, on a Refusal), delete_reclaimable and remove_reclaimable (on a proof AND the answer of ask_retired_delete), delete_released (the objects an index that keeps no history released)",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/e2e/b_tamper.rs",
+        RAW,
+        1,
+        "the E2E step `drive_tamper` of an encrypted remote (`drop_blob`, `purge`): a stand-in for a server that loses an object, registered only when a scenario or the debug server drives the run (e2e/COMMANDS.md); it deletes the object of the key the scenario names and no flow of the app calls it. The rule that reads a delete of a local bound from a key's maker (X-DELTA-SYNC4-6) is what shows it",
     ),
     Allow::exactly(
         "examples/azul-storage/src/meta/reclaim.rs",
@@ -508,4 +594,56 @@ fn a_deleter_that_does_not_ask_is_found_and_one_that_does_is_not() {
     // A test's own is not read.
     let test_only = "#[cfg(test)]\nfn lab() -> DeleteLicence { DeleteLicence { _sealed: () } }\n";
     assert_eq!(hits(test_only, MADE), 0);
+}
+
+/// X-DELTA-SYNC4-6: a deleter of a data object written in a crate the gate used to leave out is found. The
+/// planted tree is a bridge that deletes the object of a pack by its bucket key; it is found under the roots
+/// the gate reads now, and not under the three it read before.
+#[test]
+fn a_deleter_in_a_crate_the_gate_used_to_leave_out_is_found() {
+    use std::path::PathBuf;
+
+    let base: PathBuf =
+        std::env::temp_dir().join(format!("azul-srcgate-retired-roots-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    for (file, text) in [
+        ("examples/azul-bridge/src/lib.rs", "mod sweep;\n"),
+        (
+            "examples/azul-bridge/src/sweep.rs",
+            "fn sweep(bucket: &dyn Drive, pack: &PackRef) {\n    bucket.delete(&pack.id.bucket_key()).ok();\n}\n",
+        ),
+    ] {
+        let full = base.join(file);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(full, text).unwrap();
+    }
+    const BRIDGE: &[Root] = &[Root {
+        dir: "examples/azul-bridge/src",
+        min_files: 2,
+    }];
+    let gate = Gate {
+        name: "retired_delete_gate (planted bridge)",
+        roots: BRIDGE,
+        rules: rules(),
+        budget: Budget(&[]),
+        orphans: Orphans::Fail,
+    };
+    let found = gate.check(&base).unwrap_err();
+    assert!(
+        found
+            .iter()
+            .any(|f| f.starts_with("examples/azul-bridge/src/sweep.rs:1:") && f.contains(RAW)),
+        "the planted deleter is a finding: {found:#?}"
+    );
+    // The roots the gate reads include the crates that were left out.
+    for dir in [
+        "examples/azul-bridge/src",
+        "examples/azul-mail/src",
+        "examples/azul-mail-core/src",
+        "examples/azul-appkit/src",
+        "examples/azcloud-api/src",
+    ] {
+        assert!(ROOTS.iter().any(|root| root.dir == dir), "{dir} is read");
+    }
+    let _ = std::fs::remove_dir_all(base);
 }
