@@ -1056,3 +1056,110 @@ fn x_delta_money7_4_a_run_that_ends_with_a_checkout_asked_in_rounds_names_a_next
         "a cash order has the period timer's daily look"
     );
 }
+
+// ==== X-DELTA-MONEY7-3: a marked entry whose daily count cannot be written ====
+
+/// X-DELTA-MONEY7-3: the entry of a payment taken back that the list already marked - its daily look
+/// is due by its own count - on a keyring that reads and refuses writes (a keychain the user said
+/// "No" to). The count it would write never moves, so its look stayed due: the old run asked the
+/// token server in EVERY round (about 360 requests an hour), ended with the word `Some(0)`, the
+/// window's timer started the next run at its next tick (about 7,000 requests a day), and the user was
+/// warned again in each. Now the entry is asked once per run - the run's own wait counts beside the
+/// entry's -, the run names the day as its next, and the user is told once a day. On the old code
+/// every run asks 362 times: 1,086 questions in the three runs.
+#[test]
+fn x_delta_money7_3_a_marked_entry_whose_count_cannot_be_written_is_asked_once_a_day_and_said_once()
+{
+    let dir = TempDir::new("azdrive-claims");
+    let gate = LockedOnDemand::open();
+    let shared = keyring_over(&dir, gate.clone());
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let origin = start();
+    let clock = Clock::at(origin);
+    // marked three days ago, counted a day and a few seconds ago: due by its own count
+    let counted = i64::try_from(origin - DAY - 5).unwrap();
+    let mut marked = entry();
+    marked.taken_back = Some(TakenBack {
+        since: counted - 2 * 86_400,
+        counted_at: counted,
+    });
+    pending::add(&shared, &marked).unwrap();
+    // the keyring reads, and refuses every write from now on
+    gate.writes_refused.store(true, Ordering::SeqCst);
+    let server = Server::new(&clock, |_| {
+        String::from(
+            r#"{"checkout_id": "ck_1", "status": "reversed", "reason": "the debit was returned"}"#,
+        )
+    });
+    let mut said = Vec::new();
+    let runs = until_nothing_is_left(&clock, &server, &shared, &store, &mut said, 3);
+    assert_eq!(runs, 3, "every run names the next: the entry stays");
+    let asked = server.asked();
+    assert_eq!(
+        asked.len(),
+        3,
+        "asked once in each run, not in every round: {asked:?}"
+    );
+    assert!(
+        asked
+            .windows(2)
+            .all(|w| (DAY - 120..=DAY + 120).contains(&(w[1] - w[0]))),
+        "a day apart: {asked:?}"
+    );
+    let warned = said
+        .iter()
+        .filter(|outcome| matches!(outcome, Outcome::TakenBack { .. }))
+        .count();
+    assert_eq!(warned, 3, "said once in each run, so once a day");
+    assert!(
+        !said
+            .iter()
+            .any(|outcome| matches!(outcome, Outcome::InFlight { .. })),
+        "a payment taken back is never said to be in flight"
+    );
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(listed.len(), 1, "the entry stays, claim secret and all");
+    assert_eq!(
+        listed[0].taken_back,
+        Some(TakenBack {
+            since: counted - 2 * 86_400,
+            counted_at: counted
+        }),
+        "the mark is as it was: the list took no write"
+    );
+}
+
+/// X-DELTA-MONEY7-3, the entry's own count and the run's wait, side by side: for a marked entry the
+/// look is due when BOTH say so - the longer wait stands - and a marked entry that is not due by its
+/// count stays not due whatever the run did.
+#[test]
+fn x_delta_money7_3_a_marked_entry_waits_for_the_longer_of_its_count_and_the_runs_own_wait() {
+    let wall = 1_791_450_000_i64;
+    let mut back = entry();
+    // counted a day and a few seconds ago: due by its own count
+    back.taken_back = Some(TakenBack {
+        since: wall - 3 * 86_400,
+        counted_at: wall - 86_400 - 5,
+    });
+    assert_eq!(look_in(&back, None, 5_000, wall), (Pace::TakenBack, 0));
+    // asked in this run, ten seconds ago, for a day: the run's wait stands, the count could not move
+    assert_eq!(
+        look_in(&back, Some((4_990, DAY)), 5_000, wall),
+        (Pace::TakenBack, DAY - 10)
+    );
+    // asked in this run long ago: the run's wait is over, the entry is due by its count again
+    assert_eq!(
+        look_in(&back, Some((4_000, 600)), 5_000, wall),
+        (Pace::TakenBack, 0)
+    );
+    // counted an hour ago (the list took the write): its own count says the rest of the day
+    back.taken_back = Some(TakenBack {
+        since: wall - 3 * 86_400,
+        counted_at: wall - 3_600,
+    });
+    assert_eq!(
+        look_in(&back, Some((4_990, 600)), 5_000, wall),
+        (Pace::TakenBack, DAY - 3_600),
+        "the longer of the two"
+    );
+}

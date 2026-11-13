@@ -3277,7 +3277,12 @@ pub(crate) fn look_in(
                 )
                 .unwrap_or(0)
             };
-            return (Pace::TakenBack, wait);
+            // The entry's own count says when the day is up - and a count the list cannot write
+            // (the keyring reads and refuses writes) never moves: its look stays "due" while this
+            // run has asked it already. The run's own wait counts too: the longer of the two, so a
+            // marked entry is asked once per run like an unmarked one, not in every round
+            // (X-DELTA-MONEY7-3).
+            return (Pace::TakenBack, wait.max(in_run));
         }
         if checkout.is_cash() {
             return (Pace::Cash, in_run);
