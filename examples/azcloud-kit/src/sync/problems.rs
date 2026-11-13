@@ -667,8 +667,29 @@ impl ProblemList {
     /// key), and past [`LISTED_PER_CODE`] rows of its code the problem is counted in the code's
     /// "and N more" row instead - a read-back that finds a hundred thousand damaged files adds one
     /// row to the list for each of the first thousand only. (A problem past the cap has no row to
-    /// be told twice by: every call of it counts.)
+    /// be told twice by: every call of it counts.) A row that stands for others ([`Problem::more`], the
+    /// read-back's own cap) is counted into the code's row the same way.
     pub fn note(&mut self, mut problem: Problem, now: i64) {
+        if problem.more > 0 {
+            // A row that stands for others (a read-back's "and N more"): its count joins the code's
+            // own row, or becomes it.
+            self.updated_at = now;
+            match self
+                .problems
+                .iter_mut()
+                .find(|p| p.code == problem.code && p.more > 0)
+            {
+                Some(row) => {
+                    row.more += problem.more;
+                    row.detail = more_sentence(row.more);
+                }
+                None => {
+                    problem.since = now;
+                    self.problems.push(problem);
+                }
+            }
+            return;
+        }
         let named = |p: &Problem| p.code == problem.code && p.key == problem.key;
         if self.problems.iter().any(named) {
             return;

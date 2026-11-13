@@ -93,6 +93,8 @@ mod sync_relook;
 mod sync_ondemand;
 /// The per-file problem list: codes, what stays listed, escaped names.
 mod sync_problems;
+/// A pass or a read-back whose files all fail tells a thousand of each kind and counts the rest.
+mod sync_bounded_reports;
 /// A hostile server, network or disk as the engine names it: moved, read-only, too large,
 /// immutable files, unlistable folders, a crash mid-download, attributes not synced.
 mod sync_hostile;

@@ -36,7 +36,7 @@ use super::{
     local::{entry_now, path_of, stat_now},
     named, names,
     oplog::{Op, OpKind, OpLog},
-    problems::{Code, Problem},
+    problems::{Code, Problem, Tally},
     remote::RemoteFile,
     root, synced_index, synced_publish, BlobIndex, LocalRoot, SyncOptions, SyncRemote, Target,
     TempBlob,
@@ -72,8 +72,25 @@ pub struct VerifyReport {
     pub rotted: Vec<String>,
     pub restored: Vec<String>,
     /// What it lists: a `hash-mismatch` per damaged copy, a `changed-during-sync` per drive copy
-    /// another device changed meanwhile, an `unchecked` per read that failed.
+    /// another device changed meanwhile, an `unchecked` per read that failed - the first
+    /// [`LISTED_PER_CODE`](super::problems::LISTED_PER_CODE) of each code, and one row of it that says
+    /// how many more there were ([`Problem::more`]; X-EDGE-A-5).
     pub problems: Vec<Problem>,
+    /// How many problems of each code the read-back told, kept or not.
+    #[serde(skip)]
+    told: Tally,
+}
+
+impl VerifyReport {
+    /// Lists `problem` while its code has room ([`Tally`]); past that it is only counted, and the end of
+    /// the read-back puts the one row per code that says how many: a read-back that finds a hundred
+    /// thousand damaged files is no hundred thousand problems in the report, in `verify.json` and in
+    /// the calls that note them (X-EDGE-A-5).
+    fn tell(&mut self, problem: Problem) {
+        if self.told.admit(problem.code) {
+            self.problems.push(problem);
+        }
+    }
 }
 
 /// What reading one of the drive's copies back found (SYNC-4). Damage is ONE finding: the bytes
@@ -181,7 +198,7 @@ fn run<R: SyncRemote + ?Sized>(
             }
             ReadBack::Changed => {
                 report.changed.push(key.clone());
-                report.problems.push(Problem::new(
+                report.tell(Problem::new(
                     Code::ChangedDuringSync,
                     key,
                     "another device changed or deleted the drive's copy while it was read back; \
@@ -190,7 +207,7 @@ fn run<R: SyncRemote + ?Sized>(
             }
             ReadBack::Unread(e) => {
                 report.unread.push(key.clone());
-                report.problems.push(Problem::new(
+                report.tell(Problem::new(
                     unread_code(&e),
                     key,
                     format!(
@@ -214,7 +231,7 @@ fn run<R: SyncRemote + ?Sized>(
                 if healed {
                     report.healed.push(key.clone());
                 }
-                report.problems.push(Problem::new(
+                report.tell(Problem::new(
                     Code::HashMismatch,
                     key,
                     match outcome {
@@ -287,7 +304,7 @@ fn run<R: SyncRemote + ?Sized>(
                 changed_base = true;
             }
         }
-        report.problems.push(Problem::new(
+        report.tell(Problem::new(
             Code::HashMismatch,
             &key,
             if restored {
@@ -308,6 +325,8 @@ fn run<R: SyncRemote + ?Sized>(
     if changed_base {
         index.save(index_path)?;
     }
+    let told = report.told.clone();
+    told.close(&mut report.problems);
     Ok(report)
 }
 

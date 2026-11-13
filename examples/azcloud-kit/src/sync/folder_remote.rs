@@ -718,7 +718,9 @@ impl SyncRemote for FolderRemote {
     }
 
     fn upload(&self, work: &Uploads<'_>, report: &mut SyncReport) -> CloudResult<BTreeSet<String>> {
-        report.problems.extend(lock(&self.found).drain(..));
+        for problem in lock(&self.found).drain(..) {
+            report.tell_problem(problem);
+        }
         let mut abandoned = BTreeSet::new();
         let mut first_failure: Option<CloudError> = None;
         let mut any_sent = false;
@@ -763,9 +765,12 @@ impl SyncRemote for FolderRemote {
                     abandoned.insert(key);
                 }
                 Err(e) => {
-                    report.errors.push(format!("upload {key}: {e}"));
-                    report.problems.push(Problem::of_error(&key, &e));
-                    report.file_errors.push((key.clone(), e.to_string()));
+                    report.file_failed(
+                        &key,
+                        Some(format!("upload {key}: {e}")),
+                        e.to_string(),
+                        Problem::of_error(&key, &e),
+                    );
                     abandoned.insert(key);
                     first_failure.get_or_insert(e);
                 }
@@ -792,7 +797,9 @@ impl SyncRemote for FolderRemote {
         etag: Option<&str>,
         report: &mut SyncReport,
     ) -> CloudResult<Option<String>> {
-        report.problems.extend(lock(&self.found).drain(..));
+        for problem in lock(&self.found).drain(..) {
+            report.tell_problem(problem);
+        }
         let next_json = serde_json::to_value(next).map_err(io)?;
         let changes: Vec<(String, Option<Value>)> = {
             let mut out = Vec::new();

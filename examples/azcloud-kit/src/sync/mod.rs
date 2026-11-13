@@ -449,9 +449,35 @@ impl SyncReport {
     /// ([`problems::Tally`]): a hostile index with a hundred thousand bad keys is no hundred
     /// thousand problems in memory (X-DELTA-EDGE-3).
     fn tell(&mut self, code: problems::Code, key: &str, detail: impl Into<String>) {
-        if self.told.admit(code) {
-            self.problems
-                .push(problems::Problem::new(code, key, detail));
+        self.tell_problem(problems::Problem::new(code, key, detail));
+    }
+
+    /// Records `problem`, while its code has room in the list ([`problems::Tally`]).
+    fn tell_problem(&mut self, problem: problems::Problem) {
+        if self.told.admit(problem.code) {
+            self.problems.push(problem);
+        }
+    }
+
+    /// A step on `key` failed (a transfer, a write on this disk): `error` goes into the sentences of the
+    /// report (some failures have none), `why` into the failed files and `problem` into the problems,
+    /// while the problem's code has room in the list ([`problems::Tally`]). Past that the failure is
+    /// only counted, as an entry the scan refuses is ([`local::Scan`]): a pass over a hundred thousand
+    /// files that fail is no hundred thousand sentences, lines and problems in memory, the row "and N
+    /// more" ([`SyncReport::close_problems`]) says how many were left out, and
+    /// [`problems::from_report`] finds no sentence of a failure that was only counted to list a second
+    /// time (X-EDGE-A-5).
+    fn file_failed(
+        &mut self,
+        key: &str,
+        error: Option<String>,
+        why: String,
+        problem: problems::Problem,
+    ) {
+        if self.told.admit(problem.code) {
+            self.errors.extend(error);
+            self.file_errors.push((key.to_string(), why));
+            self.problems.push(problem);
         }
     }
 
@@ -1841,9 +1867,12 @@ fn passes(e: &CloudError) -> bool {
 /// The upload of `key` failed with `e` and the file waits: said in the report, listed with its
 /// code.
 fn listed_upload_failure(report: &mut SyncReport, key: &str, e: &CloudError) {
-    report.errors.push(format!("upload {key}: {e}"));
-    report.file_errors.push((key.to_string(), e.to_string()));
-    report.problems.push(problems::Problem::of_error(key, e));
+    report.file_failed(
+        key,
+        Some(format!("upload {key}: {e}")),
+        e.to_string(),
+        problems::Problem::of_error(key, e),
+    );
 }
 
 /// Whether an upload error stops the whole run: this device's access to the drive is gone (it
@@ -2055,9 +2084,12 @@ pub(crate) fn problem_of(key: &str, e: &BeneathError) -> problems::Problem {
 
 /// A step on this disk that failed for `key`: said in the report's sentences and its problems.
 fn failed_here(report: &mut SyncReport, verb: &str, key: &str, e: &BeneathError) {
-    report.errors.push(format!("{verb} {key}: {e}"));
-    report.file_errors.push((key.to_string(), e.to_string()));
-    report.problems.push(problem_of(key, e));
+    report.file_failed(
+        key,
+        Some(format!("{verb} {key}: {e}")),
+        e.to_string(),
+        problem_of(key, e),
+    );
 }
 
 /// The bytes of the file of `key` under `root`, read without following a link.
@@ -2367,19 +2399,20 @@ fn apply_local<R: SyncRemote + ?Sized>(
     let mut pending: u64 = 0;
     let mut fits = |key: &str, size: u64, report: &mut SyncReport| -> bool {
         if free.saturating_sub(pending) < size.saturating_add(opts.disk_reserve) {
-            report.tell(
-                Code::DiskReserve,
+            report.file_failed(
                 key,
-                format!(
-                    "{size} bytes would leave less than the {} bytes this disk keeps free; it \
-                     stays on the drive",
-                    opts.disk_reserve
+                None,
+                String::from("not enough free space on this disk"),
+                problems::Problem::new(
+                    Code::DiskReserve,
+                    key,
+                    format!(
+                        "{size} bytes would leave less than the {} bytes this disk keeps free; it \
+                         stays on the drive",
+                        opts.disk_reserve
+                    ),
                 ),
             );
-            report.file_errors.push((
-                key.to_string(),
-                String::from("not enough free space on this disk"),
-            ));
             return false;
         }
         pending = pending.saturating_add(size);
@@ -2520,9 +2553,12 @@ fn apply_local<R: SyncRemote + ?Sized>(
                         .filter(|other| !leaving.contains(format!("{folder}{other}").as_str()));
                     if let Some(other) = twin {
                         let why = same_name(&other);
-                        report.errors.push(format!("download {key}: {why}"));
-                        report.file_errors.push((key.to_string(), why.clone()));
-                        report.tell(Code::NameCollision, key, why);
+                        report.file_failed(
+                            key,
+                            Some(format!("download {key}: {why}")),
+                            why.clone(),
+                            problems::Problem::new(Code::NameCollision, key, why),
+                        );
                         continue;
                     }
                 }
@@ -2772,11 +2808,12 @@ fn write_download(
     let blob = match blob {
         Ok(blob) => blob,
         Err(e) => {
-            report.errors.push(format!("download {}: {e}", d.key));
-            report.file_errors.push((d.key.clone(), e.to_string()));
-            report
-                .problems
-                .push(problems::Problem::of_error(&d.key, &e));
+            report.file_failed(
+                &d.key,
+                Some(format!("download {}: {e}", d.key)),
+                e.to_string(),
+                problems::Problem::of_error(&d.key, &e),
+            );
             finished(Some(e.to_string()));
             return;
         }
@@ -2868,9 +2905,12 @@ fn write_download(
                 .flatten();
             if let Some(other) = other {
                 let why = same_name(&other);
-                report.errors.push(format!("write {}: {why}", d.key));
-                report.file_errors.push((d.key.clone(), why.clone()));
-                report.tell(problems::Code::NameCollision, &d.key, why.clone());
+                report.file_failed(
+                    &d.key,
+                    Some(format!("write {}: {why}", d.key)),
+                    why.clone(),
+                    problems::Problem::new(problems::Code::NameCollision, &d.key, why.clone()),
+                );
                 finished(Some(why));
                 return;
             }
