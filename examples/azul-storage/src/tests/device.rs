@@ -1577,6 +1577,107 @@ mod first_wrap {
         assert!(matches!(refused, DriveError::Io(_)), "{refused:?}");
         assert_eq!(bucket.object(RECOVERY_KEY_FILE), before);
     }
+
+    /// A drive that shows no entity tags (a folder, a bucket of a service that sends none): every look made on it
+    /// is an `Untagged` one, and the put that follows is a plain one - the key check was its only guard.
+    struct NoTags(MemBucket);
+
+    impl Drive for NoTags {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            self.0.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.0.get(key)
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.0.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.0.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.0.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            self.0
+                .head(key)
+                .map(|info| ObjectInfo { etag: None, ..info })
+        }
+    }
+
+    /// X-DELTA-KEYS5-7: a look is a fact about ONE bucket's file. A look made on an etag-less drive passes the key
+    /// check there and is then a plain put - and used on another bucket (a second drive of the same app, a drive
+    /// opened later) it was an unconditional put WITHOUT a key check: this bucket's wrap seals another key and
+    /// is written over. The look carries the bucket's place now; a put into another place is refused and writes
+    /// nothing. The control: the bucket it was made in takes the put - through the same object, as the one job
+    /// does.
+    #[test]
+    fn x_delta_keys5_7_a_look_is_refused_for_another_bucket_than_the_one_it_was_made_in() {
+        let a = NoTags(MemBucket::new());
+        let keyring = MemoryKeyring::new();
+        let (key, _old) = setup_new_drive(&a, &keyring, DRIVE, cheap()).unwrap();
+        // Another bucket of an etag-less drive: its wrap seals ANOTHER key (K2), under another keyring.
+        let b = NoTags(MemBucket::new());
+        let (k2, _p2) = setup_new_drive(&b, &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
+        assert_ne!(key, k2, "premise: two drives, two keys");
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let permit = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+        let seen = look_at_first_wrap(&a, &stashed, DRIVE).unwrap();
+        let wrap = code_wrap(&key, &RecoveryCode::generate().unwrap());
+        let b_wrap = b.0.object(RECOVERY_KEY_FILE);
+        let b_puts = b.0.puts();
+        let refused = denied_or(publish_recovery_wrap(
+            &permit,
+            &b,
+            &stashed,
+            &wrap,
+            Publish::Replacing(&seen),
+        ));
+        match &refused {
+            DriveError::Io(why) => assert!(why.contains("another bucket"), "{why}"),
+            other => panic!("a look of another bucket is refused: {other:?}"),
+        }
+        assert_eq!(
+            b.0.object(RECOVERY_KEY_FILE),
+            b_wrap,
+            "the other bucket's wrap is as it was"
+        );
+        assert_eq!(b.0.puts(), b_puts, "nothing was written there at all");
+        // The bucket the look was made in: the put lands, and the wrap there is the new one.
+        publish_recovery_wrap(&permit, &a, &stashed, &wrap, Publish::Replacing(&seen)).unwrap();
+        assert_eq!(a.0.object(RECOVERY_KEY_FILE), Some(wrap.to_bytes()));
+    }
+
+    /// X-DELTA-KEYS5-7, the same for a drive that shows tags: the look of bucket A is no licence for bucket B even
+    /// where B's wrap carries the same tag (two copies of one wrap), and the one bucket takes its own look.
+    #[test]
+    fn x_delta_keys5_7_a_tagged_look_is_bound_to_its_bucket_too() {
+        let a = MemBucket::with_conditional_writes();
+        let keyring = MemoryKeyring::new();
+        let (key, _old) = setup_new_drive(&a, &keyring, DRIVE, cheap()).unwrap();
+        // B holds a copy of A's wrap byte for byte (the tag is the bytes').
+        let b = MemBucket::with_conditional_writes();
+        b.set(RECOVERY_KEY_FILE, a.object(RECOVERY_KEY_FILE).unwrap());
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let permit = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+        let seen = look_at_first_wrap(&a, &stashed, DRIVE).unwrap();
+        let wrap = code_wrap(&key, &RecoveryCode::generate().unwrap());
+        let refused = denied_or(publish_recovery_wrap(
+            &permit,
+            &b,
+            &stashed,
+            &wrap,
+            Publish::Replacing(&seen),
+        ));
+        assert!(matches!(refused, DriveError::Io(_)), "{refused:?}");
+        assert_eq!(
+            b.object(RECOVERY_KEY_FILE),
+            a.object(RECOVERY_KEY_FILE),
+            "B's copy is as it was"
+        );
+        publish_recovery_wrap(&permit, &a, &stashed, &wrap, Publish::Replacing(&seen)).unwrap();
+        assert_eq!(a.object(RECOVERY_KEY_FILE), Some(wrap.to_bytes()));
+    }
 }
 
 // ==== X-KEYS4-2: the wrap of an invite whose member family was not made ====

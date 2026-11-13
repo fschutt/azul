@@ -66,6 +66,7 @@ use crate::{
     footprint::KeyEntry,
     keyring::{KeyringError, KeyringStore},
     meta::policy::{KeyCheck, MemberChange, MemberRecord},
+    xfer::Site,
     Drive, DriveError, ListRequest, Precondition,
 };
 
@@ -199,9 +200,13 @@ pub enum Publish<'f> {
     /// replaces whatever is there on purpose. A new code's is [`Publish::Replacing`].
     FirstReplace,
     /// The first recovery wrap, replaced by a NEW CODE's ([`Op::NewCode`]): the file as the device
-    /// looked at it before ([`look_at_first_wrap`]: it seals the key this device holds), and only
-    /// while it still is that version - a wrap another device wrote since (a rotation that landed
-    /// between the look and the put) is never written over (X-DELTA-KEYS4-2).
+    /// looked at it before ([`look_at_first_wrap`]: it seals the key this device holds), in the bucket the put
+    /// goes to, and only while it still is that version - a wrap another device wrote since (a rotation that
+    /// landed between the look and the put) is never written over (X-DELTA-KEYS4-2). A look made in another
+    /// bucket is refused (X-DELTA-KEYS5-7).
+    ///
+    /// A new code's wrap cannot be put without the look - the variant takes it
+    /// ([`publish_recovery_wrap`] shows the form that does not compile, and the one that does).
     Replacing(&'f FirstWrapSeen),
     /// A further recovery code's file ([`add_recovery_code`]), which must be new.
     Extra(&'f str),
@@ -220,14 +225,45 @@ enum WrapVersion {
 
 /// The drive's first recovery wrap as a device that is about to replace it with a new code's looked
 /// at it ([`look_at_first_wrap`], the only maker): the wrap seals the key this device holds - or there
-/// is none - and the version it was read at. [`Publish::Replacing`] takes it, so a new code's wrap
-/// cannot be put without the look, nor over a wrap another device wrote after it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// is none -, the version it was read at, and the bucket it was read in. [`Publish::Replacing`] takes it,
+/// so a new code's wrap cannot be put without the look, nor over a wrap another device wrote after it, nor
+/// into another bucket than the one that was looked at: a look made on a drive that shows no tags is a plain
+/// put once the key was checked, and it was checked in THAT bucket.
+///
+/// It has private fields and no `Clone`, `Default` or `Deserialize`: a look is not made by hand, and not
+/// copied to be used twice.
+///
+/// ```compile_fail,E0451
+/// // Not made by hand.
+/// use azul_storage::crypto::device::FirstWrapSeen;
+/// let _seen = FirstWrapSeen { key_id: todo!(), version: todo!(), site: todo!() };
+/// ```
+///
+/// ```compile_fail,E0599
+/// // Not copied (an owned look: a reference would clone the reference).
+/// use azul_storage::crypto::device::FirstWrapSeen;
+/// fn twice(seen: FirstWrapSeen) -> (FirstWrapSeen, FirstWrapSeen) {
+///     (seen.clone(), seen)
+/// }
+/// ```
+///
+/// Used as it is made - looked at, then put with - it compiles (the control, with the same imports):
+///
+/// ```no_run
+/// use azul_storage::crypto::device::{look_at_first_wrap, FirstWrapSeen, Stashed};
+/// use azul_storage::{Drive, DriveError};
+/// fn look(bucket: &dyn Drive, stashed: &Stashed) -> Result<FirstWrapSeen, DriveError> {
+///     look_at_first_wrap(bucket, stashed, "d_1")
+/// }
+/// ```
+#[derive(Debug, PartialEq, Eq)]
 #[must_use]
 pub struct FirstWrapSeen {
     /// The key the wrap was looked at for.
     key_id: KeyId,
     version: WrapVersion,
+    /// The bucket the wrap was looked at in ([`Drive::site`]).
+    site: Site,
 }
 
 /// What the refusal of a wrap that seals another key says (the `reason` of the
@@ -280,6 +316,7 @@ pub fn look_at_first_wrap(
     Ok(FirstWrapSeen {
         key_id: stashed.key_id,
         version,
+        site: bucket.site(),
     })
 }
 
@@ -327,6 +364,33 @@ fn replace_what_was_seen(
 /// }
 /// ```
 ///
+/// A new code's wrap replaces the one that was looked at ([`look_at_first_wrap`]) and no other - without the
+/// look the form does not compile (E0061, a variant that takes one argument given none):
+///
+/// ```compile_fail,E0061
+/// use azul_storage::crypto::device::Publish;
+/// let _how = Publish::Replacing();
+/// ```
+///
+/// With the look - made on the bucket the wrap goes into - it does (the control, with the same imports):
+///
+/// ```no_run
+/// use azul_storage::crypto::device::{held, look_at_first_wrap, publish_recovery_wrap, Publish};
+/// use azul_storage::crypto::{keys::RecoveryWrap, keystate::Permit};
+/// use azul_storage::{keyring::KeyringStore, Drive, DriveError};
+///
+/// fn replace(
+///     permit: &Permit,
+///     bucket: &dyn Drive,
+///     keyring: &dyn KeyringStore,
+///     wrap: &RecoveryWrap,
+/// ) -> Result<(), DriveError> {
+///     let (_key, stashed) = held(keyring, "azul-storage/drive-key/d_1")?.expect("a key");
+///     let seen = look_at_first_wrap(bucket, &stashed, "d_1")?;
+///     publish_recovery_wrap(permit, bucket, &stashed, wrap, Publish::Replacing(&seen))
+/// }
+/// ```
+///
 /// # Errors
 ///
 /// A wrap of another key than the stashed one (`Io`: nothing was written), the bucket's refusal,
@@ -364,6 +428,14 @@ pub fn publish_recovery_wrap(
                     "the recovery wrap was looked at for the drive key {}, and the key the keyring \
                      holds is {}",
                     seen.key_id, stashed.key_id
+                )));
+            }
+            // ... in the bucket this put goes to, and no other: a look is a fact about one bucket's file,
+            // and where two places are not provably one, they are not (X-DELTA-KEYS5-7).
+            if !seen.site.same_place(&bucket.site()) {
+                return Err(DriveError::Io(String::from(
+                    "the recovery wrap was looked at in another bucket than the one it is put into: \
+                     nothing was written",
                 )));
             }
             replace_what_was_seen(bucket, wrap, seen)
