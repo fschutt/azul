@@ -16,7 +16,7 @@
 //! | `Why::Retired` | the licence of the one gate (`meta::reclaim::DeleteLicence`, from `ask_retired_delete`) and the proof that the history no longer names the object (`meta::reclaim::Reclaimable`, the reclaimer's analysis) | the object's bucket key, from the proof |
 //! | `Why::Confirmed` | the user's confirmed purge (`meta::reclaim::PurgeConfirmation`, from the answer a re-encryption pass recorded) and the same proof | the object's bucket key, from the proof |
 //! | [`Why::Superseded`] | the receipt of a publish ([`crate::durable::Landed`], made by `durable`) | the name the new version landed at |
-//! | `Why::Refused` | the proof that the change which was to name a new object was refused for good or never made (`meta::reclaim::Refusal`, made from the error and the object by `meta::reclaim` and nowhere else) | the new object it names |
+//! | `Why::Refused` | the proof that the change which was to name a new object was never made - the index's own check of its expectation said no, or the call never went out; a refusal of POLICY from a node is NOT such a proof (`meta::reclaim::Refusal`, made from the error and the object by `meta::reclaim` and nowhere else) | the new object it names |
 //! | [`Why::UserChose`] | the job a user started, which names what it is about ([`Chose`], `Chose::job`: the one witness the apps make) | the keys or the folder the job names |
 //!
 //! (`Retired`, `Confirmed` and `Refused` belong to the encrypted drive's history and exist with the
@@ -126,8 +126,9 @@ pub enum Why<'a> {
     /// receipt the key it retires (X-DELTA-KEYS4-6: this line used to say "what it replaced may go",
     /// which no call can do today).
     Superseded(&'a Landed),
-    /// The change that was to name a new object was refused for good or never made: the object it
-    /// uploaded goes back out (feature `encryption`).
+    /// The change that was to name a new object was never made (the index's own check said no, or the
+    /// call never went out - not a node's refusal of policy, which may be the answer of the repeat of a
+    /// write whose first request lands later): the object it uploaded goes back out (feature `encryption`).
     #[cfg(feature = "encryption")]
     Refused(&'a Refusal),
     /// The job a user started names what it is about.

@@ -281,6 +281,7 @@ impl<D: Drive> EncryptedDrive<D> {
         ctl: &dyn Ctl,
     ) -> Result<Option<Spooled>, DriveError> {
         check_key(key)?;
+        self.refuse_changes()?;
         let Some(folder) = self.inner.resume_folder() else {
             return Ok(None);
         };

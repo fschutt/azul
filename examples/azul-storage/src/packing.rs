@@ -1469,7 +1469,7 @@ impl<D: Drive> EncryptedDrive<D> {
             members.iter().map(|_| None).collect();
         let mut released = Released::none();
         let mut named = false;
-        // The last change the index refused for good: the proof the pack may go again.
+        // The last change the index's own check refused (a `Conflict`): the proof the pack may go again.
         let mut refused: Option<DriveError> = None;
         loop {
             let mut changes = Vec::new();
@@ -1540,8 +1540,9 @@ impl<D: Drive> EncryptedDrive<D> {
                     }
                     named = true;
                 }
-                // Nothing names the pack and every change of it was refused for good: it goes
-                // again. Without that proof it stays in the journal for `recover_packs`.
+                // Nothing names the pack and every change of it was refused by the index's own check
+                // (a `Conflict`): it goes again. Without that proof - a refusal of policy is none
+                // (X-DELTA-SYNC7-1) - it stays in the journal for `recover_packs`.
                 Named::No => {
                     let gone = refused
                         .as_ref()

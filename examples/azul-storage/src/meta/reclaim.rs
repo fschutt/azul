@@ -6,10 +6,14 @@
 //! not name it", "thirty days passed"). The rules of this module are few:
 //!
 //! - **A new object that no change named** is taken back out only by [`drop_new_object_after`], and
-//!   only on a [`Refusal`]: the proof that the change was refused for good or never made
-//!   ([`Certainty`]), made there of the error and the object and nowhere else. A change whose
-//!   outcome is not known - no answer, a service error - may have landed; the object it uploaded
-//!   stays (garbage at worst, never a name without its object).
+//!   only on a [`Refusal`]: the proof that the change was never made - the index's own check of
+//!   its expectation said no ([`DriveError::Conflict`]), or the call was stopped before a byte went
+//!   out ([`Certainty::NotAttempted`]) - made there of the error and the object and nowhere else.
+//!   A change whose outcome is not known - no answer, a service error, and a refusal of policy
+//!   (`Denied`, a node's `QuotaExceeded` or `ReadOnlyMoving`: the answer of the LAST request the
+//!   transport sent, while the FIRST may still land after the index is read back, X-DELTA-SYNC7-1)
+//!   - may have landed; the object it uploaded stays, written in the journal of what is in flight
+//!   for the upkeep (garbage at worst, never a name without its object).
 //! - **Nothing else** deletes a data object of a drive that keeps its history (the drive index is
 //!   a repository: every state of the drive is a commit). Deleting is a decision about history,
 //!   and only the reclaimer makes it.
@@ -36,9 +40,10 @@ use super::{
 };
 use crate::{crypto::ObjectId, BatchDelete, Drive, DriveError};
 
-/// The proof that the change which was to name a new object did not happen. Made from an error
-/// whose certainty is [`Certainty::Refused`] or [`Certainty::NotAttempted`] and the object the change
-/// was to name, and from nothing else; it cannot be copied, defaulted or read from a file, and it is
+/// The proof that the change which was to name a new object did not happen. Made from an error that
+/// says so - a [`DriveError::Conflict`] (the index's own check of the change's expectation) or one whose
+/// certainty is [`Certainty::NotAttempted`] - and the object the change was to name, and from nothing
+/// else; it cannot be copied, defaulted or read from a file, and it is
 /// for that object and no other ([`Refusal::covers`]). The type is public so that a reason to delete
 /// ([`crate::erase::Why::Refused`]) can carry it; no one outside this module can make one: its fields
 /// are private and its one constructor is private ([`drop_new_object_after`] is the door).
@@ -79,14 +84,32 @@ impl Refusal {
     /// The refusal `error` is, if it is one, of the change that was to name the new object `id`;
     /// `None` for a change that may have landed. Only [`drop_new_object_after`] makes one: a refusal
     /// does not leave this module except inside a reason to delete.
+    ///
+    /// The ONE rule of what a compensation may take for "the change did not happen" (X-DELTA-SYNC7-1):
+    ///
+    /// - a [`DriveError::Conflict`]: [`NameIndex::apply`](crate::encrypted::NameIndex::apply) answers it
+    ///   only when an expectation of the change did not hold against the state the index holds, and
+    ///   nothing was sent for the change; an index never answers it for a conditional write that was
+    ///   sent and lost (that is an unknown outcome, `Transport` or `Protocol`);
+    /// - [`Certainty::NotAttempted`]: the call was refused before a byte went out.
+    ///
+    /// Not a refusal of POLICY - [`DriveError::Denied`], a node's `QuotaExceeded`, `ReadOnlyMoving`,
+    /// `SessionExpired`, ...: [`DriveError::certainty`] calls those [`Certainty::Refused`], and that is
+    /// the answer of the LAST request. A transport that sent a conditional write again after a lost
+    /// answer hands on the refusal of the repeat while the first request is on its way to the bucket
+    /// still; it lands after the index was read back, the manifest names the change, and the object
+    /// this would delete is the one it names. Such an object stays and is journaled (ARCH30-5, A3 of
+    /// ARCH29 9.4, mints `Refused` for a leaf's first and only attempt; until it lands a policy refusal
+    /// is unknown here).
     fn of_object(error: &DriveError, id: &ObjectId) -> Option<Refusal> {
-        match error.certainty() {
-            Certainty::Unknown => None,
-            Certainty::Refused | Certainty::NotAttempted => Some(Refusal {
-                id: *id,
-                _sealed: (),
-            }),
-        }
+        let never_made = match error {
+            DriveError::Conflict { .. } => true,
+            other => other.certainty() == Certainty::NotAttempted,
+        };
+        never_made.then_some(Refusal {
+            id: *id,
+            _sealed: (),
+        })
     }
 
     /// Whether this refusal is for the object at `key` of the bucket: the key of the object it was
@@ -103,9 +126,10 @@ impl Refusal {
 }
 
 /// Takes the new object `id` back out of `drive`'s bucket when `error`, the answer of the change that
-/// was to name it, says the change was refused for good or never made: `Some` with what the bucket
-/// answered to the delete (a delete it refuses leaves the object where it is - named by nothing, and
-/// the caller says so). `None` for a change that may have landed: nothing is deleted. The one door to
+/// was to name it, says the change was never made ([`Refusal::of_object`]: the index's own expectation
+/// did not hold, or the call never went out): `Some` with what the bucket answered to the delete (a
+/// delete it refuses leaves the object where it is - named by nothing, and the caller says so). `None`
+/// for a change that may have landed, a refusal of policy included: nothing is deleted. The one door to
 /// the compensation: the [`Refusal`] is made here, of the error and the object, and goes no further.
 pub(crate) fn drop_new_object_after<D: Drive + ?Sized>(
     drive: &D,

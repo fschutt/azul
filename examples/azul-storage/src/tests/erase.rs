@@ -533,6 +533,53 @@ mod encrypted {
         );
     }
 
+    /// X-DELTA-SYNC7-1: a refusal of POLICY is `Certainty::Refused` and no proof for the compensation.
+    /// It is the answer of the LAST request: a transport that sent a conditional write again after a
+    /// lost answer hands on the repeat's refusal while the first request may still land, and the
+    /// manifest then names the object that was deleted. The door makes no refusal of it and deletes
+    /// nothing. RED on the old code: it deleted the object after each of them.
+    #[test]
+    fn x_delta_sync7_1_a_refusal_of_policy_is_no_proof_that_the_change_did_not_happen() {
+        use crate::{meta::Certainty, ServiceError};
+        use azlin_contract::AzlinError;
+
+        let recording = Recording::default();
+        let a = object(5);
+        let node = |code: AzlinError| {
+            DriveError::Service(ServiceError {
+                status: 403,
+                azlin_error: Some(code),
+                ..ServiceError::default()
+            })
+        };
+        let refusals = [
+            DriveError::Denied {
+                message: String::from("read only"),
+            },
+            node(AzlinError::QuotaExceeded),
+            node(AzlinError::ReadOnlyMoving),
+            node(AzlinError::ReadOnlyUnpaid),
+            node(AzlinError::SessionExpired),
+            node(AzlinError::ClockSkew),
+        ];
+        for refusal in &refusals {
+            assert_eq!(
+                refusal.certainty(),
+                Certainty::Refused,
+                "{refusal:?}: the answer of the last request says no"
+            );
+            assert!(
+                drop_new_object_after(&recording, &a, refusal).is_none(),
+                "{refusal:?}: it says nothing of the first request"
+            );
+        }
+        assert!(
+            recording.calls().is_empty(),
+            "nothing was deleted: {:?}",
+            recording.calls()
+        );
+    }
+
     /// The confirmation exists only for an answer a re-encryption pass recorded.
     #[test]
     fn a_confirmation_is_made_only_of_the_answer_a_pass_recorded() {

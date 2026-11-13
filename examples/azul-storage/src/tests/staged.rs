@@ -8,9 +8,11 @@ use std::{
     io::Cursor,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
+
+use azlin_contract::AzlinError;
 
 use super::mem_bucket::MemBucket;
 use crate::{
@@ -19,7 +21,8 @@ use crate::{
         EncryptedDrive, Expect, IndexChange, IndexEntry, IndexPage, MemoryIndex, NameIndex, Rewrite,
     },
     meta::{Certainty, Released},
-    packing::PackOptions,
+    packing::{PackOptions, JOURNAL_STALE_SECS},
+    time::now_unix,
     BatchStream, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
     ServiceError,
 };
@@ -395,4 +398,215 @@ fn az_c13_a_precondition_failure_for_an_object_of_the_length_sent_is_the_write_i
         .put("a.txt", b"stored once, answered twice")
         .expect("the repeat met the object the first request made");
     assert_eq!(drive.get("a.txt").unwrap(), b"stored once, answered twice");
+}
+
+// ==== X-DELTA-SYNC7-1: what a refusal of the repeat of a write proves ====
+
+/// An index in memory that keeps no history, whose next change is answered with `error` and changes
+/// nothing: the answer of the last request of a write the transport sent again. (Whether the first
+/// request lands later is the business of the tests over the late-swap bucket,
+/// `tests/meta/lost_answers.rs`; here it never does.)
+struct AnswersWith {
+    inner: MemoryIndex,
+    error: Mutex<Option<DriveError>>,
+}
+
+impl AnswersWith {
+    fn new(error: DriveError) -> AnswersWith {
+        AnswersWith {
+            inner: MemoryIndex::new(),
+            error: Mutex::new(Some(error)),
+        }
+    }
+}
+
+impl NameIndex for AnswersWith {
+    fn live_objects(
+        &self,
+        _now: u64,
+    ) -> Result<Option<crate::meta::reclaim::LiveObjects>, DriveError> {
+        Ok(None)
+    }
+
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get(path)
+    }
+
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request)
+    }
+
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        if let Some(error) = self.error.lock().unwrap().take() {
+            return Err(error);
+        }
+        self.inner.apply(changes)
+    }
+}
+
+fn node_says(code: AzlinError) -> DriveError {
+    DriveError::Service(ServiceError {
+        status: 403,
+        azlin_error: Some(code),
+        ..ServiceError::default()
+    })
+}
+
+/// The refusals of POLICY the node answers: every one of them is the answer of the LAST request, and
+/// none of them is proof that the first request did not land. Through the production door: a write
+/// whose index change is answered so keeps its object in the bucket - written in the journal of what is
+/// in flight - and the upkeep a stale time later clears it through the gate (an index with no history:
+/// nothing names it, the object goes). RED on the old code: the object left the bucket at once, on the
+/// refusal's word (`Staged::failed` -> `Refusal::of_object` took `Certainty::Refused` for proof).
+#[test]
+fn x_delta_sync7_1_a_refusal_of_policy_keeps_the_new_object_for_the_upkeep() {
+    let refusals = [
+        (
+            "Denied",
+            DriveError::Denied {
+                message: "the drive is read only".into(),
+            },
+        ),
+        ("QuotaExceeded", node_says(AzlinError::QuotaExceeded)),
+        ("ReadOnlyMoving", node_says(AzlinError::ReadOnlyMoving)),
+        ("ReadOnlyUnpaid", node_says(AzlinError::ReadOnlyUnpaid)),
+        ("ReadOnlyLockdown", node_says(AzlinError::ReadOnlyLockdown)),
+        ("SessionExpired", node_says(AzlinError::SessionExpired)),
+        ("ClockSkew", node_says(AzlinError::ClockSkew)),
+        ("DeletePaused", node_says(AzlinError::DeletePaused)),
+    ];
+    for (name, refusal) in refusals {
+        assert_eq!(
+            refusal.certainty(),
+            Certainty::Refused,
+            "{name}: the table calls it a refusal; the compensation must not take that for proof"
+        );
+        let bucket = Arc::new(MemBucket::with_conditional_writes());
+        let index = Arc::new(AnswersWith::new(refusal.clone()));
+        let as_index: Arc<dyn NameIndex> = index.clone();
+        let drive = EncryptedDrive::new(bucket.clone(), DriveKey::generate().unwrap(), as_index);
+        let put = drive.write("a.txt", b"the only copy", Expect::Any);
+        assert_eq!(
+            put.as_ref().err(),
+            Some(&refusal),
+            "{name}: the refusal is handed on"
+        );
+        assert_eq!(
+            data_objects(&bucket).len(),
+            1,
+            "{name}: the object of a change that may still land left the bucket on the refusal's word"
+        );
+        assert_eq!(bucket.deletes(), 0, "{name}");
+        // Not stale yet: the writer may still be at it.
+        assert_eq!(drive.recover_packs(now_unix()).unwrap(), 0, "{name}");
+        assert_eq!(data_objects(&bucket).len(), 1, "{name}");
+        // A stale time later nothing names it (the change never landed): the one gate lets it go.
+        let later = now_unix() + JOURNAL_STALE_SECS + 1;
+        assert_eq!(
+            drive.recover_packs(later).unwrap(),
+            1,
+            "{name}: the object was in the journal of what is in flight"
+        );
+        assert!(
+            data_objects(&bucket).is_empty(),
+            "{name}: cleared as garbage"
+        );
+    }
+}
+
+/// The controls: a change that was NEVER MADE takes its object back out at once - the index's own check
+/// of the expectation (`Conflict`, the four places of `x_ar5a_15_the_object_of_a_change_the_index_...`)
+/// and a call that never went out (`Cancelled`, `Locked`): the proof the old rule had for them stays.
+#[test]
+fn x_delta_sync7_1_a_change_that_never_went_out_takes_its_object_back_at_once() {
+    for refusal in [
+        DriveError::Cancelled,
+        DriveError::Locked { drive: "d".into() },
+        DriveError::Conflict {
+            key: "a.txt".into(),
+        },
+    ] {
+        let bucket = Arc::new(MemBucket::with_conditional_writes());
+        let as_index: Arc<dyn NameIndex> = Arc::new(AnswersWith::new(refusal.clone()));
+        let drive = EncryptedDrive::new(bucket.clone(), DriveKey::generate().unwrap(), as_index);
+        let put = drive.write("a.txt", b"never named", Expect::Any);
+        assert_eq!(put.as_ref().err(), Some(&refusal));
+        assert!(
+            data_objects(&bucket).is_empty(),
+            "{refusal:?}: nothing names the object and the change never went out: it goes"
+        );
+    }
+}
+
+/// A bucket whose delete is refused while `refuse` is set.
+struct DeleteRefused {
+    inner: MemBucket,
+    refuse: AtomicBool,
+}
+
+impl Drive for DeleteRefused {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.inner.list(request)
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.inner.get(key)
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.inner.get_range(key, range)
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.inner.put(key, bytes)
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.inner.put_if(key, bytes, condition)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        if self.refuse.load(Ordering::SeqCst) {
+            return Err(node_says(AzlinError::DeletePaused));
+        }
+        self.inner.delete(key)
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.inner.head(key)
+    }
+}
+
+/// The cell "the compensation delete itself is refused": the change never went out, the bucket will
+/// not delete the object: it stays and is journaled, and the upkeep clears it once the bucket lets it.
+#[test]
+fn x_delta_sync7_1_a_compensation_the_bucket_refuses_leaves_the_object_for_the_upkeep() {
+    let bucket = Arc::new(DeleteRefused {
+        inner: MemBucket::with_conditional_writes(),
+        refuse: AtomicBool::new(true),
+    });
+    let as_index: Arc<dyn NameIndex> = Arc::new(AnswersWith::new(DriveError::Conflict {
+        key: "a.txt".into(),
+    }));
+    let drive = EncryptedDrive::new(bucket.clone(), DriveKey::generate().unwrap(), as_index);
+    assert!(matches!(
+        drive.write("a.txt", b"never named", Expect::Any),
+        Err(DriveError::Conflict { .. })
+    ));
+    assert_eq!(
+        bucket.inner.keys().len(),
+        1,
+        "the bucket would not delete it"
+    );
+    let later = now_unix() + JOURNAL_STALE_SECS + 1;
+    assert!(
+        drive.recover_packs(later).is_err(),
+        "the bucket still refuses: the upkeep says so and the object stays in the journal"
+    );
+    assert_eq!(bucket.inner.keys().len(), 1);
+    bucket.refuse.store(false, Ordering::SeqCst);
+    assert_eq!(drive.recover_packs(later).unwrap(), 1);
+    assert!(
+        bucket.inner.keys().is_empty(),
+        "cleared once the bucket lets it go"
+    );
 }

@@ -157,6 +157,10 @@ pub(crate) struct LateSwap {
     inner: MemoryBucket,
     armed: Mutex<Option<(String, Answer)>>,
     pending: Mutex<Option<(String, Vec<u8>, String)>>,
+    /// While set, the late swap lands only when a test says so ([`LateSwap::land_now`]) and no read
+    /// brings it: a first request that waits in the node's queue for longer than the whole error path
+    /// of the caller (the read-back, the compensation after it: X-DELTA-SYNC7-1).
+    held: AtomicBool,
 }
 
 impl LateSwap {
@@ -165,7 +169,15 @@ impl LateSwap {
             inner,
             armed: Mutex::new(None),
             pending: Mutex::new(None),
+            held: AtomicBool::new(false),
         }
+    }
+
+    /// The late swap does not land after the next read: it lands when [`LateSwap::land_now`] is called.
+    #[must_use]
+    pub(crate) fn held(self) -> LateSwap {
+        self.held.store(true, Ordering::SeqCst);
+        self
     }
 
     pub(crate) fn answer_next(&self, fragment: &str, answer: Answer) {
@@ -181,6 +193,18 @@ impl LateSwap {
         }
     }
 
+    /// The first request reaches the bucket now, whatever was read before it.
+    pub(crate) fn land_now(&self) {
+        self.land();
+    }
+
+    /// What a read brings: the late swap, unless a test holds it.
+    fn land_after_read(&self) {
+        if !self.held.load(Ordering::SeqCst) {
+            self.land();
+        }
+    }
+
     /// Whether the late swap is still on its way.
     pub(crate) fn on_its_way(&self) -> bool {
         self.pending.lock().unwrap().is_some()
@@ -190,12 +214,12 @@ impl LateSwap {
 impl Bucket for LateSwap {
     fn read(&self, key: &str) -> Result<Option<(Vec<u8>, Version)>, MetaError> {
         let read = self.inner.read(key);
-        self.land();
+        self.land_after_read();
         read
     }
     fn read_if_changed(&self, key: &str, known: &str) -> Result<Fetched, MetaError> {
         let read = self.inner.read_if_changed(key, known);
-        self.land();
+        self.land_after_read();
         read
     }
     fn read_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, MetaError> {
@@ -522,14 +546,19 @@ fn az_m1_a_conflict_answer_whose_re_read_fails_is_an_unknown_outcome_and_not_a_c
 
 #[cfg(feature = "encryption")]
 mod encrypted {
-    use std::sync::Arc;
+    use std::{
+        io::Cursor,
+        sync::{Arc, Mutex},
+    };
 
-    use super::{Lost, LostAnswers};
+    use super::{Answer, LateSwap, Lost, LostAnswers};
     use crate::{
         crypto::DriveKey,
-        encrypted::{EncryptedDrive, NameIndex},
+        encrypted::{EncryptedDrive, Expect, NameIndex},
         meta::{keys, MemoryBucket, MetaIndex, MetaRepo, RepoOptions},
-        Drive,
+        packing::{PackOptions, JOURNAL_STALE_SECS},
+        time::now_unix,
+        BatchStream, ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo, Precondition,
     };
 
     /// A device's encrypted drive: its data in `data`, its index through `meta`.
@@ -676,6 +705,282 @@ mod encrypted {
                 "{path}"
             );
         }
+    }
+
+    // ---- X-DELTA-SYNC7-1: the compensation of a new object after a refusal of the repeat ----
+
+    const REPORT: &[u8] = b"the only copy of the report, and what the drive must not lose";
+
+    /// The data bucket of the drive in the tests below: the plain bucket, and every delete of it is
+    /// followed by the first request of the parked manifest swap reaching the bucket - the compensation
+    /// is quicker than a request that waits in the node's queue. The keys it deleted are told.
+    struct QueuedBehind {
+        inner: MemoryBucket,
+        meta: Arc<LateSwap>,
+        deleted: Mutex<Vec<String>>,
+    }
+
+    impl QueuedBehind {
+        fn deleted(&self) -> Vec<String> {
+            self.deleted.lock().unwrap().clone()
+        }
+    }
+
+    impl Drive for QueuedBehind {
+        fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+            self.inner.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+            self.inner.get(key)
+        }
+        fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+            self.inner.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+            self.inner.put(key, bytes)
+        }
+        fn put_if(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            condition: &Precondition,
+        ) -> Result<Option<String>, DriveError> {
+            self.inner.put_if(key, bytes, condition)
+        }
+        fn delete(&self, key: &str) -> Result<(), DriveError> {
+            self.inner.delete(key)?;
+            self.deleted.lock().unwrap().push(key.to_string());
+            self.meta.land_now();
+            Ok(())
+        }
+        fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+            self.inner.head(key)
+        }
+    }
+
+    /// A laptop whose manifest swaps go through `LateSwap` held until a test lands them, over the data
+    /// bucket `QueuedBehind`; `data` is the bucket both share, as another device sees it.
+    fn queued_laptop(
+        data: &MemoryBucket,
+        key: &DriveKey,
+    ) -> (
+        Arc<LateSwap>,
+        Arc<QueuedBehind>,
+        EncryptedDrive<Arc<QueuedBehind>>,
+    ) {
+        let meta = Arc::new(LateSwap::new(data.clone()).held());
+        let options = RepoOptions {
+            cache_dir: None,
+            lazy: false,
+            ..RepoOptions::default()
+        };
+        let repo =
+            MetaRepo::create_with(Arc::clone(&meta), key.clone(), "laptop", "Laptop", &options)
+                .unwrap();
+        let index: Arc<dyn NameIndex> = Arc::new(MetaIndex::new(repo).with_poll_every(0));
+        let bucket = Arc::new(QueuedBehind {
+            inner: data.clone(),
+            meta: Arc::clone(&meta),
+            deleted: Mutex::new(Vec::new()),
+        });
+        let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
+        (meta, bucket, drive)
+    }
+
+    /// The first request of a write whose answer was lost reached the node, the transport sent it again
+    /// and the repeat was refused for policy (the drive began to move, the quota ended with the first
+    /// request); the manifest read back is the old one; the first request is queued and lands only after
+    /// the caller's whole error path. The data object the manifest will name must still be in the bucket
+    /// when it lands: `Refusal::of_object` took every refusal of the node for proof that nothing landed
+    /// and `Staged::failed` deleted the object of the file (X-DELTA-SYNC7-1, door `bind`). RED on the old
+    /// code: the object is deleted and every read of the file says "its object is missing".
+    #[test]
+    fn x_delta_sync7_1_put_keeps_the_object_when_the_resent_swap_is_refused_and_the_first_request_lands_late(
+    ) {
+        let key = DriveKey::generate().unwrap();
+        let data = MemoryBucket::new();
+        let (meta, bucket, drive) = queued_laptop(&data, &key);
+        meta.answer_next(keys::MANIFEST, Answer::DeniedFirstLands);
+        let put = drive.put("report.txt", REPORT);
+        assert!(
+            matches!(put, Err(DriveError::Denied { .. })),
+            "the caller is told the refusal: {put:?}"
+        );
+        assert_eq!(
+            bucket.deleted(),
+            Vec::<String>::new(),
+            "the object of a change whose first request may still land was deleted on the word of the \
+             repeat's refusal"
+        );
+        assert!(
+            meta.on_its_way(),
+            "the first swap is still queued at the node"
+        );
+        meta.land_now();
+        // The manifest that landed names the file: every device reads it, and its object is there.
+        assert_eq!(
+            phone(&data, &key)
+                .get("report.txt")
+                .expect("the index names the file: its object must still be in the bucket"),
+            REPORT
+        );
+        assert_eq!(drive.get("report.txt").unwrap(), REPORT, "the laptop too");
+        // The upkeep a stale time later finds the journaled object named and clears the entry only.
+        let later = now_unix() + JOURNAL_STALE_SECS + 1;
+        assert_eq!(
+            drive.recover_packs(later).unwrap(),
+            1,
+            "the object was written in the journal of what is in flight"
+        );
+        assert_eq!(
+            bucket.deleted(),
+            Vec::<String>::new(),
+            "a named object is no garbage"
+        );
+        assert_eq!(drive.get("report.txt").unwrap(), REPORT);
+    }
+
+    /// The same at `rewrite` (door 2 of the compensation): the re-encryption of a file whose manifest
+    /// swap is refused for policy by the repeat and lands late must keep the new object the head then
+    /// names.
+    #[test]
+    fn x_delta_sync7_1_rewrite_keeps_the_object_when_the_resent_swap_is_refused_and_the_first_request_lands_late(
+    ) {
+        let key = DriveKey::generate().unwrap();
+        let data = MemoryBucket::new();
+        let (meta, bucket, drive) = queued_laptop(&data, &key);
+        drive.put("a.txt", REPORT).unwrap();
+        let entry = drive.entry("a.txt").unwrap();
+        meta.answer_next(keys::MANIFEST, Answer::DeniedFirstLands);
+        let mut body = Cursor::new(REPORT.to_vec());
+        let rewritten = drive.rewrite(
+            "a.txt",
+            &entry,
+            &mut body,
+            drive.options(),
+            &|_| true,
+            &|| {},
+        );
+        assert!(
+            matches!(rewritten, Err(DriveError::Denied { .. })),
+            "the refusal is handed on"
+        );
+        assert_eq!(
+            bucket.deleted(),
+            Vec::<String>::new(),
+            "the new object of the rewrite was deleted on the word of the repeat's refusal"
+        );
+        meta.land_now();
+        assert_eq!(
+            phone(&data, &key)
+                .get("a.txt")
+                .expect("the head names the new object: it must be in the bucket"),
+            REPORT
+        );
+    }
+
+    /// The same at `promote` (door 3): a packed file moving into an object of its own.
+    #[test]
+    fn x_delta_sync7_1_promote_keeps_the_object_when_the_resent_swap_is_refused_and_the_first_request_lands_late(
+    ) {
+        let key = DriveKey::generate().unwrap();
+        let data = MemoryBucket::new();
+        let (meta, bucket, drive) = queued_laptop(&data, &key);
+        let drive = drive.with_packing(PackOptions::default());
+        drive.write("small.txt", b"small", Expect::Any).unwrap();
+        assert!(drive
+            .entry("small.txt")
+            .unwrap()
+            .object
+            .unwrap()
+            .packed
+            .is_some());
+        meta.answer_next(keys::MANIFEST, Answer::DeniedFirstLands);
+        let promoted = drive.promote("small.txt");
+        assert!(
+            matches!(promoted, Err(DriveError::Denied { .. })),
+            "the refusal is handed on: {promoted:?}"
+        );
+        assert_eq!(
+            bucket.deleted(),
+            Vec::<String>::new(),
+            "the file's own object was deleted on the word of the repeat's refusal"
+        );
+        meta.land_now();
+        assert_eq!(
+            phone(&data, &key)
+                .get("small.txt")
+                .expect("the head names the file's own object: it must be in the bucket"),
+            b"small"
+        );
+    }
+
+    /// The same at the batch of large files (door 4): its error arm took no part in the compensation
+    /// at all - the objects stayed without a word in the journal, which only the journal's upkeep
+    /// finds again. RED on the old code: the upkeep finds nothing in flight (0), where the object the
+    /// late manifest names is waiting for it to be cleared as named (1).
+    #[test]
+    fn x_delta_sync7_1_a_batch_of_large_files_journals_its_objects_when_the_resent_swap_is_refused()
+    {
+        let key = DriveKey::generate().unwrap();
+        let data = MemoryBucket::new();
+        let (meta, bucket, drive) = queued_laptop(&data, &key);
+        let mut body = Cursor::new(REPORT.to_vec());
+        let mut items = vec![BatchStream::new(
+            "big.bin",
+            &mut body as &mut (dyn std::io::Read + Send),
+        )];
+        meta.answer_next(keys::MANIFEST, Answer::DeniedFirstLands);
+        let results = drive.put_from_many(&mut items);
+        assert!(
+            matches!(results[0], Err(DriveError::Denied { .. })),
+            "the refusal is handed on: {:?}",
+            results[0]
+        );
+        assert_eq!(bucket.deleted(), Vec::<String>::new());
+        meta.land_now();
+        assert_eq!(drive.get("big.bin").unwrap(), REPORT);
+        let later = now_unix() + JOURNAL_STALE_SECS + 1;
+        assert_eq!(
+            drive.recover_packs(later).unwrap(),
+            1,
+            "the batch's object was written in the journal of what is in flight, as every other new \
+             object whose change may have landed is"
+        );
+        assert_eq!(
+            drive.get("big.bin").unwrap(),
+            REPORT,
+            "a named object is no garbage"
+        );
+    }
+
+    /// The batch of large files (door 4), the answer that was lost: the swap landed, the read-back
+    /// failed, the index can be asked afterwards and names the objects: the files are written. RED on
+    /// the old code: the error arm told every file "failed" though the head names it.
+    #[test]
+    fn x_delta_sync7_1_a_batch_of_large_files_whose_swap_landed_and_whose_answer_was_lost_is_written(
+    ) {
+        let key = DriveKey::generate().unwrap();
+        let data = MemoryBucket::new();
+        let meta = Arc::new(LostAnswers::new(data.clone()));
+        let drive = laptop(&data, &meta, &key);
+        let mut first = Cursor::new(b"the first large file".to_vec());
+        let mut second = Cursor::new(b"the second large file".to_vec());
+        let mut items = vec![
+            BatchStream::new("one.bin", &mut first as &mut (dyn std::io::Read + Send)),
+            BatchStream::new("two.bin", &mut second as &mut (dyn std::io::Read + Send)),
+        ];
+        // The swap lands and answers as a lost connection; the one read that would tell fails too.
+        meta.lose_next(keys::MANIFEST, Lost::Transport, 1);
+        let results = drive.put_from_many(&mut items);
+        assert!(
+            results.iter().all(Result::is_ok),
+            "the index names both files: {:?}",
+            results.iter().filter_map(|r| r.as_ref().err()).next()
+        );
+        let other = phone(&data, &key);
+        assert_eq!(other.get("one.bin").unwrap(), b"the first large file");
+        assert_eq!(other.get("two.bin").unwrap(), b"the second large file");
     }
 
     #[test]

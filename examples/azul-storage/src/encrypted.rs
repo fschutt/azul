@@ -244,7 +244,11 @@ pub trait NameIndex: Send + Sync {
 
     /// Applies `changes` all together or not at all, in their order (a batch may remove a
     /// path and put another, as a rename does): [`DriveError::Conflict`] naming the path whose
-    /// expectation did not hold, and nothing changed. Returns what the change released
+    /// expectation did not hold, and nothing changed. `Conflict` is the index's own check of the
+    /// expectations against the state it holds and nothing else: a conditional write that was sent
+    /// to a bucket and lost its race, or whose answer was lost, is an unknown outcome (`Transport`,
+    /// `Protocol`) - the caller takes a `Conflict` for "nothing was sent" and takes the new data
+    /// object back out of the bucket (X-DELTA-SYNC7-1). Returns what the change released
     /// ([`Released`]): the objects no state of the drive names any more, for the drive to delete
     /// from the bucket now; an index that keeps history returns those its history still names
     /// instead, and the drive deletes nothing of them.
@@ -418,10 +422,22 @@ impl NameIndex for NamedIndex {
 /// A drive index that is read and never changed: the drive of a device whose own key change stopped between
 /// its R4 and its Members step is opened through it ([`own_rotation_window`]). Every change is refused with
 /// the sentence of the state, before the index could be asked to take it, so nothing is written under a key
-/// that is not the drive's yet.
+/// that is not the drive's yet - and the drive itself refuses every upload with the same sentence
+/// ([`EncryptedDrive::with_changes_refused`]), so no data object goes up for a change nobody takes: a
+/// `Denied` is no proof for the compensation of an object that is already up (X-DELTA-SYNC7-1).
 struct ReadOnlyIndex {
     inner: Arc<dyn NameIndex>,
-    drive: String,
+    refusal: DriveError,
+}
+
+/// The sentence of a drive whose own key change is not finished: its files can be read, not changed.
+fn window_refusal(drive: &str) -> DriveError {
+    DriveError::Denied {
+        message: format!(
+            "the key change of \"{drive}\" that this device began is not finished: its files can be \
+             read here until it is, not changed (run \"I was hacked: new keys\" again to finish it)"
+        ),
+    }
 }
 
 impl NameIndex for ReadOnlyIndex {
@@ -442,13 +458,7 @@ impl NameIndex for ReadOnlyIndex {
     }
 
     fn apply(&self, _changes: Vec<IndexChange>) -> Result<Released, DriveError> {
-        Err(DriveError::Denied {
-            message: format!(
-                "the key change of \"{drive}\" that this device began is not finished: its files can be \
-                 read here until it is, not changed (run \"I was hacked: new keys\" again to finish it)",
-                drive = self.drive
-            ),
-        })
+        Err(self.refusal.clone())
     }
 }
 
@@ -476,11 +486,12 @@ fn own_rotation_window(
     let index = provider
         .open_index_in_window(drive, Arc::clone(bucket), &next, previous)
         .ok()?;
+    let refusal = window_refusal(drive);
     let index: Arc<dyn NameIndex> = Arc::new(ReadOnlyIndex {
         inner: NamedIndex::of(index, drive),
-        drive: drive.to_string(),
+        refusal: refusal.clone(),
     });
-    Some(EncryptedDrive::new(Arc::clone(bucket), next, index))
+    Some(EncryptedDrive::new(Arc::clone(bucket), next, index).with_changes_refused(refusal))
 }
 
 /// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
@@ -1823,21 +1834,25 @@ pub(crate) enum Rewrite {
 pub(crate) enum Settled {
     /// The index names the object: the change landed and only its answer got lost.
     Named,
-    /// The change was refused for good, nothing names the object, and it is out of the bucket
-    /// again.
+    /// The change was never made (the index's own expectation did not hold, or the call was
+    /// stopped before it went out), nothing names the object, and it is out of the bucket again.
     Dropped,
-    /// The object stays in the bucket: the change may have landed (no answer, a service error),
-    /// the index could not be asked, or the bucket would not delete it. An object nothing names
-    /// is garbage at worst; one deleted while the index names it is a file lost.
+    /// The object stays in the bucket, written in the journal of what is in flight: the change may
+    /// have landed (no answer, a service error, a refusal of POLICY - the answer of the last request
+    /// of a write the transport sent again, X-DELTA-SYNC7-1), the index could not be asked, or the
+    /// bucket would not delete it. An object nothing names is garbage at worst; one deleted while
+    /// the index names it is a file lost.
     Kept,
 }
 
 /// A new data object that is in the bucket and that no index entry names yet: the object of a
 /// write between its upload and the index change that is to name it. It ends in one of three
 /// ways, and only the third deletes anything: the index named it ([`Staged::bound`]), or the
-/// change failed ([`Staged::failed`]) and the error says what is known of the change - refused
-/// for good, the object goes; anything else, it stays (AZ-M1: the same flaw was written four
-/// times, at `bind`, `rewrite`, `promote` and `write_large`; X-AR5a-15).
+/// change failed ([`Staged::failed`]) and the error says what is known of the change - never
+/// made (the index's own expectation did not hold, or the call never went out), the object goes;
+/// anything else, a refusal of policy included, it stays and is journaled (AZ-M1: the same flaw
+/// was written four times, at `bind`, `rewrite`, `promote` and `write_large`; X-AR5a-15; and the
+/// refusal of the LAST request of a write sent again is not the fate of the first, X-DELTA-SYNC7-1).
 pub(crate) struct Staged<'d, D: Drive> {
     drive: &'d EncryptedDrive<D>,
     id: ObjectId,
@@ -1860,8 +1875,9 @@ impl<'d, D: Drive> Staged<'d, D> {
     /// The index change that was to name the object ended in `error`. The drive's index is asked
     /// now, from the drive and not from a copy of it, whether the change landed after all (an
     /// answer that got lost); an index that cannot be asked leaves the object where it is. Then
-    /// the error decides ([`drop_new_object_after`]): a change refused for good or never made takes
-    /// the object back out of the bucket; one that may have landed does not.
+    /// the error decides ([`drop_new_object_after`]): a change that was never made takes the object
+    /// back out of the bucket; one that may have landed - and a refusal of policy may be the answer
+    /// of the repeat of a write whose first request lands after this read - does not.
     pub(crate) fn failed(self, error: &DriveError) -> Settled {
         match self.drive.index.get_fresh(&self.path) {
             Ok(Some(entry)) if entry.bucket_object() == Some(self.id) => return Settled::Named,
@@ -1911,6 +1927,9 @@ pub struct EncryptedDrive<D: Drive> {
     /// [`ReclaimMode::Delete`] asks the one gate with ([`EncryptedDrive::retired_delete_gate`]); a
     /// drive without one deletes nothing of what only its history names.
     reclaim_standing: Option<ReclaimStanding>,
+    /// The refusal of a drive whose index takes no change at all ([`own_rotation_window`]): every
+    /// upload of a data object is refused with it before a byte goes up.
+    changes_refused: Option<DriveError>,
 }
 
 impl<D: Drive> fmt::Debug for EncryptedDrive<D> {
@@ -1936,6 +1955,25 @@ impl<D: Drive> EncryptedDrive<D> {
             undeleted: Mutex::new(BTreeSet::new()),
             reclaim: DEFAULT_MODE,
             reclaim_standing: None,
+            changes_refused: None,
+        }
+    }
+
+    /// This drive's index takes no change ([`ReadOnlyIndex`]): every upload is refused with `refusal`, before
+    /// a byte goes up. A data object uploaded for a change the index refuses is an object that stays unless
+    /// the refusal proves nothing was sent (X-DELTA-SYNC7-1), so a drive that knows its index refuses
+    /// everything uploads nothing.
+    #[must_use]
+    pub(crate) fn with_changes_refused(mut self, refusal: DriveError) -> EncryptedDrive<D> {
+        self.changes_refused = Some(refusal);
+        self
+    }
+
+    /// The refusal, when this drive's index takes no change: asked before every upload of a data object.
+    pub(crate) fn refuse_changes(&self) -> Result<(), DriveError> {
+        match &self.changes_refused {
+            Some(refusal) => Err(refusal.clone()),
+            None => Ok(()),
         }
     }
 
@@ -2186,6 +2224,7 @@ impl<D: Drive> EncryptedDrive<D> {
 
     /// Puts a new object's bytes: conditionally where the inner drive can.
     pub(crate) fn put_object(&self, id: &ObjectId, bytes: &[u8]) -> Result<(), DriveError> {
+        self.refuse_changes()?;
         let key = id.bucket_key();
         match self.inner.put_if(&key, bytes, &Precondition::Absent) {
             Ok(_) => Ok(()),
@@ -2223,7 +2262,7 @@ impl<D: Drive> EncryptedDrive<D> {
     }
 
     /// Names the new object in the index (when `expect` holds); takes the object back out of
-    /// the bucket when the index refused for good ([`Staged::failed`]), and deletes what the
+    /// the bucket when the change was never made ([`Staged::failed`]), and deletes what the
     /// index released.
     pub(crate) fn bind(
         &self,
@@ -2386,6 +2425,7 @@ impl<D: Drive> EncryptedDrive<D> {
         mut spool: Spool,
         ctl: &dyn Ctl,
     ) -> Result<(), DriveError> {
+        self.refuse_changes()?;
         if ctl.cancelled() {
             return Err(DriveError::Cancelled);
         }
@@ -2758,9 +2798,19 @@ impl<D: Drive> EncryptedDrive<D> {
                     });
                 }
                 Err(e) => {
-                    // The change may have landed: the objects stay (garbage at worst).
-                    for (i, _, _, _) in &live {
-                        results[*i] = Some(Err(e.clone()));
+                    // The one compensation of every new object ([`Staged::failed`]): the index is
+                    // asked, and an object it names is the change that landed with its answer
+                    // lost; a change that may have landed - a refusal of policy included - leaves
+                    // the objects in the bucket, journaled for the upkeep (garbage at worst); one
+                    // that was never made takes them out again (X-DELTA-SYNC7-1).
+                    for (i, path, entry, _) in &live {
+                        let settled = entry
+                            .object_id()
+                            .map(|id| Staged::new(self, id, path).failed(&e));
+                        results[*i] = Some(match settled {
+                            Some(Settled::Named) => Ok(info_of(path.clone(), entry).etag),
+                            _ => Err(e.clone()),
+                        });
                     }
                     break;
                 }
