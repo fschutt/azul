@@ -1529,6 +1529,7 @@ azdrive-enc-new-drive-not-encrypted = { $why }. The drive was made, but it is no
 azdrive-enc-new-drive-encrypted-elsewhere = { $name } was encrypted on the computer it was bought on. Open it here with an invite from that computer, or with its recovery code: "Unlock with the recovery code…" in its menu.
 azdrive-enc-new-code-old-key = The recovery key of "{ $name }" is for another drive key than this computer holds (probably an old one here): no new code was made and nothing was changed. Join the drive again with a code from a computer that has the current key, or unlock it with its recovery code.
 azdrive-enc-new-code-wrap-moved = The recovery key of "{ $name }" changed while this computer made a new code, so nothing was replaced. Open the drive again to make the code.
+azdrive-enc-new-code-failed = A new recovery code for "{ $name }" was not made: { $why }. The drive is encrypted and your files are not affected; AzDrive makes the code again the next time the drive is opened.
 azdrive-enc-no-token-server-here = The drive's token server is not known here.
 azdrive-enc-cancelling-title = Cancelling the lockdown
 azdrive-enc-cancelling = Signing the cancel with the recovery code…

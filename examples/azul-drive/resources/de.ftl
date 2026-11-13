@@ -1527,6 +1527,7 @@ azdrive-enc-new-drive-not-encrypted = { $why }. Das Laufwerk wurde erstellt, ist
 azdrive-enc-new-drive-encrypted-elsewhere = { $name } wurde auf dem Computer verschlüsselt, auf dem es gekauft wurde. Öffnen Sie es hier mit einer Einladung von diesem Computer oder mit seinem Wiederherstellungscode: „Mit dem Wiederherstellungscode entsperren…“ in seinem Menü.
 azdrive-enc-new-code-old-key = Der Wiederherstellungsschlüssel von „{ $name }“ gehört zu einem anderen Laufwerksschlüssel, als dieser Computer ihn hält (wahrscheinlich ist der hiesige veraltet): Es wurde kein neuer Code erstellt und nichts geändert. Tritt dem Laufwerk mit einem Code von einem Computer mit dem aktuellen Schlüssel erneut bei oder entsperre es mit seinem Wiederherstellungscode.
 azdrive-enc-new-code-wrap-moved = Der Wiederherstellungsschlüssel von „{ $name }“ hat sich geändert, während dieser Computer einen neuen Code erstellte, es wurde also nichts ersetzt. Öffne das Laufwerk erneut, um den Code zu erstellen.
+azdrive-enc-new-code-failed = Ein neuer Wiederherstellungscode für „{ $name }“ wurde nicht erstellt: { $why }. Das Laufwerk ist verschlüsselt und deine Dateien sind nicht betroffen; AzDrive erstellt den Code beim nächsten Öffnen des Laufwerks erneut.
 azdrive-enc-no-token-server-here = Der Tokenserver des Laufwerks ist hier nicht bekannt.
 azdrive-enc-cancelling-title = Die Sperrung wird abgebrochen
 azdrive-enc-cancelling = Der Abbruch wird mit dem Wiederherstellungscode signiert…

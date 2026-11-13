@@ -2727,6 +2727,32 @@ fn setup_marker_undone(
     true
 }
 
+/// A job that began with the setup's marker ([`setup_marked_first`]) and ended in an error: what the window does
+/// to the marker (X-DELTA-KEYS5-6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MarkedJob {
+    /// The drive's setup: nothing was made unless the key is in the keyring - what the drive's cached state
+    /// says, which is `Undecided` until a call decided it ([`setup_marker_undone`]).
+    SetUp { state: EncState },
+    /// A new code for a drive that IS encrypted ([`EncryptionJob::NewCode`]): the sheet is owed whatever came of
+    /// the job, and the next folder that opens makes the code again. The marker stays - whether a listing had
+    /// decided the state when the refusal came back used to decide whether the drive would ever ask for a new
+    /// code again.
+    NewCode,
+}
+
+/// Whether the marker was taken back for the failed `job` of `drive_id` (the caller saves the settings then).
+fn marker_after_failure(
+    job: MarkedJob,
+    states: &mut Vec<crate::recovery_health::RecoveryState>,
+    drive_id: &str,
+) -> bool {
+    match job {
+        MarkedJob::SetUp { state } => setup_marker_undone(states, drive_id, known_with_key(state)),
+        MarkedJob::NewCode => false,
+    }
+}
+
 /// A recovery or a join took the drive's key on this computer. When it is another key than the one
 /// this computer held (`key_changed`: the drive's keys were changed on another computer) the recovery
 /// record of the old key is stale and says so no more ([`RecoveryState::drive_key_changed`]): it
@@ -2945,6 +2971,16 @@ pub(crate) enum EncryptionOutcome {
         new_drive: bool,
         result: Result<Zeroizing<String>, String>,
     },
+    /// A NEW recovery code for a drive whose setup never passed its sheet ([`EncryptionJob::NewCode`]): `Ok`
+    /// its sheet, shown as a new drive's; `Err` the words of what stopped it. Its own outcome and not the
+    /// setup's: a failed NewCode is no failed setup. The drive IS encrypted and its sheet is still owed, so the
+    /// window says the bucket's words as a warning and takes NO marker back - the setup's failure arm said "the
+    /// drive was made, but it is not encrypted yet" and undid the owed-sheet marker unless the cached state said
+    /// the key was in the keyring, which depends on whether a listing finished first (X-DELTA-KEYS5-6).
+    NewCode {
+        drive_id: String,
+        result: Result<Zeroizing<String>, String>,
+    },
     /// The code opened the drive's key on this computer (`Ok(true)`: it is not the key this
     /// computer held before - the drive's keys were changed on another computer).
     Recovered {
@@ -3158,12 +3194,7 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             before,
         } => {
             let result = new_code_job(&auto, &keyring, &RecoveryKdf::fresh, before);
-            // The sheet a new drive's making shows (the four groups, the kit, no migration).
-            EncryptionOutcome::SetUp {
-                drive_id,
-                new_drive: true,
-                result,
-            }
+            EncryptionOutcome::NewCode { drive_id, result }
         }
         EncryptionJob::Totals { azlin_id, auto } => {
             let result = (|| -> Result<(u64, u64), String> {
@@ -3492,6 +3523,11 @@ pub(crate) const NEW_CODE_OLD_KEY: &str = "azdrive-enc-new-code-old-key";
 /// What the window says of a new code that was not made because the drive's recovery wrap changed while
 /// the code was being made: nothing was replaced, and the next open of the drive makes the code again.
 pub(crate) const NEW_CODE_WRAP_MOVED: &str = "azdrive-enc-new-code-wrap-moved";
+
+/// What the window says of a new code that was not made for any other reason - the wrap's head, its read, its
+/// parse or the put failed, or the record could not be written: the bucket's words, and that the drive is
+/// encrypted and the code is made again when the drive is opened next (X-DELTA-KEYS5-6).
+pub(crate) const NEW_CODE_FAILED: &str = "azdrive-enc-new-code-failed";
 
 /// The words of a refusal of the new code's job: a label of the window for the two refusals of the wrap's
 /// own look and put (a wrap of another key, a wrap that moved), the error's text for the rest.
@@ -4314,6 +4350,52 @@ fn adopt_join_key_with(
     (result, invite_left)
 }
 
+/// A setup's or a new code's recovery code is made: the record takes it, the drive's key is registered for a
+/// restore, the code's registration begins and its sheet shows - in place of the busy setup (its window), else
+/// once the dialog showing closed (a paid drive that arrived while the Add drive dialog was open).
+fn code_made_sheet(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    new_drive: bool,
+    code: Zeroizing<String>,
+) {
+    // A drive that held files before its encryption: they move in once the sheet is done - also when a
+    // restart makes a new code for the sheet, which is built as a new drive's otherwise (AZ-K9).
+    let moves = !new_drive
+        || state_of(&s.settings.recovery.drives, drive_id).is_some_and(|state| state.moves_files);
+    crate::recovery::code_made(s, drive_id, &code);
+    if moves {
+        state_mut(&mut s.settings.recovery.drives, drive_id).files_will_move();
+    }
+    crate::save_settings(info, app, s);
+    // this computer made the drive key: its own key is registered for a restore
+    crate::archive::register_device_key(info, app, s, drive_id);
+    // registered while the sheet shows: its kit is offered once the server has it
+    begin_registration(info, app, s, drive_id, &code, None);
+    let sheet = Sheet::new(drive_id, code);
+    let sheet = if moves { sheet } else { sheet.for_new_drive() };
+    s.popup
+        .open_when_free(Popup::Encryption(Dialog::Sheet(sheet)));
+}
+
+/// What the status line says of a NEW code that was not made (`why`, the failure of [`new_code_job`]): the two
+/// refusals of the wrap's own look and put ([`new_code_was_left_unmade`]) in the sentence of their own, every
+/// other failure - the wrap's head, its read, its parse, the put - in the bucket's own words and what happens
+/// next. The drive IS encrypted, so never "the drive was made, but it is not encrypted yet"; the sheet is
+/// still owed, and the next folder that opens makes the code again (X-DELTA-KEYS5-6).
+pub(crate) fn new_code_not_made(why: &str, name: &str) -> Text {
+    if new_code_was_left_unmade(why) {
+        return Text::from(Phrase::new(why).arg("name", name));
+    }
+    Text::from(
+        Phrase::new(NEW_CODE_FAILED)
+            .arg("name", name)
+            .arg("why", t_label(why)),
+    )
+}
+
 /// The UI thread takes a task's answer.
 pub(crate) fn on_outcome(
     info: &mut CallbackInfo,
@@ -4324,6 +4406,7 @@ pub(crate) fn on_outcome(
     // A task that wrote the drive's bucket (its keys, its objects, its index): the space used
     // as its node counts it now.
     if let EncryptionOutcome::SetUp { drive_id, .. }
+    | EncryptionOutcome::NewCode { drive_id, .. }
     | EncryptionOutcome::Recovered { drive_id, .. }
     | EncryptionOutcome::Migrated { drive_id, .. }
     | EncryptionOutcome::Recompressed { drive_id, .. }
@@ -4343,36 +4426,19 @@ pub(crate) fn on_outcome(
             new_code_asked().retain(|d| *d != drive_id);
             result
         } {
-            Ok(code) => {
-                // A drive that held files before its encryption: they move in once the sheet is
-                // done - also when a restart makes a new code for the sheet, which is built as a
-                // new drive's otherwise (AZ-K9).
-                let moves = !new_drive
-                    || state_of(&s.settings.recovery.drives, &drive_id)
-                        .is_some_and(|state| state.moves_files);
-                crate::recovery::code_made(s, &drive_id, &code);
-                if moves {
-                    state_mut(&mut s.settings.recovery.drives, &drive_id).files_will_move();
-                }
-                crate::save_settings(info, app, s);
-                // this computer made the drive key: its own key is registered for a restore
-                crate::archive::register_device_key(info, app, s, &drive_id);
-                // registered while the sheet shows: its kit is offered once the server has it
-                begin_registration(info, app, s, &drive_id, &code, None);
-                let sheet = Sheet::new(&drive_id, code);
-                let sheet = if moves { sheet } else { sheet.for_new_drive() };
-                // In place of the busy setup (its window), else once the dialog showing closed
-                // (a paid drive that arrived while the Add drive dialog was open).
-                s.popup.open_when_free(Popup::Encryption(Dialog::Sheet(sheet)));
-            }
+            Ok(code) => code_made_sheet(info, app, s, &drive_id, new_drive, code),
             Err(why) => {
                 // The marker the job's first step left ([`setup_marker`]) goes again for a drive
                 // that holds no key here: nothing was made.
-                let encrypted_here = s
+                let state = s
                     .slot_index(&drive_id)
                     .and_then(|index| s.slots[index].auto.as_ref())
-                    .is_some_and(|auto| known_with_key(auto.state()));
-                if setup_marker_undone(&mut s.settings.recovery.drives, &drive_id, encrypted_here) {
+                    .map_or(EncState::Undecided, |auto| auto.state());
+                if marker_after_failure(
+                    MarkedJob::SetUp { state },
+                    &mut s.settings.recovery.drives,
+                    &drive_id,
+                ) {
                     crate::save_settings(info, app, s);
                 }
                 if matches!(
@@ -4385,12 +4451,6 @@ pub(crate) fn on_outcome(
                     println!("AZDRIVE_ENCRYPTED_ELSEWHERE {drive_id}");
                     let name = drive_name(s, &drive_id);
                     s.info(Phrase::new(ENCRYPTED_ELSEWHERE).arg("name", name));
-                } else if new_code_was_left_unmade(&why) {
-                    // One sentence, no "the drive is not encrypted yet": the drive IS encrypted and its
-                    // recovery wrap is as it was (X-DELTA-KEYS4-2).
-                    println!("AZDRIVE_NEW_CODE_NOT_MADE {drive_id}: {why}");
-                    let name = drive_name(s, &drive_id);
-                    s.warn(Phrase::new(&why).arg("name", name));
                 } else {
                     let shows_as_dialog = set_up_failure_shows_as_dialog(&why, s.popup.as_ref());
                     let why = t_label(&why);
@@ -4410,6 +4470,33 @@ pub(crate) fn on_outcome(
                 }
             }
         },
+        EncryptionOutcome::NewCode { drive_id, result } => {
+            new_code_asked().retain(|d| *d != drive_id);
+            match result {
+                // The sheet a new drive's making shows (the four groups, the kit, no migration).
+                Ok(code) => code_made_sheet(info, app, s, &drive_id, true, code),
+                Err(why) => {
+                    if matches!(
+                        s.popup.as_ref(),
+                        Some(Popup::Encryption(Dialog::Busy { .. }))
+                    ) {
+                        s.popup.close();
+                    }
+                    // No marker is taken back and no cached state is read: the drive is encrypted, the sheet
+                    // is owed, and the next folder that opens makes the code again (X-DELTA-KEYS5-6).
+                    if marker_after_failure(
+                        MarkedJob::NewCode,
+                        &mut s.settings.recovery.drives,
+                        &drive_id,
+                    ) {
+                        crate::save_settings(info, app, s);
+                    }
+                    println!("AZDRIVE_NEW_CODE_NOT_MADE {drive_id}: {why}");
+                    let name = drive_name(s, &drive_id);
+                    s.warn(new_code_not_made(&why, &name));
+                }
+            }
+        }
         EncryptionOutcome::Recovered { drive_id, result } => match result {
             Ok(key_changed) => {
                 if recovered_with(&mut s.settings.recovery.drives, &drive_id, key_changed) {
@@ -8567,6 +8654,8 @@ mod tests {
         inner: Arc<azul_storage::meta::MemoryBucket>,
         head_fails: bool,
         get_fails: bool,
+        /// The put of the wrap (plain or conditional) fails and writes nothing.
+        put_fails: bool,
         /// Written over the wrap just before the first conditional put of it goes in.
         lands_first: Mutex<Option<Vec<u8>>>,
         /// The writes of the wrap (plain or conditional) the inner bucket took.
@@ -8579,6 +8668,7 @@ mod tests {
                 inner: Arc::clone(inner),
                 head_fails: false,
                 get_fails: false,
+                put_fails: false,
                 lands_first: Mutex::new(None),
                 wrap_writes: std::sync::atomic::AtomicUsize::new(0),
             }
@@ -8611,6 +8701,9 @@ mod tests {
         }
         fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
             if key == azul_storage::crypto::keys::RECOVERY_KEY_FILE {
+                if self.put_fails {
+                    return Err(WrapFaults::cut());
+                }
                 self.wrap_writes.fetch_add(1, Ordering::SeqCst);
             }
             self.inner.put(key, bytes)
@@ -8631,6 +8724,9 @@ mod tests {
             condition: &azul_storage::Precondition,
         ) -> Result<Option<String>, azul_storage::DriveError> {
             if key == azul_storage::crypto::keys::RECOVERY_KEY_FILE {
+                if self.put_fails {
+                    return Err(WrapFaults::cut());
+                }
                 if let Some(other) = self.lands_first.lock().unwrap().take() {
                     self.inner.put(key, &other)?;
                 }
@@ -9234,6 +9330,237 @@ mod tests {
             assert_ne!(said, t("azdrive-drill-not-the-code"), "{locale}");
         }
         crate::l10n::in_english();
+    }
+
+    // ==== X-DELTA-KEYS5-6: a new code's failures are the new code's, not the setup's ====
+
+    /// The words of a NewCode job that failed where the wrap's look and put can: `arrange` sets the fault. The drive
+    /// is made here (its key in the keyring) and its bucket is a [`WrapFaults`]; the job is the production
+    /// `new_code_job`, the reason is the string the outcome carries.
+    fn why_a_new_code_failed(
+        drive: &'static str,
+        arrange: impl FnOnce(&mut WrapFaults, &azul_storage::meta::MemoryBucket),
+    ) -> String {
+        let (keyring, bucket, _old_code) = a_drive_made_here(drive);
+        let mut faults = WrapFaults::over(&bucket);
+        arrange(&mut faults, bucket.as_ref());
+        let wrap = bucket
+            .get(azul_storage::crypto::keys::RECOVERY_KEY_FILE)
+            .unwrap();
+        let faults = Arc::new(faults);
+        let auto = wrap_with(
+            Arc::clone(&keyring),
+            Some(Arc::new(MemoryProvider)),
+            DriveId::named(drive),
+            Arc::clone(&faults) as Arc<dyn Drive>,
+            EncryptionRecord::default(),
+            SlotId::named("slot-1"),
+            &crate::KeyRecords::default(),
+        );
+        let why = new_code_job(&auto, keyring.as_ref(), &cheap_kdf, None)
+            .err()
+            .unwrap_or_else(|| panic!("{drive}: the job must be refused"));
+        assert_eq!(
+            bucket
+                .get(azul_storage::crypto::keys::RECOVERY_KEY_FILE)
+                .unwrap(),
+            wrap,
+            "{drive}: nothing was written over the wrap"
+        );
+        why
+    }
+
+    /// X-DELTA-KEYS5-6 (i): the wrap's head, its read, its parse and the put fail - the failures the look of
+    /// 3e9c143af added to the ones the job always had. Their reason is the outcome's `Err`, and the window used
+    /// the SETUP's arm for it: "<why>. The drive was made, but it is not encrypted yet: Encrypt this drive...",
+    /// for a drive that IS encrypted. The new code's own sentence says the bucket's words, that the drive is
+    /// encrypted and that the code is made again at the next open - in both languages.
+    #[test]
+    fn x_delta_keys5_6_a_failed_look_or_put_of_a_new_code_says_the_buckets_words_and_not_that_the_drive_is_not_encrypted(
+    ) {
+        crate::l10n::in_english();
+        type Arrange = fn(&mut WrapFaults, &azul_storage::meta::MemoryBucket);
+        let cases: [(&'static str, Arrange, &str); 4] = [
+            (
+                "d_k56_head",
+                |f, _| f.head_fails = true,
+                "the connection was cut",
+            ),
+            (
+                "d_k56_read",
+                |f, _| f.get_fails = true,
+                "the connection was cut",
+            ),
+            (
+                "d_k56_parse",
+                |_, bucket| {
+                    bucket
+                        .put(
+                            azul_storage::crypto::keys::RECOVERY_KEY_FILE,
+                            b"this is no recovery key file",
+                        )
+                        .unwrap();
+                },
+                "",
+            ),
+            (
+                "d_k56_put",
+                |f, _| f.put_fails = true,
+                "the connection was cut",
+            ),
+        ];
+        for (drive, arrange, words) in cases {
+            let why = why_a_new_code_failed(drive, arrange);
+            assert!(
+                !new_code_was_left_unmade(&why),
+                "{drive}: not one of the two refusals with a sentence of their own: {why}"
+            );
+            assert!(why.contains(words), "{drive}: {why}");
+            let said = new_code_not_made(&why, "Photos");
+            assert_eq!(said.keys(), [NEW_CODE_FAILED], "{drive}");
+            let phrase = said
+                .phrase(NEW_CODE_FAILED)
+                .expect("the new code's sentence");
+            assert_eq!(phrase.get("name"), Some(&Arg::from("Photos")), "{drive}");
+            assert_eq!(
+                phrase.get("why"),
+                Some(&Arg::from(why.as_str())),
+                "{drive}: the bucket's words"
+            );
+            for (locale, encrypted, not_yet) in [
+                ("en-US", "The drive is encrypted", "not encrypted yet"),
+                (
+                    "de-DE",
+                    "Das Laufwerk ist verschlüsselt",
+                    "noch nicht verschlüsselt",
+                ),
+            ] {
+                azul_appkit::l10n::set_locale(locale);
+                let line = t_text(&said);
+                assert!(line.contains("Photos"), "{drive} {locale}: {line}");
+                assert!(line.contains(&why), "{drive} {locale}: {line}");
+                assert!(line.contains(encrypted), "{drive} {locale}: {line}");
+                assert!(!line.contains(not_yet), "{drive} {locale}: {line}");
+            }
+            crate::l10n::in_english();
+        }
+    }
+
+    /// X-DELTA-KEYS5-6, what stays: the two refusals of the wrap's own look and put keep the sentence of their
+    /// own (the drive's name in it), whatever the wording of the others.
+    #[test]
+    fn x_delta_keys5_6_the_two_refusals_keep_their_own_sentence() {
+        for label in [NEW_CODE_OLD_KEY, NEW_CODE_WRAP_MOVED] {
+            let said = new_code_not_made(label, "Photos");
+            assert_eq!(said.keys(), [label]);
+            assert_eq!(
+                said.phrase(label).and_then(|phrase| phrase.get("name")),
+                Some(&Arg::from("Photos"))
+            );
+        }
+    }
+
+    /// X-DELTA-KEYS5-6 through `run`, the function the worker thread runs: the NewCode job answers its OWN
+    /// outcome - the setup's arm would undo the marker and say "not encrypted yet" - and the failure that
+    /// stopped it before any key derivation (the wrap's head) is its `Err`.
+    #[test]
+    fn x_delta_keys5_6_the_new_code_job_answers_its_own_outcome() {
+        let drive = "x-delta-keys5-6-run";
+        let keyring = azlin_keyring(Asking::User);
+        let bucket = Arc::new(azul_storage::meta::MemoryBucket::new());
+        device::setup_new_drive(bucket.as_ref(), &keyring, drive, cheap_kdf().unwrap()).unwrap();
+        let mut faults = WrapFaults::over(&bucket);
+        faults.head_fails = true;
+        let auto = Arc::new(AutoEncrypted::new(
+            Arc::new(faults),
+            drive,
+            Arc::new(azlin_keyring(Asking::User)),
+            Some(Arc::new(MemoryProvider)),
+        ));
+        match run(EncryptionJob::NewCode {
+            drive_id: drive.to_string(),
+            auto,
+            before: None,
+        }) {
+            EncryptionOutcome::NewCode {
+                drive_id,
+                result: Err(why),
+            } => {
+                assert_eq!(drive_id, drive);
+                assert!(why.contains("the connection was cut"), "{why}");
+            }
+            EncryptionOutcome::SetUp { .. } => {
+                panic!("the setup's outcome: its failure arm undoes the owed-sheet marker")
+            }
+            _ => panic!("the NewCode job answers NewCode, and here an error"),
+        }
+    }
+
+    /// X-DELTA-KEYS5-6 (ii): the owed-sheet marker. A failed NewCode leaves it, whatever the drive's cached state
+    /// is when the refusal comes back - a HEAD and a GET are fast, so whether a listing finished first and decided
+    /// the state used to decide whether `code_made` was cleared and saved, and the drive never asked for a new
+    /// code again. The setup's failure keeps its rule (the same call on the same record, state `Undecided`, takes
+    /// the marker back: nothing was made).
+    #[test]
+    fn x_delta_keys5_6_a_failed_new_code_leaves_the_owed_sheet_marker_whatever_the_cached_state_says(
+    ) {
+        use azul_storage::trust::Why;
+        let drive = "d_k56_marker";
+        let owed = || {
+            let mut state = crate::recovery_health::RecoveryState::new(drive);
+            state.code_made(100, None);
+            vec![state]
+        };
+        assert_eq!(
+            unfinished_setup(state_of(&owed(), drive), false),
+            UnfinishedSetup::NewCode,
+            "premise: the sheet is owed, and the next folder that opens makes a code"
+        );
+        let states_of_the_drive = [
+            EncState::Undecided,
+            EncState::Encrypted {
+                key_id: None,
+                via: Via::KeyInKeyring,
+            },
+            EncState::Encrypted {
+                key_id: None,
+                via: Via::Record,
+            },
+            EncState::SetupPending,
+            EncState::Unencrypted(Why::New),
+        ];
+        // The setup's rule, on the state a listing had not decided yet: the marker goes.
+        let mut after_a_setup = owed();
+        assert!(marker_after_failure(
+            MarkedJob::SetUp {
+                state: EncState::Undecided
+            },
+            &mut after_a_setup,
+            drive
+        ));
+        assert_eq!(
+            unfinished_setup(state_of(&after_a_setup, drive), false),
+            UnfinishedSetup::Nothing,
+            "what the setup's arm did to a new code's marker: the drive never asked again"
+        );
+        // A new code's: never, in any state.
+        for state in states_of_the_drive {
+            let mut states = owed();
+            assert!(
+                !marker_after_failure(MarkedJob::NewCode, &mut states, drive),
+                "{state:?}: nothing to save"
+            );
+            assert_eq!(states, owed(), "{state:?}: the record is as it was");
+            assert_eq!(
+                unfinished_setup(state_of(&states, drive), known_without_key(state)),
+                if known_without_key(state) {
+                    UnfinishedSetup::Nothing
+                } else {
+                    UnfinishedSetup::NewCode
+                },
+                "{state:?}: the guard decides at the next open as it did before the failure"
+            );
+        }
     }
 
     /// X-DELTA-KEYS4-2, what the window says: the two refusals are labels with a sentence of their own in
