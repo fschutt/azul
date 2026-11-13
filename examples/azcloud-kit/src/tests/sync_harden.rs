@@ -1800,7 +1800,7 @@ fn x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds() {
 }
 
 /// The control of the test above, at the same size (a file, one read): a process that reads the file
-/// - root's case, made here with a mode that lets the owner read it - fails the run with the words
+/// (root's case, made here with a mode that lets the owner read it) fails the run with the words
 /// of the loud test, so the loud test is red under root and not only green without it.
 #[cfg(unix)]
 #[test]
