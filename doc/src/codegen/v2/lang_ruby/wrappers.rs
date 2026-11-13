@@ -64,6 +64,50 @@ fn class_fn<'a>(ir: &'a CodegenIR, class: &str, kind: FunctionKind) -> Option<&'
         .find(|f| f.class_name == class && f.kind == kind)
 }
 
+/// An Option mirror the Ruby surface shows as `nil` / the value: a parameter
+/// or field setter takes either (`Azul._opt_in`), a getter gives either
+/// (`to_opt`, which every Option struct has).
+struct RbOpt {
+    native: String,
+    none_fn: String,
+    some_fn: String,
+    map: &'static str,
+}
+
+fn ruby_option(t: &str, ir: &CodegenIR) -> Option<RbOpt> {
+    let t = t.trim();
+    let payload = ir.option_payload(t)?;
+    if super::managed::is_refany_type_name(payload, ir)
+        || super::super::managed_host_invoker::is_callback_wrapper(ir, payload)
+    {
+        return None;
+    }
+    let none = ir.variant_constructor(t, "None")?;
+    let some = ir.variant_constructor(t, "Some")?;
+    let map = if super::types::ruby_payload_is_string(payload, ir) {
+        "->(v) { Azul._az_string(v) }"
+    } else if super::types::ruby_payload_has_wrapper(payload, ir) {
+        "->(v) { Azul._own(v) }"
+    } else {
+        "->(v) { v }"
+    };
+    Some(RbOpt {
+        native: format!("Native::Az{}", t),
+        none_fn: ruby_attach_name(&none.c_name),
+        some_fn: ruby_attach_name(&some.c_name),
+        map,
+    })
+}
+
+impl RbOpt {
+    fn into_raw(&self, value: &str) -> String {
+        format!(
+            "Azul._opt_in({}, :{}, :{}, {}, {})",
+            self.native, self.none_fn, self.some_fn, value, self.map
+        )
+    }
+}
+
 /// Ruby attach name of the `kind` export on `class`, if the IR has one.
 fn class_fn_rb(ir: &CodegenIR, class: &str, kind: FunctionKind) -> Option<String> {
     class_fn(ir, class, kind).map(|f| ruby_attach_name(&f.c_name))
@@ -105,13 +149,16 @@ pub fn emit_wrappers(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Codegen
     // Constant owners that did get a class: the leftover pass below only has
     // to invent a module for the ones that did not.
     let mut constant_owners_emitted: BTreeSet<String> = BTreeSet::new();
+    // Every class this pass emits: a field of one of these types reads as a
+    // view of that class (`emit_field_accessors`).
+    let wrapper_names = ruby_wrapper_names(ir, config);
 
     for s in &ir.structs {
         if !should_emit_struct(s, config) {
             continue;
         }
         let target = WrapperTarget::Struct(s);
-        if !delete_set.contains(s.name.as_str()) && !has_idiomatic_surface(&target, ir) {
+        if !struct_gets_wrapper(s, ir, &delete_set) {
             // POD struct with no exports of its own: a class here would be an
             // empty shell. Point at the FFI::Struct and move on.
             builder.line(&format!(
@@ -121,49 +168,57 @@ pub fn emit_wrappers(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Codegen
             ));
             continue;
         }
-        emit_class_wrapper(builder, target, ir, config, &mut constant_owners_emitted);
+        emit_class_wrapper(builder, target, ir, config, &wrapper_names, &mut constant_owners_emitted);
         builder.blank();
     }
 
     for e in &ir.enums {
-        if !should_emit_enum(e, config) {
-            continue;
-        }
-        // A unit enum is an integer at the C ABI; `Azul::<Enum>::<Variant>`
-        // already reaches every value of it.
-        if !e.is_union {
-            continue;
-        }
-        if matches!(e.category, TypeCategory::DestructorOrClone) {
+        if !enum_gets_wrapper(e, ir, config) {
             continue;
         }
         let target = WrapperTarget::Enum(e);
-        if !has_idiomatic_surface(&target, ir) {
-            continue;
-        }
-        emit_class_wrapper(builder, target, ir, config, &mut constant_owners_emitted);
+        emit_class_wrapper(builder, target, ir, config, &wrapper_names, &mut constant_owners_emitted);
         builder.blank();
     }
 
     for ta in &ir.type_aliases {
-        if ta.monomorphized_def.is_none() || !config.should_include_type(&ta.name) {
-            continue;
-        }
-        // An alias that resolves to a definition of its own name would
-        // produce a second class for the same type; the struct/enum loops
-        // above own those.
-        if ir.find_struct(&ta.name).is_some() || ir.find_enum(&ta.name).is_some() {
+        if !alias_gets_wrapper(ta, ir, config) {
             continue;
         }
         let target = WrapperTarget::Alias(ta);
-        if !has_idiomatic_surface(&target, ir) {
-            continue;
-        }
-        emit_class_wrapper(builder, target, ir, config, &mut constant_owners_emitted);
+        emit_class_wrapper(builder, target, ir, config, &wrapper_names, &mut constant_owners_emitted);
         builder.blank();
     }
 
     emit_orphan_constant_modules(builder, ir, &constant_owners_emitted);
+}
+
+/// A struct the pass emits a class for (after `should_emit_struct`): it owns
+/// heap memory or has exports / constants of its own. A POD struct with
+/// neither would be an empty shell.
+fn struct_gets_wrapper(s: &StructDef, ir: &CodegenIR, delete_set: &BTreeSet<&str>) -> bool {
+    delete_set.contains(s.name.as_str()) || has_idiomatic_surface(&WrapperTarget::Struct(s), ir)
+}
+
+/// A tagged union with exports of its own. A unit enum is an integer at the
+/// C ABI (`Azul::<Enum>::<Variant>` already reaches every value of it), and
+/// the `DestructorOrClone` tags are never something Ruby code handles.
+fn enum_gets_wrapper(e: &EnumDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+    should_emit_enum(e, config)
+        && e.is_union
+        && !matches!(e.category, TypeCategory::DestructorOrClone)
+        && has_idiomatic_surface(&WrapperTarget::Enum(e), ir)
+}
+
+/// A monomorphized alias with exports of its own. An alias that resolves to
+/// a definition of its own name would produce a second class for the same
+/// type; the struct/enum loops own those.
+fn alias_gets_wrapper(ta: &TypeAliasDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+    ta.monomorphized_def.is_some()
+        && config.should_include_type(&ta.name)
+        && ir.find_struct(&ta.name).is_none()
+        && ir.find_enum(&ta.name).is_none()
+        && has_idiomatic_surface(&WrapperTarget::Alias(ta), ir)
 }
 
 // ============================================================================
@@ -265,6 +320,7 @@ fn emit_class_wrapper(
     target: WrapperTarget,
     ir: &CodegenIR,
     config: &CodegenConfig,
+    wrapper_names: &BTreeSet<String>,
     constant_owners_emitted: &mut BTreeSet<String>,
 ) {
     let class_name = target.name();
@@ -507,6 +563,14 @@ fn emit_class_wrapper(
     // trip into libazul.
     emit_rb_default_alias(builder, class_name, ir, &mut emitted_names);
 
+    // Typed field accessors, after the methods so an api.json method of
+    // the same name keeps its name (the setter is still emitted).
+    if let Some(s) = target.struct_def() {
+        if emit_field_accessors(builder, s, ir, config, wrapper_names, &mut emitted_names) {
+            emitted_any_method = true;
+        }
+    }
+
     if !emitted_any_method {
         builder.line("# (no public methods exposed)");
     }
@@ -530,6 +594,222 @@ fn emit_class_wrapper(
 
     builder.dedent();
     builder.line(&format!("end # class {}", class_name));
+}
+
+/// Methods every Ruby object already answers that a field getter must not
+/// shadow (`checkbox.class`, `opts.hash`, ...). The setter (`name=`) is
+/// still emitted; the field also stays reachable through `with(name: v)`.
+const RUBY_OBJECT_METHODS: &[&str] = &[
+    "class", "hash", "clone", "dup", "display", "method", "methods", "send", "object_id",
+    "inspect", "to_s", "freeze", "frozen?", "then", "tap", "extend", "is_a?", "nil?", "ptr",
+    "with", "each", "initialize", "finalize", "instance_variables", "public_send", "itself",
+    "format", "print", "puts", "p", "raise", "loop", "sleep", "exit", "abort", "binding", "lambda",
+    "proc", "require", "load", "fail", "catch", "throw", "open", "select", "system", "trap",
+    "test", "caller", "rand", "srand", "gets", "sprintf", "printf", "putc", "readline",
+    "readlines", "spawn", "warn", "fork", "exec",
+];
+
+/// The names that get an idiomatic Ruby class: exactly the targets
+/// `emit_wrappers` collects (a field of one of these types reads as a view
+/// of that class).
+fn ruby_wrapper_names(ir: &CodegenIR, config: &CodegenConfig) -> BTreeSet<String> {
+    let delete_set = collect_delete_targets(ir);
+    let structs = ir
+        .structs
+        .iter()
+        .filter(|s| should_emit_struct(s, config) && struct_gets_wrapper(s, ir, &delete_set))
+        .map(|s| s.name.clone());
+    let enums = ir
+        .enums
+        .iter()
+        .filter(|e| enum_gets_wrapper(e, ir, config))
+        .map(|e| e.name.clone());
+    let aliases = ir
+        .type_aliases
+        .iter()
+        .filter(|ta| alias_gets_wrapper(ta, ir, config))
+        .map(|ta| ta.name.clone());
+    structs.chain(enums).chain(aliases).collect()
+}
+
+/// `name` / `name=` for every public field of a struct wrapper (the shared
+/// contract in `field_access`):
+///
+/// - a scalar (`bool`, numbers, unit enums) reads and writes in place;
+/// - the String class reads as a Ruby String, decoded without consuming
+///   the field; its setter releases the old string, then copies a Ruby
+///   String in (or moves an `Azul::String` in);
+/// - a struct / union field reads as a LIVE VIEW (`Azul._view`): a wrapper
+///   over the parent's memory, with no finalizer, so nested writes reach the
+///   parent: `opts.window_state.title = 'Hello'` and
+///   `opts.window_state.size.dimensions.width = 800.0` change `opts`.
+///   `.clone` on a view gives an independent copy. A field type without a
+///   Ruby class reads as the raw `Native::Az*` view (POD only);
+/// - its setter takes the new value first (`Azul._own`: a wrapper is
+///   moved, a view deep-copied), releases the old value through
+///   `Az<T>_delete` when the type owns heap memory, writes the new bytes,
+///   then disarms the moved wrapper (`Azul._consume`).
+///
+/// An api.json method (or an `Object` method) of the same name keeps its
+/// name: only the getter is dropped. Returns whether anything was emitted.
+fn emit_field_accessors(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    wrapper_names: &BTreeSet<String>,
+    emitted_names: &mut BTreeSet<String>,
+) -> bool {
+    use super::super::field_access::{accessible_fields, FieldShape};
+    let mut emitted = false;
+    for (f, shape) in accessible_fields(s, ir, config) {
+        let key = super::types::ruby_field_name(&f.name);
+        let method = ruby_accessor_name(&key);
+        // An Option field reads as nil / the value (a copy) and is written from
+        // nil / the value.
+        if let Some(o) = ruby_option(&f.type_name, ir) {
+            let t = f.type_name.trim();
+            let copy = match class_fn_rb(ir, t, FunctionKind::DeepCopy) {
+                Some(c) => format!("Native.{}(Azul._fields(self)[:{}].to_ptr)", c, key),
+                None => format!("Azul._fields(self)[:{}]", key),
+            };
+            if !RUBY_OBJECT_METHODS.contains(&method.as_str()) && emitted_names.insert(method.clone()) {
+                builder.line(&format!("# The `{}` field: nil when it is None, else a copy of the value.", f.name));
+                builder.line(&format!("def {}", method));
+                builder.indent();
+                builder.line(&format!("{}.to_opt", copy));
+                builder.dedent();
+                builder.line("end");
+                builder.blank();
+                emitted = true;
+            }
+            let setter = format!("{}=", method);
+            if emitted_names.insert(setter.clone()) {
+                builder.line(&format!(
+                    "# Replaces the `{}` field with nil (None) or a value; the old value is released.",
+                    f.name
+                ));
+                builder.line(&format!("def {}(value)", setter));
+                builder.indent();
+                builder.line("_s = Azul._fields(self)");
+                builder.line(&format!("_v = {}", o.into_raw("value")));
+                if let Some(d) = class_fn_rb(ir, t, FunctionKind::Delete) {
+                    builder.line(&format!("Native.{}(_s[:{}])", d, key));
+                }
+                builder.line(&format!("_s[:{}] = _v", key));
+                builder.line("Azul._consume(value)");
+                builder.dedent();
+                builder.line("end");
+                builder.blank();
+                emitted = true;
+            }
+            continue;
+        }
+        let doc = f
+            .doc
+            .as_deref()
+            .and_then(|d| d.lines().map(str::trim).find(|l| !l.is_empty()))
+            .map(|l| format!(" {}", l.replace('\n', " ")))
+            .unwrap_or_default();
+        // Getter.
+        let getter = match &shape {
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => {
+                format!("Azul._fields(self)[:{}]", key)
+            }
+            FieldShape::Str { .. } => format!("Azul._read_string(Azul._fields(self)[:{}])", key),
+            FieldShape::Value { name, .. } if wrapper_names.contains(name) => {
+                format!("Azul._view({}, self, :{})", name, key)
+            }
+            FieldShape::Value { .. } => format!("Azul._fields(self)[:{}]", key),
+        };
+        if !RUBY_OBJECT_METHODS.contains(&method.as_str()) && emitted_names.insert(method.clone()) {
+            match &shape {
+                FieldShape::Value { .. } => builder.line(&format!(
+                    "# A live view of the `{}` field (writes reach this object; `.clone` copies it).{}",
+                    f.name, doc
+                )),
+                FieldShape::Str { .. } => builder.line(&format!(
+                    "# The `{}` field as a Ruby String (a decoded copy).{}",
+                    f.name, doc
+                )),
+                _ => builder.line(&format!("# The `{}` field.{}", f.name, doc)),
+            }
+            builder.line(&format!("def {}", method));
+            builder.indent();
+            builder.line(&getter);
+            builder.dedent();
+            builder.line("end");
+            builder.blank();
+            emitted = true;
+        }
+        // Setter.
+        let setter = format!("{}=", method);
+        if !emitted_names.insert(setter.clone()) {
+            continue;
+        }
+        match &shape {
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => {
+                builder.line(&format!("# Sets the `{}` field.", f.name));
+                builder.line(&format!("def {}(value)", setter));
+                builder.indent();
+                builder.line(&format!("Azul._fields(self)[:{}] = value", key));
+                builder.dedent();
+                builder.line("end");
+            }
+            FieldShape::Str { name, delete } | FieldShape::Value { name, delete: Some(delete), .. } => {
+                let is_str = matches!(shape, FieldShape::Str { .. });
+                builder.line(&format!(
+                    "# Replaces the `{}` field: the old value is released, the new one moved in{}.",
+                    f.name,
+                    if is_str { " (a Ruby String is copied)" } else { "" }
+                ));
+                builder.line(&format!("def {}(value)", setter));
+                builder.indent();
+                builder.line("_s = Azul._fields(self)");
+                if is_str {
+                    builder.line(
+                        "_v = value.is_a?(::String) ? Azul._az_string(value) : Azul._own(value)",
+                    );
+                } else {
+                    builder.line("_v = Azul._own(value)");
+                }
+                let native = config.apply_prefix(name);
+                builder.line(&format!(
+                    "raise TypeError, '{}= expects {}' unless _v.is_a?(Native::{})",
+                    method, name, native
+                ));
+                builder.line(&format!(
+                    "Native.{}(_s[:{}])",
+                    ruby_attach_name(&delete.c_name),
+                    key
+                ));
+                builder.line(&format!("_s[:{}] = _v", key));
+                builder.line("Azul._consume(value)");
+                builder.dedent();
+                builder.line("end");
+            }
+            FieldShape::Value { name, .. } => {
+                // Owns no heap memory: a plain copy in, nothing to release
+                // and nothing to disarm.
+                builder.line(&format!("# Sets the `{}` field (a copy of `value`).", f.name));
+                builder.line(&format!("def {}(value)", setter));
+                builder.indent();
+                builder.line("_v = Azul._own(value)");
+                builder.line(&format!(
+                    "raise TypeError, '{}= expects {}' unless _v.is_a?(Native::{})",
+                    method,
+                    name,
+                    config.apply_prefix(name)
+                ));
+                builder.line(&format!("Azul._fields(self)[:{}] = _v", key));
+                builder.dedent();
+                builder.line("end");
+            }
+        }
+        builder.blank();
+        emitted = true;
+    }
+    emitted
 }
 
 /// Phase I.1.6 (Ruby): if this wrapper's underlying struct matches the
@@ -628,7 +908,7 @@ fn emit_rb_each_if_vec(
 
 /// Vec-shape detector mirroring lang_haskell::types::detect_vec_elem_type.
 fn detect_vec_elem_type(s: &StructDef) -> Option<String> {
-    if s.fields.len() != 4 {
+    if !crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str())) {
         return None;
     }
     let f_ptr = &s.fields[0];
@@ -1067,11 +1347,12 @@ fn emit_method(
     // Names of args we should mark consumed after the C call: owned-by-
     // value wrapper-class instances. The C side moves them; the
     // wrapper's `ObjectSpace` finalizer must not fire on the now-
-    // transferred memory. Skipped:
+    // transferred memory. Owned `String` args are included: a Ruby
+    // String is COPIED by `_az_string` (`_consume` on it is a no-op), an
+    // `Azul::String` wrapper is MOVED (`_az_string` -> `_own`) and must be
+    // disarmed like any other. Skipped:
     //   * callback args — already replaced by FFI::Struct values via
     //     `_register_callback`, not wrappers;
-    //   * Owned `String` args — `_az_string` COPIES the Ruby bytes, the
-    //     Ruby String is never moved (and `_consume` on it is a no-op);
     //   * RefAny args — passed to C as a CLONE (see `arg_pass_expr`), so
     //     the caller's wrapper keeps its own refcount and stays usable.
     let consumed_names: Vec<String> = visible_args
@@ -1080,7 +1361,6 @@ fn emit_method(
         .filter(|(a, _)| {
             a.callback_info.is_none()
                 && matches!(a.ref_kind, ArgRefKind::Owned)
-                && !is_az_string_owned_arg(a, ir)
                 && !is_refany_arg(a, ir)
         })
         .map(|(_, n)| n.clone())
@@ -1096,7 +1376,13 @@ fn emit_method(
         builder.indent();
         emit_callback_register_lines(builder, &visible_args, &arg_names);
         emit_refany_wrap_lines(builder, &visible_args, &arg_names, ir);
-        let mut call_args = vec!["@ptr".to_string()];
+        // A by-value receiver is moved like any by-value argument (a field
+        // view moves a deep copy, see `Azul._own`).
+        let mut call_args = vec![if self_is_owned {
+            "Azul._own(self)".to_string()
+        } else {
+            "@ptr".to_string()
+        }];
         for (name, a) in arg_names.iter().zip(visible_args.iter()) {
             call_args.push(arg_pass_expr(a, name, ir));
         }
@@ -1229,6 +1515,11 @@ fn arg_pass_expr(a: &FunctionArg, name: &str, ir: &CodegenIR) -> String {
     if a.callback_info.is_some() {
         return name.to_string();
     }
+    if matches!(a.ref_kind, ArgRefKind::Owned) {
+        if let Some(o) = ruby_option(&a.type_name, ir) {
+            return o.into_raw(name);
+        }
+    }
     if is_az_string_owned_arg(a, ir) {
         return format!("Azul._az_string({})", name);
     }
@@ -1236,6 +1527,12 @@ fn arg_pass_expr(a: &FunctionArg, name: &str, ir: &CodegenIR) -> String {
         if let Some(clone_rb) = class_fn_rb(ir, a.type_name.trim(), FunctionKind::DeepCopy) {
             return format!("Native.{}({}.ptr)", clone_rb, name);
         }
+    }
+    // A by-value wrapper is MOVED: `_own` hands over its struct (the
+    // caller then `_consume`s it) - or, for a field view, a deep copy, so
+    // the view's owner keeps its field. Raw values pass through.
+    if matches!(a.ref_kind, ArgRefKind::Owned) {
+        return format!("Azul._own({})", name);
     }
     unwrap_expr(name)
 }
@@ -1393,15 +1690,10 @@ fn emit_method_body_static(
 /// Emit the "self was moved into the C call" epilogue: undefine the
 /// wrapper's finalizer (so it can't double-free the transferred struct)
 /// and nil out `@ptr` (so later use fails visibly instead of passing a
-/// dangling struct back into the FFI).
+/// dangling struct back into the FFI). `Azul._consume` does both - and
+/// leaves a field view alone (it moved a copy; its owner keeps the field).
 fn emit_self_disarm(builder: &mut CodeBuilder) {
-    builder.line("begin");
-    builder.indent();
-    builder.line("ObjectSpace.undefine_finalizer(self)");
-    builder.dedent();
-    builder.line("rescue StandardError");
-    builder.line("end");
-    builder.line("@ptr = nil");
+    builder.line("Azul._consume(self)");
 }
 
 /// If `func`'s plain return type has an emitted Ruby wrapper class
@@ -1489,6 +1781,22 @@ fn ruby_arg_name(name: &str) -> String {
         format!("{}_", snake)
     } else {
         snake
+    }
+}
+
+/// The accessor method of the struct field whose FFI name is `key`. The
+/// FFI symbol keeps the name; a method named `_1` .. `_9` (a tuple struct's
+/// fields) is a syntax error since Ruby 3.4, which reserves those for the
+/// numbered block parameters, so it gets the keywords' trailing `_`.
+fn ruby_accessor_name(key: &str) -> String {
+    let numbered = key.len() == 2
+        && key.starts_with('_')
+        && key.as_bytes()[1].is_ascii_digit()
+        && key != "_0";
+    if numbered {
+        format!("{}_", key)
+    } else {
+        key.to_string()
     }
 }
 

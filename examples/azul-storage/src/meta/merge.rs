@@ -1,0 +1,414 @@
+//! Three-way merge of drive trees, and the conflicts it finds (D52).
+//!
+//! Per path, against the merge base: what changed on one side only is taken;
+//! what changed the same way on both is taken once; two folders changed on
+//! both sides are merged entry by entry (unchanged subtrees are never read).
+//! What is left is a conflict, and a conflict is about files, never about
+//! their bytes (the files are pointer files to encrypted objects):
+//!
+//! - **both changed** (or both added) a file differently;
+//! - **changed and deleted**: one side changed it, the other deleted it;
+//! - **file and folder**: a file on one side, a folder of that name on the other.
+//!
+//! The caller decides each one ([`Resolution`]): keep mine, take theirs, or keep
+//! both. Keeping both leaves theirs at the path (the other devices see it
+//! there already) and puts mine next to it as `name (conflict, <device>).ext`;
+//! for "changed and deleted" it keeps the changed one. An unattended sync keeps
+//! both ([`keep_both`]).
+
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+
+use super::{
+    objects::{Mode, ObjectId, Objects, Tree, TreeEntry},
+    shard, MetaError,
+};
+
+/// One side's entry at a path: what it is and its id.
+pub type Side = Option<(Mode, ObjectId)>;
+
+/// What kind of conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictKind {
+    /// Both sides changed (or added) the file differently.
+    BothChanged,
+    /// One side changed it, the other deleted it.
+    ChangedAndDeleted,
+    /// A file on one side, a folder of the same name on the other.
+    FileAndFolder,
+}
+
+/// A path both sides changed in different ways.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conflict {
+    /// From the root, `/`-separated.
+    pub path: String,
+    pub kind: ConflictKind,
+    pub base: Side,
+    pub mine: Side,
+    pub theirs: Side,
+}
+
+/// How a conflict is resolved: "Someone changed this file" - keep mine / take
+/// theirs / keep both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resolution {
+    KeepMine,
+    TakeTheirs,
+    KeepBoth,
+}
+
+/// A conflict and what became of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    pub conflict: Conflict,
+    pub resolution: Resolution,
+    /// Where "keep both" put the other version, from the root.
+    pub copy: Option<String>,
+}
+
+/// The merged tree and the conflicts on the way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Merged {
+    pub tree: ObjectId,
+    pub conflicts: Vec<Resolved>,
+}
+
+/// The resolution of an unattended sync: keep both.
+#[must_use]
+pub fn keep_both(_: &Conflict) -> Resolution {
+    Resolution::KeepBoth
+}
+
+/// The longest a device's name is in a copy's name, in bytes.
+const DEVICE_MAX: usize = 64;
+
+/// The longest an extension may be: what follows the last dot of a longer name is part of its stem.
+const EXTENSION_MAX: usize = 32;
+
+/// `text` cut to at most `budget` bytes, at a character.
+fn cut_to(text: &str, budget: usize) -> &str {
+    let mut end = budget.min(text.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// `stem` without the label of a conflict copy at its end (` (conflict, Laptop)`), as often as there
+/// is one: a copy of a copy is made from the name of the file the first copy was made of. A stem that
+/// is nothing but a label stays as it is.
+fn without_conflict_label(mut stem: &str) -> &str {
+    const OPEN: &str = " (conflict, ";
+    while let Some(inner) = stem.strip_suffix(')') {
+        match inner.rfind(OPEN) {
+            Some(at) if at > 0 => stem = &inner[..at],
+            _ => break,
+        }
+    }
+    stem
+}
+
+/// `report (conflict, Laptop).docx` for `report.docx`; `notes (conflict,
+/// Laptop)` for `notes`; a leading dot is not an extension (`.profile
+/// (conflict, Laptop)`). Characters a name cannot hold are dropped from the
+/// device's name. A copy of a copy is made from the name of the file the first copy was made of
+/// (`report (conflict, Phone).docx`, never `report (conflict, Laptop) (conflict, Phone).docx`), and
+/// the name is cut at a character to one name's length, 255 bytes, at most: a name past it is none
+/// a folder holds (X-DELTA-EDGE-4: the folder sync's copies grew a label a level and failed their
+/// rename here).
+#[must_use]
+pub fn conflict_name(name: &str, device: &str) -> String {
+    numbered_conflict_name(name, device, 1)
+}
+
+/// [`conflict_name`] for the `n`th copy of the same name: from the second on, ` n` follows the
+/// device (`report (conflict, Laptop 2).docx`). The number is no part of the device's name, so the
+/// cut of a long device name never takes it.
+fn numbered_conflict_name(name: &str, device: &str, n: u32) -> String {
+    let device: String = device
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\0' | '\\'))
+        .collect();
+    let device = if device.trim().is_empty() {
+        "another device".to_string()
+    } else {
+        cut_to(device.trim(), DEVICE_MAX).to_string()
+    };
+    let device = if n > 1 {
+        format!("{device} {n}")
+    } else {
+        device
+    };
+    let (stem, ext) = match name.rfind('.') {
+        Some(dot) if dot > 0 && name.len() - dot <= EXTENSION_MAX => (&name[..dot], &name[dot..]),
+        _ => (name, ""),
+    };
+    let stem = without_conflict_label(stem);
+    let label = format!(" (conflict, {device})");
+    let room = crate::key::NAME_MAX_BYTES.saturating_sub(label.len() + ext.len());
+    format!("{}{label}{ext}", cut_to(stem, room))
+}
+
+/// A name for the copy that no entry of the folder has: the conflict name,
+/// then with ` 2`, ` 3`, ... after the device.
+fn free_copy_name(name: &str, device: &str, taken: &mut HashSet<String>) -> String {
+    let mut n = 1;
+    let mut candidate = numbered_conflict_name(name, device, n);
+    while taken.contains(&candidate) {
+        n += 1;
+        candidate = numbered_conflict_name(name, device, n);
+    }
+    taken.insert(candidate.clone());
+    candidate
+}
+
+fn join(prefix: &str, name: &str) -> String {
+    if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}/{name}")
+    }
+}
+
+/// Merges `mine` and `theirs` (root trees) against `base` (`None`: no common
+/// state, as two drives filled apart). `device` names this device in conflict
+/// copies; `resolve` decides each conflict.
+pub fn merge_trees(
+    objects: &mut Objects,
+    base: Option<&ObjectId>,
+    mine: &ObjectId,
+    theirs: &ObjectId,
+    device: &str,
+    resolve: &mut dyn FnMut(&Conflict) -> Resolution,
+) -> Result<Merged, MetaError> {
+    let mut conflicts = Vec::new();
+    let tree = merge_dir(
+        objects,
+        base,
+        Some(mine),
+        Some(theirs),
+        "",
+        device,
+        resolve,
+        &mut conflicts,
+    )?;
+    Ok(Merged { tree, conflicts })
+}
+
+/// A folder whole (its shards gathered), and whether it is stored in shards.
+fn load(objects: &Objects, id: Option<&ObjectId>) -> Result<(Tree, bool), MetaError> {
+    match id {
+        Some(id) => shard::read_folder_sharded(objects, id),
+        None => Ok((Tree::new(), false)),
+    }
+}
+
+/// Every entry of a folder by name (a huge folder is looked up once per name).
+fn sides(tree: &Tree) -> HashMap<&str, (Mode, ObjectId)> {
+    tree.entries()
+        .iter()
+        .map(|e| (e.name.as_str(), (e.mode, e.id)))
+        .collect()
+}
+
+/// Adds the entry `name` when the side has one.
+fn put(entries: &mut Vec<TreeEntry>, name: &str, side: Side) {
+    if let Some((mode, id)) = side {
+        entries.push(TreeEntry {
+            name: name.to_string(),
+            mode,
+            id,
+        });
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn merge_dir(
+    objects: &mut Objects,
+    base: Option<&ObjectId>,
+    mine: Option<&ObjectId>,
+    theirs: Option<&ObjectId>,
+    prefix: &str,
+    device: &str,
+    resolve: &mut dyn FnMut(&Conflict) -> Resolution,
+    out: &mut Vec<Resolved>,
+) -> Result<ObjectId, MetaError> {
+    let (b, _) = load(objects, base)?;
+    let (m, mine_sharded) = load(objects, mine)?;
+    let (t, theirs_sharded) = load(objects, theirs)?;
+    let mut names: BTreeSet<String> = BTreeSet::new();
+    for tree in [&b, &m, &t] {
+        for entry in tree.entries() {
+            names.insert(entry.name.clone());
+        }
+    }
+    let mut taken: HashSet<String> = names.iter().cloned().collect();
+    let mut entries: Vec<TreeEntry> = Vec::new();
+    let (b_sides, m_sides, t_sides) = (sides(&b), sides(&m), sides(&t));
+    for name in &names {
+        let (bs, ms, ts) = (
+            b_sides.get(name.as_str()).copied(),
+            m_sides.get(name.as_str()).copied(),
+            t_sides.get(name.as_str()).copied(),
+        );
+        if ms == ts || ts == bs {
+            put(&mut entries, name, ms);
+            continue;
+        }
+        if ms == bs {
+            put(&mut entries, name, ts);
+            continue;
+        }
+        let path = join(prefix, name);
+        if let (Some((Mode::Tree, mine_id)), Some((Mode::Tree, theirs_id))) = (ms, ts) {
+            let base_id = match bs {
+                Some((Mode::Tree, id)) => Some(id),
+                _ => None,
+            };
+            let merged = merge_dir(
+                objects,
+                base_id.as_ref(),
+                Some(&mine_id),
+                Some(&theirs_id),
+                &path,
+                device,
+                resolve,
+                out,
+            )?;
+            put(&mut entries, name, Some((Mode::Tree, merged)));
+            continue;
+        }
+        let kind = match (ms, ts) {
+            (Some((Mode::File, _)), Some((Mode::File, _))) => ConflictKind::BothChanged,
+            (Some(_), Some(_)) => ConflictKind::FileAndFolder,
+            _ => ConflictKind::ChangedAndDeleted,
+        };
+        let conflict = Conflict {
+            path,
+            kind,
+            base: bs,
+            mine: ms,
+            theirs: ts,
+        };
+        let resolution = resolve(&conflict);
+        let mut copy = None;
+        match resolution {
+            Resolution::KeepMine => put(&mut entries, name, ms),
+            Resolution::TakeTheirs => put(&mut entries, name, ts),
+            Resolution::KeepBoth => match kind {
+                ConflictKind::BothChanged => {
+                    put(&mut entries, name, ts);
+                    let copy_name = free_copy_name(name, device, &mut taken);
+                    put(&mut entries, &copy_name, ms);
+                    copy = Some(join(prefix, &copy_name));
+                }
+                ConflictKind::ChangedAndDeleted => match (ms, ts) {
+                    // One side deleted a FOLDER and the other changed something in it: what the
+                    // changing side left alone goes with the delete; what it changed or added stays
+                    // (a conflict per file, kept by the unattended sync). The whole folder used to
+                    // come back, every file the other side had deleted with it (AZ-M8).
+                    (None, Some((Mode::Tree, kept))) | (Some((Mode::Tree, kept)), None) => {
+                        let (mine_side, theirs_side) = if ms.is_some() {
+                            (Some(&kept), None)
+                        } else {
+                            (None, Some(&kept))
+                        };
+                        let base_id = match bs {
+                            Some((Mode::Tree, id)) => Some(id),
+                            _ => None,
+                        };
+                        let merged = merge_dir(
+                            objects,
+                            base_id.as_ref(),
+                            mine_side,
+                            theirs_side,
+                            &conflict.path,
+                            device,
+                            resolve,
+                            out,
+                        )?;
+                        if !shard::read_folder(objects, &merged)?.is_empty() {
+                            put(&mut entries, name, Some((Mode::Tree, merged)));
+                        }
+                    }
+                    _ => put(&mut entries, name, ms.or(ts)),
+                },
+                ConflictKind::FileAndFolder => {
+                    let (folder, file) = if matches!(ms, Some((Mode::Tree, _))) {
+                        (ms, ts)
+                    } else {
+                        (ts, ms)
+                    };
+                    put(&mut entries, name, folder);
+                    let copy_name = free_copy_name(name, device, &mut taken);
+                    put(&mut entries, &copy_name, file);
+                    copy = Some(join(prefix, &copy_name));
+                }
+            },
+        }
+        out.push(Resolved {
+            conflict,
+            resolution,
+            copy,
+        });
+    }
+    let tree = Tree::from_entries(entries)?;
+    shard::write_folder(objects, &tree, mine_sharded || theirs_sharded)
+}
+
+/// The parents of the commit `id`.
+fn parents(objects: &Objects, id: &ObjectId) -> Result<Vec<ObjectId>, MetaError> {
+    Ok(objects.commit(id)?.parents)
+}
+
+/// Every commit `id` comes from, itself included.
+fn ancestors(objects: &Objects, id: &ObjectId) -> Result<HashSet<ObjectId>, MetaError> {
+    let mut seen = HashSet::new();
+    let mut queue = VecDeque::from([*id]);
+    while let Some(next) = queue.pop_front() {
+        if seen.insert(next) {
+            queue.extend(parents(objects, &next)?);
+        }
+    }
+    Ok(seen)
+}
+
+/// The best common ancestor of the commits `a` and `b` (one that is not an
+/// ancestor of another common ancestor); `None` when their histories never
+/// meet.
+pub fn merge_base(
+    objects: &Objects,
+    a: &ObjectId,
+    b: &ObjectId,
+) -> Result<Option<ObjectId>, MetaError> {
+    let of_a = ancestors(objects, a)?;
+    // The common ancestors nearest to b: stop at each one found.
+    let mut found: Vec<ObjectId> = Vec::new();
+    let mut seen = HashSet::new();
+    let mut queue = VecDeque::from([*b]);
+    while let Some(next) = queue.pop_front() {
+        if !seen.insert(next) {
+            continue;
+        }
+        if of_a.contains(&next) {
+            found.push(next);
+            continue;
+        }
+        queue.extend(parents(objects, &next)?);
+    }
+    // Drop the ones that are ancestors of another one.
+    let mut best = Vec::new();
+    for candidate in &found {
+        let mut older = false;
+        for other in &found {
+            if other != candidate && ancestors(objects, other)?.contains(candidate) {
+                older = true;
+                break;
+            }
+        }
+        if !older {
+            best.push(*candidate);
+        }
+    }
+    Ok(best.into_iter().next())
+}

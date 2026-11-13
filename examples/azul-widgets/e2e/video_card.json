@@ -1,0 +1,11 @@
+[
+  {
+    "name": "azul_widgets_the_video_card_overlay_lets_the_video_show_through",
+    "description": "The Video card lays a button over the whole video: a click anywhere plays or pauses it. The button must be see-through, or it hides every frame the widget shows under it. A raw <button> becomes azul's Button widget, whose face is opaque; the card sets the overlay's background to transparent, and the app's background replaces the widget's face.",
+    "steps": [
+      { "op": "wait_frame" },
+      { "op": "get_node_css_properties", "selector": "#video-overlay" },
+      { "op": "assert_response", "contains": "background: #00000000" }
+    ]
+  }
+]

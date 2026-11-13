@@ -1,0 +1,38 @@
+[
+  {
+    "error": "bad_request"
+  },
+  {
+    "error": "wrong_tier"
+  },
+  {
+    "error": "token_expired"
+  },
+  {
+    "error": "unknown_issuer"
+  },
+  {
+    "error": "bad_token"
+  },
+  {
+    "error": "token_used"
+  },
+  {
+    "error": "change_not_due",
+    "from": "2026-11-14T00:00:00Z"
+  },
+  {
+    "error": "does_not_fit",
+    "stored": 150000000000,
+    "quota": 100000000000
+  },
+  {
+    "error": "stored_bytes_required"
+  },
+  {
+    "error": "try_again"
+  },
+  {
+    "error": "archive_proof_required"
+  }
+]

@@ -34,6 +34,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Check every workflow file against the 512,000-byte limit
         shell: bash
         run: |
@@ -65,9 +67,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
           # Fetch full history so the cooldown check can diff Cargo.lock against the base ref.
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
         with:
           toolchain: 1.91.0
 
@@ -136,6 +139,71 @@ jobs:
             EXEMPT+=(--exempt rustls)
             echo "cooldown: rustls exempt until 2026-09-28 (RUSTSEC-2026-0285 fix)"
           fi
+          # rustls-webpki 0.103.16: RUSTSEC-2026-0382 fix, distrusted emSign intermediates; delta audit 0.103.15 -> 0.103.16 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-04" ]]; then
+            EXEMPT+=(--exempt rustls-webpki)
+            echo "cooldown: rustls-webpki exempt until 2026-11-04 (RUSTSEC-2026-0382 fix, distrusted emSign intermediates)"
+          fi
+          # webpki-roots 1.0.10: RUSTSEC-2026-0381 fix, emSign roots removed; delta audit 1.0.9 -> 1.0.10 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-03" ]]; then
+            EXEMPT+=(--exempt webpki-roots)
+            echo "cooldown: webpki-roots exempt until 2026-11-03 (RUSTSEC-2026-0381 fix, emSign roots removed)"
+          fi
+          # webpki-root-certs 1.0.10: RUSTSEC-2026-0383 fix, emSign root removed; delta audit 1.0.9 -> 1.0.10 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-03" ]]; then
+            EXEMPT+=(--exempt webpki-root-certs)
+            echo "cooldown: webpki-root-certs exempt until 2026-11-03 (RUSTSEC-2026-0383 fix, emSign root removed)"
+          fi
+          # clipboard-win 5.4.3: 5.4.1 yanked for an out-of-bounds read; delta audit 5.4.1 -> 5.4.3 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-07" ]]; then
+            EXEMPT+=(--exempt clipboard-win)
+            echo "cooldown: clipboard-win exempt until 2026-11-07 (5.4.1 yanked for an out-of-bounds read)"
+          fi
+          # ctutils 0.4.5 (published 2026-10-23 like 0.4.4): RUSTSEC-2026-0385 fix, constant-time masks, then the
+          # Thumb-1 hardening crypto-bigint 0.7.6 requires; delta audits 0.4.2 -> 0.4.4 -> 0.4.5 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-07" ]]; then
+            EXEMPT+=(--exempt ctutils)
+            echo "cooldown: ctutils exempt until 2026-11-07 (RUSTSEC-2026-0385 fix, constant-time masks)"
+          fi
+          # crypto-bigint 0.7.6 (published 2026-10-23): RUSTSEC-2026-0387 fix, the timing leaks of 0.5.5 under
+          # p256/p384; it comes with rustls-rustcrypto-azul's RustCrypto generation (cargo-vet exemption).
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-07" ]]; then
+            EXEMPT+=(--exempt crypto-bigint)
+            echo "cooldown: crypto-bigint exempt until 2026-11-07 (RUSTSEC-2026-0387 fix, constant-time arithmetic)"
+          fi
+          # tokio 1.53.3: RUSTSEC-2026-0386 fix, AsyncFd I/O safety; delta audit 1.53.1 -> 1.53.3 in supply-chain/audits.toml.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-10-28" ]]; then
+            EXEMPT+=(--exempt tokio)
+            echo "cooldown: tokio exempt until 2026-10-28 (RUSTSEC-2026-0386 fix, AsyncFd I/O safety)"
+          fi
+          # zstd 0.14.3, zstd-safe 8.2.0, zstd-sys 2.1.2 (published 2026-10-16): RUSTSEC-2026-0391, -0398, -0403
+          # and -0410 fixes; delta audits from 0.13.3, 7.2.4 and 2.0.16 in supply-chain/audits.toml.
+          # Exempt until they are 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-10-31" ]]; then
+            EXEMPT+=(--exempt zstd --exempt zstd-safe --exempt zstd-sys)
+            echo "cooldown: zstd, zstd-safe, zstd-sys exempt until 2026-10-31 (RUSTSEC-2026-0391/0398/0403/0410 fixes)"
+          fi
+          # zip 9.0.5 (published 2026-10-17): azul-doc's zip 6 brought zstd 0.13 (RUSTSEC-2026-0391, -0398, -0403);
+          # the zip 9 line is on zstd 0.14 and azul-doc takes deflate only; cargo-vet exemption with notes.
+          # Exempt until it is 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-01" ]]; then
+            EXEMPT+=(--exempt zip)
+            echo "cooldown: zip exempt until 2026-11-01 (off zstd 0.13, RUSTSEC-2026-0391/0398/0403)"
+          fi
+          # ironcalc and ironcalc_base 0.9.1 (published 2026-10-21): 0.8 pins zip 0.6, which brings zstd 0.11 and
+          # zstd-safe 5 (RUSTSEC-2026-0403); 0.9.1 reads xlsx through zip 9, deflate only. cargo-vet exemptions with notes.
+          # Exempt until they are 14 days old on every hour of the day.
+          if [[ "$(date -u +%F)" < "2026-11-05" ]]; then
+            EXEMPT+=(--exempt ironcalc --exempt ironcalc_base)
+            echo "cooldown: ironcalc, ironcalc_base exempt until 2026-11-05 (off zip 0.6 and zstd 0.11, RUSTSEC-2026-0403)"
+          fi
           python3 scripts/supply-chain/lockfile_guard.py \
             --check cooldown --min-age-days 14 \
             --changed-only --base-ref "$BASE" --no-cache "${EXEMPT[@]}"
@@ -148,7 +216,9 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
         with:
           toolchain: 1.91.0
       - name: Cache cargo-audit
@@ -178,3 +248,24 @@ jobs:
           path: stats/cargo-audit.txt
           if-no-files-found: warn
           retention-days: 30
+
+  # zizmor reads the workflows and composite actions themselves (https://docs.zizmor.sh/, .github/zizmor.yml):
+  # every `uses:` must be a full commit SHA (the actions/* ones too), a pin must be a commit of the action's
+  # own repository (not of a fork) and its version comment must name the tag that points at it (the online
+  # audits), and the usual checks for script injection, token permissions and persisted credentials. The
+  # findings that are left are listed, with the reason, in .github/zizmor.yml. Informational findings are not
+  # reported (min-severity). The action installs zizmor from a wheel verified by hash.
+  zizmor:
+    name: zizmor (pinned actions and workflow hardening)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          version: 1.31.1
+          inputs: .github
+          config: .github/zizmor.yml
+          min-severity: low
+          advanced-security: false

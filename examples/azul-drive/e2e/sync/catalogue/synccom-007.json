@@ -1,0 +1,71 @@
+[
+  {
+    "name": "SYNCCOM-007: a video download cut mid-transfer leaves no partial file; the next pass brings the whole file",
+    "description": "SYNCCOM-007 (Sync.com): videos were only partially downloaded (Android app, web panel). Rules A5 (the saved file's length and hash match before it appears), E5, P7. sync-chaos res-truncated-download, mobile-restore.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "video.mp4", "size": 5000000, "seed": 7 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_fault", "device": "b", "cut_after_ops": 2 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "video.mp4", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_fault", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "video.mp4", "same_as": "{root:a}/video.mp4" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-007: over a lossy, slow link the downloads still arrive whole after a few passes",
+    "description": "SYNCCOM-007 (Sync.com): a link that drops mid-stream and resumes. Rules E5, E6 (per-request retry with backoff).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "video.mp4", "size": 3000000, "seed": 8 },
+      { "op": "drive_many", "device": "a", "dir": "clips", "count": 10, "size": 50000, "seed": 9 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_fault", "device": "b", "error_rate": 0.3, "seed": 7, "latency_ms": 20 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_fault", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "video.mp4", "same_as": "{root:a}/video.mp4" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 11 },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-007: a body cut to nothing and reported as complete never leaves a 0-byte file",
+    "description": "SYNCCOM-007 (Sync.com): partial downloads exposed to the user. Rules A5, S15, P7 (a failed download never leaves a 0-byte file). sync-chaos res-truncated-download.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "new.mov", "size": 200000, "seed": 11 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "truncate_blob", "key": "new.mov", "keep": 0 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "new.mov" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "new.mov", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

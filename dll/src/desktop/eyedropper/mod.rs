@@ -26,7 +26,9 @@ pub mod macos;
 pub mod wayland;
 #[cfg(target_os = "windows")]
 pub mod windows;
-#[cfg(target_os = "linux")]
+/// Wherever the X11 backend is built (`az_x11`): Linux, and macOS with the
+/// `x11-macos` feature, where it reads XQuartz's root window.
+#[cfg(az_x11)]
 pub mod x11;
 
 use azul_core::{
@@ -159,9 +161,10 @@ pub fn loupe_window(shot: Screenshot, request_id: u64, dpi: u32) -> Option<Windo
         window_state: ws,
         size_to_content: false,
         renderer: None.into(),
-        theme: None.into(),
+        mode: None.into(),
         create_callback: None.into(),
         hot_reload: false,
+        owned: false,
         parent_window_id: 0,
         background_color_light: azul_css::props::basic::OptionColorU::None,
         background_color_dark: azul_css::props::basic::OptionColorU::None,

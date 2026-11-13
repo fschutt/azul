@@ -1,0 +1,1106 @@
+{
+ "source": "editing/data/insertunorderedlist.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 166,
+ "eligible_cases": 123,
+ "left_out": {
+  "attribute class": 1,
+  "attribute dir": 3,
+  "attribute id": 7,
+  "attribute title": 1,
+  "markup outside the mail subset": 18,
+  "over the cap of 60": 63,
+  "setup command insertunorderedlist": 5,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 4,
+  "tag <dl>": 4
+ },
+ "cases": [
+  {
+   "id": "insertunorderedlist-4b57d19d",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo[]bar</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo[]bar</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-99c44ce0",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo[bar]baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo[bar]baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-80b1a2d0",
+   "initial": "foo<br>[bar]",
+   "initial_xhtml": "foo<br/>[bar]",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<ul><li>[bar]</li></ul>"
+   ],
+   "expected_canonical": [
+    "foo<ul><li>[bar]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-aa9a1970",
+   "initial": "f[oo<br>b]ar<br>baz",
+   "initial_xhtml": "f[oo<br/>b]ar<br/>baz",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>f[oo</li><li>b]ar</li></ul>baz"
+   ],
+   "expected_canonical": [
+    "<ul><li>f[oo</li><li>b]ar</li></ul>baz"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-a1651b15",
+   "initial": "<p>[foo]<br>bar</p>",
+   "initial_xhtml": "<p>[foo]<br/>bar</p>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo]</li></ul><p>bar</p>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo]</li></ul><p>bar</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-60bcbce7",
+   "initial": "[foo<ol><li>bar]</ol>baz",
+   "initial_xhtml": "[foo<ol><li>bar]</li></ol>baz",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><li>bar]</li></ul>baz"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><li>bar]</li></ul>baz"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-2c57be5c",
+   "initial": "foo<ol><li>[bar</ol>baz]",
+   "initial_xhtml": "foo<ol><li>[bar</li></ol>baz]",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<ul><li>[bar</li><li>baz]</li></ul>"
+   ],
+   "expected_canonical": [
+    "foo<ul><li>[bar</li><li>baz]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-5cc133c4",
+   "initial": "[foo<ul><li>bar]</ul>baz",
+   "initial_xhtml": "[foo<ul><li>bar]</li></ul>baz",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><li>bar]</li></ul>baz"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><li>bar]</li></ul>baz"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-e9c2d758",
+   "initial": "foo<ul><li>[bar</ul>baz]",
+   "initial_xhtml": "foo<ul><li>[bar</li></ul>baz]",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<ul><li>[bar</li><li>baz]</li></ul>"
+   ],
+   "expected_canonical": [
+    "foo<ul><li>[bar</li><li>baz]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-924bac27",
+   "initial": "foo<ul><li>[bar</ul><ol><li>baz]</ol>quz",
+   "initial_xhtml": "foo<ul><li>[bar</li></ul><ol><li>baz]</li></ol>quz",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<ul><li>[bar</li><li>baz]</li></ul>quz"
+   ],
+   "expected_canonical": [
+    "foo<ul><li>[bar</li><li>baz]</li></ul>quz"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-a2ca48f7",
+   "initial": "foo<ol><li>[bar</ol><ul><li>baz]</ul>quz",
+   "initial_xhtml": "foo<ol><li>[bar</li></ol><ul><li>baz]</li></ul>quz",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<ul><li>[bar</li><li>baz]</li></ul>quz"
+   ],
+   "expected_canonical": [
+    "foo<ul><li>[bar</li><li>baz]</li></ul>quz"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-ab01902e",
+   "initial": "<p>foo<p>[bar]<p>baz",
+   "initial_xhtml": "<p>foo</p><p>[bar]</p><p>baz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><ul><li>[bar]</li></ul><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><ul><li>[bar]</li></ul><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-24475f96",
+   "initial": "<p>foo<p>[bar]<p>baz",
+   "initial_xhtml": "<p>foo</p><p>[bar]</p><p>baz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><ul><li>[bar]</li></ul><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><ul><li>[bar]</li></ul><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-530fa5ec",
+   "initial": "<p>foo<blockquote>[bar]</blockquote><p>baz",
+   "initial_xhtml": "<p>foo</p><blockquote>[bar]</blockquote><p>baz</p>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><blockquote><ul><li>[bar]</li></ul></blockquote><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><blockquote><ul><li>[bar]</li></ul></blockquote><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-d577b74f",
+   "initial": "<p>[foo<p>bar]<p>baz",
+   "initial_xhtml": "<p>[foo</p><p>bar]</p><p>baz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><li>bar]</li></ul><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><li>bar]</li></ul><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-a162e400",
+   "initial": "<p>[foo<p>bar]<p>baz",
+   "initial_xhtml": "<p>[foo</p><p>bar]</p><p>baz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><li>bar]</li></ul><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><li>bar]</li></ul><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-5352d90b",
+   "initial": "<p>[foo<blockquote>bar]</blockquote><p>baz",
+   "initial_xhtml": "<p>[foo</p><blockquote>bar]</blockquote><p>baz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><ul><li>bar]</li></ul></ul><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><ul><li>bar]</li></ul></ul><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-e52b4481",
+   "initial": "<p>[foo<blockquote>bar]</blockquote><p>baz",
+   "initial_xhtml": "<p>[foo</p><blockquote>bar]</blockquote><p>baz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><ul><li>bar]</li></ul></ul><p>baz</p>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><ul><li>bar]</li></ul></ul><p>baz</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-0c2be9e1",
+   "initial": "<p>[foo<blockquote><p>bar]<p>baz</blockquote>",
+   "initial_xhtml": "<p>[foo</p><blockquote><p>bar]</p><p>baz</p></blockquote>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><ul><li>bar]</li></ul></ul><blockquote><p>baz</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><ul><li>bar]</li></ul></ul><blockquote><p>baz</p></blockquote>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-b5229a64",
+   "initial": "<p>[foo<blockquote><p>bar]<p>baz</blockquote>",
+   "initial_xhtml": "<p>[foo</p><blockquote><p>bar]</p><p>baz</p></blockquote>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><ul><li>bar]</li></ul></ul><blockquote><p>baz</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><ul><li>bar]</li></ul></ul><blockquote><p>baz</p></blockquote>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-3f8ae8af",
+   "initial": "<ol><li>foo<li>[bar]<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><ul><li>[bar]</li></ul><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><ul><li>[bar]</li></ul><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-5518b27c",
+   "initial": "<ol><li>foo</ol>[bar]",
+   "initial_xhtml": "<ol><li>foo</li></ol>[bar]",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><ul><li>[bar]</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><ul><li>[bar]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-04025570",
+   "initial": "[foo]<ol><li>bar</ol>",
+   "initial_xhtml": "[foo]<ol><li>bar</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo]</li></ul><ol><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo]</li></ul><ol><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-e3729401",
+   "initial": "<ol><li>foo</ol>[bar]<ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li></ol>[bar]<ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><ul><li>[bar]</li></ul><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><ul><li>[bar]</li></ul><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-998fb436",
+   "initial": "<ol><ol><li>[foo]</ol></ol>",
+   "initial_xhtml": "<ol><ol><li>[foo]</li></ol></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><ul><li>[foo]</li></ul></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><ul><li>[foo]</li></ul></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-662006c1",
+   "initial": "<ol><li>[foo]<br>bar<li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<br/>bar</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo]<br>bar</li></ul><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo]<br/>bar</li></ul><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-022a7164",
+   "initial": "<ol><li>foo<br>[bar]<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo<br/>[bar]</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo<br>[bar]</li></ul><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo<br/>[bar]</li></ul><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-b12825bf",
+   "initial": "<ol><li><div>[foo]</div>bar<li>baz</ol>",
+   "initial_xhtml": "<ol><li><div>[foo]</div>bar</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li><div>[foo]</div>bar</li></ul><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ul><li><div>[foo]</div>bar</li></ul><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-4e1c93b1",
+   "initial": "<ol><li>foo<ol><li>[bar]<li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>[bar]</li><li>baz</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ul><li>[bar]</li></ul><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ul><li>[bar]</li></ul><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-2fa37dae",
+   "initial": "<ol><li>foo<ol><li>bar<li>[baz]</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li><li>[baz]</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li></ol><ul><li>[baz]</li></ul><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li></ol><ul><li>[baz]</li></ul><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-7cc24b29",
+   "initial": "<ol><li>foo</li><ol><li>[bar]<li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>[bar]</li><li>baz</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ul><li>[bar]</li></ul><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ul><li>[bar]</li></ul><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-a11f8039",
+   "initial": "<ol><li>foo</li><ol><li>bar<li>[baz]</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>bar</li><li>[baz]</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li></ol><ul><li>[baz]</li></ul><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li></ol><ul><li>[baz]</li></ul><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-ad285082",
+   "initial": "<ol><li>[foo]<ol><li>bar</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<ol><li>bar</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo]<ol><li>bar</li></ol></li></ul><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo]<ol><li>bar</li></ol></li></ul><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-0cf95cec",
+   "initial": "<ol><li>[foo]</li><ol><li>bar</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]</li><ol><li>bar</li></ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo]</li></ul><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo]</li></ul><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-790fac52",
+   "initial": "<ol><li>foo<li>[bar]<ol><li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]<ol><li>baz</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><ul><li>[bar]<ol><li>baz</li></ol></li></ul><ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><ul><li>[bar]<ol><li>baz</li></ol></li></ul><ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-0063fc98",
+   "initial": "<ol><li>foo<li>[bar]</li><ol><li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]</li><ol><li>baz</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><ul><li>[bar]</li></ul><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><ul><li>[bar]</li></ul><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-de67d34f",
+   "initial": "<ol><li>foo<ol><li>bar<li>baz</ol><li>[quz]</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li><li>[quz]</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li></ol><ul><li>[quz]</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li></ol><ul><li>[quz]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-588b90a6",
+   "initial": "<ol><li>foo</li><ol><li>bar<li>baz</ol><li>[quz]</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol><li>[quz]</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol></ol><ul><li>[quz]</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol></ol><ul><li>[quz]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-61055e05",
+   "initial": "<ol><li>foo<li>[bar<li>baz]</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar</li><li>baz]</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><ul><li>[bar</li><li>baz]</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><ul><li>[bar</li><li>baz]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-8ddb80a8",
+   "initial": "<ol><li>[foo<ol><li>bar]</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo<ol><li>bar]</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo<ul><li>bar]</li></ul></li></ul><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo<ul><li>bar]</li></ul></li></ul><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-4372caff",
+   "initial": "<ol><li>foo<ol><li>b[ar</ol><li>b]az</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>b[ar</li></ol></li><li>b]az</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><ul><ul><li>b[ar</li></ul><li>b]az</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><ul><ul><li>b[ar</li></ul><li>b]az</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-ee98d22b",
+   "initial": "<ol><li>[foo<ol><li>bar</ol><li>baz]</ol><p>extra",
+   "initial_xhtml": "<ol><li>[foo<ol><li>bar</li></ol></li><li>baz]</li></ol><p>extra</p>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo</li><ul><li>bar</li></ul><li>baz]</li></ul><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo</li><ul><li>bar</li></ul><li>baz]</li></ul><p>extra</p>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-85985ae4",
+   "initial": "<ol><li>[foo]<ol><li>bar</ol>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<ol><li>bar</li></ol>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo]<ol><li>bar</li></ol>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo]<ol><li>bar</li></ol>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-2f95d68b",
+   "initial": "<ol><li>foo<ol><li>[bar]</ol>baz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>[bar]</li></ol>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ul><li>[bar]</li></ul><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ul><li>[bar]</li></ul><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-e971fd7b",
+   "initial": "<ol><li>foo<ol><li>bar</ol>[baz]</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li></ol>[baz]</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo<ol><li>bar</li></ol>[baz]</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo<ol><li>bar</li></ol>[baz]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-ba13d661",
+   "initial": "<ol><li>[foo<ol><li>bar]</ol>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo<ol><li>bar]</li></ol>baz</li></ol>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo<ul><li>bar]</li></ul>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo<ul><li>bar]</li></ul>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-36c83709",
+   "initial": "<ul><li>foo<li>[bar]<li>baz</ul>",
+   "initial_xhtml": "<ul><li>foo</li><li>[bar]</li><li>baz</li></ul>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo</li></ul><div>[bar]</div><ul><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo</li></ul><div>[bar]</div><ul><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-1512a55e",
+   "initial": "<ul><li>foo<li>[bar]<li>baz</ul>",
+   "initial_xhtml": "<ul><li>foo</li><li>[bar]</li><li>baz</li></ul>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo</li></ul><p>[bar]</p><ul><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo</li></ul><p>[bar]</p><ul><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-08507056",
+   "initial": "<ul><li>foo</ul>[bar]",
+   "initial_xhtml": "<ul><li>foo</li></ul>[bar]",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo</li><li>[bar]</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo</li><li>[bar]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-3dc6b326",
+   "initial": "[foo]<ul><li>bar</ul>",
+   "initial_xhtml": "[foo]<ul><li>bar</li></ul>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo]</li><li>bar</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo]</li><li>bar</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-86dbd8e8",
+   "initial": "<ul><li>foo</ul>[bar]<ul><li>baz</ul>",
+   "initial_xhtml": "<ul><li>foo</li></ul>[bar]<ul><li>baz</li></ul>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo</li><li>[bar]</li><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo</li><li>[bar]</li><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-0e2bd5ac",
+   "initial": "<ul><ul><li>[foo]</ul></ul>",
+   "initial_xhtml": "<ul><ul><li>[foo]</li></ul></ul>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>[foo]</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>[foo]</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-0e0f5c16",
+   "initial": "<ul><li>[foo]<br>bar<li>baz</ul>",
+   "initial_xhtml": "<ul><li>[foo]<br/>bar</li><li>baz</li></ul>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]<br>bar</div><ul><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]<br/>bar</div><ul><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-7009e496",
+   "initial": "<ul><li>[foo]<br>bar<li>baz</ul>",
+   "initial_xhtml": "<ul><li>[foo]<br/>bar</li><li>baz</li></ul>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo]<br>bar</p><ul><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<p>[foo]<br/>bar</p><ul><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-5ac20468",
+   "initial": "<ul><li>foo<br>[bar]<li>baz</ul>",
+   "initial_xhtml": "<ul><li>foo<br/>[bar]</li><li>baz</li></ul>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo<br>[bar]</div><ul><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<div>foo<br/>[bar]</div><ul><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-d1587db1",
+   "initial": "<ul><li>foo<br>[bar]<li>baz</ul>",
+   "initial_xhtml": "<ul><li>foo<br/>[bar]</li><li>baz</li></ul>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo<br>[bar]</p><ul><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<p>foo<br/>[bar]</p><ul><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-849bb7a2",
+   "initial": "<ul><li><div>[foo]</div>bar<li>baz</ul>",
+   "initial_xhtml": "<ul><li><div>[foo]</div>bar</li><li>baz</li></ul>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]</div><div>bar</div><ul><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]</div><div>bar</div><ul><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-8c0fe1db",
+   "initial": "<ul><li><div>[foo]</div>bar<li>baz</ul>",
+   "initial_xhtml": "<ul><li><div>[foo]</div>bar</li><li>baz</li></ul>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]</div><p>bar</p><ul><li>baz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]</div><p>bar</p><ul><li>baz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-4aac8cec",
+   "initial": "<ul><li>foo<ul><li>[bar]<li>baz</ul><li>quz</ul>",
+   "initial_xhtml": "<ul><li>foo<ul><li>[bar]</li><li>baz</li></ul></li><li>quz</li></ul>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo</li><li>[bar]</li><ul><li>baz</li></ul><li>quz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo</li><li>[bar]</li><ul><li>baz</li></ul><li>quz</li></ul>"
+   ]
+  },
+  {
+   "id": "insertunorderedlist-c9364879",
+   "initial": "<ul><li>foo<ul><li>bar<li>[baz]</ul><li>quz</ul>",
+   "initial_xhtml": "<ul><li>foo<ul><li>bar</li><li>[baz]</li></ul></li><li>quz</li></ul>",
+   "commands": [
+    [
+     "insertunorderedlist",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ul><li>foo</li><ul><li>bar</li></ul><li>[baz]</li><li>quz</li></ul>"
+   ],
+   "expected_canonical": [
+    "<ul><li>foo</li><ul><li>bar</li></ul><li>[baz]</li><li>quz</li></ul>"
+   ]
+  }
+ ]
+}

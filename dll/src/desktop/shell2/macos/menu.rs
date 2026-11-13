@@ -25,7 +25,8 @@ static PENDING_MENU_ACTIONS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 static NEXT_MENU_TAG: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(1);
 
 /// Allocate `count` globally-unique consecutive tags, returning the first.
-pub(super) fn alloc_menu_tags(count: isize) -> isize {
+/// Also used by the tray for its status item button (`tray/macos.rs`).
+pub(crate) fn alloc_menu_tags(count: isize) -> isize {
     NEXT_MENU_TAG.fetch_add(count.max(1), std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -184,6 +185,10 @@ pub(crate) struct MenuState {
     command_map: HashMap<isize, azul_core::menu::CoreMenuCallback>,
     /// Monotonically increasing tag counter to avoid collisions
     next_tag: isize,
+    /// The tag of the menu bar's first leaf item: its leaves are numbered
+    /// from here, depth first, so a rebuilt menu with the same structure
+    /// hands its new callbacks to the same tags (`update_menubar_if_changed`).
+    first_tag: isize,
 }
 
 impl MenuState {
@@ -193,6 +198,7 @@ impl MenuState {
             ns_menu: None,
             command_map: HashMap::new(),
             next_tag: 1,
+            first_tag: 1,
         }
     }
 
@@ -221,17 +227,38 @@ impl MenuState {
     /// (macOS requires the first submenu of the main menu to be the application
     /// menu), followed by the user's `menu_bar` items. Item callbacks are allocated
     /// through the same `next_tag` counter as context menus so tags never collide.
+    ///
+    /// Compared by what the bar SHOWS (`Menu::get_structure_hash`): an app
+    /// builds its bar again in every layout pass with fresh callback data,
+    /// and installing a new `NSMenu` for that on every DOM rebuild made the
+    /// bar flicker while a slider was dragged. Same structure: the new
+    /// callbacks take over the existing items' tags, the `NSMenu` stays.
     pub(crate) fn update_menubar_if_changed(&mut self, menu: &Menu, mtm: MainThreadMarker) -> bool {
-        let new_hash = menu.get_hash();
+        let new_hash = menu.get_structure_hash();
 
-        if new_hash != self.current_hash {
+        if new_hash != self.current_hash || self.ns_menu.is_none() {
             self.next_tag = alloc_menu_tags(4096);
+            self.first_tag = self.next_tag;
             let (ns_menu, command_map) = create_menubar_nsmenu(menu, &mut self.next_tag, mtm);
             self.ns_menu = Some(ns_menu);
             self.command_map = command_map;
             self.current_hash = new_hash;
             true
         } else {
+            // `build_menu_items` gave every leaf a tag, in this same order.
+            // Only the bar's own tags are replaced: a context menu registers
+            // its callbacks in this map too.
+            let leaves = menu.leaf_callbacks();
+            let bar_end = self
+                .first_tag
+                .saturating_add(isize::try_from(leaves.len()).unwrap_or(isize::MAX));
+            let bar = self.first_tag..bar_end;
+            self.command_map.retain(|tag, _| !bar.contains(tag));
+            self.command_map.extend(
+                (self.first_tag..)
+                    .zip(leaves)
+                    .filter_map(|(tag, callback)| Some((tag, callback?.clone()))),
+            );
             false
         }
     }

@@ -1,0 +1,1494 @@
+//! An encrypted Azlin drive across devices (feature `encryption`): the first device turns
+//! encryption on, its join code carries the drive key sealed for the second device (once), both
+//! read and write the same files, the recovery code opens the key on a third.
+
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+};
+
+use serde_json::Value;
+
+use azul_storage::{
+    crypto::{device, keys::RecoveryKdf, DriveKey},
+    encrypted::{IndexProvider, MemoryIndex, NameIndex, OpenRefusal},
+    keyring::{KeyringStore, MemoryKeyring},
+    testing::TempDir,
+    trust::{EncState, Via, Why},
+    Drive, DriveError, HttpCall, HttpReply, Method, Transport,
+};
+
+use super::{bundle, fake_s3::FakeS3, header, json, Fake, Shared, TOKEN};
+use crate::{
+    account::{Account, AccountFile, JoinCode},
+    cloudflare::{Cloudflare, DEFAULT_WORKER, DROP_KEY_VARIABLE},
+    drive::TransportFactory,
+    error::CloudError,
+    state::StateDir,
+};
+
+/// A tiny Argon2id cost: the tests run in debug builds too.
+fn cheap() -> RecoveryKdf {
+    RecoveryKdf::with_cost(64, 1, 1).unwrap()
+}
+
+/// The token server and the bucket on one transport: a sign-up answers drive `d_1` (bucket
+/// `d-1` at the tests' S3 endpoint), a member family's token is exchanged once, every other
+/// call goes to `s3`.
+fn cloud(s3: &Arc<FakeS3>) -> TransportFactory {
+    cloud_recording(s3).0
+}
+
+/// [`cloud`] with the fake that answers it, for the calls it was sent (a test of what the token server was
+/// NOT asked).
+fn cloud_recording(s3: &Arc<FakeS3>) -> (TransportFactory, Arc<Fake>) {
+    let s3 = s3.clone();
+    let fake = Fake::new(move |call, _| {
+        let url = call.url.as_str();
+        if !url.starts_with(TOKEN) {
+            return Ok(s3.answer(call));
+        }
+        if url.ends_with("/v1/drives") {
+            return Ok(json(
+                201,
+                &bundle("AKID1", "2099-01-01T00:00:00Z", "dt_f.0.a"),
+            ));
+        }
+        if url.ends_with("/members") {
+            return Ok(json(
+                201,
+                r#"{"member": "m_laptop", "drive_token": "dt_m.0.joins"}"#,
+            ));
+        }
+        if url.ends_with("/lockdown") {
+            LOCKDOWNS.fetch_add(1, Ordering::SeqCst);
+            return Ok(json(
+                200,
+                &bundle("AKID9", "2099-01-01T00:00:00Z", "dt_f.9.locked"),
+            ));
+        }
+        if url.ends_with("/credentials") && header(call, "authorization") == Some("Bearer dt_m.0.joins")
+        {
+            return Ok(json(
+                200,
+                &bundle("AKID2", "2099-01-01T00:00:00Z", "dt_m.1.x"),
+            ));
+        }
+        Ok(json(401, r#"{"error": "token_reuse", "message": "reused"}"#))
+    });
+    let transports: TransportFactory = {
+        let fake = fake.clone();
+        Arc::new(move || Box::new(Shared(fake.clone())) as Box<dyn Transport>)
+    };
+    (transports, fake)
+}
+
+/// The lockdowns the fake token server answered.
+static LOCKDOWNS: AtomicUsize = AtomicUsize::new(0);
+
+/// One index in memory both devices share: the stand-in for the drive's encrypted metadata
+/// repository (nothing of it is sealed: its rekey has nothing to do).
+struct SharedIndex(Arc<MemoryIndex>);
+
+impl IndexProvider for SharedIndex {
+    fn open_index(
+        &self,
+        _drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _drive_key: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        Ok(self.0.clone())
+    }
+
+    fn rekey(
+        &self,
+        _drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _old: &DriveKey,
+        _new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        Ok(())
+    }
+}
+
+fn signed_up(transports: &TransportFactory, dir: &TempDir) -> Account {
+    let state = StateDir::open(dir.path()).unwrap();
+    Account::sign_up_at_token_server(&state, TOKEN, transports.clone(), "100GB", "Ann's drive")
+        .unwrap()
+}
+
+/// Every drive is encrypted as it is made: the sign-up sets up its keys before anything else
+/// can touch it, and hands back its recovery code once.
+#[test]
+fn a_signup_makes_the_drive_encrypted_before_anything_uses_it() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-signup");
+    let state = StateDir::open(dir.path()).unwrap();
+    let keys = MemoryKeyring::new();
+    let made = crate::encryption::NewKeys {
+        keyring: &keys,
+        s3_endpoint: None,
+        kdf: cheap(),
+    };
+    let (account, code) =
+        Account::signup(&state, TOKEN, transports, "100GB", "Ann's drive", made).unwrap();
+    assert!(s3.keys().iter().any(|k| k == ".azlin/keys/recovery.key"));
+    assert!(matches!(
+        account.encryption_state(&keys).unwrap(),
+        EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        }
+    ));
+    assert!(!code.to_text().is_empty());
+    // The account file wrote down that the drive was found encrypted, with its key's id.
+    let file = AccountFile::load(&state.account_file()).unwrap();
+    let record = file.get(None).unwrap();
+    assert!(record.encrypted, "the drive is recorded as encrypted");
+    let key = device::load_drive_key(&keys, "d_1").unwrap().unwrap();
+    assert_eq!(record.key_id, Some(key.id().to_hex()));
+}
+
+#[test]
+fn a_second_device_gets_the_drive_key_through_its_join_code_once() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let a_dir = TempDir::new("azcloud-enc-a");
+    let a = signed_up(&transports, &a_dir);
+    let a_keys = MemoryKeyring::new();
+    let recovery = a.setup_encryption(&a_keys, cheap()).unwrap();
+    assert!(s3.keys().iter().any(|k| k == ".azlin/keys/recovery.key"));
+
+    let join = a.invite_with_key(None, &a_keys).unwrap();
+    assert_eq!(join.key_seal.as_deref().map(str::len), Some(64));
+    let text = join.encode();
+
+    // The second device: the code's token joins, the code's seal opens the key.
+    let b_dir = TempDir::new("azcloud-enc-b");
+    let b_state = StateDir::open(b_dir.path()).unwrap();
+    let decoded = JoinCode::decode(&text).unwrap();
+    let b = Account::join(&b_state, TOKEN, transports.clone(), &decoded).unwrap();
+    let b_keys = MemoryKeyring::new();
+    let key = b
+        .adopt_join_key(&decoded, &b_keys)
+        .unwrap()
+        .expect("the code carries the key");
+    assert_eq!(Some(key.clone()), device::load_drive_key(&a_keys, "d_1").unwrap());
+    assert!(
+        !s3.keys().iter().any(|k| k.contains("invite-")),
+        "the one-time wrap is gone: {:?}",
+        s3.keys()
+    );
+    assert!(matches!(
+        a.adopt_join_key(&decoded, &MemoryKeyring::new()),
+        Err(CloudError::Drive(DriveError::Denied { .. }))
+    ));
+
+    // Both devices read and write the same files.
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let on_a = a.open_encrypted(&a_keys, &provider).unwrap();
+    on_a.put("notes/plan.txt", b"the plan").unwrap();
+    let on_b = b.open_encrypted(&b_keys, &provider).unwrap();
+    assert_eq!(on_b.get("notes/plan.txt").unwrap(), b"the plan");
+    assert!(s3.keys().iter().all(|k| !k.contains("plan")), "{:?}", s3.keys());
+
+    // The recovery code opens the key on a third device; a device with nothing is refused.
+    let c_keys = MemoryKeyring::new();
+    assert_eq!(b.recover_key(&recovery, &c_keys).unwrap(), key);
+    assert!(matches!(
+        b.open_encrypted(&MemoryKeyring::new(), &provider),
+        Err(CloudError::Drive(DriveError::Locked { .. }))
+    ));
+}
+
+/// `cloud` with a bucket that refuses to delete an invite's wrap (403) and passes everything else
+/// on.
+fn cloud_keeping_invites(s3: &Arc<FakeS3>) -> TransportFactory {
+    struct KeepsInvites(Box<dyn Transport>);
+
+    impl Transport for KeepsInvites {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            if call.method == Method::Delete && call.url.contains("invite-") {
+                return Ok(HttpReply {
+                    status: 403,
+                    headers: vec![(
+                        String::from("content-type"),
+                        String::from("application/xml"),
+                    )],
+                    body: b"<Error><Code>AccessDenied</Code><Message>no</Message></Error>".to_vec(),
+                });
+            }
+            self.0.send(call)
+        }
+    }
+
+    let inner = cloud(s3);
+    Arc::new(move || Box::new(KeepsInvites(inner())) as Box<dyn Transport>)
+}
+
+/// X-AR5b-9: a joining device that has the key is not told it has not joined because the one-time
+/// wrap could not be deleted: `adopt_join_key_reporting` hands the key over and says the code is
+/// live; the same call on a bucket that deletes says nothing.
+#[test]
+fn x_ar5b_9_a_join_whose_invite_could_not_be_deleted_is_a_join_that_says_so() {
+    let s3 = FakeS3::new();
+    let a_dir = TempDir::new("azcloud-enc-a");
+    let a = signed_up(&cloud(&s3), &a_dir);
+    let a_keys = MemoryKeyring::new();
+    a.setup_encryption(&a_keys, cheap()).unwrap();
+    let join = a.invite_with_key(None, &a_keys).unwrap();
+    let decoded = JoinCode::decode(&join.encode()).unwrap();
+
+    let b_dir = TempDir::new("azcloud-enc-b");
+    let b_state = StateDir::open(b_dir.path()).unwrap();
+    let keeping = cloud_keeping_invites(&s3);
+    let b = Account::join(&b_state, TOKEN, keeping, &decoded).unwrap();
+    let b_keys = MemoryKeyring::new();
+    let adopted = b
+        .adopt_join_key_reporting(&decoded, &b_keys)
+        .expect("the join is not an error")
+        .expect("the code carries the key");
+    assert_eq!(
+        Some(adopted.key.clone()),
+        device::load_drive_key(&b_keys, "d_1").unwrap(),
+        "the key is kept on the joined device"
+    );
+    assert!(adopted.invite_left.is_some(), "the code is still live");
+    assert!(
+        s3.keys().iter().any(|k| k.contains("invite-")),
+        "the one-time wrap is still in the bucket: {:?}",
+        s3.keys()
+    );
+
+    // The same code on a bucket that deletes: the device joins, and nothing is left of the invite.
+    let c_dir = TempDir::new("azcloud-enc-c");
+    let c_state = StateDir::open(c_dir.path()).unwrap();
+    let c = Account::join(&c_state, TOKEN, cloud(&s3), &decoded).unwrap();
+    let adopted = c
+        .adopt_join_key_reporting(&decoded, &MemoryKeyring::new())
+        .unwrap()
+        .expect("the code carries the key");
+    assert!(adopted.invite_left.is_none());
+    assert!(
+        s3.keys().iter().all(|k| !k.contains("invite-")),
+        "{:?}",
+        s3.keys()
+    );
+}
+
+#[test]
+fn a_join_code_names_the_key_it_seals_and_a_seal_of_another_key_is_refused() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let a_dir = TempDir::new("azcloud-enc-a");
+    let a = signed_up(&transports, &a_dir);
+    let a_keys = MemoryKeyring::new();
+    a.setup_encryption(&a_keys, cheap()).unwrap();
+    let key = device::load_drive_key(&a_keys, "d_1").unwrap().unwrap();
+    let join = a.invite_with_key(None, &a_keys).unwrap();
+    assert_eq!(join.key_id, Some(key.id().to_hex()), "the code names the key it seals");
+    let decoded = JoinCode::decode(&join.encode()).unwrap();
+    assert_eq!(decoded.key_id, join.key_id);
+
+    let b_dir = TempDir::new("azcloud-enc-b");
+    let b_state = StateDir::open(b_dir.path()).unwrap();
+    let b = Account::join(&b_state, TOKEN, transports.clone(), &decoded).unwrap();
+    let b_keys = MemoryKeyring::new();
+    // The code names another key than its seal holds (the seal was swapped in the bucket):
+    // refused, and nothing of it is kept.
+    let mut swapped = decoded.clone();
+    swapped.key_id = Some(DriveKey::generate().unwrap().id().to_hex());
+    assert!(matches!(
+        b.adopt_join_key(&swapped, &b_keys),
+        Err(CloudError::Drive(DriveError::KeyRefused { .. }))
+    ));
+    assert_eq!(device::load_drive_key(&b_keys, "d_1").unwrap(), None);
+    // A damaged id is refused too, never read as a code that names none.
+    let mut damaged = decoded.clone();
+    damaged.key_id = Some(String::from("not hex"));
+    assert!(matches!(
+        b.adopt_join_key(&damaged, &b_keys),
+        Err(CloudError::Failed(_))
+    ));
+    // The one-time wrap stayed: the code as it was made joins, and pins its key.
+    assert_eq!(b.adopt_join_key(&decoded, &b_keys).unwrap(), Some(key.clone()));
+    assert_eq!(device::pinned_drive_key(&b_keys, "d_1").unwrap(), Some(key.id()));
+}
+
+#[test]
+fn a_join_code_of_a_drive_without_encryption_carries_no_key() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-plain");
+    let a = signed_up(&transports, &dir);
+    let join = a.invite_with_key(None, &MemoryKeyring::new()).unwrap();
+    assert_eq!(join.key_seal, None);
+    assert!(a
+        .adopt_join_key(&join, &MemoryKeyring::new())
+        .unwrap()
+        .is_none());
+    let mut damaged = join;
+    damaged.key_seal = Some(String::from("not hex"));
+    assert!(matches!(
+        a.adopt_join_key(&damaged, &MemoryKeyring::new()),
+        Err(CloudError::Failed(_))
+    ));
+    assert!(s3.keys().is_empty(), "nothing was written: {:?}", s3.keys());
+}
+
+#[test]
+fn encryption_is_turned_on_once() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-twice");
+    let a = signed_up(&transports, &dir);
+    a.setup_encryption(&MemoryKeyring::new(), cheap()).unwrap();
+    assert!(matches!(
+        a.setup_encryption(&MemoryKeyring::new(), cheap()),
+        Err(CloudError::Drive(DriveError::InvalidConfig(_)))
+    ));
+}
+
+#[test]
+fn a_device_tells_its_encryption_and_unlocks_from_its_own_wrap() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-status");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    assert_eq!(
+        a.encryption_state(&keys).unwrap(),
+        EncState::Unencrypted(Why::New)
+    );
+    a.setup_encryption(&keys, cheap()).unwrap();
+    assert!(matches!(
+        a.encryption_state(&keys).unwrap(),
+        EncState::Encrypted {
+            via: Via::KeyInKeyring,
+            ..
+        }
+    ));
+
+    // The keyring lost the drive key (not the member key): the account file recorded the drive
+    // as encrypted, so it is locked here and not plain, and this device's wrap brings the key back.
+    keys.delete(&device::drive_key_entry("d_1")).unwrap();
+    assert!(matches!(
+        a.encryption_state(&keys).unwrap(),
+        EncState::Encrypted {
+            via: Via::Record,
+            ..
+        }
+    ));
+    assert!(a.unlock_key(&keys).unwrap().is_some());
+    assert!(device::load_drive_key(&keys, "d_1").unwrap().is_some());
+    assert!(a.unlock_key(&MemoryKeyring::new()).unwrap().is_none());
+}
+
+/// X-AR5b-1: the command line meets a drive whose bucket lists no key file and holds a file - a
+/// drive made before encryption, or one whose storage hides its key files, which cannot be told
+/// apart - on a device that holds no key and recorded nothing: `azcloud up`, `down`, `ls`, `rm`
+/// and the rest open nothing and write nothing. It used to take it for a plaintext drive "as its
+/// bucket is" and put the file in the clear.
+#[test]
+fn x_ar5b_1_a_keyless_device_opens_no_drive_whose_bucket_lists_no_key_files_and_writes_nothing() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-hostile");
+    let a = signed_up(&transports, &dir);
+    s3.write("decoy.txt", b"plain".to_vec());
+    let before = s3.keys();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+
+    let keyless = MemoryKeyring::new();
+    let refused = a.open_encrypted_only(&keyless, &provider);
+    assert!(
+        matches!(refused, Err(OpenRefusal::NotEncrypted(Why::HiddenOrAbsent))),
+        "{refused:?}"
+    );
+    assert_eq!(
+        a.encryption_state(&keyless).unwrap(),
+        EncState::Unencrypted(Why::HiddenOrAbsent)
+    );
+    assert_eq!(s3.keys(), before, "nothing was written");
+    assert!(
+        !AccountFile::load(&a.state().account_file())
+            .unwrap()
+            .get(None)
+            .unwrap()
+            .encrypted
+    );
+
+    // A keyring that cannot be read decides nothing either.
+    struct Declined;
+    impl KeyringStore for Declined {
+        fn get(&self, _: &str) -> Result<Option<String>, azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+        fn set(&self, _: &str, _: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+        fn delete(&self, _: &str) -> Result<(), azul_storage::keyring::KeyringError> {
+            Err(azul_storage::keyring::KeyringError::Denied)
+        }
+    }
+    assert!(matches!(
+        a.open_encrypted_only(&Declined, &provider),
+        Err(OpenRefusal::Keyring(DriveError::Denied { .. }))
+    ));
+    assert_eq!(s3.keys(), before);
+}
+
+/// X-AR5b-1: a drive that was set up, then opened, is written down as encrypted; the device that
+/// lost its key (a reinstall: the same state folder, a new keyring) meets a bucket that now hides
+/// its key files and holds a decoy, and is told the drive is LOCKED - never plain.
+#[test]
+fn x_ar5b_1_a_drive_found_encrypted_stays_locked_without_its_key_whatever_the_bucket_lists() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-recorded");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let opened = a.open_encrypted_only(&keys, &provider).unwrap();
+    opened.put("notes/plan.txt", b"the plan").unwrap();
+
+    // Every key file leaves the bucket's listing (here: they are gone), a decoy stands in.
+    for key in s3.keys().into_iter().filter(|k| k.starts_with(".azlin/")) {
+        s3.remove(&key);
+    }
+    s3.write("decoy.txt", b"plain".to_vec());
+    let before = s3.keys();
+    let reinstalled = MemoryKeyring::new();
+    let locked = a.open_encrypted_only(&reinstalled, &provider);
+    assert!(
+        matches!(&locked, Err(OpenRefusal::Locked { recorded: true, .. })),
+        "{locked:?}"
+    );
+    assert_eq!(s3.keys(), before, "nothing was written");
+}
+
+/// The token server and the bucket with the network's DNS down: the sign-up lists node `n1` at
+/// 127.0.0.1, and a host name only resolves once the transport was told its addresses.
+struct WithoutDns {
+    s3: Arc<FakeS3>,
+    /// The hosts the transport was told addresses for, in order.
+    told: Mutex<Vec<String>>,
+}
+
+impl Transport for WithoutDns {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        if call.url.starts_with(TOKEN) {
+            let nodes = r#""nodes": [{"name": "n1", "url": "http://n1.nodes.test:19001",
+                                      "ready": true, "addresses": ["127.0.0.1"]}]"#;
+            return Ok(json(
+                201,
+                &bundle("AKID1", "2099-01-01T00:00:00Z", "dt_f.0.a").replace(r#""nodes": []"#, nodes),
+            ));
+        }
+        let rest = call.url.split_once("://").map_or("", |(_, r)| r);
+        let authority = rest.split('/').next().unwrap_or("");
+        let host = authority.rsplit_once(':').map_or(authority, |(h, _)| h);
+        let known = host.parse::<std::net::IpAddr>().is_ok()
+            || self.told.lock().unwrap().iter().any(|h| h == host);
+        if !known {
+            return Err(format!("DNS resolution failed for {}", call.url));
+        }
+        Ok(self.s3.answer(call))
+    }
+
+    fn fallback_addresses(&self, host: &str, _addresses: &[String]) -> bool {
+        self.told.lock().unwrap().push(host.to_string());
+        true
+    }
+}
+
+struct SharedWithoutDns(Arc<WithoutDns>);
+
+impl Transport for SharedWithoutDns {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        self.0.send(call)
+    }
+
+    fn fallback_addresses(&self, host: &str, addresses: &[String]) -> bool {
+        self.0.fallback_addresses(host, addresses)
+    }
+}
+
+#[test]
+fn with_dns_down_the_key_listing_reaches_the_bucket_at_the_nodes_addresses() {
+    let without_dns = Arc::new(WithoutDns {
+        s3: FakeS3::new(),
+        told: Mutex::new(Vec::new()),
+    });
+    let shared = without_dns.clone();
+    let transports: TransportFactory =
+        Arc::new(move || Box::new(SharedWithoutDns(shared.clone())) as Box<dyn Transport>);
+    let dir = TempDir::new("azcloud-enc-no-dns");
+    let a = signed_up(&transports, &dir)
+        .with_s3_endpoint(Some("http://blk.dns-test.invalid:19000"));
+    let keys = MemoryKeyring::new();
+    assert_eq!(
+        a.encryption_state(&keys).unwrap(),
+        EncState::Unencrypted(Why::New),
+        "the listing of the key files goes to the block host at the nodes' addresses"
+    );
+    assert!(
+        without_dns
+            .told
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|h| h == "blk.dns-test.invalid"),
+        "the block host was given the nodes' addresses before it was asked"
+    );
+}
+
+#[test]
+fn a_configured_s3_endpoint_is_the_one_the_keys_go_to() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-endpoint");
+    let a = signed_up(&transports, &dir);
+    assert_eq!(a.s3_endpoint(), super::S3, "the drive's own by default");
+    let a = a.with_s3_endpoint(Some(" http://127.0.0.1:19999/ "));
+    assert_eq!(a.s3_endpoint(), "http://127.0.0.1:19999");
+    assert_eq!(a.bucket_drive().unwrap().config().endpoint, "http://127.0.0.1:19999");
+    let a = a.with_s3_endpoint(None);
+    assert_eq!(a.s3_endpoint(), super::S3);
+}
+
+#[test]
+fn incoming_mail_gets_a_drop_key_whose_public_half_goes_to_the_customers_worker() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-drop");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    assert!(
+        matches!(a.enable_mail_drop(&keys), Err(CloudError::Failed(_))),
+        "a plain drive gets its mail as it is"
+    );
+    assert_eq!(a.mail_drop_key(&keys).unwrap(), None);
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let public = a.enable_mail_drop(&keys).unwrap();
+    assert_eq!(a.enable_mail_drop(&keys).unwrap(), public, "the same key again");
+    assert_eq!(a.mail_drop_key(&keys).unwrap(), Some(public));
+    assert!(s3.keys().iter().any(|k| k == ".azlin/keys/_drop.key"));
+
+    // The Worker's variable, through the customer's own token, straight to Cloudflare.
+    let fake = Fake::new(|_, _| Ok(json(200, r#"{"success": true, "errors": [], "result": {}}"#)));
+    let cloudflare = Cloudflare::new(
+        Box::new(Shared(fake.clone())),
+        "0123456789ABCDEF0123456789abcdef",
+        " cf-token ",
+    )
+    .unwrap()
+    .with_base("https://cf.test/client/v4/");
+    assert!(!format!("{cloudflare:?}").contains("cf-token"));
+    cloudflare
+        .set_worker_secret(DEFAULT_WORKER, DROP_KEY_VARIABLE, &public.to_hex())
+        .unwrap();
+    let calls = fake.calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1);
+    let call = &calls[0];
+    assert_eq!(call.method, Method::Put);
+    assert_eq!(
+        call.url,
+        "https://cf.test/client/v4/accounts/0123456789abcdef0123456789abcdef/workers/scripts/\
+         azlin-mail-worker/secrets"
+    );
+    assert_eq!(header(call, "authorization"), Some("Bearer cf-token"));
+    let body: Value = serde_json::from_slice(&call.body).unwrap();
+    assert_eq!(body["name"], DROP_KEY_VARIABLE);
+    assert_eq!(body["text"], public.to_hex());
+    assert_eq!(body["type"], "secret_text");
+
+    // Cloudflare's refusal says why; names that are not names never reach it.
+    let refusing = Fake::new(|_, _| {
+        Ok(json(
+            403,
+            r#"{"success": false, "errors": [{"code": 10000, "message": "Authentication error"}]}"#,
+        ))
+    });
+    let cloudflare =
+        Cloudflare::new(Box::new(Shared(refusing.clone())), &"a".repeat(32), "t").unwrap();
+    let refused = cloudflare.set_worker_secret(DEFAULT_WORKER, DROP_KEY_VARIABLE, "x");
+    assert!(
+        matches!(&refused, Err(CloudError::Failed(why)) if why.contains("Authentication error")),
+        "{refused:?}"
+    );
+    assert!(cloudflare.set_worker_secret("../x", DROP_KEY_VARIABLE, "x").is_err());
+    assert_eq!(refusing.calls.lock().unwrap().len(), 1);
+    assert!(Cloudflare::new(Box::new(Shared(refusing)), "not-an-id", "t").is_err());
+}
+
+/// X-DELTA-KEYS3-2, through the command line's own entry (`azcloud mail-drop` is `enable_mail_drop`): a device
+/// that still holds the key from before another device's rotation and still has bucket credentials turned
+/// incoming mail on. `load_drop_key` read the file the new key sealed as "no key here", a new drop key went
+/// over it - and the Worker, given its public half, sealed every message from then on to a key only the
+/// stale device could open, while the secret the mail since the rotation was sealed to was gone for good.
+/// Now the key permit asks the file first, and the stale device is told its key was replaced.
+#[test]
+fn x_delta_keys3_2_a_device_with_the_old_key_cannot_turn_mail_on_over_the_new_keys_drop_key() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-drop-stale");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    a.open_encrypted(&keys, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    a.enable_mail_drop(&keys).unwrap();
+    // Another device of the drive, which keeps the key as it is now - and will not hear of the rotation.
+    let old = device::load_drive_key(&keys, "d_1").unwrap().unwrap();
+    let stale = MemoryKeyring::new();
+    device::store_drive_key(&stale, "d_1", &old).unwrap();
+
+    let rotated = a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+    let public = rotated
+        .drop_key
+        .expect("incoming mail was on: the rotation made a new drop key");
+    let file = s3.read(".azlin/keys/_drop.key").expect("the drop key file");
+
+    let refused = a.enable_mail_drop(&stale);
+    let why = format!("{refused:?}");
+    assert!(
+        refused.is_err(),
+        "a device whose key was replaced writes no drop key: {why}"
+    );
+    assert!(
+        why.contains("another drive key"),
+        "it is told its key was replaced: {why}"
+    );
+    assert_eq!(
+        s3.read(".azlin/keys/_drop.key").unwrap(),
+        file,
+        "_drop.key is byte-identical: the secret the Worker's mail is sealed to is still there"
+    );
+    // The read is no "none" either, for the same device.
+    assert!(a.mail_drop_key(&stale).is_err());
+    // The device that holds the new key reads its drop key, and the previous one is kept for the mail on its way.
+    assert_eq!(a.mail_drop_key(&keys).unwrap(), Some(public));
+    assert_eq!(
+        a.enable_mail_drop(&keys).unwrap(),
+        public,
+        "turned on again: the same key"
+    );
+}
+
+/// X-DELTA-KEYS3-6, through the kit's own entry (`invite_with_key`: AzDrive's "Add a device" and the command
+/// line's invite both come here): the key permit was asked AFTER the token server made the member family of
+/// the join code, so a key change that is not over refused the invite with a family left at the server, unseen,
+/// until a lockdown. Asked first now: the server is not called, and no invite lands in the bucket.
+#[test]
+fn x_delta_keys3_6_an_invite_while_a_key_change_is_not_over_makes_no_member_family() {
+    let s3 = FakeS3::new();
+    let (transports, fake) = cloud_recording(&s3);
+    let dir = TempDir::new("azcloud-enc-invite-unfinished");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let families = || {
+        fake.calls()
+            .iter()
+            .filter(|call| call.url.ends_with("/members"))
+            .count()
+    };
+    let invites = || s3.keys().iter().filter(|k| k.contains("invite-")).count();
+
+    // The ordinary drive: one family at the server, and its code carries the key.
+    let join = a.invite_with_key(None, &keys).unwrap();
+    assert_eq!(families(), 1);
+    assert!(join.key_seal.is_some() && join.key_id.is_some());
+    assert_eq!(invites(), 1);
+
+    // The keyring holds the new key of a rotation that is not the drive key yet.
+    let (_, next) = device::rotation_key_entries("d_1");
+    let _planted = device::stash(&keys, &next, &DriveKey::generate().unwrap()).unwrap();
+    let refused = a
+        .invite_with_key(None, &keys)
+        .expect_err("a key change that is not over hands out no key")
+        .to_string();
+    assert!(refused.contains("not finished"), "{refused}");
+    assert_eq!(
+        families(),
+        1,
+        "the token server made no second member family"
+    );
+    assert_eq!(invites(), 1, "and no second invite is in the bucket");
+}
+
+/// [`cloud_recording`] where the token server's member answer and the bucket's put of an invite wrap can be made
+/// to fail: `members` is the status the `/members` call answers (201: it makes the family), `refuse_wrap` makes the
+/// bucket refuse the put of any invite wrap.
+fn cloud_failing(
+    s3: &Arc<FakeS3>,
+    members: u16,
+    refuse_wrap: bool,
+) -> (TransportFactory, Arc<Fake>) {
+    let s3 = s3.clone();
+    let fake = Fake::new(move |call, _| {
+        let url = call.url.as_str();
+        if !url.starts_with(TOKEN) {
+            if refuse_wrap && call.method == Method::Put && url.contains("/.azlin/keys/invite-") {
+                return Ok(HttpReply {
+                    status: 403,
+                    headers: Vec::new(),
+                    body: b"<Error><Code>AccessDenied</Code><Message>no</Message></Error>".to_vec(),
+                });
+            }
+            return Ok(s3.answer(call));
+        }
+        if url.ends_with("/v1/drives") {
+            return Ok(json(
+                201,
+                &bundle("AKID1", "2099-01-01T00:00:00Z", "dt_f.0.a"),
+            ));
+        }
+        if url.ends_with("/members") {
+            return Ok(if members == 201 {
+                json(
+                    201,
+                    r#"{"member": "m_laptop", "drive_token": "dt_m.0.joins"}"#,
+                )
+            } else {
+                json(
+                    members,
+                    r#"{"error": "too_many_devices", "message": "a drive takes at most 5 devices"}"#,
+                )
+            });
+        }
+        Ok(json(
+            401,
+            r#"{"error": "token_reuse", "message": "reused"}"#,
+        ))
+    });
+    let transports: TransportFactory = {
+        let fake = fake.clone();
+        Arc::new(move || Box::new(Shared(fake.clone())) as Box<dyn Transport>)
+    };
+    (transports, fake)
+}
+
+/// X-KEYS4-2, through the kit's own entry: the invite's wrap is PUT into the bucket BEFORE the token server is
+/// asked for the member family (the family came first, and a process that died between the two left a family at
+/// the server that nobody held the code of, unseen, until a lockdown).
+#[test]
+fn x_keys4_2_the_invite_wrap_is_put_before_the_member_family_is_made() {
+    let s3 = FakeS3::new();
+    let (transports, fake) = cloud_recording(&s3);
+    let dir = TempDir::new("azcloud-enc-invite-order");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let before = fake.calls().len();
+    let join = a.invite_with_key(None, &keys).unwrap();
+    assert!(join.key_seal.is_some() && join.key_id.is_some());
+    let calls = fake.calls();
+    let calls = &calls[before..];
+    let wrap = calls
+        .iter()
+        .position(|call| call.method == Method::Put && call.url.contains("/.azlin/keys/invite-"))
+        .expect("the invite's wrap was put");
+    let family = calls
+        .iter()
+        .position(|call| call.url.ends_with("/members"))
+        .expect("the member family was asked for");
+    assert!(
+        wrap < family,
+        "the wrap (call {wrap}) comes before the family (call {family}): {:?}",
+        calls
+            .iter()
+            .map(|c| (c.method, c.url.clone()))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// X-KEYS4-2: a bucket that refuses the wrap means no member family - the token server is not asked at all.
+#[test]
+fn x_keys4_2_a_bucket_that_refuses_the_wrap_makes_no_member_family() {
+    let s3 = FakeS3::new();
+    let (transports, fake) = cloud_failing(&s3, 201, true);
+    let dir = TempDir::new("azcloud-enc-invite-wrap-refused");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let refused = a.invite_with_key(None, &keys);
+    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(
+        fake.calls()
+            .iter()
+            .filter(|call| call.url.ends_with("/members"))
+            .count(),
+        0,
+        "the token server made no member family"
+    );
+    assert!(s3.keys().iter().all(|k| !k.contains("invite-")));
+}
+
+/// X-KEYS4-2: the family cannot be made (the token server refuses): the wrap that no code carries is taken back
+/// out of the bucket, and the error is the server's own.
+#[test]
+fn x_keys4_2_a_family_that_was_not_made_takes_the_wrap_back() {
+    let s3 = FakeS3::new();
+    let (transports, fake) = cloud_failing(&s3, 409, false);
+    let dir = TempDir::new("azcloud-enc-invite-no-family");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let refused = a
+        .invite_with_key(None, &keys)
+        .expect_err("the token server refused the family");
+    let text = refused.to_string();
+    assert!(
+        text.contains("devices") || text.contains("409"),
+        "the token server's own words: {text}"
+    );
+    assert_eq!(
+        fake.calls()
+            .iter()
+            .filter(|call| call.url.ends_with("/members"))
+            .count(),
+        1,
+        "the family was asked for once"
+    );
+    assert!(
+        s3.keys().iter().all(|k| !k.contains("invite-")),
+        "the wrap is out of the bucket again: {:?}",
+        s3.keys()
+    );
+    assert_eq!(
+        s3.count_under("DELETE", ".azlin/keys/invite-"),
+        1,
+        "and it was taken out by a delete"
+    );
+}
+
+/// X-DELTA-KEYS3-6 (the other end): the join code's pre-check (asked on the keyring alone, before the code's
+/// token is spent) refuses a code that carries a key while this device's own key change is not over - the
+/// join would spend the token, and the key could not be kept after it.
+#[test]
+fn x_delta_keys3_6_a_code_with_a_key_is_refused_before_it_is_spent_while_this_devices_key_change_is_not_over(
+) {
+    let carries = JoinCode {
+        drive_id: String::from("d_1"),
+        drive_token: String::from("dt_m.0.joins"),
+        member: String::from("m_laptop"),
+        name: String::from("Ann's drive"),
+        token_url: TOKEN.to_string(),
+        key_seal: Some("ab".repeat(32)),
+        key_id: None,
+    };
+    let without = JoinCode {
+        key_seal: None,
+        ..carries.clone()
+    };
+    let keys = MemoryKeyring::new();
+    Account::check_join_key_can_be_kept(&carries, &keys).unwrap();
+
+    let drive_key = DriveKey::generate().unwrap();
+    device::store_drive_key(&keys, "d_1", &drive_key).unwrap();
+    let (_, next) = device::rotation_key_entries("d_1");
+    let _planted = device::stash(&keys, &next, &DriveKey::generate().unwrap()).unwrap();
+    let refused = Account::check_join_key_can_be_kept(&carries, &keys)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("not finished"), "{refused}");
+    // a code without a key asks nothing of the keyring
+    Account::check_join_key_can_be_kept(&without, &keys).unwrap();
+}
+
+#[test]
+fn i_was_hacked_locks_the_drive_down_then_rotates_its_key() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-rotate");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    let old_code = a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    a.open_encrypted(&keys, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    let old = device::load_drive_key(&keys, "d_1").unwrap().unwrap();
+    let lockdowns = LOCKDOWNS.load(Ordering::SeqCst);
+
+    let rotated = a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+    assert!(LOCKDOWNS.load(Ordering::SeqCst) > lockdowns, "the lockdown went first");
+    assert_ne!(rotated.drive_key, old.id());
+    assert_eq!(rotated.rewrapped, 1);
+    assert_eq!(
+        device::load_drive_key(&keys, "d_1").unwrap().map(|k| k.id()),
+        Some(rotated.drive_key)
+    );
+    assert_eq!(
+        a.open_encrypted(&keys, &provider)
+            .unwrap()
+            .get("notes/plan.txt")
+            .unwrap(),
+        b"the plan"
+    );
+    assert!(a.recover_key(&old_code, &MemoryKeyring::new()).is_err());
+    assert!(a.recover_key(&rotated.recovery_code, &MemoryKeyring::new()).is_ok());
+
+    // Re-encrypt everything: the one file into a new object.
+    let before = a
+        .open_encrypted(&keys, &provider)
+        .unwrap()
+        .entry("notes/plan.txt")
+        .unwrap()
+        .object_id();
+    let mut state = azul_storage::rotation::ReencryptState::new(u64::MAX);
+    assert!(a
+        .reencrypt(&keys, &provider, &mut state, &mut |_| Ok(()), &|| false)
+        .unwrap());
+    assert_eq!(state.done, 1);
+    let drive = a.open_encrypted(&keys, &provider).unwrap();
+    assert_ne!(drive.entry("notes/plan.txt").unwrap().object_id(), before);
+    assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
+}
+
+/// A provider that keeps the history of its drive, as far as this test needs: it records what the
+/// account asks it to erase and answers with an empty report (the purge itself is the storage
+/// crate's: `x_delta_sync6_3_the_provider_trait_runs_the_confirmed_purge`).
+struct Erasing {
+    index: Arc<MemoryIndex>,
+    asked: Mutex<Vec<(String, u64)>>,
+}
+
+impl IndexProvider for Erasing {
+    fn open_index(
+        &self,
+        _drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _drive_key: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        Ok(self.index.clone())
+    }
+
+    fn rekey(
+        &self,
+        _drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _old: &DriveKey,
+        _new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        Ok(())
+    }
+
+    fn purge_confirmed(
+        &self,
+        drive: &str,
+        _bucket: Arc<dyn Drive>,
+        _drive_key: &DriveKey,
+        confirmation: &azul_storage::meta::reclaim::PurgeConfirmation,
+    ) -> Result<azul_storage::meta::reclaim::ReclaimReport, DriveError> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push((drive.to_string(), confirmation.at));
+        Ok(azul_storage::meta::reclaim::ReclaimReport::none(
+            azul_storage::meta::reclaim::ReclaimMode::Delete,
+        ))
+    }
+}
+
+/// X-DELTA-SYNC6-3: the account's last step of "re-encrypt everything and erase the old versions"
+/// asks the provider only with the confirmation a pass recorded and only once the pass is over, and
+/// a provider that keeps no history refuses (nothing is erased, nothing said as if it were). RED on
+/// the old code: no such step existed - the purge had no caller outside tests.
+#[test]
+fn x_delta_sync6_3_erase_old_versions_needs_the_confirmation_and_the_end_of_the_pass() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-erase");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let index = Arc::new(MemoryIndex::new());
+    let provider = Erasing {
+        index: Arc::clone(&index),
+        asked: Mutex::new(Vec::new()),
+    };
+    a.open_encrypted(&keys, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+
+    let mut state = azul_storage::rotation::ReencryptState::new(u64::MAX);
+    // Nothing was confirmed: refused, and the provider is not asked.
+    let refused = a
+        .erase_old_versions(&keys, &provider, &state)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("not confirmed"), "{refused}");
+    // Confirmed, the pass has not run: refused too - what it replaces later would stay.
+    state.confirm_purge(azul_storage::time::now_unix());
+    let refused = a
+        .erase_old_versions(&keys, &provider, &state)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("not over"), "{refused}");
+    assert!(provider.asked.lock().unwrap().is_empty());
+
+    // The pass is over: the provider is asked, for this drive, with the confirmation's own time.
+    assert!(a
+        .reencrypt(&keys, &provider, &mut state, &mut |_| Ok(()), &|| false)
+        .unwrap());
+    let report = a.erase_old_versions(&keys, &provider, &state).unwrap();
+    assert_eq!(report.deleted, 0);
+    assert_eq!(
+        *provider.asked.lock().unwrap(),
+        vec![(
+            String::from("d_1"),
+            state.purge_answered_at().expect("confirmed")
+        )]
+    );
+
+    // A provider that keeps no history says so; nothing is erased.
+    let plain = SharedIndex(index);
+    let refused = a
+        .erase_old_versions(&keys, &plain, &state)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("no history"), "{refused}");
+    assert_eq!(
+        a.open_encrypted(&keys, &plain)
+            .unwrap()
+            .get("notes/plan.txt")
+            .unwrap(),
+        b"the plan"
+    );
+}
+
+/// X-DELTA-SYNC7-2: the account's erase of the old versions is refused after a pass that left a file it could
+/// not read, and the provider is never asked: the older versions of that file are the only readable copies,
+/// and the command that asked to erase old versions used to erase them and say "1 damaged ones left as they
+/// were" afterwards. RED on the old code: `erase_old_versions` asked the provider (`asked` has the drive).
+/// The control: once the file reads again and a new pass leaves nothing, the erase runs as before.
+#[test]
+fn x_delta_sync7_2_erase_old_versions_is_refused_after_a_pass_that_left_a_file_it_could_not_read() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-erase-damaged");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = Erasing {
+        index: Arc::new(MemoryIndex::new()),
+        asked: Mutex::new(Vec::new()),
+    };
+    let drive = a.open_encrypted(&keys, &provider).unwrap();
+    drive.put("notes/plan.txt", b"the plan").unwrap();
+    drive.put("notes/ok.txt", b"a good file").unwrap();
+    a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+    let drive = a.open_encrypted(&keys, &provider).unwrap();
+    let plan = drive
+        .entry("notes/plan.txt")
+        .unwrap()
+        .object_id()
+        .expect("a file of its own")
+        .bucket_key();
+    let sound = s3.read(&plan).expect("the object is in the bucket");
+    s3.write(&plan, b"rotten".to_vec());
+
+    let mut state = azul_storage::rotation::ReencryptState::new(u64::MAX);
+    state.confirm_purge(azul_storage::time::now_unix());
+    assert!(a
+        .reencrypt(&keys, &provider, &mut state, &mut |_| Ok(()), &|| false)
+        .unwrap());
+    assert_eq!((state.done, state.failed), (1, 1), "{state:?}");
+    let refused = a
+        .erase_old_versions(&keys, &provider, &state)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.starts_with("nothing was erased")
+            && refused.contains("1 file could not be read")
+            && refused.contains("only readable copies"),
+        "{refused}"
+    );
+    assert!(
+        provider.asked.lock().unwrap().is_empty(),
+        "the provider was asked to erase after a pass that left a file it could not read: {:?}",
+        provider.asked.lock().unwrap()
+    );
+
+    // The control: the file reads again, a new pass leaves nothing, and the erase runs as it did.
+    s3.write(&plan, sound);
+    let mut again = azul_storage::rotation::ReencryptState::new(u64::MAX);
+    again.confirm_purge(azul_storage::time::now_unix());
+    assert!(a
+        .reencrypt(&keys, &provider, &mut again, &mut |_| Ok(()), &|| false)
+        .unwrap());
+    assert_eq!((again.done, again.failed), (2, 0), "{again:?}");
+    a.erase_old_versions(&keys, &provider, &again).unwrap();
+    assert_eq!(provider.asked.lock().unwrap().len(), 1);
+}
+
+/// K2: whoever can write to the bucket can plant a rotation journal. It must not make "I was
+/// hacked" skip the account's lockdown (the attacker's tokens would stay valid) or fail the
+/// rotation on a key nobody has: the journal of a rotation that stopped on this device is the
+/// one that verifies under this device's new key.
+#[test]
+fn a_planted_rotation_journal_does_not_skip_the_lockdown() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-planted-journal");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    a.open_encrypted(&keys, &provider)
+        .unwrap()
+        .put("notes/plan.txt", b"the plan")
+        .unwrap();
+    let old = device::load_drive_key(&keys, "d_1").unwrap().unwrap();
+    let planted = format!(
+        r#"{{"format":"azlin-drive-key","version":1,"kind":"rotation","old":"{}","new":"{}","phase":"started"}}"#,
+        old.id().to_hex(),
+        "cd".repeat(16)
+    );
+    s3.write(".azlin/keys/_rotation.key", planted.into_bytes());
+    let lockdowns = LOCKDOWNS.load(Ordering::SeqCst);
+
+    let rotated = a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+    assert!(
+        LOCKDOWNS.load(Ordering::SeqCst) > lockdowns,
+        "the lockdown went first, whatever the bucket held"
+    );
+    assert_ne!(rotated.drive_key, old.id());
+    assert_eq!(
+        a.open_encrypted(&keys, &provider)
+            .unwrap()
+            .get("notes/plan.txt")
+            .unwrap(),
+        b"the plan"
+    );
+    assert!(
+        s3.read(".azlin/keys/_rotation.key").is_none(),
+        "the rotation that ran replaced the planted journal and removed its own"
+    );
+}
+
+/// `git clone azlin::drive://d_1` (azul-storage's `git-remote-azlin` hands the URL to
+/// `azcloud git-remote`): plain git reads the drive index in the account's bucket, over the
+/// account's signed S3 requests, with the drive key this device keeps.
+#[test]
+fn git_reads_the_drive_index_in_the_accounts_bucket_through_the_remote_helper() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-git");
+    let a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = azul_storage::meta::MetaIndexProvider::new(
+        azul_storage::meta::IndexProfile::in_memory("Laptop"),
+    );
+    let drive = a.open_encrypted(&keys, &provider).unwrap();
+    drive.put("notes/plan.txt", b"the plan").unwrap();
+
+    let mut output = Vec::new();
+    let mut packs = 0;
+    a.serve_git_remote(
+        &keys,
+        std::io::Cursor::new("option object-format\nlist\n\n"),
+        &mut output,
+        &mut |_: &[u8]| {
+            packs += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    let text = String::from_utf8(output).unwrap();
+    assert!(text.starts_with("ok\n:object-format sha256\n"), "{text}");
+    assert!(
+        text.contains(" refs/heads/main\n@refs/heads/main HEAD\n"),
+        "{text}"
+    );
+    assert_eq!(packs, 0, "a list fetches nothing");
+
+    // A device without the drive key reads nothing.
+    assert!(a
+        .serve_git_remote(
+            &MemoryKeyring::new(),
+            std::io::Cursor::new("list\n\n"),
+            &mut Vec::new(),
+            &mut |_: &[u8]| Ok(()),
+        )
+        .is_err());
+}
+
+// ==== X-DELTA-AZDRIVE-KEYS-25: a keyring that keeps no key is asked before the server is ====
+
+/// A keyring that keeps no drive key: the plain secrets file of a command line whose user did not
+/// say `--allow-plain-secrets` (AZ-K7).
+fn plain_secrets(dir: &TempDir) -> (StateDir, crate::secrets::FileSecrets) {
+    let state = StateDir::open(dir.path()).unwrap();
+    let secrets = state.secrets();
+    (state, secrets)
+}
+
+/// X-DELTA-AZDRIVE-KEYS-25: the sign-up made the drive at the token server first and was refused at
+/// the first key it wrote, which left a drive that takes no file. Refused before any server call.
+#[test]
+fn x_delta_azdrive_keys_25_a_signup_into_a_keyring_that_keeps_no_key_asks_the_server_for_nothing() {
+    let fake = Fake::new(|_, _| Ok(json(500, r#"{"error": "never reached"}"#)));
+    let transports: TransportFactory = {
+        let fake = fake.clone();
+        Arc::new(move || Box::new(Shared(fake.clone())) as Box<dyn Transport>)
+    };
+    let dir = TempDir::new("azcloud-signup-plain");
+    let (state, secrets) = plain_secrets(&dir);
+    let keys = crate::encryption::NewKeys {
+        keyring: &secrets,
+        s3_endpoint: None,
+        kdf: cheap(),
+    };
+    let refused = Account::signup(&state, TOKEN, transports, "100GB", "Ann's drive", keys)
+        .err()
+        .expect("a plain secrets file keeps no key")
+        .to_string();
+    assert!(refused.contains("plain file"), "{refused}");
+    assert!(
+        fake.calls().is_empty(),
+        "the token server was not asked: {} call(s)",
+        fake.calls().len()
+    );
+}
+
+/// X-DELTA-AZDRIVE-KEYS-25: a join spends the code's one-time token; a code that carries a key is
+/// refused by a keyring that keeps none BEFORE that, and one without a key asks nothing of it.
+#[test]
+fn x_delta_azdrive_keys_25_a_join_code_with_a_key_is_refused_before_it_is_spent_by_a_keyring_that_keeps_none(
+) {
+    use azul_storage::footprint::Allow;
+    let dir = TempDir::new("azcloud-join-plain");
+    let (state, secrets) = plain_secrets(&dir);
+    let carries = JoinCode {
+        drive_id: String::from("d_1"),
+        drive_token: String::from("dt_m.0.joins"),
+        member: String::from("m_laptop"),
+        name: String::from("Ann's drive"),
+        token_url: TOKEN.to_string(),
+        key_seal: Some("ab".repeat(32)),
+        key_id: None,
+    };
+    let refused = Account::check_join_key_can_be_kept(&carries, &secrets)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("plain file"), "{refused}");
+    assert!(
+        refused.contains("--allow-plain-secrets"),
+        "it says what the user can do: {refused}"
+    );
+
+    // a code without a key asks nothing of the keyring
+    let without = JoinCode {
+        key_seal: None,
+        ..carries.clone()
+    };
+    Account::check_join_key_can_be_kept(&without, &secrets).unwrap();
+    // and with the user's word the key is kept
+    let allowed = state.allowing_plain_secrets(Allow::PlainSecrets).secrets();
+    Account::check_join_key_can_be_kept(&carries, &allowed).unwrap();
+}
+
+/// X-DELTA-AZDRIVE-KEYS-25: "I was hacked" locked the drive down and was refused at its first new
+/// key, so the other devices were locked out and the key was not replaced. Refused before the
+/// lockdown: the error is the keyring's, not the token server's.
+#[test]
+fn x_delta_azdrive_keys_25_a_rotation_with_a_keyring_that_keeps_no_key_is_refused_before_the_lockdown(
+) {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-rotate-plain");
+    let mut account = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    account.setup_encryption(&keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+
+    let plain_dir = TempDir::new("azcloud-enc-rotate-plain-secrets");
+    let (_, plain) = plain_secrets(&plain_dir);
+    let refused = account
+        .rotate_drive_key(&plain, &provider, cheap())
+        .err()
+        .expect("a plain secrets file keeps no key")
+        .to_string();
+    assert!(refused.contains("plain file"), "{refused}");
+}
+
+/// X-DELTA-AZDRIVE-KEYS-21: the account file's record is read the way AzDrive reads the drives
+/// file's: a key id that is no key id is a damaged record, and the drive does not open on it - it
+/// was "no id, so nothing to compare" (`and_then(KeyId::from_hex)`).
+#[test]
+fn x_delta_azdrive_keys_21_an_unreadable_key_id_in_the_account_file_is_a_damaged_record() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-damaged-record");
+    let state = StateDir::open(dir.path()).unwrap();
+    let keys = MemoryKeyring::new();
+    let made = crate::encryption::NewKeys {
+        keyring: &keys,
+        s3_endpoint: None,
+        kdf: cheap(),
+    };
+    let (account, _code) =
+        Account::signup(&state, TOKEN, transports, "100GB", "Ann's drive", made).unwrap();
+    let good = account.recorded().unwrap();
+    assert!(
+        good.encrypted && good.key_id.is_some() && !good.damaged,
+        "{good:?}"
+    );
+
+    let mut file = AccountFile::load(&state.account_file()).unwrap();
+    file.drives[0].key_id = Some(String::from("not a key id"));
+    file.save(&state.account_file()).unwrap();
+    let damaged = account.recorded().unwrap();
+    assert!(damaged.damaged && damaged.encrypted, "{damaged:?}");
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let refused = account.open_encrypted_only(&keys, &provider);
+    assert!(
+        matches!(
+            &refused,
+            Err(OpenRefusal::Refused(DriveError::KeyRefused { .. }))
+        ),
+        "{:?}",
+        refused.as_ref().err()
+    );
+}
+
+/// X-KEYS3-T1 (the vault answer of the third key review): a rotation never touches the drive's period vault
+/// (`.azlin/period/v1`: not an index entry, not a member wrap, not a share, not a drop key), so it stays sealed
+/// under the key it was written with and the keys before the new one live only in the key chain, each sealed
+/// under the next. The test the answer lacked: rotate through the production entry (`rotate_drive_key`) a drive
+/// whose vault holds a grant and a token, let a device JOIN afterwards - it holds the new key only - and read
+/// the vault back through the chain, grant and token. A second rotation with nobody writing the vault in
+/// between makes the walk K3 -> K2 -> K1 (each link used once), which a device that joined after it reads the
+/// same way; the first write puts the vault under the key that is current.
+#[test]
+fn x_keys3_t1_a_device_that_joins_after_a_rotation_reads_the_drives_vault_through_the_chain() {
+    use azul_storage::crypto::azl1::{PublicHeader, HEADER_LEN};
+
+    use super::period::{stored, ISSUE_KEY};
+    use crate::{
+        period::PeriodTokenStore,
+        vault::{DriveVault, TokenVault, UnlockedDrive, VaultGrant, VaultState},
+    };
+
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let a_dir = TempDir::new("azcloud-t1-a");
+    let mut a = signed_up(&transports, &a_dir);
+    let a_keys = MemoryKeyring::new();
+    a.setup_encryption(&a_keys, cheap()).unwrap();
+    let provider = SharedIndex(Arc::new(MemoryIndex::new()));
+    let k1 = device::load_drive_key(&a_keys, "d_1").unwrap().unwrap();
+
+    // The drive's vault holds a grant and a token, sealed under K1.
+    let bucket: Arc<dyn Drive> = Arc::new(a.bucket_drive().unwrap());
+    let laptop = TempDir::new("azcloud-t1-laptop");
+    let kept = PeriodTokenStore::new(laptop.path().join("period-tokens"))
+        .for_drive(&UnlockedDrive::new("d_1", bucket, k1.clone()))
+        .unwrap();
+    kept.add_tokens(&[stored("aa")]).unwrap();
+    kept.keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let key_id_of_the_vault = || {
+        let bytes = s3.read(DriveVault::KEY).expect("the drive's vault");
+        PublicHeader::parse(&bytes[..HEADER_LEN])
+            .unwrap()
+            .wrapped_key
+            .key_id
+    };
+    assert_eq!(key_id_of_the_vault(), k1.id());
+
+    // A device that joins the drive now, from A's code: the key it holds and the drive as it opens it.
+    let joined = |label: &str, a: &Account, a_keys: &MemoryKeyring| {
+        let code = a.invite_with_key(None, a_keys).unwrap();
+        let dir = TempDir::new(&format!("azcloud-t1-{label}"));
+        let state = StateDir::open(dir.path()).unwrap();
+        let decoded = JoinCode::decode(&code.encode()).unwrap();
+        let account = Account::join(&state, TOKEN, transports.clone(), &decoded).unwrap();
+        let keys = MemoryKeyring::new();
+        let key = account
+            .adopt_join_key(&decoded, &keys)
+            .unwrap()
+            .expect("the code carries the key");
+        let drive = UnlockedDrive::open("d_1", Arc::new(account.bucket_drive().unwrap()), &keys)
+            .unwrap()
+            .expect("the device holds the drive key");
+        (dir, key, drive)
+    };
+
+    // The real rotation: nothing of it reseals the vault.
+    let rotated = a.rotate_drive_key(&a_keys, &provider, cheap()).unwrap();
+    let k2 = device::load_drive_key(&a_keys, "d_1").unwrap().unwrap();
+    assert_eq!(k2.id(), rotated.drive_key);
+    assert_ne!(k1.id(), k2.id());
+    assert_eq!(
+        key_id_of_the_vault(),
+        k1.id(),
+        "a rotation leaves the vault under the key it was written with"
+    );
+
+    // The device that joins afterwards holds K2 only: the vault opens through the chain, every part of it.
+    let (_dir_b, key_b, drive_b) = joined("b", &a, &a_keys);
+    assert_eq!(
+        key_b.id(),
+        k2.id(),
+        "it joined with the new key, not the old"
+    );
+    let state = DriveVault::new(&drive_b)
+        .read()
+        .expect("the vault opens through the key chain on a device that joined after the rotation");
+    assert_eq!(state.tokens, vec![stored("aa")]);
+    assert!(
+        state.grant("ck_1").is_some(),
+        "the grant that only the drive held"
+    );
+    assert_eq!(
+        key_id_of_the_vault(),
+        k1.id(),
+        "a read writes nothing: the vault is under K1 still"
+    );
+
+    // A second rotation with the vault still under K1: the walk is K3 -> K2 -> K1, each link used once.
+    let again = a.rotate_drive_key(&a_keys, &provider, cheap()).unwrap();
+    let k3 = device::load_drive_key(&a_keys, "d_1").unwrap().unwrap();
+    assert_eq!(k3.id(), again.drive_key);
+    assert_eq!(key_id_of_the_vault(), k1.id());
+    let (_dir_c, key_c, drive_c) = joined("c", &a, &a_keys);
+    assert_eq!(key_c.id(), k3.id());
+    let state = DriveVault::new(&drive_c)
+        .read()
+        .expect("the vault opens through the chain of two rotations");
+    assert_eq!(state.tokens, vec![stored("aa")]);
+    assert!(state.grant("ck_1").is_some());
+    // The app's own read of the period tokens (the local vault joined with the drive's) sees the same.
+    let phone = TempDir::new("azcloud-t1-phone");
+    let seen = PeriodTokenStore::new(phone.path().join("period-tokens"))
+        .for_drive(&drive_c)
+        .unwrap()
+        .state_of_all()
+        .expect("the period tokens open on the device that joined after both rotations");
+    assert_eq!(seen.tokens, vec![stored("aa")]);
+    assert!(seen.grant("ck_1").is_some());
+
+    // The first write that has something to write puts it under the key that is current.
+    DriveVault::new(&drive_c)
+        .join(&VaultState::default())
+        .unwrap();
+    assert_eq!(key_id_of_the_vault(), k3.id());
+    assert_eq!(
+        DriveVault::new(&drive_c).read().unwrap().tokens,
+        vec![stored("aa")]
+    );
+}

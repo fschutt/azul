@@ -14,7 +14,12 @@ use std::{
 use gl_context_loader::GenericGlContext;
 
 use super::super::x11::dlopen::{Egl, Library};
-use crate::desktop::shell2::common::{dlopen::DynamicLibrary, gl_loader::load_gl_context};
+use crate::desktop::shell2::common::{
+    dlopen::load_first_available,
+    gl_loader::load_gl_context,
+    x11_host::{candidates, X11Lib},
+    DynamicLibrary,
+};
 
 /// Wrapper to get access to the GL function pointers
 pub struct GlFunctions {
@@ -31,7 +36,7 @@ impl std::fmt::Debug for GlFunctions {
 impl GlFunctions {
     /// Allocates and loads the OpenGL function pointers via eglGetProcAddress.
     pub fn initialize(egl: &Rc<Egl>) -> Result<Self, String> {
-        let opengl_lib = Library::load("libGL.so.1").ok();
+        let opengl_lib = load_first_available::<Library>(candidates(X11Lib::Gl)).ok();
 
         let context = load_gl_context(|s| {
             let symbol_name = CString::new(s).unwrap();

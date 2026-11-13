@@ -136,8 +136,15 @@ fn generate_bas(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     functions::generate_externals(&mut builder, ir, config)?;
     builder.blank();
+    // Still the declarations section: VB6 rejects a `Declare` after the
+    // first procedure.
+    wrappers::emit_string_helper_declares(&mut builder);
 
     functions::generate_module_wrappers(&mut builder, ir, config)?;
+
+    // `AzulStringRead` / `AzulStringNew`, used by the classes' String
+    // field properties.
+    wrappers::emit_string_helpers(&mut builder, ir);
 
     Ok(builder.finish())
 }

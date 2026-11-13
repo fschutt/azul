@@ -1,0 +1,24 @@
+{
+  "name": "names of 200 and 255 bytes on an encrypted drive go up and come down; nothing fails with a generic error",
+  "description": "KOOFR-012 (Koofr Vault with rclone crypt): base32 name encryption pushed names past the server's 255-character limit; uploads failed with 'Got 400' in a loop. Rules I1 and O1: an encrypted drive's names live inside the encrypted index, not in object keys, so any name the local disk holds syncs; a name that cannot be stored is refused up front with a named problem. sync-chaos crypto-malicious-server.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "long-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt", "text": "a 200-byte name" },
+    { "op": "drive_write", "device": "a", "path": "\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587.md", "text": "a 255-byte name in CJK" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["other", "transient", "too-large"], "absent": true },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "long-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt", "text": "a 200-byte name" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587\u6587.md", "text": "a 255-byte name in CJK" },
+    { "op": "drive_check", "check": "remote_file", "key": "long-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.txt", "text": "a 200-byte name" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_cleanup" }
+  ]
+}

@@ -1,0 +1,2051 @@
+//! The shipped sync made safe: nothing written through a link, a missing or replaced folder
+//! never read as "every file deleted", deletes into the trash, small folders behind the breaker,
+//! downloads renamed in whole with their permission bits capped, the disk's reserve kept, an
+//! app's save never taken for a delete, a file still being written left for later, the drive's
+//! bad entries listed and never acted on, the folder's bookkeeping unreachable from the drive.
+
+use std::{collections::BTreeSet, fs, path::Path, time::Duration};
+
+use azul_storage::{cap::Cap, testing::TempDir};
+
+use super::{
+    fake_s3::S3Bucket,
+    sync::{index_of, Device, PREFIX},
+};
+use crate::sync::{
+    local::hash_bytes,
+    problems::Code,
+    remote::{blob_key, index_key},
+    root, sync_to, RemoteFile, RemoteIndex, RunHooks, SyncReport, Target,
+};
+
+/// Whether the run listed `code` (for `key`, when given).
+fn lists(report: &SyncReport, code: Code, key: Option<&str>) -> bool {
+    report
+        .problems
+        .iter()
+        .any(|p| p.code == code && key.is_none_or(|k| p.key == k))
+}
+
+/// Puts a file straight into the drive's index, as another device (or a hostile one) would.
+fn put_remote(store: &S3Bucket, key: &str, bytes: &[u8], exec: bool) {
+    let index_key = index_key(PREFIX);
+    let mut index = store
+        .read(&index_key)
+        .map_or_else(RemoteIndex::empty, |b| RemoteIndex::parse(&b).unwrap());
+    let hash = hash_bytes(bytes);
+    store.write(&blob_key(PREFIX, &hash), bytes.to_vec());
+    index.generation += 1;
+    index.files.insert(
+        key.to_string(),
+        RemoteFile {
+            hash,
+            size: bytes.len() as u64,
+            mtime: 1_700_000_000,
+            mtime_ns: 0,
+            gen: index.generation,
+            device: String::from("someone"),
+            exec,
+            link: None,
+        },
+    );
+    store.write(&index_key, index.to_bytes());
+}
+
+/// The files of the folder's trash, by content.
+fn trashed(folder: &Path) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut stack = vec![folder.join(".azlin").join("sync").join("trash")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if entry.file_type().unwrap().is_dir() {
+                stack.push(entry.path());
+            } else {
+                out.push(fs::read(entry.path()).unwrap());
+            }
+        }
+    }
+    out
+}
+
+fn names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_from_the_drive_under_a_linked_folder_here_is_never_written_through_the_link() {
+    let store = S3Bucket::new();
+    let a = Device::new("link-a");
+    let b = Device::new("link-b");
+    let outside = TempDir::new("azcloud-link-outside");
+    a.write("inbox/readme.txt", b"a's inbox");
+    a.sync(&store);
+    // b's inbox is a link to a folder outside (as ~/Library/LaunchAgents would be).
+    std::os::unix::fs::symlink(outside.path(), b.path().join("inbox")).unwrap();
+    b.sync(&store);
+    a.write("inbox/evil.plist", b"<plist>run me at login</plist>");
+    a.sync(&store);
+    let report = b.sync(&store);
+    assert!(
+        names(outside.path()).is_empty(),
+        "{:?}",
+        names(outside.path())
+    );
+    assert!(
+        lists(&report, Code::ThroughLink, Some("inbox/evil.plist")),
+        "{:?}",
+        report.problems
+    );
+    assert!(fs::symlink_metadata(b.path().join("inbox"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    // The link hides what the drive has under it: nothing there is a delete.
+    assert!(index_of(&store).files.contains_key("inbox/readme.txt"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_synced_folder_replaced_by_a_link_keeps_its_files_on_the_drive() {
+    let store = S3Bucket::new();
+    let a = Device::new("relink-a");
+    let elsewhere = TempDir::new("azcloud-relink-elsewhere");
+    a.write("docs/a.txt", b"a");
+    a.write("docs/b.txt", b"b");
+    a.write("other.txt", b"other");
+    a.sync(&store);
+    fs::rename(a.path().join("docs"), elsewhere.path().join("docs-old")).unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), a.path().join("docs")).unwrap();
+    let report = a.sync(&store);
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    let index = index_of(&store);
+    assert!(index.files.contains_key("docs/a.txt") && index.files.contains_key("docs/b.txt"));
+}
+
+#[test]
+fn a_folder_that_is_gone_changes_nothing_anywhere() {
+    let store = S3Bucket::new();
+    let a = Device::new("gone-a");
+    let b = Device::new("gone-b");
+    for (key, text) in [
+        ("vm/disk.img", "the only copy"),
+        ("vm/notes.txt", "notes"),
+        ("vm/keys.txt", "keys"),
+    ] {
+        a.write(key, text.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    fs::remove_dir_all(a.path()).unwrap();
+    let report = a.sync(&store);
+    assert!(report.refused.is_some(), "{}", report.summary());
+    assert!(
+        lists(&report, Code::RootMissing, None),
+        "{:?}",
+        report.problems
+    );
+    assert!(!a.path().exists(), "a missing folder is never made again");
+    assert_eq!(index_of(&store).files.len(), 3);
+    b.sync(&store);
+    assert_eq!(b.tree().len(), 3);
+    assert!(trashed(b.path()).is_empty());
+}
+
+/// A folder this app may no longer read (its permission taken away, macOS privacy) is said
+/// as unreadable, not as another folder, and nothing changes on either side.
+#[cfg(unix)]
+#[test]
+fn a_folder_that_cannot_be_read_is_said_so_and_changes_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = S3Bucket::new();
+    let a = Device::new("closed-a");
+    let b = Device::new("closed-b");
+    for key in ["one.txt", "two.txt", "three.txt"] {
+        a.write(key, key.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    fs::set_permissions(a.path(), fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(a.path()).is_ok() {
+        // Root reads every folder: nothing to play here - and the run is told so, not green
+        // (`x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds` fails it).
+        fs::set_permissions(a.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let report = a.sync(&store);
+    fs::set_permissions(a.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(report.refused.is_some(), "{}", report.summary());
+    assert!(lists(&report, Code::Unreadable, None), "{:?}", report.problems);
+    assert_eq!(index_of(&store).files.len(), 3, "nothing deleted on the drive");
+    b.sync(&store);
+    assert_eq!(b.tree().len(), 3);
+    assert!(trashed(b.path()).is_empty());
+    let again = a.sync(&store);
+    assert!(again.refused.is_none(), "{}", again.summary());
+    assert_eq!(a.tree().len(), 3);
+}
+
+#[test]
+fn a_folder_without_its_marker_is_not_the_paired_one_and_changes_nothing() {
+    // An unplugged disk leaves its mount point: empty, or holding a stale copy written to the
+    // internal disk meanwhile. Either way it lacks the marker the pairing wrote.
+    let store = S3Bucket::new();
+    let a = Device::new("mount-a");
+    for i in 0..12 {
+        a.write(&format!("docs/f{i}.txt"), format!("doc {i}").as_bytes());
+    }
+    a.sync(&store);
+    let marker = root::read_marker(a.path()).expect("the pairing wrote its marker");
+    assert_eq!(marker.id.len(), 32);
+    for i in 0..12 {
+        a.remove(&format!("docs/f{i}.txt"));
+    }
+    fs::remove_dir_all(a.path().join(".azlin")).unwrap();
+    a.write("docs/f0.txt", b"stale shadow copy");
+    let report = a.sync(&store);
+    assert!(
+        lists(&report, Code::RootReplaced, None),
+        "{:?}",
+        report.problems
+    );
+    let index = index_of(&store);
+    assert_eq!(index.files.len(), 12, "nothing deleted on the drive");
+    let f0 = &index.files["docs/f0.txt"];
+    assert_eq!(
+        f0.hash,
+        hash_bytes(b"doc 0"),
+        "the stale copy never went up"
+    );
+}
+
+#[test]
+fn deleting_every_file_of_a_small_folder_waits_for_the_user() {
+    let store = S3Bucket::new();
+    let a = Device::new("small-a");
+    let b = Device::new("small-b");
+    for name in ["2025.pdf", "2024.pdf", "2023.pdf", "receipts.zip"] {
+        a.write(&format!("tax/{name}"), name.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    a.remove_folder("tax");
+    let hooks = RunHooks {
+        hold_mass_delete: true,
+        ..RunHooks::default()
+    };
+    let report = sync_to(
+        Target::Index(&store),
+        &a.root(),
+        &a.index(),
+        &a.opts(),
+        &hooks,
+    )
+    .unwrap();
+    assert!(report.mass_delete.is_some(), "{}", report.summary());
+    assert!(lists(&report, Code::MassDeleteHeld, None));
+    assert_eq!(
+        index_of(&store).files.len(),
+        4,
+        "nothing deleted on the drive"
+    );
+    // The command line's run stops with the question.
+    assert!(a.sync_with(&store, &a.opts()).is_err());
+    b.sync(&store);
+    assert_eq!(b.tree().len(), 4);
+}
+
+#[test]
+fn deleting_one_subfolder_of_many_goes_through_into_the_other_devices_trash() {
+    let store = S3Bucket::new();
+    let a = Device::new("sub-a");
+    let b = Device::new("sub-b");
+    for folder in ["alpha", "beta", "gamma"] {
+        for i in 0..5 {
+            a.write(
+                &format!("work/{folder}/{i}.txt"),
+                format!("{folder} {i}").as_bytes(),
+            );
+        }
+    }
+    a.sync(&store);
+    b.sync(&store);
+    a.remove_folder("work/beta");
+    let sent = a.sync(&store);
+    assert_eq!(sent.deleted_there, 5, "{}", sent.summary());
+    let got = b.sync(&store);
+    assert_eq!(got.deleted_here, 5, "{}", got.summary());
+    assert_eq!(got.trashed.len(), 5);
+    assert_eq!(b.tree().len(), 10);
+    let trash = trashed(b.path());
+    assert!(trash.contains(&b"beta 0".to_vec()) && trash.contains(&b"beta 4".to_vec()));
+}
+
+#[test]
+fn a_delete_from_the_drive_moves_the_file_into_the_trash_here() {
+    let store = S3Bucket::new();
+    let a = Device::new("trash-a");
+    let b = Device::new("trash-b");
+    a.write("contract.pdf", b"signed contract");
+    a.write("other.txt", b"other");
+    a.sync(&store);
+    b.sync(&store);
+    a.remove("contract.pdf");
+    a.sync(&store);
+    let report = b.sync(&store);
+    assert_eq!(report.deleted_here, 1, "{}", report.summary());
+    assert!(b.read("contract.pdf").is_none());
+    assert_eq!(trashed(b.path()), vec![b"signed contract".to_vec()]);
+    let (key, to) = &report.trashed[0];
+    assert_eq!(key, "contract.pdf");
+    assert!(
+        to.starts_with(".azlin/sync/trash/") && to.ends_with("/contract.pdf"),
+        "{to}"
+    );
+    // The trash is the folder's bookkeeping: never synced.
+    assert!(!index_of(&store).files.keys().any(|k| k.contains("trash")));
+}
+
+/// AZ-S21. A big download cut off leaves a partial (sparse, as big as the file) and a state file in
+/// the folder's spool, `.azlin/sync/tmp`; when the file changes on the drive its name changes and
+/// nothing ever took the old one away. Every pass now removes what nothing wrote to for six days;
+/// a younger partial stays (it resumes). RED not run: the old code keeps both.
+#[test]
+fn az_s21_a_partial_download_nothing_wrote_to_for_days_is_removed_from_the_spool() {
+    let store = S3Bucket::new();
+    let a = Device::new("s21-a");
+    a.write("a.txt", b"a");
+    a.sync(&store);
+    let spool = a.path().join(".azlin/sync/tmp");
+    fs::create_dir_all(&spool).unwrap();
+    let write_at = |name: &str, days_ago: u64| {
+        let path = spool.join(name);
+        fs::write(&path, vec![0u8; 4096]).unwrap();
+        let when = std::time::SystemTime::now() - std::time::Duration::from_secs(days_ago * 86_400);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+        path
+    };
+    let cut_off = write_at("azcloud-sync-00112233445566778899aabbccddeeff.blob", 10);
+    let its_state = write_at(
+        "azcloud-sync-00112233445566778899aabbccddeeff.blob-state.part",
+        10,
+    );
+    let resuming = write_at("azcloud-sync-ffeeddccbbaa99887766554433221100.blob", 1);
+    a.sync(&store);
+    assert!(
+        !cut_off.exists(),
+        "the partial of a download cut off ten days ago is gone"
+    );
+    assert!(!its_state.exists(), "and its state file");
+    assert!(resuming.exists(), "a download written to yesterday resumes");
+}
+
+#[test]
+fn a_download_is_renamed_in_whole_and_leaves_no_temporary_file() {
+    let store = S3Bucket::new();
+    let a = Device::new("whole-a");
+    let b = Device::new("whole-b");
+    a.write("big.bin", &vec![3u8; 9 * 1024 * 1024]);
+    a.write("small.txt", b"v1");
+    a.sync(&store);
+    b.sync(&store);
+    a.write("small.txt", b"v2");
+    a.write("big.bin", &vec![4u8; 9 * 1024 * 1024]);
+    a.sync(&store);
+    b.sync(&store);
+    assert_eq!(b.read("small.txt").as_deref(), Some(&b"v2"[..]));
+    assert_eq!(b.read("big.bin").unwrap()[0], 4);
+    assert_eq!(names(b.path()), vec![".azlin", "big.bin", "small.txt"]);
+    let spool = b.path().join(".azlin").join("sync").join("tmp");
+    assert!(
+        names(&spool).is_empty(),
+        "the spool is empty: {:?}",
+        names(&spool)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_download_takes_the_executable_bit_and_never_any_other_permission_from_the_drive() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = S3Bucket::new();
+    let b = Device::new("mode-b");
+    put_remote(&store, "tools/helper", b"#!/bin/sh\nid\n", true);
+    put_remote(&store, "notes.txt", b"plain", false);
+    b.sync(&store);
+    let mode = |key: &str| {
+        fs::metadata(b.path().join(key))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777
+    };
+    assert_eq!(mode("tools/helper"), 0o755);
+    assert_eq!(mode("notes.txt"), 0o644);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_executable_file_here_syncs_its_bit_as_part_of_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = S3Bucket::new();
+    let a = Device::new("exec-a");
+    let b = Device::new("exec-b");
+    a.write("run.sh", b"#!/bin/sh\necho hi\n");
+    a.sync(&store);
+    b.sync(&store);
+    fs::set_permissions(a.path().join("run.sh"), fs::Permissions::from_mode(0o4755)).unwrap();
+    let sent = a.sync(&store);
+    assert_eq!(sent.files_up, 1, "{}", sent.summary());
+    assert!(index_of(&store).files["run.sh"].exec);
+    b.sync(&store);
+    let mode = fs::metadata(b.path().join("run.sh"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o7777;
+    assert_eq!(mode, 0o755, "the setuid bit never travels");
+}
+
+#[test]
+fn a_download_that_would_eat_the_disks_reserve_is_not_started() {
+    let store = S3Bucket::new();
+    let a = Device::new("reserve-a");
+    let b = Device::new("reserve-b");
+    a.write("big.bin", &vec![1u8; 300_000]);
+    a.write("small.txt", b"v1");
+    a.sync(&store);
+    let mut opts = b.opts();
+    opts.disk_reserve = u64::MAX / 4;
+    let report = b.sync_with(&store, &opts).unwrap();
+    if azul_storage::beneath::free_space(b.path()).is_known() {
+        assert!(
+            lists(&report, Code::DiskReserve, Some("big.bin")),
+            "{:?}",
+            report.problems
+        );
+        assert!(b.read("big.bin").is_none());
+    }
+    let report = b.sync(&store);
+    assert!(b.read("big.bin").is_some(), "{}", report.summary());
+}
+
+#[test]
+fn an_app_saving_a_file_is_no_delete() {
+    // Word's save: the new version is written aside, the old one renamed to a temporary name,
+    // then the new one renamed in. A pass in the middle sees the file gone.
+    let store = S3Bucket::new();
+    let a = Device::new("save-a");
+    let b = Device::new("save-b");
+    a.write("Pra\u{308}sentation.docx", b"draft");
+    a.sync(&store);
+    b.sync(&store);
+    a.write("~WRD0001.tmp", b"final");
+    fs::rename(
+        a.path().join("Pra\u{308}sentation.docx"),
+        a.path().join("~WRL0002.tmp"),
+    )
+    .unwrap();
+    let report = a.sync(&store);
+    assert!(
+        lists(&report, Code::SaveInProgress, None),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(report.deleted_there, 0);
+    b.sync(&store);
+    assert_eq!(
+        b.read("Pra\u{308}sentation.docx").as_deref(),
+        Some(&b"draft"[..])
+    );
+    fs::rename(
+        a.path().join("~WRD0001.tmp"),
+        a.path().join("Pra\u{308}sentation.docx"),
+    )
+    .unwrap();
+    fs::remove_file(a.path().join("~WRL0002.tmp")).unwrap();
+    a.sync(&store);
+    b.sync(&store);
+    assert_eq!(
+        b.read("Pra\u{308}sentation.docx").as_deref(),
+        Some(&b"final"[..])
+    );
+    assert!(trashed(b.path()).is_empty());
+    assert_eq!(index_of(&store).files.len(), 1);
+}
+
+#[test]
+fn a_file_still_being_written_waits_and_is_never_a_delete() {
+    let store = S3Bucket::new();
+    let a = Device::new("settle-a");
+    a.write("export.mov", b"frame 1");
+    a.sync(&store);
+    a.write("export.mov", b"frame 1, frame 2");
+    a.write("fresh.mov", b"just started");
+    let mut opts = a.opts();
+    opts.file_settle = Duration::from_secs(3600);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        lists(&report, Code::Settling, Some("export.mov")),
+        "{:?}",
+        report.problems
+    );
+    assert!(lists(&report, Code::Settling, Some("fresh.mov")));
+    let index = index_of(&store);
+    assert_eq!(
+        index.files["export.mov"].hash,
+        hash_bytes(b"frame 1"),
+        "not sent half"
+    );
+    assert!(!index.files.contains_key("fresh.mov"));
+    assert_eq!(report.deleted_there, 0);
+    let report = a.sync(&store);
+    assert_eq!(report.files_up, 2, "{}", report.summary());
+}
+
+#[test]
+fn a_drive_entry_no_folder_can_hold_is_listed_kept_on_the_drive_and_never_acted_on() {
+    let store = S3Bucket::new();
+    let b = Device::new("names-b");
+    put_remote(&store, "fine.txt", b"fine", false);
+    // A hostile writer's entries: traversal, the folder's own bookkeeping, a control character.
+    for key in ["../../escape.txt", ".azlin/sync/root-id", "bell\u{7}.txt"] {
+        let index_key = index_key(PREFIX);
+        let mut index = RemoteIndex::parse(&store.read(&index_key).unwrap()).unwrap();
+        let mut entry = index.files["fine.txt"].clone();
+        entry.gen += 1;
+        index.files.insert(key.to_string(), entry);
+        store.write(&index_key, index.to_bytes());
+    }
+    let report = b.sync(&store);
+    assert_eq!(
+        b.read("fine.txt").as_deref(),
+        Some(&b"fine"[..]),
+        "{}",
+        report.summary()
+    );
+    for key in ["../../escape.txt", ".azlin/sync/root-id", "bell\u{7}.txt"] {
+        assert!(
+            lists(&report, Code::BadRemoteName, Some(key)),
+            "{key}: {:?}",
+            report.problems
+        );
+    }
+    let marker = root::read_marker(b.path()).expect("the folder's own marker");
+    assert_eq!(marker.id.len(), 32, "the marker was never overwritten");
+    assert!(b
+        .path()
+        .parent()
+        .map_or(true, |p| !p.join("escape.txt").exists()));
+    // b writes the index again: the entries stay as they are.
+    b.write("mine.txt", b"mine");
+    b.sync(&store);
+    let index = index_of(&store);
+    assert!(index.files.contains_key("../../escape.txt"));
+    assert!(index.files.contains_key("mine.txt"));
+}
+
+#[test]
+fn a_drive_entry_that_names_no_content_is_never_a_delete_here() {
+    let store = S3Bucket::new();
+    let a = Device::new("damaged-a");
+    let b = Device::new("damaged-b");
+    a.write("x.txt", b"x");
+    a.write("y.txt", b"y");
+    a.sync(&store);
+    b.sync(&store);
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).unwrap()).unwrap();
+    index.files.get_mut("x.txt").unwrap().hash = String::from("not a hash");
+    index.generation += 1;
+    store.write(&key, index.to_bytes());
+    let report = b.sync(&store);
+    assert!(
+        lists(&report, Code::RemoteEntryUnreadable, Some("x.txt")),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(b.read("x.txt").as_deref(), Some(&b"x"[..]));
+    assert!(trashed(b.path()).is_empty());
+}
+
+/// An entry the index's own fields cannot be read from is kept aside when the index is read;
+/// the next pass that gets "not modified" from the drive works from its cached copy, which
+/// must keep it aside too - never a delete here.
+#[test]
+fn an_unreadable_drive_entry_stays_unknown_in_the_next_pass_too() {
+    let store = S3Bucket::new();
+    let a = Device::new("unreadable-a");
+    let b = Device::new("unreadable-b");
+    a.write("x.txt", b"x");
+    a.write("y.txt", b"y");
+    a.sync(&store);
+    b.sync(&store);
+    let key = index_key(PREFIX);
+    let mut whole: serde_json::Value =
+        serde_json::from_slice(&store.read(&key).unwrap()).unwrap();
+    whole["files"]["x.txt"] = serde_json::json!({ "hash": "bad tag", "size": -1 });
+    whole["generation"] = serde_json::json!(whole["generation"].as_u64().unwrap() + 1);
+    store.write(&key, serde_json::to_vec_pretty(&whole).unwrap());
+    for pass in 0..3 {
+        let report = b.sync(&store);
+        assert!(
+            lists(&report, Code::RemoteEntryUnreadable, Some("x.txt")),
+            "pass {pass}: {:?}",
+            report.problems
+        );
+        assert_eq!(b.read("x.txt").as_deref(), Some(&b"x"[..]), "pass {pass}");
+        assert!(trashed(b.path()).is_empty(), "pass {pass}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_in_the_folder_is_listed_and_never_opened() {
+    let store = S3Bucket::new();
+    let a = Device::new("fifo-a");
+    a.write("a.txt", b"a");
+    let path = std::ffi::CString::new(
+        a.path()
+            .join("pipe")
+            .as_os_str()
+            .to_string_lossy()
+            .as_bytes(),
+    )
+    .unwrap();
+    // SAFETY: a valid C string.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    // Opening the FIFO to hash it would wait for a writer for ever.
+    let report = a.sync(&store);
+    assert!(
+        lists(&report, Code::SpecialFile, Some("pipe")),
+        "{:?}",
+        report.problems
+    );
+    assert!(index_of(&store).files.contains_key("a.txt"));
+    assert!(!index_of(&store).files.contains_key("pipe"));
+}
+
+#[test]
+fn the_volume_is_probed_once_and_the_probe_leaves_nothing_behind() {
+    let dir = TempDir::new("azcloud-probe");
+    let Cap::Known(volume) = root::probe_volume(dir.path()) else {
+        panic!("a writable folder can be probed");
+    };
+    if cfg!(target_os = "macos") {
+        // APFS as macOS formats it ignores case and normalization.
+        assert!(
+            volume.case_insensitive && volume.norm_insensitive,
+            "{volume:?}"
+        );
+    }
+    assert!(names(&dir.path().join(".azlin").join("sync")).is_empty());
+}
+
+/// X-AR5a-3. The probe was kept for ever: a folder moved to another disk keeps its marker and so its
+/// identity, and the case and normalisation facts of the old disk judged the new one. The answer
+/// is kept with the disk it was found on and found again when that changes - and not on every
+/// pass. RED not run: the old code keeps the stale answer (`max_file` stays 7).
+#[test]
+fn x_ar5a_3_the_volume_is_probed_again_when_the_folder_is_on_another_disk() {
+    use crate::sync::local::LocalIndex;
+    let store = S3Bucket::new();
+    let a = Device::new("x3-a");
+    a.write("a.txt", b"a");
+    a.sync(&store);
+    let disk = root::device_of(a.path());
+    let mut index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert!(index.volume.is_some(), "probed at the first pass");
+    assert_eq!(
+        index.volume_dev,
+        disk.unwrap_or(0),
+        "and kept with its disk"
+    );
+    let Some(disk) = disk else {
+        return;
+    };
+    // An answer no probe gives (FAT32's limit is one byte short of 4 GiB), kept for another disk.
+    let stale = azul_storage::names::Volume {
+        max_file: Some(7),
+        ..azul_storage::names::Volume::default()
+    };
+    index.volume = Some(stale);
+    index.volume_dev = disk.wrapping_add(1);
+    index.save(&a.index()).unwrap();
+    a.sync(&store);
+    let index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert_ne!(
+        index.volume.and_then(|v| v.max_file),
+        Some(7),
+        "found again"
+    );
+    assert_eq!(index.volume_dev, disk);
+    // On the disk it was found on, the answer is kept: no probe on every pass.
+    let mut index = index;
+    index.volume = Some(stale);
+    index.save(&a.index()).unwrap();
+    a.sync(&store);
+    let index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert_eq!(index.volume, Some(stale), "the same disk: the answer stays");
+}
+
+/// X-AR5a-3. A probe that could not run (here: no test file can be made in the bookkeeping
+/// folder) was kept as the answer - a disk that treats names as an empty Volume says. It is no
+/// answer now: nothing is kept, the pass says so, and the next pass probes again. RED not run:
+/// the old code keeps a volume.
+#[cfg(unix)]
+#[test]
+fn x_ar5a_3_a_probe_that_could_not_run_is_not_kept_as_the_disks_answer() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::sync::local::LocalIndex;
+    let store = S3Bucket::new();
+    let a = Device::new("x3-b");
+    a.write("a.txt", b"a");
+    // The folder knows its pairing, but its bookkeeping folder takes no new file.
+    root::write_marker(a.path()).unwrap();
+    let sync_dir = a.path().join(".azlin").join("sync");
+    fs::set_permissions(&sync_dir, fs::Permissions::from_mode(0o500)).unwrap();
+    if fs::File::create(sync_dir.join("probe-test")).is_ok() {
+        // A user who can write anywhere (root): the case cannot be made here.
+        let _ = fs::remove_file(sync_dir.join("probe-test"));
+        fs::set_permissions(&sync_dir, fs::Permissions::from_mode(0o700)).unwrap();
+        return;
+    }
+    let report = a.sync(&store);
+    fs::set_permissions(&sync_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        report.notes.iter().any(|note| note.contains("tries again")),
+        "the pass says the disk could not be probed: {:?}",
+        report.notes
+    );
+    let index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert_eq!(index.volume, None, "no answer is kept");
+    a.sync(&store);
+    let index = LocalIndex::load(&a.index()).unwrap().expect("a base");
+    assert!(index.volume.is_some(), "the next pass probes again");
+}
+
+/// AZ-S12. The trash and the tombstones expired by the computer's wall clock alone: a clock a year
+/// ahead removed every trash folder at once, the delete of a minute ago included, and its next
+/// commit dropped every tombstone of the shared index. A clock is believed once it has been steady
+/// for a day and is not behind the drive ([`crate::sync::clock`]). Passes at `hours` after the
+/// first play the time (SyncOptions::clock_offset, as the harness's wrong clock does). RED not run:
+/// the old code removes the young trash folder and the young tombstone in the pass a year ahead.
+#[test]
+fn az_s12_a_clock_one_year_ahead_purges_no_trash_and_expires_no_tombstone() {
+    const DAY: i64 = 86_400;
+    let store = S3Bucket::new();
+    let a = Device::new("s12-a");
+    let mut counter = 0;
+    let mut pass_at = |hours: i64| {
+        counter += 1;
+        // Every pass sends a new file, so every pass commits (the tombstones expire at a commit).
+        a.write(&format!("f{counter}.txt"), counter.to_string().as_bytes());
+        let mut opts = a.opts();
+        opts.clock_offset = hours * 3_600;
+        a.sync_with(&store, &opts).expect("the pass runs")
+    };
+    pass_at(0);
+    // Trash folders of passes 10 and 40 days ago; tombstones 60 and 100 days old on the drive.
+    let now = crate::now();
+    let trash = a.path().join(".azlin").join("sync").join("trash");
+    let make = |days: i64| {
+        let stamp = root::trash_stamp(now - days * DAY);
+        fs::create_dir_all(trash.join(&stamp)).unwrap();
+        fs::write(trash.join(&stamp).join("deleted.txt"), b"deleted").unwrap();
+        stamp
+    };
+    let (young_trash, ancient_trash) = (make(10), make(40));
+    // The pairing has watched them lie there as long as their names say (the second clock of the
+    // trash, X-DELTA-AZDRIVE-SYNC-8: a name alone is no proof of age).
+    {
+        use crate::sync::local::LocalIndex;
+        let mut base = LocalIndex::load(&a.index()).unwrap().expect("a base");
+        base.trash_watched.insert(young_trash.clone(), 10 * DAY);
+        base.trash_watched.insert(ancient_trash.clone(), 40 * DAY);
+        base.save(&a.index()).unwrap();
+    }
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).unwrap()).unwrap();
+    for (name, days) in [("old/young.txt", 60), ("old/ancient.txt", 100)] {
+        index.deleted.insert(
+            name.to_string(),
+            crate::sync::Tombstone {
+                hash: hash_bytes(name.as_bytes()),
+                gen: 1,
+                at: now - days * DAY,
+                device: String::from("another-device"),
+                confirmed: false,
+            },
+        );
+    }
+    index.generation += 1;
+    store.write(&key, index.to_bytes());
+    let drive_has = |name: &str| index_of(&store).deleted.contains_key(name);
+
+    // The first looks: nothing is believed yet.
+    pass_at(20);
+    assert!(
+        names(&trash).contains(&ancient_trash),
+        "twenty hours: nothing expires"
+    );
+    assert!(drive_has("old/ancient.txt"));
+    // A day and more of a steady clock: the old expire, the young stay (a control that the fix
+    // does not just switch the expiry off).
+    pass_at(40);
+    assert!(
+        !names(&trash).contains(&ancient_trash),
+        "the 40-day-old trash goes"
+    );
+    assert!(
+        names(&trash).contains(&young_trash),
+        "the 10-day-old trash stays"
+    );
+    assert!(
+        !drive_has("old/ancient.txt"),
+        "the 100-day-old tombstone goes"
+    );
+    assert!(drive_has("old/young.txt"), "the 60-day-old tombstone stays");
+
+    // The clock jumps a year ahead: nothing is judged by it, on the first pass or the next.
+    pass_at(40 + 365 * 24);
+    assert!(
+        names(&trash).contains(&young_trash),
+        "the young trash survives a clock a year ahead"
+    );
+    assert!(drive_has("old/young.txt"), "and the young tombstone");
+    pass_at(40 + 365 * 24 + 20);
+    assert!(names(&trash).contains(&young_trash), "on probation still");
+    assert!(drive_has("old/young.txt"));
+    // A clock that stays there for a day is all there is to believe for the tombstones. The trash
+    // needs the second clock as well (X-DELTA-AZDRIVE-SYNC-8): the pairing has watched the young
+    // folder lie there for about two weeks, a clock a year ahead adds three days at most, so it stays.
+    pass_at(40 + 365 * 24 + 40);
+    assert!(
+        names(&trash).contains(&young_trash),
+        "a believed clock alone does not purge a folder the pairing has watched for two weeks"
+    );
+    assert!(!drive_has("old/young.txt"));
+}
+
+/// X-DELTA-AZDRIVE-SYNC-8. The trash is named by the wall clock of the pass that made it. A "Take
+/// theirs" answered while the computer's clock was reset to 2000-01-01 put this computer's version -
+/// which may exist nowhere else - into `20000101-...`; when the clock was fixed and had been steady
+/// for a day, that name was "older than 30 days" and the folder was purged the next day, not after
+/// thirty. The purge now needs the second clock: the time this pairing has itself watched the folder
+/// lie there (what the wall clock advanced between passes; a reset, a jump and a year ahead count for
+/// three days at most). RED on the old code: the folder is gone after the steady day. The control: once
+/// the pairing has watched it for thirty days (passes two days apart), it goes.
+#[test]
+fn x_delta_azdrive_sync_8_a_loser_stamped_under_a_reset_clock_is_kept_until_the_pairing_has_watched_it_for_30_days(
+) {
+    const YEARS_26: i64 = 26 * 365 * 24;
+    let store = S3Bucket::new();
+    let a = Device::new("sync8-a");
+    let mut counter = 0;
+    let mut pass_at = |hours: i64| {
+        counter += 1;
+        a.write(&format!("f{counter}.txt"), counter.to_string().as_bytes());
+        let mut opts = a.opts();
+        opts.clock_offset = hours * 3_600;
+        a.sync_with(&store, &opts).expect("the pass runs")
+    };
+    pass_at(0);
+    // The answer "Take theirs" while the clock was reset: the folder is named by 2000-01-01.
+    let trash = a.path().join(".azlin").join("sync").join("trash");
+    let stamp = root::trash_stamp(946_684_800);
+    fs::create_dir_all(trash.join(&stamp)).unwrap();
+    fs::write(
+        trash.join(&stamp).join("mine.txt"),
+        b"the only copy of mine",
+    )
+    .unwrap();
+    // The reset itself, then the clock is fixed and stays steady for a day and more.
+    pass_at(-YEARS_26);
+    pass_at(0);
+    pass_at(20);
+    pass_at(40);
+    assert!(
+        names(&trash).contains(&stamp),
+        "a steady day after the fix is no thirty days: {:?}",
+        names(&trash)
+    );
+    assert_eq!(
+        fs::read(trash.join(&stamp).join("mine.txt")).unwrap(),
+        b"the only copy of mine"
+    );
+    // The pairing watches it lie there: passes two days apart. Still there at twenty days.
+    for step in 1..=10 {
+        pass_at(40 + step * 48);
+    }
+    assert!(
+        names(&trash).contains(&stamp),
+        "not yet watched for thirty days"
+    );
+    // The control: the rule is no switch-off - it goes once two clocks agree.
+    for step in 11..=20 {
+        pass_at(40 + step * 48);
+    }
+    assert!(
+        !names(&trash).contains(&stamp),
+        "watched for thirty days and named older: it goes"
+    );
+}
+
+/// X-DELTA-SYNC6-6 (the future-named folder). A pass that ran under a clock a year ahead names its trash
+/// folder by that date, and the folder was never "before the horizon" until the real date passed the
+/// name: kept 13 months for a year, 73 years for a clock set to 2099, while the pairing's own ledger
+/// already proved thirty days. The folder stays until the pairing has watched it for thirty days and
+/// goes then. RED on the old code: it is still there after forty watched days.
+#[test]
+fn x_delta_sync6_6_a_folder_named_in_the_future_goes_once_the_pairing_has_watched_it_for_30_days() {
+    let store = S3Bucket::new();
+    let a = Device::new("sync6-6-future");
+    let mut counter = 0;
+    let mut pass_at = |hours: i64| {
+        counter += 1;
+        a.write(&format!("f{counter}.txt"), counter.to_string().as_bytes());
+        let mut opts = a.opts();
+        opts.clock_offset = hours * 3_600;
+        a.sync_with(&store, &opts).expect("the pass runs")
+    };
+    pass_at(0);
+    let trash = a.path().join(".azlin").join("sync").join("trash");
+    let stamp = root::trash_stamp(crate::now() + 400 * 86_400);
+    fs::create_dir_all(trash.join(&stamp)).unwrap();
+    fs::write(trash.join(&stamp).join("mine.txt"), b"a loser").unwrap();
+    // The clock is believed after a steady day; the folder is named in the future of it.
+    pass_at(20);
+    pass_at(40);
+    for step in 1..=10 {
+        pass_at(40 + step * 48);
+    }
+    assert!(
+        names(&trash).contains(&stamp),
+        "twenty watched days are not thirty: {:?}",
+        names(&trash)
+    );
+    for step in 11..=20 {
+        pass_at(40 + step * 48);
+    }
+    assert!(
+        !names(&trash).contains(&stamp),
+        "thirty watched days release a folder whose name is no date: {:?}",
+        names(&trash)
+    );
+}
+
+/// A system without permission bits (Windows) shows every file as not executable: its volume
+/// keeps none, so an edit made there sends the bit the version had on the drive, never a
+/// cleared one, and a download keeps the drive's bit in the base.
+#[cfg(not(unix))]
+#[test]
+fn a_system_without_permission_bits_keeps_the_drives_executable_bit() {
+    let dir = TempDir::new("azcloud-probe-exec");
+    let Cap::Known(volume) = root::probe_volume(dir.path()) else {
+        panic!("a writable folder can be probed");
+    };
+    assert!(volume.no_exec_bits);
+}
+
+#[test]
+fn the_token_servers_restore_announcement_reaches_the_sync_and_the_account_record() {
+    // V3: the token server answers the drive's newest verified restore announcement in every
+    // refresh; the sync takes it as its restore notice.
+    let bundle = |restore: &str| {
+        crate::bundle::DriveBundle::parse(&format!(
+            r#"{{"drive": {{"id": "d_42", "name": "Docs",
+                  "location": {{"kind": "s3", "endpoint": "http://127.0.0.1:19000",
+                                "region": "us-east-1", "bucket": "d-42", "path_style": true,
+                                "auth": {{"type": "azlin", "drive_id": "d_42"}}}}}},
+                "credentials": {{"access_key_id": "AK", "secret_access_key": "SK"}},
+                "drive_token": "dt", "restore": {restore}}}"#
+        ))
+        .unwrap()
+    };
+    let announced = bundle(
+        r#"{"epoch": 3, "kind": "offsite", "as_of": null, "prefix": "",
+            "announced_at": "2026-10-24T10:00:00Z", "generation": 1, "sig": "c2ln"}"#,
+    );
+    assert_eq!(
+        announced.restore,
+        Some(crate::sync::RestoreNotice {
+            epoch: 3,
+            prefix: String::new(),
+            kind: crate::sync::RestoreKind::Offsite,
+            as_of: None,
+        })
+    );
+    assert_eq!(bundle("null").restore, None);
+    // RF45: the announcement keeps its kind and its moment (the token server sends both; the
+    // bundle used to keep the epoch and the prefix only).
+    let timed = bundle(
+        r#"{"epoch": 4, "kind": "point_in_time", "as_of": "2026-10-24T09:00:00Z",
+            "prefix": "docs/", "announced_at": "2026-10-24T10:00:00Z", "generation": 1,
+            "sig": "c2ln"}"#,
+    );
+    let kept = timed.restore.expect("a restore");
+    assert_eq!(kept.kind, crate::sync::RestoreKind::PointInTime);
+    assert_eq!(kept.as_of, crate::parse_rfc3339("2026-10-24T09:00:00Z"));
+    assert_eq!(kept.prefix, "docs/");
+    let grant = crate::account::grant_of(&announced, "http://127.0.0.1:18081", "owner", 1).unwrap();
+    assert_eq!(grant.record.restore, announced.restore);
+}
+
+#[test]
+fn a_file_with_a_time_in_the_future_is_no_write_in_progress() {
+    // A file from a computer whose clock runs ahead: waiting for it to be quiet would wait for
+    // ever.
+    let store = S3Bucket::new();
+    let a = Device::new("future-a");
+    a.write("ahead.txt", b"from a clock that runs ahead");
+    let file = fs::File::options()
+        .write(true)
+        .open(a.path().join("ahead.txt"))
+        .unwrap();
+    file.set_modified(std::time::SystemTime::now() + Duration::from_secs(86_400))
+        .unwrap();
+    drop(file);
+    let mut opts = a.opts();
+    opts.file_settle = Duration::from_secs(3600);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        !lists(&report, Code::Settling, None),
+        "{:?}",
+        report.problems
+    );
+    assert!(index_of(&store).files.contains_key("ahead.txt"));
+}
+
+#[test]
+fn a_data_root_whose_bookkeeping_is_the_azlin_folder_never_syncs_its_marker_or_trash() {
+    let data = TempDir::new("azcloud-nested-data");
+    let roots = crate::sync::azlin_roots(data.path(), &data.path().join(".azlin"));
+    let home = &roots[1].0;
+    assert!(home.rules.excluded("sync/root-id").is_some());
+    assert!(home
+        .rules
+        .excluded("sync/trash/20261024-101500-a1b2c3/x.txt")
+        .is_some());
+}
+
+#[test]
+fn a_downloads_time_is_the_writers_to_the_nanosecond() {
+    let store = S3Bucket::new();
+    let a = Device::new("mtime-a");
+    let b = Device::new("mtime-b");
+    a.write("photo-2003.jpg", b"an old photo");
+    let taken = std::time::UNIX_EPOCH + Duration::from_nanos(1_049_760_000_123_456_789);
+    fs::File::options()
+        .write(true)
+        .open(a.path().join("photo-2003.jpg"))
+        .unwrap()
+        .set_modified(taken)
+        .unwrap();
+    a.sync(&store);
+    b.sync(&store);
+    let got = fs::metadata(b.path().join("photo-2003.jpg"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(got, taken);
+}
+
+#[test]
+fn a_folder_renamed_on_one_device_is_renamed_on_the_other_not_trashed_and_fetched_again() {
+    let store = S3Bucket::new();
+    let a = Device::new("rename-a");
+    let b = Device::new("rename-b");
+    for i in 0..30 {
+        a.write(&format!("old/page{i}.txt"), format!("page {i}").as_bytes());
+    }
+    a.write("readme.txt", b"stays");
+    a.sync(&store);
+    b.sync(&store);
+    a.rename_folder("old", "new");
+    let sent = a.sync(&store);
+    assert!(sent.mass_delete.is_none(), "{}", sent.summary());
+    let got = b.sync(&store);
+    assert!(got.mass_delete.is_none(), "{}", got.summary());
+    // One rename of the folder, its 30 files with it.
+    assert_eq!(got.moved, vec![String::from("old/ -> new/")], "{}", got.summary());
+    assert_eq!(got.files_down, 0, "nothing fetched again");
+    assert!(trashed(b.path()).is_empty());
+    assert_eq!(b.tree(), a.tree());
+}
+
+#[test]
+fn a_case_only_rename_travels_as_a_rename() {
+    let store = S3Bucket::new();
+    let a = Device::new("case-a");
+    let b = Device::new("case-b");
+    a.write("notes.txt", b"the notes");
+    a.sync(&store);
+    b.sync(&store);
+    let tmp = a.path().join("notes.tmp-rename");
+    fs::rename(a.path().join("notes.txt"), &tmp).unwrap();
+    fs::rename(&tmp, a.path().join("Notes.txt")).unwrap();
+    a.sync(&store);
+    let index = index_of(&store);
+    assert!(index.files.contains_key("Notes.txt") && !index.files.contains_key("notes.txt"));
+    b.sync(&store);
+    assert_eq!(names(b.path()), vec![".azlin", "Notes.txt"]);
+    assert!(trashed(b.path()).is_empty());
+    assert!(!a.sync(&store).index_written, "the next pass is quiet");
+}
+
+#[test]
+fn a_base_that_cannot_be_read_pairs_afresh_and_deletes_nothing() {
+    let store = S3Bucket::new();
+    let a = Device::new("lost-a");
+    let b = Device::new("lost-b");
+    for (key, text) in [("x.txt", "x"), ("y.txt", "y"), ("z.txt", "z")] {
+        a.write(key, text.as_bytes());
+    }
+    a.sync(&store);
+    b.sync(&store);
+    b.remove("z.txt");
+    b.sync(&store);
+    fs::write(a.index(), b"{\"generation\": 3, \"files\": {\"half\": ").unwrap();
+    let report = a.sync(&store);
+    assert!(
+        lists(&report, Code::StateReset, None),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(report.deleted_here, 0);
+    assert_eq!(a.tree().len(), 3, "z.txt, deleted elsewhere, is kept here");
+    assert!(lists(&report, Code::DeletedElsewhereKept, Some("z.txt")));
+    assert_eq!(index_of(&store).files.len(), 2, "and not sent again");
+}
+
+#[test]
+fn a_file_bigger_than_this_device_takes_stays_on_the_drive_and_is_listed() {
+    let store = S3Bucket::new();
+    let a = Device::new("large-a");
+    let b = Device::new("large-b");
+    a.write("backup.tar", &vec![9u8; 4096]);
+    a.write("small.txt", b"small");
+    a.sync(&store);
+    let mut opts = b.opts();
+    opts.max_file_bytes = 1024;
+    let report = b.sync_with(&store, &opts).unwrap();
+    assert!(
+        lists(&report, Code::TooLarge, Some("backup.tar")),
+        "{:?}",
+        report.problems
+    );
+    assert!(b.read("backup.tar").is_none());
+    assert_eq!(b.read("small.txt").as_deref(), Some(&b"small"[..]));
+    assert!(
+        index_of(&store).files.contains_key("backup.tar"),
+        "never a delete"
+    );
+}
+
+#[test]
+fn a_file_made_again_on_a_paired_folder_goes_up_and_a_kept_one_waits_for_the_users_choice() {
+    let store = S3Bucket::new();
+    let a = Device::new("again-a");
+    a.write("note.txt", b"the note");
+    a.write("other.txt", b"other");
+    a.sync(&store);
+    a.remove("note.txt");
+    a.sync(&store);
+    // Restored from the system's trash, the same bytes: the user's, it goes up.
+    a.write("note.txt", b"the note");
+    let report = a.sync(&store);
+    assert!(
+        !lists(&report, Code::DeletedElsewhereKept, None),
+        "{:?}",
+        report.problems
+    );
+    assert!(index_of(&store).files.contains_key("note.txt"));
+    assert!(!index_of(&store).deleted.contains_key("note.txt"));
+    // A device paired afresh keeps its copy of a file deleted meanwhile until the user says.
+    a.remove("note.txt");
+    a.sync(&store);
+    let c = Device::new("again-c");
+    c.write("note.txt", b"the note");
+    c.sync(&store);
+    let report = c.sync(&store);
+    assert!(lists(&report, Code::DeletedElsewhereKept, Some("note.txt")));
+    assert!(
+        !index_of(&store).files.contains_key("note.txt"),
+        "not sent on the second pass"
+    );
+}
+
+/// AZ-S6. A synced file the scan REFUSES (here: over the size this device takes, `--max-file-mb`)
+/// was neither among the files nor "unknown": base and drive agreed on it, so the plan read
+/// "gone here, unchanged there" and deleted it on the drive - a tombstone, and the trash of
+/// every other device. Unreadable, changed and locked files were unknown already.
+#[test]
+fn az_s6_a_file_the_scan_refuses_is_unknown_and_never_a_delete() {
+    let store = S3Bucket::new();
+    let a = Device::new("s6-a");
+    a.write("big.bin", &vec![1u8; 3000]);
+    a.write("small.txt", b"small");
+    a.sync(&store);
+    // It grows past what this device takes.
+    a.write("big.bin", &vec![2u8; 6000]);
+    let mut opts = a.opts();
+    opts.max_file_bytes = 4000;
+    for pass in 0..2 {
+        let report = a.sync_with(&store, &opts).unwrap();
+        assert!(
+            lists(&report, Code::TooLarge, Some("big.bin")),
+            "pass {pass}: {:?}",
+            report.problems
+        );
+        assert_eq!(report.deleted_there, 0, "pass {pass}: {}", report.summary());
+        assert!(
+            index_of(&store).files.contains_key("big.bin"),
+            "pass {pass}: the drive keeps it"
+        );
+        assert!(a.read("big.bin").is_some(), "pass {pass}");
+    }
+}
+
+/// AZ-W1 (BLOCKER). The rules (`.git/`, `.azlin/`) match case-sensitively, the name checks only
+/// knew `.azlin` exactly, and the disk folds case: a participant's `proj/.GIT/hooks/pre-commit`
+/// (exec) was written through `Dir::child(".GIT")` into the real `.git` of APFS and NTFS - the
+/// next `git commit` ran it - and the next pass found it in the base, absent here, "deleted
+/// here", and removed it from the drive for everyone. Such an entry is now a bad name, in any
+/// case, on every system: never written, never acted on, listed.
+#[test]
+fn az_w1_a_drive_entry_under_a_vcs_or_bookkeeping_folder_in_any_case_never_lands_here() {
+    let store = S3Bucket::new();
+    let b = Device::new("w1-b");
+    b.write("proj/.git/config", b"[core]\n");
+    put_remote(&store, "fine.txt", b"fine", false);
+    let hostile = [
+        "proj/.GIT/hooks/pre-commit",
+        "proj/.Git/hooks/post-checkout",
+        "x/.HG/hgrc",
+        "y/.Svn/entries",
+        ".AZLIN/sync/trash/20261104-000000-aa/x",
+    ];
+    for key in hostile {
+        put_remote(&store, key, b"#!/bin/sh\necho owned\n", true);
+    }
+    for pass in 0..2 {
+        let report = b.sync(&store);
+        assert_eq!(
+            b.read("fine.txt").as_deref(),
+            Some(&b"fine"[..]),
+            "pass {pass}"
+        );
+        for key in hostile {
+            assert!(b.read(key).is_none(), "pass {pass}: {key} landed here");
+            assert!(
+                lists(&report, Code::BadRemoteName, Some(key)),
+                "pass {pass}: {key}: {:?}",
+                report.problems
+            );
+        }
+        assert_eq!(
+            b.read("proj/.git/hooks/pre-commit"),
+            None,
+            "pass {pass}: nothing reached the repository's hooks"
+        );
+        assert_eq!(
+            b.read("proj/.git/config").as_deref(),
+            Some(&b"[core]\n"[..])
+        );
+        // The entries are kept on the drive as they are: no pass deletes them.
+        let index = index_of(&store);
+        for key in hostile {
+            assert!(
+                index.files.contains_key(key),
+                "pass {pass}: {key} was removed from the drive"
+            );
+        }
+    }
+}
+
+/// AZ-W1, the second way in (X2): opening a cloud-only file wrote its key with no name check at
+/// all, so a `.GIT/...` entry in the base was written into `.git` when the user opened it.
+#[test]
+fn az_w1_opening_a_cloud_only_entry_under_a_protected_folder_writes_nothing() {
+    use crate::sync::{
+        fetch_file,
+        local::{BaseEntry, LocalIndex},
+    };
+    let store = S3Bucket::new();
+    let b = Device::new("w1-open");
+    b.write("seed.txt", b"seed");
+    b.sync(&store);
+    for key in [
+        "proj/.GIT/hooks/pre-commit",
+        ".AZLIN/sync/tmp/x.blob",
+        "ok/readme.txt",
+    ] {
+        let bytes: &[u8] = b"#!/bin/sh\necho owned\n";
+        put_remote(&store, key, bytes, true);
+        let mut base = LocalIndex::load(&b.index()).unwrap().expect("a base");
+        base.files.insert(
+            key.to_string(),
+            BaseEntry {
+                hash: hash_bytes(bytes),
+                size: bytes.len() as u64,
+                cloud_only: true,
+                exec: true,
+                ..BaseEntry::default()
+            },
+        );
+        base.save(&b.index()).unwrap();
+        let opened = fetch_file(Target::Index(&store), &b.root(), &b.index(), &b.opts(), key);
+        if key == "ok/readme.txt" {
+            // The ordinary name still opens: the check refuses names, not cloud-only files.
+            let path = opened.expect("an ordinary cloud-only file opens");
+            assert_eq!(fs::read(path).unwrap(), bytes);
+        } else {
+            let wrong = opened.expect_err("a protected folder is never written to");
+            assert!(
+                wrong.to_string().contains("cannot be written here"),
+                "{wrong}"
+            );
+            assert!(b.read(key).is_none(), "{key} landed here");
+        }
+    }
+    assert!(
+        !b.path().join("proj").exists(),
+        "not even its folder was made"
+    );
+}
+
+/// AZ-W7: the same hostile entries as AZ-W1's, spelt as NTFS spells them (`GIT~1`, a dot at the
+/// end, a stream suffix, a code point the disk ignores): none lands, each is listed, the drive
+/// keeps them.
+#[test]
+fn az_w7_a_drive_entry_under_a_short_name_of_a_protected_folder_never_lands_here() {
+    let store = S3Bucket::new();
+    let b = Device::new("w7-b");
+    b.write("proj/.git/config", b"[core]\n");
+    let hostile = [
+        "proj/GIT~1/hooks/pre-commit",
+        "AZLIN~1/sync/trash/20261104-000000-aa/x",
+        "proj/.git./hooks/post-checkout",
+        "proj/.git::$INDEX_ALLOCATION/hooks/post-merge",
+        "proj/.g\u{200c}it/hooks/pre-push",
+    ];
+    for key in hostile {
+        put_remote(&store, key, b"#!/bin/sh\necho owned\n", true);
+    }
+    for pass in 0..2 {
+        let report = b.sync(&store);
+        for key in hostile {
+            assert!(b.read(key).is_none(), "pass {pass}: {key} landed here");
+            assert!(
+                lists(&report, Code::BadRemoteName, Some(key)),
+                "pass {pass}: {key}: {:?}",
+                report.problems
+            );
+        }
+        assert_eq!(b.read("proj/.git/hooks/pre-commit"), None, "pass {pass}");
+        let index = index_of(&store);
+        for key in hostile {
+            assert!(
+                index.files.contains_key(key),
+                "pass {pass}: {key} left the drive"
+            );
+        }
+    }
+}
+
+/// What a participant who can write the drive's index commits when it renames the folder `from`
+/// to `to`: the folder's entry and every file under it at the new key, the old folder's delete
+/// recorded (as this engine's own rename commits it).
+fn the_drive_renames_a_folder(store: &S3Bucket, from: &str, to: &str) {
+    use crate::sync::FolderTombstone;
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).expect("an index")).unwrap();
+    index.generation += 1;
+    let under = format!("{from}/");
+    let moved = |name: &str| -> String {
+        if name == from {
+            to.to_string()
+        } else if let Some(rest) = name.strip_prefix(&under) {
+            format!("{to}/{rest}")
+        } else {
+            name.to_string()
+        }
+    };
+    let files = std::mem::take(&mut index.files);
+    index.files = files
+        .into_iter()
+        .map(|(name, file)| (moved(&name), file))
+        .collect();
+    let folders = std::mem::take(&mut index.folders);
+    assert!(
+        folders.contains_key(from),
+        "the drive holds an entry for {from}"
+    );
+    for (name, folder) in folders {
+        let new = moved(&name);
+        if new != name {
+            index.deleted_folders.insert(
+                name,
+                FolderTombstone {
+                    id: folder.id.clone(),
+                    gen: index.generation,
+                    at: 1_700_000_000,
+                    device: String::from("someone"),
+                },
+            );
+        }
+        index.folders.insert(new, folder);
+    }
+    store.write(&key, index.to_bytes());
+}
+
+/// Every path below `dir` (the folder's own bookkeeping left out) with a name a disk reads as a
+/// version-control folder or file.
+fn version_control_names_below(dir: &Path, prefix: &str, out: &mut Vec<String>) {
+    for entry in fs::read_dir(dir).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if prefix.is_empty() && name == ".azlin" {
+            continue;
+        }
+        let key = format!("{prefix}{name}");
+        if azul_storage::names::Protected::is_vcs(&name) {
+            out.push(key.clone());
+        }
+        if entry.file_type().unwrap().is_dir() {
+            version_control_names_below(&entry.path(), &format!("{key}/"), out);
+        }
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-1 (BLOCKER, the twin of AZ-W1). A participant of a shared drive syncs the
+/// files of a repository's insides (`HEAD`, `config` with a `core.fsmonitor` line, `objects/`,
+/// `hooks/`) in an ordinary folder, then commits an index in which that folder - its identity
+/// kept - is named `.GIT`, `.git.`, `GIT~1`. The victim's `align_folders` read the new name as a
+/// FILE's (a last name `.git` is "an ordinary file") and `move_folders_here` renamed the folder to
+/// it: a repository on the victim's disk, whose configured command runs at the next git command.
+/// The folder is not renamed, the new name is listed as a bad name, and no later pass renames it.
+#[test]
+fn x_delta_azdrive_files_1_a_folder_the_drive_renames_to_a_repository_name_is_not_renamed_here() {
+    let cases: [(&str, &str, &str); 8] = [
+        ("dx1-a0", "dx1-b0", "Documents/.GIT"),
+        ("dx1-a1", "dx1-b1", "Documents/.git"),
+        ("dx1-a2", "dx1-b2", ".git"),
+        ("dx1-a3", "dx1-b3", "Documents/.git."),
+        ("dx1-a4", "dx1-b4", "Documents/GIT~1"),
+        ("dx1-a5", "dx1-b5", "Documents/.g\u{200c}it"),
+        ("dx1-a6", "dx1-b6", "x/.HG"),
+        ("dx1-a7", "dx1-b7", "x/y/.Svn"),
+    ];
+    for (a_name, b_name, target) in cases {
+        let store = S3Bucket::new();
+        let a = Device::new(a_name);
+        let b = Device::new(b_name);
+        a.write("docs/HEAD", b"ref: refs/heads/main\n");
+        a.write("docs/config", b"[core]\n\tfsmonitor = echo owned\n");
+        a.write("docs/objects/x", b"object");
+        a.write("docs/hooks/pre-commit", b"#!/bin/sh\necho owned\n");
+        a.sync(&store);
+        b.sync(&store);
+        assert_eq!(
+            b.read("docs/config").as_deref(),
+            Some(&b"[core]\n\tfsmonitor = echo owned\n"[..]),
+            "{target}: the victim holds the folder"
+        );
+        the_drive_renames_a_folder(&store, "docs", target);
+        for pass in 0..3 {
+            let report = b.sync(&store);
+            let mut made = Vec::new();
+            version_control_names_below(b.path(), "", &mut made);
+            assert!(
+                made.is_empty(),
+                "{target}, pass {pass}: the drive's rename made {made:?} here"
+            );
+            assert!(
+                lists(&report, Code::BadRemoteName, Some(target)),
+                "{target}, pass {pass}: {:?}",
+                report.problems
+            );
+            assert!(
+                !report.moved.iter().any(|m| m.contains(target)),
+                "{target}, pass {pass}: {:?}",
+                report.moved
+            );
+        }
+    }
+}
+
+/// X-DELTA-AZDRIVE-SYNC-11. The drive renames a folder to a name this computer refuses. Its files
+/// are listed under the refused name (a bad name: frozen, never read) and are absent under the old
+/// one, so every unchanged copy here planned "the drive deleted it": the folder vanished from this
+/// computer into the trash, without a question for a folder of four, and nothing said a rename
+/// caused it. The old names are unknown for the pass - neither deleted nor overwritten - and the
+/// report says why. RED not run: the old code trashes the four files (and the test's unheld pass
+/// panics at the question).
+#[test]
+fn x_delta_azdrive_sync_11_a_folder_renamed_to_a_name_this_computer_refuses_keeps_its_files_here() {
+    let store = S3Bucket::new();
+    let a = Device::new("s11-a");
+    let b = Device::new("s11-b");
+    let files = ["docs/HEAD", "docs/config", "docs/a.txt", "docs/b.txt"];
+    for key in files {
+        a.write(key, key.as_bytes());
+    }
+    a.write("other/x.txt", b"untouched");
+    a.sync(&store);
+    b.sync(&store);
+    the_drive_renames_a_folder(&store, "docs", ".git");
+    for pass in 0..2 {
+        let report = b.sync(&store);
+        for key in files {
+            assert_eq!(
+                b.read(key).as_deref(),
+                Some(key.as_bytes()),
+                "pass {pass}: {key} stays here"
+            );
+        }
+        assert!(
+            lists(&report, Code::BadRemoteName, Some("docs")),
+            "pass {pass}: the report says the folder was renamed to a name this computer refuses: {:?}",
+            report.problems
+        );
+        assert_eq!(b.read("other/x.txt").as_deref(), Some(&b"untouched"[..]));
+        let trash = b.path().join(".azlin").join("sync").join("trash");
+        assert!(
+            !trash.exists() || fs::read_dir(&trash).unwrap().next().is_none(),
+            "pass {pass}: nothing went into the trash"
+        );
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-9. A FILE named `.git` in any spelling is not an ordinary file: git
+/// follows its `gitdir:` line to a repository another participant syncs in an ordinary hidden
+/// folder (`.e/HEAD`, `.e/config` with a `core.fsmonitor` line). Neither the file nor a link of
+/// that name comes down, each is listed and the drive keeps it. The scan does not send a
+/// `.git` file or link of this computer's own either: it is left out like the folder.
+#[test]
+fn x_delta_azdrive_files_9_a_file_named_like_a_repository_never_lands_here_nor_goes_up() {
+    let store = S3Bucket::new();
+    let b = Device::new("dx9-b");
+    let hostile = [
+        "proj2/.GIT",
+        "proj3/.git.",
+        "proj4/GIT~1",
+        "proj5/.g\u{200c}it",
+        "proj6/.Hg",
+    ];
+    put_remote(&store, ".e/HEAD", b"ref: refs/heads/main\n", false);
+    put_remote(
+        &store,
+        ".e/config",
+        b"[core]\n\tfsmonitor = echo owned\n",
+        false,
+    );
+    for key in hostile {
+        put_remote(&store, key, b"gitdir: ../.e\n", false);
+    }
+    // This computer's own submodule pointer and a worktree's: left out, never sent.
+    b.write("sub/.git", b"gitdir: ../.git/modules/sub\n");
+    b.write("sub/readme.md", b"a submodule");
+    for pass in 0..2 {
+        let report = b.sync(&store);
+        for key in hostile {
+            assert!(b.read(key).is_none(), "pass {pass}: {key} landed here");
+            assert!(
+                lists(&report, Code::BadRemoteName, Some(key)),
+                "pass {pass}: {key}: {:?}",
+                report.problems
+            );
+            assert!(
+                index_of(&store).files.contains_key(key),
+                "pass {pass}: {key} left the drive"
+            );
+        }
+        assert_eq!(
+            b.read(".e/HEAD").as_deref(),
+            Some(&b"ref: refs/heads/main\n"[..])
+        );
+        assert!(
+            !index_of(&store).files.contains_key("sub/.git"),
+            "pass {pass}: this computer's .git file went up"
+        );
+        assert!(
+            index_of(&store).files.contains_key("sub/readme.md"),
+            "pass {pass}"
+        );
+        assert!(
+            b.read("sub/.git").is_some(),
+            "pass {pass}: the file is left where it is"
+        );
+    }
+}
+
+/// X2 (the rules): opening a cloud-only entry that a rule of the folder leaves out writes
+/// nothing. The `.azlin` folder's install tree is such a rule's (AZ-Y5): `apps/azdrive/current/
+/// AzDrive` in the drive is not installed because somebody opened it.
+#[test]
+fn x_ar5a_2_opening_a_cloud_only_entry_that_a_rule_leaves_out_writes_nothing() {
+    use crate::sync::{
+        fetch_file,
+        local::{BaseEntry, LocalIndex},
+        rules::Rules,
+        LocalRoot,
+    };
+    let store = S3Bucket::new();
+    let b = Device::new("x2-rules");
+    b.write("seed.txt", b"seed");
+    b.sync(&store);
+    let home = LocalRoot {
+        rules: Rules::azlin_home(),
+        ..b.root()
+    };
+    for key in [
+        "apps/azdrive/current/AzDrive",
+        "bin/git",
+        "notes/readme.txt",
+    ] {
+        let bytes: &[u8] = b"#!/bin/sh\necho owned\n";
+        put_remote(&store, key, bytes, true);
+        let mut base = LocalIndex::load(&b.index()).unwrap().expect("a base");
+        base.files.insert(
+            key.to_string(),
+            BaseEntry {
+                hash: hash_bytes(bytes),
+                size: bytes.len() as u64,
+                cloud_only: true,
+                exec: true,
+                ..BaseEntry::default()
+            },
+        );
+        base.save(&b.index()).unwrap();
+        let opened = fetch_file(Target::Index(&store), &home, &b.index(), &b.opts(), key);
+        if key == "notes/readme.txt" {
+            // What no rule leaves out still opens.
+            let path = opened.expect("an ordinary cloud-only file opens");
+            assert_eq!(fs::read(path).unwrap(), bytes);
+        } else {
+            let wrong = opened.expect_err("a rule leaves it out: it is not written");
+            assert!(
+                wrong.to_string().contains("left out of this folder's sync"),
+                "{wrong}"
+            );
+            assert!(b.read(key).is_none(), "{key} landed here");
+        }
+    }
+    assert!(!b.path().join("apps").exists() && !b.path().join("bin").exists());
+}
+
+/// AZ-Y5, end to end: a pass over the `.azlin` folder downloads nothing into `apps/` and `bin/`
+/// and uploads nothing from them.
+#[test]
+fn az_y5_a_pass_over_the_azlin_folder_neither_installs_nor_sends_the_install_tree() {
+    use crate::sync::{rules::Rules, sync_folder, LocalRoot};
+    let store = S3Bucket::new();
+    let b = Device::new("y5-home");
+    let home = LocalRoot {
+        rules: Rules::azlin_home(),
+        ..b.root()
+    };
+    let owned: &[u8] = b"#!/bin/sh\necho owned\n";
+    put_remote(&store, "apps/azdrive/current/AzDrive", owned, true);
+    put_remote(&store, "bin/git", owned, true);
+    put_remote(&store, "roots/company.pem.txt", b"a note", false);
+    b.write("apps/azmail/current/AzMail", b"the real program");
+    b.write("bin/azmail", b"a link in effect");
+    b.write("config.json", b"{}");
+    for pass in 0..2 {
+        sync_folder(&store, &home, &b.index(), &b.opts()).unwrap();
+        let missing = |key: &str| b.read(key).is_none();
+        assert!(missing("apps/azdrive/current/AzDrive"), "pass {pass}");
+        assert!(missing("bin/git"), "pass {pass}");
+        assert_eq!(
+            b.read("roots/company.pem.txt").as_deref(),
+            Some(&b"a note"[..])
+        );
+        let index = index_of(&store);
+        let listed = |key: &str| index.files.contains_key(key);
+        assert!(listed("config.json"), "pass {pass}");
+        assert!(!listed("apps/azmail/current/AzMail"), "pass {pass}");
+        assert!(!listed("bin/azmail"), "pass {pass}");
+        // The drive's own entries are not deleted by a pass that leaves them out.
+        assert!(listed("apps/azdrive/current/AzDrive"), "pass {pass}");
+    }
+    assert_eq!(
+        b.read("apps/azmail/current/AzMail").as_deref(),
+        Some(&b"the real program"[..]),
+        "the local install tree is untouched"
+    );
+}
+
+/// X-AR5a-12 (the sync's site): a disk that cannot say its free space was read as an endless one
+/// (`free_space(..).unwrap_or(u64::MAX)`) and nothing said so. Now the posture decides and the
+/// report carries the sentence: degraded, the reserve is not enforced and the note says it; failed
+/// closed, no download fits.
+#[test]
+fn x_ar5a_12_a_disk_that_cannot_say_its_free_space_is_a_posture_and_a_note_not_an_endless_disk() {
+    use azul_storage::cap::{Cap, Posture};
+    let (known, note) = crate::sync::free_under(Cap::Known(5_000), Posture::Degrade("said"));
+    assert_eq!((known, note), (5_000, None));
+    let (degraded, note) = crate::sync::free_under(
+        Cap::Unknown("no statvfs here"),
+        Posture::Degrade("the reserve is not enforced"),
+    );
+    assert_eq!(degraded, u64::MAX);
+    let note = note.expect("the report is told");
+    assert!(
+        note.contains("the reserve is not enforced") && note.contains("no statvfs here"),
+        "{note}"
+    );
+    let (closed, note) =
+        crate::sync::free_under(Cap::Unknown("no statvfs here"), Posture::FailClosed);
+    assert_eq!(closed, 0, "no download fits a disk that cannot be asked");
+    assert!(note.expect("said").contains("no statvfs here"));
+}
+
+/// X-DELTA-EDGE-5 (E1d, T2). `keep_saves` held a delete only when a temp of the same size had the old
+/// file's BLAKE3 - and read a temp it could not read as "no evidence": a temp the saving app still
+/// holds open (a Windows sharing violation, a mode the app set) let the delete through. Word's save as
+/// above, the old-bytes temp unreadable (mode 000): a temp of the delete's size that cannot be read
+/// is a save in progress too.
+#[cfg(unix)]
+#[test]
+fn a_same_size_temp_that_cannot_be_read_holds_the_delete_like_a_save_in_progress() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = S3Bucket::new();
+    let a = Device::new("unreadable-save-a");
+    let b = Device::new("unreadable-save-b");
+    a.write("Report.docx", b"draft");
+    a.sync(&store);
+    b.sync(&store);
+    a.write("~WRD0001.tmp", b"final");
+    fs::rename(a.path().join("Report.docx"), a.path().join("~WRL0002.tmp")).unwrap();
+    let held = a.path().join("~WRL0002.tmp");
+    fs::set_permissions(&held, fs::Permissions::from_mode(0o000)).unwrap();
+    // A user who reads a file of mode 000 (root) cannot play this: that run fails
+    // `x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds`, so this return is never
+    // a quiet pass (X-DELTA-INTEGRITY3-19).
+    if fs::read(&held).is_ok() {
+        fs::set_permissions(&held, fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+    let report = a.sync(&store);
+    fs::set_permissions(&held, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        lists(&report, Code::SaveInProgress, Some("Report.docx")),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    b.sync(&store);
+    assert_eq!(b.read("Report.docx").as_deref(), Some(&b"draft"[..]));
+    assert!(trashed(b.path()).is_empty());
+}
+
+/// Whether this process is refused a file of `mode` (made in a folder of its own): `false` for root,
+/// and on a mount that ignores permission bits - the two ways a mode of 000 binds nobody.
+#[cfg(unix)]
+fn a_mode_binds(mode: u32) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new("azcloud-mode-binds");
+    let file = dir.path().join("f");
+    fs::write(&file, b"x").unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
+    let refused = fs::read(&file).is_err();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+    refused
+}
+
+/// Fails the run, saying why, unless a file of `mode` is refused to this process.
+#[cfg(unix)]
+fn demand_that_a_mode_binds(mode: u32) {
+    assert!(
+        a_mode_binds(mode),
+        "this process reads a file of mode {mode:o} (it runs as root, or on a mount that ignores \
+         permission bits), so the tests that make a file or a folder it cannot read - \
+         a_folder_that_cannot_be_read_is_said_so_and_changes_nothing, \
+         a_same_size_temp_that_cannot_be_read_holds_the_delete_like_a_save_in_progress, the \
+         locked folder of sync_session and the unreadable temp of sync_relook, sync_chaos - return \
+         early and assert nothing here: this run cannot say they pass. Run the suite as an \
+         ordinary user (X-DELTA-INTEGRITY3-19)"
+    );
+}
+
+/// X-DELTA-INTEGRITY3-19. The unreadable-file cases of this crate (the temp that holds a delete, a
+/// folder that cannot be listed, the folder a mass-delete answer cannot look into) return early where
+/// the process reads a mode of 000 anyway - root, a CI container, a mount that ignores modes - and
+/// report green on exactly the runner that cannot play them, so the rule they guard (an unreadable
+/// same-size temp holds the delete, X-DELTA-EDGE-5) stood guarded by nothing. This is where that run
+/// fails: it asks the question those cases ask, once, and says which cases it takes the place of.
+#[cfg(unix)]
+#[test]
+fn x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds() {
+    demand_that_a_mode_binds(0o000);
+}
+
+/// The control of the test above, at the same size (a file, one read): a process that reads the file
+/// (root's case, made here with a mode that lets the owner read it) fails the run with the words
+/// of the loud test, so the loud test is red under root and not only green without it.
+#[cfg(unix)]
+#[test]
+#[should_panic(expected = "this process reads a file of mode 600")]
+fn x_delta_integrity3_19_a_process_that_reads_through_the_mode_fails_the_run() {
+    demand_that_a_mode_binds(0o600);
+}
+
+/// X-DELTA-EDGE-5 (E1d, T2, the second case). The base holds v1, the user saved v2 (not synced yet)
+/// and the app is saving v3: the temp holds v2 - the same size as v1, other bytes - so no hash matches
+/// and `keep_saves` found no evidence. A temp the app wrote within the settle window (the app's
+/// `file_settle`) is a save in progress whatever its bytes; one that is older is no evidence, as before
+/// (a stale temp beside a file deleted for good must not hold the delete for ever).
+#[test]
+fn a_temp_written_within_the_settle_window_holds_the_delete_whatever_its_bytes() {
+    let store = S3Bucket::new();
+    let a = Device::new("recent-temp-a");
+    let b = Device::new("recent-temp-b");
+    a.write("Plan.docx", b"draft v1");
+    a.sync(&store);
+    b.sync(&store);
+    // v2 is saved here and not synced; the app starts saving v3: v2 moves to a temp, v3 is written.
+    a.write("Plan.docx", b"draft v2");
+    a.write("~WRD0003.tmp", b"draft v3, longer");
+    fs::rename(a.path().join("Plan.docx"), a.path().join("~WRL0004.tmp")).unwrap();
+    let mut opts = a.opts();
+    opts.file_settle = Duration::from_secs(3600);
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(
+        lists(&report, Code::SaveInProgress, Some("Plan.docx")),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    b.sync(&store);
+    assert_eq!(b.read("Plan.docx").as_deref(), Some(&b"draft v1"[..]));
+
+    // The same folder an hour on: the temps are stale, and a delete is a delete.
+    for temp in ["~WRD0003.tmp", "~WRL0004.tmp"] {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(a.path().join(temp))
+            .unwrap();
+        file.set_modified(std::time::SystemTime::now() - Duration::from_secs(7200))
+            .unwrap();
+    }
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert_eq!(report.deleted_there, 1, "{}", report.summary());
+    assert!(
+        !lists(&report, Code::SaveInProgress, None),
+        "{:?}",
+        report.problems
+    );
+}
+
+/// X-DELTA-EDGE-5 (E1b, T1, the slow-writer variant). A writer that unlinks the document and writes its
+/// temp slowly afterwards: the folder's own time moves when the temp is made, not when it is written
+/// into (the wait for a quiet folder does not look at an ignored file), so a pass with a quiet wait of
+/// 1.5 s starts its scan while the temp is mid-write, finds the document gone and plans its delete.
+/// A temp written within the quiet wait holds the delete (the writer writes every 25 ms for 2.5 s, so
+/// a stall of its thread of a second still leaves the temp inside the wait); the pass after the rename
+/// sends the new bytes as an edit, and the other device never trashes its copy.
+#[test]
+fn a_temp_written_slowly_after_the_unlink_holds_the_delete_while_the_folder_waits_for_quiet() {
+    use std::io::Write;
+    let store = S3Bucket::new();
+    let a = Device::new("slow-temp-a");
+    let b = Device::new("slow-temp-b");
+    a.write("doc.docx", b"old");
+    a.sync(&store);
+    b.sync(&store);
+    fs::remove_file(a.path().join("doc.docx")).unwrap();
+    let writer = {
+        let (temp, doc) = (a.path().join("doc.tmp"), a.path().join("doc.docx"));
+        std::thread::spawn(move || {
+            let mut file = fs::File::create(&temp).unwrap();
+            for _ in 0..100 {
+                file.write_all(b"slowly written bytes ").unwrap();
+                file.flush().unwrap();
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            drop(file);
+            fs::rename(&temp, &doc).unwrap();
+        })
+    };
+    let mut opts = a.opts();
+    opts.settle = Duration::from_millis(1500);
+    let report = a.sync_with(&store, &opts).unwrap();
+    writer.join().unwrap();
+    assert_eq!(report.deleted_there, 0, "{}", report.summary());
+    assert!(
+        index_of(&store).deleted.is_empty(),
+        "{:?}",
+        index_of(&store).deleted.keys()
+    );
+    let report = a.sync(&store);
+    assert_eq!(report.files_up, 1, "{}", report.summary());
+    b.sync(&store);
+    assert_eq!(b.read("doc.docx").map(|bytes| bytes.len()), Some(21 * 100));
+    assert!(trashed(b.path()).is_empty());
+}
+
+/// Rewrites the drive's index as a hostile server would: `edit` changes it, its generation goes up.
+fn craft_index(store: &S3Bucket, edit: impl FnOnce(&mut RemoteIndex)) {
+    let key = index_key(PREFIX);
+    let mut index = RemoteIndex::parse(&store.read(&key).expect("an index")).unwrap();
+    edit(&mut index);
+    index.generation += 1;
+    store.write(&key, index.to_bytes());
+}
+
+/// A tombstone as a server that wants a delete believed writes it: confirmed, by the device it names.
+fn tombstone_of(hash: String, device: &str, gen: u64) -> crate::sync::Tombstone {
+    crate::sync::Tombstone {
+        hash,
+        gen,
+        at: 1_700_000_000,
+        device: device.to_string(),
+        confirmed: true,
+    }
+}
+
+/// X-DELTA-EDGE (E17b, T13). A malicious (or broken) server feeds a crafted tombstone stream. To a
+/// device paired afresh - no base, its state wiped - nothing it says is a delete: five files with no
+/// tombstone, three with a tombstone of the bytes this device holds (kept, listed, never sent), three
+/// with a tombstone of OTHER bytes (this device's are newer: they go up), every tombstone `confirmed`
+/// and signed with the device's own name. Afterwards, on a paired device, the server can take a file
+/// out of the folder only into the trash (restorable), and a stream that empties a folder is HELD for
+/// the user whatever the tombstones' `confirmed` says. A characterization test: green on the first
+/// run, with the counts the brief asked for.
+#[test]
+fn a_crafted_index_deletes_nothing_on_a_freshly_paired_device_and_only_into_the_trash_afterwards() {
+    let store = S3Bucket::new();
+    let a = Device::new("crafted-a");
+    let b = Device::new("crafted-b");
+    // 30 files in nested folders: root, a/, a/b/, a/b/c/ (15) and a folder of 15 that pass 3 empties.
+    let mut keys: Vec<String> = Vec::new();
+    for folder in ["", "a/", "a/b/", "a/b/c/"] {
+        let count = if folder.is_empty() { 3 } else { 4 };
+        for i in 0..count {
+            keys.push(format!("{folder}f{i}.txt"));
+        }
+    }
+    for i in 0..15 {
+        keys.push(format!("bulk/k{i:02}.txt"));
+    }
+    assert_eq!(keys.len(), 30);
+    let bytes_of = |key: &str| format!("the bytes of {key}").into_bytes();
+    for key in &keys {
+        a.write(key, &bytes_of(key));
+    }
+    a.sync(&store);
+    // B was wiped: no base, no state. Its folder holds the same 30 files - three of them newer than
+    // the drive's - and three of its own.
+    let no_tombstone = ["a/f0.txt", "a/f1.txt", "a/f2.txt", "a/f3.txt", "a/b/f0.txt"];
+    let same_bytes = ["f0.txt", "f1.txt", "f2.txt"];
+    let newer = ["a/b/f1.txt", "a/b/f2.txt", "a/b/f3.txt"];
+    for key in &keys {
+        let bytes = if newer.contains(&key.as_str()) {
+            format!("a NEWER version of {key}").into_bytes()
+        } else {
+            bytes_of(key)
+        };
+        b.write(key, &bytes);
+    }
+    let own = ["mine/one.txt", "mine/two.txt", "a/mine-three.txt"];
+    for key in own {
+        b.write(key, b"only here");
+    }
+    let before = b.tree();
+    assert_eq!(before.len(), 33);
+    craft_index(&store, |index| {
+        let gen = index.generation + 1;
+        for key in no_tombstone {
+            index.files.remove(key);
+        }
+        for key in same_bytes {
+            let held = index.files.remove(key).expect("on the drive");
+            index
+                .deleted
+                .insert(key.to_string(), tombstone_of(held.hash, "crafted-b", gen));
+        }
+        for key in newer {
+            index.files.remove(key);
+            index.deleted.insert(
+                key.to_string(),
+                tombstone_of(hash_bytes(b"what the drive once had"), "crafted-b", gen),
+            );
+        }
+    });
+
+    // Pass 1: nothing is deleted here, whatever the tombstones say.
+    let report = b.sync(&store);
+    assert_eq!(report.deleted_here, 0, "{}", report.summary());
+    assert!(trashed(b.path()).is_empty(), "nothing went to the trash");
+    assert_eq!(b.tree(), before, "all 33 local files are intact");
+    for key in same_bytes {
+        assert!(
+            lists(&report, Code::DeletedElsewhereKept, Some(key)),
+            "{key}: {:?}",
+            report.problems
+        );
+    }
+    let index = index_of(&store);
+    for key in same_bytes {
+        assert!(!index.files.contains_key(key), "{key} is not sent again");
+    }
+    for key in newer.iter().chain(&no_tombstone).chain(&own) {
+        assert!(index.files.contains_key(*key), "{key} goes up");
+    }
+    assert_eq!(report.files_up, 3 + 5 + 3, "{}", report.summary());
+
+    // Pass 2: the server drops two files that are unchanged here. A delete from the drive is a move
+    // into the folder's trash.
+    craft_index(&store, |index| {
+        index.files.remove("bulk/k00.txt");
+        index.files.remove("bulk/k01.txt");
+    });
+    let report = b.sync(&store);
+    assert_eq!(report.deleted_here, 2, "{}", report.summary());
+    let gone: BTreeSet<Vec<u8>> = [bytes_of("bulk/k00.txt"), bytes_of("bulk/k01.txt")].into();
+    assert_eq!(
+        trashed(b.path()).into_iter().collect::<BTreeSet<_>>(),
+        gone,
+        "both are in the trash, restorable"
+    );
+
+    // Pass 3: a stream that tombstones the rest of a folder - 13 files, every one of them - is held
+    // for the user, `confirmed` or not, and nothing changes.
+    craft_index(&store, |index| {
+        let gen = index.generation + 1;
+        for i in 2..15 {
+            let key = format!("bulk/k{i:02}.txt");
+            let held = index.files.remove(&key).expect("on the drive");
+            index
+                .deleted
+                .insert(key, tombstone_of(held.hash, "crafted-b", gen));
+        }
+    });
+    let held = b.tree();
+    let refused = b.sync_with(&store, &b.opts());
+    let error = refused
+        .expect_err("the pass asks the user instead of deleting")
+        .to_string();
+    assert!(error.contains("--allow-mass-delete"), "{error}");
+    assert_eq!(b.tree(), held, "the files are untouched");
+    assert_eq!(trashed(b.path()).len(), 2, "nothing more went to the trash");
+}

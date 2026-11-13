@@ -1,0 +1,43 @@
+[
+  {
+    "name": "an encrypted drive never stores a plaintext name or byte",
+    "description": "TERABOX-013 (TeraBox): no client-side encryption; the provider can read every file and name. Rule I1 (per-file keys, AZL1 objects, names inside the encrypted index). sync-chaos crypto-no-plaintext-no-dedup.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "diagnosis-{secret}.pdf", "text": "{secret} and the rest of the letter" },
+      { "op": "drive_write", "device": "a", "path": "my-diagnosis-letter.txt", "text": "nothing to see" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "diagnosis-{secret}.pdf", "text": "{secret} and the rest of the letter" },
+      { "op": "drive_check", "check": "remote_never_has" },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "my-diagnosis-letter" },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "the rest of the letter" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the same file in two encrypted drives (two accounts) is stored as different objects: no cross-account deduplication",
+    "description": "TERABOX-013 (TeraBox): deduplication across accounts lets a provider (or an attacker) confirm a user holds a known file. Rule I1 (per-file keys; never dedup ciphertext across accounts or across a permanent delete).",
+    "steps": [
+      { "op": "drive_create", "remote": "r1", "encrypted": true },
+      { "op": "drive_create", "remote": "r2", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r1" },
+      { "op": "drive_open", "device": "b", "remote": "r2" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "known.pdf", "size": 50000, "seed": 13 },
+      { "op": "drive_write", "device": "b", "path": "known.pdf", "size": 50000, "seed": 13 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_objects_disjoint", "remotes": ["r1", "r2"] },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

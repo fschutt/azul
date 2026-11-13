@@ -42,7 +42,12 @@ mod audit_tests {
         // A single-node key walk is O(depth) and must complete without recursing.
         let n = 100_000usize;
         let (node_data, hierarchy) = build(n);
-        let _ = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(n - 1));
+        let _ = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(n - 1),
+            NodeIdentityConfig::default(),
+        );
         let _ = calculate_contenteditable_key(&node_data, &hierarchy, NodeId::new(n - 1));
 
         // Whole-DOM precompute calls the per-node walk once per node, so over a
@@ -52,7 +57,7 @@ mod audit_tests {
         // `reconciliation_key_distinguishes_siblings`.
         let m = 2_000usize;
         let (nd, hi) = build(m);
-        let keys = precompute_reconciliation_keys(&nd, &hi);
+        let keys = precompute_reconciliation_keys(&nd, &hi, NodeIdentityConfig::default());
         assert_eq!(keys.len(), m);
     }
 
@@ -70,7 +75,12 @@ mod audit_tests {
             hitem(Some(2), None, None, None),
             hitem(Some(1), None, None, None),
         ];
-        let _ = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(1));
+        let _ = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(1),
+            NodeIdentityConfig::default(),
+        );
         let _ = calculate_contenteditable_key(&node_data, &hierarchy, NodeId::new(1));
     }
 
@@ -78,8 +88,17 @@ mod audit_tests {
     fn reconciliation_key_single_node() {
         let node_data = vec![NodeData::create_div()];
         let hierarchy = vec![hitem(None, None, None, None)];
-        let direct = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(0));
-        let pre = precompute_reconciliation_keys(&node_data, &hierarchy)[0];
+        let direct = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(0),
+            NodeIdentityConfig::default(),
+        );
+        let pre = precompute_reconciliation_keys(
+            &node_data,
+            &hierarchy,
+            NodeIdentityConfig::default(),
+        )[0];
         assert_eq!(direct, pre);
     }
 
@@ -92,8 +111,18 @@ mod audit_tests {
             hitem(Some(0), None, Some(2), None), // child 1
             hitem(Some(0), Some(1), None, None), // child 2
         ];
-        let k1 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(1));
-        let k2 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(2));
+        let k1 = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(1),
+            NodeIdentityConfig::default(),
+        );
+        let k2 = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(2),
+            NodeIdentityConfig::default(),
+        );
         assert_ne!(k1, k2);
     }
 
@@ -226,6 +255,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         )
     }
 
@@ -365,6 +395,8 @@ mod autotest_generated {
             NodeChangeSet::CHILDREN_CHANGED,
             NodeChangeSet::IMAGE_CHANGED,
             NodeChangeSet::CONTENTEDITABLE,
+            NodeChangeSet::CUSTOM_PROPERTIES,
+            NodeChangeSet::CONTENT_LANGUAGE,
             NodeChangeSet::INLINE_STYLE_PAINT,
             NodeChangeSet::STYLED_STATE,
             NodeChangeSet::CALLBACKS,
@@ -974,7 +1006,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_rec_key_empty_node_data_is_safe() {
-        assert!(precompute_reconciliation_keys(&[], &[]).is_empty());
+        assert!(precompute_reconciliation_keys(&[], &[], NodeIdentityConfig::default()).is_empty());
     }
 
     #[test]
@@ -994,12 +1026,21 @@ mod autotest_generated {
             hitem(Some(0), Some(2), None, None),
         ];
 
-        let keys = precompute_reconciliation_keys(&node_data, &hierarchy);
+        let keys = precompute_reconciliation_keys(
+            &node_data,
+            &hierarchy,
+            NodeIdentityConfig::default(),
+        );
         assert_eq!(keys.len(), node_data.len());
         for (i, k) in keys.iter().enumerate() {
             assert_eq!(
                 *k,
-                calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(i)),
+                calculate_reconciliation_key(
+                    &node_data,
+                    &hierarchy,
+                    NodeId::new(i),
+                    NodeIdentityConfig::default(),
+                ),
                 "precomputed key for node {i} disagrees with the direct call",
             );
         }
@@ -1017,8 +1058,18 @@ mod autotest_generated {
                     vec![IdOrClass::Id("hero".into()), IdOrClass::Class("x".into())].into(),
                 );
 
-        let a = calculate_reconciliation_key(&[bare], &[], NodeId::new(0));
-        let b = calculate_reconciliation_key(&[decorated], &[], NodeId::new(0));
+        let a = calculate_reconciliation_key(
+            &[bare],
+            &[],
+            NodeId::new(0),
+            NodeIdentityConfig::default(),
+        );
+        let b = calculate_reconciliation_key(
+            &[decorated],
+            &[],
+            NodeId::new(0),
+            NodeIdentityConfig::default(),
+        );
         assert_eq!(
             a, b,
             "an explicit .with_key() must dominate every other input"
@@ -1027,9 +1078,30 @@ mod autotest_generated {
 
     #[test]
     fn autotest_rec_key_css_id_used_when_no_explicit_key() {
-        let same_a = calculate_reconciliation_key(&[id_node("hero")], &[], NodeId::new(0));
-        let same_b = calculate_reconciliation_key(&[id_node("hero")], &[], NodeId::new(0));
-        let other = calculate_reconciliation_key(&[id_node("footer")], &[], NodeId::new(0));
+        // The CSS id is a key only where the app says so (React's rules,
+        // the default, treat it as an attribute like any other).
+        let ids_are_keys = NodeIdentityConfig {
+            id_is_key: true,
+            ..NodeIdentityConfig::default()
+        };
+        let same_a = calculate_reconciliation_key(
+            &[id_node("hero")],
+            &[],
+            NodeId::new(0),
+            ids_are_keys,
+        );
+        let same_b = calculate_reconciliation_key(
+            &[id_node("hero")],
+            &[],
+            NodeId::new(0),
+            ids_are_keys,
+        );
+        let other = calculate_reconciliation_key(
+            &[id_node("footer")],
+            &[],
+            NodeId::new(0),
+            ids_are_keys,
+        );
 
         assert_eq!(same_a, same_b, "the CSS-ID key must be stable");
         assert_ne!(
@@ -1040,18 +1112,40 @@ mod autotest_generated {
 
     #[test]
     fn autotest_rec_key_classes_participate_in_the_structural_key() {
-        let a = calculate_reconciliation_key(&[class_node("alpha")], &[], NodeId::new(0));
-        let b = calculate_reconciliation_key(&[class_node("beta")], &[], NodeId::new(0));
+        // Classes are part of a node's identity only where the app says so
+        // (React's rules, the default, keep a node whose classes change).
+        let classes_remount = NodeIdentityConfig {
+            class_change_remounts: true,
+            ..NodeIdentityConfig::default()
+        };
+        let a = calculate_reconciliation_key(
+            &[class_node("alpha")],
+            &[],
+            NodeId::new(0),
+            classes_remount,
+        );
+        let b = calculate_reconciliation_key(
+            &[class_node("beta")],
+            &[],
+            NodeId::new(0),
+            classes_remount,
+        );
         assert_ne!(a, b, "classes must feed the structural key");
     }
 
     #[test]
     fn autotest_rec_key_node_type_participates_in_the_structural_key() {
-        let div = calculate_reconciliation_key(&[NodeData::create_div()], &[], NodeId::new(0));
+        let div = calculate_reconciliation_key(
+            &[NodeData::create_div()],
+            &[],
+            NodeId::new(0),
+            NodeIdentityConfig::default(),
+        );
         let txt = calculate_reconciliation_key(
             &[NodeData::create_text_do_not_use_without_block_level_wrapper("x")],
             &[],
             NodeId::new(0),
+            NodeIdentityConfig::default(),
         );
         assert_ne!(
             div, txt,
@@ -1065,9 +1159,16 @@ mod autotest_generated {
         // "discriminant + classes" key instead of panicking.
         let node_data = vec![NodeData::create_div(), class_node("a"), id_node("b")];
 
-        let with_none = precompute_reconciliation_keys(&node_data, &[]);
-        let with_short =
-            precompute_reconciliation_keys(&node_data, &[hitem(None, None, None, None)]);
+        let with_none = precompute_reconciliation_keys(
+            &node_data,
+            &[],
+            NodeIdentityConfig::default(),
+        );
+        let with_short = precompute_reconciliation_keys(
+            &node_data,
+            &[hitem(None, None, None, None)],
+            NodeIdentityConfig::default(),
+        );
 
         assert_eq!(with_none.len(), 3);
         assert_eq!(with_short.len(), 3);
@@ -1098,8 +1199,18 @@ mod autotest_generated {
             hitem(Some(2), None, None, None),       // 4
         ];
 
-        let k3 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(3));
-        let k4 = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(4));
+        let k3 = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(3),
+            NodeIdentityConfig::default(),
+        );
+        let k4 = calculate_reconciliation_key(
+            &node_data,
+            &hierarchy,
+            NodeId::new(4),
+            NodeIdentityConfig::default(),
+        );
         assert_ne!(
             k3, k4,
             "identical leaves under different parents must not share a key"
@@ -1121,7 +1232,12 @@ mod autotest_generated {
         // keyed node both functions return the SAME value.
         assert_eq!(
             a,
-            calculate_reconciliation_key(&node_data, &[], NodeId::new(0)),
+            calculate_reconciliation_key(
+                &node_data,
+                &[],
+                NodeId::new(0),
+                NodeIdentityConfig::default(),
+            ),
             "explicit keys must be identical across both key functions",
         );
     }
@@ -1357,6 +1473,7 @@ mod autotest_generated {
             &layout_of(&[(0, rect(100.0, 80.0))]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
 
         assert_eq!(count_events(&r, EventType::Resize), 1);
@@ -1390,6 +1507,7 @@ mod autotest_generated {
             &layout_of(&[(0, moved)]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(count_events(&r, EventType::Resize), 0);
     }
@@ -1425,6 +1543,7 @@ mod autotest_generated {
             &layout_of(&[(0, nan)]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(r.node_moves.len(), 1);
         assert_eq!(
@@ -1445,6 +1564,7 @@ mod autotest_generated {
             &layout_of(&[(0, inf)]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(
             count_events(&r, EventType::Resize),
@@ -1462,6 +1582,7 @@ mod autotest_generated {
             &layout_of(&[(0, rect(10.0, 20.0))]),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(
             count_events(&r, EventType::Resize),
@@ -1494,6 +1615,7 @@ mod autotest_generated {
                 &layout_of(&[(0, b)]),
                 DomId::ROOT_ID,
                 Instant::now(),
+                NodeIdentityConfig::default(),
             );
             assert_eq!(r.node_moves.len(), 1);
         }
@@ -1505,6 +1627,9 @@ mod autotest_generated {
         // identical leaves live under DIFFERENT parents. The content-hash and
         // structural-hash tiers must not match them across parents, or focus /
         // scroll / dataset state migrates into an unrelated subtree.
+        //
+        // The ids make the parents two different nodes where the CSS id is a
+        // key, which these rules say.
         //
         // old:  0 root ── 1 (#left)  ── 2 "leaf"
         // new:  0 root ── 1 (#right) ── 2 "leaf"
@@ -1535,6 +1660,10 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig {
+                id_is_key: true,
+                ..NodeIdentityConfig::default()
+            },
         );
 
         // The leaf (index 2) must NOT be matched: its parent's reconciliation
@@ -1548,6 +1677,112 @@ mod autotest_generated {
             "a leaf must not migrate across parents; moves = {:?}",
             r.node_moves,
         );
+    }
+
+    #[test]
+    fn a_leaf_does_not_follow_its_subtree_into_a_container_with_another_id() {
+        // LAYOUT7 item 7 (AzMail's Add Account wizard, MAIL6): page 1's field
+        // `#acct-name > p > "x"` is replaced by page 2's `#acct-imap-host > p
+        // > "x"` at the same place. The exact-subtree tier (A2) matched the
+        // text "x" across: it checked only the IMMEDIATE parent's identity
+        // (the anonymous `p`, none on both sides), so the text overlay of the
+        // name field - what the user typed - moved into the host field.
+        //
+        // The ids tell the two fields apart where the CSS id is a key, which
+        // these rules say; under React's rules an app gives them keys, and
+        // the keys draw the same line (the end of this test).
+        //
+        // old:  0 root ── 1 (#acct-name)      ── 2 p ── 3 "x"
+        // new:  0 root ── 1 (#acct-imap-host) ── 2 p ── 3 "x"
+        let ids_are_keys = NodeIdentityConfig {
+            id_is_key: true,
+            ..NodeIdentityConfig::default()
+        };
+        let hier = vec![
+            hitem(None, None, None, Some(1)),
+            hitem(Some(0), None, None, Some(2)),
+            hitem(Some(1), None, None, Some(3)),
+            hitem(Some(2), None, None, None),
+        ];
+        let field = |id: &str| {
+            vec![
+                NodeData::create_div(),
+                id_node(id),
+                NodeData::create_node(crate::dom::NodeType::P),
+                NodeData::create_text_do_not_use_without_block_level_wrapper("x"),
+            ]
+        };
+        let r = reconcile_dom(
+            &field("acct-name"),
+            &field("acct-imap-host"),
+            &hier,
+            &hier,
+            &no_layout(),
+            &no_layout(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            ids_are_keys,
+        );
+        for node in [2, 3] {
+            assert!(
+                !r.node_moves
+                    .iter()
+                    .any(|m| m.new_node_id.index() == node && m.old_node_id.index() == node),
+                "node {node} lives in a container the author named differently: it is a new \
+                 element; moves = {:?}",
+                r.node_moves,
+            );
+        }
+
+        // The same field rendered again is the same element, all the way down.
+        let same = reconcile_dom(
+            &field("acct-name"),
+            &field("acct-name"),
+            &hier,
+            &hier,
+            &no_layout(),
+            &no_layout(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            ids_are_keys,
+        );
+        assert!(
+            same.node_moves
+                .iter()
+                .any(|m| m.new_node_id.index() == 3 && m.old_node_id.index() == 3),
+            "moves = {:?}",
+            same.node_moves,
+        );
+
+        let keyed = |key: &str| {
+            vec![
+                NodeData::create_div(),
+                NodeData::create_div().with_key(key),
+                NodeData::create_node(crate::dom::NodeType::P),
+                NodeData::create_text_do_not_use_without_block_level_wrapper("x"),
+            ]
+        };
+        let r = reconcile_dom(
+            &keyed("acct-name"),
+            &keyed("acct-imap-host"),
+            &hier,
+            &hier,
+            &no_layout(),
+            &no_layout(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            NodeIdentityConfig::default(),
+        );
+        for node in [2, 3] {
+            assert!(
+                !r.node_moves
+                    .iter()
+                    .any(|m| m.new_node_id.index() == node && m.old_node_id.index() == node),
+                "node {node} lives in a container with another key: it is a new element; \
+                 moves = {:?}",
+                r.node_moves,
+            );
+        }
     }
 
     // ========================================================================
@@ -1820,6 +2055,32 @@ mod autotest_generated {
 
         // An index past the arena is a no-op, not a panic.
         merge_fresh_dataset(&mut plain, 99, RefAny::new(TestState(3)));
+    }
+
+    /// One widget, two nodes: the wrapper merges (keeps the retained state),
+    /// the panel inside it carries a clone of the same dataset and no merge
+    /// callback. Merged node by node the panel ended on the fresh allocation
+    /// (an orphan), because the wrapper's re-point ran before the panel held
+    /// it. Merged as a batch, both end on the retained state.
+    #[test]
+    fn autotest_merge_fresh_datasets_unifies_a_widget_spread_over_two_nodes() {
+        let mut nodes = vec![NodeData::create_div(), NodeData::create_div()];
+        let retained = RefAny::new(TestState(7));
+        let retained_ptr = retained.sharing_info.ptr as usize;
+        nodes[0].set_dataset(OptionRefAny::Some(retained.clone()));
+        nodes[0].set_merge_callback(merge_keep_old as DatasetMergeCallbackType);
+        nodes[1].set_dataset(OptionRefAny::Some(retained));
+
+        let fresh = RefAny::new(TestState(0));
+        merge_fresh_datasets(&mut nodes, vec![(0, fresh.clone()), (1, fresh)]);
+
+        for (i, nd) in nodes.iter().enumerate() {
+            assert_eq!(
+                nd.get_dataset().unwrap().sharing_info.ptr as usize,
+                retained_ptr,
+                "node {i} must end on the retained (merged) allocation"
+            );
+        }
     }
 
     #[test]
@@ -2401,6 +2662,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert!(r.diff.events.is_empty());
         assert!(r.diff.node_moves.is_empty());
@@ -2425,6 +2687,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
 
         assert_eq!(r.diff.node_moves.len(), 1);
@@ -2459,6 +2722,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
         assert_eq!(r.node_changes.len(), 2);
         // Both sides see the same (present-or-absent) state, so no STYLED_STATE.
@@ -2488,6 +2752,7 @@ mod autotest_generated {
             &no_layout(),
             DomId::ROOT_ID,
             Instant::now(),
+            NodeIdentityConfig::default(),
         );
 
         let mut acc = ChangeAccumulator::new();
@@ -2586,6 +2851,51 @@ mod autotest_generated {
         let d = NodeDataFingerprint::compute(&NodeData::create_div(), None);
         assert!(a.diff(&d).contains(NodeChangeSet::DATASET));
         assert!(!a.diff(&d).needs_layout());
+    }
+
+    #[test]
+    fn a_moved_tab_stop_is_not_a_layout_change() {
+        // REPORTED (RadioGroup indicators turned into tall pills, "sometimes"):
+        // a roving-tabindex group rewrites its rows' tab indices on every
+        // selection change - `set_tab_index` on the live DOM, and a rebuilt
+        // DOM with the new stop. The tab index shares `NodeData::flags` with
+        // contenteditable, the whole of `flags` sat in `attrs_hash`, and an
+        // `attrs_hash` change is CONTENTEDITABLE: every row whose stop moved
+        // went LAYOUT-dirty and was rebuilt as a fresh relayout root. Which
+        // key Tab lands on changes neither layout nor paint.
+        for (from, to) in [
+            (TabIndex::Auto, TabIndex::NoKeyboardFocus),
+            (TabIndex::NoKeyboardFocus, TabIndex::Auto),
+            (TabIndex::Auto, TabIndex::OverrideInParent(3)),
+        ] {
+            let a = NodeDataFingerprint::compute(&NodeData::create_div().with_tab_index(from), None);
+            let b = NodeDataFingerprint::compute(&NodeData::create_div().with_tab_index(to), None);
+            assert!(
+                !a.might_affect_layout(&b),
+                "{from:?} -> {to:?}: a tab stop is not layout"
+            );
+            assert!(
+                !a.diff(&b).needs_layout(),
+                "{from:?} -> {to:?}: a tab stop must never relayout: {:?}",
+                a.diff(&b)
+            );
+            assert!(!a.diff(&b).needs_paint(), "{from:?} -> {to:?}: nor repaint");
+        }
+        // Gaining a tab stop is no layout change either.
+        let plain = NodeDataFingerprint::compute(&NodeData::create_div(), None);
+        let tabbed = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_tab_index(TabIndex::Auto),
+            None,
+        );
+        assert!(!plain.diff(&tabbed).needs_layout());
+        // contenteditable still is.
+        let editable = NodeDataFingerprint::compute(
+            &NodeData::create_div()
+                .with_tab_index(TabIndex::Auto)
+                .with_contenteditable(true),
+            None,
+        );
+        assert!(tabbed.diff(&editable).needs_layout());
     }
 
     #[test]
@@ -2761,6 +3071,32 @@ mod dom_fingerprint_tests {
             ))
     }
 
+    /// A node's own style under another condition is another style: the
+    /// same declaration for `:hover` and for `:focus` must not fingerprint
+    /// alike, or a rebuild that moved it skips the cascade and keeps the
+    /// old one. The inline hash counted the conditions and ignored them.
+    #[test]
+    fn an_inline_declarations_condition_is_part_of_the_style_fingerprint() {
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType},
+            props::{basic::ColorU, property::CssProperty, style::StyleTextColor},
+        };
+        let styled = |state: PseudoStateType| {
+            Dom::create_node(NodeType::Div).with_css_props(
+                alloc::vec![CssPropertyWithConditions {
+                    property: CssProperty::const_text_color(StyleTextColor {
+                        inner: ColorU::new(255, 0, 0, 255),
+                    }),
+                    apply_if: alloc::vec![DynamicSelector::PseudoState(state)].into(),
+                }]
+                .into(),
+            )
+        };
+        let (hover, _) = fingerprint_dom(&styled(PseudoStateType::Hover));
+        let (focus, _) = fingerprint_dom(&styled(PseudoStateType::Focus));
+        assert_ne!(hover.style_root, focus.style_root);
+    }
+
     #[test]
     fn identical_independently_built_doms_fingerprint_equal_on_both_tiers() {
         let (a, _) = fingerprint_dom(&sample_dom());
@@ -2799,6 +3135,41 @@ mod dom_fingerprint_tests {
             alloc::vec![1],
             "exactly the edited text node differs"
         );
+    }
+
+    #[test]
+    fn a_changed_fluent_argument_changes_the_structure_fingerprint() {
+        // The text a localizable node renders is its key's translation
+        // FORMATTED WITH these arguments: "You have 1 new email" and "You have
+        // 2 new emails" come from the same key. If the fingerprint cannot see
+        // them, `regenerate_layout`'s pre-cascade skip keeps the retained DOM
+        // and the count on screen never changes.
+        use crate::dom::{FluentArg, FluentArgKV};
+        let unread = |count: i32| {
+            Dom::create_p_with_text(azul_css::corety::AzString::tr("unread-emails"))
+                .with_fluent_args(alloc::vec![FluentArgKV {
+                    key: "count".into(),
+                    value: FluentArg::I32(count),
+                }])
+        };
+        let (a, _) = fingerprint_dom(&unread(1));
+        let (b, _) = fingerprint_dom(&unread(2));
+        assert_ne!(
+            a.structure_root, b.structure_root,
+            "a Fluent argument is part of what the node renders"
+        );
+    }
+
+    #[test]
+    fn a_text_becoming_a_translation_key_changes_the_structure_fingerprint() {
+        // `AzString` equality and hashing read the characters only, so
+        // "Save" and `AzString::tr("Save")` hash alike - but one renders
+        // "Save" and the other renders the key's translation.
+        let plain = Dom::create_p_with_text(azul_css::corety::AzString::from("save"));
+        let key = Dom::create_p_with_text(azul_css::corety::AzString::tr("save"));
+        let (a, _) = fingerprint_dom(&plain);
+        let (b, _) = fingerprint_dom(&key);
+        assert_ne!(a.structure_root, b.structure_root);
     }
 
     #[test]
@@ -2865,7 +3236,1095 @@ mod dom_fingerprint_tests {
     #[test]
     fn transfers_collect_callback_nodes_at_their_preorder_indices() {
         let (_, transfers) = fingerprint_dom(&sample_dom());
-        assert!(transfers.image_callbacks.is_empty());
-        assert!(transfers.callbacks.is_empty());
+        assert!(transfers.nodes.is_empty(), "no node holds a value to carry");
+        assert!(!transfers.holds_views());
+    }
+
+    extern "C" fn render_nothing(
+        _data: crate::refany::RefAny,
+        _info: crate::callbacks::VirtualViewCallbackInfo,
+    ) -> crate::callbacks::VirtualViewReturn {
+        crate::callbacks::VirtualViewReturn::default()
+    }
+
+    fn view_of(payload: &crate::refany::RefAny) -> Dom {
+        Dom::create_node(NodeType::Div).with_child(Dom::create_virtual_view(
+            payload.clone(),
+            crate::callbacks::VirtualViewCallback::create(render_nothing),
+        ))
+    }
+
+    #[test]
+    fn transfers_carry_a_virtual_views_fresh_payload_the_fingerprint_does_not_read() {
+        // The pre-cascade skip keeps the retained DOM when the prints are
+        // equal: the fresh payload has to travel with the transfers, or the
+        // retained view renders last build's refany.
+        let fresh = crate::refany::RefAny::new(7_u32);
+        let (print, transfers) = fingerprint_dom(&view_of(&fresh));
+        assert!(transfers.holds_views());
+        let views: Vec<_> = transfers
+            .nodes
+            .iter()
+            .filter_map(|(index, values)| Some((*index, values.get_virtual_view_node_ref()?)))
+            .collect();
+        assert_eq!(views.len(), 1);
+        let (index, view) = views[0];
+        assert_eq!(index, 1, "the view's pre-order index");
+        assert_eq!(
+            view.refany.sharing_info.ptr, fresh.sharing_info.ptr,
+            "the fresh build's refany"
+        );
+        let (other, _) = fingerprint_dom(&view_of(&crate::refany::RefAny::new(8_u32)));
+        assert_eq!(
+            (print.structure_root, print.style_root),
+            (other.structure_root, other.style_root),
+            "another refany, the same print - which is why the skip must carry it"
+        );
+    }
+}
+
+/// A widget toggled through `set_css_property` keeps its identity across the
+/// rebuild that follows (ANIM8, 2026-10-03).
+///
+/// The engine writes an imperative patch with
+/// `NodeData::upsert_inline_css_property`: the declaration is removed where it
+/// stood and appended as a rule of its own. The node then declares the same
+/// properties as a fresh build of the same widget, in another ORDER - and the
+/// identity hash read the order. So the rebuilt switch no longer hashed like
+/// its old self but exactly like an untouched twin elsewhere in the document,
+/// and `reconcile_dom`'s subtree pass handed it the twin's identity:
+/// AzWidgets' Switch matched the ShellSettingsDialog's switch 7400 px further
+/// down, flew in from there (a FLIP slide from the twin's rect) and its tween
+/// went to the other switch - "the toggle immediately transitions".
+#[cfg(test)]
+mod a_toggled_widget_keeps_its_identity {
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+        props::{
+            layout::{LayoutFlexGrow, LayoutHeight, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+
+    use super::*;
+    use crate::{dom::NodeData, styled_dom::NodeHierarchyItem};
+
+    fn hitem(
+        parent: Option<usize>,
+        prev: Option<usize>,
+        next: Option<usize>,
+        last_child: Option<usize>,
+    ) -> NodeHierarchyItem {
+        NodeHierarchyItem {
+            parent: parent.map_or(0, |p| p + 1),
+            previous_sibling: prev.map_or(0, |p| p + 1),
+            next_sibling: next.map_or(0, |p| p + 1),
+            last_child: last_child.map_or(0, |p| p + 1),
+        }
+    }
+
+    /// A switch track as its widget builds it: width, height, flex-grow -
+    /// `height` stands for the state-dependent property (the real track's
+    /// background), declared in the MIDDLE of the list.
+    fn fresh_track(height: isize) -> NodeData {
+        NodeData::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(36))),
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+                height,
+            ))),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
+                LayoutFlexGrow::const_new(0),
+            )),
+        ]))
+    }
+
+    /// The same track after its click handler patched the state property
+    /// in place (`set_css_property` -> `upsert_inline_css_property`).
+    fn toggled_track(from: isize, to: isize) -> NodeData {
+        let mut nd = fresh_track(from);
+        nd.upsert_inline_css_property(CssProperty::const_height(LayoutHeight::const_px(to)));
+        nd
+    }
+
+    fn knob() -> NodeData {
+        NodeData::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(16))),
+        ]))
+    }
+
+    /// root > [track A > knob A, track B > knob B]
+    fn hierarchy() -> Vec<NodeHierarchyItem> {
+        vec![
+            hitem(None, None, None, Some(3)),
+            hitem(Some(0), None, Some(3), Some(2)),
+            hitem(Some(1), None, None, None),
+            hitem(Some(0), Some(1), None, Some(4)),
+            hitem(Some(3), None, None, None),
+        ]
+    }
+
+    #[test]
+    fn a_patched_declaration_keeps_the_nodes_identity_hash() {
+        // Values are not part of the identity hash (a toggle is the same
+        // node); WHICH properties are declared is. A patch of a property the
+        // node already declares changes neither.
+        assert_eq!(
+            toggled_track(20, 21).calculate_node_data_hash(),
+            fresh_track(21).calculate_node_data_hash(),
+            "an imperatively patched track hashes like a fresh build of the same track"
+        );
+    }
+
+    #[test]
+    fn the_toggled_switch_is_not_matched_with_its_untouched_twin() {
+        // OLD frame: switch A was clicked (its track patched to 21), switch B
+        // never touched. NEW frame: the app rebuilt both, A in its new state.
+        let old = vec![
+            NodeData::create_div(),
+            toggled_track(20, 21),
+            knob(),
+            fresh_track(20),
+            knob(),
+        ];
+        let new = vec![
+            NodeData::create_div(),
+            fresh_track(21),
+            knob(),
+            fresh_track(20),
+            knob(),
+        ];
+        let h = hierarchy();
+        let diff = reconcile_dom(
+            &old,
+            &new,
+            &h,
+            &h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            NodeIdentityConfig::default(),
+        );
+        let old_of = |new_idx: usize| {
+            diff.node_moves
+                .iter()
+                .find(|m| m.new_node_id == NodeId::new(new_idx))
+                .map(|m| m.old_node_id.index())
+        };
+        assert_eq!(
+            old_of(1),
+            Some(1),
+            "the toggled track (A) is still A after the rebuild, not its twin B"
+        );
+        assert_eq!(old_of(2), Some(2), "A's knob is still A's knob");
+        assert_eq!(old_of(3), Some(3), "the untouched track B is still B");
+        assert_eq!(old_of(4), Some(4), "B's knob is still B's knob");
+    }
+}
+
+/// Twins (equal subtrees without a key or an id) are matched by PLACE, not
+/// by content in document order: a sheet's empty cells, a map's pending
+/// tiles, a page's repeated words.
+#[cfg(test)]
+mod twins_by_place {
+    use super::*;
+
+    fn hitem(
+        parent: Option<usize>,
+        prev: Option<usize>,
+        next: Option<usize>,
+        last_child: Option<usize>,
+    ) -> NodeHierarchyItem {
+        NodeHierarchyItem {
+            parent: parent.map_or(0, |p| p + 1),
+            previous_sibling: prev.map_or(0, |p| p + 1),
+            next_sibling: next.map_or(0, |p| p + 1),
+            last_child: last_child.map_or(0, |p| p + 1),
+        }
+    }
+
+    fn cell(classes: &[&str]) -> NodeData {
+        NodeData::create_div().with_ids_and_classes(
+            classes
+                .iter()
+                .map(|c| IdOrClass::Class((*c).into()))
+                .collect::<Vec<_>>()
+                .into(),
+        )
+    }
+
+    /// row(0) > [cell 1, cell 2, cell 3, cell 4]
+    fn row() -> Vec<NodeHierarchyItem> {
+        vec![
+            hitem(None, None, None, Some(4)),
+            hitem(Some(0), None, Some(2), None),
+            hitem(Some(0), Some(1), Some(3), None),
+            hitem(Some(0), Some(2), Some(4), None),
+            hitem(Some(0), Some(3), None, None),
+        ]
+    }
+
+    #[test]
+    fn selecting_a_cell_keeps_every_other_twin_at_its_place() {
+        // Four empty cells; the second becomes selected (a class more - a
+        // different subtree). The content pass used to pair the remaining
+        // twins in document order: new cell 3 took old cell 2, new cell 4
+        // old cell 3 - every cell after the selection "moved" one place, and
+        // slid there (AzSheets' range selection animated the cells under it).
+        let old = vec![
+            NodeData::create_div(),
+            cell(&["cell"]),
+            cell(&["cell"]),
+            cell(&["cell"]),
+            cell(&["cell"]),
+        ];
+        let new = vec![
+            NodeData::create_div(),
+            cell(&["cell"]),
+            cell(&["cell", "selected"]),
+            cell(&["cell"]),
+            cell(&["cell"]),
+        ];
+        let h = row();
+        let diff = reconcile_dom(
+            &old,
+            &new,
+            &h,
+            &h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            NodeIdentityConfig::default(),
+        );
+        let old_of = |new_idx: usize| {
+            diff.node_moves
+                .iter()
+                .find(|m| m.new_node_id == NodeId::new(new_idx))
+                .map(|m| m.old_node_id.index())
+        };
+        assert_eq!(old_of(1), Some(1), "the first cell is the first cell");
+        assert_eq!(old_of(3), Some(3), "the third cell stays the third, not the second");
+        assert_eq!(old_of(4), Some(4), "the fourth cell stays the fourth, not the third");
+        // Classes are part of a keyless node's identity (dom.rs
+        // `calculate_structural_hash`): the selected cell may be a new node -
+        // but never one of its neighbours.
+        assert!(
+            !matches!(old_of(2), Some(1 | 3 | 4)),
+            "the selected cell took a neighbour's node: {:?}",
+            old_of(2)
+        );
+    }
+
+    #[test]
+    fn a_unique_subtree_still_follows_its_content_to_another_place() {
+        // What the content pass is for: a DISTINCT subtree that moved (a
+        // paragraph re-paginated, a row sorted) keeps its identity there.
+        let old = vec![
+            NodeData::create_div(),
+            cell(&["a"]),
+            cell(&["b"]),
+            cell(&["c"]),
+            cell(&["d"]),
+        ];
+        let new = vec![
+            NodeData::create_div(),
+            cell(&["d"]),
+            cell(&["a"]),
+            cell(&["b"]),
+            cell(&["c"]),
+        ];
+        let h = row();
+        let diff = reconcile_dom(
+            &old,
+            &new,
+            &h,
+            &h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            NodeIdentityConfig::default(),
+        );
+        let old_of = |new_idx: usize| {
+            diff.node_moves
+                .iter()
+                .find(|m| m.new_node_id == NodeId::new(new_idx))
+                .map(|m| m.old_node_id.index())
+        };
+        assert_eq!(old_of(1), Some(4), "d moved to the front");
+        assert_eq!(old_of(2), Some(1), "a moved one place down");
+        assert_eq!(old_of(4), Some(3), "c moved one place down");
+    }
+}
+
+#[cfg(test)]
+mod the_content_language_is_inherited {
+    use super::*;
+    use crate::dom::{AttributeType, NodeData};
+
+    /// A div stating the language `tag`.
+    fn in_language(tag: &str) -> NodeData {
+        let mut node = NodeData::create_div();
+        node.set_attributes(vec![AttributeType::Lang(tag.into())].into());
+        node
+    }
+
+    #[test]
+    fn another_language_is_a_layout_change_that_reaches_the_descendants() {
+        let (english, german) = (in_language("en"), in_language("de"));
+        let before = NodeDataFingerprint::compute(&english, None);
+        let after = NodeDataFingerprint::compute(&german, None);
+        assert!(
+            !before.is_identical(&after),
+            "the language is part of the node's data"
+        );
+        let changes = before.diff(&after);
+        assert!(changes.contains(NodeChangeSet::CONTENT_LANGUAGE));
+        assert!(changes.needs_layout(), "lines hyphenate in the language");
+        assert!(before.might_affect_layout(&after));
+        assert!(
+            before.may_restyle_descendants(&after),
+            "every descendant that states no language inherits it"
+        );
+        assert!(
+            compute_node_changes(&english, &german, None, None)
+                .contains(NodeChangeSet::CONTENT_LANGUAGE),
+            "the field-by-field comparison reports what the fingerprint does"
+        );
+    }
+
+    #[test]
+    fn only_what_the_descendants_inherit_restyles_them() {
+        let english = NodeDataFingerprint::compute(&in_language("en"), None);
+        let same = NodeDataFingerprint::compute(&in_language("en"), None);
+        assert!(english.is_identical(&same));
+        assert!(!english.may_restyle_descendants(&same));
+
+        let editable =
+            NodeDataFingerprint::compute(&in_language("en").with_contenteditable(true), None);
+        assert!(
+            !english.may_restyle_descendants(&editable),
+            "contenteditable is the node's own"
+        );
+
+        let mut classed = in_language("en");
+        classed.add_class("row".into());
+        assert!(
+            english.may_restyle_descendants(&NodeDataFingerprint::compute(&classed, None)),
+            "a class selects the styles the descendants inherit"
+        );
+    }
+}
+
+#[cfg(test)]
+mod every_input_the_layout_reads_moves_the_fingerprint {
+    use super::*;
+    use crate::{
+        dom::{AttributeNameValue, AttributeType, Dom, NodeData, SvgNodeData},
+        layout_inputs::{LayoutAttribute, LayoutReach},
+    };
+
+    /// The attribute of `row`, one of two values: `second` picks the other.
+    fn attribute(row: LayoutAttribute, second: bool) -> AttributeType {
+        let text = if second { "b" } else { "a" };
+        let span = if second { 2 } else { 1 };
+        match row {
+            LayoutAttribute::Id => AttributeType::Id(text.into()),
+            LayoutAttribute::Class => AttributeType::Class(text.into()),
+            LayoutAttribute::Lang => AttributeType::Lang(text.into()),
+            LayoutAttribute::ContentEditable => AttributeType::ContentEditable(second),
+            LayoutAttribute::ColSpan => AttributeType::ColSpan(span),
+            LayoutAttribute::RowSpan => AttributeType::RowSpan(span),
+            LayoutAttribute::Align
+            | LayoutAttribute::SvgX
+            | LayoutAttribute::SvgY
+            | LayoutAttribute::SvgWidth
+            | LayoutAttribute::SvgHeight
+            | LayoutAttribute::SvgDx
+            | LayoutAttribute::SvgTransform
+            | LayoutAttribute::SvgFillRule
+            | LayoutAttribute::SvgStrokeLinecap
+            | LayoutAttribute::SvgStrokeLinejoin
+            | LayoutAttribute::SvgStrokeMiterlimit
+            | LayoutAttribute::SvgStrokeDasharray
+            | LayoutAttribute::SvgStrokeDashoffset => AttributeType::Custom(AttributeNameValue {
+                attr_name: row.name().into(),
+                value: text.into(),
+            }),
+        }
+    }
+
+    /// A div that holds `attribute` and nothing else.
+    fn holding(attribute: AttributeType) -> NodeData {
+        let mut node = NodeData::create_div();
+        node.set_attributes(vec![attribute].into());
+        node
+    }
+
+    /// Every row of the layout's attribute table moves the fingerprint, and
+    /// the field-by-field comparison, as far as a change of it reaches: a
+    /// change the layout cannot see is one it serves the old page for.
+    #[test]
+    fn every_row_of_the_table_moves_the_fingerprint_as_far_as_it_reaches() {
+        for row in LayoutAttribute::ALL {
+            assert_eq!(
+                LayoutAttribute::of(&attribute(row, false)),
+                Some(row),
+                "{row:?} is read as its own row"
+            );
+            let (a, b) = (holding(attribute(row, false)), holding(attribute(row, true)));
+            let (fa, fb) = (
+                NodeDataFingerprint::compute(&a, None),
+                NodeDataFingerprint::compute(&b, None),
+            );
+            let fast = fa.diff(&fb);
+            let precise = compute_node_changes(&a, &b, None, None);
+            let reaches_below = row.reach() == LayoutReach::Descendants;
+            assert_eq!(fa.rebuilds_descendants(&fb), reaches_below, "{row:?}");
+            assert_eq!(fb.reaches_descendants(), reaches_below, "{row:?}");
+            let flag = match row.reach() {
+                LayoutReach::Live => {
+                    assert!(fa.is_identical(&fb), "{row:?} is read live: {fast:?}");
+                    assert!(precise.is_empty(), "{row:?} is read live: {precise:?}");
+                    continue;
+                }
+                LayoutReach::Selectors => NodeChangeSet::IDS_AND_CLASSES,
+                LayoutReach::OwnBox => NodeChangeSet::OWN_BOX_INPUTS,
+                LayoutReach::Lines => {
+                    assert!(fa.may_restyle_descendants(&fb), "{row:?}");
+                    NodeChangeSet::CONTENT_LANGUAGE
+                }
+                LayoutReach::Descendants => NodeChangeSet::DESCENDANT_INPUTS,
+            };
+            assert!(
+                fast.contains(flag) && fast.needs_layout() && fa.might_affect_layout(&fb),
+                "{row:?}: the fingerprint lays the node out again: {fast:?}"
+            );
+            assert!(
+                precise.contains(flag) && precise.needs_layout(),
+                "{row:?}: the field-by-field comparison reports what the fingerprint \
+                 does: {precise:?}"
+            );
+        }
+    }
+
+    /// An attribute that is no row of the table is read by nothing that lays
+    /// out or paints: changing it lays nothing out.
+    #[test]
+    fn an_attribute_the_layout_does_not_read_moves_no_layout() {
+        let titled = |title: &str| holding(AttributeType::Title(title.into()));
+        let (a, b) = (titled("Save"), titled("Save all"));
+        let (fa, fb) = (
+            NodeDataFingerprint::compute(&a, None),
+            NodeDataFingerprint::compute(&b, None),
+        );
+        assert!(fa.is_identical(&fb));
+        assert!(!compute_node_changes(&a, &b, None, None).needs_layout());
+    }
+
+    /// A handler or a tab stop that comes makes a node a hit-test target: no
+    /// change of its layout or of its look, but of the hit-test area the
+    /// display list paints for it, which both comparisons report. A tab stop
+    /// that moves keeps the node a target.
+    #[test]
+    fn a_node_that_starts_listening_becomes_a_hit_test_target() {
+        use crate::{
+            callbacks::CoreCallback,
+            dom::{EventFilter, HoverEventFilter, TabIndex},
+            refany::{OptionRefAny, RefAny},
+        };
+
+        let plain = NodeData::create_div();
+        let mut listening = NodeData::create_div();
+        listening.add_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(0u32),
+            CoreCallback {
+                cb: 0usize,
+                ctx: OptionRefAny::None,
+            },
+        );
+        let tabbed = NodeData::create_div().with_tab_index(TabIndex::Auto);
+        let fingerprint = |node: &NodeData| NodeDataFingerprint::compute(node, None);
+        for (target, what) in [(&listening, "a click handler"), (&tabbed, "a tab stop")] {
+            let (fa, fb) = (fingerprint(&plain), fingerprint(target));
+            assert!(!fa.hit_test_target && fb.hit_test_target, "{what}");
+            let fast = fa.diff(&fb);
+            assert!(fast.contains(NodeChangeSet::HIT_TEST_TARGET), "{what}: {fast:?}");
+            assert!(
+                !fast.needs_layout() && !fast.needs_paint(),
+                "{what}: neither layout nor look: {fast:?}"
+            );
+            assert!(
+                compute_node_changes(&plain, target, None, None)
+                    .contains(NodeChangeSet::HIT_TEST_TARGET),
+                "{what}: the field-by-field comparison sees it"
+            );
+        }
+        let moved = NodeData::create_div().with_tab_index(TabIndex::NoKeyboardFocus);
+        assert!(
+            !fingerprint(&tabbed)
+                .diff(&fingerprint(&moved))
+                .contains(NodeChangeSet::HIT_TEST_TARGET),
+            "a moved tab stop is still a target"
+        );
+    }
+
+    /// A node holding the SVG data `data`.
+    fn with_svg(data: SvgNodeData) -> NodeData {
+        let mut node = NodeData::create_div();
+        node.set_svg_data(data);
+        node
+    }
+
+    /// The path `d` as SVG data.
+    fn path(d: &str) -> SvgNodeData {
+        SvgNodeData::Path(crate::path_parser::parse_svg_path_d(d).expect("the path parses"))
+    }
+
+    /// The `viewBox` `0 0 width 10` as SVG data.
+    const fn view_box(width: f32) -> SvgNodeData {
+        SvgNodeData::ViewBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            width,
+            height: 10.0,
+        }
+    }
+
+    /// A shape's geometry is its own box's; a `viewBox` maps everything in
+    /// its `<svg>`. Neither is an attribute, and both are compared by the
+    /// fingerprint, the field-by-field comparison and the pre-cascade tier.
+    #[test]
+    fn an_svg_nodes_data_moves_the_fingerprint_as_far_as_it_reaches() {
+        for (first, second, flag, reaches_below) in [
+            (
+                path("M 0 10 L 10 0"),
+                path("M 0 0 L 10 10"),
+                NodeChangeSet::OWN_BOX_INPUTS,
+                false,
+            ),
+            (
+                view_box(10.0),
+                view_box(20.0),
+                NodeChangeSet::DESCENDANT_INPUTS,
+                true,
+            ),
+        ] {
+            let (a, b) = (with_svg(first.clone()), with_svg(second.clone()));
+            let (fa, fb) = (
+                NodeDataFingerprint::compute(&a, None),
+                NodeDataFingerprint::compute(&b, None),
+            );
+            assert!(fa.diff(&fb).contains(flag), "{first:?} -> {second:?}");
+            assert_eq!(fa.rebuilds_descendants(&fb), reaches_below, "{first:?}");
+            assert!(
+                compute_node_changes(&a, &b, None, None).contains(flag),
+                "{first:?} -> {second:?}: the field-by-field comparison sees it"
+            );
+            let (da, _) = fingerprint_dom(&Dom::create_div().with_svg_data(first.clone()));
+            let (db, _) = fingerprint_dom(&Dom::create_div().with_svg_data(second.clone()));
+            assert_ne!(
+                da.structure, db.structure,
+                "{first:?} -> {second:?}: the pre-cascade tier sees it"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod every_field_of_a_node_is_a_row_of_the_field_table {
+    use super::*;
+    use crate::{
+        dom::{Dom, NodeData},
+        layout_inputs::{NodeField, Retained},
+        menu::{Menu, MenuItem, StringMenuItem},
+    };
+
+    /// The source the node's fields are declared in.
+    const DOM_RS: &str = include_str!("dom.rs");
+
+    /// The names of the fields of `struct name`, read from its declaration.
+    fn fields_of(name: &str) -> Vec<String> {
+        let head = format!("pub struct {name} {{");
+        let start = DOM_RS
+            .find(&head)
+            .unwrap_or_else(|| panic!("harness: `{name}` is declared in dom.rs"))
+            + head.len();
+        let body = &DOM_RS[start..];
+        let end = body.find("\n}").expect("harness: the declaration ends");
+        body[..end]
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                if line.starts_with("//") || line.starts_with("#[") {
+                    return None;
+                }
+                let (field, _) = line.strip_prefix("pub ").unwrap_or(line).split_once(':')?;
+                let is_name = !field.is_empty()
+                    && field
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+                is_name.then(|| field.to_string())
+            })
+            .collect()
+    }
+
+    /// Every field of a node's data is a row of the table every comparison of
+    /// two builds reads, and every row is a field: a field without a row is
+    /// one no comparison knows of, and its change is kept from the window.
+    #[test]
+    fn every_field_of_a_node_is_a_row_of_the_table() {
+        let mut fields = fields_of("NodeData");
+        assert!(
+            fields.iter().any(|f| f == "extra"),
+            "harness: a node keeps its rarely used fields in `extra`: {fields:?}"
+        );
+        fields.retain(|f| f != "extra");
+        fields.extend(fields_of("NodeDataExt"));
+        assert!(fields.len() > 10, "harness: the fields are read: {fields:?}");
+        for field in &fields {
+            assert!(
+                NodeField::ALL.iter().any(|row| row.name() == field),
+                "`{field}` of a node is no row of `NodeField`: give it one, with what a change \
+                 of it moves and what a rebuild that keeps its DOM does with it"
+            );
+        }
+        for row in NodeField::ALL {
+            assert!(
+                fields.iter().any(|f| f == row.name()),
+                "{row:?} names no field of a node: {fields:?}"
+            );
+        }
+    }
+
+    /// A field that something the window keeps reads (the cascade, the
+    /// layout, the paint, the hit-test targets, the accessibility tree) is
+    /// compared, and every other one is carried or derived.
+    #[test]
+    fn what_the_window_keeps_is_compared_and_the_rest_is_carried() {
+        for row in NodeField::ALL {
+            let retained = row.retained();
+            if row.effects().reach_what_is_kept() {
+                assert!(retained.compares(), "{row:?} reaches what the window keeps");
+            }
+            assert!(
+                retained.compares() || retained.carries() || retained == Retained::Derived,
+                "{row:?} is neither compared, carried nor derived"
+            );
+        }
+    }
+
+    /// A box whose context menu is the one item `label`.
+    fn with_menu(label: &str) -> Dom {
+        Dom::create_div().with_context_menu(Menu::create(
+            vec![MenuItem::String(StringMenuItem::create(label.into()))].into(),
+        ))
+    }
+
+    /// The label of the first item of `node`'s context menu.
+    fn menu_label(node: &NodeData) -> Option<String> {
+        match node.get_context_menu()?.items.as_ref().first()? {
+            MenuItem::String(item) => Some(item.label.as_str().to_string()),
+            _ => None,
+        }
+    }
+
+    /// A context menu that comes or goes is another tree; one that is
+    /// replaced by another is the same tree, and its value is carried onto
+    /// the DOM a rebuild keeps, on both of its paths.
+    #[test]
+    fn a_context_menu_is_compared_by_its_presence_and_carried_by_its_value() {
+        let structure = |dom: &Dom| fingerprint_dom(dom).0.structure_root;
+        let plain = Dom::create_div();
+        assert_ne!(
+            structure(&plain),
+            structure(&with_menu("Copy")),
+            "a menu that comes is another tree"
+        );
+        assert_eq!(
+            structure(&with_menu("Copy")),
+            structure(&with_menu("Paste")),
+            "a menu replaced by another is the same tree"
+        );
+
+        let (_, transfers) = fingerprint_dom(&with_menu("Paste"));
+        let mut retained = vec![with_menu("Copy").root];
+        adopt_fresh_payloads(&mut retained, &transfers);
+        assert_eq!(
+            menu_label(&retained[0]).as_deref(),
+            Some("Paste"),
+            "the pre-cascade skip carries the fresh menu"
+        );
+
+        let mut kept = vec![with_menu("Copy").root];
+        carry_fresh_values(&mut kept, &[with_menu("Paste").root]);
+        assert_eq!(
+            menu_label(&kept[0]).as_deref(),
+            Some("Paste"),
+            "the full path carries the fresh menu"
+        );
+
+        let styled = |mut dom: Dom| {
+            crate::styled_dom::StyledDom::create(&mut dom, azul_css::css::Css::empty())
+        };
+        assert!(
+            !crate::styled_dom::is_layout_equivalent(
+                &styled(Dom::create_body().with_child(Dom::create_div())),
+                &styled(Dom::create_body().with_child(with_menu("Copy"))),
+            ),
+            "a menu that comes is no equivalent DOM"
+        );
+    }
+
+    /// A key, being part of the parent and a menu bar are compared too.
+    #[test]
+    fn a_key_a_part_of_the_parent_and_a_menu_bar_move_the_fingerprints() {
+        let structure = |dom: &Dom| fingerprint_dom(dom).0.structure_root;
+        let plain = structure(&Dom::create_div());
+        for (what, other) in [
+            ("a key", Dom::create_div().with_key("row-1")),
+            ("part of its parent", Dom::create_div().with_part_of_parent(true)),
+            (
+                "a menu bar",
+                Dom::create_div().with_menu_bar(Menu::create(Vec::<MenuItem>::new().into())),
+            ),
+        ] {
+            assert_ne!(plain, structure(&other), "{what}");
+        }
+    }
+}
+
+/// What makes a node another node across a rebuild. The rules are React's:
+/// the same type at the same place among its siblings (or the same explicit
+/// key) is the same node, whatever its classes and its CSS id say. A node
+/// that is the same node keeps its state, its focus and its scroll; one that
+/// is not unmounts and the new one mounts.
+#[cfg(test)]
+mod node_identity {
+    use super::*;
+    use crate::{
+        callbacks::CoreCallback,
+        dom::{AttributeType, Dom},
+        refany::{OptionRefAny, RefAny},
+        styled_dom::convert_dom_into_compact_dom,
+    };
+
+    /// A node that reports its mount and its unmount, so a remount shows.
+    fn watched(mut node: NodeData) -> Dom {
+        for filter in [
+            ComponentEventFilter::AfterMount,
+            ComponentEventFilter::BeforeUnmount,
+        ] {
+            node.add_callback(
+                EventFilter::Component(filter),
+                RefAny::new(0u32),
+                CoreCallback {
+                    cb: 0,
+                    ctx: OptionRefAny::None,
+                },
+            );
+        }
+        Dom::create_from_data(node)
+    }
+
+    fn with_classes(classes: &[&str]) -> NodeData {
+        NodeData::create_div().with_ids_and_classes(
+            classes
+                .iter()
+                .map(|c| IdOrClass::Class((*c).into()))
+                .collect::<Vec<_>>()
+                .into(),
+        )
+    }
+
+    fn with_id(id: &str) -> NodeData {
+        NodeData::create_div().with_ids_and_classes(vec![IdOrClass::Id(id.into())].into())
+    }
+
+    fn titled(node_type: NodeType, title: &str) -> NodeData {
+        let mut node = NodeData::create_node(node_type);
+        node.set_attributes(vec![AttributeType::Title(title.into())].into());
+        node
+    }
+
+    fn flatten(dom: Dom) -> (Vec<NodeData>, Vec<NodeHierarchyItem>) {
+        let compact = convert_dom_into_compact_dom(dom);
+        let hierarchy = compact
+            .node_hierarchy
+            .internal
+            .into_iter()
+            .map(NodeHierarchyItem::from)
+            .collect();
+        (compact.node_data.internal, hierarchy)
+    }
+
+    /// The diff of two trees under the app's default rules.
+    fn diff(old: Dom, new: Dom) -> DiffResult {
+        diff_by(NodeIdentityConfig::default(), old, new)
+    }
+
+    fn diff_by(identity: NodeIdentityConfig, old: Dom, new: Dom) -> DiffResult {
+        let (old_data, old_hierarchy) = flatten(old);
+        let (new_data, new_hierarchy) = flatten(new);
+        reconcile_dom(
+            &old_data,
+            &new_data,
+            &old_hierarchy,
+            &new_hierarchy,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            identity,
+        )
+    }
+
+    const CLASSES_REMOUNT: NodeIdentityConfig = NodeIdentityConfig {
+        siblings_counted: SiblingsCounted::All,
+        class_change_remounts: true,
+        id_is_key: false,
+    };
+
+    const IDS_ARE_KEYS: NodeIdentityConfig = NodeIdentityConfig {
+        siblings_counted: SiblingsCounted::All,
+        class_change_remounts: false,
+        id_is_key: true,
+    };
+
+    const SAME_TYPE_COUNTS: NodeIdentityConfig = NodeIdentityConfig {
+        siblings_counted: SiblingsCounted::SameType,
+        class_change_remounts: false,
+        id_is_key: false,
+    };
+
+    /// The old node a new one is, if it is one.
+    fn old_of(diff: &DiffResult, new_index: usize) -> Option<usize> {
+        diff.node_moves
+            .iter()
+            .find(|m| m.new_node_id == NodeId::new(new_index))
+            .map(|m| m.old_node_id.index())
+    }
+
+    fn count(diff: &DiffResult, event: EventType) -> usize {
+        diff.events.iter().filter(|e| e.event_type == event).count()
+    }
+
+    fn body(children: Vec<Dom>) -> Dom {
+        children
+            .into_iter()
+            .fold(Dom::create_body(), Dom::with_child)
+    }
+
+    #[test]
+    fn a_node_whose_class_list_changes_keeps_its_identity() {
+        let d = diff(
+            body(vec![watched(with_classes(&["item"]))]),
+            body(vec![watched(with_classes(&["item", "active"]))]),
+        );
+        assert_eq!(old_of(&d, 1), Some(1), "the toggled item is the item it was");
+        assert_eq!(count(&d, EventType::Unmount), 0, "nothing unmounts");
+        assert_eq!(count(&d, EventType::Mount), 0, "nothing mounts");
+    }
+
+    #[test]
+    fn a_node_whose_css_id_changes_keeps_its_identity() {
+        let d = diff(
+            body(vec![watched(with_id("first"))]),
+            body(vec![watched(with_id("second"))]),
+        );
+        assert_eq!(old_of(&d, 1), Some(1), "an id is an attribute, not a key");
+        assert_eq!(count(&d, EventType::Unmount), 0, "nothing unmounts");
+        assert_eq!(count(&d, EventType::Mount), 0, "nothing mounts");
+    }
+
+    #[test]
+    fn classes_and_the_css_id_do_not_enter_the_reconciliation_key() {
+        let key_of = |node: NodeData| {
+            let (data, hierarchy) = flatten(body(vec![Dom::create_from_data(node)]));
+            calculate_reconciliation_key(
+                &data,
+                &hierarchy,
+                NodeId::new(1),
+                NodeIdentityConfig::default(),
+            )
+        };
+        let plain = key_of(NodeData::create_div());
+        assert_eq!(key_of(with_classes(&["item", "active"])), plain, "classes");
+        assert_eq!(key_of(with_id("first")), plain, "the CSS id");
+    }
+
+    /// React numbers a keyless child by its index among ALL its siblings, so
+    /// a node of another type inserted in front shifts every later sibling
+    /// one place: the new first row sits where the old second row sat and
+    /// is that row (its state and focus go with it), the old first row's
+    /// place went to the banner, which is another type, so that row
+    /// unmounts, and the new second row has no old counterpart and mounts.
+    /// The rows' titles change with the rebuild, so no content is left to
+    /// tell them apart: their places decide.
+    #[test]
+    fn a_node_inserted_in_front_moves_its_siblings_one_place_as_in_react() {
+        let d = diff(
+            body(vec![
+                watched(titled(NodeType::Div, "first")),
+                watched(titled(NodeType::Div, "second")),
+            ]),
+            body(vec![
+                watched(titled(NodeType::P, "banner")),
+                watched(titled(NodeType::Div, "first, edited")),
+                watched(titled(NodeType::Div, "second, edited")),
+            ]),
+        );
+        assert_eq!(old_of(&d, 1), None, "the banner is new");
+        assert_eq!(old_of(&d, 2), Some(2), "the new first row is the old second row");
+        assert_eq!(old_of(&d, 3), None, "the new second row is new");
+        assert_eq!(count(&d, EventType::Mount), 2, "the banner and the last row mount");
+        assert_eq!(count(&d, EventType::Unmount), 1, "the old first row unmounts");
+    }
+
+    #[test]
+    fn the_reconciliation_key_counts_every_sibling_before_a_node() {
+        let key_of = |dom: Dom, index: usize| {
+            let (data, hierarchy) = flatten(dom);
+            calculate_reconciliation_key(
+                &data,
+                &hierarchy,
+                NodeId::new(index),
+                NodeIdentityConfig::default(),
+            )
+        };
+        let second_div = key_of(body(vec![Dom::create_div(), Dom::create_div()]), 2);
+        let div_after_a_p = key_of(body(vec![Dom::create_p(), Dom::create_div()]), 2);
+        assert_eq!(
+            div_after_a_p, second_div,
+            "a div after a p stands at the place of a div after a div"
+        );
+    }
+
+    #[test]
+    fn the_default_rules_are_reacts() {
+        assert_eq!(
+            NodeIdentityConfig::default(),
+            NodeIdentityConfig {
+                siblings_counted: SiblingsCounted::All,
+                class_change_remounts: false,
+                id_is_key: false,
+            }
+        );
+        assert_eq!(
+            crate::resources::AppConfig::create().node_identity,
+            NodeIdentityConfig::default(),
+            "an app reconciles by the default rules unless it chooses others"
+        );
+    }
+
+    #[test]
+    fn a_node_of_another_type_at_the_same_place_is_a_new_node() {
+        let d = diff(
+            body(vec![watched(titled(NodeType::Div, "row"))]),
+            body(vec![watched(titled(NodeType::P, "row"))]),
+        );
+        assert_eq!(old_of(&d, 1), None, "a p is not the div that stood there");
+        assert_eq!(count(&d, EventType::Unmount), 1);
+        assert_eq!(count(&d, EventType::Mount), 1);
+    }
+
+    #[test]
+    fn an_explicit_key_wins_over_the_place() {
+        let row = |key: &str, title: &str| watched(titled(NodeType::Div, title).with_key(key));
+        let d = diff(
+            body(vec![row("a", "first"), row("b", "second")]),
+            body(vec![row("b", "second, edited"), row("a", "first, edited")]),
+        );
+        assert_eq!(old_of(&d, 1), Some(2), "b moved to the front");
+        assert_eq!(old_of(&d, 2), Some(1), "a moved behind it");
+        assert_eq!(count(&d, EventType::Mount), 0);
+        assert_eq!(count(&d, EventType::Unmount), 0);
+    }
+
+    #[test]
+    fn with_classes_in_the_identity_a_class_change_makes_a_new_node() {
+        let d = diff_by(
+            CLASSES_REMOUNT,
+            body(vec![watched(with_classes(&["item"]))]),
+            body(vec![watched(with_classes(&["item", "active"]))]),
+        );
+        assert_eq!(old_of(&d, 1), None, "the toggled item is a new node");
+        assert_eq!(count(&d, EventType::Unmount), 1);
+        assert_eq!(count(&d, EventType::Mount), 1);
+    }
+
+    /// A container is also known by its children, when they all came from
+    /// one old node: with classes in the identity, a changed class list
+    /// still makes it a new container.
+    #[test]
+    fn with_classes_in_the_identity_a_container_whose_class_changes_is_a_new_node() {
+        let list = |classes: &[&str]| {
+            body(vec![watched(with_classes(classes))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("b"))])
+        };
+        let d = diff_by(CLASSES_REMOUNT, list(&["list"]), list(&["list", "open"]));
+        assert_eq!(old_of(&d, 2), Some(2), "premise: the list's texts are matched");
+        assert_eq!(old_of(&d, 3), Some(3), "premise: the list's texts are matched");
+        assert_eq!(old_of(&d, 1), None, "the list whose class changed is new");
+
+        let d = diff(list(&["list"]), list(&["list", "open"]));
+        assert_eq!(old_of(&d, 1), Some(1), "by default the list is the list it was");
+    }
+
+    #[test]
+    fn with_ids_as_keys_a_changed_id_makes_a_new_node() {
+        let d = diff_by(
+            IDS_ARE_KEYS,
+            body(vec![watched(with_id("first"))]),
+            body(vec![watched(with_id("second"))]),
+        );
+        assert_eq!(old_of(&d, 1), None, "another id is another node");
+        assert_eq!(count(&d, EventType::Unmount), 1);
+        assert_eq!(count(&d, EventType::Mount), 1);
+    }
+
+    #[test]
+    fn with_ids_as_keys_an_id_finds_its_node_at_another_place() {
+        let field = |id: &str, title: &str| {
+            let mut node = NodeData::create_div();
+            node.set_attributes(
+                vec![AttributeType::Id(id.into()), AttributeType::Title(title.into())].into(),
+            );
+            watched(node)
+        };
+        let old = || body(vec![field("name", "Name"), field("mail", "Mail")]);
+        let new = || body(vec![field("mail", "Mail:"), field("name", "Name:")]);
+
+        let d = diff_by(IDS_ARE_KEYS, old(), new());
+        assert_eq!(old_of(&d, 1), Some(2), "#mail is #mail where it stands now");
+        assert_eq!(old_of(&d, 2), Some(1), "#name is #name where it stands now");
+
+        let d = diff(old(), new());
+        assert_eq!(old_of(&d, 1), Some(1), "by default the first field is the first field");
+        assert_eq!(old_of(&d, 2), Some(2), "by default the second field is the second field");
+    }
+
+    #[test]
+    fn counting_only_the_same_type_a_node_inserted_in_front_moves_no_other_type() {
+        let d = diff_by(
+            SAME_TYPE_COUNTS,
+            body(vec![
+                watched(titled(NodeType::Div, "first")),
+                watched(titled(NodeType::Div, "second")),
+            ]),
+            body(vec![
+                watched(titled(NodeType::P, "banner")),
+                watched(titled(NodeType::Div, "first, edited")),
+                watched(titled(NodeType::Div, "second, edited")),
+            ]),
+        );
+        assert_eq!(old_of(&d, 1), None, "the banner is new");
+        assert_eq!(old_of(&d, 2), Some(1), "the first div is the first div");
+        assert_eq!(old_of(&d, 3), Some(2), "the second div is the second div");
+        assert_eq!(count(&d, EventType::Mount), 1, "only the banner mounts");
+        assert_eq!(count(&d, EventType::Unmount), 0, "nothing unmounts");
     }
 }

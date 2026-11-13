@@ -106,8 +106,7 @@ impl Harness {
             .focus_manager
             .set_focused_node(Some(dnid(CONTAINER)));
         self.lw
-            .text_edit_manager
-            .initialize_editing(end, DomId::ROOT_ID, NodeId::new(LABEL_P), 0);
+            .start_editing_at(end, DomId::ROOT_ID, NodeId::new(LABEL_P), 0);
         self.lw.text_edit_manager.blink.set_visibility(true);
         self.lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
     }

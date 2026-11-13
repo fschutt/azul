@@ -338,6 +338,8 @@ stage_binding_syntax() {
   local tmp; tmp="$(mktemp -d)"
 
   # label|probe command|real command
+  # php lints with no memory cap: a php.ini cap of 128 MB (Homebrew's) is less
+  # than parsing the generated Azul.php takes, and that is no fault of the file.
   # Exactly three fields. A binding that cannot pass yet is handled below the
   # loop instead (see the `v` KNOWN_BROKEN block), so it can carry its reason.
   local checks=(
@@ -348,7 +350,7 @@ stage_binding_syntax() {
     "perl|perl -c $tmp/p.pm|perl -c $gen/Azul.pm"
     "ruby|ruby -c $tmp/p.rb|ruby -c $gen/azul.rb"
     "lua|luajit -bl $tmp/p.lua /dev/null|luajit -bl $gen/azul.lua /dev/null"
-    "php|php -l $tmp/p.php|php -l $gen/Azul.php"
+    "php|php -d memory_limit=-1 -l $tmp/p.php|php -d memory_limit=-1 -l $gen/Azul.php"
     "nim|nim check --hints:off $tmp/p.nim|nim check --hints:off $gen/azul.nim"
     "crystal|crystal build --no-codegen $tmp/p.cr|crystal build --no-codegen $gen/azul.cr"
     "odin|odin check $tmp/p.odin -file -no-entry-point|odin check $gen/azul.odin -file -no-entry-point"
@@ -386,7 +388,8 @@ stage_binding_syntax() {
   printf 'var x = 1;\n'                          > "$tmp/p.js"
   printf 'module main\nfn main() {}\n'            > "$tmp/p.v"
 
-  local entry label probe real out
+  local entry label probe real
+  local -a started=()
   for entry in "${checks[@]}"; do
     label="${entry%%|*}"
     local rest="${entry#*|}"
@@ -396,11 +399,20 @@ stage_binding_syntax() {
       echo "  (skip $label: checker unavailable or not working here)"
       continue
     fi
-    if out="$(eval "$real" 2>&1)"; then
+    # The checkers are independent processes, so they run side by side and
+    # the stage takes as long as the slowest one (gfortran over the Fortran
+    # modules, minutes on its own) instead of the sum of all of them, which
+    # outgrew the Linux codegen job's time budget.
+    ( eval "$real" > "$tmp/$label.out" 2>&1; echo $? > "$tmp/$label.rc" ) &
+    started+=("$label")
+  done
+  wait
+  for label in "${started[@]}"; do
+    if [ "$(cat "$tmp/$label.rc" 2>/dev/null)" = "0" ]; then
       echo "  $label: ok"
     else
       echo "  $label: FAILED" >&2
-      echo "$out" | awk 'NR<=15' >&2
+      awk 'NR<=15' "$tmp/$label.out" >&2
       rc=1
     fi
   done

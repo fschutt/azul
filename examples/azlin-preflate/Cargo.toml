@@ -1,0 +1,21 @@
+[package]
+name = "azlin-preflate"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+description = "Deflate reconstruction for AzDrive: preflate-rs 0.7.6 (Microsoft, Apache-2.0) vendored, with an LZMA-style range coder in place of the LGPL cabac crate"
+
+[lib]
+name = "azlin_preflate"
+
+[dependencies]
+# preflate-rs 0.7.6's own dependencies, minus cabac (LGPL) and bitcode (its parameter
+# encoding is replaced by explicit bytes). All three are already in Cargo.lock.
+byteorder = "1.4"
+default-boxed = "0.2"
+deranged = "0.5"
+
+[dev-dependencies]
+# The tests' deflate streams (already in Cargo.lock through lepton_jpeg).
+flate2 = "1"

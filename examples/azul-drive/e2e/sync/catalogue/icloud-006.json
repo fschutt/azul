@@ -1,0 +1,81 @@
+[
+  {
+    "name": "a case-only rename of a folder and of a file is a rename on every side: nothing deleted, later writes arrive",
+    "description": "ICLOUD-006 (sync-chaos merge-case-only-rename): iCloud's case-insensitive server trashed a whole directory after `mv CaseDir2 casedir2`, and later writes went into a stale folder. Rules P1 and A3: a case-only rename is a rename on both sides; no delete, no trash, and a file written into the renamed folder afterwards syncs.",
+    "pending": "a case-only rename of a folder is applied file by file: on a disk that ignores case the files move into the folder under its old spelling, which is never renamed (P1 needs the folder renamed here as a whole)",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "CaseDir2/file.txt", "text": "x" },
+      { "op": "drive_write", "device": "a", "path": "A.txt", "text": "the A file" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rename", "device": "a", "from": "CaseDir2", "to": "casedir2" },
+      { "op": "drive_rename", "device": "a", "from": "A.txt", "to": "a.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "casedir2/file.txt", "text": "x" },
+      { "op": "drive_check", "check": "remote_file", "key": "CaseDir2/file.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "key": "a.txt", "text": "the A file" },
+      { "op": "drive_check", "check": "remote_file", "key": "A.txt", "absent": true },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "casedir2/*", "count": 1 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "CaseDir2/*", "count": 0 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "a.txt", "count": 1 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "A.txt", "count": 0 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "casedir2/later.txt", "text": "written after the rename" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "casedir2/later.txt", "text": "written after the rename" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "case twins from a case-sensitive device on a disk that ignores case: one comes down, the other is listed, nothing is overwritten or deleted",
+    "description": "ICLOUD-006 (a): Report.pdf and report.pdf made on iOS broke a case-insensitive Mac. Rule P1: the one committed first comes down, the other is listed (name-collision) and stays on the drive.",
+    "only_on": ["macos", "windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "Report.txt", "text": "upper case, first" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "report.txt", "text": "lower case, second" },
+      { "op": "drive_sync", "device": "d", "expect": "any" },
+      { "op": "drive_sync", "device": "d", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "d", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "name-collision", "key": "report.txt" },
+      { "op": "drive_check", "check": "remote_count", "count": 2 },
+      { "op": "drive_check", "check": "remote_file", "key": "Report.txt", "text": "upper case, first" },
+      { "op": "drive_check", "check": "remote_file", "key": "report.txt", "text": "lower case, second" },
+      { "op": "drive_check", "check": "trash_empty", "device": "d" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "case twins on a case-sensitive disk: both come down",
+    "description": "ICLOUD-006 (a) on Linux: both names are valid there (rule P5), both come down, nothing is listed as a collision.",
+    "only_on": ["linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r3", "encrypted": false },
+      { "op": "drive_open", "device": "e", "remote": "r3" },
+      { "op": "drive_pair", "device": "e" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r3", "action": "put", "key": "Report.txt", "text": "upper case, first" },
+      { "op": "drive_tamper", "remote": "r3", "action": "put", "key": "report.txt", "text": "lower case, second" },
+      { "op": "drive_sync", "device": "e" },
+      { "op": "drive_check", "check": "file", "device": "e", "path": "Report.txt", "text": "upper case, first" },
+      { "op": "drive_check", "check": "file", "device": "e", "path": "report.txt", "text": "lower case, second" },
+      { "op": "drive_check", "check": "remote_count", "count": 2 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

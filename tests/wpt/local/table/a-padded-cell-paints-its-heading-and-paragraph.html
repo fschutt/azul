@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<!-- azul's own reftest (MIT, like the rest of azul); WPT reftest format. -->
+<meta charset="utf-8">
+<title>a padded table cell paints its heading and paragraph</title>
+<link rel="match" href="a-padded-cell-paints-its-heading-and-paragraph-ref.html">
+<meta name="assert" content="The AzMail exploration's newsletter: an h1 and a p inside an indented, padded td were clipped off (sample 01).">
+<table style="width:600px;border-spacing:0">
+  <tr>
+    <td style="padding:24px">
+      <h1 style="margin:0 0 12px 0;font-size:22px">Hello Robin,</h1>
+      <p style="margin:0">Here is what happened.</p>
+    </td>
+  </tr>
+</table>

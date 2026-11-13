@@ -4,7 +4,10 @@ use alloc::string::{String, ToString};
 use core::fmt;
 
 #[cfg(feature = "parser")]
-use crate::props::basic::{color::parse_css_color, pixel::parse_pixel_value};
+use crate::props::basic::{
+    color::parse_color_or_system_token, parse::split_string_respect_whitespace,
+    pixel::parse_pixel_value,
+};
 use crate::{
     corety::AzString,
     css::PrintAsCssValue,
@@ -136,6 +139,7 @@ define_border_side_property!(StyleBorderBottomStyle, BorderStyle, BorderStyle::N
 define_border_side_property!(StyleBorderLeftStyle, BorderStyle, BorderStyle::None);
 
 // Formatting implementations for border side style values
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBorderTopStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -145,6 +149,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBorderTopStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBorderRightStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -154,6 +159,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBorderRightStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBorderLeftStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -163,6 +169,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleBorderLeftStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBorderBottomStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -220,7 +227,12 @@ impl_border_width_helpers!(
 pub struct StyleBorderSide {
     pub border_width: PixelValue,
     pub border_style: BorderStyle,
+    /// The shorthand's colour; black when it names none (see `color_given`).
     pub border_color: ColorU,
+    /// Whether the shorthand named a colour. Without one the side's colour
+    /// is reset to its initial value, `currentcolor` (CSS Backgrounds 3
+    /// s4.2) - `border: 1px solid` is drawn in the text colour, not black.
+    pub color_given: bool,
 }
 
 // --- PARSERS ---
@@ -392,7 +404,8 @@ fn parse_border_side(input: &str) -> Result<StyleBorderSide, CssBorderSideParseE
         return Err(CssBorderSideParseError::InvalidDeclaration(input));
     }
 
-    for part in input.split_whitespace() {
+    // Parenthesis-aware, so `rgba(0, 0, 0, 0.1)` stays ONE component.
+    for part in split_string_respect_whitespace(input) {
         // Try to parse as a width.
         if width.is_none() {
             if let Ok(w) = parse_border_width_value(part) {
@@ -409,9 +422,9 @@ fn parse_border_side(input: &str) -> Result<StyleBorderSide, CssBorderSideParseE
             }
         }
 
-        // Try to parse as a color.
+        // Try to parse as a color (a `system:` keyword included).
         if color.is_none() {
-            if let Ok(c) = parse_css_color(part) {
+            if let Ok(c) = parse_color_or_system_token(part) {
                 color = Some(c);
                 continue;
             }
@@ -425,6 +438,7 @@ fn parse_border_side(input: &str) -> Result<StyleBorderSide, CssBorderSideParseE
         border_width: width.unwrap_or(MEDIUM_BORDER_THICKNESS),
         border_style: style.unwrap_or(BorderStyle::None),
         border_color: color.unwrap_or(ColorU::BLACK),
+        color_given: color.is_some(),
     })
 }
 
@@ -522,7 +536,7 @@ pub fn parse_border_left_style(
 ///
 /// Returns an error if `input` is not a valid CSS `border-top-color` value.
 pub fn parse_border_top_color(input: &str) -> Result<StyleBorderTopColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| StyleBorderTopColor { inner })
+    parse_color_or_system_token(input).map(|inner| StyleBorderTopColor { inner })
 }
 #[cfg(feature = "parser")]
 /// # Errors
@@ -531,7 +545,7 @@ pub fn parse_border_top_color(input: &str) -> Result<StyleBorderTopColor, CssCol
 pub fn parse_border_right_color(
     input: &str,
 ) -> Result<StyleBorderRightColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| StyleBorderRightColor { inner })
+    parse_color_or_system_token(input).map(|inner| StyleBorderRightColor { inner })
 }
 #[cfg(feature = "parser")]
 /// # Errors
@@ -540,7 +554,7 @@ pub fn parse_border_right_color(
 pub fn parse_border_bottom_color(
     input: &str,
 ) -> Result<StyleBorderBottomColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| StyleBorderBottomColor { inner })
+    parse_color_or_system_token(input).map(|inner| StyleBorderBottomColor { inner })
 }
 #[cfg(feature = "parser")]
 /// # Errors
@@ -549,7 +563,7 @@ pub fn parse_border_bottom_color(
 pub fn parse_border_left_color(
     input: &str,
 ) -> Result<StyleBorderLeftColor, CssColorParseError<'_>> {
-    parse_css_color(input).map(|inner| StyleBorderLeftColor { inner })
+    parse_color_or_system_token(input).map(|inner| StyleBorderLeftColor { inner })
 }
 
 // --- Border Color Shorthand ---
@@ -575,11 +589,12 @@ pub struct StyleBorderColors {
 /// Returns an error if `input` is not a valid CSS `border-color` value.
 pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssColorParseError<'_>> {
     let input = input.trim();
-    let parts: Vec<&str> = input.split_whitespace().collect();
+    // Parenthesis-aware: `rgb(255, 0, 0) blue` is TWO colours, not four tokens.
+    let parts: Vec<&str> = split_string_respect_whitespace(input);
 
     match parts.len() {
         1 => {
-            let color = parse_css_color(parts[0])?;
+            let color = parse_color_or_system_token(parts[0])?;
             Ok(StyleBorderColors {
                 top: color,
                 right: color,
@@ -588,8 +603,8 @@ pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssCol
             })
         }
         2 => {
-            let top_bottom = parse_css_color(parts[0])?;
-            let left_right = parse_css_color(parts[1])?;
+            let top_bottom = parse_color_or_system_token(parts[0])?;
+            let left_right = parse_color_or_system_token(parts[1])?;
             Ok(StyleBorderColors {
                 top: top_bottom,
                 right: left_right,
@@ -598,9 +613,9 @@ pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssCol
             })
         }
         3 => {
-            let top = parse_css_color(parts[0])?;
-            let left_right = parse_css_color(parts[1])?;
-            let bottom = parse_css_color(parts[2])?;
+            let top = parse_color_or_system_token(parts[0])?;
+            let left_right = parse_color_or_system_token(parts[1])?;
+            let bottom = parse_color_or_system_token(parts[2])?;
             Ok(StyleBorderColors {
                 top,
                 right: left_right,
@@ -609,10 +624,10 @@ pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssCol
             })
         }
         4 => {
-            let top = parse_css_color(parts[0])?;
-            let right = parse_css_color(parts[1])?;
-            let bottom = parse_css_color(parts[2])?;
-            let left = parse_css_color(parts[3])?;
+            let top = parse_color_or_system_token(parts[0])?;
+            let right = parse_color_or_system_token(parts[1])?;
+            let bottom = parse_color_or_system_token(parts[2])?;
+            let left = parse_color_or_system_token(parts[3])?;
             Ok(StyleBorderColors {
                 top,
                 right,
@@ -1513,7 +1528,7 @@ mod autotest_generated {
             "rgba(10, 20, 30, 0.5)",
             "hsl(0, 100%, 50%)",
         ] {
-            let expected = parse_css_color(input)
+            let expected = crate::props::basic::color::parse_css_color(input)
                 .unwrap_or_else(|e| panic!("{input:?} failed to parse: {e:?}"));
             assert_eq!(parse_border_top_color(input).unwrap().inner, expected);
             assert_eq!(parse_border_right_color(input).unwrap().inner, expected);
@@ -1637,6 +1652,7 @@ mod autotest_generated {
             border_width: PixelValue::px(2.0),
             border_style: BorderStyle::Dashed,
             border_color: ColorU::new_rgb(0, 255, 0),
+            color_given: true,
         };
         for input in [
             "2px dashed #00ff00",

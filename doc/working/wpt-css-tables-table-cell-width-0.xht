@@ -1,0 +1,103 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Tests if cell with width:'0' uses intrinsic content size for width</title>
+<style>
+table {
+  border-collapse: collapse;
+  border: 2px solid black;
+}
+
+.zero {
+  width: 0;
+  background:lightblue;
+}
+
+.positive-width {
+  width: 2px;
+  background:lightblue;
+}
+
+.big-positive-width {
+  width: 20px;
+  background:lightblue;
+}
+
+.normal {
+ background:lightgreen;
+}
+
+.percent-width {
+  width: 100%;
+}
+
+.fixed-width {
+  width: 100px;
+}
+</style>
+</head>
+<body>
+
+<table>
+  <tbody><tr>
+    <td class="zero">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+<br/>
+<table>
+  <tbody><tr>
+    <td class="positive-width">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+<br/>
+<table>
+  <tbody><tr>
+    <td class="big-positive-width">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+<br/>
+
+<table class="percent-width">
+  <tbody><tr>
+    <td class="zero">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+<table class="percent-width">
+  <tbody><tr>
+    <td class="positive-width">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+<table class="percent-width">
+  <tbody><tr>
+    <td class="big-positive-width">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+<br/>
+
+<table class="fixed-width">
+  <tbody><tr>
+    <td class="zero">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+<table class="fixed-width">
+  <tbody><tr>
+    <td class="positive-width">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+<table class="fixed-width">
+  <tbody><tr>
+    <td class="big-positive-width">1</td>
+    <td class="normal">2</td>
+  </tr>
+</tbody></table>
+
+
+</body>
+</html>

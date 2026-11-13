@@ -1,0 +1,31 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Linear gradients for non-square elements</title>
+<style>
+.a,
+.b,
+.c,
+.d {
+  width: 200px;
+  height: 100px;
+}
+.a {
+  background: linear-gradient(to right bottom, black 50%, lightgray 50%);
+}
+.b {
+  background: linear-gradient(to left bottom, black 50%, lightgray 50%);
+}
+.c {
+  background: linear-gradient(to left top, black 50%, lightgray 50%);
+}
+.d {
+  background: linear-gradient(to right top, black 50%, lightgray 50%);
+}
+</style>
+</head>
+<body><div class="a"></div>
+<div class="b"></div>
+<div class="c"></div>
+<div class="d"></div>
+</body>
+</html>

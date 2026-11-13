@@ -78,8 +78,7 @@ fn build_editor_window(animations: SystemAnimations) -> LayoutWindow {
     )
     .unwrap();
 
-    lw.text_edit_manager
-        .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(TEXT), 0);
+    lw.start_editing_at(cursor(0), DomId::ROOT_ID, NodeId::new(TEXT), 0);
     lw.text_edit_manager.blink.set_visibility(true);
     // A real focused field has BOTH an editing session AND focus. The caret is
     // only painted when the edited node lives inside the focused subtree
@@ -91,12 +90,12 @@ fn build_editor_window(animations: SystemAnimations) -> LayoutWindow {
 }
 
 fn move_caret(lw: &mut LayoutWindow, byte: u32) {
-    lw.text_edit_manager.multi_cursor =
-        Some(azul_core::selection::MultiCursorState::new_with_cursor(
-            cursor(byte),
-            text_dom_node_id(),
-            0,
-        ));
+    let block = lw
+        .text_block_of(text_dom_node_id())
+        .expect("the editor's text is in a text block");
+    lw.text_edit_manager.multi_cursor = Some(
+        azul_core::selection::MultiCursorState::new_with_cursor(cursor(byte), block, 0),
+    );
 }
 
 fn rebuild(lw: &mut LayoutWindow) {
@@ -406,7 +405,7 @@ fn default_selection_tween_pairs_rects_by_line_not_by_index() {
 
 /// body=0, then (div=1, text=2), (div=3, text=4), (div=5, text=6).
 fn build_three_paragraphs(animations: SystemAnimations) -> LayoutWindow {
-    build_three_paragraphs_themed(animations, None, azul_core::window::WindowTheme::LightMode)
+    build_three_paragraphs_themed(animations, None, azul_core::window::DarkLightMode::Light)
 }
 
 /// [`build_three_paragraphs`] under a desktop's system style and window theme,
@@ -414,7 +413,7 @@ fn build_three_paragraphs(animations: SystemAnimations) -> LayoutWindow {
 fn build_three_paragraphs_themed(
     animations: SystemAnimations,
     system_style: Option<azul_css::system::SystemStyle>,
-    theme: azul_core::window::WindowTheme,
+    theme: azul_core::window::DarkLightMode,
 ) -> LayoutWindow {
     const P_CSS: &str = r#"
         * { margin: 0; padding: 0; }
@@ -455,7 +454,7 @@ fn build_three_paragraphs_themed(
     }
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
-    window_state.theme = theme;
+    window_state.mode = theme;
     lw.current_window_state = window_state.clone();
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
@@ -485,13 +484,15 @@ fn selection_bands(lw: &LayoutWindow) -> Vec<LogicalRect> {
 }
 
 fn select_p1_to(lw: &mut LayoutWindow, end_node: usize, end_byte: u32) {
-    let ok = lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        NodeId::new(1),
-        cursor(6),
-        NodeId::new(end_node),
-        cursor(end_byte),
-    );
+    let block = |lw: &LayoutWindow, n: usize| {
+        lw.text_block_of(DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        })
+        .expect("a paragraph is a text block")
+    };
+    let (anchor, focus) = (block(&*lw, 1), block(&*lw, end_node));
+    let ok = lw.set_cross_block_selection(anchor, cursor(6), focus, cursor(end_byte));
     assert!(ok, "cross-block selection must be accepted");
 }
 
@@ -642,7 +643,7 @@ fn a_caret_after_trailing_spaces_stands_after_them() {
             &mut Some(Vec::new()),
         )
         .unwrap();
-        lw.text_edit_manager.initialize_editing(
+        lw.start_editing_at(
             cursor(text.len() as u32),
             DomId::ROOT_ID,
             NodeId::new(TEXT),
@@ -837,7 +838,7 @@ fn edge_splits(lw: &LayoutWindow) -> (usize, usize) {
 /// selection text and the themed text colour, in light and in dark.
 #[test]
 fn a_gliding_selection_paints_edge_glyphs_in_both_colours_split_at_the_band() {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
     use azul_css::system::defaults;
 
     let ops = |lw: &mut LayoutWindow| {
@@ -853,10 +854,10 @@ fn a_gliding_selection_paints_edge_glyphs_in_both_colours_split_at_the_band() {
     };
 
     for (name, style, theme, colours_differ) in [
-        ("light", defaults::windows_11_light(), WindowTheme::LightMode, true),
+        ("light", defaults::windows_11_light(), DarkLightMode::Light, true),
         // Dark text is already white, like the selection text: the split
         // must still happen, it just paints the same colour twice.
-        ("dark", defaults::windows_11_dark(), WindowTheme::DarkMode, false),
+        ("dark", defaults::windows_11_dark(), DarkLightMode::Dark, false),
     ] {
         let selection_text = style.colors.selection_text.as_option().copied();
         let mut lw = build_three_paragraphs_themed(gliding.clone(), Some(style.clone()), theme);

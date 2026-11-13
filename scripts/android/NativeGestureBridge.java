@@ -42,6 +42,15 @@ public final class NativeGestureBridge
     private boolean rotationInProgress;
     private long rotationStartUptimeMs;
 
+    /** The pinch in flight. azul's DetectedPinch is CUMULATIVE since the
+     *  gesture began, but getScaleFactor() is one event's own ratio to the
+     *  previous span - so the scale is multiplied up here, from onScaleBegin
+     *  on, and the first update carries `began`. */
+    private float pinchScale = 1f;
+    private float pinchStartSpan;
+    private long pinchStartUptimeMs;
+    private boolean pinchBegan;
+
     public NativeGestureBridge(long nativePtr) {
         this.nativePtr = nativePtr;
     }
@@ -92,17 +101,26 @@ public final class NativeGestureBridge
 
     @Override
     public boolean onScale(ScaleGestureDetector d) {
+        pinchScale *= d.getScaleFactor();
         nativeOnPinch(
                 nativePtr,
-                d.getScaleFactor(),
+                pinchScale,
                 d.getFocusX(), d.getFocusY(),
-                d.getPreviousSpan(), d.getCurrentSpan(),
-                d.getEventTime() - d.getTimeDelta());
+                pinchStartSpan, d.getCurrentSpan(),
+                d.getEventTime() - pinchStartUptimeMs,
+                pinchBegan);
+        pinchBegan = false;
         return true;
     }
 
     @Override
-    public boolean onScaleBegin(ScaleGestureDetector d) { return true; }
+    public boolean onScaleBegin(ScaleGestureDetector d) {
+        pinchScale = 1f;
+        pinchStartSpan = d.getCurrentSpan();
+        pinchStartUptimeMs = d.getEventTime();
+        pinchBegan = true;
+        return true;
+    }
 
     @Override
     public void onScaleEnd(ScaleGestureDetector d) { /* no-op */ }
@@ -141,7 +159,7 @@ public final class NativeGestureBridge
             long nativePtr,
             float scale, float centerX, float centerY,
             float initialDistance, float currentDistance,
-            long durationMs);
+            long durationMs, boolean began);
     private static native void nativeOnRotation(
             long nativePtr,
             float angleRadians, float centerX, float centerY,

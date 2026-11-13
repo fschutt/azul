@@ -1,0 +1,21 @@
+{
+ "name": "text_beside_a_block_survives_a_sibling_restyle",
+ "description": "LAYOUTPERF8 (latent bug A). A block page: #mover, and #mixed holding text beside a block (the text sits in an anonymous block). A stylesheet change that only resizes #mover must leave #mixed painting its text. On the wave-7 build the anonymous block the reconcile rebuilt was never laid out again (its clean parent is reused, not re-laid out), and the display list lost the 'Some text' run: text_count 3 -> 2. Fixed by try_reuse_anon_wrapper carrying the wrapper's layout. Run: target/release/azul-doc e2e scripts/layoutperf8_e2e",
+ "setup": {"window_width": 400, "window_height": 300, "dpi": 96},
+ "steps": [
+  {"op": "mount",
+   "html": ["<div id=\"root\">", "  <div id=\"mover\">m</div>", "  <div id=\"mixed\">Some text<div id=\"inner\">block</div></div>", "</div>"],
+   "css": ["html, body { margin: 0; padding: 0; width: 100%; height: 100%; }", "#root { width: 100%; }", "#mover { width: 50px; height: 20px; }", "#mixed { width: 300px; }"]},
+  {"op": "wait_frame"},
+  {"op": "get_display_list"},
+  {"op": "assert_response", "type": "display_list", "contains": "\"text_count\":3"},
+  {"op": "mount",
+   "html": ["<div id=\"root\">", "  <div id=\"mover\">m</div>", "  <div id=\"mixed\">Some text<div id=\"inner\">block</div></div>", "</div>"],
+   "css": ["html, body { margin: 0; padding: 0; width: 100%; height: 100%; }", "#root { width: 100%; }", "#mover { width: 80px; height: 20px; }", "#mixed { width: 300px; }"]},
+  {"op": "wait_frame"},
+  {"op": "get_node_layout", "selector": "#mover"},
+  {"op": "assert_response", "type": "node_layout", "contains": "\"width\":80.0"},
+  {"op": "get_display_list"},
+  {"op": "assert_response", "type": "display_list", "contains": "\"text_count\":3"}
+ ]
+}

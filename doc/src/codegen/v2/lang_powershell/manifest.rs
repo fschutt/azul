@@ -62,6 +62,7 @@ pub fn generate_psd1() -> String {
         'Remove-Azul*',
         'Add-Azul*',
         'Clear-Azul*',
+        'Copy-Azul*',
         'Update-Azul*',
         'Start-Azul*',
         'Stop-Azul*'

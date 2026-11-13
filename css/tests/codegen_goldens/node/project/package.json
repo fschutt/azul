@@ -1,0 +1,10 @@
+{
+  "name": "azul-styles",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "dependencies": {
+    "azul": "file:./azul-node",
+    "koffi": "^2.16.3"
+  }
+}

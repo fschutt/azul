@@ -30,10 +30,29 @@ use azul_layout::{
     BreakKind, Solver3LayoutCache,
 };
 
-fn paginate(
+/// `html` paginated on `w` x `h` pages (no page decoration): the cache, the
+/// styled DOM and the break analysis. Shared with the other pagination
+/// tests of this crate (`crate::pagination_dom_breaks::paginate`).
+pub(crate) fn paginate(
     html: &str,
     w: f32,
     h: f32,
+) -> (
+    Solver3LayoutCache,
+    azul_core::styled_dom::StyledDom,
+    azul_layout::PaginationInfo,
+) {
+    paginate_with_config(html, w, h, FakePageConfig::new())
+}
+
+/// [`paginate`] with the given page setup: a PDF's pages are cut with widows,
+/// orphans and atomic lines honoured, and a footer takes room from all of them
+/// but the first.
+pub(crate) fn paginate_with_config(
+    html: &str,
+    w: f32,
+    h: f32,
+    page_config: FakePageConfig,
 ) -> (
     Solver3LayoutCache,
     azul_core::styled_dom::StyledDom,
@@ -87,7 +106,7 @@ fn paginate(
         azul_core::resources::IdNamespace(0),
         DomId::ROOT_ID,
         font_loader,
-        FakePageConfig::new(),
+        page_config,
         &azul_core::resources::ImageCache::default(),
         azul_core::task::GetSystemTimeCallback {
             cb: azul_core::task::get_system_time_libstd,

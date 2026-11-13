@@ -111,7 +111,7 @@ impl Harness {
         self.lw
             .focus_manager
             .set_focused_node(Some(dnid(0, CONTAINER)));
-        self.lw.text_edit_manager.initialize_editing(
+        self.lw.start_editing_at(
             cursor,
             DomId::ROOT_ID,
             NodeId::new(LABEL_P),
@@ -174,13 +174,11 @@ impl Harness {
     }
 }
 
-fn bounds_y1(update: &TreeUpdate, id: A11yNodeId) -> Option<f64> {
-    update
-        .nodes
-        .iter()
-        .find(|(i, _)| *i == id)
-        .and_then(|(_, n)| n.bounds())
-        .map(|r| r.y1)
+/// Where a screen reader draws node `id` now: its window-space bottom edge
+/// in the tree as published so far (a node's own bounds are in its parent's
+/// space).
+fn bounds_y1(lw: &LayoutWindow, id: A11yNodeId) -> Option<f64> {
+    azul_layout::managers::a11y::window_bounds_of(&lw.a11y_manager.full_tree(), id).map(|r| r.y1)
 }
 
 const TEN_LINES: &str = "line one\nline two\nline three\nline four\nline five\nline six\nline \
@@ -263,12 +261,14 @@ fn a_focus_in_a_vanished_dom_never_reaches_the_consumer() {
 fn a_parked_full_tree_absorbs_a_later_incremental_update() {
     let mut h = Harness::new_with_text_area(400.0, 300.0, "alpha");
     let mut tree = None;
-    h.deliver(&mut tree);
+    // The first layout's full tree stays parked: no shell drained it yet.
+    // (A relayout no longer parks a full tree of its own - it publishes what
+    // changed, or nothing.)
     let end = h.end_of_text_cursor();
     h.start_editing(end);
 
-    // Relayout parks a full tree; the keystroke parks an increment BEFORE a
-    // shell drains the slot (the platform flush runs at end of pass).
+    // The relayout's patch and the keystroke's increment both arrive BEFORE
+    // a shell drains the slot (the platform flush runs at end of pass).
     h.relayout();
     h.type_str("z");
 
@@ -277,12 +277,14 @@ fn a_parked_full_tree_absorbs_a_later_incremental_update() {
         merged.tree.is_some(),
         "the increment must fold INTO the parked full tree, not replace it"
     );
+    // The increment is published on the editing HOST - the text field whose
+    // value a screen reader reads, and whose text the selection offsets index.
     let label = merged
         .nodes
         .iter()
-        .find(|(id, _)| *id == a11y_id(0, LABEL_P as u64))
+        .find(|(id, _)| *id == a11y_id(0, CONTAINER as u64))
         .map(|(_, n)| n.value().unwrap_or_default().to_string())
-        .expect("the edited node is in the merged tree");
+        .expect("the edited host is in the merged tree");
     assert!(
         label.contains('z'),
         "the merged tree carries the increment's fresh value, got {label:?}"
@@ -298,9 +300,9 @@ fn scrolling_moves_the_delivered_bounds_and_is_rebuilt_on_the_next_due_tick() {
     let mut h = Harness::new_with_text_area(400.0, 300.0, TEN_LINES);
     h.register_scroll_nodes();
     let mut tree = None;
-    let before = h.deliver(&mut tree).expect("full tree");
+    h.deliver(&mut tree).expect("full tree");
     let label = a11y_id(0, LABEL_P as u64);
-    let y1_before = bounds_y1(&before, label).expect("the label has bounds");
+    let y1_before = bounds_y1(&h.lw, label).expect("the label has bounds");
 
     h.lw.scroll_manager.set_scroll_position(
         DomId::ROOT_ID,
@@ -318,9 +320,9 @@ fn scrolling_moves_the_delivered_bounds_and_is_rebuilt_on_the_next_due_tick() {
     h.lw.update_a11y_tree();
     let after = h
         .deliver(&mut tree)
-        .expect("the scroll rebuild parks a full tree");
+        .expect("the scroll rebuild parks the nodes the scroll moved");
 
-    let y1_after = bounds_y1(&after, label).expect("the label still has bounds");
+    let y1_after = bounds_y1(&h.lw, label).expect("the label still has bounds");
     assert!(
         (y1_before - y1_after - 40.0).abs() < 0.5,
         "the label must move up by the scroll offset: before y1={y1_before}, after y1={y1_after}"

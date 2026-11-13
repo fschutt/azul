@@ -55,7 +55,10 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
 use super::types::{go_pointer_to, go_value_type};
-use super::super::managed_host_invoker::{layout_callback_factory_info, to_snake_case, LayoutCallbackFactoryInfo};
+use super::super::managed_host_invoker::{
+    host_invoker_kinds, layout_callback_factory_info, to_snake_case, wrapper_name,
+    LayoutCallbackFactoryInfo,
+};
 use super::super::managed_lang_helpers::is_refany_type;
 use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier};
 
@@ -73,8 +76,218 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     }
 
     emit_enum_trait_methods(&mut b, ir, config);
+    emit_optional_helpers(&mut b, ir, config);
 
     Ok(b.finish())
+}
+
+// ============================================================================
+// Options and Results: nil-able pointers in, (T, bool) / (T, error) out
+// ============================================================================
+
+/// How the value inside an Option or a Result crosses the Go surface.
+#[derive(Clone)]
+enum GoPayload {
+    /// A wrapper (`FilePath`): `*FilePath` both ways, moved in with `Raw()`.
+    Wrapper { go: String, owns: bool },
+    /// A plain Go value (`AzColorU`, `uint32`): `*V` in (nil is None), `V` out.
+    Value(String),
+}
+
+impl GoPayload {
+    /// The type a parameter takes (nil is None).
+    fn param(&self) -> String {
+        match self {
+            GoPayload::Wrapper { go, .. } => format!("*{}", go),
+            GoPayload::Value(v) => format!("*{}", v),
+        }
+    }
+
+    /// The type a return value gives.
+    fn result(&self) -> String {
+        match self {
+            GoPayload::Wrapper { go, .. } => format!("*{}", go),
+            GoPayload::Value(v) => v.clone(),
+        }
+    }
+
+    /// The raw value of a non-nil parameter `v`.
+    fn raw_of(&self, v: &str) -> String {
+        match self {
+            GoPayload::Wrapper { .. } => format!("{}.Raw()", v),
+            GoPayload::Value(_) => format!("*{}", v),
+        }
+    }
+
+    /// Lines turning the raw payload behind pointer `p` into `out`, which
+    /// takes the payload over.
+    fn own(&self, p: &str, out: &str) -> Vec<String> {
+        match self {
+            GoPayload::Wrapper { go, owns: true } => vec![
+                format!("{out}_val := *{p}"),
+                format!("{out} := &{go}{{ inner: &{out}_val }}"),
+                format!("runtime.SetFinalizer({out}, func(x *{go}) {{ x.Close() }})"),
+            ],
+            GoPayload::Wrapper { go, owns: false } => vec![format!("{out} := &{go}{{ inner: *{p} }}")],
+            GoPayload::Value(_) => vec![format!("{out} := *{p}")],
+        }
+    }
+}
+
+fn go_payload(t: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<GoPayload> {
+    let t = t.trim();
+    if is_refany_type(t, ir) || super::super::lang_csharp::wrappers::field_type_carries_callback(t, ir) {
+        return None;
+    }
+    if let Some(st) = ir.find_struct(t) {
+        if should_emit_wrapper(st, ir, config) {
+            return Some(GoPayload::Wrapper {
+                go: sanitize_identifier(t),
+                owns: has_destructor(t, ir),
+            });
+        }
+    }
+    if let Some(p) = super::primitive_to_go(t) {
+        if p.is_empty() {
+            return None;
+        }
+        return Some(GoPayload::Value(p.to_string()));
+    }
+    Some(GoPayload::Value(go_value_type(t, ir)))
+}
+
+/// An Option mirror the surface shows as a nil-able pointer / `(T, bool)`.
+fn go_option(t: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<GoPayload> {
+    let t = t.trim();
+    let payload = ir.option_payload(t)?;
+    if !config.should_include_type(t)
+        || super::super::lang_csharp::wrappers::field_type_carries_callback(t, ir)
+    {
+        return None;
+    }
+    go_payload(payload, ir, config)
+}
+
+/// A Result mirror the surface shows as `(T, error)`: the Ok payload (None
+/// for a unit Ok) and the Err payload.
+fn go_result(t: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<(Option<GoPayload>, GoPayload)> {
+    let t = t.trim();
+    let (ok, err) = ir.result_payloads(t)?;
+    if !config.should_include_type(t) {
+        return None;
+    }
+    let ok = match ok {
+        Some(o) => Some(go_payload(o, ir, config)?),
+        None => None,
+    };
+    Some((ok, go_payload(err?, ir, config)?))
+}
+
+/// The Go return type and the helper that converts a call's raw Option /
+/// Result: `(*FileOpenResult, bool)` + `azOptTakeOptionFileOpenResult`.
+fn go_optional_return(rt: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<(String, String)> {
+    let rt = rt.trim();
+    if let Some(p) = go_option(rt, ir, config) {
+        return Some((format!("({}, bool)", p.result()), format!("azOptTake{}", rt)));
+    }
+    if let Some((ok, _)) = go_result(rt, ir, config) {
+        let ty = match ok {
+            Some(o) => format!("({}, error)", o.result()),
+            None => "error".to_string(),
+        };
+        return Some((ty, format!("azResTake{}", rt)));
+    }
+    None
+}
+
+/// The callback kind of an owned callback-wrapper argument whose kind has a
+/// Go registration: such a parameter takes `any` (a Go function, the wrapper
+/// or the raw struct; see `azGo<Kind>Arg`).
+fn host_callback_arg(a: &super::super::ir::FunctionArg, ir: &CodegenIR) -> Option<String> {
+    let ci = a.callback_info.as_ref()?;
+    if a.ref_kind != ArgRefKind::Owned || ci.callback_wrapper_name != a.type_name.trim() {
+        return None;
+    }
+    host_invoker_kinds(ir)
+        .any(|cb| wrapper_name(cb) == ci.callback_wrapper_name)
+        .then(|| ci.callback_wrapper_name.clone())
+}
+
+fn emit_optional_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    b.line("// AzulError is the error of a call whose Result was Err: Value holds the");
+    b.line("// API's error value (a wrapper or a plain value).");
+    b.line("type AzulError struct {");
+    b.line("    Value any");
+    b.line("}");
+    b.blank();
+    b.line("func (e *AzulError) Error() string {");
+    b.line("    return fmt.Sprint(e.Value)");
+    b.line("}");
+    b.blank();
+    for e in &ir.enums {
+        let name = &e.name;
+        let ffi = ffi_type_name(name);
+        if let Some(p) = go_option(name, ir, config) {
+            b.line(&format!(
+                "// azOptIn{name} is the {ffi} for a parameter: nil is None, anything else is moved in."
+            ));
+            b.line(&format!("func azOptIn{name}(v {}) {ffi} {{", p.param()));
+            b.line("    if v == nil {");
+            b.line(&format!("        return {ffi}_None()"));
+            b.line("    }");
+            b.line(&format!("    return {ffi}_Some({})", p.raw_of("v")));
+            b.line("}");
+            b.blank();
+            b.line(&format!(
+                "// azOptTake{name} takes a {ffi} apart: its payload moves into the result."
+            ));
+            b.line(&format!("func azOptTake{name}(o {ffi}) ({}, bool) {{", p.result()));
+            b.line("    p := o.AsSome()");
+            b.line("    if p == nil {");
+            b.line(&format!("        var zero {}", p.result()));
+            b.line("        return zero, false");
+            b.line("    }");
+            for l in p.own("p", "ret") {
+                b.line(&format!("    {}", l));
+            }
+            b.line("    return ret, true");
+            b.line("}");
+            b.blank();
+        } else if let Some((ok, err)) = go_result(name, ir, config) {
+            let ret = match &ok {
+                Some(o) => format!("({}, error)", o.result()),
+                None => "error".to_string(),
+            };
+            b.line(&format!(
+                "// azResTake{name} takes a {ffi} apart: Ok is the value, Err an *AzulError."
+            ));
+            b.line(&format!("func azResTake{name}(r {ffi}) {ret} {{"));
+            b.line("    if e := r.AsErr(); e != nil {");
+            for l in err.own("e", "errv") {
+                b.line(&format!("        {}", l));
+            }
+            match &ok {
+                Some(o) => {
+                    b.line(&format!("        var zero {}", o.result()));
+                    b.line("        return zero, &AzulError{ Value: errv }");
+                }
+                None => b.line("        return &AzulError{ Value: errv }"),
+            }
+            b.line("    }");
+            match &ok {
+                Some(o) => {
+                    b.line("    p := r.AsOk()");
+                    for l in o.own("p", "ret") {
+                        b.line(&format!("    {}", l));
+                    }
+                    b.line("    return ret, nil");
+                }
+                None => b.line("    return nil"),
+            }
+            b.line("}");
+            b.blank();
+        }
+    }
 }
 
 /// If a method/factory returns this (by-value, owned) type, report the Go
@@ -132,6 +345,14 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// heap type are likewise returned as a `*Wrapper` with a finalizer armed.");
     b.line("// Every native call goes through the raw layer in functions.go (purego);");
     b.line("// this file binds nothing itself.");
+    b.line("//");
+    b.line("// Fields are getter / setter methods (`ws.Title()`, `ws.SetTitle(\"x\")`). A");
+    b.line("// field holding another heap type is a borrowed view, so nested writes reach");
+    b.line("// the owner (`opts.WindowState().SetTitle(\"x\")`); a value field is a copy:");
+    b.line("//");
+    b.line("//     size := opts.WindowState().Size()");
+    b.line("//     size.Dimensions.Width, size.Dimensions.Height = 800, 600");
+    b.line("//     opts.WindowState().SetSize(size)");
     b.blank();
     b.line("package azul");
     b.blank();
@@ -140,6 +361,7 @@ fn emit_header(b: &mut CodeBuilder) {
     // `runtime` by the finalizer safety net. Both are blank-referenced
     // below so a package that happens to use neither still compiles.
     b.line("import (");
+    b.line("    \"fmt\"");
     b.line("    \"runtime\"");
     b.line("    \"unsafe\"");
     b.line(")");
@@ -228,6 +450,21 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     b.line("}");
     b.blank();
 
+    // Non-destructive access to the raw value (Raw() moves it out).
+    b.line(&format!(
+        "// Inner returns the wrapped {} without taking ownership: reads and",
+        ffi_name
+    ));
+    b.line("// writes through the pointer reach this wrapper's value, which still");
+    b.line("// owns (and frees) it. Raw() is the consuming counterpart.");
+    if has_delete {
+        b.line("// nil once the wrapper was closed or consumed.");
+    }
+    b.line(&format!("func (self *{}) Inner() *{} {{", go_name, ffi_name));
+    b.line(if has_delete { "    return self.inner" } else { "    return &self.inner" });
+    b.line("}");
+    b.blank();
+
     // The IR builder rewrites the implicit `&self` argument to a name
     // that matches `to_snake_case(class_name)` (e.g. method on `App`
     // carries an arg named `app`). We strip it from the user-facing
@@ -269,6 +506,9 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     // Trait entry points.
     emit_trait_methods(b, &go_name, &s.name, ir);
 
+    // The struct's fields as getter / setter methods.
+    emit_field_accessors(b, s, &go_name, ir, config);
+
     // Destructor + io.Closer.
     if has_delete {
         b.line("// Close releases the underlying native resources. It implements io.Closer.");
@@ -300,6 +540,315 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
         b.dedent();
         b.line("}");
         b.blank();
+    }
+}
+
+/// How one field of a wrapped struct is read and written.
+enum GoFieldShape {
+    /// A C primitive: read and written in place.
+    Prim { ty: String },
+    /// The string type: read as a Go `string` (the field is only read),
+    /// written as a fresh native string after the old one is released.
+    Str { delete: String },
+    /// A heap-owning wrapper: read as a borrowed VIEW of the field, written
+    /// by moving the argument in (`Raw()`) after the old value is released.
+    Wrapper { go: String, delete: String },
+    /// Any other value, as its Go-native `Az*` type. With a `_delete` the
+    /// getter deep-copies (no `_clone`: no getter) and the setter releases
+    /// the old value first.
+    Value {
+        ty: String,
+        delete: Option<String>,
+        clone: Option<String>,
+    },
+}
+
+fn go_field_shape(
+    f: &super::super::ir::FieldDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<GoFieldShape> {
+    use super::super::ir::FieldRefKind;
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = f.type_name.trim();
+    if t.is_empty() || t.contains(['<', '[', '*', '&']) {
+        return None;
+    }
+    if let Some(p) = super::primitive_to_go(t) {
+        if p.is_empty() {
+            return None;
+        }
+        return Some(GoFieldShape::Prim { ty: p.to_string() });
+    }
+    if !config.should_include_type(t)
+        || super::super::lang_csharp::wrappers::field_type_carries_callback(t, ir)
+    {
+        return None;
+    }
+    let ffi = ffi_type_name(t);
+    let delete = has_destructor(t, ir).then(|| format!("{}_delete", ffi));
+    if let Some(st) = ir.find_struct(t) {
+        if matches!(st.category, TypeCategory::String) {
+            return delete.map(|delete| GoFieldShape::Str { delete });
+        }
+        if let Some(delete) = delete.clone() {
+            if should_emit_wrapper(st, ir, config) {
+                return Some(GoFieldShape::Wrapper {
+                    go: sanitize_identifier(t),
+                    delete,
+                });
+            }
+        }
+    }
+    let clone = ir
+        .functions_for_class(t)
+        .find(|f| f.kind == FunctionKind::DeepCopy)
+        .map(|f| f.c_name.clone());
+    Some(GoFieldShape::Value {
+        ty: go_value_type(t, ir),
+        delete,
+        clone,
+    })
+}
+
+/// Every method name the wrapper of `s` declares (here and in managed.rs):
+/// a field accessor never re-declares one (the method wins).
+fn wrapper_method_names(s: &StructDef, ir: &CodegenIR) -> std::collections::BTreeSet<String> {
+    let mut taken: std::collections::BTreeSet<String> = [
+        "Close",
+        "Raw",
+        "Inner",
+        "Value",
+        "Clone",
+        "Equal",
+        "PartialOrder",
+        "Order",
+        "Hash",
+        // allow-api-name: Go's `fmt.Stringer` method, not the API class.
+        "String",
+    ]
+    .iter()
+    .map(|n| n.to_string())
+    .collect();
+    for f in ir.functions_for_class(&s.name) {
+        if matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut) {
+            taken.insert(sanitize_identifier(&idiomatic_method_name(&f.method_name)));
+            if let Some(rest) = f.method_name.strip_prefix("set_on_") {
+                taken.insert(format!("On{}", super::snake_to_pascal(rest)));
+            }
+        }
+    }
+    taken
+}
+
+/// Getter / setter methods for the public fields of a wrapped struct:
+///
+/// - a scalar reads and writes in place; a string reads as a Go `string`
+///   (the field is not consumed) and writes a fresh native string after
+///   releasing the old one;
+/// - a heap-owning wrapper field reads as a BORROWED VIEW of the field
+///   (`&T{ inner: &self.inner.F, borrowed: true }`), so nested writes
+///   (`opts.WindowState().SetTitle("x")`) reach the parent; the setter
+///   releases the old value and moves the argument in through `Raw()`
+///   (which consumes an owned wrapper and clones a borrowed one);
+/// - any other value reads as a copy (`opts.WindowState().Size().Dpi = 2`
+///   does not compile, so a nested write is never silently lost: change the
+///   copy and pass it to the setter).
+///
+/// A method of the same name wins: the getter is then `Get<Field>()`.
+fn emit_field_accessors(
+    b: &mut CodeBuilder,
+    s: &StructDef,
+    go_name: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    // A Vec / the string type: their fields are the buffer itself.
+    // Callback wrappers / RefAny: plumbing. The capability-only
+    // categories: no by-value fields to reach.
+    let vec_shaped = super::super::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str()))
+        && s.fields.first().is_some_and(|f| f.name == "ptr");
+    if vec_shaped
+        || s.callback_wrapper_info.is_some()
+        || matches!(
+            s.category,
+            TypeCategory::Vec
+                | TypeCategory::String
+                | TypeCategory::RefAny
+                | TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::Boxed
+                | TypeCategory::GenericTemplate
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::CallbackTypedef
+        )
+    {
+        return;
+    }
+    let mut taken = wrapper_method_names(s, ir);
+    for f in &s.fields {
+        let Some(shape) = go_field_shape(f, ir, config) else {
+            continue;
+        };
+        let field = super::types::go_field_name(&f.name);
+        let slot = format!("self.inner.{}", field);
+        // An Option field reads as `(T, bool)` and is written from a nil-able
+        // pointer (nil is None).
+        if let (Some(p), GoFieldShape::Value { delete, clone, .. }) =
+            (go_option(&f.type_name, ir, config), &shape)
+        {
+            let name = f.type_name.trim();
+            let copy = match (delete, clone) {
+                (None, _) => Some(slot.clone()),
+                (Some(_), Some(c)) => Some(format!("{c}(&{slot})")),
+                (Some(_), None) => None,
+            };
+            let get_name = if taken.contains(&field) {
+                format!("Get{}", field)
+            } else {
+                field.clone()
+            };
+            if let Some(copy) = copy {
+                if taken.insert(get_name.clone()) {
+                    b.line(&format!(
+                        "// {} returns a copy of the `{}` field, and false when it is None.",
+                        get_name, f.name
+                    ));
+                    b.line(&format!(
+                        "func (self *{}) {}() ({}, bool) {{",
+                        go_name,
+                        get_name,
+                        p.result()
+                    ));
+                    b.line(&format!("    return azOptTake{}({})", name, copy));
+                    b.line("}");
+                    b.blank();
+                }
+            }
+            let set_name = format!("Set{}", field);
+            if taken.insert(set_name.clone()) {
+                b.line(&format!(
+                    "// {} replaces the `{}` field (nil is None); the old value is released.",
+                    set_name, f.name
+                ));
+                b.line(&format!("func (self *{}) {}(v {}) {{", go_name, set_name, p.param()));
+                b.line(&format!("    nv := azOptIn{}(v)", name));
+                if let Some(d) = delete {
+                    b.line(&format!("    {d}(&{slot})"));
+                }
+                b.line(&format!("    {slot} = nv"));
+                b.line("}");
+                b.blank();
+            }
+            continue;
+        }
+        let (ty, getter, setter, get_doc, set_doc): (
+            String,
+            Option<Vec<String>>,
+            Vec<String>,
+            String,
+            String,
+        ) = match &shape {
+            GoFieldShape::Prim { ty } => (
+                ty.clone(),
+                Some(vec![format!("return {slot}")]),
+                vec![format!("{slot} = v")],
+                format!("the `{}` field.", f.name),
+                format!("replaces the `{}` field.", f.name),
+            ),
+            GoFieldShape::Str { delete } => (
+                "string".to_string(),
+                Some(vec![format!("return GoStr({slot})")]),
+                vec![
+                    "nv := azGoAzString(v)".to_string(),
+                    format!("{delete}(&{slot})"),
+                    format!("{slot} = nv"),
+                ],
+                format!("a copy of the `{}` field's text.", f.name),
+                format!("replaces the `{}` field; the old string is released.", f.name),
+            ),
+            GoFieldShape::Wrapper { go, delete } => (
+                format!("*{}", go),
+                Some(vec![format!("return &{go}{{ inner: &{slot}, borrowed: true }}")]),
+                vec![
+                    "nv := v.Raw()".to_string(),
+                    format!("{delete}(&{slot})"),
+                    format!("{slot} = nv"),
+                ],
+                format!(
+                    "the `{}` field as a borrowed view: changes made through it reach this \
+                     value (valid while this value is open; Clone() it for an independent copy).",
+                    f.name
+                ),
+                format!(
+                    "moves v into the `{}` field; the old value is released and v is consumed \
+                     (a borrowed v is cloned).",
+                    f.name
+                ),
+            ),
+            GoFieldShape::Value { ty, delete, clone } => {
+                let getter = match (delete, clone) {
+                    (None, _) => Some(vec![format!("return {slot}")]),
+                    (Some(_), Some(c)) => Some(vec![format!("return {c}(&{slot})")]),
+                    // Heap-owning without a deep copy: a shallow copy
+                    // would be freed twice.
+                    (Some(_), None) => None,
+                };
+                let mut setter = Vec::new();
+                if let Some(d) = delete {
+                    setter.push(format!("{d}(&{slot})"));
+                }
+                setter.push(format!("{slot} = v"));
+                let get_doc = if delete.is_some() {
+                    format!("a deep copy of the `{}` field.", f.name)
+                } else {
+                    format!(
+                        "a copy of the `{}` field: change it and pass it to Set{}.",
+                        f.name, field
+                    )
+                };
+                let set_doc = if delete.is_some() {
+                    format!("replaces the `{}` field; the old value is released.", f.name)
+                } else {
+                    format!("replaces the `{}` field.", f.name)
+                };
+                (ty.clone(), getter, setter, get_doc, set_doc)
+            }
+        };
+
+        if let Some(body) = getter {
+            let name = if taken.contains(&field) {
+                format!("Get{}", field)
+            } else {
+                field.clone()
+            };
+            if !taken.contains(&name) {
+                taken.insert(name.clone());
+                b.line(&format!("// {} returns {}", name, get_doc));
+                if let Some(d) = &f.doc {
+                    b.line(&format!("// {}", d));
+                }
+                b.line(&format!("func (self *{}) {}() {} {{", go_name, name, ty));
+                for l in &body {
+                    b.line(&format!("    {}", l));
+                }
+                b.line("}");
+                b.blank();
+            }
+        }
+        let set_name = format!("Set{}", field);
+        if !taken.contains(&set_name) {
+            taken.insert(set_name.clone());
+            b.line(&format!("// {} {}", set_name, set_doc));
+            b.line(&format!("func (self *{}) {}(v {}) {{", go_name, set_name, ty));
+            for l in &setter {
+                b.line(&format!("    {}", l));
+            }
+            b.line("}");
+            b.blank();
+        }
     }
 }
 
@@ -389,11 +938,19 @@ fn emit_static_factory(
                 format!("*{}", w)
             } else if let Some((w, _)) = &borrowed_wrapper {
                 format!("*{}", w)
+            } else if let Some((ty, _)) = go_optional_return(rt, ir, config) {
+                ty
             } else {
                 map_return_type(rt, ir)
             }
         },
     };
+    // An Option / Result return: `(T, bool)` / `(T, error)` through its helper.
+    let optional_helper = (!returns_self && owned_wrapper.is_none() && borrowed_wrapper.is_none())
+        .then(|| f.return_type.as_deref())
+        .flatten()
+        .and_then(|rt| go_optional_return(rt, ir, config))
+        .map(|(_, helper)| helper);
 
     let header = if return_ty.is_empty() {
         format!("func {}({}) {{", method_label, params)
@@ -407,7 +964,9 @@ fn emit_static_factory(
     // symbol substitution for callback-wrapper args happens inside it.
     let call = format!("{}({})", f.c_name, call_args);
 
-    if returns_self {
+    if let Some(helper) = &optional_helper {
+        b.line(&format!("return {}({})", helper, call));
+    } else if returns_self {
         if has_delete {
             emit_boxed_return(b, "self", go_name, &call);
         } else {
@@ -484,11 +1043,19 @@ fn emit_instance_method(
                 format!("*{}", w)
             } else if let Some((w, _)) = &borrowed_wrapper {
                 format!("*{}", w)
+            } else if let Some((ty, _)) = go_optional_return(rt, ir, config) {
+                ty
             } else {
                 map_return_type(rt, ir)
             }
         },
     };
+    // An Option / Result return: `(T, bool)` / `(T, error)` through its helper.
+    let optional_helper = (!returns_self && owned_wrapper.is_none() && borrowed_wrapper.is_none())
+        .then(|| f.return_type.as_deref())
+        .flatten()
+        .and_then(|rt| go_optional_return(rt, ir, config))
+        .map(|(_, helper)| helper);
 
     let header = if return_ty.is_empty() {
         format!("func (self *{}) {}({}) {{", go_name, safe_method, params)
@@ -537,7 +1104,15 @@ fn emit_instance_method(
         }
     };
 
-    if returns_self {
+    if let Some(helper) = &optional_helper {
+        if self_by_value {
+            b.line(&format!("raw_ret := {}", call));
+            consume_self(b);
+            b.line(&format!("return {}(raw_ret)", helper));
+        } else {
+            b.line(&format!("return {}({})", helper, call));
+        }
+    } else if returns_self {
         if self_has_delete {
             emit_boxed_return(b, "ret", go_name, &call);
         } else {
@@ -601,11 +1176,12 @@ fn format_params(
         if is_self_arg(&a.name, self_arg) {
             continue;
         }
-        out.push(format!(
-            "{} {}",
-            sanitize_identifier(&a.name),
+        let ty = if host_callback_arg(a, ir).is_some() {
+            "any".to_string()
+        } else {
             map_arg_type(&a.type_name, a.ref_kind, ir, config)
-        ));
+        };
+        out.push(format!("{} {}", sanitize_identifier(&a.name), ty));
     }
     out.join(", ")
 }
@@ -629,7 +1205,13 @@ fn format_call_args(
             continue;
         }
         let var_name = sanitize_identifier(&a.name);
-        if is_refany_type(&a.type_name, ir) {
+        if let Some(kind) = host_callback_arg(a, ir) {
+            out.push(format!("azGo{}Arg({})", kind, var_name));
+        } else if let (ArgRefKind::Owned, true) =
+            (a.ref_kind, go_option(&a.type_name, ir, config).is_some())
+        {
+            out.push(format!("azOptIn{}({})", a.type_name.trim(), var_name));
+        } else if is_refany_type(&a.type_name, ir) {
             // `any` on the Go side. A consuming parameter gets its own
             // reference (a fresh handle, or a clone of a caller's *RefAny);
             // a borrowing one just sees the wrapper's value.
@@ -669,6 +1251,11 @@ pub(crate) fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR
     let base = go_value_type(type_name, ir);
     if is_refany_type(type_name, ir) {
         return "any".to_string();
+    }
+    if ref_kind == ArgRefKind::Owned {
+        if let Some(p) = go_option(type_name, ir, config) {
+            return p.param();
+        }
     }
     if let Some(s) = ir.find_struct(type_name) {
         if should_emit_wrapper(s, ir, config) {
@@ -857,5 +1444,126 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, ir: &CodegenIR, config: &Codegen
                 _ => unreachable!(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::lang_csharp::wrappers::tests::field_fixture_ir;
+    use super::*;
+
+    fn gen() -> String {
+        generate(&field_fixture_ir(), &CodegenConfig::c_header()).expect("wrappers.go")
+    }
+
+    /// The text of `func (self *<recv>) <name>(` up to its closing brace.
+    fn method(out: &str, recv: &str, name: &str) -> String {
+        let head = format!("func (self *{}) {}(", recv, name);
+        let start = out.find(&head).unwrap_or_else(|| panic!("no {recv}.{name}:\n{out}"));
+        let rest = &out[start..];
+        let end = rest.find("\n}\n").map(|e| e + 3).unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    fn before(hay: &str, a: &str, b: &str) -> bool {
+        match (hay.find(a), hay.find(b)) {
+            (Some(x), Some(y)) => x < y,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn a_string_field_reads_as_a_go_string_without_consuming_it() {
+        let out = gen();
+        let get = method(&out, "FullWindowState", "Title");
+        assert!(get.contains("func (self *FullWindowState) Title() string {"), "{get}");
+        assert!(get.contains("return GoStr(self.inner.Title)"), "{get}");
+    }
+
+    #[test]
+    fn a_string_setter_frees_the_old_string_before_storing_the_new_one() {
+        let out = gen();
+        let set = method(&out, "FullWindowState", "SetTitle");
+        assert!(set.contains("func (self *FullWindowState) SetTitle(v string) {"), "{set}");
+        assert!(set.contains("nv := azGoAzString(v)"), "{set}");
+        assert!(
+            before(&set, "AzString_delete(&self.inner.Title)", "self.inner.Title = nv"),
+            "{set}"
+        );
+    }
+
+    #[test]
+    fn a_heap_owning_field_is_a_borrowed_view_so_nested_writes_reach_the_parent() {
+        let out = gen();
+        let get = method(&out, "WindowCreateOptions", "WindowState");
+        assert!(
+            get.contains("return &FullWindowState{ inner: &self.inner.WindowState, borrowed: true }"),
+            "{get}"
+        );
+        let set = method(&out, "WindowCreateOptions", "SetWindowState");
+        assert!(set.contains("SetWindowState(v *FullWindowState) {"), "{set}");
+        // Raw() consumes an owned wrapper and clones a borrowed one.
+        assert!(set.contains("nv := v.Raw()"), "{set}");
+        assert!(
+            before(
+                &set,
+                "AzFullWindowState_delete(&self.inner.WindowState)",
+                "self.inner.WindowState = nv"
+            ),
+            "{set}"
+        );
+    }
+
+    #[test]
+    fn scalar_and_pod_fields_are_plain_copies() {
+        let out = gen();
+        let checked = method(&out, "CheckBoxState", "Checked");
+        assert!(checked.contains("Checked() bool {"), "{checked}");
+        assert!(checked.contains("return self.inner.Checked"), "{checked}");
+        let set = method(&out, "CheckBoxState", "SetChecked");
+        assert!(set.contains("self.inner.Checked = v"), "{set}");
+        let size = method(&out, "FullWindowState", "Size");
+        assert!(size.contains("Size() AzWindowSize {"), "{size}");
+        let set_size = method(&out, "FullWindowState", "SetSize");
+        assert!(set_size.contains("self.inner.Size = v"), "{set_size}");
+        assert!(!set_size.contains("_delete"), "{set_size}");
+    }
+
+    #[test]
+    fn a_method_of_the_same_name_wins_but_the_field_stays_writable() {
+        let out = gen();
+        // Label has a `text()` method: the getter steps aside, the setter stays.
+        assert!(out.contains("func (self *Label) Text() *String {"), "{out}");
+        assert!(out.contains("func (self *Label) GetText() string {"), "{out}");
+        assert!(out.contains("func (self *Label) SetText(v string) {"), "{out}");
+        // TextInputState's `get_text` does not collide with `Text`.
+        assert!(out.contains("func (self *TextInputState) GetText() *U32Vec {"), "{out}");
+        assert!(out.contains("func (self *TextInputState) Text() *U32Vec {"), "{out}");
+        assert!(out.contains("func (self *TextInputState) SetText(v *U32Vec) {"), "{out}");
+    }
+
+    #[test]
+    fn inner_hands_out_the_value_without_taking_ownership() {
+        let out = gen();
+        let owned = method(&out, "FullWindowState", "Inner");
+        assert!(owned.contains("Inner() *AzFullWindowState {"), "{owned}");
+        assert!(owned.contains("return self.inner"), "{owned}");
+        assert!(!owned.contains("SetFinalizer"), "{owned}");
+        let pod = method(&out, "CheckBoxState", "Inner");
+        assert!(pod.contains("return &self.inner"), "{pod}");
+    }
+
+    #[test]
+    fn vec_and_string_wrappers_get_no_field_accessors() {
+        let out = gen();
+        assert!(!out.contains("func (self *U8Vec) Len("), "{out}");
+        assert!(!out.contains("func (self *String) Vec("), "{out}");
+    }
+
+    #[test]
+    fn the_string_helper_builds_a_fresh_native_string() {
+        let out = super::super::managed::generate(&field_fixture_ir(), &CodegenConfig::c_header())
+            .expect("callbacks.go");
+        assert!(out.contains("func azGoAzString(s string) AzString {"), "{out}");
     }
 }

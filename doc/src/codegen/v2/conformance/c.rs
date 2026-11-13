@@ -14,7 +14,7 @@
 
 use std::fmt::Write as _;
 
-use super::{CallbackCase, ConformancePlan, DeriveCase, Recipe, VariantCase, VecCase};
+use super::{CallbackCase, ConformancePlan, DeriveCase, PayloadCheck, Recipe, VariantCase, VecCase};
 
 /// The C spelling of a plan type.
 fn c_type(ty: &str) -> String {
@@ -103,12 +103,50 @@ fn derive_case(o: &mut String, d: &DeriveCase) {
     let _ = writeln!(o, "}}\n");
 }
 
+/// A distinctive non-zero value of primitive `ty`: a payload read at a
+/// wrong offset lands on padding or another field, which a zero could match.
+fn distinct(ty: &str) -> String {
+    match ty {
+        "bool" => "true".into(),
+        "f32" => "1.5f".into(),
+        "f64" => "1.5".into(),
+        "u8" | "i8" | "char" => format!("({})0x5A", c_type(ty)),
+        "u16" | "i16" => format!("({})0x5A5A", c_type(ty)),
+        "u32" | "i32" => format!("({})0x5A5A5A5A", c_type(ty)),
+        _ => format!("({})0x5A5A5A5A5A5A5A5AULL", c_type(ty)),
+    }
+}
+
 fn variant_case(o: &mut String, v: &VariantCase, n: usize) {
     let t = c_type(&v.ty);
     let _ = writeln!(o, "static void check_variant_{n}(void) {{ /* {}::{} */", v.ty, v.variant);
-    let args: Vec<String> = v.args.iter().map(make).collect();
+    let args: Vec<String> = match (&v.payload_check, v.args.as_slice()) {
+        (Some(PayloadCheck::Primitive { ty }), [_]) => vec![distinct(ty)],
+        _ => v.args.iter().map(make).collect(),
+    };
     let _ = writeln!(o, "    {t} v = {}({});", v.c_fn, args.join(", "));
     let _ = writeln!(o, "    CHECK(1, {});", label(&format!("{}::{} constructs", v.ty, v.variant)));
+    // Read the payload back through azul.h's union: it must be where the
+    // header says (`uint8_t _pad0[N]` after the tag, X3).
+    let read_back = label(&format!(
+        "{}::{}: the payload does not read back through azul.h's union",
+        v.ty, v.variant
+    ));
+    match (&v.payload_check, v.args.as_slice()) {
+        (Some(PayloadCheck::Primitive { ty }), [_]) => {
+            let _ = writeln!(o, "    CHECK(v.{}.payload == {}, {read_back});", v.variant, distinct(ty));
+        }
+        (Some(PayloadCheck::PartialEq { eq, delete }), [r]) => {
+            let _ = writeln!(o, "    {{");
+            let _ = writeln!(o, "        {} expected = {};", c_type(r.ty()), make(r));
+            let _ = writeln!(o, "        CHECK({eq}(&v.{}.payload, &expected), {read_back});", v.variant);
+            if let Some(del) = delete {
+                let _ = writeln!(o, "        {del}(&expected);");
+            }
+            let _ = writeln!(o, "    }}");
+        }
+        _ => {}
+    }
     if let Some(del) = &v.delete {
         let _ = writeln!(o, "    {del}(&v);");
     } else {

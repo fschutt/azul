@@ -62,32 +62,55 @@ fn aaudio() -> Option<&'static AAudioFns> {
         .map(|(_, f)| f)
 }
 
-/// Open a started PCM_FLOAT stream in `direction`. Null on any failure
-/// (including AAudio being unavailable on this Android version).
-unsafe fn open_stream(rate: u32, channels: u16, direction: c_int) -> *mut AAudioStream {
-    let f = match aaudio() {
-        Some(f) => f,
-        None => return ptr::null_mut(),
+/// Open a started PCM_FLOAT stream in `direction`, or a readable reason why
+/// not (including AAudio being unavailable on this Android version).
+unsafe fn open_stream(
+    rate: u32,
+    channels: u16,
+    direction: c_int,
+) -> Result<*mut AAudioStream, String> {
+    let what = if direction == AAUDIO_DIRECTION_OUTPUT {
+        "output"
+    } else {
+        "input"
     };
+    let f = aaudio().ok_or_else(|| {
+        String::from(
+            "AAudio (libaaudio.so) is not available: audio needs Android 8.0 (API 26) or newer",
+        )
+    })?;
     let mut builder: *mut AAudioStreamBuilder = ptr::null_mut();
-    if (f.create_builder)(&mut builder) < 0 || builder.is_null() {
-        return ptr::null_mut();
+    let rc = (f.create_builder)(&mut builder);
+    if rc < 0 || builder.is_null() {
+        return Err(format!(
+            "AAudio could not create a stream builder (rc={})",
+            rc
+        ));
     }
+    let rate = if rate == 0 { 48_000 } else { rate };
+    let channels = channels.max(1);
     (f.set_direction)(builder, direction);
     (f.set_format)(builder, AAUDIO_FORMAT_PCM_FLOAT);
-    (f.set_sample_rate)(builder, if rate == 0 { 48_000 } else { rate } as c_int);
-    (f.set_channel_count)(builder, channels.max(1) as c_int);
+    (f.set_sample_rate)(builder, rate as c_int);
+    (f.set_channel_count)(builder, channels as c_int);
     let mut stream: *mut AAudioStream = ptr::null_mut();
     let r = (f.open_stream)(builder, &mut stream);
     (f.delete_builder)(builder);
     if r < 0 || stream.is_null() {
-        return ptr::null_mut();
+        return Err(format!(
+            "no AAudio {} device took {} Hz x {} f32 (AAudioStreamBuilder_openStream rc={})",
+            what, rate, channels, r
+        ));
     }
-    if (f.request_start)(stream) < 0 {
+    let rc = (f.request_start)(stream);
+    if rc < 0 {
         (f.close)(stream);
-        return ptr::null_mut();
+        return Err(format!(
+            "the AAudio {} stream did not start (rc={})",
+            what, rc
+        ));
     }
-    stream
+    Ok(stream)
 }
 
 // --- Microphone capture (seam vtable) ---
@@ -98,10 +121,10 @@ struct AAudioMic {
 }
 
 pub fn mic_open(rate: u32, channels: u16) -> u64 {
-    let stream = unsafe { open_stream(rate, channels, AAUDIO_DIRECTION_INPUT) };
-    if stream.is_null() {
-        return 0;
-    }
+    let stream = match unsafe { open_stream(rate, channels, AAUDIO_DIRECTION_INPUT) } {
+        Ok(stream) => stream,
+        Err(_) => return 0,
+    };
     Box::into_raw(Box::new(AAudioMic {
         stream,
         channels: channels.max(1),
@@ -161,31 +184,35 @@ unsafe impl Send for AAudioSink {}
 unsafe impl Sync for AAudioSink {}
 
 impl AAudioSink {
-    pub fn open(rate: u32, channels: u16) -> Option<AAudioSink> {
-        let stream = unsafe { open_stream(rate, channels, AAUDIO_DIRECTION_OUTPUT) };
-        if stream.is_null() {
-            return None;
-        }
-        Some(AAudioSink {
+    /// Open a started output stream for `rate` x `channels` (f32
+    /// interleaved), or a readable reason why not.
+    pub fn open(rate: u32, channels: u16) -> Result<AAudioSink, String> {
+        let stream = unsafe { open_stream(rate, channels, AAUDIO_DIRECTION_OUTPUT) }?;
+        Ok(AAudioSink {
             stream,
             channels: channels.max(1),
         })
     }
+}
 
-    pub fn play(&self, samples: &[f32]) {
+impl super::OutputDevice for AAudioSink {
+    /// Write interleaved f32 `samples` (blocking up to `TIMEOUT_NS`). Taken
+    /// when AAudio accepted frames.
+    fn play(&self, samples: &[f32]) -> bool {
         let frames = (samples.len() / self.channels.max(1) as usize) as c_int;
         if frames <= 0 {
-            return;
+            return false;
         }
-        if let Some(f) = aaudio() {
-            unsafe {
+        match aaudio() {
+            Some(f) => unsafe {
                 (f.write)(
                     self.stream,
                     samples.as_ptr() as *const c_void,
                     frames,
                     TIMEOUT_NS,
-                );
-            }
+                ) > 0
+            },
+            None => false,
         }
     }
 }

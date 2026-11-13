@@ -1,0 +1,70 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test (Tables): collapsing borders with different widths</title>
+<style>
+table { border-collapse: collapse; background: green }
+td { padding: 0; background: red; }
+td div { height: 25px; background: green; }
+</style>
+</head>
+<body><p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+
+<div style="float: left; min-width: 200px; background: red">
+  
+  <table>
+    <tbody><tr>
+      <td style="border-left: 150px solid green">
+        <div></div>
+      </td>
+    </tr>
+    <tr>
+      <td style="border-right: 100px solid green">
+        <div></div>
+      </td>
+    </tr>
+  </tbody></table>
+
+  
+  <table>
+    <tbody><tr>
+      <td style="border-left: 150px solid green">
+        <div style="width: 0px"></div>
+      </td>
+    </tr>
+    <tr>
+      <td style="border-right: 100px solid green">
+        <div style="width: 25px"></div>
+      </td>
+    </tr>
+  </tbody></table>
+
+  
+  <table>
+    <tbody><tr>
+      <td style="border-right: 100px solid green">
+        <div></div>
+      </td>
+    </tr>
+    <tr>
+      <td style="border-left: 150px solid green">
+        <div></div>
+      </td>
+    </tr>
+  </tbody></table>
+
+  
+  <table>
+    <tbody><tr>
+      <td style="border-left: 150px solid green">
+        <div style="width: 0px"></div>
+      </td>
+    </tr>
+    <tr>
+      <td style="border-right: 100px solid green">
+        <div style="width: 25px"></div>
+      </td>
+    </tr>
+  </tbody></table>
+</div>
+</body>
+</html>

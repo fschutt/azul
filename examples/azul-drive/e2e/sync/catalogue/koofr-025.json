@@ -1,0 +1,49 @@
+[
+  {
+    "name": "new-OS camera formats (HEIC, ProRAW DNG, HEVC video) are stored and arrive byte for byte, whatever a preview could make of them",
+    "description": "KOOFR-025 (Koofr): iOS 18 HEIC uploads had no previews, an iOS update broke the photo picker. The engine's part: rule M1/I1 (the bytes are the file; nothing is transcoded or dropped) and O1 (a file that cannot be previewed is still synced). sync-chaos mobile-camera-upload (the mobile queue itself is pending there).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/IMG_0001.HEIC", "hex": "000000186674797068656963000000006d696631686569636d696166000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f0a1b2c3d4e5f" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/IMG_0002.DNG", "size": 300000, "seed": 25 },
+      { "op": "drive_write", "device": "a", "path": "DCIM/IMG_0003.MOV", "size": 500000, "seed": 26 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 3 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "assert_response", "path": "result.down", "equals": 3 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0001.HEIC", "same_as": "{root:a}/DCIM/IMG_0001.HEIC" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0002.DNG", "same_as": "{root:a}/DCIM/IMG_0002.DNG" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0003.MOV", "same_as": "{root:a}/DCIM/IMG_0003.MOV" },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_problems", "device": "b" },
+      { "op": "assert_response", "path": "result.problems", "len": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a folder shared with someone who has no account yet: the invitation works and the recipient sees the shared files",
+    "description": "KOOFR-025 (Koofr): invitations to non-users carried invalid activation tokens for two weeks, so invitees could not join shared folders. Rule M1 (shares are wrapped for every recipient in the same commit). sync-chaos share-links-and-revocation (pending there).",
+    "pending": "account-to-account folder shares are not built (AzDrive's Share makes links only). The engine needs: a folder key per shared folder in the drive index, the files' keys wrapped by it in the same commit as each file, the folder key wrapped for each recipient's account public key (from the token server, confirmed by the owner's fresh authentication), revocation by a new folder key, and a participant's view of only the shared folder. Commands, once it is: drive_share {device, path, to} (to an account that does not exist yet: the answer is the invitation), drive_accept_share {device, from, path} (a new account joins through it and becomes the device)",
+    "expect": "fail",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "shared/plan.txt", "text": "the shared plan" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_share", "device": "a", "path": "shared", "to": "invitee" },
+      { "op": "drive_accept_share", "device": "b", "from": "a", "path": "shared" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "plan.txt", "text": "the shared plan" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

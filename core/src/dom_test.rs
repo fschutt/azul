@@ -294,7 +294,7 @@ mod autotest_generated {
             NodeType::Td,
             NodeType::Svg,
             NodeType::SvgPath,
-            NodeType::SvgText("svg text".into()),
+            NodeType::SvgText,
             NodeType::SvgImage(ImageRef::null_image(
                 1,
                 1,
@@ -315,6 +315,7 @@ mod autotest_generated {
             NodeType::VirtualView,
             NodeType::Icon(BoxOrStatic::heap(AzString::from("home"))),
             NodeType::GeolocationProbe(crate::geolocation::GeolocationProbeConfig::default()),
+            NodeType::WebView(crate::webview::WebViewConfig::persistent()),
         ]
     }
 
@@ -2401,5 +2402,262 @@ mod autotest_generated {
         // The marker is still THERE - excluded from identity, not dropped.
         assert_eq!(a.get_marker().map(|m| m.as_str()), Some("uuid-of-frame-1"));
         assert_eq!(none.get_marker(), None);
+    }
+}
+
+#[cfg(test)]
+mod l10n_attribute_tests {
+    use super::*;
+
+    #[test]
+    fn a_word_that_float_parsing_accepts_stays_a_string_argument() {
+        // `f32::from_str` accepts "nan", "inf" and "infinity" in any case,
+        // and exponent notation. `data-l10n-name="Nan"` is a person's name,
+        // not a number - as a float it renders as "NaN".
+        let args = FluentArgKVVec::from_l10n_attributes([
+            ("data-l10n-name", "Nan"),
+            ("data-l10n-mood", "Infinity"),
+            ("data-l10n-code", "1e3"),
+            ("data-l10n-price", "19.99"),
+            ("data-l10n-count", "42"),
+        ]);
+        let args = args.as_slice();
+        assert_eq!(args.len(), 5);
+        assert_eq!(args[0].value, FluentArg::String("Nan".into()));
+        assert_eq!(args[1].value, FluentArg::String("Infinity".into()));
+        assert_eq!(args[2].value, FluentArg::String("1e3".into()));
+        assert_eq!(args[3].value, FluentArg::F32(19.99));
+        assert_eq!(args[4].value, FluentArg::I32(42));
+    }
+}
+
+#[cfg(test)]
+mod attribute_getter_tests {
+    use super::*;
+
+    fn text(v: Option<AzString>) -> Option<String> {
+        v.map(|v| v.as_str().to_string())
+    }
+
+    /// A node's attributes read back by their HTML name: AzMail kept a
+    /// link's address in a CSS class because nothing read the `href` back,
+    /// and lost the address of every pasted link (DEDUP_EDITORS D4,
+    /// DEDUP_WIDGETS_API F14).
+    #[test]
+    fn a_nodes_attributes_read_back_by_their_html_name() {
+        let link = NodeData::create_a_no_a11y(AzString::from("mailto:ann@example.com"));
+        assert_eq!(text(link.get_attribute("href")), Some(String::from("mailto:ann@example.com")));
+        assert_eq!(link.get_attribute("alt"), None);
+        assert_eq!(link.get_attributes().len(), 1);
+
+        let mut node = NodeData::create_div();
+        node.set_attributes(
+            vec![
+                AttributeType::Data(AttributeNameValue {
+                    attr_name: AzString::from("data-id"),
+                    value: AzString::from("7"),
+                }),
+                AttributeType::Disabled,
+                AttributeType::CheckedFalse,
+                AttributeType::ColSpan(2),
+            ]
+            .into(),
+        );
+        assert_eq!(text(node.get_attribute("data-id")), Some(String::from("7")));
+        assert_eq!(text(node.get_attribute("disabled")), Some(String::from("true")));
+        assert_eq!(text(node.get_attribute("checked")), Some(String::from("false")));
+        assert_eq!(text(node.get_attribute("colspan")), Some(String::from("2")));
+        assert_eq!(node.get_attribute("id"), None, "data-id is not id");
+        assert_eq!(NodeData::create_div().get_attributes().len(), 0);
+    }
+
+    /// A text node's text, read without dereferencing its payload by hand
+    /// (AzWriter, AzNotes and AzMail each carried an `unsafe` `box_str`,
+    /// DEDUP_EDITORS D3 / B9, DEDUP_WIDGETS_API F14).
+    #[test]
+    fn a_text_nodes_text_reads_back_and_other_nodes_have_none() {
+        let text = Dom::create_text_do_not_use_without_block_level_wrapper("Hello");
+        assert_eq!(
+            text.root.get_node_type().get_text().map(|t| t.as_str().to_string()),
+            Some(String::from("Hello"))
+        );
+        assert_eq!(NodeType::Div.get_text(), None);
+        assert_eq!(NodeType::Br.get_text(), None);
+    }
+}
+
+#[cfg(test)]
+mod webview_node_tests {
+    use super::*;
+    use crate::webview::{WebViewConfig, WebViewStorage};
+
+    /// The page a web view shows is its `src` attribute, as on an iframe:
+    /// a changed `src` on the same node is a navigation of the same view,
+    /// not a new node type.
+    #[test]
+    fn create_webview_names_its_page_in_the_src_attribute() {
+        let dom = Dom::create_webview(AzString::from("https://www.dropbox.com/oauth2/authorize"));
+        assert!(
+            matches!(
+                dom.root.get_node_type(),
+                NodeType::WebView(cfg) if cfg.storage == WebViewStorage::Ephemeral
+            ),
+            "a web view keeps nothing past the app unless it asks: {:?}",
+            dom.root.get_node_type()
+        );
+        assert_eq!(
+            dom.root.get_attribute("src").map(|s| s.as_str().to_string()),
+            Some(String::from("https://www.dropbox.com/oauth2/authorize"))
+        );
+        assert!(
+            dom.children.as_ref().is_empty(),
+            "a web view has no content of its own"
+        );
+        assert_eq!(
+            NodeData::create_webview(AzString::from("https://example.com/"))
+                .get_attribute("src")
+                .map(|s| s.as_str().to_string()),
+            Some(String::from("https://example.com/"))
+        );
+    }
+
+    /// CSS reaches a web view as `webview`, and the node type survives the
+    /// copies the engine makes of it.
+    #[test]
+    fn a_webview_is_the_webview_css_tag_and_copies_with_its_config() {
+        let persistent = NodeType::WebView(WebViewConfig {
+            storage: WebViewStorage::Persistent,
+        });
+        assert_eq!(persistent.get_path(), NodeTypeTag::WebView);
+        assert_eq!(persistent.to_library_owned_nodetype(), persistent);
+        assert_eq!(NodeTypeTag::from_str("webview"), Ok(NodeTypeTag::WebView));
+        assert_eq!(format!("{}", NodeTypeTag::WebView), "webview");
+        assert!(
+            persistent.format().is_some_and(|s| s.contains("webview")),
+            "the debug label names it: {:?}",
+            persistent.format()
+        );
+    }
+
+    /// A web view takes the pointer and the keyboard as an iframe does:
+    /// hit-testable and focusable (`tabindex` auto) without a callback of
+    /// its own, so a composited page can be clicked into and typed into.
+    #[test]
+    fn a_webview_is_hit_testable_and_focusable_without_a_callback() {
+        let mut dom = Dom::create_body().with_child(Dom::create_webview(AzString::from(
+            "https://example.com/",
+        )));
+        let styled = crate::styled_dom::StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mapping = styled
+            .tag_ids_to_node_ids
+            .as_ref()
+            .iter()
+            .find(|m| m.node_id.into_crate_internal() == Some(crate::id::NodeId::new(1)))
+            .expect("the web view has a hit-test tag");
+        assert_eq!(
+            mapping.tab_index,
+            crate::dom::OptionTabIndex::Some(crate::dom::TabIndex::Auto)
+        );
+    }
+}
+
+/// Every text a node is given holds its characters as the input rule has them
+/// (`azul_css::input_chars`): NUL, the C0 controls but tab and line feed, U+FFFE and U+FFFF
+/// become U+FFFD, a form feed a space, CR LF and a lone CR a line feed; the other
+/// noncharacters stay.
+#[cfg(test)]
+mod input_rule_tests {
+    use super::*;
+
+    const RAW: &str = "a\u{0}b\u{1}c\u{FFFE}38020\u{FFFF}d\r\ne\rf\u{C}g\u{1FFFE}h\u{FDD0}";
+    const RULED: &str = "a\u{FFFD}b\u{FFFD}c\u{FFFD}38020\u{FFFD}d\ne\nf g\u{1FFFE}h\u{FDD0}";
+
+    fn text_of(node: &NodeData) -> Option<&str> {
+        match node.get_node_type() {
+            NodeType::Text(text) => Some(text.as_ref().as_str()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_text_node_holds_its_text_as_the_input_rule_has_it() {
+        let node = NodeData::create_text_do_not_use_without_block_level_wrapper(RAW);
+        assert_eq!(text_of(&node), Some(RULED));
+        let dom = Dom::create_text_do_not_use_without_block_level_wrapper(RAW);
+        assert_eq!(text_of(&dom.root), Some(RULED));
+        let paragraph = Dom::create_p_with_text(RAW);
+        assert_eq!(text_of(&paragraph.children.as_ref()[0].root), Some(RULED));
+    }
+
+    #[test]
+    fn a_text_set_on_a_node_holds_its_text_as_the_input_rule_has_it() {
+        let mut node = NodeData::create_div();
+        node.set_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from(RAW))));
+        assert_eq!(text_of(&node), Some(RULED));
+        let built = NodeData::create_div()
+            .with_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from(RAW))));
+        assert_eq!(text_of(&built), Some(RULED));
+    }
+
+    #[test]
+    fn a_text_the_rule_leaves_alone_is_the_text_it_was_given() {
+        let plain = "plain caf\u{E9} \u{65E5}\u{672C} \u{1F642}\ttab\nline \u{7F}\u{85}";
+        let node = NodeData::create_text_do_not_use_without_block_level_wrapper(plain);
+        assert_eq!(text_of(&node), Some(plain));
+    }
+
+    #[test]
+    fn a_translation_key_stays_one_when_the_rule_changes_it() {
+        let node =
+            NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::tr("hi\u{0}"));
+        let NodeType::Text(text) = node.get_node_type() else {
+            panic!("a text node");
+        };
+        assert_eq!(text.as_ref().as_str(), "hi\u{FFFD}");
+        assert!(text.as_ref().is_localizable(), "the key lost its mark");
+    }
+
+    #[test]
+    fn a_text_attribute_holds_its_text_as_the_input_rule_has_it() {
+        let dom = Dom::create_div()
+            .with_attribute(AttributeType::Title(RAW.into()))
+            .with_attribute(AttributeType::Alt(RAW.into()))
+            .with_attribute(AttributeType::Placeholder(RAW.into()))
+            .with_attribute(AttributeType::AriaLabel(RAW.into()))
+            .with_attribute(AttributeType::Value(RAW.into()));
+        let texts: Vec<&str> = dom
+            .root
+            .attributes()
+            .as_ref()
+            .iter()
+            .filter_map(|attribute| match attribute {
+                AttributeType::Title(s)
+                | AttributeType::Alt(s)
+                | AttributeType::Placeholder(s)
+                | AttributeType::AriaLabel(s)
+                | AttributeType::Value(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, vec![RULED; 5]);
+    }
+
+    #[test]
+    fn the_texts_assistive_technology_speaks_hold_their_text_as_the_input_rule_has_it() {
+        let mut node = NodeData::create_div();
+        node.set_accessibility_info(AccessibilityInfo {
+            accessibility_name: OptionString::Some(RAW.into()),
+            accessibility_value: OptionString::Some(RAW.into()),
+            description: OptionString::Some(RAW.into()),
+            ..AccessibilityInfo::default()
+        });
+        let info = node.get_accessibility_info().expect("the node has its info");
+        for text in [
+            &info.accessibility_name,
+            &info.accessibility_value,
+            &info.description,
+        ] {
+            assert_eq!(text.as_option().map(AzString::as_str), Some(RULED));
+        }
     }
 }

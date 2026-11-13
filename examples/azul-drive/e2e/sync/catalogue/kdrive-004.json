@@ -1,0 +1,55 @@
+[
+  {
+    "name": "caf\u00e9 in NFC and in NFD side by side on the drive reach a disk that folds them: one comes down, the other is listed, the passes settle",
+    "description": "KDRIVE-004 (kDrive): two siblings equal after normalization caused an infinite sync loop. Rules P2, P1 and D4: the one committed first comes down, the other is listed (name-collision) and stays on the drive; nothing is overwritten or trashed, and the next passes change nothing. sync-chaos port-nfc-nfd, port-linux-nfd-distinct.",
+    "only_on": ["macos", "windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "caf*", "count": 1 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "cafe\u0301.txt" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "loop-frozen", "absent": true },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "on a Linux disk both spellings are two files: both go up, both come down, no loop",
+    "description": "KDRIVE-004 (kDrive), Linux: a disk that keeps NFC and NFD apart. Rules P2 and D4: both are kept, nothing is lost or trashed, the passes settle. sync-chaos port-linux-nfd-distinct.",
+    "only_on": ["linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_write", "device": "a", "path": "cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 2 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 2 },
+      { "op": "drive_check", "check": "kept_live", "texts": ["composed", "decomposed"] },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

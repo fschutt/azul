@@ -1,0 +1,63 @@
+[
+  {
+    "name": "Report.pdf renamed to report.pdf: one file under the new spelling on every side, then quiet",
+    "description": "KDRIVE-005 (kDrive): a case-only rename caused a sync loop (fixed in 2024 and again in 2026). Rules P1 and A3: a case-only rename is a rename on both sides; nothing is trashed, the passes after it change nothing. sync-chaos merge-case-only-rename.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Report.pdf", "text": "the report" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rename", "device": "a", "from": "Report.pdf", "to": "report.pdf" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "report.pdf", "text": "the report" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "Report.pdf", "absent": true },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "report.pdf", "count": 1 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "Report.pdf", "count": 0 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_rename", "device": "b", "from": "report.pdf", "to": "REPORT.pdf" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "REPORT.pdf", "count": 1 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "A.txt and a.txt made on the drive reach a disk that ignores case: one comes down, the other is listed, no loop",
+    "description": "KDRIVE-005 (kDrive): a remote item renamed to the case variant of a sibling had to be removed by hand. Rules P1 and O1: the one committed first comes down, the other stays on the drive and is listed (name-collision), nothing is lost, the passes settle. sync-chaos port-case-collision-remote.",
+    "only_on": ["macos", "windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "A.txt", "text": "upper" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "a.txt", "text": "lower" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "A.txt", "text": "upper" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "?.txt", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "a.txt" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "a.txt", "text": "lower" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "A.txt", "text": "upper" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

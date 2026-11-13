@@ -1,0 +1,26 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Inside list marker and normal text render identically: circle</title>
+<style>
+/*
+    Avoid using list-style:circle directly, because the spec allows the
+    rendering to deviate from the element's font.
+    https://drafts.csswg.org/css-counter-styles-3/#simple-symbolic
+*/
+@counter-style my-circle {
+    system: extends circle;
+}
+* {
+    padding: 0;
+    margin: 0;
+}
+ol {
+    list-style: my-circle inside;
+}
+</style>
+</head>
+<body><ol>
+  <li>Filler Text</li>
+</ol>
+</body>
+</html>

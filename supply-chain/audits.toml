@@ -1,4 +1,86 @@
 
 # cargo-vet audits file
 
-[audits]
+[[audits.clipboard-win]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "5.4.1 -> 5.4.3"
+notes = "Fixes the out-of-bounds read in raw::get_html (the reason 5.2.0-5.4.1 were yanked): the fragment is now taken with a bounds-checked slice instead of an unchecked ptr::copy_nonoverlapping. The open retry loop sleeps 5 ms instead of 0. Otherwise docs, a clippy attribute and a test; no new unsafe, dependencies or build script."
+
+[[audits.crypto-bigint]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.7.6 -> 0.7.10"
+notes = "0.7.0-0.7.8 were yanked for a semver break, not a vulnerability: 0.7.9 fixes the blanket Mul impl for NonZero<T> (breaking). Also: invert_odd_mod(_vartime) truncation and mul_mod_special boundary fixes, PrimeParams::new_vartime uses shr_vartime, Montgomery multiplication carry propagation reworked, and the limb sub/borrow paths use word-sized borrow masks (internal primitives instead of ctutils Choice per limb). No new unsafe, no I/O, env, FFI or build script; ctutils moves to 0.4.6; the rest is tests."
+
+[[audits.ctutils]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.4.2 -> 0.4.4"
+notes = "RUSTSEC-2026-0385 fix: Choice mask generation goes through to_u8 (black-boxed), u128 comparisons on 32-bit targets use half-width u64 predicates, ct_lt/ct_gt for u128 use them. MSRV 1.87 casts and const fns, deprecations, tests. The crate still forbids unsafe code; subtle requirement moves to 2.6 (the tree has 2.6.1)."
+
+[[audits.ctutils]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.4.4 -> 0.4.5"
+notes = "Hardening for Thumb-1 (ARM without pointer-width atomics): Choice::and and the u32/u64 comparison predicates black-box their bit there; the bitle/bitlt/bitnz macros move unchanged into a new public primitives module that adds borrowing_sub, constant-time leading/trailing zero counts (native instructions where the target has them, a fixed-stage search otherwise) and overflowing_add (u128 split into halves on riscv32). Other targets lower as before. No new dependencies; the crate still forbids unsafe code; the rest is tests."
+
+[[audits.ctutils]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.4.5 -> 0.4.6"
+notes = "Adds primitives::borrowing_sub_mask_u32/_u64 (borrow passed as a word-sized mask, MSB significant) by factoring borrowing_sub into a shared inner fn; the borrow bit stays black-boxed before it becomes a mask or a Choice. No new dependencies; the crate still forbids unsafe code; the rest is tests."
+
+[[audits.itertools]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.14.0 -> 0.15.0"
+notes = "Breaking API release: Position becomes a struct, all_equal_value gets its own error type, *_with_hasher adaptors, strip_prefix(_by), array_windows / circular_array_windows and array_combinations_with_replacement, tuple_windows and tuple_combinations deprecated, Debug for the remaining public types, PeekingNext for vec::IntoIter, a PadUsing::next_back fix. The unsafe blocks (either_or_both.rs, next_array.rs) are unchanged; no build script, no I/O, env or FFI; the rest is tests and clippy fixes."
+
+[[audits.rand]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.10.2 -> 0.10.3"
+notes = "Bug fixes in safe code: WeightedIndex returns Error::Overflow instead of panicking on an infinite float sum, Uniform::new_inclusive accepts large finite float ranges (the scale is derived from the range and checked for finiteness), a deserialized Uniform<char> or UniformInt with a bad range no longer panics or wraps when sampled, WeightedIndex::weights() reports exact lengths. No unsafe, no new dependencies; the rest is docs and tests."
+
+[[audits.rustls-webpki]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.103.15 -> 0.103.16"
+notes = "RUSTSEC-2026-0382 fix: chain building rejects any path whose certificate or trust anchor has one of eight distrusted emSign SPKIs (bundled DER data files) with a new Error::CertDistrusted. No unsafe, no new dependencies, rest is tests."
+
+[[audits.tokio]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "1.53.1 -> 1.53.3"
+notes = "RUSTSEC-2026-0386: AsyncFd::new/with_interest/try_* are deprecated in favour of the unsafe register/register_with_interest that state the I/O-safety contract (azul calls none of them). Also: wakers woken or dropped outside locks (semaphore close, DuplexStream, broadcast, JoinSet idle set), mpsc block index wraparound, MAX_PERMITS check, buffered seek overflow, paused-time unpark on current_thread, timer expiry at shutdown, io_uring op lifetime (tokio_unstable only). Added unsafe is limited to the new register API, tokio_unstable io_uring and taskdump paths, and tests. No new dependencies or build script."
+
+[[audits.webpki-root-certs]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "1.0.9 -> 1.0.10"
+notes = "RUSTSEC-2026-0383 fix: the emSign ECC Root CA - G3 certificate is removed from the bundled DER list (121 -> 120); data only, MSRV 1.71."
+
+[[audits.webpki-roots]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "1.0.9 -> 1.0.10"
+notes = "RUSTSEC-2026-0381 fix: the emSign trust anchors are removed from the bundled root list; data only, MSRV 1.71."
+
+[[audits.zstd]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "0.13.3 -> 0.14.3"
+notes = "RUSTSEC-2026-0391 fix: Encoder::with_context and Decoder::with_context reset the borrowed context's session first, so input an abandoned stream left buffered no longer becomes the start of the next frame. Also: decoder contexts come from the fallible DCtx::try_create, try_new/try_with_buffer hand the reader back on failure, decode_all and bulk::Decompressor::decompress size their output from the frame header (decode_all reserves at most 32 MiB; a frame larger than the given capacity fails before decoding), bulk::Compressor::set_pledged_src_size, new compress_sized/compress_file helpers (they open only the path they are given), the cmake/vendored/with-rust-allocator features passed through to zstd-safe, licence MIT -> BSD-3-Clause. No unsafe added, no build script, no env or network use; zstd-safe moves to 8.2."
+
+[[audits.zstd-safe]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "7.2.4 -> 8.2.0"
+notes = "The soundness release behind RUSTSEC-2026-0395 to -0406: CCtx/DCtx remember a failed streaming call and refuse further stream calls until a reset, one-shot calls end with a session reset, multithreaded frames are tracked so the dictionary and NbWorkers cannot change under running workers (wait_for_workers), StableInBuffer(true) is refused, init_using_cdict/ddict and ref_cdict/ref_ddict tie the dictionary to the context's lifetime, try_clone refuses contexts it cannot copy soundly and resets the copy, InBuffer/OutBuffer positions are checked after each call, and the block API becomes unsafe and deprecated. Seekable gets NULL and bounds checks and the with-rust-allocator feature adds allocator callbacks (both features are off in azul's tree; skimmed). build.rs unchanged. Read: the CCtx, DCtx, CDict, DDict and buffer changes of lib.rs."
+
+[[audits.zstd-sys]]
+who = "Claude Opus 5.5 <noreply@anthropic.com>"
+criteria = "safe-to-deploy"
+delta = "2.0.16+zstd.1.5.7 -> 2.1.2+zstd.1.5.7"
+notes = "RUSTSEC-2026-0410 fix: the wasm allocator shim checks the calloc/malloc size for overflow, builds its Layout checked, returns NULL when allocation fails and treats free(NULL) as a no-op. The vendored zstd 1.5.7 C sources are byte-identical (zstd/build/cmake and libzstd.pc.in are added for the new cmake feature, off here); the pre-generated bindings are regenerated with bindgen 0.73 and differ only in doc attributes. build.rs: an optional cmake backend (feature off), the x86-64 asm file only for x86_64 targets, -fvisibility=hidden only off MSVC (from CARGO_CFG_TARGET_ENV), ZSTD_SYS_NO_HIDE_SYMBOLS exports the symbols, and the vendored feature wins over pkg-config; no network, no process beyond cc."

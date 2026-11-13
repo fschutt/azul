@@ -6,8 +6,10 @@
 use alloc::string::{String, ToString};
 use core::fmt;
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode, corety::AzString, props::formatter::PrintAsCssValue,
+    corety::AzString, props::formatter::PrintAsCssValue,
 };
 
 /// CSS `text-justify` property value.
@@ -38,6 +40,7 @@ impl PrintAsCssValue for LayoutTextJustify {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutTextJustify {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("LayoutTextJustify::{self:?}")
@@ -561,6 +564,7 @@ mod autotest_generated {
     // FormatAsRustCode
     // ---------------------------------------------------------------------
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_is_a_variant_path_and_ignores_indentation() {
         for j in ALL_JUSTIFY {

@@ -1,0 +1,61 @@
+[
+  {
+    "name": "Report.txt and report.txt (and two folders differing in case) reach a disk that ignores case: one of each comes down, the other is listed, the rest keeps syncing",
+    "description": "JOTTA-009 (Jottacloud): a case collision in the tree ('Applause Samples' / 'applause samples') halted the entire sync while status showed no error. Rules P1 (the one committed first comes down, the other stays on the drive and is listed), O1 (named per path) and E6 (never a global stall). sync-chaos port-case-collision-remote.",
+    "only_on": ["macos", "windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Report.txt", "text": "upper", "writer": "linux-box" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "report.txt", "text": "lower", "writer": "linux-box" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Applause Samples/a.wav", "text": "sample a", "writer": "linux-box" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "applause samples/b.wav", "text": "sample b", "writer": "linux-box" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "other.txt", "text": "the rest of the tree", "writer": "linux-box" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Report.txt", "text": "upper" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "?eport.txt", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "report.txt" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Applause Samples/a.wav", "text": "sample a" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "applause samples*" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "other.txt", "text": "the rest of the tree" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "report.txt", "text": "lower" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "applause samples/b.wav", "text": "sample b" },
+      { "op": "drive_status", "device": "b" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "Dir/A.txt and dir/A.txt made on a case-sensitive disk: both go up, the rest of the tree goes up, no pass fails",
+    "description": "JOTTA-009 (Jottacloud), the ext4 side: 'already exists with different case' stopped the whole sync. Rule P5 (a name valid here is synced here; only a system that cannot hold it lists it) and E6.",
+    "only_on": ["linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Dir/A.txt", "text": "upper dir" },
+      { "op": "drive_write", "device": "a", "path": "dir/A.txt", "text": "lower dir" },
+      { "op": "drive_write", "device": "a", "path": "rest.txt", "text": "rest" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 3 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "Dir/A.txt", "text": "upper dir" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "dir/A.txt", "text": "lower dir" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "rest.txt", "text": "rest" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-failed" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

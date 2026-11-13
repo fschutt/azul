@@ -24,7 +24,7 @@ pub fn json_parse(s: &str) -> Result<Json, JsonParseError> {
 
 /// Serialize JSON to string
 #[cfg(feature = "json")]
-#[must_use] 
+#[must_use]
 pub fn json_stringify(json: &Json) -> AzString {
     json.to_json_string()
 }
@@ -47,19 +47,19 @@ pub enum ResultRefAnyString {
 
 impl ResultRefAnyString {
     /// Returns `true` if this is the `Ok` variant.
-    #[must_use] 
+    #[must_use]
     pub const fn is_ok(&self) -> bool {
         matches!(self, Self::Ok(_))
     }
 
     /// Returns `true` if this is the `Err` variant.
-    #[must_use] 
+    #[must_use]
     pub const fn is_err(&self) -> bool {
         matches!(self, Self::Err(_))
     }
 
     /// Converts into `Option<RefAny>`, discarding any error.
-    #[must_use] 
+    #[must_use]
     pub fn ok(self) -> Option<RefAny> {
         match self {
             Self::Ok(r) => Some(r),
@@ -68,7 +68,7 @@ impl ResultRefAnyString {
     }
 
     /// Converts into `Option<AzString>`, discarding any success value.
-    #[must_use] 
+    #[must_use]
     pub fn err(self) -> Option<AzString> {
         match self {
             Self::Ok(_) => None,
@@ -133,7 +133,7 @@ impl From<Result<RefAny, String>> for ResultRefAnyString {
 
 /// Serialize a `RefAny` to JSON, returns `OptionJson::None` if not supported or fails.
 #[cfg(feature = "json")]
-#[must_use] 
+#[must_use]
 pub fn refany_serialize_to_json(refany: &RefAny) -> OptionJson {
     match serialize_refany_to_json(refany) {
         Some(json) => OptionJson::Some(json),
@@ -143,7 +143,7 @@ pub fn refany_serialize_to_json(refany: &RefAny) -> OptionJson {
 
 /// Deserialize JSON into a `RefAny` using the provided deserialize function.
 #[cfg(feature = "json")]
-#[must_use] 
+#[must_use]
 pub fn json_deserialize_to_refany(json: Json, deserialize_fn: usize) -> ResultRefAnyString {
     deserialize_refany_from_json(json, deserialize_fn).into()
 }
@@ -321,7 +321,7 @@ pub struct RefAnyUndoManager {
 #[cfg(feature = "json")]
 impl RefAnyUndoManager {
     /// Creates a history with a maximum depth (`0` = unlimited).
-    #[must_use] 
+    #[must_use]
     pub const fn new(capacity: usize) -> Self {
         Self {
             head: None,
@@ -363,13 +363,13 @@ impl RefAnyUndoManager {
     }
 
     /// True if there is a commit to undo.
-    #[must_use] 
+    #[must_use]
     pub const fn can_undo(&self) -> bool {
         !self.undo_diffs.is_empty()
     }
 
     /// True if there is an undone commit to redo.
-    #[must_use] 
+    #[must_use]
     pub const fn can_redo(&self) -> bool {
         !self.redo_diffs.is_empty()
     }

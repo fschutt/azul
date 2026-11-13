@@ -50,6 +50,20 @@ mod stub;
 #[cfg(not(any(feature = "debug-server", feature = "e2e-scripting")))]
 pub use stub::*;
 
+/// Does the layout engine collect its per-node trace (the
+/// `LayoutDebugMessage`s the shells forward to the debug server's log) this
+/// run? Only on request: `AZ_LAYOUT_TRACE=1` with the debug server on. It used
+/// to follow the server alone, so every scripted run formatted a line for
+/// every node of every layout - 900 000 live strings and twice the memory at
+/// AzContacts' first layout (E2E sweep, 2026-10-06).
+pub fn layout_trace_enabled() -> bool {
+    static REQUESTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    is_debug_enabled()
+        && *REQUESTED.get_or_init(|| {
+            std::env::var_os("AZ_LAYOUT_TRACE").is_some_and(|v| !v.is_empty() && v != "0")
+        })
+}
+
 // ==================== Logging Macros ====================
 
 // ==================== Always-on Platform Logging ====================

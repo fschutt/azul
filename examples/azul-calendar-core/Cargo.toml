@@ -1,0 +1,32 @@
+[package]
+name = "azul-calendar-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzCalendar's events without azul types, for AzCalendar and for headless
+    processes (the Azlin Bridge's CalDAV): the event files
+    (events/<uuid>.json), the calendars (calendars/<id>.json), and iCalendar
+    import and export. AzCalendar re-exports every module under the name it
+    always had. No libazul.
+"""
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same features azul-layout builds chrono with (dates, and the local date for "today").
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# The PIM logic the Azlin apps share: dates, repeat rules, .ics content lines, addresses.
+azul-pim = { path = "../azul-pim" }
+# The drive the files are read through, and the ids every Azlin app mints file names from.
+azul-storage = { path = "../azul-storage" }
+
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
+
+[lib]
+name = "azcal_core"
+path = "src/lib.rs"

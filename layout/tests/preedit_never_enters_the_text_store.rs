@@ -244,8 +244,7 @@ fn start_editing(lw: &mut LayoutWindow, node: usize, at: u32) {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
     }));
-    lw.text_edit_manager
-        .initialize_editing(cursor(at), DomId::ROOT_ID, NodeId::new(node), 0);
+    lw.start_editing_at(cursor(at), DomId::ROOT_ID, NodeId::new(node), 0);
 }
 
 fn text_of(lw: &LayoutWindow, node: usize) -> String {

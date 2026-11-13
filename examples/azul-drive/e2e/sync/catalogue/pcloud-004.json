@@ -1,0 +1,47 @@
+[
+  {
+    "name": "a cold file whose stored object rotted is refused with an error by its hash, never a hang, never wrong bytes",
+    "description": "PCLOUD-004 (pCloud): 6 of 1577 files of a cold backup could not be read (I/O error, downloads doing nothing, HTTP 500). Rules S15/A5/O1: bytes that do not match the hash are refused and listed (hash-mismatch); the pass ends; the other files arrive.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "archive/cold.wav", "size": 200000, "seed": 4 },
+      { "op": "drive_write", "device": "a", "path": "archive/fine.wav", "size": 200000, "seed": 5 },
+      { "op": "drive_write", "device": "a", "path": "archive/notes.txt", "text": "notes" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "corrupt_blob", "key": "archive/cold.wav" },
+      { "op": "drive_sync", "device": "b", "expect": "any", "timeout_ms": 60000 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "archive/cold.wav" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "archive/cold.wav", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "archive/fine.wav", "same_as": "{root:a}/archive/fine.wav" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "archive/notes.txt", "text": "notes" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_status", "device": "b" },
+      { "op": "assert_response", "path": "result.running", "equals": false },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the server's scrub finds and heals a rotten shard before any client reads it",
+    "description": "PCLOUD-004 (pCloud): 'tons of broken files' found only at restore time. Rule V5 (sync-chaos srv-corrupt-shard-healed): scrub and BLAKE3 on every read; a client never gets wrong bytes.",
+    "pending": "drive_tamper {\"remote\":\"r\",\"action\":\"scrub\"} stand-in, or the stack: the server's scrub and parity repair of a rotten shard run only in sync-chaos srv-corrupt-shard-healed (run_ok), which drive_check cannot run",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "archive", "count": 50, "size": 102400, "seed": 6 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "corrupt_blob", "key": "archive/d000/f000007.txt" },
+      { "op": "drive_tamper", "remote": "r", "action": "scrub" },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

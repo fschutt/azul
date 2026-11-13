@@ -5,7 +5,7 @@
 //! and optionally processes the checklist to implement improvements.
 
 use std::{
-    collections::VecDeque,
+    collections::{BTreeSet, VecDeque},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use super::{comment_context, rewrite_source};
 use crate::spec::executor::{self, AgentResult, SHUTDOWN_REQUESTED};
 
 // ── Configuration ──────────────────────────────────────────────────────
@@ -36,6 +37,22 @@ pub struct AutoreviewConfig {
     /// (`doc/target/autoreview/reports/*.md`) are summarized. Defaults to
     /// `midlevel-fixes-reference`.
     pub reference: Option<String>,
+    /// `--rewrite-source[=KINDS]`: the per-file rewrite pass (see
+    /// `rewrite_source`) instead of the full review, for the run and for
+    /// `merge`; the kinds say what the agents may change.
+    pub rewrite: Option<rewrite_source::Kinds>,
+    /// `--force`: queue files again whose run is already done.
+    pub force: bool,
+    /// `--max-bytes=N`, rewrite pass only: larger files are listed, not queued.
+    pub max_bytes: u64,
+    /// `--effort=LEVEL`, rewrite pass only: passed on as `claude --effort`.
+    pub effort: Option<String>,
+    /// `merge --rewrite-source --out=PATH`: where the todo list is written.
+    pub out: Option<PathBuf>,
+    /// `--coverage=LCOV`, rewrite pass only: test coverage (an lcov file from
+    /// `cargo llvm-cov --lcov`) whose untested functions and branches go into
+    /// each file's context.
+    pub coverage: Option<PathBuf>,
 }
 
 pub enum AutoreviewSubcommand {
@@ -59,16 +76,28 @@ fn output_dir(project_root: &Path) -> PathBuf {
     project_root.join("doc/target/autoreview")
 }
 
-fn prompts_dir(project_root: &Path) -> PathBuf {
-    output_dir(project_root).join("prompts")
+/// Where a run keeps its prompts, reports and merged list. Each set of
+/// rewrite kinds has a folder of its own, so its one-line reports never mix
+/// with full reviews and a file done under other kinds is not skipped.
+fn run_dir(config: &AutoreviewConfig) -> PathBuf {
+    match &config.rewrite {
+        Some(kinds) => output_dir(&config.project_root)
+            .join("rewrite-source")
+            .join(kinds.dir_name()),
+        None => output_dir(&config.project_root),
+    }
 }
 
-fn reports_dir(project_root: &Path) -> PathBuf {
-    output_dir(project_root).join("reports")
+fn prompts_dir(run: &Path) -> PathBuf {
+    run.join("prompts")
 }
 
-fn merge_dir(project_root: &Path) -> PathBuf {
-    output_dir(project_root).join("merge")
+fn reports_dir(run: &Path) -> PathBuf {
+    run.join("reports")
+}
+
+fn merge_dir(run: &Path) -> PathBuf {
+    run.join("merge")
 }
 
 fn process_prompts_dir(project_root: &Path) -> PathBuf {
@@ -831,14 +860,62 @@ fn run_smallfixes_agent(
 
 // ── Review-agent runner (no worktree) ──────────────────────────────────
 
-/// Spawn a single Claude CLI process against the project root (read-only)
-/// to review one file.  Returns when the agent finishes or times out.
+/// The `claude` arguments for a review or merge agent: it may read and write
+/// its report, but not edit source, build, or use MCP servers.
+fn review_cli_args(model: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "-p",
+        "--dangerously-skip-permissions",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        // Review agents must not edit source
+        "--disallowedTools",
+        "Edit",
+        "--disallowedTools",
+        "NotebookEdit",
+        // Block compilation
+        "--disallowedTools",
+        "Bash(cargo *)",
+        "--disallowedTools",
+        "Bash(rustc *)",
+        "--disallowedTools",
+        "Bash(clang *)",
+        "--disallowedTools",
+        "Bash(gcc *)",
+        "--disallowedTools",
+        "Bash(make *)",
+        "--disallowedTools",
+        "Bash(cmake *)",
+        // Block MCP / LSP leaks
+        "--disallowedTools",
+        "mcp__*",
+        "--disallowedTools",
+        "rust-analyzer-lsp",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    if let Some(m) = model {
+        args.push("--model".into());
+        args.push(m.into());
+    }
+    args
+}
+
+/// Spawn a single Claude CLI process against the project root to work on one
+/// prompt; returns when the agent finishes or times out. `cli_args` decides
+/// what the agent may do. After a clean exit `accept` has the last word: an
+/// error from it turns the run into a failure, and its text goes into the
+/// `.done` file. `action` names the kind of run in that file.
 fn run_review_agent(
     project_root: &Path,
     slot_index: usize,
     prompt_path: &Path,
     timeout: Duration,
-    model: Option<&str>,
+    cli_args: &[String],
+    action: &str,
+    accept: &dyn Fn() -> Result<String, String>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
     let taken_path = prompt_path.with_extension("md.taken");
@@ -880,44 +957,8 @@ fn run_review_agent(
         }
     };
 
-    // Build CLI args — block editing, compilation, and MCP tools.
-    let mut cmd_args: Vec<&str> = vec![
-        "-p",
-        "--dangerously-skip-permissions",
-        "--verbose",
-        "--output-format",
-        "stream-json",
-        // Review agents must not edit source
-        "--disallowedTools",
-        "Edit",
-        "--disallowedTools",
-        "NotebookEdit",
-        // Block compilation
-        "--disallowedTools",
-        "Bash(cargo *)",
-        "--disallowedTools",
-        "Bash(rustc *)",
-        "--disallowedTools",
-        "Bash(clang *)",
-        "--disallowedTools",
-        "Bash(gcc *)",
-        "--disallowedTools",
-        "Bash(make *)",
-        "--disallowedTools",
-        "Bash(cmake *)",
-        // Block MCP / LSP leaks
-        "--disallowedTools",
-        "mcp__*",
-        "--disallowedTools",
-        "rust-analyzer-lsp",
-    ];
-    if let Some(m) = model {
-        cmd_args.push("--model");
-        cmd_args.push(m);
-    }
-
     let mut child = match Command::new("claude")
-        .args(&cmd_args)
+        .args(cli_args)
         .env_remove("CLAUDECODE")
         .current_dir(project_root)
         .stdin(Stdio::piped())
@@ -1044,15 +1085,36 @@ fn run_review_agent(
         };
     }
 
-    // Success
     let result_content = executor::extract_result_text(&result_path);
     let elapsed = start.elapsed();
+    let note = match accept() {
+        Ok(note) => note,
+        Err(why) => {
+            let _ = fs::write(
+                &failed_path,
+                format!(
+                    "{}\nelapsed_secs={}\nslot={}\n\n--- AGENT OUTPUT ---\n{}",
+                    why,
+                    elapsed.as_secs(),
+                    slot_index,
+                    result_content,
+                ),
+            );
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(why),
+            };
+        }
+    };
     let _ = fs::write(
         &done_path,
         format!(
-            "action=REVIEWED\nslot={}\nelapsed_secs={}\n\n--- AGENT OUTPUT ---\n{}",
+            "action={}\nslot={}\nelapsed_secs={}\n{}\n\n--- AGENT OUTPUT ---\n{}",
+            action,
             slot_index,
             elapsed.as_secs(),
+            note,
             result_content,
         ),
     );
@@ -1097,11 +1159,16 @@ fn spawn_cargo_kill_loop() -> std::thread::JoinHandle<()> {
 
 // ── Dispatch ───────────────────────────────────────────────────────────
 
-fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
+fn dispatch_review_agents(config: &AutoreviewConfig, only: &BTreeSet<PathBuf>) -> Result<(), String> {
     let project_root = &config.project_root;
-    let prompts = prompts_dir(project_root);
+    let run = run_dir(config);
+    let prompts = prompts_dir(&run);
+    let reports = reports_dir(&run);
 
-    let (pending, done, failed, taken) = executor::scan_prompts_dir(&prompts, config.retry_failed);
+    let (mut pending, done, failed, taken) = executor::scan_prompts_dir(&prompts, config.retry_failed);
+    // Only the prompts this run queued: `--file` must not pick up prompts a
+    // wider earlier run (or a dry run) left pending.
+    pending.retain(|p| only.contains(p));
 
     println!(
         "Prompt status: {} pending, {} done, {} failed, {} in-progress",
@@ -1116,11 +1183,35 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
         return Ok(());
     }
 
-    let agent_count = config.agents.min(pending.len());
-    println!("Launching {} concurrent review agents...\n", agent_count);
+    let agent_count = config.agents.min(pending.len()).max(1);
+    let kind = if config.rewrite.is_some() { "rewrite" } else { "review" };
+    println!("Launching {} concurrent {} agents...\n", agent_count, kind);
 
     executor::install_sigint_handler();
-    let kill_loop = spawn_cargo_kill_loop();
+    // Comment agents get no shell, so they cannot start a build; the
+    // machine-wide cargo kill loop is only needed for review agents.
+    let kill_loop = (!config.rewrite.is_some()).then(spawn_cargo_kill_loop);
+    let changed_before = if config.rewrite.is_some() {
+        rewrite_source::changed_files(project_root)
+    } else {
+        BTreeSet::new()
+    };
+    let cli_args = if config.rewrite.is_some() {
+        let model = config.model.as_deref().unwrap_or(rewrite_source::DEFAULT_MODEL);
+        rewrite_source::agent_cli_args(model, config.effort.as_deref())
+    } else {
+        review_cli_args(config.model.as_deref())
+    };
+    let formatter = if config.rewrite.as_ref().is_some_and(|k| k.fmt) {
+        let found = rewrite_source::Formatter::detect(project_root);
+        match &found {
+            Some(f) => println!("Formatting with {}", f.describe()),
+            None => println!("rustfmt not found: files are not formatted"),
+        }
+        found
+    } else {
+        None
+    };
 
     let work_queue: Arc<Mutex<VecDeque<PathBuf>>> =
         Arc::new(Mutex::new(pending.into_iter().collect()));
@@ -1131,15 +1222,20 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
         .collect();
 
     let results: Arc<Mutex<Vec<(String, AgentResult)>>> = Arc::new(Mutex::new(Vec::new()));
+    let accepted: Arc<Mutex<BTreeSet<String>>> = Arc::new(Mutex::new(BTreeSet::new()));
 
     let mut handles = Vec::with_capacity(agent_count);
 
     for (slot_idx, line) in slot_spinners.into_iter().enumerate() {
         let work_queue = Arc::clone(&work_queue);
         let results = Arc::clone(&results);
+        let accepted = Arc::clone(&accepted);
         let timeout = config.timeout;
-        let model = config.model.clone();
+        let cli_args = cli_args.clone();
         let project_root = project_root.clone();
+        let reports = reports.clone();
+        let rewrite = config.rewrite.clone();
+        let formatter = formatter.clone();
 
         let handle = std::thread::spawn(move || {
             loop {
@@ -1163,17 +1259,35 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
                     .to_string();
 
                 line.update(format!("[AGENT {:03}] {}", slot_idx, name));
+                let progress = |status: &str| {
+                    line.update(format!("[AGENT {:03}] {} | {}", slot_idx, name, status));
+                };
 
-                let result = run_review_agent(
-                    &project_root,
-                    slot_idx,
-                    &prompt_path,
-                    timeout,
-                    model.as_deref(),
-                    &|status| {
-                        line.update(format!("[AGENT {:03}] {} | {}", slot_idx, name, status,));
-                    },
-                );
+                let result = if let Some(kinds) = &rewrite {
+                    run_comment_agent(
+                        &project_root,
+                        &reports,
+                        slot_idx,
+                        &prompt_path,
+                        timeout,
+                        &cli_args,
+                        &progress,
+                        &accepted,
+                        kinds,
+                        formatter.as_ref(),
+                    )
+                } else {
+                    run_review_agent(
+                        &project_root,
+                        slot_idx,
+                        &prompt_path,
+                        timeout,
+                        &cli_args,
+                        "REVIEWED",
+                        &|| Ok(String::new()),
+                        &progress,
+                    )
+                };
 
                 let msg = if result.success {
                     format!("{}: done", name)
@@ -1197,103 +1311,314 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
         let _ = h.join();
     }
 
-    // Stop the kill loop
-    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
-    let _ = kill_loop.join();
+    if let Some(kill_loop) = kill_loop {
+        SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+        let _ = kill_loop.join();
+    }
     SHUTDOWN_REQUESTED.store(false, Ordering::Relaxed);
 
     let results = results.lock().unwrap();
     let total = results.len();
     let success = results.iter().filter(|(_, r)| r.success).count();
 
-    println!("\n\nReview agent execution complete:");
+    println!("\n\n{} agent execution complete:", kind);
     println!("  Total:   {}", total);
     println!("  Success: {}", success);
     println!("  Failed:  {}", total - success);
 
+    if let Some(kinds) = &config.rewrite {
+        let accepted = accepted.lock().unwrap();
+        println!(
+            "  Kept: {} file(s); their edits are uncommitted in the working tree (`git diff --stat`).",
+            accepted.len()
+        );
+        if kinds.logic() {
+            println!(
+                "  NOT CHECKED: `idioms` / `everything` may change logic. Read the diff and run \
+                 the tests before keeping any of it."
+            );
+        }
+        // An agent may only edit its own file; anything else that changed
+        // during the run is listed for a look (it may also be another
+        // session's work in a shared checkout).
+        let foreign: Vec<String> = rewrite_source::changed_files(project_root)
+            .into_iter()
+            .filter(|f| !changed_before.contains(f) && !accepted.contains(f))
+            .collect();
+        if !foreign.is_empty() {
+            println!("\nWARNING: these files changed during the run outside the checked files:");
+            for f in &foreign {
+                println!("  {}", f);
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// One style agent on one file: format it and take the snapshot, run the
+/// agent, then keep a checked edit or put the file back as the agent found it.
+fn run_comment_agent(
+    project_root: &Path,
+    reports: &Path,
+    slot_index: usize,
+    prompt_path: &Path,
+    timeout: Duration,
+    cli_args: &[String],
+    on_progress: &dyn Fn(&str),
+    accepted: &Mutex<BTreeSet<String>>,
+    kinds: &rewrite_source::Kinds,
+    formatter: Option<&rewrite_source::Formatter>,
+) -> AgentResult {
+    let failed_path = prompt_path.with_extension("md.failed");
+    let fail = |why: String| {
+        let _ = fs::write(&failed_path, format!("{}\n", why));
+        AgentResult {
+            success: false,
+            patches: 0,
+            error: Some(why),
+        }
+    };
+    let item = match rewrite_source::Item::open(prompt_path, project_root, reports) {
+        Ok(item) => item,
+        Err(e) => return fail(e),
+    };
+    let formatted_before = match rewrite_source::prepare(&item, formatter) {
+        Ok(formatted) => formatted,
+        Err(e) => return fail(e),
+    };
+
+    let result = run_review_agent(
+        project_root,
+        slot_index,
+        prompt_path,
+        timeout,
+        cli_args,
+        "REWRITE",
+        &|| rewrite_source::accept(&item, kinds, formatter, formatted_before),
+        on_progress,
+    );
+    if result.success {
+        accepted.lock().unwrap().insert(item.rel.clone());
+        return result;
+    }
+
+    let note = match rewrite_source::restore(&item) {
+        Ok(true) => format!(
+            "\n{} was put back as the agent found it; the agent's version is {}\n",
+            item.rel,
+            prompt_path.with_extension("md.rejected.rs").display()
+        ),
+        Ok(false) => String::new(),
+        Err(e) => {
+            eprintln!("\nERROR: could not restore {}: {}", item.rel, e);
+            format!("\nRESTORE FAILED: {}\n", e)
+        }
+    };
+    // Only add to a failure record; an interrupted run has none and is queued again.
+    if !note.is_empty() {
+        if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&failed_path) {
+            let _ = f.write_all(note.as_bytes());
+        }
+    }
+    result
 }
 
 // ── Subcommand: run (review) ───────────────────────────────────────────
 
 fn run_review(config: AutoreviewConfig) -> Result<(), String> {
     let project_root = config.project_root.clone();
+    let run = run_dir(&config);
 
     if config.status_only {
-        return show_status(&project_root, config.retry_failed);
+        return show_status(&run, config.retry_failed);
     }
 
     preflight_checks(&project_root, config.dry_run)?;
 
     // Ensure directories
-    for d in &[
-        output_dir(&project_root),
-        prompts_dir(&project_root),
-        reports_dir(&project_root),
-        merge_dir(&project_root),
-    ] {
+    for d in &[run.clone(), prompts_dir(&run), reports_dir(&run), merge_dir(&run)] {
         fs::create_dir_all(d).map_err(|e| format!("Failed to create {}: {}", d.display(), e))?;
     }
 
     // Phase 1: discover files
     println!("\n=== Phase 1: Discovering source files ===\n");
-    let source_files = discover_source_files(&config);
+    let mut sizes: std::collections::BTreeMap<PathBuf, u64> = std::collections::BTreeMap::new();
+    let source_files: Vec<PathBuf> = if let Some(kinds) = &config.rewrite {
+        println!("Rewrite kinds: {}\n", kinds.describe());
+        let scope = rewrite_source::discover(
+            &project_root,
+            config.file_filter.as_deref(),
+            config.max_bytes,
+        )?;
+        rewrite_source::print_scope(&scope, config.max_bytes);
+        // Kinds that may change logic are an experiment on a few named files,
+        // never a pass over the tree: nothing checks their edits.
+        if kinds.logic()
+            && (config.file_filter.is_none() || scope.files.len() > rewrite_source::MAX_LOGIC_FILES)
+        {
+            return Err(format!(
+                "`idioms` and `everything` change logic unchecked; pick at most {} files with --file= \
+                 ({} match now)",
+                rewrite_source::MAX_LOGIC_FILES,
+                scope.files.len()
+            ));
+        }
+        sizes.extend(scope.files.iter().cloned());
+        scope.files.into_iter().map(|(p, _)| p).collect()
+    } else {
+        discover_source_files(&config)
+    };
 
     if source_files.is_empty() {
         println!("No source files found matching the filter.");
         return Ok(());
     }
 
-    println!("Found {} source files to review", source_files.len());
+    println!("\nFound {} source files", source_files.len());
     if let Some(ref f) = config.file_filter {
         println!("  Filter: {}", f);
     }
 
     // Phase 2: generate prompts
-    println!("\n=== Phase 2: Generating review prompts ===\n");
-    let prompts = prompts_dir(&project_root);
-    let reports = reports_dir(&project_root);
+    println!("\n=== Phase 2: Generating prompts ===\n");
+    let prompts = prompts_dir(&run);
+    let reports = reports_dir(&run);
     let mut prompt_count = 0;
+    let mut queued: Vec<PathBuf> = Vec::new();
+    let mut to_write: Vec<(&PathBuf, PathBuf, PathBuf)> = Vec::new();
 
     for file_path in &source_files {
         let safe = path_to_safe_name(file_path);
         let prompt_path = prompts.join(format!("{}.md", safe));
         let report_path = reports.join(format!("{}.md", safe));
 
+        if config.force {
+            let _ = fs::remove_file(prompt_path.with_extension("md.done"));
+            let _ = fs::remove_file(prompt_path.with_extension("md.failed"));
+        }
         let status = executor::classify_prompt(&prompt_path, config.retry_failed);
         match status {
             executor::PromptStatus::Done | executor::PromptStatus::Taken { .. } => continue,
-            _ => {}
+            executor::PromptStatus::Pending => queued.push(file_path.clone()),
+            executor::PromptStatus::Failed => {}
         }
+        to_write.push((file_path, prompt_path, report_path));
+    }
 
-        let text = build_review_prompt(file_path, &project_root, &report_path);
-        fs::write(&prompt_path, &text).map_err(|e| format!("Failed to write prompt: {}", e))?;
+    // The rewrite pass gives every agent the facts about the code its file
+    // uses, built once from the autofix type index and a lexer pass over the
+    // repository, so the agents do not each search for them.
+    let repo_context = if config.rewrite.is_some() && !to_write.is_empty() {
+        println!("Building the repository context (autofix type index + name index)...");
+        match comment_context::RepoContext::build(&project_root, config.coverage.as_deref()) {
+            Ok(context) => Some(context),
+            Err(e) => {
+                println!("  [WARN] the prompts go out without repository context: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let mut prompt_sizes: std::collections::BTreeMap<PathBuf, u64> = std::collections::BTreeMap::new();
+    for (file_path, prompt_path, report_path) in &to_write {
+        let text = if let Some(kinds) = &config.rewrite {
+            fs::write(
+                rewrite_source::source_sidecar(prompt_path),
+                file_path.to_string_lossy().as_bytes(),
+            )
+            .map_err(|e| format!("Failed to write prompt sidecar: {}", e))?;
+            let rel = file_path.to_string_lossy();
+            let context = repo_context
+                .as_ref()
+                .map(|c| {
+                    let src = fs::read_to_string(project_root.join(file_path)).unwrap_or_default();
+                    c.for_file(&project_root, &rel, &src)
+                })
+                .unwrap_or_default();
+            let edition = rewrite_source::edition_for(&project_root, &rel);
+            rewrite_source::build_prompt(&project_root, file_path, report_path, &context, kinds, &edition)
+        } else {
+            build_review_prompt(file_path, &project_root, report_path)
+        };
+        fs::write(prompt_path, &text).map_err(|e| format!("Failed to write prompt: {}", e))?;
+        prompt_sizes.insert((*file_path).clone(), text.len() as u64);
         prompt_count += 1;
     }
 
     println!(
-        "Generated {} prompts in {}",
+        "Generated {} prompts in {} ({} queued; done and failed files are skipped)",
         prompt_count,
-        prompts.display()
+        prompts.display(),
+        queued.len()
     );
 
     if config.dry_run {
+        if config.rewrite.is_some() {
+            println!("\n=== Guard self-test on the queued files ===\n");
+            let failures = rewrite_source::self_test_all(&project_root, &queued);
+            if failures.is_empty() {
+                println!(
+                    "  all {} queued files: the guard agrees with proc-macro2 and sees the \
+                     file without its comments as unchanged code",
+                    queued.len()
+                );
+            } else {
+                println!(
+                    "  {} of {} files fail; the run will refuse them:",
+                    failures.len(),
+                    queued.len()
+                );
+                for (path, why) in &failures {
+                    println!("    {}: {}", path.display(), why);
+                }
+            }
+            println!();
+            if config.rewrite.as_ref().is_some_and(|k| k.fmt) {
+                match rewrite_source::Formatter::detect(&project_root) {
+                    Some(f) => println!("Formatting: {}", f.describe()),
+                    None => println!("Formatting: rustfmt not found, files are not formatted"),
+                }
+                println!();
+            }
+            let queued_sizes: Vec<(u64, u64)> = queued
+                .iter()
+                .map(|p| {
+                    let source = sizes.get(p).copied().unwrap_or(0);
+                    (source, prompt_sizes.get(p).copied().unwrap_or(0))
+                })
+                .collect();
+            let model = config.model.as_deref().unwrap_or(rewrite_source::DEFAULT_MODEL);
+            rewrite_source::print_estimate(&queued_sizes, model);
+        }
         println!("\n--dry-run: stopping after prompt generation.");
         return Ok(());
     }
 
     // Phase 3: dispatch agents
-    println!("\n=== Phase 3: Dispatching review agents ===\n");
-    dispatch_review_agents(&config)?;
+    println!("\n=== Phase 3: Dispatching agents ===\n");
+    let queued_prompts: BTreeSet<PathBuf> = queued
+        .iter()
+        .map(|p| prompts.join(format!("{}.md", path_to_safe_name(p))))
+        .collect();
+    dispatch_review_agents(&config, &queued_prompts)?;
 
     // Phase 4: summary
     println!("\n=== Phase 4: Summary ===\n");
-    show_status(&project_root, false)?;
+    show_status(&run, false)?;
 
     let report_count = count_md_files(&reports);
-    println!("\nReview reports written: {}", report_count);
+    println!("\nReports written: {}", report_count);
     println!("Reports directory: {}", reports.display());
-    println!("\nNext step: run `azul-doc autoreview merge` to create the merged checklist.");
+    if config.rewrite.is_some() {
+        println!(
+            "\nNext step: `azul-doc autoreview merge --rewrite-source[=same kinds]` writes the todo list."
+        );
+    } else {
+        println!("\nNext step: run `azul-doc autoreview merge` to create the merged checklist.");
+    }
 
     Ok(())
 }
@@ -1302,8 +1627,33 @@ fn run_review(config: AutoreviewConfig) -> Result<(), String> {
 
 fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
     let project_root = &config.project_root;
-    let reports = reports_dir(project_root);
-    let merge = merge_dir(project_root);
+    let run = run_dir(&config);
+    let reports = reports_dir(&run);
+    let merge = merge_dir(&run);
+
+    if config.rewrite.is_some() {
+        if !reports.is_dir() {
+            return Err(
+                "No reports for these rewrite kinds yet. Run `autoreview --rewrite-source` with the \
+                 same kinds first."
+                    .into(),
+            );
+        }
+        // A relative --out is taken from the repository root, not from doc/,
+        // where azul-doc runs.
+        let out = match &config.out {
+            Some(p) if p.is_relative() => project_root.join(p),
+            Some(p) => p.clone(),
+            None => merge.join("todo.md"),
+        };
+        let s = rewrite_source::merge(&reports, &out)?;
+        println!(
+            "Merged {} reports: {} findings in {} files ({} lines did not parse).",
+            s.reports, s.findings, s.files, s.unparsed
+        );
+        println!("Todo list: {}", out.display());
+        return Ok(());
+    }
 
     fs::create_dir_all(&merge).map_err(|e| format!("Failed to create merge dir: {}", e))?;
 
@@ -1346,7 +1696,9 @@ fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
         0,
         &merge_prompt_path,
         config.timeout,
-        config.model.as_deref(),
+        &review_cli_args(config.model.as_deref()),
+        "MERGED",
+        &|| Ok(String::new()),
         &|status| {
             line.update(format!("[MERGE] {}", status));
         },
@@ -1380,7 +1732,7 @@ fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
 
 fn run_process(config: AutoreviewConfig) -> Result<(), String> {
     let project_root = config.project_root.clone();
-    let checklist_path = merge_dir(&project_root).join("checklist.md");
+    let checklist_path = merge_dir(&output_dir(&project_root)).join("checklist.md");
 
     if !checklist_path.exists() {
         return Err("No checklist found. Run `autoreview merge` first.".into());
@@ -1440,11 +1792,11 @@ fn run_process(config: AutoreviewConfig) -> Result<(), String> {
 
 fn run_small_fixes(config: AutoreviewConfig) -> Result<(), String> {
     let project_root = config.project_root.clone();
-    let reports = reports_dir(&project_root);
+    let reports = reports_dir(&output_dir(&project_root));
     let sf_prompts = smallfixes_prompts_dir(&project_root);
 
     if config.status_only {
-        return show_status(&project_root, config.retry_failed);
+        return show_status(&output_dir(&project_root), config.retry_failed);
     }
 
     if !reports.is_dir() {
@@ -1969,11 +2321,11 @@ fn run_midlevel_agent(
 
 fn run_midlevel_fixes(config: AutoreviewConfig) -> Result<(), String> {
     let project_root = config.project_root.clone();
-    let reports = reports_dir(&project_root);
+    let reports = reports_dir(&output_dir(&project_root));
     let ml_prompts = midlevel_prompts_dir(&project_root);
 
     if config.status_only {
-        return show_status(&project_root, config.retry_failed);
+        return show_status(&output_dir(&project_root), config.retry_failed);
     }
 
     if !reports.is_dir() {
@@ -2115,8 +2467,9 @@ fn run_midlevel_fixes(config: AutoreviewConfig) -> Result<(), String> {
 
 // ── Status ─────────────────────────────────────────────────────────────
 
-fn show_status(project_root: &Path, retry_failed: bool) -> Result<(), String> {
-    let prompts = prompts_dir(project_root);
+/// Progress of the run kept in `run` (see `run_dir`).
+fn show_status(run: &Path, retry_failed: bool) -> Result<(), String> {
+    let prompts = prompts_dir(run);
     if !prompts.exists() {
         println!("No autoreview prompts directory. Run `autoreview` first.");
         return Ok(());
@@ -2141,14 +2494,16 @@ fn show_status(project_root: &Path, retry_failed: bool) -> Result<(), String> {
     println!("  In-progress:    {}", taken);
     println!("  Pending:        {}", pending.len());
 
-    let reports = reports_dir(project_root);
+    let reports = reports_dir(run);
     if reports.is_dir() {
         println!("\n  Reports: {}", count_md_files(&reports));
     }
 
-    let checklist = merge_dir(project_root).join("checklist.md");
-    if checklist.exists() {
-        println!("  Checklist: {}", checklist.display());
+    for merged in ["checklist.md", "todo.md"] {
+        let path = merge_dir(run).join(merged);
+        if path.exists() {
+            println!("  Merged list: {}", path.display());
+        }
     }
 
     // Detail failed / in-progress
@@ -2699,10 +3054,38 @@ pub fn parse_autoreview_args(
         subcommand: AutoreviewSubcommand::Run,
         limit: None,
         reference: None,
+        rewrite: None,
+        force: false,
+        max_bytes: rewrite_source::DEFAULT_MAX_BYTES,
+        effort: None,
+        out: None,
+        coverage: None,
     };
+    let mut agents_given = false;
 
     for arg in args {
         match *arg {
+            "--rewrite-source" => config.rewrite = Some(rewrite_source::Kinds::default()),
+            _ if arg.starts_with("--rewrite-source=") => {
+                let list = arg.strip_prefix("--rewrite-source=").unwrap();
+                config.rewrite = Some(rewrite_source::Kinds::parse(list)?);
+            }
+            _ if arg.starts_with("--coverage=") => {
+                config.coverage = Some(PathBuf::from(arg.strip_prefix("--coverage=").unwrap()));
+            }
+            "--force" => config.force = true,
+            _ if arg.starts_with("--max-bytes=") => {
+                let n = arg.strip_prefix("--max-bytes=").unwrap();
+                config.max_bytes = n
+                    .parse()
+                    .map_err(|_| format!("Invalid --max-bytes: {}", arg))?;
+            }
+            _ if arg.starts_with("--effort=") => {
+                config.effort = Some(arg.strip_prefix("--effort=").unwrap().to_string());
+            }
+            _ if arg.starts_with("--out=") => {
+                config.out = Some(PathBuf::from(arg.strip_prefix("--out=").unwrap()));
+            }
             "merge" => config.subcommand = AutoreviewSubcommand::Merge,
             "process" => config.subcommand = AutoreviewSubcommand::Process,
             "small-fixes" => config.subcommand = AutoreviewSubcommand::SmallFixes,
@@ -2720,6 +3103,7 @@ pub fn parse_autoreview_args(
                 config.agents = n
                     .parse()
                     .map_err(|_| format!("Invalid --agents: {}", arg))?;
+                agents_given = true;
             }
             _ if arg.starts_with("--timeout=") => {
                 let s = arg.strip_prefix("--timeout=").unwrap();
@@ -2745,6 +3129,18 @@ pub fn parse_autoreview_args(
                 return Err(format!("Unknown option: {}", arg));
             }
             _ => { /* ignore positional (e.g. "claude-exec") */ }
+        }
+    }
+
+    if config.rewrite.is_some() {
+        if !matches!(config.subcommand, AutoreviewSubcommand::Run | AutoreviewSubcommand::Merge) {
+            return Err("--rewrite-source works with the review run and with `merge` only".into());
+        }
+        if config.model.is_none() {
+            config.model = Some(rewrite_source::DEFAULT_MODEL.to_string());
+        }
+        if !agents_given {
+            config.agents = rewrite_source::DEFAULT_AGENTS;
         }
     }
 

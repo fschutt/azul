@@ -1,0 +1,47 @@
+[
+  {
+    "name": "the plan shrinks below what the drive holds: uploads stop with quota-exceeded, nothing stored or local is deleted, paying again resumes",
+    "description": "ICEDRIVE-022 (Icedrive): after a failed payment and a downgrade, 85 GB were deleted at the end of a grace period. Rules E4 and V7: over quota the drive goes read-only for new bytes; each refused file is listed (quota-exceeded), the local file untouched; nothing on the drive is deleted, the other device keeps every file; once the quota is back the pending files go up.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a.bin", "size": 100000, "seed": 111 },
+      { "op": "drive_write", "device": "a", "path": "b.bin", "size": 100000, "seed": 112 },
+      { "op": "drive_write", "device": "a", "path": "c.bin", "size": 100000, "seed": 113 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "remote": "r", "quota_bytes": 50000 },
+      { "op": "drive_write", "device": "a", "path": "new.bin", "size": 100000, "seed": 114 },
+      { "op": "drive_write", "device": "a", "path": "b.bin", "size": 100000, "seed": 115 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "quota-exceeded" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 3 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "new.bin", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "new.bin", "size": 100000 },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.deleted", "len": 0 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 3 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "new.bin", "same_as": "{root:a}/new.bin" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "b.bin", "same_as": "{root:a}/b.bin" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "an abuse flag on one share removes every share link; the account policy",
+    "description": "ICEDRIVE-022 (Icedrive): share links and the deletion of a downgraded account are the server's policy (rule V7, sync-chaos srv-account-never-deleted, a dc scenario pending on the token server).",
+    "not_applicable": "share links and account deletion policy live on the server (iso, rule V7, srv-account-never-deleted); AzDrive's folder sync neither makes nor removes share links",
+    "steps": []
+  }
+]

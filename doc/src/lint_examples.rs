@@ -159,6 +159,14 @@ const APP_SIDE: &[&str] = &[
     // layout/src/telemetry/mod.rs; the observability guide is written for a
     // Rust host, so naming it is correct even though no binding exports it.
     "enable_probe_bridge",
+    // The same for the Rust samples of the localization and components guides:
+    // `AppConfigFluentExt::check_translations` (layout/src/fluent.rs) and the
+    // `ComponentDataModel::get_default_string` a Rust `render_fn` reads.
+    "check_translations",
+    "get_default_string",
+    // The dashboard tutorial walks through examples/azul-dashboard, whose
+    // `Charts` answers the bar the user picked.
+    "picked_category",
 ];
 
 /// Methods a guide sample calls on something that is NOT an azul type: std,
@@ -179,6 +187,7 @@ const NOT_OURS: &[&str] = &[
     "unwrap_or_else",
     "take",
     "is_some",
+    "is_some_and",
     "is_none",
     "is_ok",
     "is_err",
@@ -508,9 +517,11 @@ fn check_line(
     if guide {
         for c in RE_BACKTICK_CALL.captures_iter(line) {
             let member = &c[1];
+            // A function the page defines is its own helper here too, as for a method call.
             if APP_SIDE.contains(&member)
                 || NOT_OURS.contains(&member)
                 || s.exports_member(member)
+                || defined_in_page.contains(member)
             {
                 continue;
             }

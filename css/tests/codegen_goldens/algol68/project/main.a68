@@ -1,0 +1,6 @@
+# Copy target/codegen/azul.a68 and libazul here, then: a68g main.a68 #
+PR include "azul.a68" PR
+PR include "styles.a68" PR
+
+AZCSSPROPERTYWITHCONDITIONSVEC style btn value = style btn;
+print (("style btn: ", whole (len OF style btn value, 0), " properties", new line))

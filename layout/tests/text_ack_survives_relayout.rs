@@ -105,7 +105,7 @@ fn type_at_start(lw: &mut LayoutWindow, s: &str) {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(HOST)),
     }));
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
@@ -170,8 +170,8 @@ fn acked_text_keeps_painting_until_the_app_re_renders() {
     // and acks - WITHOUT re-rendering.
     let unsynced = lw.unsynced_text_edits();
     assert_eq!(unsynced.len(), 1);
-    assert_eq!(unsynced[0].1, "Xhello");
-    let revision = unsynced[0].2;
+    assert_eq!(unsynced[0].text.as_str(), "Xhello");
+    let revision = unsynced[0].revision;
     assert_eq!(revision, lw.document_text_revision);
     lw.mark_text_revision_synced(revision);
     assert!(

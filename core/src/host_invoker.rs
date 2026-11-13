@@ -395,7 +395,7 @@ impl HostOut for AzString {
 impl HostOut for RefAny {
     /// A handle to nothing: a null `RefCount` never touches memory on drop.
     fn unwritten() -> Self {
-        RefAny {
+        Self {
             sharing_info: crate::refany::RefCount {
                 ptr: core::ptr::null(),
                 run_destructor: false,
@@ -457,7 +457,7 @@ impl DataArg for RefAny {
 
 impl DataArg for &mut RefAny {
     fn data_ptr(&self) -> *const RefAny {
-        &**self
+        &raw const **self
     }
 }
 
@@ -530,9 +530,11 @@ pub fn invocation_ctx(callee: usize) -> crate::refany::OptionRefAny {
 }
 
 /// C-ABI: the context of the wrapper whose callback `callee` libazul is
-/// invoking on this thread right now. A binding's C-ABI trampoline calls it
-/// with its own address to find the closure it stands for, for the callback
-/// kinds whose arguments carry no context (an info type without `get_ctx`).
+/// invoking on this thread right now.
+///
+/// A binding's C-ABI trampoline calls it with its own address to find the
+/// closure it stands for, for the callback kinds whose arguments carry no
+/// context (an info type without `get_ctx`).
 #[no_mangle]
 pub extern "C" fn AzApp_getInvocationCtx(callee: *const c_void) -> crate::refany::OptionRefAny {
     invocation_ctx(callee as usize)
@@ -563,7 +565,10 @@ pub unsafe extern "C" fn AzApp_getInvocationCtxByref(
 /// `<Wrapper>::invoke`, the only way engine code may call the wrapper.
 ///
 /// All identifiers are passed in explicitly so we don't need a proc-macro
-/// dependency just to concatenate idents.
+/// dependency just to concatenate idents. `from_handle_byref_fn` (the
+/// out-pointer twin `Az<Wrapper>_createFromHostHandleByref`) is required in
+/// every form: every binding without struct-by-value support links it for
+/// every kind.
 ///
 /// The per-kind invoker receives the host handle, then EVERY argument of the
 /// callback by pointer in declared order, then an out-pointer for the return
@@ -600,7 +605,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
-        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
+        from_handle_byref_fn: $from_handle_byref_fn:ident,
     ) => {
         $crate::impl_managed_callback! {
             wrapper:        $wrapper,
@@ -613,7 +618,7 @@ macro_rules! impl_managed_callback {
             thunk_fn:       $thunk_fn,
             setter_fn:      $setter_fn,
             from_handle_fn: $from_handle_fn,
-            $( from_handle_byref_fn: $from_handle_byref_fn, )?
+            from_handle_byref_fn: $from_handle_byref_fn,
             extra_args:     [],
         }
     };
@@ -629,7 +634,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
-        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
+        from_handle_byref_fn: $from_handle_byref_fn:ident,
         extra_args:     [ $( $extra_name:ident : $extra_ty:ty ),* $(,)? ] $(,)?
     ) => {
         $crate::impl_managed_callback! {
@@ -643,7 +648,7 @@ macro_rules! impl_managed_callback {
             thunk_fn:       $thunk_fn,
             setter_fn:      $setter_fn,
             from_handle_fn: $from_handle_fn,
-            $( from_handle_byref_fn: $from_handle_byref_fn, )?
+            from_handle_byref_fn: $from_handle_byref_fn,
             extra_args:     [ $( $extra_name : $extra_ty ),* ],
         }
     };
@@ -660,7 +665,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
-        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
+        from_handle_byref_fn: $from_handle_byref_fn:ident,
         extra_args:     [ $( $extra_name:ident : $extra_ty:ty ),* $(,)? ] $(,)?
     ) => {
         $crate::impl_managed_callback! {
@@ -677,7 +682,7 @@ macro_rules! impl_managed_callback {
             thunk_fn:       $thunk_fn,
             setter_fn:      $setter_fn,
             from_handle_fn: $from_handle_fn,
-            from_handle_byref_fn: [ $( $from_handle_byref_fn )? ],
+            from_handle_byref_fn: $from_handle_byref_fn,
             rest:           [],
         }
     };
@@ -699,7 +704,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
-        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
+        from_handle_byref_fn: $from_handle_byref_fn:ident,
         $( rest: $rest:expr, )?
     ) => {
         $crate::impl_managed_callback! {
@@ -716,7 +721,7 @@ macro_rules! impl_managed_callback {
             thunk_fn:       $thunk_fn,
             setter_fn:      $setter_fn,
             from_handle_fn: $from_handle_fn,
-            from_handle_byref_fn: [ $( $from_handle_byref_fn )? ],
+            from_handle_byref_fn: $from_handle_byref_fn,
             rest:           [ $( $rest )? ],
         }
     };
@@ -735,7 +740,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
-        $( from_handle_byref_fn: $from_handle_byref_fn:ident, )?
+        from_handle_byref_fn: $from_handle_byref_fn:ident,
         $( rest: $rest:expr, )?
     ) => {
         $crate::impl_managed_callback! {
@@ -752,7 +757,7 @@ macro_rules! impl_managed_callback {
             thunk_fn:       $thunk_fn,
             setter_fn:      $setter_fn,
             from_handle_fn: $from_handle_fn,
-            from_handle_byref_fn: [ $( $from_handle_byref_fn )? ],
+            from_handle_byref_fn: $from_handle_byref_fn,
             rest:           [ $( $rest )? ],
         }
     };
@@ -785,7 +790,7 @@ macro_rules! impl_managed_callback {
         thunk_fn:       $thunk_fn:ident,
         setter_fn:      $setter_fn:ident,
         from_handle_fn: $from_handle_fn:ident,
-        from_handle_byref_fn: [ $( $from_handle_byref_fn:ident )? ],
+        from_handle_byref_fn: $from_handle_byref_fn:ident,
         rest:           [ $( $rest:expr )? ],
     ) => {
         /// Process-global slot for this callback kind's host-side invoker.
@@ -794,10 +799,12 @@ macro_rules! impl_managed_callback {
 
         /// Pointer-arg variant of this callback kind's typedef: the host
         /// handle, every argument by pointer in declared order, and an
-        /// out-pointer for the return value. Every managed-FFI runtime can
-        /// call this shape (no aggregate by value anywhere; LuaJIT FFI in
-        /// particular cannot return aggregates larger than 8 bytes from a
-        /// callback, so even an `Update` return goes through `out`).
+        /// out-pointer for the return value.
+        ///
+        /// Every managed-FFI runtime can call this shape (no aggregate by value
+        /// anywhere; `LuaJIT` FFI in particular cannot return aggregates larger
+        /// than 8 bytes from a callback, so even an `Update` return goes
+        /// through `out`).
         pub type $invoker_ty = extern "C" fn(
             handle: u64,
             $( $data: *const $crate::refany::RefAny, )?
@@ -927,6 +934,8 @@ macro_rules! impl_managed_callback {
             /// own fallback, for bindings whose C trampolines need the same
             /// answer.
             #[allow(unused_variables)]
+            // The body is each kind's `default_ret`; few of those are const.
+            #[allow(clippy::missing_const_for_fn)]
             pub fn fallback_return(
                 $( $data: &$data_ty, )?
                 $( $arg : &$arg_ty , )*
@@ -960,7 +969,12 @@ macro_rules! impl_managed_callback {
             <$wrapper>::create_from_host_handle(handle)
         }
 
-        $(
+        /// Out-pointer twin of the `from_handle_fn` export, for FFIs that
+        /// cannot receive a union-bearing struct by value (purego,
+        /// cffi-lua, ...). The bindings call it for EVERY host-invoker kind,
+        /// so the macro requires its name: it used to be optional, and two
+        /// widget kinds (`TreeViewOnNodeToggleCallback`,
+        /// `OnVideoStatusCallback`) shipped without it.
         #[no_mangle]
         #[doc(hidden)]
         pub unsafe extern "C" fn $from_handle_byref_fn(handle: u64, out: *mut $wrapper) { unsafe {
@@ -968,7 +982,6 @@ macro_rules! impl_managed_callback {
                 core::ptr::write(out, <$wrapper>::create_from_host_handle(handle));
             }
         }}
-        )?
     };
 }
 
@@ -1108,6 +1121,13 @@ mod tests {
 #[path = "host_invoker_test.rs"]
 mod host_invoker_test;
 
+/// C-ABI: [`AzRefAny_newHostHandle`] through an out-pointer, for the bindings
+/// that take a produced struct that way (the Go binding, for one).
+///
+/// # Safety
+///
+/// `out` is null (nothing is written) or valid for writing one [`RefAny`].
+/// Whatever it held is overwritten without being dropped.
 #[no_mangle]
 pub unsafe extern "C" fn AzRefAny_newHostHandleByref(id: u64, out: *mut RefAny) { unsafe {
     if !out.is_null() {

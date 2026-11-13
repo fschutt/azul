@@ -1,11 +1,11 @@
-//! IFC Incremental Caching Tests (Phase 2a/2b)
+//! IFC Caching Tests
 //!
-//! These tests verify the IFC granular caching architecture:
-//! 1. `InlineItemMetrics` are correctly extracted from `UnifiedLayout`
-//! 2. `CachedInlineLayout` stores per-item metrics alongside the layout
-//! 3. `RelayoutScope` classifies CSS property changes correctly
-//! 4. `RestyleResult.max_relayout_scope` is tracked during restyle
-//! 5. IFC layouts with text produce correct item_metrics
+//! These tests verify the IFC caching architecture:
+//! 1. `RelayoutScope` classifies CSS property changes correctly
+//! 2. `CachedInlineLayout` keeps the constraints and the width it was laid
+//!    out at, and answers whether it is valid for another
+//! 3. IFC layouts with text put their items on lines, in order, with the
+//!    nodes they were laid out from
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -23,7 +23,7 @@ use azul_layout::{
     font_traits::{FontManager, TextLayoutCache},
     paged::FragmentationContext,
     solver3::{
-        layout_tree::{CachedInlineLayout, InlineItemMetrics},
+        layout_tree::CachedInlineLayout,
         paged_layout::layout_document_paged_with_config,
         pagination::FakePageConfig,
         LayoutNodeId,
@@ -242,64 +242,10 @@ fn test_can_trigger_relayout_consistent_with_relayout_scope() {
     }
 }
 
-// ==================== InlineItemMetrics Tests ====================
+// ==================== CachedInlineLayout Tests ====================
 
 #[test]
-fn test_inline_item_metrics_struct_fields() {
-    use azul_core::dom::NodeId;
-
-    let metrics = InlineItemMetrics {
-        source_node_id: Some(NodeId::new(5)),
-        advance_width: 42.5,
-        line_height_contribution: 16.0,
-        can_break: true,
-        line_index: 0,
-        x_offset: 10.0,
-    };
-
-    assert_eq!(metrics.source_node_id, Some(NodeId::new(5)));
-    assert!((metrics.advance_width - 42.5).abs() < f32::EPSILON);
-    assert!((metrics.line_height_contribution - 16.0).abs() < f32::EPSILON);
-    assert!(metrics.can_break);
-    assert_eq!(metrics.line_index, 0);
-    assert!((metrics.x_offset - 10.0).abs() < f32::EPSILON);
-}
-
-#[test]
-fn test_inline_item_metrics_no_source_node() {
-    let metrics = InlineItemMetrics {
-        source_node_id: None,
-        advance_width: 0.0,
-        line_height_contribution: 0.0,
-        can_break: false,
-        line_index: 0,
-        x_offset: 0.0,
-    };
-
-    assert!(metrics.source_node_id.is_none());
-}
-
-// ==================== CachedInlineLayout with item_metrics Tests ====================
-
-#[test]
-fn test_cached_inline_layout_empty_layout_has_empty_metrics() {
-    use azul_layout::text3::cache::{OverflowInfo, UnifiedLayout};
-
-    let empty_layout = Arc::new(UnifiedLayout {
-        items: Vec::new(),
-        overflow: OverflowInfo::default(),
-    });
-
-    let cached = CachedInlineLayout::new(empty_layout, AvailableSpace::Definite(400.0), false);
-
-    assert!(
-        cached.item_metrics.is_empty(),
-        "Empty UnifiedLayout should produce empty item_metrics"
-    );
-}
-
-#[test]
-fn test_cached_inline_layout_with_constraints_has_metrics() {
+fn test_cached_inline_layout_with_constraints_keeps_them() {
     use azul_layout::text3::cache::{OverflowInfo, UnifiedLayout};
 
     let empty_layout = Arc::new(UnifiedLayout {
@@ -316,7 +262,7 @@ fn test_cached_inline_layout_with_constraints_has_metrics() {
         constraints,
     );
 
-    assert!(cached.item_metrics.is_empty());
+    assert!(cached.layout.items.is_empty());
     assert!(cached.constraints.is_some());
 }
 
@@ -407,7 +353,7 @@ fn layout_html_and_get_tree(html: &str) -> Solver3LayoutCache {
 }
 
 #[test]
-fn test_ifc_layout_produces_item_metrics() {
+fn test_ifc_layout_items_have_non_negative_sizes() {
     let html = r#"
     <html>
         <body>
@@ -438,42 +384,33 @@ fn test_ifc_layout_produces_item_metrics() {
 
     for (idx, cached) in &ifc_nodes {
         // (d7) materialized(): the stored layout is the retirement
-        // sentinel under the dense default; item_metrics is index-
-        // aligned with the REAL item list, which the expansion is.
+        // sentinel under the dense default; the expansion is the real
+        // item list.
         let layout = cached.materialized();
 
-        // item_metrics length should match layout.items length
-        assert_eq!(
-            cached.item_metrics.len(),
-            layout.items.len(),
-            "Node {}: item_metrics count ({}) should match layout.items count ({})",
-            idx,
-            cached.item_metrics.len(),
-            layout.items.len(),
-        );
-
-        // Each metric should have non-negative advance width
-        for (i, metric) in cached.item_metrics.iter().enumerate() {
+        // Each item has a non-negative advance and height
+        for (i, item) in layout.items.iter().enumerate() {
+            let bounds = item.item.bounds();
             assert!(
-                metric.advance_width >= 0.0,
-                "Node {}, item {}: advance_width should be >= 0, got {}",
+                bounds.width >= 0.0,
+                "Node {}, item {}: the advance should be >= 0, got {}",
                 idx,
                 i,
-                metric.advance_width
+                bounds.width
             );
             assert!(
-                metric.line_height_contribution >= 0.0,
-                "Node {}, item {}: line_height_contribution should be >= 0, got {}",
+                bounds.height >= 0.0,
+                "Node {}, item {}: the height should be >= 0, got {}",
                 idx,
                 i,
-                metric.line_height_contribution
+                bounds.height
             );
         }
     }
 }
 
 #[test]
-fn test_ifc_layout_metrics_have_correct_line_indices() {
+fn test_ifc_layout_items_have_correct_line_indices() {
     let html = r#"
     <html>
         <body>
@@ -498,16 +435,16 @@ fn test_ifc_layout_metrics_have_correct_line_indices() {
 
     // With width: 50px, text should wrap to multiple lines
     for (_idx, cached) in &ifc_nodes {
-        if cached.item_metrics.is_empty() {
+        let layout = cached.materialized();
+        if layout.items.is_empty() {
             continue;
         }
 
-        // Verify line_index values are valid (non-negative, which they always are as u32).
-        // Also verify that items on the same line have consistent line_index values.
-        let max_line = cached
-            .item_metrics
+        // Verify line_index values are reasonable.
+        let max_line = layout
+            .items
             .iter()
-            .map(|m| m.line_index)
+            .map(|item| item.line_index)
             .max()
             .unwrap_or(0);
 
@@ -520,7 +457,7 @@ fn test_ifc_layout_metrics_have_correct_line_indices() {
 }
 
 #[test]
-fn test_ifc_layout_metrics_x_offsets_increase_on_same_line() {
+fn test_ifc_layout_items_x_positions_increase_on_same_line() {
     let html = r#"
     <html>
         <body>
@@ -544,32 +481,33 @@ fn test_ifc_layout_metrics_x_offsets_increase_on_same_line() {
         .collect();
 
     for (idx, cached) in &ifc_nodes {
-        // Group metrics by line_index
-        let mut lines: BTreeMap<u32, Vec<&InlineItemMetrics>> = BTreeMap::new();
-        for m in &cached.item_metrics {
-            lines.entry(m.line_index).or_default().push(m);
+        // Group the items' x positions by line_index
+        let layout = cached.materialized();
+        let mut lines: BTreeMap<usize, Vec<f32>> = BTreeMap::new();
+        for item in &layout.items {
+            lines.entry(item.line_index).or_default().push(item.position.x);
         }
 
-        // Within each line, x_offsets should be monotonically non-decreasing
-        for (line_idx, items) in &lines {
+        // Within each line of left-to-right text, x should be monotonically non-decreasing
+        for (line_idx, xs) in &lines {
             let mut prev_x = -1.0f32;
-            for item in items {
+            for &x in xs {
                 assert!(
-                    item.x_offset >= prev_x,
-                    "Node {}, line {}: x_offset {} should be >= prev {}",
+                    x >= prev_x,
+                    "Node {}, line {}: x {} should be >= prev {}",
                     idx,
                     line_idx,
-                    item.x_offset,
+                    x,
                     prev_x
                 );
-                prev_x = item.x_offset;
+                prev_x = x;
             }
         }
     }
 }
 
 #[test]
-fn test_ifc_layout_metrics_source_node_ids_for_text() {
+fn test_ifc_layout_clusters_carry_the_source_node_ids_of_their_text() {
     let html = r#"
     <html>
         <body>
@@ -595,15 +533,20 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
     assert!(!ifc_nodes.is_empty(), "Should have IFC root nodes");
 
     // At least some items should have source_node_id set (text clusters)
-    let total_items: usize = ifc_nodes
+    let layouts: Vec<_> = ifc_nodes
         .iter()
-        .map(|(_, cached)| cached.item_metrics.len())
-        .sum();
+        .map(|(_, cached)| cached.materialized())
+        .collect();
+    let total_items: usize = layouts.iter().map(|layout| layout.items.len()).sum();
 
-    let items_with_source: usize = ifc_nodes
+    let items_with_source: usize = layouts
         .iter()
-        .flat_map(|(_, cached)| cached.item_metrics.iter())
-        .filter(|m| m.source_node_id.is_some())
+        .flat_map(|layout| layout.items.iter())
+        .filter(|item| {
+            item.item
+                .as_cluster()
+                .is_some_and(|cluster| cluster.source_node_id.is_some())
+        })
         .count();
 
     assert!(total_items > 0, "Should have inline items from text");
@@ -615,7 +558,7 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
 }
 
 #[test]
-fn test_ifc_layout_replace_preserves_metrics_structure() {
+fn test_cached_inline_layout_is_replaced_by_a_layout_at_another_width() {
     use azul_layout::text3::cache::{
         ContentIndex, GraphemeClusterId, OverflowInfo, Point, PositionedItem, ShapedCluster,
         ShapedItem, UnifiedLayout,
@@ -638,6 +581,7 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
         glyphs: smallvec::smallvec![],
         advance: 10.0,
         direction: azul_layout::text3::cache::BidiDirection::Ltr,
+        bidi_level: azul_layout::text3::cache::BidiLevel::paragraph(azul_layout::text3::cache::BidiDirection::Ltr),
         style: Default::default(),
         marker_position_outside: None,
         is_first_fragment: true,
@@ -655,14 +599,9 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
 
     let cached = CachedInlineLayout::new(layout.clone(), AvailableSpace::Definite(800.0), false);
 
-    assert_eq!(cached.item_metrics.len(), 1);
-    assert_eq!(
-        cached.item_metrics[0].source_node_id,
-        Some(azul_core::dom::NodeId::new(3))
-    );
-    assert!((cached.item_metrics[0].advance_width - 10.0).abs() < 0.01);
-    assert_eq!(cached.item_metrics[0].line_index, 0);
-    assert!((cached.item_metrics[0].x_offset - 5.0).abs() < 0.01);
+    let kept = cached.materialized();
+    assert_eq!(kept.items.len(), 1, "the cache keeps the one item");
+    assert!((kept.items[0].position.x - 5.0).abs() < 0.01);
 
     // should_replace_with different width → true
     assert!(cached.should_replace_with(AvailableSpace::Definite(400.0), false));

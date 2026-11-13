@@ -1,0 +1,59 @@
+[
+  {
+    "name": "remote names inside the engine's own bookkeeping are refused once, the passes stay clean, and nothing lands in the trash",
+    "description": "MBOX-009 (mailbox.org OX Drive for Windows): the client's temp folder '.drive' sat inside the synced folder and every cycle reported 'path ./drive ignored (DRV-0024)'. Rules S17, P11 and O1: the engine's bookkeeping (.azlin at the root) can never be named by a remote key; such a key is listed once (bad-remote-name) and the pass otherwise ends clean; the state folder lies outside the root and is private. sync-chaos sec-reserved-names.",
+    "not_applicable": "an encrypted drive's index refuses every name under .azlin/ for every writer (the meta index's reserved names), so no device can meet one there; the engine's refusal of such names from a plain index is sync-chaos sec-reserved-names (engine adapter: passes)",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "b", "path": "ok.txt", "text": "ok" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": ".azlin/sync/root-id", "text": "{\"id\": \"the attacker's\"}" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": ".azlin/sync/trash/planted.txt", "text": "planted" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": ".azlin/cache", "text": "cache" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "bad-remote-name", "key": ".azlin/sync/root-id" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "bad-remote-name", "key": ".azlin/cache" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "ok.txt", "text": "ok" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "state_private", "device": "b" },
+      { "op": "drive_list", "device": "b" },
+      { "op": "assert_response", "path": "result.files", "not_contains": "planted" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a folder deleted elsewhere still holds Word's ~$ lock file here: the document goes to the trash, the lock stays, no error loop, no bookkeeping goes up",
+    "description": "MBOX-009: users saw sync stop for days with an ignored-path error each cycle. Rules P11, D2 and E6: lock and temp files are ignored, never uploaded, never an error per pass; the trash under .azlin never syncs. sync-chaos port-office-lock-folder-delete.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "proj/doc.docx", "text": "the document" },
+      { "op": "drive_write", "device": "a", "path": "outside-proj.txt", "text": "stays" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "b", "path": "proj/~$doc.docx", "text": "word has it open" },
+      { "op": "drive_rmtree", "device": "a", "path": "proj" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "the document" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "proj/~$doc.docx", "text": "word has it open" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "proj/doc.docx", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "outside-proj.txt", "text": "stays" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "glob": "proj/~$*", "count": 0 },
+      { "op": "drive_check", "check": "remote_count", "glob": ".azlin/*", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

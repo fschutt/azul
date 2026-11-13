@@ -1,0 +1,1178 @@
+{
+ "source": "editing/data/forwarddelete.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 649,
+ "eligible_cases": 294,
+ "left_out": {
+  "attribute class": 1,
+  "attribute id": 3,
+  "attribute name": 3,
+  "markup outside the mail subset": 281,
+  "over the cap of 60": 234,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 41,
+  "tag <audio>": 2,
+  "tag <dl>": 10,
+  "tag <iframe>": 1,
+  "tag <input>": 1,
+  "tag <meter>": 1,
+  "tag <object>": 3,
+  "tag <pre>": 3,
+  "tag <progress>": 1,
+  "tag <quasit>": 2,
+  "tag <script>": 1,
+  "tag <video>": 1
+ },
+ "cases": [
+  {
+   "id": "forwarddelete-4b17a00f",
+   "initial": "foo[]",
+   "initial_xhtml": "foo[]",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-deadf895",
+   "initial": "<span>foo[]</span>",
+   "initial_xhtml": "<span>foo[]</span>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo</span>{}"
+   ],
+   "expected_canonical": [
+    "<span>foo</span>{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-9b5dfb9c",
+   "initial": "<p>foo[]</p>",
+   "initial_xhtml": "<p>foo[]</p>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-6df6c211",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[]ar"
+   ],
+   "expected_canonical": [
+    "foo[]ar"
+   ]
+  },
+  {
+   "id": "forwarddelete-35513fcd",
+   "initial": "<span>foo</span>{}<span>bar</span>",
+   "initial_xhtml": "<span>foo</span>{}<span>bar</span>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo</span><span>{}ar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo</span><span>{}ar</span>"
+   ]
+  },
+  {
+   "id": "forwarddelete-c0f238ac",
+   "initial": "<span>foo[</span><span>]bar</span>",
+   "initial_xhtml": "<span>foo[</span><span>]bar</span>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo[]</span><span>bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo[]</span><span>bar</span>"
+   ]
+  },
+  {
+   "id": "forwarddelete-df0a68e2",
+   "initial": "fo[]o&#x308;bar",
+   "initial_xhtml": "fo[]öbar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo[]bar"
+   ],
+   "expected_canonical": [
+    "fo[]bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-bdc0fbd6",
+   "initial": "fo[]o&#x308;&#x327;bar",
+   "initial_xhtml": "fo[]ö̧bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo[]bar"
+   ],
+   "expected_canonical": [
+    "fo[]bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-59d81eb2",
+   "initial": "[]o&#x308;bar",
+   "initial_xhtml": "[]öbar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "{}bar"
+   ],
+   "expected_canonical": [
+    "{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-5090e6fb",
+   "initial": "[]o&#x308;&#x327;bar",
+   "initial_xhtml": "[]ö̧bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "{}bar"
+   ],
+   "expected_canonical": [
+    "{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-7c5dd9ff",
+   "initial": "[]&#x5e9;&#x5c1;&#x5b8;&#x5dc;&#x5d5;&#x5b9;&#x5dd;",
+   "initial_xhtml": "[]שָׁלוֹם",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "{}לוֹם"
+   ],
+   "expected_canonical": [
+    "{}לוֹם"
+   ]
+  },
+  {
+   "id": "forwarddelete-2fdbe34a",
+   "initial": "&#x5e9;&#x5c1;&#x5b8;&#x5dc;[]&#x5d5;&#x5b9;&#x5dd;",
+   "initial_xhtml": "שָׁל[]וֹם",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "שָׁל[]ם"
+   ],
+   "expected_canonical": [
+    "שָׁל[]ם"
+   ]
+  },
+  {
+   "id": "forwarddelete-df40de1e",
+   "initial": "<p>foo[]</p><p>bar</p>",
+   "initial_xhtml": "<p>foo[]</p><p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-83741a89",
+   "initial": "<p>foo[]</p><p>bar</p>",
+   "initial_xhtml": "<p>foo[]</p><p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-39a91009",
+   "initial": "<p>foo[]</p>bar",
+   "initial_xhtml": "<p>foo[]</p>bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-baebf641",
+   "initial": "foo[]<p>bar</p>",
+   "initial_xhtml": "foo[]<p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}bar"
+   ],
+   "expected_canonical": [
+    "foo{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-01533885",
+   "initial": "foo[]<p>bar</p>",
+   "initial_xhtml": "foo[]<p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}bar"
+   ],
+   "expected_canonical": [
+    "foo{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-38bcbc3a",
+   "initial": "<p>foo[]<br></p><p>bar</p>",
+   "initial_xhtml": "<p>foo[]<br/></p><p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-dff673c0",
+   "initial": "<p>foo[]<br></p><p>bar</p>",
+   "initial_xhtml": "<p>foo[]<br/></p><p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-2aa44202",
+   "initial": "<p>foo[]<br></p>bar",
+   "initial_xhtml": "<p>foo[]<br/></p>bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-15b97230",
+   "initial": "foo[]<br><p>bar</p>",
+   "initial_xhtml": "foo[]<br/><p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}bar"
+   ],
+   "expected_canonical": [
+    "foo{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-c9786e66",
+   "initial": "foo[]<br><p>bar</p>",
+   "initial_xhtml": "foo[]<br/><p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}bar"
+   ],
+   "expected_canonical": [
+    "foo{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-8da1de14",
+   "initial": "<p>{}<br></p>foo",
+   "initial_xhtml": "<p>{}<br/></p>foo",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>{}foo</p>"
+   ],
+   "expected_canonical": [
+    "<p>{}foo</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-cc544fdf",
+   "initial": "<p>{}<span><br></span></p>foo",
+   "initial_xhtml": "<p>{}<span><br/></span></p>foo",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>{}foo</p>"
+   ],
+   "expected_canonical": [
+    "<p>{}foo</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-8d2777ad",
+   "initial": "foo{}<p><br>",
+   "initial_xhtml": "foo{}<p><br/></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-5820a7a4",
+   "initial": "foo{}<p><br>",
+   "initial_xhtml": "foo{}<p><br/></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-b800ae65",
+   "initial": "foo{}<p><span><br></span>",
+   "initial_xhtml": "foo{}<p><span><br/></span></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-24a5e6eb",
+   "initial": "foo{}<p><span><br></span>",
+   "initial_xhtml": "foo{}<p><span><br/></span></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-1dfb4f55",
+   "initial": "foo{}<br><p><br>",
+   "initial_xhtml": "foo{}<br/><p><br/></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-f8ee270b",
+   "initial": "foo{}<br><p><br>",
+   "initial_xhtml": "foo{}<br/><p><br/></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-3e5032e4",
+   "initial": "foo{}<span><br></span><p><br>",
+   "initial_xhtml": "foo{}<span><br/></span><p><br/></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-100b75b8",
+   "initial": "foo{}<span><br></span><p><br>",
+   "initial_xhtml": "foo{}<span><br/></span><p><br/></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-cef29120",
+   "initial": "foo{}<br><p><span><br></span>",
+   "initial_xhtml": "foo{}<br/><p><span><br/></span></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-c98d0a3e",
+   "initial": "foo{}<br><p><span><br></span>",
+   "initial_xhtml": "foo{}<br/><p><span><br/></span></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-0486354c",
+   "initial": "foo{}<span><br></span><p><span><br></span>",
+   "initial_xhtml": "foo{}<span><br/></span><p><span><br/></span></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-dc452ba1",
+   "initial": "foo{}<span><br></span><p><span><br></span>",
+   "initial_xhtml": "foo{}<span><br/></span><p><span><br/></span></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-e9da43a8",
+   "initial": "foo{}<p>",
+   "initial_xhtml": "foo{}<p></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-f238bf1b",
+   "initial": "foo{}<p>",
+   "initial_xhtml": "foo{}<p></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}"
+   ],
+   "expected_canonical": [
+    "foo{}"
+   ]
+  },
+  {
+   "id": "forwarddelete-1b565744",
+   "initial": "<div><p>foo[]</p></div><p>bar</p>",
+   "initial_xhtml": "<div><p>foo[]</p></div><p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><p>foo{}bar</p></div>"
+   ],
+   "expected_canonical": [
+    "<div><p>foo{}bar</p></div>"
+   ]
+  },
+  {
+   "id": "forwarddelete-b56b9037",
+   "initial": "<div><p>foo[]</p></div><p>bar</p>",
+   "initial_xhtml": "<div><p>foo[]</p></div><p>bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><p>foo{}bar</p></div>"
+   ],
+   "expected_canonical": [
+    "<div><p>foo{}bar</p></div>"
+   ]
+  },
+  {
+   "id": "forwarddelete-30c0942a",
+   "initial": "<p>foo[]</p><div><p>bar</p></div>",
+   "initial_xhtml": "<p>foo[]</p><div><p>bar</p></div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-9db6a250",
+   "initial": "<p>foo[]</p><div><p>bar</p></div>",
+   "initial_xhtml": "<p>foo[]</p><div><p>bar</p></div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-d45b9a67",
+   "initial": "<div><p>foo[]</p></div><div><p>bar</p></div>",
+   "initial_xhtml": "<div><p>foo[]</p></div><div><p>bar</p></div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><p>foo{}bar</p></div>"
+   ],
+   "expected_canonical": [
+    "<div><p>foo{}bar</p></div>"
+   ]
+  },
+  {
+   "id": "forwarddelete-e427023f",
+   "initial": "<div><p>foo[]</p></div><div><p>bar</p></div>",
+   "initial_xhtml": "<div><p>foo[]</p></div><div><p>bar</p></div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><p>foo{}bar</p></div>"
+   ],
+   "expected_canonical": [
+    "<div><p>foo{}bar</p></div>"
+   ]
+  },
+  {
+   "id": "forwarddelete-c24f53c6",
+   "initial": "<div><p>foo[]</p></div>bar",
+   "initial_xhtml": "<div><p>foo[]</p></div>bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><p>foo{}bar</p></div>"
+   ],
+   "expected_canonical": [
+    "<div><p>foo{}bar</p></div>"
+   ]
+  },
+  {
+   "id": "forwarddelete-917bb807",
+   "initial": "foo[]<div><p>bar</p></div>",
+   "initial_xhtml": "foo[]<div><p>bar</p></div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}bar"
+   ],
+   "expected_canonical": [
+    "foo{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-8ad78bea",
+   "initial": "foo[]<div><p>bar</p></div>",
+   "initial_xhtml": "foo[]<div><p>bar</p></div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}bar"
+   ],
+   "expected_canonical": [
+    "foo{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-e86e8470",
+   "initial": "<div>foo[]</div><div>bar</div>",
+   "initial_xhtml": "<div>foo[]</div><div>bar</div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo{}bar</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo{}bar</div>"
+   ]
+  },
+  {
+   "id": "forwarddelete-6986f1c6",
+   "initial": "<div>foo[]</div><div>bar</div>",
+   "initial_xhtml": "<div>foo[]</div><div>bar</div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo{}bar</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo{}bar</div>"
+   ]
+  },
+  {
+   "id": "forwarddelete-16c98af3",
+   "initial": "foo[]<br>bar",
+   "initial_xhtml": "foo[]<br/>bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{}bar"
+   ],
+   "expected_canonical": [
+    "foo{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-fc576a57",
+   "initial": "<b>foo[]</b><br>bar",
+   "initial_xhtml": "<b>foo[]</b><br/>bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo</b>{}bar"
+   ],
+   "expected_canonical": [
+    "<b>foo</b>{}bar"
+   ]
+  },
+  {
+   "id": "forwarddelete-e306838d",
+   "initial": "<p>foo[]</p><br><p>bar</p>",
+   "initial_xhtml": "<p>foo[]</p><br/><p>bar</p>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}</p><p>bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}</p><p>bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-499103d4",
+   "initial": "<p>foo[]</p><br><br><p>bar</p>",
+   "initial_xhtml": "<p>foo[]</p><br/><br/><p>bar</p>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo{}</p><br><p>bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo{}</p><br/><p>bar</p>"
+   ]
+  },
+  {
+   "id": "forwarddelete-549e2797",
+   "initial": "foo[]<a>bar</a>",
+   "initial_xhtml": "foo[]<a>bar</a>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<a>{}ar</a>"
+   ],
+   "expected_canonical": [
+    "foo<a>{}ar</a>"
+   ]
+  },
+  {
+   "id": "forwarddelete-c90c5bb2",
+   "initial": "foo[]<a href=/>bar</a>",
+   "initial_xhtml": "foo[]<a href=\"/\">bar</a>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"/\">{}ar</a>"
+   ],
+   "expected_canonical": [
+    "foo<a>{}ar</a>"
+   ]
+  },
+  {
+   "id": "forwarddelete-f37a6742",
+   "initial": "foo[]<a href=/ name=abc>bar</a>",
+   "initial_xhtml": "foo[]<a href=\"/\" name=\"abc\">bar</a>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"/\" name=\"abc\">{}ar</a>"
+   ],
+   "expected_canonical": [
+    "foo<a>{}ar</a>"
+   ]
+  },
+  {
+   "id": "forwarddelete-fb2c4db0",
+   "initial": "foo[]<span><a>bar</a></span>",
+   "initial_xhtml": "foo[]<span><a>bar</a></span>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<span><a>{}ar</a></span>"
+   ],
+   "expected_canonical": [
+    "foo<span><a>{}ar</a></span>"
+   ]
+  },
+  {
+   "id": "forwarddelete-fdf88e9c",
+   "initial": "foo[]<span><a href=/>bar</a></span>",
+   "initial_xhtml": "foo[]<span><a href=\"/\">bar</a></span>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<span><a href=\"/\">{}ar</a></span>"
+   ],
+   "expected_canonical": [
+    "foo<span><a>{}ar</a></span>"
+   ]
+  },
+  {
+   "id": "forwarddelete-c7c7a05e",
+   "initial": "foo[]<span><a href=/ name=abc>bar</a></span>",
+   "initial_xhtml": "foo[]<span><a href=\"/\" name=\"abc\">bar</a></span>",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<span><a href=\"/\" name=\"abc\">{}ar</a></span>"
+   ],
+   "expected_canonical": [
+    "foo<span><a>{}ar</a></span>"
+   ]
+  },
+  {
+   "id": "forwarddelete-46520191",
+   "initial": "<a>foo[]</a>bar",
+   "initial_xhtml": "<a>foo[]</a>bar",
+   "commands": [
+    [
+     "forwarddelete",
+     ""
+    ]
+   ],
+   "expected": [
+    "<a>foo</a>{}ar"
+   ],
+   "expected_canonical": [
+    "<a>foo</a>{}ar"
+   ]
+  }
+ ]
+}

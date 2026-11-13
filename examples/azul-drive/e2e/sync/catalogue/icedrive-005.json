@@ -1,0 +1,55 @@
+[
+  {
+    "name": "an upload stopped mid-transfer leaves the local file untouched and no partial version on the drive; the next pass sends it whole",
+    "description": "ICEDRIVE-005 (Icedrive): after cancelling a large upload the file was gone locally and only a partial copy existed in the cloud. Rules E5/A7/A5/E8 (sync-chaos res-crash-points, res-partition-mid-transfer): the stop is a crash at mid-read and at before-rename.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.mov", "size": 3000000, "seed": 5 },
+      { "op": "drive_sync", "device": "a", "crash_at": "mid-read", "expect": "crash" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "big.mov", "size": 3000000 },
+      { "op": "drive_check", "check": "remote_count", "count": 0 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "big.mov", "same_as": "big.mov", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "big.mov", "size": 3500000, "seed": 6 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "crash_at": "before-rename", "expect": "crash" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.mov", "size": 3000000 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.mov", "same_as": "{root:a}/big.mov" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "Cancel at 10/50/99 percent of a transfer leaves the local file whole and no partial version current",
+    "description": "ICEDRIVE-005 (Icedrive): cancelled transfers lost the file. Rules E5/A5/A7.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.mov", "size": 3000000, "seed": 5 },
+      { "op": "drive_sync", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_cancel", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "big.mov", "size": 3000000 },
+      { "op": "drive_check", "check": "remote_count", "count": 0 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "big.mov", "same_as": "big.mov", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

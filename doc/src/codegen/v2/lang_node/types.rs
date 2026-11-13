@@ -32,6 +32,7 @@
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         generator::CodeBuilder,
         ir::{
             CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, MonomorphizedKind,
@@ -269,10 +270,12 @@ fn emit_monomorphized_alias(
             b.line("});");
 
             // Per-variant payload structs (tag first, optional payload).
+            let payload = union_payload_layout(&ta.name, ir);
             for v in variants {
                 b.line(&format!("azulFFI.struct('{}Variant_{}', {{", name, v.name));
                 b.indent();
                 b.line(&format!("tag: '{}_Tag',", name));
+                emit_variant_padding(b, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
                 if let Some(ref payload_type) = v.payload_type {
                     let spec = ref_kind_spec(payload_type, &v.payload_ref_kind, ir);
                     b.line(&format!("payload: '{}',", spec));
@@ -380,15 +383,28 @@ fn emit_tag_enum(b: &mut CodeBuilder, e: &EnumDef) {
 // Variant payload structs
 // ============================================================================
 
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant), as one
+/// `uint8_t` member per byte - the Deno shim's `resolve()` has no array
+/// types, and koffi lays the bytes out the same either way.
+fn emit_variant_padding(b: &mut CodeBuilder, padding: usize) {
+    for i in 0..padding {
+        b.line(&format!("_pad0_{}: 'uint8_t',", i));
+    }
+}
+
 fn emit_variant_payload_structs(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let ffi = ffi_type_name(&e.name);
     let tag_field = format!("{}_Tag", ffi);
+    let payload = union_payload_layout(&e.name, ir);
     for v in &e.variants {
         let payload_name = format!("{}Variant_{}", ffi, v.name);
         b.line(&format!("// Payload struct for {}::{}.", e.name, v.name));
         b.line(&format!("azulFFI.struct('{}', {{", payload_name));
         b.indent();
         b.line(&format!("tag: '{}',", tag_field));
+        emit_variant_padding(b, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
         match &v.kind {
             EnumVariantKind::Unit => {
                 // tag-only; nothing else

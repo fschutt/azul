@@ -14,7 +14,7 @@ use azul_layout::{
     font::parsed::ParsedFont,
     parsed_font_to_font_ref,
     text3::cache::{
-        create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
+        create_logical_items, perform_fragment_layout, split_into_bidi_runs, shape_bidi_runs,
         AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
         LineHeight, LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
         UnifiedConstraints, UnifiedLayout, VerticalAlign,
@@ -78,11 +78,11 @@ fn layout_sc(
         };
     }
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
             .expect("bidi reorder");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let shaped = shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
     let mut cursor = BreakCursor::new(&shaped);
     constraints.direction = Some(BidiDirection::Ltr);
     perform_fragment_layout(&mut cursor, &logical, &constraints, &mut None, &loaded)
@@ -128,11 +128,11 @@ fn layout_multi(content: &[InlineContent], constraints: UnifiedConstraints) -> U
     loaded.insert(FontId::new(), font_ref.clone());
     let logical = create_logical_items(content, &[], &mut None);
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
             .expect("bidi reorder");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let shaped = shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
     let mut cursor = BreakCursor::new(&shaped);
     perform_fragment_layout(&mut cursor, &logical, &constraints, &mut None, &loaded)
         .expect("fragment layout")
@@ -275,8 +275,12 @@ fn vertical_align_baseline_leaves_cluster_at_top() {
 
 #[test]
 fn vertical_align_super_raises_cluster() {
-    // §10.8.1: vertical-align:super raises the box by ~0.4 * line-ascent. With a 16px
-    // ascent that is 6.4px up, so the box top moves to y = -6.4.
+    // §10.8.1: vertical-align:super raises the box by the parent's font size / 3 + 1px
+    // (Chrome's rule): 16 / 3 + 1 = 6.3333px above the strut's baseline. The line box
+    // holds every box where it is aligned, so it GROWS by the raise: its ascent is the
+    // raised box's 16 + 6.3333 = 22.3333 (the strut's is 12.8) and the raised box's top
+    // IS the line's top, y = 0 (Chrome: a `<sup>` makes its line taller, it does not
+    // reach above it).
     let l = layout_sc(
         "a",
         base_style(),
@@ -286,13 +290,31 @@ fn vertical_align_super_raises_cluster() {
             ..UnifiedConstraints::default()
         },
     );
-    assert_px(y_of(&l, 0), -6.4);
+    assert_px(y_of(&l, 0), 0.0);
+    // The raise is in the line pitch: two lines of raised text are 22.3333 + 3.2 (the
+    // strut's descent; the raised box's 4 - 6.3333 ends above the baseline) = 25.5333px
+    // apart, not the unshifted 20.
+    let two_lines = layout_sc(
+        "aaaa aaaa",
+        base_style(),
+        UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            vertical_align: VerticalAlign::Super,
+            ..UnifiedConstraints::default()
+        },
+    );
+    assert_px(
+        y_of(&two_lines, 5) - y_of(&two_lines, 0),
+        16.0 + 16.0 / 3.0 + 1.0 + 3.2,
+    );
 }
 
 #[test]
 fn vertical_align_sub_lowers_cluster() {
-    // §10.8.1: vertical-align:sub lowers the box by ~0.3 * line-ascent = 4.8px, so the
-    // box top moves to y = 4.8.
+    // §10.8.1: vertical-align:sub lowers the box by the parent's font size / 5 + 1px
+    // (Chrome's rule): 16 / 5 + 1 = 4.2px. The line's ascent stays the strut's 12.8 (the
+    // lowered box reaches only 16 - 4.2 = 11.8 above the baseline), so the box's top is
+    // at 12.8 + 4.2 - 16 = 1.0.
     let l = layout_sc(
         "a",
         base_style(),
@@ -302,7 +324,7 @@ fn vertical_align_sub_lowers_cluster() {
             ..UnifiedConstraints::default()
         },
     );
-    assert_px(y_of(&l, 0), 4.8);
+    assert_px(y_of(&l, 0), 12.8 + 16.0 / 5.0 + 1.0 - 16.0);
 }
 
 // ===========================================================================

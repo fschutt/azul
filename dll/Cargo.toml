@@ -21,15 +21,15 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 # Core crates - only needed for build-dll and link-static, NOT for link-dynamic
-azul-core = { path = "../core", version = "0.0.16", default-features = false, optional = true }
-azul-css = { path = "../css", version = "0.0.16", default-features = false, optional = true }
+azul-core = { path = "../core", version = "0.0.17", default-features = false, optional = true }
+azul-css = { path = "../css", version = "0.0.17", default-features = false, optional = true }
 # The dll uses azul_layout::widgets (43 sites) and azul_layout::desktop
 # (dialogs), so those features must be DECLARED here. They used to arrive
 # by accident: webrender took azul-layout with default features and cargo
 # feature unification handed the full default set to every crate in the
 # graph. Scoping webrender (2026-08-05) exposed the under-declaration -
 # the dll stopped compiling until this line named what it actually uses.
-azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater"], optional = true }
+azul-layout = { path = "../layout", version = "0.0.17", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater", "auth_session"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }
@@ -73,6 +73,10 @@ serde_json = { version = "1.0", optional = true }
 # the HTML head, wasm client deserializes at AzStartup_init.
 postcard = { version = "1.0", features = ["use-std"], optional = true }
 base64 = { version = "0.22", optional = true }
+# The OS's random source for a sign-in's PKCE verifier and state (`AuthPkce::create`,
+# desktop/extra/auth_session). getrandom 0.2.17 is in Cargo.lock already (this crate's wasm
+# section, azul-storage, the rustls crypto stack); no build script.
+getrandom = "0.2"
 
 # Accessibility
 accesskit = { version = "0.24", default-features = false, optional = true }
@@ -84,6 +88,30 @@ png = { version = "0.18", default-features = false, optional = true }
 # gpu-video needs; gpu-video itself does NOT demux). Pure Rust, behind
 # `video-native`. See dll/src/desktop/extra/video_codec/demux.rs.
 mp4 = { version = "0.14", default-features = false, optional = true }
+
+# Audio FILE decoding for AudioFileDecoder / AudioPlayer (audio/decode.rs):
+# MP3, AAC, ALAC, FLAC, Vorbis, PCM / ADPCM in WAV, AIFF, MP4 / M4A, Ogg, MKV /
+# WebM and CAF, with ID3v1 / ID3v2 / APE tags and cover art. Pure Rust
+# (MPL-2.0), behind `audio-decode`. No `opt-simd` (it would pull rustfft).
+# Opus in those containers is decoded by azul's own AudioDecoder.
+symphonia = { version = "0.6.1", default-features = false, optional = true, features = [
+    "mp3",
+    "aac",
+    "alac",
+    "flac",
+    "vorbis",
+    "pcm",
+    "adpcm",
+    "wav",
+    "aiff",
+    "isomp4",
+    "ogg",
+    "mkv",
+    "caf",
+    "id3v1",
+    "id3v2",
+    "ape",
+] }
 
 # Windows-only: libm for math functions
 libm = { version = "0.2.2", default-features = false, optional = true }
@@ -465,6 +493,15 @@ windows = { version = "0.62", optional = true, features = [
     # platform that can take album art as a URI rather than as decoded pixels.
     "Media",
     "Storage_Streams",
+    # Native notifications as WinRT toasts (desktop/notifications/windows.rs):
+    # ToastNotificationManager / ToastNotification and the XmlDocument their
+    # content is loaded from. The AUMID they need is registered under HKCU
+    # through a dlopen'd advapi32, so no registry feature is needed.
+    "UI_Notifications",
+    "Data_Xml_Dom",
+    # The toast activator (INotificationActivationCallback): a click on an
+    # Action Center entry after the app exited reaches it through COM.
+    "Win32_UI_Notifications",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
@@ -476,6 +513,15 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
+    # The network state for background transfers (extra/sensors/network/windows.rs): the internet
+    # connection profile, its cost (metered, data limit, roaming, Data Saver) and
+    # NetworkStatusChanged. A feature of the windows crate already here, no new crate.
+    "Networking_Connectivity",
+    # Speech (extra/speech/windows.rs): SAPI's ISpVoice says, WinRT's SpeechRecognizer (with the
+    # Language it is made for) hears. Features of the windows crate already here, no new crate.
+    "Win32_Media_Speech",
+    "Media_SpeechRecognition",
+    "Globalization",
 ] }
 # Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
 # `::windows_core::` paths (windows/dnd.rs) resolve to 0.62, not the 0.54
@@ -618,6 +664,11 @@ objc2-core-video = { version = "0.3.0", default-features = false, optional = tru
     "CVReturn",
 ] }
 
+# The tests of what the iroh relays and a database's backup sync trust: throwaway roots and a
+# loopback TLS server (azul-layout's `tls-testing`), TESTS ONLY.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+azul-layout = { path = "../layout", version = "0.0.17", default-features = false, features = ["tls-testing"] }
+
 [build-dependencies]
 brotli = "8"
 # M8.9: in-process remill + LLVM + LLD wrapper. Compiles
@@ -647,20 +698,29 @@ getrandom = { version = "0.2", features = ["js"] }
 __memtest_no_export = []
 
 # Default: Build with static linking (for Rust applications)
-# Use --features "build-dll" when building the shared library itself
+# Use --features "dist" when building the shared library that ships, "build-dll" for the one
+# developers and the E2E builds use (dist + the debug server + the E2E scripting engine + the
+# web-e2e executor).
+#
+# NO DOOR IS A DEFAULT (X-DELTA-AZDRIVE-KEYS-10): cargo features add up, so a `--features dist`
+# that forgot `--no-default-features` would carry every default along. `debug-server` (an HTTP
+# port and a debugger inside the customer's process) and `web-e2e-runner` (the binary becomes
+# the test runner) used to be defaults, and the libazul that shipped carried both.
+# `dll/tests/run_mode_gate.rs` pins that the closure of `default` holds none of the doors, and that
+# no shipping recipe builds `build-dll`.
 default = [
     "std",
     "link-static",
     "logging",
     "a11y",
     "all_img_formats",
-    "web-e2e-runner",
 ]
 
 # Embedded web-e2e executor: bundles scripts/e2e-web (brotli, build.rs) into
 # the binary so `AZ_BACKEND=<http url> AZ_E2E=<dir|file>` makes ANY azul app
 # act as the test runner against a web server (spawns node/bun/deno on the
-# extracted bundle; desktop-parity cargo-test output). On by default.
+# extracted bundle; desktop-parity cargo-test output). In `build-dll` (the developers' and the
+# E2E builds), never in a default and never in `dist`.
 web-e2e-runner = ["dep:brotli-decompressor"]
 
 # -----------------------------------------------------------------------------
@@ -690,18 +750,24 @@ rust_api = []
 # Build Modes
 # -----------------------------------------------------------------------------
 
-# Build the full desktop DLL with windowing, OpenGL, fonts, etc.
-# This compiles all the platform-specific code in src/desktop/
-# Exports C-ABI symbols with #[no_mangle] for use from C/C++/Python
-build-dll = [
+# THE SHIPPED libazul (`--features dist`): the full desktop DLL with windowing, OpenGL, fonts,
+# every subsystem below - and none of the doors that must be shut in a release (REVIEW K15,
+# X-AR5b-22, ARCH28 RF38):
+#   * no `debug-server`: an HTTP port and a debugger inside a customer's process;
+#   * no `e2e-scripting`: `AZ_E2E=script.json` would drive the UI from an environment variable;
+#   * no `test-hooks`: the keyring, sign-in and `Url::open` stand-ins of a test run.
+# `dll/tests/run_mode_gate.rs` pins that the closure of this list holds none of the three.
+# This compiles all the platform-specific code in src/desktop/ and exports C-ABI symbols with
+# #[no_mangle] for use from C/C++/Python.
+dist = [
     "cabi_export",
     "rust_api",
     "_internal_deps",
     "font_loading_multithreaded",
     "font_async_registry",
-    # Full functional surface for a complete libazul dylib — P4-P8 demos
+    # Full functional surface for a complete libazul dylib - P4-P8 demos
     # consume these through api.json. New feature-gated subsystems
-    # (db-sqlite, biometric, …) MUST be added here as they land.
+    # (db-sqlite, biometric, ...) MUST be added HERE as they land: `build-dll` includes this list.
     "a11y",
     "icons",
     "svg",
@@ -717,6 +783,8 @@ build-dll = [
     # (linux/windows) `gpu-video`, so libazul.so gives the C video player real
     # frames instead of the stub. No-op decoder on platforms without a backend.
     "video-native",
+    # Audio files (MP3 / AAC / FLAC / ...) for AudioFileDecoder and AudioPlayer.
+    "audio-decode",
     # OTLP telemetry compiled into the shipped dylib so any app (and the
     # link-dynamic demos) can opt in at RUNTIME via AZ_TELEMETRY=... without a
     # special build. Consent stays dual-keyed: linking this in sends NOTHING
@@ -732,14 +800,22 @@ build-dll = [
     "azul-layout/probe",
     # Peer-to-peer QUIC behind the azul.iroh module (IrohEndpoint).
     "iroh",
-    # AZ_E2E SCRIPTING, in every shipped dylib. The execution engine only:
-    # `debug-server` (the HTTP port + the bundled debugger JS) stays OUT, so
-    # there is no listening socket and no 2-4 MB of JS in the binary. A script
-    # handed over via `AZ_E2E=script.json` needs no server at all, and without
-    # this an app built the normal way silently ignored AZ_E2E - which is
-    # exactly what "the app did nothing" looked like (2026-09-01).
-    "e2e-scripting",
+    # The X11 backend in the macOS dylib, so `AZ_BACKEND=x11` works out of
+    # the box against XQuartz. No dependency, a no-op off macOS - see below.
+    "x11-macos",
+    # builtin(leather) / builtin(aluminium): the flora tab strips' surfaces.
+    "materials",
 ]
+
+# The libazul of developers, tests and the E2E builds: `dist` plus the debug server, the E2E
+# scripting engine and the web-e2e executor. NEVER ship it - `dist` is what ships. `test-hooks`
+# is not in it either: the E2E builds ask for it by name (`--features build-dll,test-hooks`).
+#
+# `e2e-scripting` is here so a script handed over via `AZ_E2E=script.json` runs against an app
+# built the normal way (without it an app silently ignored AZ_E2E - exactly what "the app did
+# nothing" looked like, 2026-09-01); `debug-server` is the HTTP port and the debugger. Both used
+# to be named in the list above (three times) in a build the comments call lean.
+build-dll = ["dist", "debug-server", "e2e-scripting", "web-e2e-runner"]
 
 # SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`
 # engine; the public surface (SQL strings + DbValue/DbRows) hides it. Kept
@@ -754,7 +830,7 @@ db-sqlite = ["dep:turso", "dep:aegis"]
 pdf = ["dep:printpdf", "serde_json"]
 # The iroh engine behind `IrohEndpoint`. The handle is always present; without the
 # feature `bind` reports an `Error` event instead of binding.
-iroh = ["dep:iroh", "dep:iroh-tickets", "dep:tokio"]
+iroh = ["dep:iroh", "dep:iroh-tickets", "dep:tokio", "azul-core/tls-roots"]
 
 # -----------------------------------------------------------------------------
 # Link Modes (for consumers of the library)
@@ -782,6 +858,11 @@ link-dynamic = [
     "cabi_external",
     "rust_api",
 ]
+
+# Nightly only: `?` directly on the FFI Option* / Result* types, and inside a
+# callback returning `Update` (a missing value or an error means "do nothing").
+# Stable Rust gets the same through `Update::with` / `Update::with_result`.
+try-trait = []
 
 # Shared dependencies for build-dll and link-static (not user-facing)
 _internal_deps = [
@@ -886,6 +967,13 @@ _internal_deps = [
 # NOTE: std feature only affects azul-core/layout when they are enabled via build-dll or link-static
 # For link-dynamic, std has no effect since those crates aren't included
 std = ["azul-core?/std", "azul-layout?/std"]
+
+# The 2.5D materials (`builtin(leather)`, `builtin(bluejeans)`,
+# `builtin(aluminium)`; azul-layout's `materials`): ~27 KB of micro tiles and
+# a CPU shader. Part of `build-dll`: the flora tab strips are cut from
+# leather and aluminium. Without it the names are transparent and
+# `CallbackInfo::set_material_light` only records the light.
+materials = ["azul-layout?/materials"]
 logging = ["log"]
 
 # OTLP telemetry + crash capture (see layout/src/telemetry). NOT default:
@@ -898,12 +986,13 @@ telemetry = ["azul-layout?/telemetry"]
 # arms the contact at startup.
 crash-mail = ["telemetry", "azul-layout?/crash-mail"]
 
-# Debug server / inspector / E2E runner. OFF by default so the shipped
+# Debug server / inspector / E2E runner. NOT in `dist`, so the shipped
 # `azul.{so,dll,dylib}` is LEAN: no embedded HTTP server (AZ_DEBUG=<port> is a
 # no-op), no E2E runner, no DOM-inspector/scaffold-generator machinery, and the
 # ~8k lines of `common/debug_server` request handling are NOT compiled in (a few
-# MB + an attacker-reachable port off the customer build). Build the swap-in
-# `azuldbg.*` with `--features build-dll,debug-server` to re-enable AZ_DEBUG.
+# MB + an attacker-reachable port off the customer build). `build-dll` (the
+# developers' libazul) and the static-link `default` have it; the swap-in
+# `azuldbg.*` is `--features build-dll`.
 # Pulls `json`: the debug server's app-state ops (get/set/assert_app_state and
 # the undo/redo mini-git) deserialize/serialize the app RefAny through
 # `azul_layout::json`, so the server cannot compile without it.
@@ -912,7 +1001,11 @@ crash-mail = ["telemetry", "azul-layout?/crash-mail"]
 # (which implies `e2e-server`); `common/debug_server` only re-exports it and
 # adds the TCP listener + `register_debug_timer`. It used to be a second, drifted
 # copy of the same 12k lines.
-debug-server = ["json", "azul-layout/e2e-server-http", "spmc"]
+# `azul-css?/codegen`: `POST /debug/compile?lang=` (common/debug_server/platform.rs)
+# runs `azul_css::codegen::backend_for`. `azul-layout/codegen` (the DOM half,
+# `azul_core::codegen`: AzBuilder's code export) comes with `e2e-server`; it is
+# named here so the gate is visible.
+debug-server = ["json", "azul-layout/e2e-server-http", "azul-layout/codegen", "spmc", "azul-css?/codegen"]
 # E2E SCRIPTING WITHOUT THE HTTP SERVER.
 #
 # `debug-server` above pulls `e2e-server-http`, which opens a listening
@@ -924,7 +1017,7 @@ debug-server = ["json", "azul-layout/e2e-server-http", "spmc"]
 #
 # So this enables `e2e-server` (the op dispatch, despite the name) WITHOUT
 # `-http` and without `spmc`, which exists only for the HTTP transport.
-e2e-scripting = ["json", "azul-layout/e2e-server"]
+e2e-scripting = ["json", "azul-layout/e2e-server", "azul-layout/codegen", "azul-css?/codegen"]
 
 # Memory allocator features — set the global allocator inside the azul DLL.
 # Since azul exposes a C API, the allocator only affects azul's internal
@@ -984,6 +1077,25 @@ web-transpiler = ["web", "dep:goblin", "dep:pdb", "dep:iced-x86", "azul-layout?/
 web-transpiler-static = ["web-transpiler", "dep:cc"]
 
 # -----------------------------------------------------------------------------
+# Windowing backends
+# -----------------------------------------------------------------------------
+
+# The X11 backend in the macOS build, to reproduce X11 bugs on a Mac. Part of
+# build-dll, so every macOS dylib has it; a link-static app opts in with
+# `--features x11-macos`. `AZ_BACKEND=x11` (or `AZ_WINDOW=x11`) runs the Linux
+# X11 backend - the same `X11Window`, the same window loop - against XQuartz
+# instead of opening AppKit windows; without the variable nothing changes at
+# run time.
+#
+# No dependency of its own: the X libraries are dlopen'ed from /opt/X11/lib
+# at run time (shell2/common/x11_host.rs), and build.rs turns this feature
+# into the `az_x11` cfg the backend is gated on. It deliberately does NOT
+# bring x11-clipboard to macOS - see shell2/linux/x11/clipboard_xquartz.rs.
+# A no-op on every other target (Linux always has the X11 backend).
+# How-to: "Reproducing X11 bugs on macOS" in doc/guide/en/debugging.md.
+x11-macos = []
+
+# -----------------------------------------------------------------------------
 # Accessibility
 # -----------------------------------------------------------------------------
 
@@ -1029,6 +1141,10 @@ camera-native = ["dep:nokhwa"]
 # a no-op on Apple/Android — those use VideoToolbox/MediaCodec or the stub). OFF
 # by default so the stub (video_codec/mod.rs) keeps cross-compile builds lean.
 video-native = ["dep:mp4", "dep:gpu-video"]
+# Audio file decoding (Symphonia): AudioFileDecoder and AudioPlayer decode MP3,
+# AAC, ALAC, FLAC, Vorbis, WAV, AIFF in their containers. Without it both
+# handles open closed and say why.
+audio-decode = ["dep:symphonia"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]
@@ -1105,7 +1221,9 @@ pyo3_logger = ["pyo3-log", "logging"]
 # to resolve at import (standard pyo3/manylinux). Do NOT bake Py* stubs into this
 # cdylib: pyo3 is statically linked in, so a locally-defined Py* is dso_local and
 # self-mis-binds, SIGSEGV-ing pyclass teardown (see src/lib.rs, removed 2026-07-07).
-python-extension = ["build-dll", "pyo3", "pyo3_logger", "link-static"]
+# `dist`, not `build-dll`: a wheel ships, so it carries no debug server and no E2E scripting (the
+# E2E builds add `,debug-server` by name).
+python-extension = ["dist", "pyo3", "pyo3_logger", "link-static"]
 
 # PHP extension module (Zend engine native extension via ext-php-rs).
 # Unlike the standard php-ffi path, this loads through the Zend engine
@@ -1115,7 +1233,8 @@ python-extension = ["build-dll", "pyo3", "pyo3_logger", "link-static"]
 #   cargo build --release --features php-extension
 # Then load:
 #   php -d extension=/path/to/libazul.so hello-world.php
-php-extension = ["build-dll", "ext-php-rs", "link-static", "once_cell"]
+# `dist`, not `build-dll`, for the same reason (the E2E build adds `,debug-server` by name).
+php-extension = ["dist", "ext-php-rs", "link-static", "once_cell"]
 
 # -----------------------------------------------------------------------------
 # E2E Test Harness (AZ_E2E_TEST env-var-driven scenario runner)
@@ -1127,18 +1246,37 @@ php-extension = ["build-dll", "ext-php-rs", "link-static", "once_cell"]
 e2e-test = ["serde_json", "azul-layout?/probe"]
 
 # -----------------------------------------------------------------------------
+# Test hooks (decision of 2026-11-04: a shipped build reads no test switch)
+# -----------------------------------------------------------------------------
+# The keyring's test switches - AZ_KEYRING (`memory`, `file`, `system`), AZ_KEYRING_FILE (a
+# plaintext JSON file that keeps a test stack's secrets), AZ_BACKEND=headless and AZ_E2E_TEST
+# (a headless or E2E run never reaches the system keyring) - work ONLY in a build with this
+# feature, which the unit tests of the keyring and the E2E builds turn on explicitly:
+#   cargo build --release -p azul-dll --features build-dll,test-hooks
+# A release or distribution build (`dist`, `prod-release`) never reads them: a
+# variable in a shell profile, a launcher or a wrapper cannot send a user's drive keys to process
+# memory (lost at exit) or to a plaintext file. Not part of `build-dll`; never ship it.
+#
+# The same feature gates every other stand-in of a headless or E2E run (RF38 phase 2): the sign-in
+# that answers from AZ_AUTH_SESSION_REDIRECT, `Url::open` that opens nothing, the biometric prompt
+# that says "unavailable", the fixed battery / network readings, the speech that says nothing and
+# the armed request mocks. azul-core's `run_mode::test_hooks()` is the one place that reads those
+# variables, and it reads them only with this feature (the `?` keeps a dependency that is off off).
+test-hooks = ["azul-core?/test-hooks", "azul-layout?/test-hooks"]
+
+# -----------------------------------------------------------------------------
 # Integration tests that need a non-default feature
 # -----------------------------------------------------------------------------
 #
 # WHY THESE ENTRIES EXIST (2026-08-20). azul-dll's `default` is
 # std + link-static + logging + a11y + all_img_formats — no `build-dll`, no
-# `e2e-test`, no `xml`. Both files below are ENTIRELY inside a cfg that those
-# defaults do not satisfy, so the ubuntu `cd dll && cargo test` job compiled
-# each of them into an EMPTY test harness and printed a green `running 0 tests`.
-# With `required-features`, cargo SKIPS the target instead of faking a pass —
-# and the jobs that DO name them (`ffi_safety_tests` for leak_regression,
-# `export_code_e2e` for the xml codegen tests) now fail loudly if the feature is
-# ever renamed, rather than silently testing nothing.
+# `e2e-test`. The file below is ENTIRELY inside a cfg that those defaults do
+# not satisfy, so the ubuntu `cd dll && cargo test` job compiled it into an
+# EMPTY test harness and printed a green `running 0 tests`. With
+# `required-features`, cargo SKIPS the target instead of faking a pass — and
+# the job that DOES name it (`ffi_safety_tests`) now fails loudly if the
+# feature is ever renamed, rather than silently testing nothing. (The HTML ->
+# code tests moved to azul-core: `--features codegen --test export_page_codegen`.)
 #
 # The `target_os` half of leak_regression's `#![cfg]` (macOS, or linux-gnu)
 # cannot be expressed as a required-feature; ffi_safety_tests runs it on macOS
@@ -1149,10 +1287,13 @@ name = "leak_regression"
 path = "tests/leak_regression.rs"
 required-features = ["build-dll", "e2e-test"]
 
+# Runs on the process's main thread (its run loop and dispatch queue are the
+# ones under test), so it brings its own `main`.
 [[test]]
-name = "xml_to_rust_compilation"
-path = "tests/xml_to_rust_compilation.rs"
-required-features = ["xml"]
+name = "a_vsync_tick_reaches_a_main_loop_whose_timer_overruns"
+path = "tests/a_vsync_tick_reaches_a_main_loop_whose_timer_overruns.rs"
+harness = false
+required-features = ["build-dll"]
 
 # -----------------------------------------------------------------------------
 # Examples

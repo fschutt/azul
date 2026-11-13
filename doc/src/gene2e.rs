@@ -17,6 +17,23 @@
 //! required parameter that the engine does not actually have, is DELETED and
 //! counted as a failure.
 //!
+//! The gate also checks what the ENGINE would refuse at run time, so a scenario
+//! that could only fail for a reason of its own making is never written:
+//!   * the step is read as the runner reads it (`parse_debug_event`): wrong types and unknown enum
+//!     variants fail here, not at step N;
+//!   * a string param with a closed set of values (`which`, `frame`, ...) holds one of them - the
+//!     engine's own table, not a copy;
+//!   * `mount` has html, and it parses (`mounted_nodes`, the parser `mount` uses);
+//!   * a numeric `node_id` is the node the op takes: it exists, was not deleted, and is an element
+//!     (not `<html>`, `<body>` or a whitespace run), a text node for `set_node_text`, an `<img>` for
+//!     `set_node_image`;
+//!   * a step that names a node comes after the `wait_frame` that applies the `mount` (before it
+//!     the document does not exist: "Node 1 not found");
+//!   * an op that names its node by `selector` OR `node_id` is given exactly one.
+//!
+//! Every artifact's `name` is made unique by appending `_<8 hex of _source_hash>`, and a review
+//! batch pairs results with FILES, never with names (`pair_results`).
+//!
 //! Hard-won lessons inherited from earlier E2E fleets:
 //!   1. A RATE-LIMITED `claude -p` exits 0 and answers with the limit message as PLAIN TEXT. That
 //!      must never be written out as a test.
@@ -81,7 +98,11 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use azul_layout::e2e::{load_e2e_tests, render_report, E2eTest, E2eTestResult};
+use azul_layout::e2e::{
+    closed_param_values, load_e2e_tests, mounted_nodes_with, parse_debug_event, render_report,
+    DebugEvent, E2eTest, E2eTestResult, MountedKind, MountedNode, CLOSED_STRING_PARAMS,
+    DEAD_CONTROL_MARKER, STALE_SCREEN_MARKER,
+};
 
 /// Relative path of the file that DEFINES the e2e schema. Single source of truth.
 // MUST be the copy that `azul-doc e2e` actually EXECUTES (azul_layout::e2e), not
@@ -271,7 +292,8 @@ struct OpDef {
     name: String,
     /// (param, required)
     params: Vec<(String, bool)>,
-    /// One-line doc, if the enum variant carried one.
+    /// The first paragraph of the enum variant's doc on one line, if it
+    /// carried one (see [`DocParagraph`]).
     doc: Option<String>,
 }
 
@@ -385,6 +407,9 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // would name an op no handler recognises and fail with handled=false —
     // which is the op behaving correctly, and useless as a generated test.
     ("custom_op", Some("app-defined op name; the engine cannot know any valid one")),
+    // DENY: its answer is whatever the application registered, so a generated
+    // test has nothing engine-defined to assert on.
+    ("list_app_ops", Some("lists the application's own ops; nothing engine-defined to assert")),
     // DENY: both are human-debugging aids that write to the log and assert
     // NOTHING. A generated scenario that reaches for one has substituted
     // "show me" for "check this", and passes no matter what the engine did —
@@ -422,8 +447,35 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("add_image_to_cache",        None),
     ("remove_image_from_cache",   None),
     ("key_down",                  None),
+    // Global hotkeys through the window's manager on the SIMULATED backend
+    // (AZ_BACKEND=headless): press a declared accelerator, program the
+    // backend's answer to the next grab (taken / refused / pending), and
+    // settle a pending one. Deterministic input, like key_down.
+    ("global_hotkey",             None),
+    ("global_hotkey_answer",      None),
+    ("global_hotkey_settle",      None),
+    // `<webview>`: the scenario plays the browser - the headless backend and
+    // the in-crate runner share one recording backend - and lists the views
+    // the engine keeps. Deterministic input, like key_down.
+    ("list_webviews",                  None),
+    ("simulate_webview_navigation",    None),
+    ("simulate_webview_load_finished", None),
+    ("simulate_webview_title",         None),
+    ("simulate_webview_load_failed",   None),
+    // DENY: a notification click / button / dismissal queued into the
+    // mailbox. Only the dll's notification service (AZ_BACKEND=headless)
+    // routes it to a callback; the in-crate runner generated tests run in
+    // has none, so nothing a generated scenario asserts afterwards can see
+    // it. Hand-written AZ_E2E scenarios use it (examples/azul-widgets/e2e/).
+    ("notification_event",        Some("delivered by the dll's notification service \
+                                        (AZ_BACKEND=headless); the in-crate runner has none, \
+                                        so its callback never runs - red on arrival")),
     ("key_up",                    None),
     ("text_input",                None),
+    // A user's paste with the content handed in (no OS clipboard): the
+    // focused node's Paste callbacks, then the engine's paste. Deterministic
+    // input, like text_input; it errors by name without a focused node.
+    ("paste",                     None),
     ("touch_start",               None),
     ("touch_move",                None),
     ("touch_end",                 None),
@@ -484,6 +536,12 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // removal half is a genuine leak detector.
     ("add_timer",                 None),
     ("remove_timer",              None),
+    // `CallbackInfo::set_mode` / `set_theme` - an app's own light / dark and
+    // theme toggles (AzWidgets' toolbar, AzBuilder's page through these ops).
+    // The engine then decides what the switch costs: a restyle for the mode,
+    // a DOM rebuild for the theme.
+    ("set_mode",                  None),
+    ("set_theme",                 None),
 
     // -- ALLOW: HARNESS CONTROL --------------------------------------------
     ("mount",                     None),
@@ -491,6 +549,9 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("tick_ms",                   None),
     ("wait",                      None),
     ("wait_frame",                None),
+    // Waits for the window to come to rest (no slide, transition, easing or
+    // fade in flight) - harness control; it forges nothing.
+    ("wait_settled",              None),
     ("reset_frame_counters",      None),
     ("snapshot_frame",            None),
     ("snapshot_resources",        None),
@@ -508,12 +569,21 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // get_dom_tree. A multi-DOM scenario has no other way to learn the ids it
     // then addresses.
     ("list_doms",                 None),
+    // ALLOW: read-only enumeration of the windows the debug server reaches
+    // (a dialog, a menu the app opened). A multi-window scenario has no other
+    // way to learn the `window_id`s it then addresses.
+    ("list_windows",              None),
     ("get_node_hierarchy",        None),
     ("get_html_string",           None),
     ("get_node_css_properties",   None),
     ("get_node_dataset",          None),
     ("get_focus_state",           None),
     ("get_cursor_state",          None),
+    // ALLOW: read-only, the accessibility tree the platform adapter holds.
+    ("get_accessibility_tree",    None),
+    // The app's mode choice and what the window shows; the app theme.
+    ("get_mode",                  None),
+    ("get_theme",                 None),
     ("get_selection_state",       None),
     ("dump_selection_manager",    None),
     ("get_scroll_states",         None),
@@ -540,7 +610,6 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("delete_component",           Some("visual-editor/IDE surface, not engine behaviour")),
     ("update_component",           Some("visual-editor/IDE surface, not engine behaviour")),
     ("update_component_render_fn", Some("visual-editor/IDE surface, not engine behaviour")),
-    ("update_component_compile_fn",Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_preview",      Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_registry",     Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_render_tree",  Some("visual-editor/IDE surface, not engine behaviour")),
@@ -551,11 +620,65 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_library_components",     Some("visual-editor/IDE surface, not engine behaviour")),
     ("import_component_library",   Some("visual-editor/IDE surface, not engine behaviour")),
     ("export_component_library",   Some("visual-editor/IDE surface, not engine behaviour")),
+    // AzBuilder's document ops (layout/src/e2e/builder.rs): they REPLACE the
+    // app's DOM with the builder's document — pinned by the builder_tests
+    // module, never a generated behaviour test.
+    ("builder_get_document",       Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_insert",             Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_move",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_delete",             Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_set_attribute",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_undo",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_redo",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_reset",              Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_convert_to_component", Some("visual-editor/IDE surface, not engine behaviour")),
+    // B5: the document's own stylesheet (a builder edit that remounts the
+    // document; pinned by builder_tests / export_tests / project_tests).
+    ("builder_get_stylesheet",     Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_set_stylesheet",     Some("visual-editor/IDE surface, not engine behaviour")),
+    // B5: maps a window point to a builder document node through the
+    // builder's own marker classes - IDE plumbing (a drop onto the window
+    // picture); `hit_test` is the engine-facing query.
+    ("builder_hit_test",           Some("visual-editor/IDE surface, not engine behaviour")),
+    // B5: document edits and the document file (the format project_save
+    // writes) - pinned by builder_tests.
+    ("builder_duplicate",          Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_save_document",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_load_document",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_component_thumbnail",    Some("visual-editor/IDE surface, not engine behaviour")),
+    // AzBuilder's project folder ops (layout/src/e2e/project.rs): they read
+    // and write the user's disk — pinned by the project_tests module, never a
+    // generated behaviour test.
+    ("project_info",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_open",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_close",              Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_list",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_read_file",          Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_write_file",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_create",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_rename",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_delete",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_save",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_load",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_export_zip",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_import_zip",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
     ("export_code",                Some("codegen surface, not engine behaviour")),
     ("export_code_zip",            Some("codegen surface, not engine behaviour")),
+    // AzBuilder's quick exports (layout/src/e2e/export.rs), pinned by the
+    // export_tests module.
+    ("get_codegen_languages",      Some("codegen surface, not engine behaviour")),
+    ("get_css_rules",              Some("codegen surface, not engine behaviour")),
+    ("compile_css",                Some("codegen surface, not engine behaviour")),
+    ("html_to_code",               Some("codegen surface, not engine behaviour")),
+    ("export_subtree_code",        Some("codegen surface, not engine behaviour")),
+    ("export_component_code",      Some("codegen surface, not engine behaviour")),
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),
     ("run_e2e_tests",              Some("the test runner itself — a test may not recurse into it")),
     ("get_logs",                   Some("debug-server tooling, asserts nothing about the engine")),
+    // Writes an instrumented build's PGO counters (crate::pgo) - build
+    // tooling; `false` and a no-op in every build a scenario runs in.
+    ("dump_profile",               Some("PGO build tooling (writes profile counters), asserts nothing \
+                                         about the engine")),
     // Routes through `e2e::hooks::take_native_screenshot_base64`, whose default
     // is `None` — and NOTHING in the workspace calls `set_host_hooks`, so the op
     // returns "native screenshot unavailable (no e2e host hook installed)" in
@@ -632,6 +755,75 @@ fn snake(camel: &str) -> String {
     out
 }
 
+/// The longest an op's doc is in the prompt's schema section, in characters.
+const OP_DOC_MAX_CHARS: usize = 300;
+
+/// The doc of one `DebugEvent` variant as the prompt shows it: the `///` lines
+/// up to the first blank one, joined into a single line, at most
+/// [`OP_DOC_MAX_CHARS`] characters ([`cap_doc`]).
+///
+/// It used to be the first `///` LINE, which cut the sentences that matter:
+/// `wheel`'s sign convention sat on the sixth line of its doc, `tick_ms` stopped
+/// at "- WITHOUT", `wait_settled` and `mock` mid-sentence, and `scroll` had no
+/// doc at all. A scenario that wheel-scrolled with `delta_y: +120` scrolled
+/// nothing - down is -120 - and was green on a list that never moved (batch 3,
+/// line 11).
+#[derive(Debug, Default)]
+struct DocParagraph {
+    text: String,
+    /// A blank `///` line has ended the paragraph; what follows is not shown.
+    closed: bool,
+}
+
+impl DocParagraph {
+    /// One `///` line, without the slashes.
+    fn push(&mut self, line: &str) {
+        let line = line.trim();
+        if line.is_empty() {
+            // Blank lines before the text are nothing; one after it ends the
+            // paragraph.
+            self.closed |= !self.text.is_empty();
+            return;
+        }
+        if self.closed {
+            return;
+        }
+        if !self.text.is_empty() {
+            self.text.push(' ');
+        }
+        self.text.push_str(line);
+    }
+
+    /// The paragraph so far, capped, and an empty slate for the next variant.
+    fn take(&mut self) -> Option<String> {
+        let text = std::mem::take(&mut self.text);
+        self.closed = false;
+        (!text.is_empty()).then(|| cap_doc(&text, OP_DOC_MAX_CHARS))
+    }
+}
+
+/// `doc` in at most `max` characters: whole when it fits, otherwise cut after
+/// the last full sentence that fits when that keeps at least half the room,
+/// else at the last whole word, with an ellipsis. Never in the middle of a word.
+fn cap_doc(doc: &str, max: usize) -> String {
+    if doc.chars().count() <= max {
+        return doc.to_string();
+    }
+    // Room for the ellipsis.
+    let end = doc
+        .char_indices()
+        .nth(max.saturating_sub(1))
+        .map_or(doc.len(), |(i, _)| i);
+    let head = &doc[..end];
+    if let Some(dot) = head.rfind(". ") {
+        if head[..=dot].chars().count() >= max / 2 {
+            return head[..=dot].to_string();
+        }
+    }
+    let words = head.rfind(' ').map_or(head, |space| &head[..space]);
+    format!("{}…", words.trim_end())
+}
+
 /// Parse `DebugEvent` + the assertion dispatch out of `full.rs`.
 ///
 /// This is deliberately a dumb line scanner rather than a `syn` parse: it only
@@ -652,7 +844,7 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
     let mut ops: Vec<OpDef> = Vec::new();
     let mut depth: i32 = 0;
     let mut cur: Option<OpDef> = None;
-    let mut pending_doc: Option<String> = None;
+    let mut pending_doc = DocParagraph::default();
     let mut pending_default = false;
     let mut pending_rename: Option<String> = None;
 
@@ -662,10 +854,7 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         if depth == 0 {
             // Between variants: collect the doc comment + serde attrs.
             if let Some(d) = t.strip_prefix("///") {
-                let d = d.trim();
-                if !d.is_empty() && pending_doc.is_none() {
-                    pending_doc = Some(d.to_string());
-                }
+                pending_doc.push(d);
                 continue;
             }
             if t.starts_with("#[") || t.is_empty() || t.starts_with("//") {
@@ -809,6 +998,9 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         "undo_app_state",
         "redo_app_state",
         "assert_response",
+        // Holds the window idle for N frames in ONE step: it moves the clock and waits
+        // for frames, which an `eval_assert_*` fn cannot (E2E-M2).
+        "assert_idle_frames",
     ]
     .into_iter()
     .filter(|o| src.contains(&format!("\"{o}\"")))
@@ -826,13 +1018,7 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
     // (this is exactly how `assert_manager_invariants` lost `managers`/`cross`).
     // Shout instead of shipping the lie.
     for a in &asserts {
-        if !a.params.is_empty() {
-            continue;
-        }
-        let Some(body) = top_level_fn_body(&src, &format!("eval_{}", a.name)) else {
-            continue;
-        };
-        if body.contains("params") {
+        if scanner_missed_params(&src, a) {
             eprintln!(
                 "!! [gen-e2e] `{}` reads `params` in full.rs but the schema scan extracted NONE — \
                  the prompt will advertise it as `(no params)` and the model cannot narrow it. \
@@ -848,6 +1034,36 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         extra,
         handled,
     })
+}
+
+/// The blind-spot alarm's test: the scan extracted no params for assertion
+/// `a`, yet its eval fn reads `params` for more than its guard.
+///
+/// Only the fn's BODY counts (its signature always names `params`), and the
+/// `reject_unknown_params(.., params, &[..])` guard does not: when the scan
+/// found nothing, the guard's list is empty (`reject_guard_keys` reads it), and
+/// an empty guard is the fn declaring that it takes no params - so the empty
+/// scan is right (`assert_no_unmocked_requests`).
+fn scanner_missed_params(src: &str, a: &OpDef) -> bool {
+    if !a.params.is_empty() {
+        return false;
+    }
+    let Some(body) = top_level_fn_body(src, &format!("eval_{}", a.name)) else {
+        return false;
+    };
+    let Some(open) = body.find('{') else {
+        return false;
+    };
+    let mut rest = &body[open + 1..];
+    let mut outside_guards = String::new();
+    while let Some(p) = rest.find("reject_unknown_params(") {
+        outside_guards.push_str(&rest[..p]);
+        // The guard's `params` argument sits before its `&[..]` allow-list.
+        let guard = &rest[p..];
+        rest = &guard[guard.find(']').map_or(guard.len(), |e| e + 1)..];
+    }
+    outside_guards.push_str(rest);
+    outside_guards.contains("params")
 }
 
 /// The body of the top-level `fn <name>(…)` in `src`, or `None`.
@@ -1161,7 +1377,10 @@ Print ONLY the JSON object. No prose, no markdown fences, no explanation.
 
 ## WHAT AN AZUL E2E TEST IS
 A JSON object: {{"name", "description", "setup", "steps"}}.
-- "name": a short snake_case identifier.
+- "name": a short snake_case identifier of the form <behaviour>_<property>_<fixture> that
+  names what THIS line asserts, of what, on which fixture (for example
+  mouse_move_converges_image_flex_row). Add no number or hash: a suffix that makes the name
+  unique is appended for you.
 - "description": one sentence — restate the one-liner.
 - "setup": {{"window_width": 400, "window_height": 300, "dpi": 96}}
 - "steps": a TIMELINE of ops, executed in order, against a real headless azul window.
@@ -1181,8 +1400,9 @@ line) so the test stays human-readable — NOT one escaped mega-string.
 ## A FAILING TEST IS A SUCCESS — DO NOT TUNE FOR GREEN
 You are writing a SPECIFICATION of correct engine behaviour, not a description of
 what the engine currently does. Nothing runs your test before it is accepted: the
-gate checks JSON shape and op names only. So you will never be told whether it
-passed, and you must not try to guess.
+checker reads the file (its shape, the ops and params, the values and node ids the
+engine would refuse outright) and never executes it. So you will never be told whether
+it passed, and you must not try to guess.
 
 Assert what the engine SHOULD do. If the engine is buggy, your test fails — that is
 the POINT of this corpus and a genuinely useful result. A test that passes because
@@ -1191,23 +1411,68 @@ lends false confidence forever after.
 
 Concretely:
 - Pick the bound the one-liner IMPLIES, not a safe-looking one. "does not re-run
-  layout" is `max_layout_passes: 0` — never 1 "just in case". "returns to idle" is
+  layout" is `exact_layout_passes: 0` — never 1 "just in case". "returns to idle" is
   `assert_idle_stable` with damage `none` — never "some small damage is probably OK".
 - AN UPPER BOUND ALONE IS SATISFIED BY ZERO. `max_relayouts: 2` is true of an engine
   that dropped the input on the floor and did nothing at all. Whenever the line says
-  the step DID something, pin the lower end too (`min_*`, or `exact_*` when the count
-  is determined) — see step 6.
+  the step DID something, pin the lower end too, and copy the line's own quantifier:
+  "at least one" is `min_*: 1` and nothing else; "at most one" is `max_*: 1` (plus `min_*`
+  only if the line also says it happened); "exactly one" or "once" is `exact_*: 1`. Never
+  upgrade "at least" to `exact_*` and never add an upper bound the line did not give.
 - WHEN THE LINE ASSERTS AN ABSENCE, ADD THE CONTROL IT ASKS FOR. "no damage", "no
   layout pass", "the counter did not move" is also exactly what a dead engine
   reports. Most such one-liners spell the control out ("... then change the node's
   background-color as a POSITIVE CONTROL and assert THAT does produce damage"). Put
-  it in the SAME timeline, after the absence assertion — never in a second file.
+  it in the SAME timeline, after the absence assertion — never in a second file — and
+  MEASURE IT ON ITS OWN: right before the control's mutation call `reset_frame_counters`
+  and take a fresh `snapshot_frame` (`ctl_before`), and assert the control against THAT
+  snapshot. Without the reset the control's counters and damage still hold what the
+  absence step left behind, and a control that did nothing could pass on that.
+- A CONTROL THAT CANNOT MOVE A PIXEL PROVES NOTHING: its `assert_changed` fails as a DEAD
+  CONTROL, the test's fault and not the engine's. Nothing will run your file, so prove each
+  control from your own stylesheet BEFORE you write it: name the pixels that change and why.
+  If you cannot, change the FIXTURE, not the property. The fixture the line names is a
+  minimum: add a child, a sibling, a second flex item, a background or a backdrop colour to
+  make the control visible. What each property needs:
+    - background-color: the new colour differs from the old one and from what is behind the
+      node (a body background paints the whole window: white-on-white and red-on-red change
+      nothing).
+    - width / height: a FIXED-size painted box on a backdrop of another colour; never a
+      `flex-grow:1` item (it ignores an overridden `width`), never a box that already fills
+      the window.
+    - border-width: `border-style: solid` and a border colour unlike the box background.
+    - padding / margin: a painted child the change moves or resizes, or a painted box
+      smaller than the window.
+    - display:none / visibility:hidden: the node must PAINT something itself (a background);
+      an `<img>` paints nothing of its own (step 1 below).
+    - overflow: build exactly this shape. A window-sized frame (`#frame {{ width: 400px; height:
+      300px; background: white; }}`) holds the node under test at a SMALLER fixed size (`#box {{
+      width: 200px; height: 100px; background: red; }}`), and the node holds a painted child that
+      is LARGER than it in at least one axis (`#kid {{ width: 100px; height: 200px; background:
+      blue; flex-shrink: 0; }}`), so `overflow: visible` shows the child hanging out of the box and
+      `overflow: hidden` cuts it off. A node as large as its frame, or whose child lies wholly
+      inside it, shows no change in either direction.
+    - position (static -> absolute): a painted sibling FOLLOWS the node in the flow, so it
+      jumps into the gap. An absolute box with an explicit size and no offsets stays where
+      it was.
+    - justify-content / align-items / flex-direction / flex-grow: at least TWO painted flex
+      items that do not fill the container along the axis the property acts on (with one
+      item, `space-between` equals `flex-start`).
+  If the line names a control property that NO node of ANY fixture you can build shows, add the
+  top-level key "pending": "control cannot be made visible: <why>" and write the closest honest
+  test. Before you give up, move the override to the node that CAN show the property: the flex
+  row or a wrapper you add around the named node. An `<img>` has no children, but the row that
+  holds it does: put `overflow` on the row and let a taller sibling stick out of it.
 - The numbers in the recipes below are ILLUSTRATIVE placeholders. Derive each bound
   from the sentence you were given; do not copy them by default.
 - Never widen a bound, drop an assertion, or downgrade `eq` to `le` to make the test
   feel safer. If the description implies an exact count, assert equality.
 - Never add an assertion the line does not ask for merely to make the file look
-  substantial. Each assertion must trace to the one-liner.
+  substantial. Each assertion must trace to the one-liner. A control asserts exactly what
+  the line names: "produces damage and changes pixels" is `assert_changed` alone; "spends a
+  layout pass" is `assert_work_bounded {{"min_layout_passes": 1}}` alone. Do not append
+  coverage, soundness or work-counter assertions the line does not name, and never
+  `min_layout_passes` on a paint-only change.
 - If the described behaviour cannot be expressed with the ops above, write the
   closest HONEST test and let it fail — do NOT substitute a weaker property that
   happens to hold.
@@ -1231,6 +1496,39 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
 
 ## HOW TO TURN THE ONE-LINER INTO A TIMELINE
 1. `mount` the DOM the line describes (invent plausible, minimal HTML+CSS for it).
+   `html` must contain at least one element: an "empty body" is ["<body></body>"], never []
+   (the checker rejects [], and `mount` fails with "'html' is empty"). Give every element
+   the line talks about an `id` (`<div id="box">`): you will name it by selector.
+   "Filling the window" means explicit pixels equal to the window (width:400px;height:300px)
+   or `html, body {{ margin:0; width:100%; height:100% }}` together with width/height 100% on
+   the root; a root with height:100% under an html/body that has no height collapses to 0px
+   and paints nothing. A `<body>` background is propagated to the whole window, so on an
+   empty body the only visible control is recolouring `<html>`/`<body>`; changing the body's
+   width changes nothing. `<img>` mounts as a real image node, but its placeholder raster is
+   transparent: an `<img>` paints NOTHING until it has a `background-color` or you call
+   `set_node_image` on it (after the `wait_frame` that follows the `mount`). A page whose
+   only content is an `<img>` renders blank white, and nothing about such an image can move
+   a pixel.
+   A VIRTUALVIEW (a list too long to build) is a key of the `mount`, never markup:
+   `<virtual-view>`, `<virtualview>`, `<iframe>` and `data-virtual-*`/`rows` attributes mount as
+   a plain `<div>` with the attributes dropped. Write the host as an EMPTY element, size it in the
+   `css`, and name it in `virtual_views` (the mount is refused at its step when the selector
+   matches no element or several, or the element has content):
+       {{"op":"mount","collapse_whitespace":true,"html":["<div class=\"list\"></div>"],
+         "css":[".list {{ width:300px; height:200px; overflow:auto; }}"],
+         "virtual_views":[{{"selector":".list","rows":5000,"row_height":24,
+                           "row_html":["<div class=\"label\">Row {{n}}</div>"],
+                           "row_css":[".label {{ font-size:14px; }}"]}}]}}
+   Row `i` (`{{i}}` counts from 0, `{{n}}` from 1) sits in `<div class="e2e-row" id="row-{{i}}">` of
+   `row_height` px. Only the visible rows and a screen of rows either side exist - a few dozen
+   nodes, not 5000 - and the view builds more as it scrolls near an edge of what it built
+   (`scroll_node_by` or `wheel` on the host). The rows are the VIEW's document: the page's `css`
+   does not reach them (that is what `row_css` is for), a `selector` finds the host and never a
+   row, and the host is the node to scroll and to give a `set_node_css_override`. Look at the
+   view with `get_virtual_view_states` and `assert_response` `contains`: its
+   `virtual_scroll_size_height` is the whole document (rows x row_height), its
+   `scroll_size_height` the rows it has built (a few dozen x row_height, never the 5000) and
+   `was_invoked` says its callback ran.
    FONTS: for any text, use only the built-in mock fonts — `Azul Mock Mono`
    (0.5em advance) or `Azul Mock Wide` (1.0em advance). They are registered
    automatically, always resolve, and need no @font-face. If a case needs N
@@ -1239,7 +1537,10 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    system font (Arial, Helvetica, Times, Courier, Verdana): on the CI box they match
    nothing and collapse onto one shared FontId, which makes font-identity and
    leak/font assertions vacuously green.
-2. `wait_frame`, then `wait {{"ms": 100}}` to let the first frame settle.
+2. `wait_frame`, then `wait {{"ms": 100}}` to let the first frame settle. A `mount` only
+   takes effect at the next frame: every step that names a node (`set_node_*`, `insert_node`,
+   `delete_node`, `click`, `focus_node`, `mouse_move` with a selector, ...) comes AFTER that
+   `wait_frame`, or the op fails with "Node N not found" (the checker rejects the file).
 3. `reset_frame_counters`, then `snapshot_frame {{"as": "before"}}` and, if you will
    assert resource counts, `snapshot_resources {{"as": "baseline"}}`.
 4. Perform the interaction / mutation / CSS change the line describes (click,
@@ -1248,31 +1549,55 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    KEYBOARD EDITING NEEDS DOM FOCUS FIRST. `text_input` hard-errors with "No focused
    node - text input requires focus on contenteditable" unless some node holds DOM
    focus, and the `focus` / `blur` ops are WINDOW focus — they set `window_focused`
-   and nothing else. Use `focus_node {{"selector": ".editor"}}` (or its `node_id`
-   form) immediately before typing. Do NOT substitute a click: a click needs a
-   coordinate, and you may not guess coordinates.
+   and nothing else. Use `focus_node {{"selector": ".editor"}}` immediately before
+   typing. Do NOT substitute a click: a click needs a coordinate, and you may not
+   guess coordinates.
 5. `wait_frame` + `wait` (and `tick_ms` for anything time-driven: momentum,
    fade, blink, animation — `tick_ms` advances the engine clock WITHOUT sleeping).
+   A window of "identical frames" must not overlap time-driven state: take the first
+   snapshot only AFTER it has finished.
+   A wheel, a drag or a hover over a scroller makes its overlay scrollbar visible, and that
+   STARTS A FADE: 500 ms visible, then 200 ms fading. A box that declares
+   `-azul-scrollbar-fade-delay` and/or `-azul-scrollbar-fade-duration` fades by them instead (each
+   alone: a box that sets only the delay keeps the 200 ms; a delay of 0 is a bar that never fades,
+   a duration of 0 a bar that is gone the moment the delay is up), and `scrollbar-width`/
+   `scrollbar-color` configure no fade at all. So between such an input and the first
+   `reset_frame_counters`/`snapshot_frame` of an idle chain ALWAYS put four `tick_ms` 250 ms, each
+   followed by `wait_frame` (together more than the box's delay + duration when it declares
+   them). That preamble is not one of the steps the line counts: "wheel-scroll, then advance the
+   clock in 6 steps of 150ms" still gets it, and the 6 steps follow it.
+   `wait_settled` is the other way to that rest: it moves the clock itself, a step at a time (a
+   scrollbar still to fade out counts, and the step runs to the end of its fade), until nothing in
+   the window moves any more, or `timeout_ms` of ENGINE time (default 3000) is spent and the step
+   fails naming what still moved. No `wait_frame` is needed after it.
+   SCROLLING. `wheel` is a RAW hardware notch: a NEGATIVE `delta_y` scrolls the content DOWN
+   (`{{"op":"wheel","x":100,"y":100,"delta_x":0,"delta_y":-120}}` leaves the offset at 120 once it
+   has glided); a positive `delta_y` scrolls UP, which at the top of a list moves nothing.
+   `scroll` and `scroll_node_by` are programmatic and take a POSITIVE delta for "down";
+   `scroll_node_to` takes the absolute offset. A wheel glides on a timer: follow it with
+   `tick_ms` + `wait_frame` before you read the offset. A timeline that needs a list to have
+   scrolled must PROVE it with `assert_scroll {{"selector": ".list", "y": 120}}` after the glide,
+   or it stays green on a list that never moved.
 6. Assert what the line asks for:
    - "the pixels change" / liveness      -> assert_changed  {{"vs": "before", "min_damage_rects": 1}}
    - "damage covers the change" / sound  -> assert_damage_covers_changes {{"vs": "before"}}
    - "a patch, not a full redraw"        -> assert_damage_incremental {{"max_area_ratio": 0.5}}
    - "returns to idle / zero damage"     -> tick_ms, wait, then assert_idle_stable {{"vs": "<a snapshot_frame taken after the change>"}}
-   - "EVERY frame identical to the PREVIOUS one" / "stays idle for N frames"
-     -> this is NOT the single-snapshot form above. `assert_idle_stable` compares
-        against ONE named snapshot, so `snapshot f0; tick; tick; tick; assert vs f0`
-        only proves frame_N == frame_0 — an engine that oscillates A -> B -> A -> B -> A
-        PASSES it. When the line says every frame equals the previous one, or asks
-        the window to stay idle across N frames, RE-SNAPSHOT EACH FRAME and assert
-        against the frame immediately before it:
-            {{"op":"snapshot_frame","as":"f0"}},
-            {{"op":"tick_ms","ms":16}}, {{"op":"wait_frame"}},
-            {{"op":"assert_idle_stable","vs":"f0"}}, {{"op":"snapshot_frame","as":"f1"}},
-            {{"op":"tick_ms","ms":16}}, {{"op":"wait_frame"}},
-            {{"op":"assert_idle_stable","vs":"f1"}}, {{"op":"snapshot_frame","as":"f2"}},
-            … one such triple per frame the line asks for.
-        Use distinct snapshot names (f0, f1, f2 …); reusing one name compares
-        against the wrong frame and silently weakens the test.
+   - "EVERY frame identical to the PREVIOUS one" / "stays idle for N frames" / "identical at
+     frames 1, 10, 20 and 40"
+     -> ONE step, NOT a snapshot / tick / wait_frame / assert quadruple per frame:
+            {{"op":"assert_idle_frames","frames":40,"step_ms":16}}
+        It starts the frame counters afresh, then N times moves the engine clock by `step_ms`
+        (default 16), waits for the frame that follows and holds it to the window as the step
+        FOUND it (or to `"vs": "<a snapshot_frame>"`; `"threshold"` is a per-channel pixel
+        tolerance, default 0): no paint or present damage so far, a full repaint with the same
+        pixels, and a frame rendered for the turn at all. Every frame is held to the SAME
+        picture, so an engine that goes A -> B -> A -> B fails at the first B (a lone
+        `assert_idle_stable vs f0` after the last tick would pass it). It names the first
+        frame that fails ("frame 7 of 40 (+112 ms)"); the frames at 1, 10, 20 and 40 of a line
+        are `"frames": 40` - nothing is sampled. Take the window to rest first (step 5), and
+        follow it with `assert_work_bounded` when the line also says no layout ran: the
+        counters it reads are those of exactly these frames.
    - "settles WITHIN N frames"           -> assert_idle_stable {{"vs": "<snapshot>", "max_frames": N}}
      `max_frames` counts frames since the `reset_frame_counters` of step 3, so put
      that reset immediately before the interaction and the budget is real. Without
@@ -1285,8 +1610,8 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    - "every state machine settled / nothing is latched"
                                          -> assert_state_machines_idle {{}}
      One sweep over: no active drag, no un-ended gesture session, no running scroll
-     animation, `scroll_dirty` cleared, `scrollbar_fade_active` cleared, no latched
-     `display_list_dirty`, no orphan caret blink, no unresolved focus request.
+     animation, `scrollbar_fade_active` cleared, no latched `display_list_dirty`, no
+     orphan caret blink, no unresolved focus request.
      Strictly stronger than `assert_idle_stable` for "did every manager notice the
      interaction ended?".
 
@@ -1294,12 +1619,12 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    `assert_work_bounded` reads three independent counters. Choosing the wrong one is
    the single most common way to write a test that cannot fail:
 
-   | counter          | what it counts                          | idle | inert pointer event | set_node_css_override | resize |
-   |------------------|-----------------------------------------|------|---------------------|-----------------------|--------|
-   | `relayouts`      | EVENT PASSES (`process_window_events`)  | 0    | 1                   | 0                     | 1      |
-   | `dom_regens`     | runs of the layout callback             | 0    | 0                   | 0                     | 1      |
-   | `layout_passes`  | times LAYOUT ACTUALLY RAN               | 0    | 0                   | 1                     | 1      |
-   | `virtual_view_size_passes` | extra passes content-sized VirtualViews cost | 0 | 0            | 0                     | 0      |
+   | counter          | what it counts                          | idle | inert pointer event | set_node_css_override        | resize |
+   |------------------|-----------------------------------------|------|---------------------|------------------------------|--------|
+   | `relayouts`      | EVENT PASSES (`process_window_events`)  | 0    | 1                   | 0                            | 1      |
+   | `dom_regens`     | runs of the layout callback             | 0    | 0                   | 0                            | 1      |
+   | `layout_passes`  | times LAYOUT ACTUALLY RAN               | 0    | 0                   | 0 paint-only / 1 geometry    | 1      |
+   | `virtual_view_size_passes` | extra passes content-sized VirtualViews cost | 0 | 0            | 0                            | 0      |
 
    - `relayouts` is NOT a layout counter, despite the name. It is the recursion depth
      of the event pass. `0` means "no state delta was processed" — what an IDLE frame
@@ -1308,37 +1633,117 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
      engine. `> 1` is the engine's own invalidation-loop signal.
    - `layout_passes` is the one that sees a CALLBACK-API mutation. `set_node_css_override`,
      `set_node_text` and `set_node_classes` never enter the event pass at all, so
-     `relayouts` stays `0` for them no matter how much work the engine does — but they
-     route through a full relayout, which `layout_passes` counts. "a no-op CSS write
-     must not re-run layout" is `max_layout_passes: 0`, and nothing else expresses it.
+     `relayouts` stays `0` for them.
+   - What a CSS override costs in `layout_passes` depends on the PROPERTY and on whether the
+     value changed. A paint-only property (color, background-color, background-*,
+     opacity, transform, border-*-color/-style/-radius, box-shadow, text-shadow, filter,
+     cursor) rebuilds the display list only and costs 0 layout passes, correctly, so never
+     put `min_layout_passes` on a recolour. Any other property (width, height, margin,
+     padding, border-width, display, position, overflow, visibility, flex-*,
+     justify-content, align-items, font-*) runs layout: one pass per override, like
+     `set_node_classes`, `mount` and `resize`.
+   - Re-setting the value a node already resolves to (the stylesheet's `width: 200px`
+     written again as 200px) is a no-op: the write is recorded, nothing is laid out and
+     nothing is repainted. So "a no-op CSS write must not re-run layout" is
+     `exact_layout_passes: 0`: write it exactly like that. The positive control "does spend
+     a layout pass" is `min_layout_passes: 1` and nothing more: never `exact_layout_passes: 1`
+     or `max_layout_passes: 1` unless the line itself says "exactly one" / "at most one".
+   - `set_node_classes` re-matches the stylesheet against the node's new classes: the rules
+     of the classes it has now apply and those of the classes it lost do not (a colour-only
+     swap repaints, so it is a valid positive control, and a `.b:hover` rule is the one the
+     pointer finds afterwards). The window lays out once. Writing the classes (and id) the
+     node already has is a no-op like the re-set value above: zero layout passes, no damage.
    - `virtual_view_size_passes` counts the ONE extra pass a content-sized VirtualView
      (a status-bar label, an icon view - no stated width/height) costs when its
      callback reports a size the solver has not seen: on its first frame, and on a
      re-render whose content changed size. Steady state is `0`; a re-render that keeps
      the size is `0`; one per keystroke is a view that never converges.
-   - Rows: "does not re-run layout"      -> assert_work_bounded {{"max_layout_passes": 0}}
+   - Rows: "does not re-run layout"      -> assert_work_bounded {{"exact_layout_passes": 0}}
            "the label re-render re-sized its box once" -> assert_work_bounded {{"exact_virtual_view_size_passes": 1}}
            "costs exactly one layout pass"-> assert_work_bounded {{"exact_layout_passes": 1}}
            "one event pass, no re-entry" -> assert_work_bounded {{"exact_relayouts": 1, "max_dom_regens": 0}}
            "bounded, and it DID run"     -> assert_work_bounded {{"min_relayouts": 1, "max_relayouts": 2}}
            "never trips the depth cap"   -> any assert_work_bounded (it fails on `hit_depth_cap` unless `allow_depth_cap`)
 
-   - "no leak / counters return"         -> assert_resource_counts {{"vs": "baseline", "images": "eq", "fonts": "le"}}
-   - "the counter PROVABLY moved" (a control)
-                                         -> assert_resource_counts {{"vs": "baseline", "fonts": "gt"}}
-     `gt` / `lt` are what make a leak test mean something: `"fonts": "eq"` is `0 == 0`
-     on a window that never loaded a font, and holds on an engine that was deleted.
+   - "no leak / counters return"         -> assert_resource_counts {{"vs": "baseline", "parsed_fonts": "eq", "font_chain_cache": "eq", "font_hash_to_families": "eq"}}
+   - "the counter PROVABLY moved" (a control): the control must ADD to what the baseline
+     holds. A re-mount that REPLACES the baseline's text with text in another font stack
+     releases the old font, so `parsed_fonts` and `fonts` stay flat (or fall) and a `gt` can
+     never pass. Mount the baseline's nodes PLUS one new node whose text uses a font stack the
+     baseline never used (when the baseline has no text, any text node is new),
+     `wait_frame`, `wait {{"ms": 100}}`, then
+     assert_resource_counts {{"vs": "baseline", "parsed_fonts": "gt", "fonts": "gt"}}.
+     `gt` / `lt` are what make a leak test mean something: an `eq` on a counter that never
+     moved is `0 == 0`, and holds on an engine that was deleted.
+   - COUNTERS THAT MOVE, AND THE TWO THAT NEVER DO. All but two counters move in this
+     headless runner: `parsed_fonts`, `font_chain_cache` and `font_hash_to_families` (the font
+     manager's tables), and `fonts`, `font_hash_map`, `images` and `image_key_map`, which count
+     what the display lists on screen draw: one font per font the text is drawn in, one image
+     per decoded picture (a `set_node_image` picture, an `add_image_to_cache` picture that a
+     box's `background-image: url(id)` names). A picture drawn by ten boxes is ONE image, an
+     `<img>` that holds no picture and a registered id that no box names are none, and a font
+     or picture the page no longer draws is gone from them at once (no frames of grace, as a
+     real renderer keeps them). `font_id_map` and `font_families_map` are legacy tables no
+     shell writes any more: they are 0 whatever happens, so never assert them (an `eq` on
+     them is `0 == 0`).
+   - A LEAK TEST HAS TWO SAMPLES AND BOTH READ THE SAME COUNTERS. After the mount that adds the
+     font or the picture: `gt` against the baseline (`parsed_fonts` and `fonts` for a font,
+     `images` for a picture) - it really was loaded, so the leak half cannot go green for the
+     wrong reason. After the mount that removes it: `eq` to the baseline (`lt` against the
+     loaded sample proves the release path ran). A fixture with no text and no image has
+     nothing to leak: add one text node in a mock font, or one `<img>` and a
+     `set_node_image`, so the counters have something to hold.
+   - A picture counts when it is ON SCREEN: `<img class="pic">` plus
+     `set_node_image {{"selector": ".pic", "width": 40, "height": 40, "color": "red"}}`, or a
+     registered id (`add_image_to_cache`) that a box names in `background-image: url("id")`.
+     A swap (`set_node_image` again) replaces the picture, so `images` stays at the same
+     number: it does not grow, and a `gt` control must come from a NEW node or a new id.
    - "damage kind / no full redraw"      -> assert_damage {{"kind": "rects", "max_area_ratio": 0.5}}  (kind is "none" | "rects" | "full")
+   - DAMAGE ASSERTIONS READ AN ACCUMULATOR. `assert_damage`, `assert_changed` and
+     `assert_damage_covers_changes` look at the damage accumulated since the last
+     `reset_frame_counters`, not at the last frame, unless you pass "frame": "last". "The last
+     frame reports zero paint damage" is therefore {{"op":"assert_damage","kind":"none","frame":"last"}};
+     a plain `assert_damage none` after an input that legitimately repainted once (a :hover
+     restyle, a scrollbar that appeared) fails on the repaint that was supposed to happen.
+   - `which` is exactly "paint" (default: the rects re-rasterised) or "present" (what changed
+     on screen) and `frame` is exactly "accumulated" (default) or "last"; any other value is
+     refused, and "last" is a value of `frame`, never of `which`. A box displaced by a
+     neighbour's size change is moved by a blit: it appears in PRESENT damage and not in PAINT
+     damage, so for that case use "which":"present" on `assert_damage_covers_changes`, on
+     `assert_damage_sound` (the change must then lie inside what was presented; its tightness
+     bound and `forbid_full` still read the paint damage) and on `assert_changed` (a control
+     that only MOVES boxes is `assert_changed {{"vs": "ctl_before", "which": "present"}}`).
+   - `assert_changed` means "damage is not none AND pixels differ": never write it straight
+     after an assertion that damage is none, and `min_damage_rects: 0` is meaningless.
    - "nothing panics"                    -> the steps running at all IS the assertion; still end with a liveness or idle assertion.
    - structure survived a mutation       -> assert_exists / assert_not_exists / assert_node_count / assert_text
 7. If the line mentions a NodeId-renumbering mutation (insert/delete/reorder a
    sibling), do the mutation and then assert the DOM still holds
    (assert_node_count / assert_exists) and the window settles (assert_idle_stable).
 
-Node ids: DOM-mutation ops take a numeric `node_id`. The root of a mounted document
-is node 0 and its children follow in document order, so mount a small tree and use
-low ids (1, 2, 3). Prefer selector-based ops (`click`, `assert_exists`) wherever an
-op offers `selector`.
+NAME EVERY NODE BY A SELECTOR. The DOM-mutation ops (`set_node_css_override`,
+`set_node_classes`, `set_node_text`, `set_node_image`, `delete_node`; `insert_node` by its
+`parent_selector`) and `mouse_move`, `focus_node`, `click`, `scroll_node_by` take a CSS `selector`:
+ALWAYS use it, never a numeric `node_id`, and give the elements your markup mounts an `id` so
+that `#box` names exactly the node you mean. The mutation ops and `mouse_move` refuse a selector
+that matches no node or several (an `#id` matches one); `click` and `focus_node` take the first
+match, so a selector that is not unique clicks a node you did not mean. `set_node_text` with a
+selector names the ELEMENT (`#label`, a `<p>`) and writes the one text inside it, so keep one
+text per element. `set_node_image` works only on an `<img>`, after the `wait_frame` that
+follows the `mount`.
+
+WHY NOT A NUMBER: a `node_id` counts EVERY node of the mounted document, and it is not "the
+root is 0 and its children are 1, 2, 3". `mount` wraps your `html` in `<html>` (node 0) and
+`<body>` (node 1), the ids then run depth first over every node, and every newline or indent
+between two tags is a whitespace text node that takes an id of its own. The number you count is
+almost never the box you mean (in a first batch every numeric id landed on `<html>`, `<body>` or
+a whitespace run), and the checker REJECTS such an id. The few ops that have no `selector` and
+need a number (`add_timer`, which takes the id of a TEXT node, `click_node`, `get_node_dataset`)
+take the id of the node they name: count it over the whole mounted document, whitespace runs
+included - unless the `mount` says `"collapse_whitespace": true`, which drops the line break and
+the indent between two tags (JSX's rule; a space on one line and the text inside an element stay):
+no run then takes an id, the ids count only the elements and their text, and the checker counts
+the same way. To recolour or resize the page itself, give the selector `body` or `html`.
 
 Output the JSON object now — nothing else."#
     )
@@ -1378,6 +1783,447 @@ fn extract_json(raw: &str) -> Option<&str> {
     Some(&raw[start..=end])
 }
 
+// ===========================================================================
+// The document a scenario addresses
+// ===========================================================================
+//
+// A numeric `node_id` counts EVERY node of the mounted document - `<html>` is
+// 0, `<body>` is 1, each newline or indent between two tags is a whitespace
+// text node of its own - so the number a model counts is rarely the element it
+// means (44 of 44 id-addressed scenarios of the first batch addressed `<html>`,
+// `<body>` or a whitespace run). The gate therefore resolves every id with the
+// parser `mount` itself uses (`azul_layout::e2e::mounted_nodes`) and follows
+// the document through the scenario: a `mount` replaces it, `insert_node` adds
+// a node at the end, `delete_node` tombstones one.
+//
+// It also knows WHEN the document exists. `mount` only queues the new document;
+// it takes effect at the next frame, and a step that addresses a node before
+// that finds the old (or no) document - "Node 1 not found".
+
+/// A node that is no longer in the document, and what took it out.
+struct Gone {
+    /// The `delete_node` step.
+    step: usize,
+    /// The node that step deleted: the node itself, or an ancestor of it.
+    root: usize,
+}
+
+/// One node of the document as the gate follows it.
+struct GateNode {
+    node: MountedNode,
+    /// Set when a `delete_node` took it out. The engine tombstones: the id
+    /// stays, the node is gone - and so is everything that hung below it (its
+    /// children keep pointing at the tombstone, but nothing reaches them).
+    deleted_by: Option<Gone>,
+}
+
+/// The document the steps address, and the `mount` still waiting to land.
+#[derive(Default)]
+struct GateDom {
+    /// What the steps see: the last `mount` that has landed, with the
+    /// scenario's `insert_node` / `delete_node` applied. `None`: no document.
+    live: Option<Vec<GateNode>>,
+    /// A `mount` (its step, its document) or `unmount` (its step, `None`) that
+    /// the next frame applies.
+    pending: Option<(usize, Option<Vec<GateNode>>)>,
+}
+
+/// The steps that give the frame loop a turn, so a queued `mount` lands before
+/// the step after them: `wait_frame` and `wait` (the two the prompt prescribes
+/// after a `mount`) and `tick_ms` (which repaints).
+const FRAME_STEPS: &[&str] = &["wait_frame", "wait", "tick_ms"];
+
+/// The keys that name a node: a step with one addresses the document.
+const NODE_KEYS: &[&str] = &["selector", "node_id", "parent_selector", "parent_id"];
+
+/// What kind of node an op's numeric id has to be.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Needs {
+    /// An element (`<html>` / `<body>` excepted): the box the scenario is
+    /// about. Most ops.
+    Element,
+    /// A text node: `set_node_text` writes it, `add_timer` rewrites it.
+    Text,
+    /// An `<img>`: the node `set_node_image` swaps.
+    Image,
+}
+
+fn needs(op: &str) -> Needs {
+    match op {
+        "set_node_text" | "add_timer" => Needs::Text,
+        "set_node_image" => Needs::Image,
+        _ => Needs::Element,
+    }
+}
+
+/// `` `<div id="a" class="box">` ``, the text of a text run, or what else a
+/// node is, for a message.
+fn describe(n: &MountedNode) -> String {
+    match n.kind {
+        MountedKind::Html => "`<html>`".to_string(),
+        MountedKind::Body => "`<body>`".to_string(),
+        MountedKind::Whitespace => {
+            "a whitespace text run (the newline or indent between two tags)".to_string()
+        }
+        MountedKind::Text => format!("the text {:?}", n.text.chars().take(24).collect::<String>()),
+        MountedKind::Element | MountedKind::Image => {
+            let mut s = format!("<{}", n.tag);
+            if let Some(id) = &n.css_id {
+                s.push_str(&format!(" id=\"{id}\""));
+            }
+            if !n.classes.is_empty() {
+                s.push_str(&format!(" class=\"{}\"", n.classes.join(" ")));
+            }
+            s.push('>');
+            format!("`{s}`")
+        }
+    }
+}
+
+/// A selector that finds `n` again: its `#id`, else `tag.class`, else the tag.
+fn selector_for(n: &MountedNode) -> String {
+    if let Some(id) = &n.css_id {
+        return format!("#{id}");
+    }
+    match n.classes.first() {
+        Some(class) => format!("{}.{class}", n.tag),
+        None => n.tag.clone(),
+    }
+}
+
+/// The elements of a document by id, for the end of a message: where the
+/// numbers the scenario meant actually are.
+fn element_ids(nodes: &[GateNode]) -> String {
+    let named: Vec<String> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, g)| {
+            g.deleted_by.is_none()
+                && matches!(g.node.kind, MountedKind::Element | MountedKind::Image)
+        })
+        .take(8)
+        .map(|(id, g)| format!("{id} {}", describe(&g.node)))
+        .collect();
+    if named.is_empty() {
+        "(none)".to_string()
+    } else {
+        named.join(", ")
+    }
+}
+
+impl GateDom {
+    /// A `mount` step: its document exists from the next frame on.
+    fn mount(&mut self, step: usize, nodes: Vec<MountedNode>) {
+        let doc = nodes
+            .into_iter()
+            .map(|node| GateNode {
+                node,
+                deleted_by: None,
+            })
+            .collect();
+        self.pending = Some((step, Some(doc)));
+    }
+
+    /// An `unmount` step: from the next frame on there is no document to address.
+    fn unmount(&mut self, step: usize) {
+        self.pending = Some((step, None));
+    }
+
+    /// A step that gave the frame loop a turn: a queued mount lands.
+    fn land(&mut self) {
+        if let Some((_, doc)) = self.pending.take() {
+            self.live = doc;
+        }
+    }
+
+    /// The document a node-addressing step sees - or why there is none yet.
+    fn addressable(&self, i: usize, op: &str) -> Result<&[GateNode]> {
+        if let Some((at, _)) = &self.pending {
+            bail!(
+                "step {i}: `{op}` addresses a node, but the `mount` at step {at} has not been \
+                 applied yet: a `mount` takes effect at the next frame, so a `wait_frame` has to \
+                 come between it and the first step that addresses its nodes (before that the \
+                 document does not exist and the op fails with \"Node N not found\")"
+            );
+        }
+        match &self.live {
+            Some(nodes) => Ok(nodes),
+            None => bail!(
+                "step {i}: `{op}` addresses a node, but nothing is mounted: start the scenario \
+                 with a `mount` and a `wait_frame`"
+            ),
+        }
+    }
+
+    /// What a step that passed its checks does to the document.
+    fn apply(&mut self, i: usize, op: &str, step: &serde_json::Map<String, serde_json::Value>) {
+        let Some(nodes) = self.live.as_mut() else {
+            return;
+        };
+        match op {
+            // The engine appends the new node at the end of the document.
+            "insert_node" => {
+                let node_type = step
+                    .get("node_type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                let (kind, tag, text) = match node_type.strip_prefix("text:") {
+                    Some(t) if t.trim().is_empty() => {
+                        (MountedKind::Whitespace, String::new(), t.to_string())
+                    }
+                    Some(t) => (MountedKind::Text, String::new(), t.to_string()),
+                    None => (
+                        MountedKind::Element,
+                        node_type.to_lowercase(),
+                        String::new(),
+                    ),
+                };
+                nodes.push(GateNode {
+                    node: MountedNode {
+                        kind,
+                        tag,
+                        css_id: step
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string),
+                        classes: step
+                            .get("classes")
+                            .and_then(serde_json::Value::as_array)
+                            .map(|c| {
+                                c.iter()
+                                    .filter_map(|c| c.as_str().map(str::to_string))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        text,
+                        parent: step
+                            .get("parent_id")
+                            .and_then(serde_json::Value::as_u64)
+                            .and_then(|p| usize::try_from(p).ok()),
+                    },
+                    deleted_by: None,
+                });
+            }
+            "delete_node" => {
+                let deleted = step
+                    .get("node_id")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|id| usize::try_from(id).ok())
+                    .filter(|&id| id < nodes.len());
+                if let Some(root) = deleted {
+                    // The node and everything below it: walk each node's parents.
+                    let below: Vec<usize> = (0..nodes.len())
+                        .filter(|&n| {
+                            let mut cur = Some(n);
+                            for _ in 0..=nodes.len() {
+                                match cur {
+                                    Some(c) if c == root => return true,
+                                    Some(c) => cur = nodes[c].node.parent,
+                                    None => return false,
+                                }
+                            }
+                            false
+                        })
+                        .collect();
+                    for n in below {
+                        nodes[n].deleted_by.get_or_insert(Gone { step: i, root });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Resolve the numeric ids of a step against the document.
+///
+/// An id that does not exist, that was deleted, or that is not the kind of node
+/// the op takes is refused - and the refusal says where the elements ARE, so the
+/// fix is one read away. `selector_form` says whether the op can name the node
+/// by a selector instead (the advice differs).
+fn check_node_ids(
+    i: usize,
+    op: &str,
+    step: &serde_json::Map<String, serde_json::Value>,
+    nodes: &[GateNode],
+    selector_form: bool,
+) -> Result<()> {
+    for key in ["node_id", "parent_id"] {
+        let Some(id) = step.get(key).and_then(serde_json::Value::as_u64) else {
+            continue;
+        };
+        let Some(g) = usize::try_from(id).ok().and_then(|id| nodes.get(id)) else {
+            bail!(
+                "step {i}: `{op}` {key} {id} does not exist: the mounted document has {} nodes \
+                 (ids 0..={}). Elements: {}",
+                nodes.len(),
+                nodes.len().saturating_sub(1),
+                element_ids(nodes)
+            );
+        };
+        if let Some(gone) = &g.deleted_by {
+            if usize::try_from(id).is_ok_and(|id| id == gone.root) {
+                bail!(
+                    "step {i}: `{op}` {key} {id} was deleted by step {}",
+                    gone.step
+                );
+            }
+            bail!(
+                "step {i}: `{op}` {key} {id} hung below node {}, which step {} deleted",
+                gone.root,
+                gone.step
+            );
+        }
+        let n = &g.node;
+        let advice = if selector_form {
+            "Name the element with a `selector` instead (a CSS selector that matches exactly \
+             one node)"
+        } else {
+            "Use the id of the node it means"
+        };
+        let wrong = |what: &str| -> Result<()> {
+            bail!(
+                "step {i}: `{op}` {key} {id} is {}, {what}. A numeric id counts EVERY node of the \
+                 mounted document (`<html>` is 0, `<body>` is 1, each newline or indent between \
+                 two tags is a whitespace text node of its own), so the number you counted is \
+                 rarely the box you mean. {advice}. Elements: {}",
+                describe(n),
+                element_ids(nodes)
+            )
+        };
+        match (needs(op), n.kind) {
+            (Needs::Element, MountedKind::Element | MountedKind::Image) => {}
+            (Needs::Element, MountedKind::Html | MountedKind::Body) => {
+                return wrong("the page itself, not the element the scenario is about");
+            }
+            (Needs::Element, MountedKind::Whitespace) => {
+                return wrong("not an element");
+            }
+            (Needs::Element, MountedKind::Text) => {
+                let owner = n
+                    .parent
+                    .and_then(|p| nodes.get(p))
+                    .map_or_else(String::new, |p| {
+                        format!(
+                            " (its element is node {} {})",
+                            n.parent.unwrap_or(0),
+                            describe(&p.node)
+                        )
+                    });
+                return wrong(&format!("a text node, not an element{owner}"));
+            }
+            (Needs::Text, MountedKind::Text) => {}
+            (Needs::Text, MountedKind::Whitespace) => {
+                return wrong("a whitespace run with no text to set");
+            }
+            (Needs::Text, _) => {
+                let text_child = nodes.iter().enumerate().find(|(_, c)| {
+                    c.node.parent == usize::try_from(id).ok()
+                        && c.deleted_by.is_none()
+                        && c.node.kind == MountedKind::Text
+                });
+                let hint = text_child.map_or_else(String::new, |(t, _)| {
+                    format!(" (the text inside it is node {t})")
+                });
+                return wrong(&format!(
+                    "an element, but `{op}` addresses the TEXT node inside it{hint}"
+                ));
+            }
+            (Needs::Image, MountedKind::Image) => {}
+            (Needs::Image, _) => {
+                return wrong("not an `<img>`");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A string param with a closed set of values holds one of them.
+///
+/// The set is the engine's own (`azul_layout::e2e::closed_param_values`, the
+/// table the ops themselves refuse with), so what the gate allows and what the
+/// engine accepts cannot drift apart. `"last"` is a value of `frame`, not of
+/// `which`: the first batch wrote `{"which": "last"}`, the engine read it as the
+/// default, and the assertion judged the paint damage of the whole run - so the
+/// refusal also says which param a value belongs to.
+fn check_closed_values(
+    i: usize,
+    op: &str,
+    step: &serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    for (key, value) in step {
+        let Some(allowed) = closed_param_values(key) else {
+            continue;
+        };
+        let text = value.as_str();
+        if text.is_some_and(|t| allowed.contains(&t)) {
+            continue;
+        }
+        let belongs_to = text.and_then(|t| {
+            CLOSED_STRING_PARAMS
+                .iter()
+                .find(|(param, values)| param != key && values.contains(&t))
+                .map(|(param, _)| *param)
+        });
+        bail!(
+            "step {i}: `{op}` param `{key}` is {value}, which is not one of {}{}. The engine \
+             refuses it too; before it did, an unknown value was read as the default and the step \
+             judged something other than what it says.",
+            allowed.join(", "),
+            belongs_to.map_or_else(String::new, |p| format!(" ({value} is a value of `{p}`)"))
+        );
+    }
+    Ok(())
+}
+
+/// The step as the runner reads it, for an op the engine dispatches as a
+/// `DebugEvent` (assertions and step-loop ops are read by their own
+/// evaluators). The runner strips the harness's `screenshot` flag and lifts
+/// `dom_id` out before it parses; so does this.
+fn engine_reading(
+    schema: &Schema,
+    i: usize,
+    op: &str,
+    step: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<DebugEvent>> {
+    if !schema.ops.iter().any(|o| o.name == op) {
+        return Ok(None);
+    }
+    let mut cmd = step.clone();
+    cmd.remove("screenshot");
+    cmd.remove("dom_id");
+    parse_debug_event(serde_json::Value::Object(cmd))
+        .map(Some)
+        .map_err(|why| anyhow::anyhow!("step {i}: `{op}` is not read by the engine: {why}"))
+}
+
+/// Is `key` given in the step, with a value?
+fn given(step: &serde_json::Map<String, serde_json::Value>, key: &str) -> bool {
+    step.get(key).is_some_and(|v| !v.is_null())
+}
+
+/// How an op names its target, and that it does so in the one way the rule allows.
+///
+/// The rule is the ENGINE's: `azul_layout::e2e::targeting(op)` says whether the op
+/// takes exactly one of a `selector` and a `node_id` (the DOM-mutation family,
+/// `focus_node`, with `parent_selector` / `parent_id` for `insert_node`), a position
+/// or a selector (`mouse_move`), or has no single rule (`click`: a position, a text,
+/// a selector, an id - the engine resolves them in a fixed order; `assert_scroll`: a
+/// REQUIRED `selector` and the offsets to compare). The ops resolve their target by the
+/// same table, and the refusal is the same words. This gate used to DERIVE the rule
+/// from the NAMES of an op's params, which let an op that named its target by another
+/// pair through until the engine refused it at run time (`FIX-87b0f2b8c-1`).
+/// The schema cannot say "exactly one" itself: both params are optional.
+fn check_targeting(
+    i: usize,
+    op: &str,
+    step: &serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    azul_layout::e2e::targeting(op)
+        .check(op, &|param| given(step, param))
+        .map_err(|why| anyhow::anyhow!("step {i}: {why}"))
+}
+
 /// The MECHANICAL GATE. Every failure here means: delete the artifact, count a
 /// FAIL, do not mark the line done.
 pub fn validate(schema: &Schema, json: &str) -> Result<()> {
@@ -1397,6 +2243,7 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
 
     let mut snapshots: BTreeSet<String> = BTreeSet::new();
     let mut asserted = false;
+    let mut dom = GateDom::default();
 
     for (i, step) in steps.iter().enumerate() {
         let s = step
@@ -1476,6 +2323,26 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
                 }
             }
         }
+        // TARGET. An op that names its node by `selector` OR by `node_id` takes
+        // exactly one of them, and the schema cannot say so: both are optional.
+        check_targeting(i, op, s)?;
+        // CLOSED SETS. A string param that takes one of a few values refuses any
+        // other: the engine used to read an unknown one as the default.
+        check_closed_values(i, op, s)?;
+        // `mount` html must be the pretty ARRAY-OF-LINES form (a string is also
+        // read) - said plainly before the typed read below says it in serde's
+        // words.
+        if op == "mount" {
+            let html = s.get("html").context("mount: missing `html`")?;
+            if !html.is_array() && !html.is_string() {
+                bail!("step {i}: mount `html` must be an array of lines");
+            }
+        }
+        // THE ENGINE'S OWN READING. The step is read as the runner reads it
+        // (`parse_debug_event`): a value of the wrong type, an enum variant that
+        // does not exist, a field the op needs - each fails there, at step N,
+        // after the steps before it ran, when it could have failed here.
+        let event = engine_reading(schema, i, op, s)?;
         if op.starts_with("assert_") {
             asserted = true;
         }
@@ -1498,12 +2365,52 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
                 }
             }
         }
-        // `mount` html must be the pretty ARRAY-OF-LINES form.
-        if op == "mount" {
-            let html = s.get("html").context("mount: missing `html`")?;
-            if !html.is_array() && !html.is_string() {
-                bail!("step {i}: mount `html` must be an array of lines");
+        // THE DOCUMENT. `mount` is read with the parser the `mount` op uses; its
+        // nodes are what a numeric id will mean once it has landed.
+        if let Some(DebugEvent::Mount {
+            html,
+            css,
+            collapse_whitespace,
+            virtual_views,
+        }) = &event
+        {
+            if html.is_empty() {
+                bail!(
+                    "step {i}: `mount` has an empty `html` ({}): the runtime refuses it (\"mount: \
+                     'html' is empty\") and the scenario fails at step {i} having tested nothing. \
+                     An empty page is [\"<body></body>\"], never []",
+                    s.get("html").map_or_else(String::new, ToString::to_string)
+                );
             }
+            let nodes = mounted_nodes_with(html, css, *collapse_whitespace)
+                .map_err(|e| anyhow::anyhow!("step {i}: {e}"))?;
+            // The views land on the document the mount parses: one that cannot (no
+            // element, several, one with content, a row that is no markup) is the
+            // refusal the `mount` op would answer with.
+            if !virtual_views.is_empty() {
+                azul_layout::e2e::check_mount_views(html, css, *collapse_whitespace, virtual_views)
+                    .map_err(|e| anyhow::anyhow!("step {i}: {e}"))?;
+            }
+            dom.mount(i, nodes);
+        }
+        if op == "unmount" {
+            dom.unmount(i);
+        }
+        // A step that names a node needs a document that exists (G5), and an id
+        // that is the element it means (G4). An assertion only READS, and `assert_not_exists`
+        // before a mount is a question, not an address.
+        if !op.starts_with("assert_") && NODE_KEYS.iter().any(|k| given(s, k)) {
+            let nodes = dom.addressable(i, op)?;
+            let selector_form = schema.known_op(op).is_some_and(|d| {
+                d.params
+                    .iter()
+                    .any(|(p, _)| p == "selector" || p == "parent_selector")
+            });
+            check_node_ids(i, op, s, nodes, selector_form)?;
+        }
+        dom.apply(i, op, s);
+        if FRAME_STEPS.contains(&op) {
+            dom.land();
         }
         // A scenario's PNG `path` is the one model-authored string this process
         // hands to `fs::write`. Confine it: inside `target/e2e/`, relative, no
@@ -1617,6 +2524,94 @@ fn stamp(json: &str, w: &Work) -> String {
         serde_json::Value::String(w.line.clone()),
         rest
     )
+}
+
+/// How many hex digits of the source hash a scenario's name is suffixed with.
+const NAME_HASH_LEN: usize = 8;
+
+/// The end of the JSON string whose content starts at `from` (the index of its
+/// closing quote), or `None` when it never ends.
+fn json_string_end(bytes: &[u8], mut from: usize) -> Option<usize> {
+    while from < bytes.len() {
+        match bytes[from] {
+            b'\\' => from += 2,
+            b'"' => return Some(from),
+            _ => from += 1,
+        }
+    }
+    None
+}
+
+/// Where the CONTENT (between the quotes) of the string value of the TOP-LEVEL
+/// key `key` of the JSON object `json` sits, or `None`.
+///
+/// Scanned by text, because the reply is spliced by text (a serde round-trip
+/// sorts the keys and wrecks the array-of-lines layout the format exists for),
+/// and a `"name"` key can also sit deeper in a step.
+fn top_level_string_span(json: &str, key: &str) -> Option<std::ops::Range<usize>> {
+    let bytes = json.as_bytes();
+    let (mut depth, mut i) = (0usize, 0usize);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' | b'[' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+            }
+            b'"' => {
+                let start = i + 1;
+                let end = json_string_end(bytes, start)?;
+                // A string at depth 1 followed by `:` is a key of the object.
+                let mut j = end + 1;
+                while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
+                    j += 1;
+                }
+                if depth == 1 && bytes.get(j) == Some(&b':') && &json[start..end] == key {
+                    j += 1;
+                    while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
+                        j += 1;
+                    }
+                    if bytes.get(j) != Some(&b'"') {
+                        return None; // the value is not a string
+                    }
+                    let value_end = json_string_end(bytes, j + 1)?;
+                    return Some(j + 1..value_end);
+                }
+                i = end + 1;
+            }
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// The scenario with `_<first 8 hex of its source hash>` appended to its `name`.
+///
+/// The model names a scenario after the property and the fixture its line is
+/// about, and 6 of the first 50 lines (all `noop_css_override_no_layout`) chose
+/// the same name. Results are paired with files by FILE now, but the verdict
+/// report prints names, an `expect` marker pairs by name and `azul-doc e2e` of
+/// the whole corpus refuses two tests of one name: every artifact carries a name
+/// of its own, and the hash is the one thing that is its own. Idempotent, and a
+/// reply without a string `name` is left alone (the gate rejects it anyway).
+fn with_unique_name(json: &str, hash: &str) -> String {
+    let suffix = format!("_{}", &hash[..hash.len().min(NAME_HASH_LEN)]);
+    let Some(span) = top_level_string_span(json, "name") else {
+        return json.to_string();
+    };
+    if json[span.clone()].ends_with(&suffix) {
+        return json.to_string();
+    }
+    format!("{}{suffix}{}", &json[..span.end], &json[span.end..])
+}
+
+/// What is written for a reply that passed the gate: its name made unique,
+/// stamped with the line it answers.
+fn artifact_text(json: &str, w: &Work) -> String {
+    stamp(&with_unique_name(json, &w.hash), w)
 }
 
 /// Read one artifact off disk: which corpus line does it claim, and is it still
@@ -2136,7 +3131,7 @@ fn generate_one(g: &Generator<'_>, w: &Work) -> Result<()> {
     // keys ("css" before "op") and wreck the readability that the
     // array-of-lines format exists for. The stamp is what makes the out-dir a
     // self-contained resume record — the done-list is only a cache.
-    let stamped = stamp(json, w);
+    let stamped = artifact_text(json, w);
     debug_assert!(validate(g.schema, &stamped).is_ok());
     fs::write(&w.out, stamped).with_context(|| format!("cannot write {}", w.out.display()))?;
     Ok(())
@@ -2191,6 +3186,16 @@ impl ReviewEntry {
             .unwrap_or_default()
     }
 
+    /// The name the scenario carries: the `name` of its JSON, else the name of
+    /// the run that came back for it.
+    fn scenario_name(&self) -> Option<String> {
+        self.json
+            .as_deref()
+            .and_then(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+            .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(str::to_string))
+            .or_else(|| self.run.as_ref().map(|r| r.name.clone()))
+    }
+
     /// Steps that failed, as `(index, op, error)`.
     fn failed_steps(&self) -> Vec<(usize, &str, &str)> {
         self.run.as_ref().map_or_else(Vec::new, |r| {
@@ -2223,7 +3228,27 @@ impl ReviewEntry {
             .collect()
     }
 
-    /// `generated` / `gate-rejected`, and `pass` / `fail` / `not run`.
+    /// Did the scenario run and fail? A `pending` scenario (it says what it
+    /// waits for - the prompt tells the model to write one for a line the ops
+    /// cannot express) and a skipped one ran no step: they are parked, not red.
+    fn is_red(&self) -> bool {
+        self.run
+            .as_ref()
+            .is_some_and(|r| !matches!(r.status.as_str(), "pass" | "pending" | "skip"))
+    }
+
+    /// The reason a scenario ran no step, if it is parked.
+    fn parked(&self) -> Option<(&str, &str)> {
+        let r = self.run.as_ref()?;
+        matches!(r.status.as_str(), "pending" | "skip").then(|| {
+            (
+                r.status.as_str(),
+                r.skip_reason.as_deref().unwrap_or("(no reason given)"),
+            )
+        })
+    }
+
+    /// `generated` / `gate-rejected`, and `pass` / `fail` / `pending` / `not run`.
     fn status(&self) -> (&'static str, &'static str) {
         let gen = if self.json.is_some() {
             "ok"
@@ -2232,6 +3257,8 @@ impl ReviewEntry {
         };
         let run = match self.run.as_ref().map(|r| r.status.as_str()) {
             Some("pass") => "pass",
+            Some("pending") => "PENDING",
+            Some("skip") => "skip",
             Some(_) => "FAIL",
             None => "not run",
         };
@@ -2314,6 +3341,23 @@ fn cell(s: &str, max: usize) -> String {
     flat.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
 }
 
+/// Whose fault the RUNNER says a red step is, when the error itself carries it.
+///
+/// `assert_changed` found no damage and compared a fresh render with the
+/// snapshot (`azul_layout::e2e` writes the two markers, this reads them): pixels
+/// that differ are an `ENGINE` fault (the window changed and nothing was
+/// repainted), pixels that do not are a `BAD TEST` (a control that cannot move
+/// one). A fact of the run, not an opinion; any other red step stays open.
+fn runner_attribution(error: &str) -> Option<&'static str> {
+    if error.contains(STALE_SCREEN_MARKER) {
+        Some("ENGINE")
+    } else if error.contains(DEAD_CONTROL_MARKER) {
+        Some("BAD TEST")
+    } else {
+        None
+    }
+}
+
 /// THE MACHINE-CHECKED HALF OF THE REPORT. PURE.
 ///
 /// Everything here is a fact the agent cannot talk its way out of: what ran,
@@ -2329,15 +3373,18 @@ pub fn render_facts(b: &ReviewBatch) -> String {
         .iter()
         .filter(|e| e.run.as_ref().is_some_and(|r| r.status == "pass"))
         .count();
-    let failed = b
-        .entries
-        .iter()
-        .filter(|e| e.run.as_ref().is_some_and(|r| r.status != "pass"))
-        .count();
+    let failed = b.entries.iter().filter(|e| e.is_red()).count();
+    let parked = b.entries.iter().filter(|e| e.parked().is_some()).count();
     let with_png = b
         .entries
         .iter()
         .filter(|e| !e.png_paths().is_empty())
+        .count();
+    // Generated, loaded and no result came back for it: nothing may hide here.
+    let unrun = b
+        .entries
+        .iter()
+        .filter(|e| e.json.is_some() && e.run.is_none())
         .count();
 
     let mut s = String::new();
@@ -2350,12 +3397,23 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     );
     s.push_str(&format!(
         "- corpus: `{}`\n- out-dir: `{}`\n- batch: **{n}** line(s) — {generated} generated, {} \
-         rejected by the gate\n- run: **{passed} passed, {failed} failed**\n- scenarios that \
-         capture an image: {with_png}/{generated} (NOT required — images are triage material, see \
-         below)\n\n",
+         rejected by the gate\n- run: **{passed} passed, {failed} failed**{}{}\n- run mode: every \
+         red step of a scenario is reported (keep-going), results are paired with their FILES, \
+         not with names\n- scenarios that capture an image: {with_png}/{generated} (NOT \
+         required — images are triage material, see below)\n\n",
         b.corpus,
         b.out_dir.display(),
         n - generated,
+        if parked == 0 {
+            String::new()
+        } else {
+            format!(", {parked} parked (pending / skipped: no step ran)")
+        },
+        if unrun == 0 {
+            String::new()
+        } else {
+            format!(", **{unrun} NOT RUN** (loaded, but no result came back)")
+        },
     ));
 
     s.push_str("## FACTS\n\n### Batch\n\n");
@@ -2389,11 +3447,7 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     s.push_str("```\n");
 
     // ---- failures, attributed -------------------------------------------
-    let failures: Vec<&ReviewEntry> = b
-        .entries
-        .iter()
-        .filter(|e| e.run.as_ref().is_some_and(|r| r.status != "pass"))
-        .collect();
+    let failures: Vec<&ReviewEntry> = b.entries.iter().filter(|e| e.is_red()).collect();
     s.push_str("\n### Failures, attributed\n\n");
     if failures.is_empty() {
         s.push_str(
@@ -2409,8 +3463,41 @@ pub fn render_facts(b: &ReviewBatch) -> String {
                 "**HARNESS** — the headless runner cannot drive this (port task, NOT an engine bug)"
             };
             s.push_str(&format!("- `{}`\n  - {verdict}\n", cell(&e.line, 120)));
-            for (idx, op, err) in e.failed_steps() {
-                s.push_str(&format!("  - step {idx} `{op}`: {}\n", cell(err, 400)));
+            for (k, (idx, op, err)) in e.failed_steps().into_iter().enumerate() {
+                // The first red step is the cause; the later ones ran on what it
+                // left behind and may be its echo.
+                let also = if k == 0 {
+                    ""
+                } else {
+                    " (also red; may follow from the first)"
+                };
+                // What the runner settled itself: `assert_changed` compared a fresh
+                // render with the snapshot (see `runner_attribution`).
+                let attributed = runner_attribution(err).map_or_else(String::new, |who| {
+                    format!(" **[{who}, attributed by the runner]**")
+                });
+                s.push_str(&format!(
+                    "  - step {idx} `{op}`{also}{attributed}: {}\n",
+                    cell(err, 400)
+                ));
+            }
+        }
+    }
+
+    // ---- parked: pending / skipped ---------------------------------------
+    // A scenario that says what it waits for (`pending`) is not a failure and
+    // not a pass - and WHAT it waits for is the reviewer's best evidence of a
+    // missing op.
+    let parked: Vec<&ReviewEntry> = b.entries.iter().filter(|e| e.parked().is_some()).collect();
+    if !parked.is_empty() {
+        s.push_str("\n### Parked (ran no step)\n\n");
+        for e in parked {
+            if let Some((status, why)) = e.parked() {
+                s.push_str(&format!(
+                    "- `{}`\n  - {status}: {}\n",
+                    cell(&e.line, 120),
+                    cell(why, 300)
+                ));
             }
         }
     }
@@ -2462,24 +3549,28 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     }
 
     // ---- duplicate names -------------------------------------------------
-    let mut names: BTreeMap<&str, usize> = BTreeMap::new();
-    for e in &b.entries {
-        if let Some(r) = e.run.as_ref() {
-            *names.entry(r.name.as_str()).or_default() += 1;
+    // By the name each ARTIFACT carries, whether or not a result came back for
+    // it: counting only the entries that received a run made this notice unable
+    // to fire when the pairing lost them.
+    let mut names: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, e) in b.entries.iter().enumerate() {
+        if let Some(name) = e.scenario_name() {
+            names.entry(name).or_default().push(i + 1);
         }
     }
-    let clashes: Vec<&&str> = names
-        .iter()
-        .filter(|(_, c)| **c > 1)
-        .map(|(n, _)| n)
-        .collect();
+    let clashes: Vec<(&String, &Vec<usize>)> =
+        names.iter().filter(|(_, rows)| rows.len() > 1).collect();
     if !clashes.is_empty() {
         s.push_str(
-            "\n### Duplicate scenario names\n\nThe verdict report pairs results with fixtures BY \
-             NAME, so duplicates make the run un-attributable:\n",
+            "\n### Duplicate scenario names\n\nThis run paired every result with its own FILE, so \
+             it is attributable. But the verdict report prints names, and an `expect` marker \
+             pairs by name: scenarios that share one read as one there. `gen-e2e` appends \
+             `_<8 hex of the source hash>` to every name it writes; these artifacts predate that \
+             (or were written by hand).\n",
         );
-        for n in clashes {
-            s.push_str(&format!("- `{n}`\n"));
+        for (name, rows) in clashes {
+            let rows: Vec<String> = rows.iter().map(|r| format!("#{r}")).collect();
+            s.push_str(&format!("- `{name}`: rows {}\n", rows.join(", ")));
         }
     }
 
@@ -2683,7 +3774,12 @@ find), HARNESS (the headless runner cannot drive it — a port task, the test ma
 TEST (it asserts something the line never claimed). The facts section already marks the
 mechanical ones: any error containing "{HARNESS_MARKER}" is a runner gap
 by construction, and names the `CallbackChange` arm to port from
-`dll/src/desktop/shell2/common/event.rs::apply_user_change`. For everything else, USE THE TRIAGE
+`dll/src/desktop/shell2/common/event.rs::apply_user_change`. The runner also settles a missing
+repaint itself: an `assert_changed` error containing "{STALE_SCREEN_MARKER}" means no damage was
+reported although a fresh render differs from the snapshot (ENGINE), and one containing
+"{DEAD_CONTROL_MARKER}" means the fresh render equals the snapshot, so nothing the scenario did
+could change a pixel (BAD TEST: the control is dead); the facts tag those steps. For everything
+else, USE THE TRIAGE
 PROCEDURE ABOVE — copy the scenario, add `{PNG_OP}` steps, run it, and look at the image — before
 you commit to an answer, and say what the image showed. Do not label a failure ENGINE just
 because it is not marked HARNESS; "I could not tell, and here is the experiment that would" is
@@ -2778,6 +3874,21 @@ struct Generator<'a> {
     out_dir: &'a Path,
 }
 
+/// Give every entry the result of ITS OWN test.
+///
+/// `results[k]` is the result of the k-th test that was loaded, and `owner[k]`
+/// the entry (the artifact FILE) it came from. A file of several tests gives its
+/// entry the first one's result.
+fn pair_results(entries: &mut [ReviewEntry], owner: &[usize], results: &[E2eTestResult]) {
+    for (r, &i) in results.iter().zip(owner) {
+        if let Some(entry) = entries.get_mut(i) {
+            if entry.run.is_none() {
+                entry.run = Some(r.clone());
+            }
+        }
+    }
+}
+
 /// Run the batch that was just generated, have ONE agent review it, write the
 /// report, and STOP.
 fn review_batch(g: &Generator<'_>, work: &[Work], outcomes: &[Option<String>]) -> Result<()> {
@@ -2829,21 +3940,19 @@ fn review_batch(g: &Generator<'_>, work: &[Work], outcomes: &[Option<String>]) -
         println!("[review] nothing runnable in this batch — every line was rejected by the gate.");
         "(nothing ran: every line in this batch was rejected by the generation gate)\n".to_string()
     } else {
-        println!("[review] running {} generated scenario(s) …", tests.len());
-        let results = crate::e2erun::run_tests(&tests, Some(opts.jobs))?;
-        // `run_tests` sorts by name; pair back to the corpus line by name, and
-        // report the collision rather than guessing when names repeat.
-        for r in &results {
-            if let Some(i) = tests
-                .iter()
-                .position(|t| t.name == r.name)
-                .and_then(|ti| owner.get(ti).copied())
-            {
-                if entries[i].run.is_none() {
-                    entries[i].run = Some(r.clone());
-                }
-            }
-        }
+        // Every red step of every scenario, not only the first: a review that
+        // sees one assertion of a scenario that has five hides four findings.
+        crate::e2erun::keep_going(&mut tests);
+        println!(
+            "[review] running {} generated scenario(s) (keep-going) …",
+            tests.len()
+        );
+        // IN ORDER: `results[k]` is the result of `tests[k]`, which came from
+        // `entries[owner[k]]`. The pairing is by position - by FILE - because a
+        // name is not an identity (six scenarios of the first batch shared one,
+        // and every result landed on the first of them).
+        let results = crate::e2erun::run_tests_in_order(&tests, Some(opts.jobs))?;
+        pair_results(&mut entries, &owner, &results);
         let (report, v) = render_report(&tests, &results);
         eprint!("{report}");
         println!(
@@ -3172,6 +4281,819 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Selectors: the schema is DERIVED, so the new params arrive by themselves
+    // -----------------------------------------------------------------------
+
+    /// The DOM-mutation ops and `mouse_move` name their target by CSS
+    /// `selector` (`insert_node`: `parent_selector`). Nothing in this file lists
+    /// those params: they are read out of the `DebugEvent` enum, rendered into
+    /// the prompt's schema section, and checked by the gate - so a scenario
+    /// that uses them validates, and the model is shown them.
+    #[test]
+    fn the_selector_params_of_the_mutation_ops_reach_the_schema_without_hand_edits() {
+        let s = parse_schema(&root()).unwrap();
+        let doc = schema_doc(&s);
+        let line = |op: &str| -> String {
+            doc.lines()
+                .find(|l| l.starts_with(&format!("- {op} :")))
+                .unwrap_or_else(|| panic!("the prompt does not offer `{op}`"))
+                .to_string()
+        };
+        let optional = |op: &str, param: &str| {
+            let def = s
+                .known_op(op)
+                .unwrap_or_else(|| panic!("`{op}` is not parsed"));
+            assert!(
+                def.params.contains(&(param.to_string(), false)),
+                "`{op}` must take an OPTIONAL `{param}`, got {:?}",
+                def.params
+            );
+        };
+
+        for op in [
+            "set_node_css_override",
+            "set_node_classes",
+            "set_node_text",
+            "set_node_image",
+            "delete_node",
+        ] {
+            optional(op, "selector");
+            optional(op, "node_id");
+            let l = line(op);
+            assert!(l.contains("selector?") && l.contains("node_id?"), "{l}");
+            assert!(
+                l.contains("exactly one"),
+                "the one-line doc names the rule: {l}"
+            );
+        }
+        optional("insert_node", "parent_selector");
+        optional("insert_node", "parent_id");
+        let l = line("insert_node");
+        assert!(
+            l.contains("parent_selector?") && l.contains("parent_id?"),
+            "{l}"
+        );
+        assert!(
+            s.known_op("insert_node")
+                .unwrap()
+                .params
+                .contains(&("node_type".to_string(), true)),
+            "insert_node still needs its node_type"
+        );
+        for p in ["selector", "x", "y"] {
+            optional("mouse_move", p);
+        }
+        let l = line("mouse_move");
+        assert!(l.contains("selector?"), "{l}");
+    }
+
+    /// Every row of the engine's targeting table names params the op really has:
+    /// a param renamed in `DebugEvent` must take its row with it, or the rule
+    /// would silently stop applying to the op.
+    #[test]
+    fn every_row_of_the_engines_targeting_table_names_params_the_op_has() {
+        use azul_layout::e2e::{Targeting, OP_TARGETING};
+
+        let s = parse_schema(&root()).unwrap();
+        for (op, rule) in OP_TARGETING {
+            let def = s
+                .known_op(op)
+                .unwrap_or_else(|| panic!("OP_TARGETING has a row for `{op}`, which is no op"));
+            let names: Vec<&str> = match rule {
+                Targeting::SelectorOrId { selector, id } => vec![selector, id],
+                Targeting::PlaceOrSelector => vec!["selector", "x", "y"],
+                Targeting::Free => Vec::new(),
+            };
+            assert!(
+                !names.is_empty(),
+                "`{op}` has a row that says nothing: a Free op needs none"
+            );
+            for name in names {
+                assert!(
+                    def.params.contains(&(name.to_string(), false)),
+                    "`{op}`: OP_TARGETING names the optional param `{name}`, which the op does \
+                     not have: {:?}",
+                    def.params
+                );
+            }
+        }
+    }
+
+    /// The other direction: an op that names its target by an optional
+    /// `selector` / `node_id` pair (or `parent_selector` / `parent_id`) and by
+    /// nothing else (no optional `text`, no `x`) has a row. The gate no longer
+    /// derives the rule from these names - this is what tells a NEW such op that
+    /// it needs a row, instead of letting it through the gate until the engine
+    /// refuses it.
+    #[test]
+    fn an_op_that_names_its_target_by_a_selector_or_an_id_has_a_targeting_row() {
+        use azul_layout::e2e::{targeting, Targeting};
+
+        let s = parse_schema(&root()).unwrap();
+        let mut seen = 0;
+        for name in s.all_op_names() {
+            let Some(def) = s.known_op(name) else {
+                continue;
+            };
+            let has = |p: &str| def.params.iter().any(|(n, _)| n == p);
+            let optional_text = def
+                .params
+                .iter()
+                .any(|(n, required)| n == "text" && !required);
+            for (selector, id) in [("selector", "node_id"), ("parent_selector", "parent_id")] {
+                if has(selector) && has(id) && !optional_text && !has("x") {
+                    seen += 1;
+                    assert_eq!(
+                        targeting(name),
+                        Targeting::SelectorOrId { selector, id },
+                        "`{name}` takes `{selector}` / `{id}` and nothing else to name its node: \
+                         give it a row in OP_TARGETING (layout/src/e2e/full.rs)"
+                    );
+                }
+            }
+        }
+        assert!(
+            seen >= 7,
+            "only {seen} ops name their target by a selector / id pair: the scan broke"
+        );
+        // An op with more ways to name its node, or a required selector, has no one rule.
+        for op in [
+            "click",
+            "double_click",
+            "scroll_node_by",
+            "assert_scroll",
+            "wheel",
+        ] {
+            assert_eq!(targeting(op), Targeting::Free, "`{op}`");
+        }
+    }
+
+    /// A scenario that mounts a small document, lets it land, and runs `step`.
+    /// The ids are countable: html 0, body 1, `#root` 2, `#a` 3, `#t` 4, its
+    /// text 5.
+    fn on_a_mounted_dom(step: &str) -> String {
+        format!(
+            r#"{{"name":"x","steps":[
+                {{"op":"mount","html":["<body><div id=\"root\"><div id=\"a\"></div><p id=\"t\">hi</p></div></body>"]}},
+                {{"op":"wait_frame"}},
+                {{"op":"snapshot_frame","as":"before"}},
+                {step},
+                {{"op":"assert_changed","vs":"before"}}]}}"#
+        )
+    }
+
+    /// `selector` and `node_id` are both optional in the schema, so the
+    /// required-param check cannot say "exactly one" - and the engine refuses a
+    /// step with both or neither at run time. The gate says so first, from the
+    /// ENGINE's table (`azul_layout::e2e::targeting`), in the engine's words: the
+    /// two owners of the rule read one definition (`FIX-87b0f2b8c-1`).
+    #[test]
+    fn the_gate_wants_exactly_one_way_of_naming_the_node() {
+        let s = parse_schema(&root()).unwrap();
+
+        for step in [
+            // selector xor node_id
+            r##"{"op":"set_node_css_override","selector":"#a","property":"width","value":"1px"}"##,
+            r##"{"op":"set_node_css_override","node_id":3,"property":"width","value":"1px"}"##,
+            r##"{"op":"set_node_classes","selector":"#a","classes":["x"]}"##,
+            r##"{"op":"set_node_text","selector":"#t","text":"bye"}"##,
+            r##"{"op":"set_node_image","selector":"#a","width":4,"height":4,"color":"red"}"##,
+            r##"{"op":"delete_node","selector":"#a"}"##,
+            r##"{"op":"focus_node","selector":"#a"}"##,
+            // the parent of an insert
+            r##"{"op":"insert_node","parent_selector":"#root","node_type":"div"}"##,
+            r##"{"op":"insert_node","parent_id":2,"node_type":"div"}"##,
+            // a pointer: a position, or a selector
+            r##"{"op":"mouse_move","x":10,"y":20}"##,
+            r##"{"op":"mouse_move","selector":"#a"}"##,
+        ] {
+            validate(&s, &on_a_mounted_dom(step))
+                .unwrap_or_else(|e| panic!("the gate refused {step}: {e}"));
+        }
+
+        for (step, why) in [
+            (
+                r##"{"op":"set_node_css_override","property":"width","value":"1px"}"##,
+                "needs a `selector`",
+            ),
+            (
+                r##"{"op":"set_node_css_override","selector":"#a","node_id":3,"property":"width","value":"1px"}"##,
+                "exactly one of `selector` / `node_id`",
+            ),
+            (
+                r##"{"op":"set_node_classes","classes":["x"]}"##,
+                "needs a `selector`",
+            ),
+            (
+                r##"{"op":"set_node_text","text":"bye"}"##,
+                "needs a `selector`",
+            ),
+            (
+                r##"{"op":"set_node_image","width":4,"height":4,"color":"red"}"##,
+                "needs a `selector`",
+            ),
+            (r##"{"op":"delete_node"}"##, "needs a `selector`"),
+            (r##"{"op":"focus_node"}"##, "needs a `selector`"),
+            (
+                r##"{"op":"focus_node","selector":"#a","node_id":3}"##,
+                "exactly one of `selector` / `node_id`",
+            ),
+            (
+                r##"{"op":"insert_node","node_type":"div"}"##,
+                "needs a `parent_selector`",
+            ),
+            (
+                r##"{"op":"insert_node","parent_selector":"#root","parent_id":2,"node_type":"div"}"##,
+                "exactly one of `parent_selector` / `parent_id`",
+            ),
+            (r##"{"op":"mouse_move"}"##, "needs `x` + `y`"),
+            (
+                r##"{"op":"mouse_move","x":10}"##,
+                "needs `x` + `y` (together)",
+            ),
+            (
+                r##"{"op":"mouse_move","selector":"#a","x":10,"y":20}"##,
+                "`selector` or `x` + `y`, not both",
+            ),
+        ] {
+            let e = validate(&s, &on_a_mounted_dom(step))
+                .expect_err(&format!("the gate let {step} through"))
+                .to_string();
+            assert!(e.contains(why), "{step}: wanted {why:?}, got: {e}");
+        }
+
+        // An op with MORE ways to name its node (a position, a text) is the
+        // engine's to resolve, not the gate's: `click` with a selector, an id,
+        // a text or a position all pass.
+        for step in [
+            r##"{"op":"click","selector":"#a"}"##,
+            r##"{"op":"click","x":10,"y":20}"##,
+            r##"{"op":"click","text":"hi"}"##,
+        ] {
+            validate(&s, &on_a_mounted_dom(step))
+                .unwrap_or_else(|e| panic!("the gate refused {step}: {e}"));
+        }
+    }
+
+    /// Defect 4 of the batch-2 review. `check_targeting` read "`selector` +
+    /// `x` + `y`, no `node_id`" as `mouse_move`'s "a position OR a selector"
+    /// and applied that to `assert_scroll`, which has all three: its `selector`
+    /// is REQUIRED (the engine refuses the step without one) and `x` / `y` are
+    /// the offsets it compares (at least one is required). The step the engine
+    /// wants - `{selector, y}` - was refused as "both a `selector` and `x` /
+    /// `y`", and a step without the selector was refused by the engine, so no
+    /// form passed both and every scroll scenario was unwritable (line 11 of
+    /// the batch).
+    #[test]
+    fn defect4_assert_scroll_takes_a_selector_and_an_offset() {
+        let s = parse_schema(&root()).unwrap();
+        let def = s.known_op("assert_scroll").unwrap();
+        assert!(
+            def.params.contains(&("selector".to_string(), true)),
+            "assert_scroll REQUIRES its selector: {:?}",
+            def.params
+        );
+        for offset in ["x", "y"] {
+            assert!(
+                def.params.contains(&(offset.to_string(), false)),
+                "`{offset}` is an optional offset of assert_scroll: {:?}",
+                def.params
+            );
+        }
+
+        let after_a_wheel = |step: &str| {
+            format!(
+                r##"{{"name":"x","steps":[
+                    {{"op":"mount","html":["<body><div id=\"list\"></div></body>"],
+                      "css":["#list {{ height: 100px; overflow: auto; }}"]}},
+                    {{"op":"wait_frame"}},
+                    {{"op":"wheel","x":10,"y":10,"delta_x":0,"delta_y":-120}},
+                    {{"op":"wait_frame"}},
+                    {step}]}}"##
+            )
+        };
+        // The forms the engine reads (`eval_assert_scroll`): the selector, and
+        // an offset on at least one axis.
+        for step in [
+            r##"{"op":"assert_scroll","selector":"#list","y":120}"##,
+            r##"{"op":"assert_scroll","selector":"#list","x":0}"##,
+            r##"{"op":"assert_scroll","selector":"#list","x":0,"y":120,"tolerance":1}"##,
+        ] {
+            validate(&s, &after_a_wheel(step))
+                .unwrap_or_else(|e| panic!("the gate refused {step}: {e}"));
+        }
+        // The engine's own refusal of a missing selector is not the gate's to
+        // hide: the required-param check says it first.
+        refused(
+            &s,
+            &after_a_wheel(r#"{"op":"assert_scroll","y":120}"#),
+            "missing required param `selector`",
+        );
+
+        // `mouse_move`'s selector IS the alternative to its position, and a
+        // step that gives both is still refused.
+        let e = validate(
+            &s,
+            &on_a_mounted_dom(r##"{"op":"mouse_move","selector":"#a","x":10,"y":20}"##),
+        )
+        .expect_err("mouse_move {selector, x, y} must stay refused")
+        .to_string();
+        assert!(e.contains("`selector` or `x` + `y`, not both"), "{e}");
+    }
+
+    /// The same rule against the corpus the gate must never contradict: every
+    /// `assert_scroll` step of a scenario under `e2e/` - hand-written, and
+    /// running green - passes the gate's targeting, and so does the scenario
+    /// (the nine that assert a scroll offset use only allowed ops, name their
+    /// nodes by selector, and none was written for the gate: it must let them
+    /// through).
+    #[test]
+    fn defect4_every_committed_scroll_scenario_passes_the_gate() {
+        /// Every object with `"op": "assert_scroll"`, wherever the scenario
+        /// keeps its steps.
+        fn scroll_steps<'a>(
+            v: &'a serde_json::Value,
+            out: &mut Vec<&'a serde_json::Map<String, serde_json::Value>>,
+        ) {
+            match v {
+                serde_json::Value::Object(o) => {
+                    if o.get("op").and_then(serde_json::Value::as_str) == Some("assert_scroll") {
+                        out.push(o);
+                    }
+                    o.values().for_each(|v| scroll_steps(v, out));
+                }
+                serde_json::Value::Array(a) => a.iter().for_each(|v| scroll_steps(v, out)),
+                _ => {}
+            }
+        }
+
+        let s = parse_schema(&root()).unwrap();
+        let (mut scenarios, mut seen) = (0, 0);
+        let mut refused = Vec::new();
+        for entry in fs::read_dir(root().join("e2e")).expect("e2e/ must exist") {
+            let path = entry.expect("readable dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let text = fs::read_to_string(&path).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&text)
+                .unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()));
+            let mut steps = Vec::new();
+            scroll_steps(&json, &mut steps);
+            if steps.is_empty() {
+                continue;
+            }
+            scenarios += 1;
+            for step in steps {
+                seen += 1;
+                if let Err(e) = check_targeting(0, "assert_scroll", step) {
+                    refused.push(format!("{}: {e}", path.display()));
+                }
+            }
+            if let Err(e) = validate(&s, &text) {
+                refused.push(format!("{}: {e}", path.display()));
+            }
+        }
+        assert!(
+            refused.is_empty(),
+            "the gate refuses committed scroll scenarios:\n{}",
+            refused.join("\n")
+        );
+        assert!(
+            scenarios >= 9 && seen >= 10,
+            "only {seen} assert_scroll steps in {scenarios} scenarios found under e2e/ - the scan \
+             lost them"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // What the gate checks against the engine (G2 - G5)
+    // -----------------------------------------------------------------------
+
+    /// A scenario that mounts `html` (an array of lines), lets it land, runs
+    /// `steps` (each ending in a comma-free list of steps) and asserts.
+    fn on_dom(html: &str, steps: &str) -> String {
+        format!(
+            r#"{{"name":"x","steps":[
+                {{"op":"mount","html":{html}}},
+                {{"op":"wait_frame"}},
+                {{"op":"snapshot_frame","as":"before"}},
+                {steps},
+                {{"op":"assert_changed","vs":"before"}}]}}"#
+        )
+    }
+
+    /// An indented fragment, the way a model writes one. `mount` wraps it in
+    /// `<html><body>`, and every newline and indent becomes a text node that
+    /// takes an id:
+    ///
+    /// | id | node |
+    /// |----|------|
+    /// | 0 | `<html>` |
+    /// | 1 | `<body>` |
+    /// | 2 | whitespace (after `<body>`) |
+    /// | 3 | `#root` |
+    /// | 4 | whitespace (`\n  `) |
+    /// | 5 | `#box` |
+    /// | 6 | whitespace (before `</div>`) |
+    /// | 7 | whitespace (before `</body>`) |
+    const INDENTED: &str = r##"["<div id=\"root\">","  <div id=\"box\"></div>","</div>"]"##;
+
+    fn refused(schema: &Schema, scenario: &str, why: &str) {
+        let e = validate(schema, scenario)
+            .expect_err(&format!("the gate let this through:\n{scenario}"))
+            .to_string();
+        assert!(
+            e.contains(why),
+            "wanted {why:?} in: {e}\nscenario:\n{scenario}"
+        );
+    }
+
+    /// G2. `html: []` passed the gate and `mount` then failed with "'html' is
+    /// empty" at step 0: 88 steps never ran.
+    #[test]
+    fn the_gate_rejects_a_mount_with_no_html() {
+        let s = parse_schema(&root()).unwrap();
+        for html in [r#"[]"#, r#"[""]"#, r#"["  ", "\n"]"#, r#""""#, r#""   ""#] {
+            let json = format!(
+                r#"{{"name":"x","steps":[{{"op":"mount","html":{html}}},{{"op":"wait_frame"}},
+                    {{"op":"assert_exists","selector":"body"}}]}}"#
+            );
+            refused(&s, &json, "empty `html`");
+            refused(&s, &json, "<body></body>");
+        }
+        // An empty PAGE is a body with nothing in it.
+        validate(
+            &s,
+            r#"{"name":"x","steps":[{"op":"mount","html":["<body></body>"]},{"op":"wait_frame"},
+                {"op":"assert_exists","selector":"body"}]}"#,
+        )
+        .unwrap();
+        // ...and html that is not text at all is not read.
+        refused(
+            &s,
+            r#"{"name":"x","steps":[{"op":"mount","html":[1,2]},{"op":"assert_exists","selector":"body"}]}"#,
+            "not read by the engine",
+        );
+    }
+
+    /// `mount` refuses markup that does not parse; so does the gate, with the
+    /// runtime's own words.
+    #[test]
+    fn the_gate_rejects_a_mount_whose_markup_does_not_parse() {
+        let s = parse_schema(&root()).unwrap();
+        refused(
+            &s,
+            r##"{"name":"x","steps":[{"op":"mount","html":["<div id=\"a>x</div>"]},
+                {"op":"wait_frame"},{"op":"assert_exists","selector":"div"}]}"##,
+            "mount: XML parse error",
+        );
+    }
+
+    /// G3. `{"which": "last"}` - `"last"` is a value of `frame` - was read as the
+    /// paint damage; the set is the engine's (`closed_param_values`).
+    #[test]
+    fn the_gate_rejects_a_value_outside_a_closed_set() {
+        let s = parse_schema(&root()).unwrap();
+        let with = |step: &str| {
+            format!(r#"{{"name":"x","steps":[{{"op":"snapshot_frame","as":"b"}},{step}]}}"#)
+        };
+
+        refused(
+            &s,
+            &with(r#"{"op":"assert_damage","kind":"none","which":"last"}"#),
+            "\"last\" is a value of `frame`",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"assert_damage","kind":"none","which":"last"}"#),
+            "paint, present",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"assert_changed","vs":"b","frame":"newest"}"#),
+            "accumulated, last",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"assert_damage_incremental","which":true}"#),
+            "param `which` is true",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"capture_damage_png","path":"target/e2e/x.png","which":"newest"}"#),
+            "paint, present",
+        );
+
+        // every value of every set passes
+        for (which, frame) in [
+            ("paint", "accumulated"),
+            ("present", "accumulated"),
+            ("paint", "last"),
+            ("present", "last"),
+        ] {
+            validate(
+                &s,
+                &with(&format!(
+                    r#"{{"op":"assert_damage","kind":"none","which":"{which}","frame":"{frame}"}}"#
+                )),
+            )
+            .unwrap_or_else(|e| panic!("{which}/{frame}: {e}"));
+        }
+        // the sets are the engine's, not a list of this file's
+        for (param, values) in azul_layout::e2e::CLOSED_STRING_PARAMS {
+            assert!(
+                s.ops
+                    .iter()
+                    .chain(s.asserts.iter())
+                    .any(|o| o.params.iter().any(|(p, _)| p == param)),
+                "`{param}` is a closed set of the engine that no op of the schema has: {values:?}"
+            );
+        }
+    }
+
+    /// The step is read as the runner reads it: a wrong type or a variant that
+    /// does not exist fails here, not at step N of a run.
+    #[test]
+    fn the_gate_reads_a_step_as_the_engine_does() {
+        let s = parse_schema(&root()).unwrap();
+        let with = |step: &str| {
+            format!(
+                r#"{{"name":"x","steps":[{{"op":"snapshot_frame","as":"b"}},{step},
+                {{"op":"assert_changed","vs":"b"}}]}}"#
+            )
+        };
+        refused(
+            &s,
+            &with(r#"{"op":"tick_ms","ms":"16"}"#),
+            "not read by the engine",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"tick_ms","ms":-1}"#),
+            "not read by the engine",
+        );
+        refused(
+            &s,
+            &with(r#"{"op":"click","x":1,"y":2,"button":"primary"}"#),
+            "unknown variant `primary`",
+        );
+        validate(&s, &with(r#"{"op":"click","x":1,"y":2,"button":"right"}"#)).unwrap();
+        validate(&s, &with(r#"{"op":"tick_ms","ms":16}"#)).unwrap();
+    }
+
+    /// G4. The numbers a model counts are wrong: the ids are resolved with the
+    /// parser `mount` uses, and an id that is the page, a whitespace run or a
+    /// node that is not there is refused, with the elements named.
+    #[test]
+    fn the_gate_resolves_a_node_id_with_the_parser_mount_uses() {
+        let s = parse_schema(&root()).unwrap();
+        let css = |id: u32| {
+            on_dom(
+                INDENTED,
+                &format!(
+                    r#"{{"op":"set_node_css_override","node_id":{id},"property":"width","value":"1px"}}"#
+                ),
+            )
+        };
+
+        refused(&s, &css(0), "is `<html>`");
+        refused(&s, &css(1), "is `<body>`");
+        refused(&s, &css(2), "whitespace text run");
+        refused(&s, &css(4), "whitespace text run");
+        refused(&s, &css(6), "whitespace text run");
+        // the refusal says where the elements are, and what to do instead
+        refused(&s, &css(1), "3 `<div id=\"root\">`");
+        refused(&s, &css(1), "5 `<div id=\"box\">`");
+        refused(&s, &css(1), "`selector`");
+        refused(&s, &css(99), "does not exist");
+        refused(&s, &css(99), "8 nodes");
+        // the elements the model meant
+        validate(&s, &css(3)).unwrap();
+        validate(&s, &css(5)).unwrap();
+
+        // every op that takes a node id, not only the mutation ones
+        refused(
+            &s,
+            &on_dom(
+                INDENTED,
+                r#"{"op":"scroll_node_by","node_id":1,"delta_x":0,"delta_y":10}"#,
+            ),
+            "is `<body>`",
+        );
+        refused(
+            &s,
+            &on_dom(INDENTED, r#"{"op":"focus_node","node_id":0}"#),
+            "is `<html>`",
+        );
+        // the parent of an insert, too
+        refused(
+            &s,
+            &on_dom(
+                INDENTED,
+                r#"{"op":"insert_node","parent_id":1,"node_type":"div"}"#,
+            ),
+            "is `<body>`",
+        );
+        validate(
+            &s,
+            &on_dom(
+                INDENTED,
+                r#"{"op":"insert_node","parent_id":3,"node_type":"div"}"#,
+            ),
+        )
+        .unwrap();
+        // ...while a SELECTOR may name the page itself: the model said so.
+        validate(
+            &s,
+            &on_dom(
+                INDENTED,
+                r#"{"op":"set_node_css_override","selector":"body","property":"background","value":"red"}"#,
+            ),
+        )
+        .unwrap();
+    }
+
+    /// `set_node_text` writes the TEXT node, `set_node_image` an `<img>`,
+    /// `add_timer` a text node: an id of the wrong kind is refused with the
+    /// right one named.
+    #[test]
+    fn the_gate_knows_which_kind_of_node_an_op_takes() {
+        let s = parse_schema(&root()).unwrap();
+        // html0 body1 #p2 "hi"3 #pic4
+        let dom = r##"["<body><p id=\"p\">hi</p><img id=\"pic\" /></body>"]"##;
+        let on = |step: &str| on_dom(dom, step);
+
+        validate(
+            &s,
+            &on(r#"{"op":"set_node_text","node_id":3,"text":"bye"}"#),
+        )
+        .unwrap();
+        refused(
+            &s,
+            &on(r#"{"op":"set_node_text","node_id":2,"text":"bye"}"#),
+            "addresses the TEXT node inside it (the text inside it is node 3)",
+        );
+        refused(
+            &s,
+            &on(r#"{"op":"set_node_text","node_id":1,"text":"bye"}"#),
+            "is `<body>`",
+        );
+        validate(
+            &s,
+            &on(r##"{"op":"set_node_text","selector":"#p","text":"bye"}"##),
+        )
+        .unwrap();
+
+        validate(
+            &s,
+            &on(r#"{"op":"set_node_image","node_id":4,"width":4,"height":4,"color":"red"}"#),
+        )
+        .unwrap();
+        refused(
+            &s,
+            &on(r#"{"op":"set_node_image","node_id":2,"width":4,"height":4,"color":"red"}"#),
+            "not an `<img>`",
+        );
+
+        validate(
+            &s,
+            &on(r#"{"op":"add_timer","timer_id":1000,"interval_ms":16,"node_id":3,"text":"t"}"#),
+        )
+        .unwrap();
+        refused(
+            &s,
+            &on(r#"{"op":"add_timer","timer_id":1000,"interval_ms":16,"node_id":2,"text":"t"}"#),
+            "TEXT node",
+        );
+    }
+
+    /// The document is followed through the scenario: an insert adds a node at
+    /// the end, a delete leaves a tombstone, a second `mount` replaces it.
+    #[test]
+    fn the_gate_follows_the_document_through_the_scenario() {
+        let s = parse_schema(&root()).unwrap();
+        // html0 body1 #a2 #b3
+        let dom = r##"["<body><div id=\"a\"></div><div id=\"b\"></div></body>"]"##;
+        let steps = |tail: &str| {
+            format!(
+                r#"{{"name":"x","steps":[{{"op":"mount","html":{dom}}},{{"op":"wait_frame"}},
+                    {{"op":"snapshot_frame","as":"b"}},{tail},{{"op":"assert_changed","vs":"b"}}]}}"#
+            )
+        };
+
+        // the inserted node is node 4, and can be addressed
+        validate(
+            &s,
+            &steps(
+                r#"{"op":"insert_node","parent_selector":"body","node_type":"div","id":"n"},
+                   {"op":"set_node_css_override","node_id":4,"property":"width","value":"1px"}"#,
+            ),
+        )
+        .unwrap();
+        refused(
+            &s,
+            &steps(
+                r#"{"op":"insert_node","parent_selector":"body","node_type":"div"},
+                   {"op":"set_node_css_override","node_id":5,"property":"width","value":"1px"}"#,
+            ),
+            "does not exist",
+        );
+        // a deleted node keeps its id, and is gone
+        refused(
+            &s,
+            &steps(
+                r#"{"op":"delete_node","node_id":2},
+                   {"op":"set_node_css_override","node_id":2,"property":"width","value":"1px"}"#,
+            ),
+            "was deleted by step 3",
+        );
+        // a second mount replaces the document
+        refused(
+            &s,
+            &steps(
+                r#"{"op":"mount","html":["<body></body>"]},{"op":"wait_frame"},
+                   {"op":"set_node_css_override","node_id":2,"property":"width","value":"1px"}"#,
+            ),
+            "does not exist",
+        );
+        // what hung below a deleted node is gone with it (html0 body1 #list2 #row3 "x"4)
+        let nested = r##"["<body><div id=\"list\"><p id=\"row\">x</p></div></body>"]"##;
+        let below = format!(
+            r#"{{"name":"x","steps":[{{"op":"mount","html":{nested}}},{{"op":"wait_frame"}},
+                {{"op":"snapshot_frame","as":"b"}},{{"op":"delete_node","node_id":2}},
+                {{"op":"set_node_css_override","node_id":3,"property":"width","value":"1px"}},
+                {{"op":"assert_changed","vs":"b"}}]}}"#
+        );
+        refused(&s, &below, "hung below node 2, which step 3 deleted");
+    }
+
+    /// A scenario of exactly `steps`.
+    fn scenario_of(steps: &[&str]) -> String {
+        format!(r#"{{"name":"x","steps":[{}]}}"#, steps.join(","))
+    }
+
+    /// G5. `mount` takes effect at the next frame: `set_node_image` right after
+    /// it failed with "Node 1 not found" (the document did not exist yet).
+    #[test]
+    fn the_gate_rejects_a_node_op_before_the_mount_has_landed() {
+        let s = parse_schema(&root()).unwrap();
+        let mount = r##"{"op":"mount","html":["<body><div id=\"a\"></div></body>"]}"##;
+        let css =
+            r##"{"op":"set_node_css_override","selector":"#a","property":"width","value":"1px"}"##;
+        let exists = r##"{"op":"assert_exists","selector":"#a"}"##;
+        let wait_frame = r#"{"op":"wait_frame"}"#;
+
+        refused(
+            &s,
+            &scenario_of(&[mount, css, exists]),
+            "has not been applied yet",
+        );
+        refused(&s, &scenario_of(&[mount, css, exists]), "`wait_frame`");
+        refused(
+            &s,
+            &scenario_of(&[mount, r#"{"op":"snapshot_frame","as":"b"}"#, css, exists]),
+            "step 0",
+        );
+        for lands in [
+            wait_frame,
+            r#"{"op":"wait","ms":10}"#,
+            r#"{"op":"tick_ms","ms":16}"#,
+        ] {
+            validate(&s, &scenario_of(&[mount, lands, css, exists]))
+                .unwrap_or_else(|e| panic!("{lands}: {e}"));
+        }
+
+        // no mount at all
+        refused(&s, &scenario_of(&[css, exists]), "nothing is mounted");
+        // a second mount that has not landed hides the first
+        refused(
+            &s,
+            &scenario_of(&[mount, wait_frame, mount, css, exists]),
+            "step 2",
+        );
+        // an unmount leaves no document
+        refused(
+            &s,
+            &scenario_of(&[
+                mount,
+                wait_frame,
+                r#"{"op":"unmount"}"#,
+                wait_frame,
+                css,
+                exists,
+            ]),
+            "nothing is mounted",
+        );
+        // an ASSERTION is a question, not an address: it may come first
+        validate(
+            &s,
+            &scenario_of(&[mount, r##"{"op":"assert_not_exists","selector":"#zzz"}"##]),
+        )
+        .unwrap();
+    }
+
+    // -----------------------------------------------------------------------
     // Op classification
     // -----------------------------------------------------------------------
 
@@ -3190,22 +5112,24 @@ mod tests {
         // THE regression this whole classification exists for: `set_node_text`
         // -> `redraw` -> `assert_changed` PASSES even when the invalidation
         // path is broken, because `redraw` manufactures the damage itself.
-        let masked = r#"{"name":"stale_text","steps":[
+        let masked = r##"{"name":"stale_text","steps":[
             {"op":"mount","html":["<div id=\"a\">hi</div>"]},
+            {"op":"wait_frame"},
             {"op":"snapshot_frame","as":"before"},
-            {"op":"set_node_text","node_id":1,"text":"bye"},
+            {"op":"set_node_text","selector":"#a","text":"bye"},
             {"op":"redraw"},
-            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"#;
+            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"##;
         let e = validate(&s, masked).unwrap_err().to_string();
         assert!(e.contains("`redraw`") && e.contains("DENIED"), "{e}");
 
         // ...and the same test WITHOUT the forced redraw is exactly what we want.
-        let honest = r#"{"name":"stale_text","steps":[
+        let honest = r##"{"name":"stale_text","steps":[
             {"op":"mount","html":["<div id=\"a\">hi</div>"]},
-            {"op":"snapshot_frame","as":"before"},
-            {"op":"set_node_text","node_id":1,"text":"bye"},
             {"op":"wait_frame"},
-            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"#;
+            {"op":"snapshot_frame","as":"before"},
+            {"op":"set_node_text","selector":"#a","text":"bye"},
+            {"op":"wait_frame"},
+            {"op":"assert_changed","vs":"before","min_damage_rects":1}]}"##;
         validate(&s, honest).unwrap();
 
         // `relayout` is denied for the same reason.
@@ -3222,7 +5146,6 @@ mod tests {
             "delete_component",
             "update_component",
             "update_component_render_fn",
-            "update_component_compile_fn",
             "create_library",
             "delete_library",
             "export_code",
@@ -3346,6 +5269,35 @@ mod tests {
             "OP_POLICY classifies ops that no longer exist in full.rs"
         );
         assert_eq!(classify("brand_new_op"), OpClass::Unclassified);
+    }
+
+    /// An eval fn whose `reject_unknown_params(.., &[])` guard allows NO
+    /// params takes none: the empty scan is right, and the blind-spot alarm
+    /// must not call it a scanner gap (`assert_no_unmocked_requests` did, on
+    /// every run). A fn that reads a param the scanners cannot see still
+    /// raises it.
+    #[test]
+    fn an_assertion_whose_guard_allows_no_params_is_not_a_scanner_gap() {
+        let src = fs::read_to_string(root().join(FULL_RS)).unwrap();
+        let s = parse_schema(&root()).unwrap();
+        let none = s
+            .asserts
+            .iter()
+            .find(|a| a.name == "assert_no_unmocked_requests")
+            .expect("assert_no_unmocked_requests is in the assertion dispatch");
+        assert!(none.params.is_empty(), "{:?}", none.params);
+        assert!(!scanner_missed_params(&src, none));
+
+        // A key read through an unscanned path is still a gap.
+        let hidden = "\nfn eval_assert_hidden(params: &serde_json::Value) -> AssertionResult {\n    \
+                      if let Some(bad) = reject_unknown_params(\"assert_hidden\", params, &[]) {\n        \
+                      return bad;\n    }\n    let k = key_of();\n    read(params, k)\n}\n";
+        let def = OpDef {
+            name: "assert_hidden".to_string(),
+            params: Vec::new(),
+            doc: None,
+        };
+        assert!(scanner_missed_params(hidden, &def));
     }
 
     // -----------------------------------------------------------------------
@@ -3586,6 +5538,20 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
                 "assert_response must advertise `{p}`, got: {ar}"
             );
         }
+
+        // `assert_idle_frames` is handled in the step loop, as `assert_response` is: the
+        // gate must know it and advertise every param the step reads (E2E-M2).
+        let idle = line("assert_idle_frames");
+        for p in ["frames", "step_ms", "vs", "threshold"] {
+            assert!(
+                idle.contains(p),
+                "assert_idle_frames must advertise `{p}`, got: {idle}"
+            );
+        }
+        assert!(
+            !idle.contains("(no params)"),
+            "assert_idle_frames takes four: {idle}"
+        );
 
         // The two TIMER ops. They are the only drive surface the suite has for
         // `CallbackChange::AddTimer` / `RemoveTimer`, and every one of their
@@ -3909,6 +5875,587 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         );
     }
 
+    /// The prompt, with every run of whitespace folded to one space, so a
+    /// sentence can be looked for whatever way it wraps.
+    fn flat_prompt() -> String {
+        let s = parse_schema(&root()).unwrap();
+        let ex = fs::read_to_string(root().join(EXAMPLE_JSON)).unwrap();
+        build_prompt(&schema_doc(&s), &ex, "[a/b] something happens")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// D1. The old paragraph told the model the root of a mounted document is
+    /// node 0 and its children are 1, 2, 3. They are not (`<html>` 0, `<body>`
+    /// 1, a whitespace run for every newline between two tags), and 44 of 44
+    /// id-addressed scenarios of the first batch landed on the page or on
+    /// whitespace. The prompt now says: name every node by a selector.
+    #[test]
+    fn the_prompt_names_every_node_by_a_selector_and_no_longer_teaches_the_false_numbering() {
+        let p = flat_prompt();
+        for want in [
+            "NAME EVERY NODE BY A SELECTOR",
+            "never a numeric `node_id`",
+            "WHY NOT A NUMBER",
+            "`<html>` (node 0) and `<body>` (node 1)",
+            "whitespace text node that takes an id of its own",
+            "unless the `mount` says `\"collapse_whitespace\": true`",
+            "the checker REJECTS such an id",
+            "`parent_selector`",
+            "AFTER that `wait_frame`",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        for false_claim in [
+            "The root of a mounted document is node 0 and its children follow",
+            "use low ids (1, 2, 3)",
+            "(or its `node_id` form)",
+            // the schema's own one-line hints must not undo the rule either
+            "use Click with node_id",
+        ] {
+            assert!(
+                !p.contains(false_claim),
+                "the prompt still says `{false_claim}`"
+            );
+        }
+    }
+
+    /// D2 - D4, D8: the claims the first batch's review proved false are gone,
+    /// and what it measured is there.
+    #[test]
+    fn the_prompt_states_what_the_runner_does_today() {
+        let p = flat_prompt();
+
+        // D2: a CSS override costs 0 passes for a paint-only property and 1 for a
+        // geometry one (R3: the runner used to lay out twice, 2); a no-op is exactly 0
+        // (R2: it used to cost what a real change costs); the control is `min` and
+        // nothing else.
+        assert!(p.contains("0 paint-only / 1 geometry"), "the counter table");
+        assert!(p.contains("runs layout: one pass per override"));
+        assert!(p.contains("is a no-op: the write is recorded, nothing is laid out"));
+        for stale in [
+            "0 paint-only / 2 geometry",
+            "this runner reports 2 passes",
+            "is not recognised as a no-op yet",
+            "does not meet today",
+            "never on whether the value changed",
+        ] {
+            assert!(
+                !p.contains(stale),
+                "the prompt still states what the runner no longer does: `{stale}`"
+            );
+        }
+        assert!(
+            p.contains("never put `min_layout_passes` on a recolour"),
+            "a paint-only change spends no layout pass"
+        );
+        assert!(p.contains("is `exact_layout_passes: 0`: write it exactly like that"));
+        assert!(p.contains("is `min_layout_passes: 1` and nothing more"));
+        assert!(
+            !p.contains("route through a full relayout"),
+            "the old claim that every CSS override costs a relayout"
+        );
+        assert!(!p.contains("is `max_layout_passes: 0`, and nothing else expresses it"));
+
+        // D3: damage reads an accumulator, and the closed sets are said.
+        assert!(p.contains("DAMAGE ASSERTIONS READ AN ACCUMULATOR"));
+        assert!(p.contains("\"frame\": \"last\""));
+        assert!(p.contains("\"last\" is a value of `frame`, never of `which`"));
+        assert!(
+            p.contains("`assert_damage_sound` (the change must then lie inside what was presented")
+        );
+        assert!(
+            !p.contains("which has no `which`"),
+            "`assert_damage_sound` takes a `which` now (R11)"
+        );
+        assert!(
+            !p.contains("silently treated as \"paint\""),
+            "an unknown `which` is refused now, not read as paint"
+        );
+
+        // D4 (E2E-R8): the renderer-side counters count what the lists draw, and only the
+        // two legacy tables are inert.
+        for want in [
+            "All but two counters move in this",
+            "`fonts`, `font_hash_map`, `images` and `image_key_map`, which count",
+            "A picture drawn by ten boxes is ONE image",
+            "`font_id_map` and `font_families_map` are legacy tables no",
+            "so never assert them (an `eq` on",
+            "A LEAK TEST HAS TWO SAMPLES AND BOTH READ THE SAME COUNTERS",
+            "A swap (`set_node_image` again) replaces the picture",
+            "\"parsed_fonts\": \"gt\", \"fonts\": \"gt\"",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        for stale in [
+            "only `parsed_fonts`, `font_chain_cache` and `font_hash_to_families` ever move",
+            "`\"fonts\": \"eq\"` or `\"images\": \"eq\"` is `0 == 0`",
+            "stay 0 before and after anything a scenario can do",
+            "let the `images` control go red until the runner counts images",
+            "ONE FAMILY OF COUNTERS PER CALL",
+        ] {
+            assert!(
+                !p.contains(stale),
+                "the prompt still says `{stale}`: the renderer-side counters move now (R8)"
+            );
+        }
+        assert!(
+            !p.contains("\"images\": \"eq\", \"fonts\": \"le\"}"),
+            "the old leak recipe on counters that never move"
+        );
+
+        // E2E-M2: N idle frames are ONE step, not a quadruple per frame.
+        for want in [
+            "{\"op\":\"assert_idle_frames\",\"frames\":40,\"step_ms\":16}",
+            "ONE step, NOT a snapshot / tick / wait_frame / assert quadruple per frame",
+            "Every frame is held to the SAME picture",
+            "the frames at 1, 10, 20 and 40 of a line are `\"frames\": 40` - nothing is sampled",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        for stale in [
+            "RE-SNAPSHOT EACH FRAME",
+            "one such triple per frame the line asks for",
+            "Use distinct snapshot names (f0, f1, f2",
+        ] {
+            assert!(
+                !p.contains(stale),
+                "the prompt still teaches the unrolled frames: `{stale}`"
+            );
+        }
+
+        // D8: a window of identical frames must not overlap the scrollbar fade.
+        assert!(p.contains("must not overlap time-driven state"));
+        assert!(
+            p.contains("`wait_settled` is the other way to that rest: it moves the clock itself")
+        );
+        assert!(
+            !p.contains("`wait_settled` does not help in this runner"),
+            "a scripted wait_settled advances the clock now (E2E-M3)"
+        );
+    }
+
+    /// Batch 3, Defect 1. An op's doc is its first PARAGRAPH, on one line - not
+    /// its first line: `wheel`'s sign convention sat on the sixth line of its doc
+    /// and the model never saw it.
+    #[test]
+    fn b3_d1_a_doc_is_its_first_paragraph_on_one_line() {
+        let mut doc = DocParagraph::default();
+        for line in [
+            "", // blank lines before the text are nothing
+            " A hardware wheel notch at (x, y):",
+            "a NEGATIVE `delta_y` scrolls DOWN.",
+            "",
+            "The second paragraph is not shown.",
+        ] {
+            doc.push(line);
+        }
+        assert_eq!(
+            doc.take().as_deref(),
+            Some("A hardware wheel notch at (x, y): a NEGATIVE `delta_y` scrolls DOWN.")
+        );
+        // The slate is clean for the next variant: no text, no closed paragraph.
+        assert_eq!(doc.take(), None);
+        doc.push("Next.");
+        assert_eq!(doc.take().as_deref(), Some("Next."));
+    }
+
+    /// Batch 3, Defect 1: a doc is at most `OP_DOC_MAX_CHARS` characters and is
+    /// cut after a whole sentence or at a whole word, never inside one.
+    #[test]
+    fn b3_d1_a_long_doc_is_cut_at_a_sentence_or_a_word_never_inside_one() {
+        // It fits: untouched.
+        assert_eq!(cap_doc("Short. Sentences.", 300), "Short. Sentences.");
+        // The last full sentence that fits, when it keeps half the room.
+        assert_eq!(
+            cap_doc("aaaa bbbb cccc dddd. eeee ffff gggg hhhh iiii jjjj", 30),
+            "aaaa bbbb cccc dddd."
+        );
+        // A sentence end in the first half is not worth the room: cut at a word.
+        assert_eq!(
+            cap_doc("Hi. aaaa bbbb cccc dddd eeee ffff gggg hhhh", 30),
+            "Hi. aaaa bbbb cccc dddd eeee…"
+        );
+        assert_eq!(
+            cap_doc("aaaa bbbb cccc dddd eeee ffff gggg hhhh", 30),
+            "aaaa bbbb cccc dddd eeee…"
+        );
+        // Characters, not bytes: a long run of 2-byte letters neither panics nor
+        // overruns.
+        let wide = "é".repeat(400);
+        assert_eq!(cap_doc(&wide, OP_DOC_MAX_CHARS).chars().count(), OP_DOC_MAX_CHARS);
+    }
+
+    /// Batch 3, Defect 1, on the real `full.rs`: the schema lines carry the
+    /// sentences that used to be cut. `wheel` says which way down is (a raw
+    /// notch: NEGATIVE), `scroll` says it too (a programmatic delta: POSITIVE)
+    /// and had no doc at all, `tick_ms` keeps its "WITHOUT sleeping", and no line
+    /// is longer than the cap.
+    #[test]
+    fn b3_d1_the_schema_lines_say_which_way_is_down() {
+        let s = parse_schema(&root()).unwrap();
+        let doc = schema_doc(&s);
+        let line = |op: &str| -> String {
+            doc.lines()
+                .find(|l| l.starts_with(&format!("- {op} :")))
+                .unwrap_or_else(|| panic!("the prompt does not offer `{op}`"))
+                .to_string()
+        };
+
+        let wheel = line("wheel");
+        assert!(
+            wheel.contains("NEGATIVE `delta_y` scrolls the content DOWN"),
+            "{wheel}"
+        );
+        let scroll = line("scroll");
+        assert!(
+            scroll.contains("POSITIVE `delta_y` scrolls the content DOWN"),
+            "{scroll}"
+        );
+        let tick = line("tick_ms");
+        assert!(tick.contains("WITHOUT sleeping."), "{tick}");
+        assert!(tick.contains("Everything time-driven"), "{tick}");
+
+        for l in doc.lines().filter(|l| l.starts_with("- ")) {
+            if let Some((_, d)) = l.split_once("   // ") {
+                assert!(d.chars().count() <= OP_DOC_MAX_CHARS, "over the cap: {l}");
+            }
+        }
+    }
+
+    /// Batch 3, Defect 1: the prompt itself teaches the wheel's sign and tells the
+    /// model to PROVE a scroll. `delta_y: +120` scrolled nothing, nothing proved
+    /// the scroll, and the line stayed green on a list that never moved.
+    #[test]
+    fn b3_d1_the_prompt_teaches_the_wheel_sign_and_to_prove_the_scroll() {
+        let p = flat_prompt();
+        for want in [
+            "SCROLLING. `wheel` is a RAW hardware notch: a NEGATIVE `delta_y` scrolls the content \
+             DOWN",
+            "leaves the offset at 120 once it has glided",
+            "a positive `delta_y` scrolls UP, which at the top of a list moves nothing",
+            "`scroll` and `scroll_node_by` are programmatic and take a POSITIVE delta for \"down\"",
+            "`scroll_node_to` takes the absolute offset",
+            "A wheel glides on a timer: follow it with `tick_ms` + `wait_frame` before you read \
+             the offset",
+            "must PROVE it with `assert_scroll {\"selector\": \".list\", \"y\": 120}` after the \
+             glide",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+    }
+
+    /// Batch 3, Defects 2-4: a wheel/drag/hover STARTS a fade and the idle chain
+    /// gets its four ticks first; the per-node fade properties are the box's own
+    /// fade (E2E-R9; they were inert); the overflow recipe is a shape; `pending` is the
+    /// last resort. The old wording is gone.
+    #[test]
+    fn b3_d2_d3_d4_the_fade_preamble_the_overflow_shape_and_the_pending_hatch() {
+        let p = flat_prompt();
+        for want in [
+            "A wheel, a drag or a hover over a scroller makes its overlay scrollbar visible, and \
+             that STARTS A FADE: 500 ms visible, then 200 ms fading",
+            "fades by them instead (each alone: a box that sets only the delay keeps the 200 ms",
+            "a delay of 0 is a bar that never fades, a duration of 0 a bar that is gone the moment \
+             the delay is up",
+            "ALWAYS put four `tick_ms` 250 ms, each followed by `wait_frame`",
+            "That preamble is not one of the steps the line counts",
+            "`#kid { width: 100px; height: 200px; background: blue; flex-shrink: 0; }`",
+            "put `overflow` on the row and let a taller sibling stick out of it",
+        ] {
+            let flat = p.split_whitespace().collect::<Vec<_>>().join(" ");
+            let want = want.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(flat.contains(&want), "the prompt lost `{want}`");
+        }
+        for stale in [
+            "are parsed but do not",
+            "are parsed but inert",
+            "These are window-level constants",
+            "four or more times",
+            "that no fixture can make visible",
+            "(wrap it in a window-sized frame)",
+        ] {
+            let flat = p.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(!flat.contains(stale), "the prompt still says `{stale}`");
+        }
+    }
+
+    /// D5 - D7, D9, D10.
+    #[test]
+    fn the_prompt_tells_how_to_mount_what_a_control_needs_and_what_a_quantifier_is() {
+        let p = flat_prompt();
+        for want in [
+            // D5
+            "an \"empty body\" is [\"<body></body>\"], never []",
+            "`html, body { margin:0; width:100%; height:100% }`",
+            "A VIRTUALVIEW (a list too long to build) is a key of the `mount`, never markup",
+            "\"virtual_views\":[{\"selector\":\".list\",\"rows\":5000,\"row_height\":24,",
+            "The rows are the VIEW's document: the page's `css` does not reach them",
+            "Look at the view with `get_virtual_view_states` and `assert_response` `contains`",
+            // D6 (batch 2 replaced the paragraph: the per-property recipe)
+            "A CONTROL THAT CANNOT MOVE A PIXEL PROVES NOTHING",
+            "never a `flex-grow:1` item (it ignores an overridden `width`)",
+            // D7
+            "copy the line's own quantifier",
+            "\"at least one\" is `min_*: 1` and nothing else",
+            // D9
+            "Do not append coverage, soundness or work-counter assertions the line does not name",
+            // D10
+            "a suffix that makes the name unique is appended for you",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        // E2E-M1: a VirtualView CAN be mounted now; the line that sent the generator to
+        // the nearest plain scroller and a `pending` is gone.
+        for stale in [
+            "A line that needs a VirtualView cannot be expressed",
+            "\"pending\": \"needs a mountable VirtualView\"",
+            "do NOT create a VirtualView",
+        ] {
+            assert!(!p.contains(stale), "the prompt still says `{stale}`");
+        }
+    }
+
+    /// E2E-M1: the paragraph that teaches `virtual_views` sends the generator only to ops the
+    /// gate lets through. The first draft told it to look inside the view with
+    /// `get_virtual_view_layout`, which is geometry and DENIED - every scenario that followed
+    /// the prompt would have been refused by the gate.
+    #[test]
+    fn e2e_m1_the_virtual_view_paragraph_names_only_ops_the_gate_allows() {
+        let s = parse_schema(&root()).unwrap();
+        let p = flat_prompt();
+        let start = p
+            .find("A VIRTUALVIEW (a list too long to build)")
+            .expect("the prompt has the paragraph about virtual views");
+        let end = start
+            + p[start..]
+                .find("FONTS:")
+                .expect("the paragraph is followed by FONTS");
+        let mut named = Vec::new();
+        // The odd pieces of a split on the backtick are the words inside backticks.
+        for word in p[start..end].split('`').skip(1).step_by(2) {
+            if s.is_known(word) {
+                named.push(word);
+            }
+        }
+        for op in ["scroll_node_by", "wheel", "get_virtual_view_states"] {
+            assert!(
+                named.contains(&op),
+                "the paragraph no longer names `{op}`: {named:?}"
+            );
+        }
+        for op in &named {
+            assert_eq!(
+                classify(op),
+                OpClass::Allowed,
+                "the paragraph names `{op}`, which the gate refuses"
+            );
+        }
+    }
+
+    /// E2E-M1: a `mount` whose virtual view cannot land is refused by the gate at its step, in
+    /// the words of the `mount` op ([`azul_layout::e2e::check_mount_views`]) - not as a list
+    /// that never appears at run time - and a view that lands passes, the ops after it
+    /// addressing the host by the class the page gave it.
+    #[test]
+    fn e2e_m1_the_gate_refuses_a_mount_whose_virtual_view_cannot_land() {
+        let s = parse_schema(&root()).unwrap();
+        let scenario = |views: &str| {
+            format!(
+                r##"{{"name":"x","steps":[
+                    {{"op":"mount","collapse_whitespace":true,"html":["<div class=\"list\"></div>"],
+                      "css":[".list {{ width:300px; height:200px; overflow:auto; }}"],
+                      "virtual_views":{views}}},
+                    {{"op":"wait_frame"}},
+                    {{"op":"snapshot_frame","as":"before"}},
+                    {{"op":"scroll_node_by","selector":".list","delta_x":0,"delta_y":240}},
+                    {{"op":"wait_frame"}},
+                    {{"op":"assert_changed","vs":"before"}}]}}"##
+            )
+        };
+        let view = |selector: &str, rows: &str, row_html: &str| {
+            format!(
+                r##"[{{"selector":"{selector}","rows":{rows},"row_height":24,"row_html":{row_html}}}]"##
+            )
+        };
+        let row = r##"["<div class=\"label\">Row {n}</div>"]"##;
+
+        validate(&s, &scenario(&view(".list", "5000", row)))
+            .unwrap_or_else(|e| panic!("a view that lands is refused: {e}"));
+
+        refused(
+            &s,
+            &scenario(&view(".nothing", "5000", row)),
+            "virtual_views[0] ('.nothing'): the selector must match exactly one element",
+        );
+        refused(&s, &scenario(&view(".list", "0", row)), "rows is 0");
+        refused(
+            &s,
+            &scenario(&view(".list", "5000", r##"["<div>"]"##)),
+            "`row_html` is not valid markup",
+        );
+        // A field the view does not have is the engine's refusal, by name.
+        refused(
+            &s,
+            &scenario(
+                r##"[{"selector":".list","rows":5,"row_height":24,"row_html":["x"],"row_count":5}]"##,
+            ),
+            "row_count",
+        );
+        // The refusal names the step, as the other mount refusals do.
+        refused(&s, &scenario(&view(".nothing", "5000", row)), "step 0");
+    }
+
+    /// Batch 2 of the review (defects 1, 2, 3, 5, 6). The paragraph that said "a
+    /// control must be able to change a pixel" and left the model to work out how
+    /// produced five dead controls in 26 no-op scenarios; the `<img>` placeholder,
+    /// the growth template and the name example each cost scenarios of their own.
+    #[test]
+    fn the_prompt_measures_a_control_on_its_own_and_makes_it_visible() {
+        let p = flat_prompt();
+        for want in [
+            // Defect 1: measured on its own, and visible per property.
+            "MEASURE IT ON ITS OWN: right before the control's mutation call \
+             `reset_frame_counters` and take a fresh `snapshot_frame` (`ctl_before`), and \
+             assert the control against THAT snapshot",
+            "its `assert_changed` fails as a DEAD CONTROL",
+            "If you cannot, change the FIXTURE, not the property",
+            "background-color: the new colour differs from the old one",
+            "width / height: a FIXED-size painted box",
+            "border-width: `border-style: solid`",
+            "padding / margin: a painted child",
+            "display:none / visibility:hidden: the node must PAINT something itself",
+            // Batch 3, Defect 3: the exact shape, not "wrap it in a frame".
+            "overflow: build exactly this shape. A window-sized frame",
+            "holds the node under test at a SMALLER fixed size",
+            "so `overflow: visible` shows the child hanging out of the box",
+            "position (static -> absolute): a painted sibling FOLLOWS the node",
+            "justify-content / align-items / flex-direction / flex-grow: at least TWO painted \
+             flex items",
+            "\"pending\": \"control cannot be made visible: <why>\"",
+            // Batch 3, Defect 4: move the override before giving up.
+            "NO node of ANY fixture you can build shows",
+            "Before you give up, move the override to the node that CAN show the property",
+            // Defect 2: an `<img>` paints nothing.
+            "its placeholder raster is transparent: an `<img>` paints NOTHING until it has a \
+             `background-color` or you call `set_node_image` on it",
+            "A page whose only content is an `<img>` renders blank white",
+            // Defect 3: a control ADDS, and the families are called apart.
+            "the control must ADD to what the baseline holds",
+            "Mount the baseline's nodes PLUS one new node whose text uses a font stack the \
+             baseline never used",
+            "A LEAK TEST HAS TWO SAMPLES AND BOTH READ THE SAME COUNTERS",
+            "A fixture with no text and no image has nothing to leak",
+            // Defect 5: a control that only MOVES boxes reads present damage.
+            "and on `assert_changed` (a control that only MOVES boxes is `assert_changed \
+             {\"vs\": \"ctl_before\", \"which\": \"present\"}`)",
+            // Defect 6: the name has a form, and one example that does not lean on a family.
+            "of the form <behaviour>_<property>_<fixture>",
+            "mouse_move_converges_image_flex_row",
+        ] {
+            assert!(p.contains(want), "the prompt lost `{want}`");
+        }
+        for gone in [
+            // the paragraph and the claims the batch proved wrong
+            "A control only counts if it can change a pixel",
+            "(with a placeholder raster)",
+            "a second `mount` (or `set_node_text`) whose text uses a font stack the first one did \
+             not",
+            "still write the `eq` assertion AND the `gt` control",
+            // the renderer-side counters move now (R8): no dead family to call apart
+            "(red there means the engine, not the harness)",
+            "write the `eq` assertion and the `gt` control as separate calls",
+            "noop_width_image_flex_row",
+            // assert_resource_counts judges every counter now (note B)
+            "alphabetically",
+            "stops at the first failure",
+        ] {
+            assert!(!p.contains(gone), "the prompt still says `{gone}`");
+        }
+    }
+
+    /// The braces of every JSON example in the prompt came through `format!`.
+    #[test]
+    fn the_prompt_has_no_unescaped_braces_left() {
+        let p = flat_prompt();
+        assert!(
+            !p.contains("{{") && !p.contains("}}"),
+            "a doubled brace leaked"
+        );
+        for snippet in [
+            "{\"op\":\"assert_damage\",\"kind\":\"none\",\"frame\":\"last\"}",
+            "{\"min_layout_passes\": 1}",
+        ] {
+            assert!(p.contains(snippet), "missing the example {snippet}");
+        }
+    }
+
+    /// The recipes the prompt teaches are accepted by the gate that will check
+    /// the files written from them - a prompt whose own examples were refused
+    /// would be a lie.
+    #[test]
+    fn the_recipes_in_the_prompt_pass_the_gate() {
+        let s = parse_schema(&root()).unwrap();
+        let steps = [
+            // the SCROLLING paragraph's two examples (batch 3, Defect 1)
+            r#"{"op":"wheel","x":100,"y":100,"delta_x":0,"delta_y":-120}"#,
+            r#"{"op":"assert_scroll","selector":".list","y":120}"#,
+            r#"{"op":"assert_damage","kind":"none","frame":"last"}"#,
+            r#"{"op":"assert_damage","kind":"rects","max_area_ratio":0.5}"#,
+            r#"{"op":"assert_work_bounded","exact_layout_passes":0}"#,
+            r#"{"op":"assert_work_bounded","min_layout_passes":1}"#,
+            r#"{"op":"assert_damage_covers_changes","vs":"before","which":"present"}"#,
+            r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"eq","font_chain_cache":"eq","font_hash_to_families":"eq"}"#,
+            r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"gt"}"#,
+            r#"{"op":"assert_resource_counts","vs":"baseline","parsed_fonts":"gt","fonts":"gt"}"#,
+            r#"{"op":"add_image_to_cache","css_id":"pic","width":16,"height":16,"color":"red"}"#,
+            r#"{"op":"assert_resource_counts","vs":"baseline","images":"gt","image_key_map":"gt"}"#,
+            r#"{"op":"assert_idle_frames","frames":40,"step_ms":16}"#,
+            r#"{"op":"assert_idle_frames","frames":10,"vs":"before","threshold":2}"#,
+            r#"{"op":"tick_ms","ms":250}"#,
+        ];
+        let scenario = format!(
+            r##"{{"name":"x","pending":"a note the checker ignores","steps":[
+                {{"op":"mount","html":["<body><div id=\"box\" class=\"list\"></div></body>"]}},
+                {{"op":"wait_frame"}},{{"op":"wait","ms":100}},
+                {{"op":"reset_frame_counters"}},
+                {{"op":"snapshot_frame","as":"before"}},{{"op":"snapshot_resources","as":"baseline"}},
+                {{"op":"set_node_css_override","selector":"#box","property":"width","value":"9px"}},
+                {{"op":"focus_node","selector":"#box"}},{{"op":"mouse_move","selector":"#box"}},
+                {}]}}"##,
+            steps.join(",")
+        );
+        validate(&s, &scenario).unwrap_or_else(|e| panic!("{e}\n{scenario}"));
+    }
+
+    /// The worked example is part of the prompt, and the prompt says two resource
+    /// counters (the legacy font tables) never move: the example must not teach
+    /// the `0 == 0` leak test the first batch copied from it.
+    #[test]
+    fn the_worked_example_does_not_assert_the_counters_the_prompt_calls_inert() {
+        let ex: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root().join(EXAMPLE_JSON)).unwrap()).unwrap();
+        let inert = ["font_id_map", "font_families_map"];
+        let mut checked = 0;
+        for step in ex["steps"].as_array().unwrap() {
+            if step["op"] != "assert_resource_counts" {
+                continue;
+            }
+            checked += 1;
+            for key in step.as_object().unwrap().keys() {
+                assert!(
+                    !inert.contains(&key.as_str()),
+                    "the example asserts the inert counter `{key}`: {step}"
+                );
+            }
+        }
+        assert!(
+            checked > 0,
+            "the example no longer shows assert_resource_counts"
+        );
+    }
+
     /// `take_native_screenshot` can only ever fail here: it goes through an e2e
     /// host hook that NOTHING in the workspace installs. Offering it would
     /// generate tests that are red on arrival for a reason that says nothing
@@ -4071,6 +6618,7 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         E2eTestResult {
             name: name.to_string(),
             status: if failed == 0 { "pass" } else { "fail" }.to_string(),
+            skip_reason: None,
             duration_ms: 7,
             step_count: steps.len(),
             steps_passed: steps.len() - failed,
@@ -4204,6 +6752,85 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         );
     }
 
+    /// The pair test of the two markers `assert_changed` writes and the report
+    /// reads (one owner: `azul_layout::e2e`): the REAL producer - `assert_changed`
+    /// in a real headless run - and the REAL consumer - the facts and the review
+    /// prompt. A step the runner attributed itself is tagged with whose fault it
+    /// is; any other red step stays open.
+    #[test]
+    fn the_report_marks_what_the_runner_attributed_itself() {
+        let run = |tail: serde_json::Value| -> E2eTestResult {
+            let mut steps = vec![
+                serde_json::json!({ "op": "mount",
+                    "html": ["<body><div id=\"box\"></div></body>"],
+                    "css": ["html, body { margin: 0; }",
+                            "#box { width: 100px; height: 80px; background: #0000ff; }"] }),
+                serde_json::json!({ "op": "wait_frame" }),
+                serde_json::json!({ "op": "wait", "ms": 100 }),
+                serde_json::json!({ "op": "snapshot_frame", "as": "before" }),
+            ];
+            steps.extend(tail.as_array().unwrap().iter().cloned());
+            let test: E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "attributed",
+                "config": { "continue_on_failure": true },
+                "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+                "steps": steps,
+            }))
+            .unwrap();
+            azul_layout::e2e::run_e2e_test(&test)
+        };
+        // Nothing happens, nothing is repainted: the control is dead.
+        let dead = run(serde_json::json!([
+            { "op": "reset_frame_counters" },
+            { "op": "wait_frame" },
+            { "op": "assert_changed", "vs": "before" },
+        ]));
+        // The box is recoloured, then the damage is zeroed: the screen moved and
+        // nothing says so.
+        let stale = run(serde_json::json!([
+            { "op": "set_node_css_override", "selector": "#box",
+              "property": "background-color", "value": "#ff0000" },
+            { "op": "wait_frame" },
+            { "op": "reset_frame_counters" },
+            { "op": "assert_changed", "vs": "before" },
+        ]));
+
+        for (result, marker, who) in [
+            (dead, DEAD_CONTROL_MARKER, "BAD TEST"),
+            (stale, STALE_SCREEN_MARKER, "ENGINE"),
+        ] {
+            let facts = {
+                let mut b = sample_batch();
+                b.entries.truncate(1);
+                b.entries[0].run = Some(result);
+                render_facts(&b)
+            };
+            assert!(
+                facts.contains(marker),
+                "the runner's own words ({marker}) are in the facts: {facts}"
+            );
+            assert!(
+                facts.contains(&format!("**[{who}, attributed by the runner]**")),
+                "the step is tagged {who}: {facts}"
+            );
+        }
+
+        // A red step the runner said nothing about stays untagged.
+        assert_eq!(runner_attribution("assert_work_bounded: got 2"), None);
+
+        // The reviewer is told both markers, so it does not re-derive them.
+        let s = parse_schema(&root()).unwrap();
+        let p = build_review_prompt(
+            &sample_batch(),
+            "the generator prompt",
+            &policy_doc(&s),
+            &triage_doc(&s),
+        );
+        for marker in [STALE_SCREEN_MARKER, DEAD_CONTROL_MARKER] {
+            assert!(p.contains(marker), "the review prompt never names {marker}");
+        }
+    }
+
     #[test]
     fn a_green_batch_is_not_reported_as_a_good_batch() {
         let mut b = sample_batch();
@@ -4229,11 +6856,250 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     }
 
     #[test]
-    fn duplicate_scenario_names_are_reported_because_results_pair_by_name() {
+    fn duplicate_scenario_names_are_reported_with_the_rows_that_share_them() {
         let mut b = sample_batch();
-        b.entries[2].run = Some(result("good", vec![step(0, "click", None)]));
+        // Row 3 carries the name of row 1, whether or not its run came back.
+        b.entries[2].json = Some(
+            r#"{"name":"good","steps":[{"op":"scroll","dy":40},
+               {"op":"assert_changed","vs":"before"}]}"#
+                .to_string(),
+        );
         let f = render_facts(&b);
         assert!(f.contains("Duplicate scenario names"), "{f}");
+        assert!(f.contains("- `good`: rows #1, #3"), "{f}");
+
+        // ...and a batch with no clash says nothing.
+        assert!(!render_facts(&sample_batch()).contains("Duplicate scenario names"));
+
+        // The notice used to count only the entries that RECEIVED a run, so
+        // when the pairing lost one it could never fire.
+        b.entries[0].run = None;
+        let f = render_facts(&b);
+        assert!(f.contains("- `good`: rows #1, #3"), "{f}");
+    }
+
+    /// G1. Two scenarios of one name, two different outcomes: each file gets
+    /// ITS result. Pairing by name gave both the first one's - 38 passed/failed
+    /// in the header where the real tally was 5 and 45, and seven scenarios that
+    /// "did not run".
+    #[test]
+    fn results_are_paired_with_their_files_not_with_their_names() {
+        let entry = |line: &str, file: &str| ReviewEntry {
+            line: line.to_string(),
+            path: PathBuf::from(file),
+            json: Some(r#"{"name":"same","steps":[{"op":"assert_changed"}]}"#.to_string()),
+            gen_error: None,
+            run: None,
+        };
+        let mut b = sample_batch();
+        b.entries = vec![
+            entry("[a/one] passes", "/out/00001-a.json"),
+            entry("[a/two] fails", "/out/00002-b.json"),
+            entry("[a/three] passes too", "/out/00003-c.json"),
+        ];
+        // The tests came from the files in this order, results in the same order.
+        let owner = [0usize, 1, 2];
+        let results = vec![
+            result("same", vec![step(0, "assert_changed", None)]),
+            result(
+                "same",
+                vec![step(0, "assert_changed", Some("nothing repainted"))],
+            ),
+            result("same", vec![step(0, "assert_changed", None)]),
+        ];
+        pair_results(&mut b.entries, &owner, &results);
+
+        let status: Vec<&str> = b.entries.iter().map(|e| e.status().1).collect();
+        assert_eq!(status, ["pass", "FAIL", "pass"], "one result per FILE");
+        let f = render_facts(&b);
+        assert!(f.contains("**2 passed, 1 failed**"), "{f}");
+        assert!(!f.contains("NOT RUN"), "{f}");
+        assert!(f.contains("[a/two] fails"), "{f}");
+        // exactly one failure is attributed, to the file that failed
+        let failures = f.split("### Failures, attributed").nth(1).unwrap();
+        assert!(failures.contains("[a/two] fails"), "{f}");
+        assert!(!failures.contains("[a/one] passes"), "{f}");
+
+        // A file of several tests gives its entry the FIRST one's result, and a
+        // result without an owner is dropped, never misfiled.
+        let mut b2 = sample_batch();
+        b2.entries = vec![entry("[a/one] two tests", "/out/00001-a.json")];
+        pair_results(
+            &mut b2.entries,
+            &[0, 0, 7],
+            &[
+                result("same", vec![step(0, "assert_changed", None)]),
+                result("same", vec![step(0, "assert_changed", Some("late"))]),
+                result("same", vec![]),
+            ],
+        );
+        assert_eq!(b2.entries[0].status().1, "pass");
+    }
+
+    /// The prompt tells the model to park a line the ops cannot express with a
+    /// top-level "pending": a parked scenario ran no step, so it is neither a
+    /// pass nor a failure - and the reason it gives is the evidence of a missing op.
+    #[test]
+    fn a_pending_scenario_is_parked_not_failed() {
+        let mut b = sample_batch();
+        let mut parked = result("good", Vec::new());
+        parked.status = "pending".to_string();
+        parked.skip_reason = Some("needs a mountable VirtualView".to_string());
+        b.entries[0].run = Some(parked);
+        let f = render_facts(&b);
+
+        assert!(f.contains("**0 passed, 2 failed**"), "{f}");
+        assert!(
+            f.contains("1 parked (pending / skipped: no step ran)"),
+            "{f}"
+        );
+        assert!(f.contains("| PENDING |"), "{f}");
+        let failures = f
+            .split("### Failures, attributed")
+            .nth(1)
+            .unwrap()
+            .split("### Parked")
+            .next()
+            .unwrap();
+        assert!(
+            !failures.contains("clicking a button repaints only the button"),
+            "a parked scenario is not listed among the failures:\n{failures}"
+        );
+        let section = f
+            .split("### Parked (ran no step)")
+            .nth(1)
+            .expect("a parked section");
+        assert!(
+            section.contains("clicking a button repaints only the button"),
+            "{f}"
+        );
+        assert!(section.contains("needs a mountable VirtualView"), "{f}");
+    }
+
+    /// A scenario that loaded and got no result back is SAID in the header,
+    /// never folded into "failed" or hidden.
+    #[test]
+    fn a_scenario_with_no_result_is_reported_as_not_run() {
+        let mut b = sample_batch();
+        b.entries[0].run = None;
+        let f = render_facts(&b);
+        assert!(f.contains("**1 NOT RUN**"), "{f}");
+        assert!(f.contains("| not run |"), "{f}");
+    }
+
+    /// G6. The first red step is the cause; the later ones ran on what it left.
+    #[test]
+    fn every_red_step_of_a_scenario_is_listed_and_only_the_first_is_the_cause() {
+        let mut b = sample_batch();
+        b.entries[2].run = Some(result(
+            "engine",
+            vec![
+                step(1, "assert_changed", Some("no damage after scroll")),
+                step(2, "assert_damage", Some("wrong paint damage kind")),
+                step(5, "assert_idle_stable", Some("2400 px differ")),
+            ],
+        ));
+        let f = render_facts(&b);
+        assert!(
+            f.contains("step 1 `assert_changed`: no damage after scroll"),
+            "{f}"
+        );
+        assert!(
+            f.contains("step 2 `assert_damage` (also red; may follow from the first): wrong"),
+            "{f}"
+        );
+        assert!(f.contains("step 5 `assert_idle_stable` (also red"), "{f}");
+        assert!(
+            f.contains("every red step of a scenario is reported"),
+            "{f}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // D10: a name of its own
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_scenario_name_is_made_unique_by_the_source_hash() {
+        let json = r#"{
+  "name": "noop_css_override_no_layout",
+  "description": "d",
+  "steps": [
+    {"op":"mount","html":["<body></body>"],"name":"inner"},
+    {"op":"assert_exists","selector":"body"}
+  ],
+  "tail": {"name": "also inner"}
+}"#;
+        let a = with_unique_name(json, "fd18fff35c2bf740");
+        assert!(
+            a.contains(r#""name": "noop_css_override_no_layout_fd18fff3""#),
+            "{a}"
+        );
+        // only the top-level name changed, and the layout survived byte for byte
+        assert_eq!(
+            a.replace("_fd18fff3", ""),
+            json,
+            "nothing but the suffix was spliced in"
+        );
+        assert!(a.contains(r#""name":"inner""#) && a.contains(r#""name": "also inner""#));
+
+        // two lines, one model name -> two names
+        let b = with_unique_name(json, "0123456789abcdef");
+        assert!(b.contains("noop_css_override_no_layout_01234567"), "{b}");
+        assert_ne!(a, b);
+
+        // idempotent, so re-stamping an artifact does not grow its name
+        assert_eq!(with_unique_name(&a, "fd18fff35c2bf740"), a);
+        // a short hash is used whole
+        assert!(with_unique_name(json, "abc").contains("no_layout_abc\""));
+        // no top-level string name -> left alone (the gate rejects it)
+        let nameless = r#"{"steps":[{"op":"x","name":"inner"}]}"#;
+        assert_eq!(with_unique_name(nameless, "fd18fff35c2bf740"), nameless);
+        let numeric = r#"{"name": 5, "steps": []}"#;
+        assert_eq!(with_unique_name(numeric, "fd18fff35c2bf740"), numeric);
+        // an escaped quote in the name does not end it early
+        let quoted = r#"{"name": "a\"b", "steps": []}"#;
+        assert_eq!(
+            with_unique_name(quoted, "fd18fff35c2bf740"),
+            r#"{"name": "a\"b_fd18fff3", "steps": []}"#
+        );
+    }
+
+    #[test]
+    fn the_artifact_that_is_written_has_a_unique_name_and_still_passes_the_gate() {
+        let s = parse_schema(&root()).unwrap();
+        let reply = r##"{"name":"noop_width","description":"d",
+            "steps":[{"op":"mount","html":["<body><div id=\"a\"></div></body>"]},
+                     {"op":"wait_frame"},{"op":"snapshot_frame","as":"b"},
+                     {"op":"set_node_css_override","selector":"#a","property":"width","value":"9px"},
+                     {"op":"wait_frame"},{"op":"assert_changed","vs":"b"}]}"##;
+        let w = parse_corpus("[a/one] first\n[a/two] second\n", Path::new("/out"));
+        let (first, second) = (artifact_text(reply, &w[0]), artifact_text(reply, &w[1]));
+        validate(&s, &first).expect("the artifact passes the gate");
+        validate(&s, &second).expect("the artifact passes the gate");
+
+        let name_of = |t: &str| {
+            serde_json::from_str::<serde_json::Value>(t).unwrap()["name"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_ne!(
+            name_of(&first),
+            name_of(&second),
+            "one model name, two lines"
+        );
+        assert_eq!(name_of(&first), format!("noop_width_{}", &w[0].hash[..8]));
+        // the hash stamp is still the first key, and the artifact is still recognised
+        assert!(first.starts_with("{\n  \"_source_hash\""), "{first}");
+        let dir = std::env::temp_dir().join(format!("gene2e-unique-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("00001-x.json");
+        fs::write(&path, &first).unwrap();
+        let a = read_artifact(&s, &path);
+        assert_eq!(a.hash.as_deref(), Some(w[0].hash.as_str()));
+        assert!(a.valid);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

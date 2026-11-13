@@ -18,7 +18,7 @@ use azul_layout::{
     font::parsed::ParsedFont,
     parsed_font_to_font_ref,
     text3::cache::{
-        create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
+        create_logical_items, perform_fragment_layout, split_into_bidi_runs, shape_bidi_runs,
         AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
         LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
         UnifiedConstraints, UnifiedLayout,
@@ -91,12 +91,12 @@ fn layout_content(
         };
     }
     let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
-    let visual = reorder_logical_items(&logical, base_direction, UnicodeBidi::Normal, &mut None)
+    let visual = split_into_bidi_runs(&logical, base_direction, UnicodeBidi::Normal, &mut None)
         .expect("bidi reorder must succeed");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
     let shaped =
-        shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shaping must succeed");
+        shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shaping must succeed");
     let mut cursor = BreakCursor::new(&shaped);
     perform_fragment_layout(&mut cursor, &logical, constraints, &mut None, &loaded)
         .expect("fragment layout must succeed")

@@ -1,0 +1,39 @@
+[package]
+name = "azul-search"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The one fast search the Azlin apps share (AzDrive's search box, AzCode's
+    find in files), built on ripgrep's own libraries: a folder and every
+    folder below it walked in parallel (`ignore`: .gitignore / .ignore files,
+    hidden files, include / exclude globs), names matched as a part of the
+    name, a shell glob or a regular expression (case-insensitive by default,
+    smart case on request), contents searched line by line (`grep-searcher`
+    with `grep-regex`: a literal or a regular expression, line and column,
+    context lines, binary files and files over a size limit passed over).
+    Names first, then contents; the results stream to a callback through a
+    bounded channel, a result limit ends the search, a cancel flag stops it
+    within milliseconds. Blocking and plain Rust (no azul types): the apps
+    run it on an azul `Thread`.
+"""
+publish = false
+
+[dependencies]
+# ripgrep's walker: parallel, .gitignore-aware, with ripgrep's glob overrides (already in the
+# tree at 0.4.33 through azul-doc).
+ignore = "0.4.33"
+# The name globs (`*.pdf`, `src/**/*.rs`); already in the tree at 0.4.20 through `ignore`.
+globset = "0.4.20"
+# ripgrep's line-oriented searcher (binary detection, context lines, heap limit, BOM sniffing),
+# its regex matcher (literals, regexes, smart case, whole words) and the trait between them.
+# NEW in the tree: grep-searcher pulls encoding_rs_io and memmap2 (encoding_rs, bstr, memchr and
+# log are there already).
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+grep-matcher = "0.1.9"
+
+[lib]
+name = "azul_search"
+path = "src/lib.rs"

@@ -1,0 +1,26 @@
+{
+  "name": "one file of 1,000 keeps failing: it is named on every pass and after a restart, the 999 others go up",
+  "description": "DEGOO-005 (sync-chaos res-one-file-keeps-failing): Degoo's uploader skipped a failed file with a vanishing toast and no log. Rules E6 and O1: the file is listed with its key on every pass until it goes up, it survives a restart of the app, the others are not held back, and once the fault is gone it goes up and the problem clears.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "backup", "count": 999, "size": 64, "text_prefix": "item" },
+    { "op": "drive_write", "device": "a", "path": "backup-big/stuck.bin", "text": "the one that keeps failing" },
+    { "op": "drive_fault", "remote": "r", "fail_files": ["backup-big/stuck.bin"] },
+    { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+    { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+    { "op": "drive_check", "check": "remote_count", "glob": "backup/*", "count": 999 },
+    { "op": "drive_check", "check": "remote_file", "key": "backup-big/stuck.bin", "absent": true },
+    { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "backup-big/stuck.bin", "when": "last" },
+    { "op": "drive_restart", "device": "a" },
+    { "op": "drive_problems", "device": "a" },
+    { "op": "assert_response", "path": "result.problems", "contains": "backup-big/stuck.bin" },
+    { "op": "drive_fault", "remote": "r", "clear": true },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "remote_file", "key": "backup-big/stuck.bin", "text": "the one that keeps failing" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "backup-big/stuck.bin", "absent": true, "when": "last" },
+    { "op": "drive_cleanup" }
+  ]
+}

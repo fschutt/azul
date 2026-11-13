@@ -68,6 +68,6 @@
     { "op": "wait", "ms": 100 },
     { "op": "assert_idle_stable", "vs": "after" },
 
-    { "op": "assert_resource_counts", "vs": "baseline", "images": "eq", "fonts": "le" }
+    { "op": "assert_resource_counts", "vs": "baseline", "parsed_fonts": "eq", "font_chain_cache": "eq" }
   ]
 }

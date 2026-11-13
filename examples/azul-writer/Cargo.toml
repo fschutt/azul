@@ -5,18 +5,24 @@ edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzWriter — a print-layout document editor demo in the classic
-    office-suite look: title band (quick-access toolbar), ribbon,
-    paginated white-sheet canvas with a 3-page VirtualView window,
-    streaming background pagination, status bar with live page counts,
-    markdown open/save, structural undo/redo through the engine's
-    document-edit changesets, and PDF export via the paged pipeline.
+    AzWriter - a Word-style document editor on the public azul API: the S1
+    DocumentShell (title row, ribbon or backstage, A4 pages, status bar),
+    azul's shared rich-text editor (RichTextEditor + RichTextDoc: formats,
+    headings, lists, check items, quotes, code, tables, alignment, page
+    breaks, one undo history) with one editing host per page from the
+    engine's pagination, Word import, PDF export. Every document is a
+    Markdown file writer/<uuid>.md in the user's data folder, written
+    through azul-storage's Drive from an azul Thread (azul-appkit's file
+    jobs); settings, About and shortcuts are azul-appkit's.
 """
 publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
-pulldown-cmark = { version = "0.9", default-features = false }
+# The skeleton the Azlin apps share: args, data root, settings, About, file jobs on a Thread.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The seed of the ids that name files (azul_storage::ids::random_seed).
+azul-storage = { path = "../azul-storage" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 docx-parser = { git = "https://github.com/yukiyokotani/office-open-xml-viewer", rev = "c1983b7174ccefabd2ed80527813ea8c80782af3" }
@@ -38,9 +44,6 @@ crate-type = ["rlib", "cdylib"]
 [[bin]]
 name = "AzWriter"
 path = "src/main.rs"
-
-[dev-dependencies]
-flate2 = "1"
 
 [features]
 telemetry = ["azul/telemetry"]

@@ -7,7 +7,10 @@
 // These simulate realistic scenarios: HTML-like state transitions.
 
 use azul_core::{
-    diff::{reconcile_dom_with_changes, ChangeAccumulator, ExtendedDiffResult, NodeChangeSet},
+    diff::{
+        reconcile_dom_with_changes, ChangeAccumulator, ExtendedDiffResult, NodeChangeSet,
+        NodeIdentityConfig,
+    },
     dom::{DomId, NodeData},
     geom::LogicalRect,
     id::NodeId,
@@ -51,6 +54,7 @@ fn reconcile_dom_with_changes_flat(
         new_layout,
         dom_id,
         timestamp,
+        NodeIdentityConfig::default(),
     )
 }
 

@@ -110,3 +110,66 @@ fn inset_arithmetic_clamps_at_zero() {
     assert_eq!(r.size.height, 0.0, "60 - 44 - 34 < 0 clamps to zero");
     assert_eq!(r.size.width, 50.0);
 }
+
+/// The page background still covers the WHOLE surface.
+///
+/// CSS 2.2 §14.2: the root's background is the CANVAS's, and the canvas
+/// lies under everything the window shows - the safe area insets where the
+/// root is LAID OUT, not what is painted around it (a browser with
+/// `viewport-fit=auto` still paints the page colour under the notch and the
+/// home indicator). The canvas rect was the inset viewport's SIZE at the
+/// window's ORIGIN: shifted up by the top inset and short by both. Seen on
+/// macOS, where a `NoTitle` window reports its 28pt titlebar as an inset: the
+/// bottom 28pt showed the bare window through the body's margins.
+#[test]
+fn the_canvas_background_covers_the_whole_surface() {
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    let (css, _) = azul_css::parser2::new_from_str(
+        "body { margin: 8px; height: 100px; background-color: #ff0000; }",
+    );
+    let mut dom = Dom::create_body();
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();
+    layout_window.safe_area_insets = phone_insets();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(1280.0, 800.0);
+    let mut debug_messages = Some(Vec::new());
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut debug_messages,
+        )
+        .unwrap();
+
+    let lr = layout_window
+        .layout_results
+        .get(&DomId::ROOT_ID)
+        .expect("root layout");
+    let canvas = lr
+        .display_list
+        .items
+        .iter()
+        .find_map(|item| match item {
+            DisplayListItem::Rect { bounds, color, .. }
+                if color.r == 255 && color.g == 0 && color.b == 0 =>
+            {
+                Some(bounds.0)
+            }
+            _ => None,
+        })
+        .expect("the body's background is painted");
+    assert_eq!(
+        (
+            canvas.origin.x,
+            canvas.origin.y,
+            canvas.size.width,
+            canvas.size.height
+        ),
+        (0.0, 0.0, 1280.0, 800.0),
+        "the canvas background covers the whole 1280x800 surface, insets included"
+    );
+}

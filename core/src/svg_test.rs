@@ -1320,3 +1320,22 @@ mod contains_point_tests {
         let _ = SvgVector { x: 0.0, y: 0.0 };
     }
 }
+
+// NaN and infinity are not SVG numbers: a transform argument spelled so is
+// dropped like any other junk, so `scale(NaN)` is no transform rather than
+// one that maps every point of the shape to NaN.
+mod transform_number_tests {
+    use crate::svg::{parse_svg_transform, SvgAffine};
+
+    #[test]
+    fn a_transform_argument_that_is_not_a_finite_number_is_dropped() {
+        assert_eq!(parse_svg_transform("scale(NaN)"), SvgAffine::IDENTITY);
+        assert_eq!(parse_svg_transform("scale(inf, 2)").d, 2.0);
+        assert_eq!(
+            parse_svg_transform("translate(10 inf)"),
+            SvgAffine::translate(10.0, 0.0)
+        );
+        assert_eq!(parse_svg_transform("rotate(1e400)"), SvgAffine::IDENTITY);
+        assert_eq!(parse_svg_transform("scale(2)").a, 2.0, "a number is still a number");
+    }
+}

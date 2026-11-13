@@ -8,7 +8,7 @@ fn test_system_style_discovery_selection_colors() {
     let style = SystemStyle::detect();
 
     println!("\n=== SystemStyle Discovery Test ===");
-    println!("Theme: {:?}", style.theme);
+    println!("Mode: {:?}", style.mode);
     println!("Platform: {:?}", style.platform);
     println!("OS Version: {:?}", style.os_version);
 

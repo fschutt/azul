@@ -1,0 +1,34 @@
+{
+  "name": "op_get_accessibility_tree",
+  "description": "THE ACCESSIBILITY TREE, as a screen reader holds it. `get_accessibility_tree` answers the tree the engine last published to the platform adapter: every node with its role, name, description, value, language, states, bounds, children and parent, and the focus. It is what scripts/a11y_e2e.py walks forwards and backwards, and what it checks every interactive node for a role and a translated name. BEAT 1 - a page with a heading, a named icon button and a text button: the tree names them (the declared name wins over the glyph inside the button) and the root is the window. BEAT 2 - nothing is focused, so the published focus is the window root (id 0).",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <h1 id=\"title\">Inbox</h1>",
+        "  <button id=\"search\" aria-label=\"Search\">S</button>",
+        "  <button id=\"save\">Save</button>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { display: flex; flex-direction: column; font-family: \"Azul Mock Mono\"; font-size: 16px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+
+    { "op": "get_accessibility_tree" },
+    { "op": "assert_response", "contains": "\"role\":\"Window\"" },
+    { "op": "assert_response", "contains": "\"name\":\"Search\"" },
+    { "op": "assert_response", "contains": "\"name\":\"Save\"" },
+    { "op": "assert_response", "contains": "\"role\":\"Heading\"" },
+    { "op": "assert_response", "contains": "\"focus\":0" }
+  ]
+}

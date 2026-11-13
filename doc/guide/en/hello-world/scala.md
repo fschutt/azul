@@ -183,6 +183,47 @@ Button.create("Increase").withOnClick(data, onClick)
 The code above uses the `(_, _)` syntax so that the example compiles for both Scala 2 
 and Scala 3 users.
 
+## Missing values and errors in callbacks
+
+Scala uses the Java classes, with Scala's own optional on top: a parameter of an 
+optional type takes the value or `null` (`opt.orNull`), and a field getter or a 
+return value gives a `java.util.Optional` that `.toScala` (from 
+`scala.jdk.OptionConverters._`) turns into an `Option`, so a for-comprehension 
+reads the whole chain. A failed call throws; an exception thrown inside a callback 
+is logged and the callback does nothing.
+
+A folder picker:
+
+```scala
+import scala.jdk.OptionConverters._
+
+def onChooseFolder(model: Model, info: CallbackInfo): Update = {
+  FileDialog.openDirectory("Choose a folder", null, model, onPickFolder(_, _, _))
+  Update.DoNothing
+}
+
+def onPickFolder(model: Model, info: CallbackInfo, result: RefAny): Update = {
+  val path = for {
+    picked <- FileOpenResult.downcast(result).toScala
+    path <- picked.getPath.toScala
+  } yield path
+  path match {
+    case Some(p) =>
+      model.folder = p.getInner
+      Update.RefreshDom
+    case None => Update.DoNothing // not a folder pick, or cancelled
+  }
+}
+
+def onOpenLink(model: Model, info: CallbackInfo): Update = {
+  val url = Url.parse(model.link) // an Err throws: logged, the callback does nothing
+  Update.RefreshDom
+}
+```
+
+Before, the picker had no `FileDialog` class to call and the path came back as a 
+raw `AzOptionFilePath.ByValue`.
+
 ## Build and run
 
 Each release ships with an example `build.sbt`, so you can use it directly as your 

@@ -34,6 +34,7 @@ rust-fontconfig
 agg-rust-azul
 allsorts-azul
 micromail
+rustls-rustcrypto-azul
 gilrs-azul
 gilrs-core-azul
 libudev-sys-azul

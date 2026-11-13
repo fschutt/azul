@@ -91,7 +91,7 @@ impl AppResources {
             "[AppResources] System style detected: platform={:?}, theme={:?}, ui_font={:?}, \
              accent={:?}",
             system_style.platform,
-            system_style.theme,
+            system_style.mode,
             system_style.fonts.ui_font,
             system_style.colors.accent
         );

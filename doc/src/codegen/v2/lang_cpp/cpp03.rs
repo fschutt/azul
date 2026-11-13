@@ -214,6 +214,8 @@ impl CppDialect for Cpp03Generator {
             c_type_name, c_type_name
         ));
 
+        code.push_str(&generate_field_accessor_decls(struct_def, ir, config, self.standard()));
+
         // Type-specific methods
         if is_vec_type(struct_def) {
             self.generate_vec_methods(code, struct_def, config);
@@ -397,6 +399,8 @@ impl CppDialect for Cpp03Generator {
             }
             code.push_str("}\r\n\r\n");
         }
+
+        code.push_str(&generate_field_accessor_impls(struct_def, ir, config, self.standard()));
     }
 
     fn generate_destructor(

@@ -1,0 +1,60 @@
+[
+  {
+    "name": "the store dies after 40 requests in the middle of 100 uploads: the index never names a missing blob, the rest is retried",
+    "description": "INFOMANIAK-003 (Infomaniak): a power module cut the data centre's power briefly and servers restarted. Rules V1, A7 and E5: blobs first, then the index by compare-and-swap, so a store that dies mid-upload leaves an index whose every entry is stored; the client retries the rest; every file reads back identical. sync-chaos srv-node-lost-during-upload (its real node kill is a dc scenario).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "photos", "count": 100, "size": 65536, "seed": 361 },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 40 },
+      { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "photos/*", "count": 100 },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "photos/*", "count": 100 },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the connection drops after the blobs are stored and before the commit: nothing half committed, the next pass commits once",
+    "description": "INFOMANIAK-003 (Infomaniak): an outage between upload and commit. Rules A7 and E5: the index is written only after its blobs; a lost commit is retried; blobs already up are not sent again.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "scans", "count": 20, "size": 65536, "seed": 362 },
+      { "op": "drive_sync", "device": "a", "pause_at": "after-blob" },
+      { "op": "drive_fault", "device": "a", "partition": true },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "scans/*", "count": 20 },
+      { "op": "drive_check", "check": "remote_consistent", "remote": "r" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a storage node hard-killed mid-upload and restarted",
+    "description": "INFOMANIAK-003 (Infomaniak): the server's own durability across a power cut (rule V1) is iso's; sync-chaos srv-node-lost-during-upload runs it against the stack.",
+    "not_applicable": "killing a storage node is the server stack's (iso, rule V1, dc scenario srv-node-lost-during-upload); AzDrive's stand-in remote is a folder, the client half is the two tests above",
+    "steps": []
+  }
+]

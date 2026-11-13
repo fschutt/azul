@@ -1,0 +1,79 @@
+[
+  {
+    "name": "FILEN-013: a folder whose name holds ':' syncs under its own name, is flagged for Windows, and is never renamed",
+    "description": "FILEN-013 (Filen): a macOS name 'photos 2020:2021' was rewritten to 'photos 2020-2021', taken for another folder, and its contents were never backed up while sync said done. Rules P4, P5 (valid here, listed for the system that cannot hold it), O1.",
+    "only_on": ["macos", "linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "photos 2020:2021/one.jpg", "text": "one" },
+      { "op": "drive_write", "device": "a", "path": "photos 2020:2021/two.jpg", "text": "two" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "photos 2020:2021/one.jpg", "text": "one" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "photos 2020:2021/two.jpg", "text": "two" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "photos 2020-2021*", "count": 0 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "photos 2020:2021/one.jpg", "text": "one" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "portability", "key": "photos 2020:2021*" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-013: names ending in a dot or a space arrive under their own names, flagged for Windows, without a loop",
+    "description": "FILEN-013 (Filen): Windows strips trailing dots and spaces, so the item re-downloaded and re-uploaded every cycle. Rules P3, P5, O1.",
+    "only_on": ["macos", "linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "report.", "text": "dot", "writer": "linux-pc" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "notes ", "text": "space", "writer": "linux-pc" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "fine.txt", "text": "fine", "writer": "linux-pc" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "report.", "text": "dot" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "notes ", "text": "space" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "fine.txt", "text": "fine" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "portability", "key": "report." },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "portability", "key": "notes " },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 3 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-013: on Windows, names ending in a dot or a space stay on the drive and are listed; nothing loops",
+    "description": "FILEN-013 (Filen): the on-disk name differed from the recorded one and looped. Rules P3, P5 (on that system it stays on the drive and is listed), O1.",
+    "only_on": ["windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "report.", "text": "dot", "writer": "linux-pc" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "notes ", "text": "space", "writer": "linux-pc" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "fine.txt", "text": "fine", "writer": "linux-pc" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "fine.txt", "text": "fine" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "invalid-here", "key": "report." },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "invalid-here", "key": "notes " },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 3 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

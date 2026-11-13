@@ -1,0 +1,29 @@
+{
+  "name": "a drive that needs a newer client stops this one loudly, every pass, and it changes nothing",
+  "description": "DEGOO-013 (sync-chaos delete-newer-format-readonly): Degoo discontinued its desktop client and backups silently stopped. Rules A7, D6 and O1: when the drive names a format feature this version does not know, the device changes nothing on the drive or here and lists update-needed on every pass instead of going quiet.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "one.txt", "text": "one" },
+    { "op": "drive_write", "device": "a", "path": "two.txt", "text": "two" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_tamper", "remote": "r", "action": "features", "features": ["client-v2-required"] },
+    { "op": "drive_write", "device": "b", "path": "new.txt", "text": "written on the old client" },
+    { "op": "drive_rm", "device": "b", "path": "two.txt" },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "b", "code": "update-needed", "when": "last" },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "b", "code": "update-needed", "when": "last" },
+    { "op": "drive_check", "check": "remote_count", "count": 2 },
+    { "op": "drive_check", "check": "remote_file", "key": "two.txt", "text": "two" },
+    { "op": "drive_check", "check": "remote_file", "key": "new.txt", "absent": true },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "new.txt", "text": "written on the old client" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "one.txt", "text": "one" },
+    { "op": "drive_cleanup" }
+  ]
+}

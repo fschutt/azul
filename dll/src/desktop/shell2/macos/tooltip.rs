@@ -1,58 +1,47 @@
-//! macOS tooltip implementation using NSPanel.
+//! macOS tooltip: a borderless panel with a wrapping text field.
 //!
-//! This module provides a native macOS tooltip system using NSPanel
-//! with NSTextField for displaying tooltip text. The tooltip follows
-//! the macOS style guidelines with proper shadow and appearance.
+//! AppKit's own tooltips (`NSView.toolTip`, `addToolTipRect:owner:userData:`) are
+//! shown only by AppKit's hover tracking, after its own delay, for rects registered
+//! in advance; there is no "show this tooltip now, for this box". Azul's tooltips
+//! are shown by the engine - the title hover delay, `show_tooltip_at`, the
+//! accessibility action - and its nodes are not views, so the tooltip is this panel.
+//! AppKit still does the measuring: the text field wraps the text at the tooltip
+//! width and reports the size it needs. The panel is then placed by the rule every
+//! floating surface follows (`azul_layout::placement`): below its anchor, above it
+//! where there is no room, inside the work area of the screen the anchor is on.
 //!
-//! Architecture:
-//! - TooltipWindow: Wrapper around NSPanel and NSTextField
-//! - Lifecycle: Create once, show/hide as needed
-//! - Positioning: Uses NSWindow setFrameTopLeftPoint for absolute positioning
-//!
-//! Used by `macos/mod.rs` for hover tooltip display via lazy initialization.
+//! Used by `macos/mod.rs`, created on the first tooltip.
 
-use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
-use objc2::{msg_send_id, rc::Retained, runtime::ProtocolObject, sel};
+use azul_core::geom::{LogicalRect, LogicalSize};
+use azul_layout::placement::{
+    floating_frame, screen_for_anchor, tooltip_text_width, FloatingPlacement, WindowToScreen,
+};
+use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSBorderlessWindowMask, NSColor, NSPanel, NSTextField, NSUtilityWindowMask, NSView, NSWindow,
+    NSBorderlessWindowMask, NSColor, NSFont, NSPanel, NSTextField, NSUtilityWindowMask,
     NSWindowStyleMask,
 };
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
-/// Approximate width per character in points (rough heuristic)
-const POINTS_PER_CHAR: f64 = 7.0;
-/// Horizontal padding added to text width
-const TEXT_PADDING_H: f64 = 10.0;
-/// Minimum tooltip width in points
-const TOOLTIP_MIN_WIDTH: f64 = 50.0;
-/// Maximum tooltip width in points
-const TOOLTIP_MAX_WIDTH: f64 = 400.0;
-/// Tooltip height in points
-const TOOLTIP_HEIGHT: f64 = 25.0;
-/// Text field horizontal inset from panel edge
-const TEXT_FIELD_INSET_X: f64 = 5.0;
-/// Text field vertical inset from panel edge
-const TEXT_FIELD_INSET_Y: f64 = 2.0;
-/// Fallback screen height when no main screen is available
-const FALLBACK_SCREEN_HEIGHT: f64 = 1080.0;
+/// Space between the panel's left and right edges and the text, in points.
+const TEXT_INSET_X: f64 = 5.0;
+/// Space between the panel's top and bottom edges and the text, in points.
+const TEXT_INSET_Y: f64 = 3.0;
+/// How tall the text may grow when no screen is known, in points.
+const FALLBACK_MAX_TEXT_HEIGHT: f64 = 600.0;
 
 /// Wrapper for a macOS tooltip panel
 pub(super) struct TooltipWindow {
     /// Tooltip panel (borderless utility window)
     panel: Retained<NSPanel>,
-    /// Text field for displaying tooltip text
+    /// The wrapping label showing the text; it also measures it
     text_field: Retained<NSTextField>,
-    /// Main thread marker for AppKit operations
-    mtm: MainThreadMarker,
     /// Is tooltip currently visible
     is_visible: bool,
 }
 
 impl TooltipWindow {
-    /// Create a new tooltip window
-    ///
-    /// Creates an NSPanel with NSTextField for tooltip display.
-    /// The panel is initially hidden and can be shown with `show()`.
+    /// Create the tooltip panel, hidden until [`Self::show`].
     pub(super) fn new(mtm: MainThreadMarker) -> Result<Self, String> {
         unsafe {
             // Create panel with utility window style and no title bar
@@ -72,6 +61,10 @@ impl TooltipWindow {
             panel.setOpaque(false);
             panel.setHasShadow(true);
             panel.setLevel(objc2_app_kit::NSPopUpMenuWindowLevel);
+            // A tooltip never takes the pointer: under it, the window below
+            // would hear the pointer leave the control the tooltip explains,
+            // hide it, and show it again as the pointer comes back - a flicker.
+            panel.setIgnoresMouseEvents(true);
 
             // Set background color to tooltip yellow
             let bg_color = NSColor::colorWithRed_green_blue_alpha(
@@ -82,21 +75,14 @@ impl TooltipWindow {
             );
             panel.setBackgroundColor(Some(&bg_color));
 
-            // Create text field for tooltip text
-            let text_field = NSTextField::initWithFrame(
-                mtm.alloc(),
-                NSRect::new(NSPoint::new(5.0, 5.0), NSSize::new(190.0, 20.0)),
-            );
-            text_field.setBezeled(false);
+            // A label that wraps its text at its width, in the system's
+            // tooltip font.
+            let text_field = NSTextField::wrappingLabelWithString(&NSString::from_str(""), mtm);
             text_field.setDrawsBackground(false);
-            text_field.setEditable(false);
             text_field.setSelectable(false);
+            text_field.setTextColor(Some(&NSColor::blackColor()));
+            text_field.setFont(Some(&NSFont::toolTipsFontOfSize(0.0)));
 
-            // Set text color to black
-            let text_color = NSColor::blackColor();
-            text_field.setTextColor(Some(&text_color));
-
-            // Add text field to panel's content view
             if let Some(content_view) = panel.contentView() {
                 content_view.addSubview(&text_field);
             }
@@ -104,77 +90,92 @@ impl TooltipWindow {
             Ok(Self {
                 panel,
                 text_field,
-                mtm,
                 is_visible: false,
             })
         }
     }
 
-    /// Show tooltip with text at the given position
-    ///
-    /// If tooltip is already visible, updates text and position.
-    /// Position is in GLOBAL screen points with a TOP-LEFT origin (y-down,
-    /// anchored to the primary screen's top edge) — the caller
-    /// (`MacOSWindow::show_tooltip`) converts from window-local coordinates.
+    /// Show the tooltip with `text` for `anchor`, the box it explains in the
+    /// logical coordinates of the window that `window` maps onto the screen. If
+    /// the tooltip is already visible, its text and place are updated.
     pub(super) fn show(
         &mut self,
         text: &str,
-        position: LogicalPosition,
-        _dpi_factor: DpiScaleFactor,
+        anchor: LogicalRect,
+        window: WindowToScreen,
     ) -> Result<(), String> {
-        // Convert text to NSString
-        let ns_text = NSString::from_str(text);
-        unsafe { self.text_field.setStringValue(&ns_text) };
+        let screens = window.screens(&crate::desktop::display::desktop_screens());
+        let screen = screen_for_anchor(anchor, &screens);
+        // One point per logical px: the text field's points are the window's px.
+        let size = self.measure(text, screen);
+        let placement = FloatingPlacement::tooltip(anchor);
+        let frame = match screen {
+            Some(work_area) => floating_frame(&placement, size, work_area),
+            None => LogicalRect::new(placement.preferred_origin(size), size),
+        };
+        // The frame on the screen, in global top-down points.
+        let frame = window.rect(frame);
+        let (width, height) = (f64::from(frame.size.width), f64::from(frame.size.height));
 
-        // Calculate text size for proper panel sizing
-        // Rough heuristic: POINTS_PER_CHAR points per character
-        let text_width = text.chars().count() as f64 * POINTS_PER_CHAR + TEXT_PADDING_H;
-        let text_width = text_width.min(TOOLTIP_MAX_WIDTH).max(TOOLTIP_MIN_WIDTH);
-
-        // Update panel and text field sizes
-        let panel_frame = NSRect::new(
-            NSPoint::new(0.0, 0.0),
-            NSSize::new(text_width, TOOLTIP_HEIGHT),
-        );
-        unsafe { self.panel.setFrame_display(panel_frame, false) };
-
-        let text_field_frame = NSRect::new(
-            NSPoint::new(TEXT_FIELD_INSET_X, TEXT_FIELD_INSET_Y),
-            NSSize::new(
-                text_width - TEXT_FIELD_INSET_X * 2.0,
-                TOOLTIP_HEIGHT - TEXT_FIELD_INSET_Y * 2.0,
-            ),
-        );
-        unsafe { self.text_field.setFrame(text_field_frame) };
-
-        // Get the PRIMARY screen height for Y-axis flipping. Global window
-        // coordinates are anchored to the bottom-left of the PRIMARY screen
-        // (NSScreen.screens[0] — MWA-B9); mainScreen() is the screen of the
-        // KEY window, which is a different screen on multi-monitor setups and
-        // put the tooltip at the wrong height there.
-        let screen_height = unsafe {
-            objc2_app_kit::NSScreen::screens(self.mtm)
-                .iter()
-                .next()
-                .map(|s| s.frame().size.height)
+        // The text fills the panel less its insets; the panel's content view
+        // is bottom-up, so the bottom inset is the y origin.
+        unsafe {
+            self.text_field.setFrame(NSRect::new(
+                NSPoint::new(TEXT_INSET_X, TEXT_INSET_Y),
+                NSSize::new(
+                    (width - 2.0 * TEXT_INSET_X).max(1.0),
+                    (height - 2.0 * TEXT_INSET_Y).max(1.0),
+                ),
+            ));
         }
-        .unwrap_or(FALLBACK_SCREEN_HEIGHT);
 
-        // Use logical coordinates directly — macOS AppKit works in points, not pixels
-        let screen_x = position.x as f64;
-        let screen_y = screen_height - position.y as f64 - TOOLTIP_HEIGHT;
-
-        // Set panel position (top-left point)
+        // AppKit takes the frame's bottom-left in bottom-up coordinates,
+        // anchored at the bottom of the PRIMARY screen (NSScreen.screens[0]).
+        let primary_height = super::primary_screen_height().unwrap_or(0.0);
+        let bottom_left = NSPoint::new(
+            f64::from(frame.origin.x),
+            primary_height - f64::from(frame.origin.y) - height,
+        );
         unsafe {
             self.panel
-                .setFrameTopLeftPoint(NSPoint::new(screen_x, screen_y + TOOLTIP_HEIGHT));
-
-            // Show panel
+                .setFrame_display(NSRect::new(bottom_left, NSSize::new(width, height)), true);
             self.panel.orderFront(None);
         }
         self.is_visible = true;
 
         Ok(())
+    }
+
+    /// The panel size `text` needs, measured by the text field: as wide as its
+    /// longest line up to the tooltip width (less on a narrow screen), as tall
+    /// as its lines wrapped at that width (at most the screen's height).
+    #[allow(clippy::cast_possible_truncation)] // a tooltip's size in points
+    fn measure(&self, text: &str, screen: Option<LogicalRect>) -> LogicalSize {
+        unsafe { self.text_field.setStringValue(&NSString::from_str(text)) };
+        let screen_width = screen.map_or(f32::INFINITY, |s| s.size.width);
+        let max_width = f64::from(tooltip_text_width(screen_width, TEXT_INSET_X as f32));
+        let max_height = screen.map_or(FALLBACK_MAX_TEXT_HEIGHT, |s| {
+            (f64::from(s.size.height) - 2.0 * TEXT_INSET_Y).max(1.0)
+        });
+        let (text_width, text_height) = match unsafe { self.text_field.cell() } {
+            Some(cell) => {
+                // The text on one line, then wrapped at the width it may take.
+                let natural = unsafe { cell.cellSize() };
+                let width = natural.width.min(max_width).ceil();
+                let wrapped = unsafe {
+                    cell.cellSizeForBounds(NSRect::new(
+                        NSPoint::new(0.0, 0.0),
+                        NSSize::new(width, max_height),
+                    ))
+                };
+                (width, wrapped.height.min(max_height).ceil())
+            }
+            None => (max_width, 16.0),
+        };
+        LogicalSize::new(
+            (text_width + 2.0 * TEXT_INSET_X) as f32,
+            (text_height + 2.0 * TEXT_INSET_Y) as f32,
+        )
     }
 
     /// Hide the tooltip

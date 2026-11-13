@@ -20,6 +20,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -195,6 +196,15 @@ fn repr_to_underlying(repr: Option<&str>) -> &'static str {
 // Tagged union -> defcenum + per-variant defcstruct + defcunion
 // =============================================================================
 
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant).
+fn emit_variant_padding(builder: &mut CodeBuilder, padding: usize) {
+    if padding > 0 {
+        builder.line(&format!("(pad0 :uint8 :count {})", padding));
+    }
+}
+
 fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let lisp_name = to_kebab_case(&e.name);
     let tag_name = format!("{}-tag", lisp_name);
@@ -245,11 +255,13 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     // consumes the tag keyword anyway). The `defcenum` above is still
     // emitted for documentation / potential manual use.
     let tag_slot_ty = enum_underlying_type(e);
+    let payload = union_payload_layout(&e.name, ir);
     for v in &e.variants {
         let variant_struct = format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
         builder.line(&format!("(defcstruct {}", variant_struct));
         builder.indent();
         builder.line(&format!("(tag {})", tag_slot_ty));
+        emit_variant_padding(builder, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
         match &v.kind {
             EnumVariantKind::Unit => {
                 // No payload.
@@ -420,11 +432,13 @@ fn emit_monomorphized_alias(
             // the `*-tag` defcenum) so CFFI never validates it while
             // translating a by-value struct that overlaps this union.
             let tag_slot_ty = underlying;
+            let payload = union_payload_layout(&ta.name, ir);
             for v in variants {
                 let variant_struct = format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
                 builder.line(&format!("(defcstruct {}", variant_struct));
                 builder.indent();
                 builder.line(&format!("(tag {})", tag_slot_ty));
+                emit_variant_padding(builder, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
                 if let Some(ref payload_ty) = v.payload_type {
                     let cffi_ty = ref_kind_field_type(payload_ty, &v.payload_ref_kind, ir);
                     builder.line(&format!("(payload {})", cffi_ty));

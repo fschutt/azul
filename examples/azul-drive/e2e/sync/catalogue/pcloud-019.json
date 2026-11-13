@@ -1,0 +1,30 @@
+{
+  "name": "names with multi-byte characters up to the byte limit sync; one byte over is listed, never skipped silently",
+  "description": "PCLOUD-019 (pCloud): multi-byte names past a byte-based limit were rejected or not shown. Rules P3/P5/O1 (sync-chaos port-long-names): the longest valid name syncs; a 256-byte name is listed (bad-remote-name) and stays on the drive, never cut short.",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文.txt", "text": "253 bytes of CJK" },
+    { "op": "drive_write", "device": "a", "path": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀.txt", "text": "252 bytes of emoji" },
+    { "op": "drive_write", "device": "a", "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.txt", "text": "255 bytes" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_problems", "device": "a" },
+    { "op": "assert_response", "path": "result.problems", "len": 0 },
+    { "op": "drive_tamper", "remote": "r", "action": "put", "key": "文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文.txt", "text": "256 bytes of CJK" },
+    { "op": "drive_tamper", "remote": "r", "action": "put", "key": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀.txt", "text": "256 bytes of emoji" },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文.txt", "text": "253 bytes of CJK" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀.txt", "text": "252 bytes of emoji" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.txt", "text": "255 bytes" },
+    { "op": "drive_check", "check": "problem", "device": "b", "code": "bad-remote-name", "key": "文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文文.txt" },
+    { "op": "drive_check", "check": "problem", "device": "b", "code": "bad-remote-name", "key": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀.txt" },
+    { "op": "drive_check", "check": "files_count", "device": "b", "count": 3 },
+    { "op": "drive_check", "check": "remote_count", "count": 5 },
+    { "op": "drive_cleanup" }
+  ]
+}

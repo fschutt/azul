@@ -7,7 +7,7 @@ audience: external
 maturity: wip
 guide_order: 100
 topic_only: false
-short_desc: Transitions, @keyframes, and the enter/exit animation properties
+short_desc: Transitions, moves, @keyframes, and the enter/exit animation properties
 prerequisites: [hello-world, events]
 tracked_files:
   - css/src/props/basic/animation.rs
@@ -35,11 +35,16 @@ Three properties drive everything the engine animates:
 
 | Property | Runs when | Names |
 | --- | --- | --- |
-| `animation` | a property's computed value changes between DOM rebuilds | `all`, or the property to scope to |
+| `animation` | a property's computed value changes between DOM rebuilds, or the node's place does | `all`, the property to scope to, or `move` |
 | `-azul-animation-in` | the node mounts | a `@keyframes` block or an attached function |
 | `-azul-animation-out` | the node unmounts | a `@keyframes` block or an attached function |
 
 There is no `transition` property. `animation` is where that job lives.
+
+**Every animation is opt-in.** A node that declares nothing changes, moves,
+appears and disappears in the frame the rebuild happens - no transition, no
+slide, no fade. The engine never animates a node on its own initiative; a
+widget library or your stylesheet decides.
 
 ## The shorthand
 
@@ -76,6 +81,43 @@ value rather than stacking a second run — rapid A→B→C stays smooth. A
 transition on a paint-only property (colour, opacity, transform) patches the
 display list; one on `width` or `font-size` re-runs layout per frame.
 
+## Moves
+
+When a rebuild puts a node somewhere else - a row sorted to another place, a
+card pushed down by one inserted above it, a panel that grew - the node is
+laid out at its new place at once. To make it SLIDE there, declare a `move`
+entry in its `animation` list:
+
+```css
+.card { animation: move 250ms spring; }
+.row  { animation: background-color 150ms ease-out, move 200ms ease-in-out; }
+```
+
+The engine then draws the node at its old place and moves it to the new one
+(a FLIP: First, Last, Invert, Play), as a transform - layout is already
+final, only the painting travels. Like every entry of `animation`, the
+`move` entry is read off the **old** cascade. A spring timing runs as that
+spring (it settles on physics, so a move interrupted by the next rebuild
+bends toward the new place with its velocity); any other timing runs its
+curve over the duration.
+
+- `all` does not include `move`: `animation: all 150ms` transitions property
+  changes and leaves the node's place alone. Name `move` to slide.
+- Rebuilds of the window's ENVIRONMENT never slide: a resize, a light/dark
+  switch, an app-theme change reflow in place. Only a rebuild the app asked
+  for (`Update::RefreshDom`) moves declared nodes.
+- A node is matched to "itself" in the previous frame by
+  [reconciliation](dom/reconciliation.md): its key or id, a distinct subtree
+  that moved, or its place. Identical siblings (empty cells, placeholder
+  tiles) are matched by place, so they never trade places with each other.
+- A child moving with a sliding parent is not slid twice: the offset is
+  published relative to the sliding frame it is painted in.
+
+Before 2026-10, every matched node whose place changed slid on every
+`RefreshDom` without declaring anything. That made spreadsheets slide their
+cells when a selection changed, map tiles spring after a pan and sidebars
+animate on unrelated rebuilds; moves are opt-in like enters and exits now.
+
 ## Presence: enter and exit
 
 `-azul-animation-in` and `-azul-animation-out` animate a node's arrival and
@@ -96,7 +138,12 @@ remounts mid-flight, and per-frame native animation functions are
 [Zombie Animations](animations/zombie-animations.md).
 
 `infinite` on an enter track is how a spinner is expressed; on an exit it is
-clamped to one run.
+clamped to one run. An entering node is drawn from its track's first frame
+in the frame it mounts - it never flashes its resting state first.
+
+All three kinds of motion are opt-in and independent: a node can declare a
+transition, a move, an enter and an exit, or any subset. Without a
+declaration a node simply is where the new tree puts it.
 
 ## `@keyframes`
 
@@ -122,7 +169,8 @@ share a name, the last definition wins.
 
 `ease` (the default), `linear`, `ease-in`, `ease-out`, `ease-in-out`,
 `cubic-bezier(x1, y1, x2, y2)`, and three springs: `spring`,
-`spring-gentle`, `spring-snappy`.
+`spring-gentle`, `spring-snappy`. A spring timing follows a real spring
+curve wherever it is used (transitions, keyframe tracks, moves).
 
 Springs settle on physics rather than on the clock — the declared duration is
 their retarget time base, not a stop watch. Reach for one when the animation
@@ -172,4 +220,5 @@ callback without touching layout or the display list.
 - [Timers](animations/timers.md): the timer mechanics the manual path builds
   on.
 - [Reconciliation](dom/reconciliation.md): the node identity that decides
-  what counts as a mount, an unmount, and a move.
+  what counts as a mount, an unmount, and a move - and why identical
+  siblings are matched by place.

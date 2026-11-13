@@ -331,17 +331,6 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-fn field(line: &str, name: &str) -> usize {
-    // "test result: ok. 3 passed; 1 failed; 0 xfailed; 0 xpassed; …"
-    line.split(';')
-        .find_map(|part| {
-            let part = part.trim().trim_start_matches("test result:").trim();
-            let (n, rest) = part.split_once(' ')?;
-            rest.trim().starts_with(name).then(|| n.parse().ok())?
-        })
-        .unwrap_or(0)
-}
-
 /// Parse the runner's report out of a device log, or `None` if it never ran.
 ///
 /// Absence is the normal case for an APK built without `azul/debug-server`:
@@ -377,11 +366,15 @@ pub fn parse_device_verdict(log: &str) -> Option<DeviceVerdict> {
         })
         .collect();
 
+    // The counts come back through the parser that pairs with the printer
+    // (`render_report`). The local one this replaced read "ok. 3 passed" as
+    // the number "ok." and so always reported 0 passed.
+    let counts = azul_layout::e2e::E2eVerdict::parse_summary(&summary).unwrap_or_default();
     Some(DeviceVerdict {
-        passed: field(&summary, "passed"),
-        failed: field(&summary, "failed"),
-        xfail: field(&summary, "xfailed"),
-        xpass: field(&summary, "xpassed"),
+        passed: counts.passed,
+        failed: counts.failed,
+        xfail: counts.xfail,
+        xpass: counts.xpass,
         summary,
         failures,
     })

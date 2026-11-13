@@ -1,0 +1,61 @@
+[
+  {
+    "name": "a file rewritten while its older version uploads, then the network dropped: the drive never gets a partial or older body over the new one",
+    "description": "PCLOUD-006 (pCloud): a partial, not fully synced copy overwrote the complete newer file (gaps of silence in audio files). Rules A6/E5/A7 (sync-chaos res-changed-while-uploading, res-partition-mid-transfer): a file that changed while read is not committed; the index never names a missing blob; the next pass sends the new version whole.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "song.wav", "fill": "1", "size": 300000 },
+      { "op": "drive_sync", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_overwrite_in_place", "device": "a", "path": "song.wav", "fill": "2", "size": 400000 },
+      { "op": "drive_fault", "device": "a", "partition": true },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_count", "count": 0 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "song.wav", "uniform": true, "same_as": "song.wav", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "song.wav", "size": 400000 },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "changed-during-sync", "key": "song.wav" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "song.wav", "same_as": "{root:a}/song.wav" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "song.wav", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "an edit saved while the previous version is still downloading on the other device is never replaced by the older one",
+    "description": "PCLOUD-006 (pCloud): files saved while out of sync were overwritten. Rules A5/C1: the target is re-checked before the rename; a local save made during a download wins or is kept as a conflict, never overwritten.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "song.wav", "fill": "1", "size": 300000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "song.wav", "fill": "2", "size": 300000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "pause_at": "before-rename" },
+      { "op": "drive_write", "device": "b", "path": "song.wav", "fill": "3", "size": 350000 },
+      { "op": "drive_cont", "device": "b" },
+      { "op": "drive_wait", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "song.wav", "size": 350000 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["conflict-held", "changed-during-sync"], "key": "song.wav" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "song.wav", "size": 350000 },
+      { "op": "drive_check", "check": "remote_file", "key": "song.wav", "same_as": "{root:a}/song.wav" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

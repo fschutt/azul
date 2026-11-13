@@ -1,0 +1,38 @@
+[package]
+name = "AzContacts"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzContacts - the address book of the Azlin apps (build ledger A4). Groups
+    in the navigation, a searchable list (initials avatars, sort by first or
+    last name, an A-Z jump bar), the contact card with an edit mode (names,
+    photo, several phones / emails / addresses with labels, birthday,
+    company, notes, custom fields), vCard 3.0 / 4.0 import and export, a
+    duplicates finder with merge. One .vcf FILE per contact under
+    contacts/<uuid>.vcf in the user's data folder, written on an azul Thread
+    through azul-storage (a LocalDrive today, the user's S3 bucket later).
+    Built on azul's S4 PimShell with the shared skeleton of azul-appkit.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The PIM logic the Azlin apps share: addresses, vCard content lines, search, initials (plain Rust).
+azul-pim = { path = "../azul-pim" }
+# The seed of the ids that name files (azul_storage::ids::random_seed).
+azul-storage = { path = "../azul-storage" }
+# The address book without azul types (vCard, the contact, the list, duplicates, CSV, the files),
+# shared with the Azlin Bridge's CardDAV.
+azul-contacts-core = { path = "../azul-contacts-core" }
+
+[lib]
+name = "azcontacts"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzContacts"
+path = "src/main.rs"

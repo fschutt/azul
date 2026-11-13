@@ -88,18 +88,15 @@ function main()
     data = my_data_upcast(model)
 
     layout_ptr = @cfunction(layout, Azul.AzDom, (Azul.AzRefAny, Azul.AzLayoutCallbackInfo))
-    window = Azul.AzWindowCreateOptions_create(layout_ptr)
-
-    ws = window.window_state
-    window = Azul.setfields(window;
-        window_state = Azul.setfields(ws;
-            title = Azul.az_string("Hello World"),
-            size = Azul.setfields(ws.size;
-                dimensions = Azul.setfields(ws.size.dimensions; width = 400.0f0, height = 300.0f0))))
-
+    window = Ref(Azul.AzWindowCreateOptions_create(layout_ptr))
     app = Ref(Azul.AzApp_create(data, Azul.AzAppConfig_create()))
-    GC.@preserve app begin
-        Azul.AzApp_run(vptr(app), window)
+    GC.@preserve window app begin
+        # `window_state_ptr` / `size_ptr` are views into `window`, so the
+        # writes land in it; `set_title!` releases the old title first.
+        ws = Azul.window_state_ptr(window)
+        Azul.set_title!(ws, "Hello World")
+        Azul.set_dimensions!(Azul.size_ptr(ws), Azul.AzLogicalSize(400.0f0, 300.0f0))
+        Azul.AzApp_run(vptr(app), window[])
     end
 end
 

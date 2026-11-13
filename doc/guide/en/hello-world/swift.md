@@ -107,6 +107,53 @@ directly. The framework handles type-erasure and downcasting behind the scenes.
 Enums use leading-dot syntax (`.primary`, `.refreshDom`) and Swift `String`s 
 converts natively.
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is a Swift optional: a parameter takes `nil`, a 
+field or a return value is a `T?`, and a failure is a thrown error. A callback 
+may `throw`: its error is logged and the callback does nothing, so `try` works 
+inside it the way `?` does in Rust.
+
+A folder picker. Before, the downcast was spelled `downcast_` and an error 
+inside a callback needed its own `do` / `catch`:
+
+```swift
+func onPickFolder(_ model: Model, _ info: CallbackInfo, _ result: RefAny) -> Update {
+    guard let picked = FileOpenResult.downcast_(result), let path = picked.path else {
+        return .doNothing
+    }
+    do {
+        model.link = try Url.parse(path.inner).toString()
+    } catch {
+        return .doNothing
+    }
+    return .refreshDom
+}
+```
+
+Now:
+
+```swift
+func onChooseFolder(_ model: Model, _ info: CallbackInfo) -> Update {
+    _ = FileDialog.openDirectory("Choose a folder", defaultPath: nil, data: model, onResult: onPickFolder)
+    return .doNothing
+}
+
+func onPickFolder(_ model: Model, _ info: CallbackInfo, _ result: RefAny) -> Update {
+    guard let path = FileOpenResult.downcast(result)?.path else {
+        return .doNothing // not a folder pick, or cancelled
+    }
+    model.folder = path.inner
+    return .refreshDom
+}
+
+func onOpenLink(_ model: Model, _ info: CallbackInfo) throws -> Update {
+    let url = try Url.parse(model.link) // an error is logged, the callback does nothing
+    model.link = url.toString()
+    return .refreshDom
+}
+```
+
 ## Build and run
 
 Compile the `Azul` module first, then compile your application against it. 

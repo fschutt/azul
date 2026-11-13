@@ -1,0 +1,37 @@
+[package]
+name = "AzPhoto"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzPhoto - the photo editor of the azul apps (Photoshop, Affinity Photo,
+    GIMP), on the S2 CanvasShell. Its own raster core sits behind the
+    `RasterEngine` trait (layers of 256x256 RGBA8 tiles with dirty-tile
+    tracking, blend modes and opacity composited on worker threads, a brush
+    engine with pressure, selection masks, non-destructive adjustment layers,
+    filters, transforms, crop, tile-snapshot undo), so Graphite can replace
+    or extend it later. The canvas is ONE image node updated by dirty rects.
+    Documents are files: photo/<uuid>/doc.json + layer tiles as PNG, written
+    through azul-storage's Drive (a LocalDrive now, S3 later).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The Drive trait and LocalDrive only (no S3 transport yet): no `azul` feature needed.
+azul-storage = { path = "../azul-storage" }
+# The app skeleton: switches, data root, settings, shortcuts, About, UndoHistory.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The same serde / serde_json the tree already has (azul-layout, AzCalendar, AzMail).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azphoto"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzPhoto"
+path = "src/main.rs"

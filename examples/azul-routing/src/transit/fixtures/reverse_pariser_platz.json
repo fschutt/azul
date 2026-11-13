@@ -1,0 +1,68 @@
+[
+ {
+  "type": "ADDRESS",
+  "name": "Pariser Platz 1",
+  "id": "",
+  "lat": 52.516432,
+  "lon": 13.3777563,
+  "country": "DE",
+  "areas": [
+   {
+    "name": "Deutschland",
+    "adminLevel": 2.0,
+    "default": false
+   },
+   {
+    "name": "Berlin",
+    "adminLevel": 4.0,
+    "default": true
+   },
+   {
+    "name": "Mitte",
+    "adminLevel": 9.0,
+    "default": false
+   },
+   {
+    "name": "Mitte",
+    "adminLevel": 10.0,
+    "default": false
+   }
+  ],
+  "street": "Pariser Platz",
+  "houseNumber": "1",
+  "zip": "10117"
+ },
+ {
+  "type": "ADDRESS",
+  "name": "Pariser Platz 1",
+  "id": "",
+  "lat": 52.516536,
+  "lon": 13.3777371,
+  "country": "DE",
+  "areas": [
+   {
+    "name": "Deutschland",
+    "adminLevel": 2.0,
+    "default": false
+   },
+   {
+    "name": "Berlin",
+    "adminLevel": 4.0,
+    "default": true
+   },
+   {
+    "name": "Mitte",
+    "adminLevel": 9.0,
+    "default": false
+   },
+   {
+    "name": "Mitte",
+    "adminLevel": 10.0,
+    "default": false
+   }
+  ],
+  "street": "Pariser Platz",
+  "houseNumber": "1",
+  "zip": "10117"
+ }
+]

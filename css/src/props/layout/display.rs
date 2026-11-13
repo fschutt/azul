@@ -55,6 +55,18 @@ pub enum LayoutDisplay {
 
     // display:contents - element generates no box, children promoted to parent
     Contents,
+
+    /// `display: inline list-item` (CSS Display 3 s2.4): an inline box that is
+    /// a list item. It steps its list's `list-item` counter and starts with
+    /// its `::marker`, a node the styled DOM generates for it. Appended last
+    /// for ABI stability.
+    InlineListItem,
+    /// `display: inline flow-root list-item` (CSS Display 3 s2.4): an
+    /// inline-block that is a list item. It sits in its line like an
+    /// inline-block, steps its list's `list-item` counter, and the block
+    /// inside it carries the `::marker` a block list item has. Appended last
+    /// for ABI stability.
+    InlineBlockListItem,
 }
 
 impl LayoutDisplay {
@@ -113,6 +125,8 @@ impl LayoutDisplay {
                 | Self::InlineFlex
                 | Self::InlineTable
                 | Self::InlineGrid
+                | Self::InlineListItem
+                | Self::InlineBlockListItem
         )
     }
 
@@ -128,7 +142,22 @@ impl LayoutDisplay {
     pub const fn is_atomic_inline(&self) -> bool {
         matches!(
             self,
-            Self::InlineBlock | Self::InlineFlex | Self::InlineTable | Self::InlineGrid
+            Self::InlineBlock
+                | Self::InlineFlex
+                | Self::InlineTable
+                | Self::InlineGrid
+                | Self::InlineBlockListItem
+        )
+    }
+
+    /// Returns true for a list item (CSS Display 3 §2.4: `list-item` among
+    /// the keywords): a box that steps the `list-item` counter and carries a
+    /// marker.
+    #[must_use]
+    pub const fn is_list_item(&self) -> bool {
+        matches!(
+            self,
+            Self::ListItem | Self::InlineListItem | Self::InlineBlockListItem
         )
     }
 }
@@ -161,6 +190,8 @@ impl PrintAsCssValue for LayoutDisplay {
             Self::Grid => "grid",
             Self::InlineGrid => "inline-grid",
             Self::Contents => "contents",
+            Self::InlineListItem => "inline list-item",
+            Self::InlineBlockListItem => "inline flow-root list-item",
         })
     }
 }
@@ -262,8 +293,53 @@ pub fn parse_layout_display(input: &str) -> Result<LayoutDisplay, LayoutDisplayP
         "inline-grid" => Ok(LayoutDisplay::InlineGrid),
         "flow-root" => Ok(LayoutDisplay::FlowRoot),
         "contents" => Ok(LayoutDisplay::Contents),
-        _ => Err(LayoutDisplayParseError::InvalidValue(input)),
+        _ => parse_multi_keyword_display(input)
+            .ok_or(LayoutDisplayParseError::InvalidValue(input)),
     }
+}
+
+/// A `display` of two or three keywords (CSS Display 3 s2): an outer display
+/// (`block`, `inline`, `run-in`), an inner one (`flow`, `flow-root`, `table`,
+/// `flex`, `grid`) and `list-item`, in any order, each at most once. The
+/// missing outer one is `block`, the missing inner one `flow`. `None` for a
+/// combination no variant stands for (a `table`, `flex` or `grid` list item).
+#[cfg(feature = "parser")]
+fn parse_multi_keyword_display(input: &str) -> Option<LayoutDisplay> {
+    let mut outer: Option<&str> = None;
+    let mut inner: Option<&str> = None;
+    let mut list_item = false;
+    for keyword in input.split_ascii_whitespace() {
+        match keyword {
+            "block" | "inline" | "run-in" if outer.is_none() => outer = Some(keyword),
+            "flow" | "flow-root" | "table" | "flex" | "grid" if inner.is_none() => {
+                inner = Some(keyword);
+            }
+            "list-item" if !list_item => list_item = true,
+            _ => return None,
+        }
+    }
+    if outer.is_none() && inner.is_none() && !list_item {
+        // A blank value names no display at all.
+        return None;
+    }
+    let inline = outer == Some("inline");
+    Some(match (outer.unwrap_or("block"), inner.unwrap_or("flow"), list_item) {
+        ("run-in", "flow", false) => LayoutDisplay::RunIn,
+        (_, "flow", true) if inline => LayoutDisplay::InlineListItem,
+        (_, "flow-root", true) if inline => LayoutDisplay::InlineBlockListItem,
+        ("block", "flow", true) => LayoutDisplay::ListItem,
+        ("block", "flow", false) => LayoutDisplay::Block,
+        ("block", "flow-root", false) => LayoutDisplay::FlowRoot,
+        ("block", "table", false) => LayoutDisplay::Table,
+        ("block", "flex", false) => LayoutDisplay::Flex,
+        ("block", "grid", false) => LayoutDisplay::Grid,
+        ("inline", "flow", false) => LayoutDisplay::Inline,
+        ("inline", "flow-root", false) => LayoutDisplay::InlineBlock,
+        ("inline", "table", false) => LayoutDisplay::InlineTable,
+        ("inline", "flex", false) => LayoutDisplay::InlineFlex,
+        ("inline", "grid", false) => LayoutDisplay::InlineGrid,
+        _ => return None,
+    })
 }
 
 #[cfg(feature = "parser")]
@@ -333,6 +409,12 @@ mod tests {
                                            // property/variant)
     fn test_parse_layout_display() {
         assert_eq!(parse_layout_display("block").unwrap(), LayoutDisplay::Block);
+        // The two-keyword forms of CSS Display 3 name the same displays.
+        assert_eq!(parse_layout_display("block flow").unwrap(), LayoutDisplay::Block);
+        assert_eq!(
+            parse_layout_display("inline flow-root").unwrap(),
+            LayoutDisplay::InlineBlock
+        );
         assert_eq!(
             parse_layout_display("inline").unwrap(),
             LayoutDisplay::Inline
@@ -434,7 +516,7 @@ mod autotest_generated {
 
     /// Every `LayoutDisplay` variant. Kept honest by [`display_variant_index`],
     /// whose exhaustive match stops compiling when a variant is added.
-    const ALL_DISPLAY: [LayoutDisplay; 23] = [
+    const ALL_DISPLAY: [LayoutDisplay; 25] = [
         LayoutDisplay::None,
         LayoutDisplay::Block,
         LayoutDisplay::Inline,
@@ -458,6 +540,8 @@ mod autotest_generated {
         LayoutDisplay::Grid,
         LayoutDisplay::InlineGrid,
         LayoutDisplay::Contents,
+        LayoutDisplay::InlineListItem,
+        LayoutDisplay::InlineBlockListItem,
     ];
 
     const ALL_FLOAT: [LayoutFloat; 3] = [LayoutFloat::Left, LayoutFloat::Right, LayoutFloat::None];
@@ -490,6 +574,8 @@ mod autotest_generated {
             LayoutDisplay::Grid => 20,
             LayoutDisplay::InlineGrid => 21,
             LayoutDisplay::Contents => 22,
+            LayoutDisplay::InlineListItem => 23,
+            LayoutDisplay::InlineBlockListItem => 24,
         }
     }
 
@@ -592,12 +678,14 @@ mod autotest_generated {
 
     #[test]
     fn is_inline_level_matches_an_exact_variant_set() {
-        const EXPECTED: [LayoutDisplay; 5] = [
+        const EXPECTED: [LayoutDisplay; 7] = [
             LayoutDisplay::Inline,
             LayoutDisplay::InlineBlock,
             LayoutDisplay::InlineFlex,
             LayoutDisplay::InlineTable,
             LayoutDisplay::InlineGrid,
+            LayoutDisplay::InlineListItem,
+            LayoutDisplay::InlineBlockListItem,
         ];
         for d in ALL_DISPLAY {
             assert_eq!(
@@ -618,11 +706,12 @@ mod autotest_generated {
         // Atomic inline-level boxes = inline-level minus the (non-atomic) `Inline`
         // box. Every atomic-inline is inline-level; `Inline` is inline-level but
         // NOT atomic.
-        const EXPECTED: [LayoutDisplay; 4] = [
+        const EXPECTED: [LayoutDisplay; 5] = [
             LayoutDisplay::InlineBlock,
             LayoutDisplay::InlineFlex,
             LayoutDisplay::InlineTable,
             LayoutDisplay::InlineGrid,
+            LayoutDisplay::InlineBlockListItem,
         ];
         for d in ALL_DISPLAY {
             assert_eq!(
@@ -766,8 +855,12 @@ mod autotest_generated {
             let printed = a.print_as_css_value();
             assert!(!printed.is_empty(), "{a:?} serializes to the empty string");
             assert_eq!(printed.trim(), printed, "{a:?} serializes with padding");
+            // An ident, or two separated by one space (`inline list-item`).
             assert!(
-                printed.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
+                printed
+                    .split(' ')
+                    .all(|word| !word.is_empty()
+                        && word.chars().all(|c| c.is_ascii_lowercase() || c == '-')),
                 "{a:?} serializes to a non-ident {printed:?}"
             );
             // A duplicate keyword would make the round-trip above lossy.
@@ -864,8 +957,6 @@ mod autotest_generated {
             "-inline-block",
             "inline-block-",
             "-webkit-box",
-            "block flow", // CSS Display 3 two-value syntax is not supported
-            "inline flow-root",
             "table-column-groups",
             "tablerow",
             "\0",

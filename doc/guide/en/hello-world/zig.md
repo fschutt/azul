@@ -118,6 +118,48 @@ The snippet above uses advanced Zig features to erase boilerplate:
    shims for your functions, letting you write perfectly typed callbacks with pure Zig 
    inputs and outputs. This way, you can return `.RefreshDom` or wrapper structs directly.
 
+## Missing values and errors in callbacks
+
+An optional parameter takes `null`, an optional (`?T`) or the value itself; an 
+optional return value or field is a `?T`, so `orelse return .DoNothing` ends a 
+callback when something is missing. A call that can fail returns an error union 
+(`error{UrlParseError}!Url`). A callback may return `!azul.Update`: `try` then ends 
+it on an error, which is logged, and the callback does nothing.
+
+A folder picker. Before, the downcast and the field were the raw C unions:
+
+```zig
+fn onPickFolder(model: ModelRef, _: azul.CallbackInfo, result: azul.C.AzRefAny) azul.Update {
+    const picked = azul.FileOpenResult.downcast(result); // a C.AzOptionFileOpenResult
+    if (picked.Some.tag != azul.C.AzOptionFileOpenResult_Tag_Some) return .DoNothing;
+    ...
+}
+```
+
+Now:
+
+```zig
+fn onChooseFolder(model: ModelRef, _: azul.CallbackInfo) azul.Update {
+    _ = azul.FileDialog.openDirectory("Choose a folder", null, model.clone(), onPickFolder);
+    return .DoNothing;
+}
+
+fn onPickFolder(model: ModelRef, _: azul.CallbackInfo, result: azul.C.AzRefAny) !azul.Update {
+    var picked = azul.FileOpenResult.downcast(result) orelse return .DoNothing;
+    defer picked.deinit();
+    var path = picked.getPath() orelse return .DoNothing; // cancelled
+    defer path.deinit();
+    model.get().folder = try path.getInner(std.heap.page_allocator);
+    return .RefreshDom;
+}
+
+fn onOpenLink(model: ModelRef, _: azul.CallbackInfo) !azul.Update {
+    var url = try azul.Url.parse(model.get().link); // an Err is logged, the callback does nothing
+    defer url.deinit();
+    return .RefreshDom;
+}
+```
+
 ## Build and run
 
 ```sh

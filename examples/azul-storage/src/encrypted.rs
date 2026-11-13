@@ -1,0 +1,3693 @@
+//! A drive whose bucket holds nothing but ciphertext under random names: [`EncryptedDrive`],
+//! a decorator over any [`Drive`] (the pattern of [`crate::ScopedDrive`]).
+//!
+//! - Every file version is one AZL1 object ([`crate::crypto::azl1`]) at a random key,
+//!   `data/<2 hex digits>/<32 hex digits>`. Writing a file writes a new object; nothing is
+//!   ever rewritten in place.
+//! - Names, paths, folders, sizes and dates live in a [`NameIndex`]: path -> [`IndexEntry`]
+//!   (the object, the plaintext size, the date, the BLAKE3 of the plaintext, the file key
+//!   wrapped with the drive key). The bucket's encrypted metadata git repository will
+//!   implement it; [`MemoryIndex`] keeps it in memory (the tests, a drive used for one
+//!   session).
+//! - Listing and `head` ask the index only. A read asks the index for the object and its
+//!   wrapped file key, then the bucket for the object: a whole file in one GET; a range in the
+//!   header and the tail (two small ranged GETs, cached per object: objects never change) and
+//!   one ranged GET of the segments that cover it.
+//! - Rename and copy change the index only; the ciphertext stays where it is. A copy names the
+//!   same object twice: objects are immutable, so a later write to either path makes a new
+//!   object and leaves the other path as it was. A delete or an overwrite removes an object
+//!   from the bucket once the index says nothing names it any more (the objects
+//!   [`NameIndex::apply`] releases; an index that keeps history releases none and leaves the
+//!   old objects to its own collector).
+//! - A write puts the object first - conditionally (`If-None-Match: *`) where the inner drive
+//!   can, a plain PUT where it cannot (the random id makes a collision a non-event) - and then
+//!   the index entry, as a compare-and-swap in the index: [`Drive::put_if`] works whatever the
+//!   inner drive supports. A crash between the two leaves an object nothing names (garbage for
+//!   a collector), never a name without its object; an index entry that lost its race takes
+//!   its object back out of the bucket.
+//! - [`EncryptedDrive::write_from`] streams: one segment of plaintext in memory, the object
+//!   put together in a spool (memory up to 8 MiB, then a temporary file of ciphertext only,
+//!   because the header is written last) and handed to the inner drive's `put_from`.
+//! - A local file ([`Drive::put_file`]) is encrypted once beside its bucket's resume state and
+//!   goes up as the bucket's resumable upload of that copy: a cut upload resumes at its next
+//!   part (`encrypted_upload`).
+//! - A drive that packs ([`EncryptedDrive::with_packing`]) puts small files into shared AZL1
+//!   objects instead, each file read back with one ranged GET ([`crate::packing`]).
+
+// panic = "abort" in every shipped profile, and this module reads bytes other people wrote: no
+// unwrap, expect, panic, todo or unreachable in its shipped code (ARCH28 RF50).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
+use std::{
+    cell::Cell,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    fmt,
+    fs::File,
+    io::{self, Cursor, Read, Seek, SeekFrom, Write},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    time::{Duration, Instant},
+};
+
+use crate::{
+    crypto::{
+        azl1::{self, Azl1Reader, FileHint, ObjectSource, ObjectSummary, OpenObject, WriteOptions},
+        device,
+        keys::load_key_chain,
+        CryptoError, DriveKey, FileKey, KeyId, ObjectId, ShareKey, WrappedKey,
+    },
+    ctl::Quiet,
+    key::{check_key, check_prefix},
+    keyring::KeyringStore,
+    limits::named,
+    meta::reclaim::{
+        ask_retired_delete, delete_released, drop_new_object_after, Gate, History, LiveObjects, Switch,
+        PurgeConfirmation, ReclaimMode, ReclaimReport, Released, Standing, DEFAULT_MODE,
+    },
+    ops::check_folder,
+    packing::{PackOptions, PackState, PackedAt},
+    same_etag,
+    scratch::{Scratch, ScratchFile},
+    time::now_unix,
+    trust::{EncState, Op, Via, Why},
+    ui_thread::NetworkLock,
+    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Ctl, Drive, DriveError, Limit,
+    ListPage, ListRequest, ObjectInfo, Precondition, DEFAULT_PAGE_SIZE, PARALLEL_FILES,
+};
+
+/// The object a file version's bytes are in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoredObject {
+    /// The file's own AZL1 object; for a packed file, this version's own id (its entity tag),
+    /// which names no object in the bucket.
+    pub id: ObjectId,
+    /// The object's bytes in the bucket: compressed and encrypted, what the quota counts. For a
+    /// packed file, its record's bytes in the pack (the quota counts the pack once).
+    pub stored_size: u64,
+    /// BLAKE3 of the plaintext.
+    pub blake3: [u8; 32],
+    /// The file key, wrapped with the drive key; for a packed file, the pack's.
+    pub wrapped_key: WrappedKey,
+    /// Whether a segment (for a packed file: its record) is compressed.
+    pub compressed: bool,
+    /// Where the bytes are when the file is packed with other small files; `None` for a file
+    /// with an object of its own.
+    pub packed: Option<PackedAt>,
+}
+
+impl StoredObject {
+    /// The bucket object that holds the bytes: the pack for a packed file, else the file's own
+    /// object. The file key is wrapped for it.
+    #[must_use]
+    pub fn bucket_object(&self) -> ObjectId {
+        self.packed.as_ref().map_or(self.id, |packed| packed.pack.id)
+    }
+}
+
+/// What the index keeps for one path.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexEntry {
+    /// The plaintext's bytes: the file's size before compression (the quota counts its
+    /// object's stored bytes instead); 0 for a folder marker.
+    pub size: u64,
+    /// Last modified, in seconds since 1970-01-01 UTC.
+    pub modified: Option<u64>,
+    /// The AZL1 object; `None` for a folder marker (a path ending in `/`).
+    pub object: Option<StoredObject>,
+}
+
+impl IndexEntry {
+    /// The id of the entry's object: the version the entity tag names (for a packed file not
+    /// a bucket object, see [`IndexEntry::bucket_object`]).
+    #[must_use]
+    pub fn object_id(&self) -> Option<ObjectId> {
+        self.object.as_ref().map(|object| object.id)
+    }
+
+    /// The bucket object that holds the entry's bytes ([`StoredObject::bucket_object`]).
+    #[must_use]
+    pub fn bucket_object(&self) -> Option<ObjectId> {
+        self.object.as_ref().map(StoredObject::bucket_object)
+    }
+}
+
+/// What an index change expects of its path before it applies.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Expect {
+    /// Whatever is there.
+    Any,
+    /// Nothing is there.
+    Absent,
+    /// Something is there.
+    Present,
+    /// The entry names this object (the version a writer read).
+    Object(ObjectId),
+}
+
+impl Expect {
+    /// Whether the expectation holds of `current`.
+    #[must_use]
+    pub fn holds(&self, current: Option<&IndexEntry>) -> bool {
+        match self {
+            Expect::Any => true,
+            Expect::Absent => current.is_none(),
+            Expect::Present => current.is_some(),
+            Expect::Object(id) => current.and_then(IndexEntry::object_id) == Some(*id),
+        }
+    }
+}
+
+/// One change of the index.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IndexChange {
+    /// `path` names `entry` from now on.
+    Put {
+        path: String,
+        entry: IndexEntry,
+        expect: Expect,
+    },
+    /// `path` names nothing from now on (nothing there is fine with [`Expect::Any`]).
+    Remove { path: String, expect: Expect },
+}
+
+impl IndexChange {
+    fn path(&self) -> &str {
+        match self {
+            IndexChange::Put { path, .. } | IndexChange::Remove { path, .. } => path,
+        }
+    }
+
+    fn expect(&self) -> &Expect {
+        match self {
+            IndexChange::Put { expect, .. } | IndexChange::Remove { expect, .. } => expect,
+        }
+    }
+}
+
+/// One page of an index listing: S3 semantics, the folders being common prefixes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IndexPage {
+    pub folders: Vec<String>,
+    pub entries: Vec<(String, IndexEntry)>,
+    /// Where the next page starts; `None` on the last page.
+    pub next: Option<String>,
+}
+
+/// Where an encrypted drive keeps its names: path -> entry. Every call blocks.
+pub trait NameIndex: Send + Sync {
+    /// The entry of `path`, if any.
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError>;
+
+    /// [`NameIndex::get`] that never answers from a copy: the drive is asked now, and an index
+    /// that cannot reach it says so (an error) instead of answering with what it last saw. What a
+    /// decision that deletes rests on. By default the same as `get` (an index in memory has no
+    /// other copy).
+    fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.get(path)
+    }
+
+    /// The data objects the drive's head and every state inside the retention window name, read
+    /// now and whole from the drive - never from a copy that answered because the drive could not
+    /// be reached: a failed read is an error and never a smaller set. `now` is the time of day the
+    /// window is judged by. `None` for an index that keeps no history: its head is everything
+    /// there is, and what it released it released for good ([`Released::delete_now`]). What a
+    /// delete of an object only the history could still name rests on.
+    ///
+    /// There is NO default that says "no history" (X-DELTA-SYNC4-5): an index that forwards its
+    /// calls to another and forgets this one - a caching or counting wrapper - would be taken for one
+    /// with no history, and the pack upkeep would judge by the head alone and delete what only the
+    /// history names, with the licence the gate gives such an index. By default the answer is
+    /// `Unsupported`: the upkeep stops, and nothing is deleted. An index in memory says `Ok(None)`
+    /// itself.
+    ///
+    /// # Errors
+    ///
+    /// The drive cannot be read, or the index does not say what its history names.
+    fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        let _ = now;
+        Err(DriveError::Unsupported(String::from(
+            "this index does not say what its history still names: nothing is deleted on its word",
+        )))
+    }
+
+    /// One page of the entries under `request.prefix` (S3 ListObjectsV2 semantics).
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError>;
+
+    /// Applies `changes` all together or not at all, in their order (a batch may remove a
+    /// path and put another, as a rename does): [`DriveError::Conflict`] naming the path whose
+    /// expectation did not hold, and nothing changed by this attempt. `Conflict` is the index's own
+    /// check of the expectations against the state it holds, and it does NOT say that nothing was
+    /// sent: an index that tries again (`MetaIndex`: a manifest swap that answered 409 may be the swap
+    /// itself, still under way, and the next attempt checks the expectations again against the
+    /// manifest it polls) answers `Conflict` for a change an earlier attempt of the same call may have
+    /// landed. A conditional write that was sent to a bucket and lost its race, or whose answer was
+    /// lost, is an unknown outcome (`Transport`, `Protocol`).
+    ///
+    /// What makes a `Conflict` safe for the caller to act on - to take the new data object back out
+    /// of the bucket (X-DELTA-SYNC7-1) - is what the caller does with it, not the error: it reads the
+    /// index FRESH first (`Staged::failed`, `commit_pack`) and takes the object back only when the entry
+    /// the path has now does not name it (a change that landed is named), and a `Conflict` after a
+    /// retry means the manifest has moved since the attempt before, where the expectations held - so
+    /// a swap still queued with the old version can never land (X-DELTA-SYNC8-1). The one cell that
+    /// leaves: the change landed and another device replaced the path before the retry polled; the
+    /// object the landed change names in the history is then taken back (X-DELTA-SYNC10-2: it needs
+    /// the first-and-only attempt typed, ARCH30-5). Returns what the change released
+    /// ([`Released`]): the objects no state of the drive names any more, for the drive to delete
+    /// from the bucket now; an index that keeps history returns those its history still names
+    /// instead, and the drive deletes nothing of them.
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError>;
+}
+
+/// Opens the persistent [`NameIndex`] of an encrypted drive: the bucket's encrypted metadata
+/// repository implements it (the metadata repository module); an app hands its provider to
+/// [`open_encrypted`]. Nothing in the apps uses a [`MemoryIndex`]: it forgets every name when
+/// the app closes, and the objects would stay in the bucket nameless.
+pub trait IndexProvider: Send + Sync {
+    /// The index of the drive `drive` (its id) whose bucket is `bucket`, its own objects sealed
+    /// with keys derived from `drive_key`.
+    fn open_index(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError>;
+
+    /// Seals the drive's index under `new` from now on, in place of `old` (a key rotation,
+    /// [`crate::rotation`]): the index's own objects re-sealed with keys derived from `new`, the
+    /// ones sealed with `old` deleted once nothing needs them. Its entries are not changed here
+    /// (the rotation re-wraps them first, through [`NameIndex::apply`]). An index that cannot
+    /// says `Unsupported`, and the rotation stops before it changes anything else.
+    fn rekey(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        old: &DriveKey,
+        new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        let _ = (drive, bucket, old, new);
+        Err(DriveError::Unsupported(String::from(
+            "this drive index cannot be sealed under a new drive key yet",
+        )))
+    }
+
+    /// [`IndexProvider::open_index`] in a key rotation's window, from `previous` (the drive
+    /// key before the rotation) to `drive_key`. Objects the index sealed under `previous`
+    /// still open, this device's copy above all, so a device that missed the rotation
+    /// catches up instead of reading its copy anew. What it seals from then on is sealed
+    /// under `drive_key`. By default `previous` is not used: an index without a sealed copy
+    /// of its own opens as usual.
+    fn open_index_in_window(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        previous: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        let _ = previous;
+        self.open_index(drive, bucket, drive_key)
+    }
+
+    /// How the drive `drive` packs small files ([`crate::packing`]), its journal beside the
+    /// index's copy; `None` (the default): one object per file.
+    fn packing(&self, drive: &str) -> Option<PackOptions> {
+        let _ = drive;
+        None
+    }
+
+    /// What the drive `drive`'s upkeep does with data objects only its history can still name
+    /// ([`ReclaimMode`]): by default what a release ships with, [`DEFAULT_MODE`] - it reports what
+    /// it would delete and deletes nothing.
+    fn reclaim_mode(&self, drive: &str) -> ReclaimMode {
+        let _ = drive;
+        DEFAULT_MODE
+    }
+
+    /// What the last judged shadow round of the drive `drive` came to ([`ReclaimStanding`]): the
+    /// evidence the upkeep of a drive configured to delete ([`IndexProvider::reclaim_mode`]) asks the
+    /// one gate with ([`crate::meta::reclaim::Standing`]). By default there is none, and such a drive
+    /// deletes nothing (X-DELTA-SYNC2-2: the upkeep deleted in the configured mode with no evidence
+    /// at all).
+    fn reclaim_standing(&self, drive: &str) -> Option<ReclaimStanding> {
+        let _ = drive;
+        None
+    }
+
+    /// Erases the old versions of the drive `drive` that the user confirmed (X-DELTA-SYNC6-3): after
+    /// a key change and a re-encryption the objects the old key still opens are the drive's history,
+    /// and only the confirmation a re-encryption pass recorded and its licence gave
+    /// ([`crate::rotation::ReencryptState::erase_licence`]) erases them. The provider that keeps
+    /// the history runs the purge (its own `purge`, which is not public: this method is the door); by
+    /// default there is none, and the answer is `Unsupported` - nothing was erased.
+    ///
+    /// # Errors
+    ///
+    /// `Unsupported` for a provider that keeps no history to erase; the drive's error otherwise.
+    fn purge_confirmed(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        confirmation: &PurgeConfirmation,
+    ) -> Result<ReclaimReport, DriveError> {
+        let _ = (drive, bucket, drive_key, confirmation);
+        Err(DriveError::Unsupported(String::from(
+            "this drive index keeps no history of old versions to erase",
+        )))
+    }
+}
+
+/// What the shadow rounds of a drive last showed at the time given, as the provider that runs them
+/// holds it ([`Standing`]: the evidence and when it was judged), or none: the input of the one question the
+/// upkeep asks before it deletes data only the history still names
+/// ([`crate::meta::reclaim::ask_retired_delete`]; [`EncryptedDrive::with_reclaim_standing`]). The
+/// gate - not the provider - decides: a standing is evidence, never a verdict.
+pub type ReclaimStanding = Arc<dyn Fn(u64) -> Option<Standing> + Send + Sync>;
+
+/// `error` with the drive it is about: a `KeyRefused` that names no drive (the metadata repository below an
+/// index sees objects, not drives - a key that does not open its manifest is that error, X-TESTEDGE-A-1) is
+/// `drive`'s; every other error is as it was.
+pub(crate) fn named(error: DriveError, drive: &str) -> DriveError {
+    match error {
+        DriveError::KeyRefused {
+            drive: none,
+            reason,
+        } if none.is_empty() => DriveError::KeyRefused {
+            drive: drive.to_string(),
+            reason,
+        },
+        other => other,
+    }
+}
+
+/// An index whose errors name the drive they are about ([`named`]): what an app that opens a drive through
+/// [`open_encrypted`] reads from a device that holds the key from before a key change - the key to ask for -
+/// says which drive it is.
+struct NamedIndex {
+    inner: Arc<dyn NameIndex>,
+    drive: String,
+}
+
+impl NamedIndex {
+    fn of(inner: Arc<dyn NameIndex>, drive: &str) -> Arc<dyn NameIndex> {
+        Arc::new(NamedIndex {
+            inner,
+            drive: drive.to_string(),
+        })
+    }
+}
+
+impl NameIndex for NamedIndex {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get(path).map_err(|e| named(e, &self.drive))
+    }
+
+    fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner
+            .get_fresh(path)
+            .map_err(|e| named(e, &self.drive))
+    }
+
+    fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        self.inner
+            .live_objects(now)
+            .map_err(|e| named(e, &self.drive))
+    }
+
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request).map_err(|e| named(e, &self.drive))
+    }
+
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        self.inner.apply(changes).map_err(|e| named(e, &self.drive))
+    }
+}
+
+/// A drive index that is read and never changed: the drive of a device whose own key change stopped between
+/// its R4 and its Members step is opened through it ([`own_rotation_window`]). Every change is refused with
+/// the sentence of the state, before the index could be asked to take it, so nothing is written under a key
+/// that is not the drive's yet - and the drive itself refuses every upload with the same sentence
+/// ([`EncryptedDrive::with_changes_refused`]), so no data object goes up for a change nobody takes: a
+/// `Denied` is no proof for the compensation of an object that is already up (X-DELTA-SYNC7-1).
+struct ReadOnlyIndex {
+    inner: Arc<dyn NameIndex>,
+    refusal: DriveError,
+}
+
+/// The sentence of a drive whose own key change is not finished: its files can be read, not changed.
+fn window_refusal(drive: &str) -> DriveError {
+    DriveError::Denied {
+        message: format!(
+            "the key change of \"{drive}\" that this device began is not finished: its files can be \
+             read here until it is, not changed (run \"I was hacked: new keys\" again to finish it)"
+        ),
+    }
+}
+
+impl NameIndex for ReadOnlyIndex {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get(path)
+    }
+
+    fn get_fresh(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.inner.get_fresh(path)
+    }
+
+    fn live_objects(&self, now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        self.inner.live_objects(now)
+    }
+
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        self.inner.list(request)
+    }
+
+    fn apply(&self, _changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        Err(self.refusal.clone())
+    }
+}
+
+/// The drive of a device whose own key change stopped between its R4 (the index sealed under the new key) and
+/// its Members step (the new key the drive key): the keyring's `drive-key` still opens nothing of the index, and
+/// the key the index is sealed under is the keyring's `drive-key-next`. The index opens with it in the rotation's
+/// window, `previous` (the drive key) as the key before it, READ-ONLY - [`ReadOnlyIndex`] - until the rotation
+/// resumes; `None` for a keyring that holds no such key or an index that opens with none (the first error stands:
+/// X-DELTA-KEYS3-8). The data was fine and the way out was "I was hacked" again, which needs the stopped step to
+/// succeed; the drive showed as unreadable on the only device that holds the key it is sealed under.
+fn own_rotation_window(
+    bucket: &Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    provider: &dyn IndexProvider,
+    previous: &DriveKey,
+) -> Option<EncryptedDrive<Arc<dyn Drive>>> {
+    let (_, next_entry) = device::rotation_key_entries(drive);
+    // A keyring that cannot be read, or holds no new key, is no window: the index's own error stands.
+    let next = device::load_key_at(keyring, &next_entry).ok().flatten()?;
+    if next == *previous {
+        // The same key: it failed already.
+        return None;
+    }
+    let index = provider
+        .open_index_in_window(drive, Arc::clone(bucket), &next, previous)
+        .ok()?;
+    let refusal = window_refusal(drive);
+    let index: Arc<dyn NameIndex> = Arc::new(ReadOnlyIndex {
+        inner: NamedIndex::of(index, drive),
+        refusal: refusal.clone(),
+    });
+    Some(EncryptedDrive::new(Arc::clone(bucket), next, index).with_changes_refused(refusal))
+}
+
+/// The encrypted drive `drive` over its bucket: the drive key from this device's keyring (else
+/// its member wrap in the bucket, [`crate::crypto::device::unlock`]), the index from
+/// `provider`. `Locked` when this device holds no key for the drive yet: it joins with a code
+/// from a device that does, or unlocks with the recovery code.
+///
+/// A device whose own key change stopped halfway still holds the key from before it, and the
+/// index does not open with that key. When its member wrap holds the key it pinned, the device
+/// catches up ([`device::catch_up`]): that key goes into the keyring, and the index opens in
+/// the rotation's window ([`IndexProvider::open_index_in_window`]), where the device's copy
+/// sealed under the old key still opens. A wrap of a key it never pinned is refused
+/// (`KeyRefused`). A key change of this device that stopped after the index was sealed under the new key
+/// and before the new key became the drive key leaves a drive key that opens nothing and no wrap to catch up
+/// from; the key the index is sealed under is the keyring's `drive-key-next`, and the drive opens with it,
+/// READ-ONLY, until the change is finished (X-DELTA-KEYS3-8). Its reads of packs count under `drive`
+/// ([`crate::packing::pack_reads`]).
+pub fn open_encrypted(
+    bucket: Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    provider: &dyn IndexProvider,
+) -> Result<EncryptedDrive<Arc<dyn Drive>>, DriveError> {
+    open_noting_the_window(bucket, keyring, drive, provider).map(|(opened, _in_the_window)| opened)
+}
+
+/// [`open_encrypted`], and whether the drive it opened is the rotation's read-only window
+/// ([`own_rotation_window`]): [`AutoEncrypted`] keeps the drive it opens and must know that this one is
+/// no drive to keep once the rotation is over (X-DELTA-KEYS4-3).
+fn open_noting_the_window(
+    bucket: Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    provider: &dyn IndexProvider,
+) -> Result<(EncryptedDrive<Arc<dyn Drive>>, bool), DriveError> {
+    let Some(drive_key) = device::unlock(bucket.as_ref(), keyring, drive)? else {
+        return Err(DriveError::Locked {
+            drive: drive.to_string(),
+        });
+    };
+    // The key a window reads the file keys of the key before it with, besides the key chain's.
+    let mut window_of = None;
+    let opened = match provider.open_index(drive, Arc::clone(&bucket), &drive_key) {
+        Ok(index) => EncryptedDrive::new(bucket, drive_key, NamedIndex::of(index, drive)),
+        // The first error stands when there is nothing to catch up from.
+        Err(e) => match device::catch_up(bucket.as_ref(), keyring, drive) {
+            Ok(Some((current, previous))) => {
+                let index = provider
+                    .open_index_in_window(drive, Arc::clone(&bucket), &current, &previous)
+                    .map_err(|e| named(e, drive))?;
+                EncryptedDrive::new(bucket, current, NamedIndex::of(index, drive))
+            }
+            // A wrap of a key this device does not take says more than the index's error.
+            Err(refused @ DriveError::KeyRefused { .. }) => return Err(refused),
+            // A key change of this device that stopped after the index was sealed under the new key and
+            // before the new key became the drive key: its member wrap in the bucket is the old key's, so
+            // nothing catches up - and the key the index IS sealed under is in this keyring.
+            Ok(None) | Err(_) => {
+                match own_rotation_window(&bucket, keyring, drive, provider, &drive_key) {
+                    Some(window) => {
+                        window_of = Some(drive_key);
+                        window
+                    }
+                    None => return Err(named(e, drive)),
+                }
+            }
+        },
+    };
+    // The keys from before the drive's rotations, for the file keys they wrapped.
+    let opened = opened.with_key_chain(drive)?;
+    let in_the_window = window_of.is_some();
+    // The key before the new one wrapped every file key the re-wrap has not reached, and the chain holds it
+    // only from the rotation's chain step on.
+    let opened = match window_of {
+        Some(previous) => opened.also_opening_file_keys_of(previous),
+        None => opened,
+    };
+    let opened = opened.counting_pack_reads_as(drive);
+    let opened = opened.with_reclaim(provider.reclaim_mode(drive));
+    let opened = match provider.reclaim_standing(drive) {
+        Some(standing) => opened.with_reclaim_standing(standing),
+        None => opened,
+    };
+    let opened = match provider.packing(drive) {
+        Some(options) => opened.with_packing(options),
+        None => opened,
+    };
+    Ok((opened, in_the_window))
+}
+
+/// An Azlin drive's bucket, for an app that opens drives on its UI thread and calls them on
+/// worker threads: the FIRST call (on a worker thread) opens it. An Azlin drive is encrypted,
+/// always: it is used through [`open_encrypted`] (the index from `provider`; without one it is
+/// refused - this build cannot name its files), and it is never taken for a plain one because
+/// of what its bucket lists. The bucket is the least trusted word there is (a storage that is
+/// not the user's, a man in the middle): it can hide the key files it holds and show any object.
+/// So only the device's own words decide that the drive is encrypted:
+///
+/// - the drive key in this device's keyring (sticky: a bucket that hides its key files cannot
+///   turn this device back to plaintext), and
+/// - the record of the drives file ([`AutoEncrypted::with_record`]): this device found the
+///   drive encrypted before, and wrote it down - the key may be gone from the keyring since
+///   (a reinstall, a wiped keychain), and the drive is locked then, not plain.
+///
+/// A keyring that cannot be read (a declined prompt, no keyring on the system, a failure) is no
+/// answer: the call fails with the keyring's own error, nothing is decided, and the next call
+/// asks again. Never "no key, so the bucket decides".
+///
+/// A bucket that lists key files is an encrypted drive this device holds no key for: it is
+/// locked (`DriveError::Locked`) until the device joins with a code or unlocks with the
+/// recovery code. A device that knows neither a key, nor a record, nor key files in the bucket
+/// meets a drive that was not encrypted yet - a new one, or one made before encryption - and
+/// the bucket's listing cannot tell it from a hostile one that hides its key files: so it
+/// takes no file. A new drive (no file in its bucket) reads as the bucket lists it, which is
+/// nothing, and refuses every write that would put plaintext into it, until it is encrypted
+/// ("Encrypt this drive", then [`AutoEncrypted::reopen`]); the app that made it sets it up at
+/// once, and one it did not make waits for the user's word ([`AutoEncrypted::needs_encryption`]).
+/// A drive with files and no key file anywhere ([`Why::HiddenOrAbsent`]) is not read either: a
+/// device that has neither a key nor a record may not list a bucket (ARCH28 Q15,
+/// X-DELTA-AZDRIVE-KEYS-19) - it cannot tell a drive from before the encryption from an encrypted
+/// one whose storage hides its key files, and what such a bucket shows is its word alone.
+/// Encrypting it (the user's word) moves its files into the encryption. The same holds for a
+/// drive whose setup this device started and did not finish ([`device::setup_pending`]; the
+/// bucket may already list the key files of that try): it waits for its setup to run again.
+pub struct AutoEncrypted {
+    bucket: Arc<dyn Drive>,
+    drive: String,
+    keyring: Arc<dyn KeyringStore>,
+    provider: Option<Arc<dyn IndexProvider>>,
+    /// Held across the first call's requests, so the UI thread never takes it.
+    opened: NetworkLock<Option<Arc<dyn Drive>>>,
+    /// What `opened` decided, for the question that must not wait for it ([`Self::state`]): the
+    /// first call decides while it holds `opened`, and deciding reads the bucket. A plain mutex
+    /// held for a copy, never across a request.
+    state: Mutex<EncState>,
+    /// Whether `opened` is the rotation's window ([`Window`]); set and cleared with it, under `opened`.
+    window: Mutex<Window>,
+    /// What this device wrote down of the drive (the drives file): whether it found it
+    /// encrypted, and the id of its key then.
+    record: Mutex<Recorded>,
+    /// Told the id of the drive key whenever the drive opens encrypted, to write down.
+    on_encrypted: Option<TellKeyId>,
+    /// A declined keychain prompt, remembered for [`AutoEncrypted::with_denied_backoff`]: a
+    /// listing refresh, a sync attempt and a thumbnail do not each ask the user again.
+    denied: Mutex<Option<Denial>>,
+    denied_for: Duration,
+    /// Whether a new drive (or a stopped setup) that is not encrypted reads as its bucket lists
+    /// (AzDrive: its folder shows empty while "Encrypt this drive" is offered). A drive with files
+    /// and no key file is not read whatever this says ([`EncState::admits`]). The bridge and
+    /// AzMail open an encrypted drive only ([`AutoEncrypted::encrypted_only`]).
+    plain_reads: bool,
+    /// Run by a test between the moment a call has its drive and the moment it is judged: where
+    /// another thread's reopening used to be able to come in (X-DELTA-AZDRIVE-KEYS-18).
+    #[cfg(test)]
+    after_resolved: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+/// What [`AutoEncrypted::on_encrypted`] is told the drive key's id with.
+pub type TellKeyId = Arc<dyn Fn(&KeyId) + Send + Sync>;
+
+/// Whether the drive an [`AutoEncrypted`] holds is the rotation's read-only window ([`own_rotation_window`]), and
+/// whether a change was asked of it: the window refuses every change, with a sentence that sends the user to
+/// finish a key change - and the rotation may have been finished meanwhile, by AzDrive in another process. An
+/// `AutoEncrypted` that kept the window for the life of its process (the bridge builds one and never reopens it)
+/// refused every IMAP, WebDAV, CalDAV and CardDAV write until the daemon restarted (X-DELTA-KEYS4-3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Window {
+    /// The drive is no window, or none is open.
+    No,
+    /// The drive is the rotation's window: it reads, and refuses every change.
+    Open,
+    /// A change was asked of the window and refused: the next call opens the drive again - the window once
+    /// more, with the same refusal, while the rotation is not over; the drive itself once it is.
+    Asked,
+}
+
+/// What a device wrote down of a drive's encryption ([`AutoEncrypted::with_record`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Recorded {
+    /// The device found the drive encrypted: it is never taken for a plain one.
+    pub encrypted: bool,
+    /// The id of the drive key it held then.
+    pub key_id: Option<KeyId>,
+    /// The record names a key id that is no key id (not 32 hex digits): it exists and says
+    /// nothing that can be compared with a key. The drive does not open until the user opens it
+    /// again on purpose ([`AutoEncrypted::reopen`]) - never "no id, so no check"
+    /// (X-DELTA-AZDRIVE-KEYS-21).
+    pub damaged: bool,
+}
+
+/// How long a declined keychain prompt is remembered ([`AutoEncrypted::with_denied_backoff`]).
+pub const DENIED_BACKOFF: Duration = Duration::from_secs(30);
+
+/// A keyring read the user declined: when, and the answer to give again meanwhile.
+struct Denial {
+    at: Instant,
+    error: DriveError,
+}
+
+impl fmt::Debug for AutoEncrypted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AutoEncrypted")
+            .field("drive", &self.drive)
+            .field("has_provider", &self.provider.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl AutoEncrypted {
+    /// The bucket of the drive `drive` (its id), the keyring its key is kept in, the provider
+    /// of encrypted drives' indexes (`None`: this build opens plain drives only). Sends nothing.
+    #[must_use]
+    pub fn new(
+        bucket: Arc<dyn Drive>,
+        drive: &str,
+        keyring: Arc<dyn KeyringStore>,
+        provider: Option<Arc<dyn IndexProvider>>,
+    ) -> AutoEncrypted {
+        AutoEncrypted {
+            bucket,
+            drive: drive.to_string(),
+            keyring,
+            provider,
+            opened: NetworkLock::new(None),
+            state: Mutex::new(EncState::Undecided),
+            window: Mutex::new(Window::No),
+            record: Mutex::new(Recorded::default()),
+            on_encrypted: None,
+            denied: Mutex::new(None),
+            denied_for: DENIED_BACKOFF,
+            plain_reads: true,
+            #[cfg(test)]
+            after_resolved: Mutex::new(None),
+        }
+    }
+
+    /// The drive as this device wrote it down (the drives file): `encrypted` when it found the
+    /// drive encrypted before, `key_id` the id of the drive key it held then. A drive recorded
+    /// as encrypted is locked without its key, never plain, whatever its bucket lists; one that
+    /// opens with a key that is no successor of the recorded one (a keychain put back from an
+    /// older backup, say) is refused as [`DriveError::KeyRefused`] until the user opens it again
+    /// on purpose ([`Self::reopen`]: an unlock, a join, a setup or a rotation).
+    #[must_use]
+    pub fn with_record(self, record: Recorded) -> AutoEncrypted {
+        *lock(&self.record) = record;
+        self
+    }
+
+    /// `tell` gets the id of the drive key whenever the drive opens encrypted (on the worker
+    /// thread that made the call, with no lock held): the app writes it down, so the drive
+    /// opens as an encrypted one for good ([`Self::with_record`]). It must not call the drive.
+    #[must_use]
+    pub fn on_encrypted(mut self, tell: TellKeyId) -> AutoEncrypted {
+        self.on_encrypted = Some(tell);
+        self
+    }
+
+    /// An app that has no use for a drive that is not encrypted (the bridge, AzMail): it reads
+    /// and writes an encrypted drive only. A drive that is not (a new one, an older one, a
+    /// bucket that hides its key files) answers every call with the refusal that tells the user
+    /// what to do - to encrypt it in AzDrive, or for a drive with files and no key file that
+    /// this computer cannot tell - reads included: what a bucket lists without a key is its
+    /// word alone.
+    #[must_use]
+    pub fn encrypted_only(mut self) -> AutoEncrypted {
+        self.plain_reads = false;
+        self
+    }
+
+    /// How long a keyring read the user declined is not asked again (default
+    /// [`DENIED_BACKOFF`]); [`Self::reopen`], the user's own act, asks again at once.
+    #[must_use]
+    pub fn with_denied_backoff(mut self, wait: Duration) -> AutoEncrypted {
+        self.denied_for = wait;
+        self
+    }
+
+    /// A test's hand in the window between a call's drive and its judgement (the hook runs on
+    /// the calling thread, with no lock held).
+    #[cfg(test)]
+    pub(crate) fn with_after_resolved(self, hook: Arc<dyn Fn() + Send + Sync>) -> AutoEncrypted {
+        *lock(&self.after_resolved) = Some(hook);
+        self
+    }
+
+    /// What this device has written down of the drive so far ([`Self::with_record`]); a drive
+    /// that opened encrypted is recorded as encrypted from then on.
+    #[must_use]
+    pub fn recorded(&self) -> Recorded {
+        *lock(&self.record)
+    }
+
+    /// The plain bucket, below any encryption (the keys live there).
+    #[must_use]
+    pub fn bucket(&self) -> &Arc<dyn Drive> {
+        &self.bucket
+    }
+
+    /// The drive's id its keys are kept and bound under (an Azlin drive's id: the same in every
+    /// app of this computer).
+    #[must_use]
+    pub fn drive(&self) -> &str {
+        &self.drive
+    }
+
+    /// The provider of the drive's index this drive was made with: a job that opens the index of
+    /// the same drive on its own (a migration, a rotation, a re-encryption) takes THIS one, with
+    /// its cache folder and the restore announcement it asks, and not a provider of its own made
+    /// without them (X-DELTA-AZDRIVE-SYNC-3: a second provider without the source refused a
+    /// restored drive for good). `None`: the drive was made without an index.
+    #[must_use]
+    pub fn provider(&self) -> Option<Arc<dyn IndexProvider>> {
+        self.provider.clone()
+    }
+
+    /// Forgets the decision: the next call decides again (after the drive was encrypted, or
+    /// this device got its key). The user's own act, so a declined prompt is asked again, and
+    /// the key id the drives file recorded is the new key's to write - which is why only an act
+    /// that brings a key calls this one (a setup, an unlock, a join, a rotation); a change of the
+    /// drive's files is [`Self::reload`].
+    pub fn reopen(&self) {
+        self.forget(true);
+    }
+
+    /// Forgets the open drive so that the next call opens it again and reads its index anew, and
+    /// keeps the key id the drives file recorded: the keys did not change (a restore put files
+    /// back). A key that is no successor of the recorded one is still refused after it; the user
+    /// who brings a key says so with [`Self::reopen`].
+    pub fn reload(&self) {
+        self.forget(false);
+    }
+
+    /// The one place the decision is cleared: under `opened`, as every change of it
+    /// ([`Self::resolved`] reads the drive and the state together under the same hold).
+    fn forget(&self, new_key: bool) {
+        let mut opened = self.opened.lock();
+        *opened = None;
+        *lock(&self.state) = EncState::Undecided;
+        *lock(&self.window) = Window::No;
+        *lock(&self.denied) = None;
+        if new_key {
+            let mut record = lock(&self.record);
+            record.key_id = None;
+            record.damaged = false;
+        }
+    }
+
+    /// The decision so far ([`EncState::Undecided`]: none yet, or the last ask failed). It never
+    /// waits for a first call that is still deciding: that call reads the bucket, and in the
+    /// apps the answers of its requests come through the UI thread - the thread that asks this.
+    #[must_use]
+    pub fn state(&self) -> EncState {
+        *lock(&self.state)
+    }
+
+    /// Decides now when no call did: the state, or why it could not be decided (a keyring that
+    /// could not be read, no answer from the bucket, a drive locked for want of its key). For
+    /// the worker thread of a job that must know before it acts - never a dummy call whose
+    /// error is thrown away.
+    ///
+    /// # Errors
+    ///
+    /// What the first call would have answered.
+    pub fn decide(&self) -> Result<EncState, DriveError> {
+        let (_, state) = self.resolved()?;
+        Ok(state)
+    }
+
+    /// Whether the decision so far is "a drive that is not encrypted yet and waits for the app
+    /// to set it up" (a new one, or a setup that stopped): it takes no file until it is (the
+    /// app offers "Encrypt this drive"). Never waits, as [`Self::state`].
+    #[must_use]
+    pub fn needs_encryption(&self) -> bool {
+        self.state().needs_encryption()
+    }
+
+    /// Why the drive takes no file, once a call found it not encrypted (new, made before
+    /// encryption, or a bucket that hides its key files): what every write answers, and what a
+    /// sync that would send files into it stops with. `None` for an encrypted drive, and one no
+    /// call decided yet.
+    #[must_use]
+    pub fn unencrypted_refusal(&self) -> Option<DriveError> {
+        match self.state() {
+            EncState::SetupPending | EncState::Unencrypted(Why::New) => Some(DriveError::Denied {
+                message: format!(
+                    "\"{}\" is a new drive that is not encrypted yet; it takes files once it is \
+                     (Encrypt this drive)",
+                    self.drive
+                ),
+            }),
+            EncState::Unencrypted(Why::HiddenOrAbsent) => Some(DriveError::Denied {
+                message: cannot_tell(&self.drive),
+            }),
+            EncState::Undecided | EncState::Encrypted { .. } => None,
+        }
+    }
+
+    /// The drive `op` goes to: the one place a call is let through. It decides the drive on its
+    /// first call, then asks the state ([`EncState::admits`]) - an encrypted drive takes
+    /// everything, a drive that is not takes no write and no delete ever, and reads only where
+    /// the app reads a drive that is not encrypted ([`Self::encrypted_only`]). Every method of
+    /// the [`Drive`] impl below begins here, so a method added later has to pick its `Op`. What it hands
+    /// out - the drive and the state it was decided with ([`Gated`]) - makes the call, and makes it once
+    /// more when the drive was replaced by a key change finished in another process.
+    fn gate(&self, op: Op) -> Result<Gated<'_>, DriveError> {
+        // The drive and the state of ONE decision: a call is judged by the state the drive it
+        // is handed was decided with, whatever a reopening on another thread does meanwhile
+        // (the state was read in a second step once, and a write could meet the bare bucket of
+        // the old decision with the "encrypted" of the new one: X-DELTA-AZDRIVE-KEYS-18).
+        let (drive, state) = self.resolved()?;
+        // A change asked of the rotation's window is refused by it, whatever the change: the next call opens
+        // the drive again, and the rotation that call finds over (finished in another process) gives a drive
+        // that takes it (X-DELTA-KEYS4-3). Reads leave the window as it is.
+        if op != Op::Read {
+            let mut window = lock(&self.window);
+            if *window == Window::Open {
+                *window = Window::Asked;
+            }
+        }
+        #[cfg(test)]
+        {
+            let hook = lock(&self.after_resolved).clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        if state.admits(op, self.plain_reads) {
+            return Ok(Gated {
+                auto: self,
+                op,
+                drive,
+                state,
+            });
+        }
+        // No wildcard arm: a fifth state is a compile error here (the gate in azul-srcgate's
+        // `enc_state_gate` reads for it).
+        match state {
+            // The drive was opened again meanwhile (an unlock, a setup): nothing says what this
+            // call would have met.
+            EncState::Undecided => Err(DriveError::Denied {
+                message: format!(
+                    "\"{}\" was opened again during this call; ask again",
+                    self.drive
+                ),
+            }),
+            // Files and no key file anywhere: a read is refused with the words of a write, whatever
+            // the app (ARCH28 Q15, X-DELTA-AZDRIVE-KEYS-19) - "encrypt it first" would be the
+            // wrong advice for an encrypted drive whose storage hides its key files.
+            EncState::Unencrypted(Why::HiddenOrAbsent) => Err(DriveError::Denied {
+                message: cannot_tell(&self.drive),
+            }),
+            EncState::SetupPending | EncState::Unencrypted(Why::New) if op == Op::Read => {
+                Err(DriveError::Denied {
+                    message: format!(
+                        "\"{}\" is not encrypted, and this app opens an encrypted drive only: \
+                         encrypt it in AzDrive (Encrypt this drive) first",
+                        self.drive
+                    ),
+                })
+            }
+            EncState::SetupPending | EncState::Unencrypted(Why::New) => Err(self
+                .unencrypted_refusal()
+                .unwrap_or_else(|| DriveError::Denied {
+                    message: format!("\"{}\" is not encrypted", self.drive),
+                })),
+            // `admits` lets an encrypted drive through for every Op, so this is not reached; if
+            // that policy ever changes without this arm, the call is refused, not let through.
+            EncState::Encrypted { .. } => Err(DriveError::Denied {
+                message: format!("\"{}\" refused this call", self.drive),
+            }),
+        }
+    }
+
+    /// A keyring read of this drive's keys, remembered when the user declined it: for
+    /// `denied_for` the same answer comes back without asking again. Any other answer - good,
+    /// absent, unreadable - is the keyring's own, every time.
+    fn asked<T>(&self, read: impl FnOnce() -> Result<T, DriveError>) -> Result<T, DriveError> {
+        if let Some(denial) = lock(&self.denied).as_ref() {
+            if denial.at.elapsed() < self.denied_for {
+                return Err(denial.error.clone());
+            }
+        }
+        match read() {
+            Err(error @ DriveError::Denied { .. }) => {
+                *lock(&self.denied) = Some(Denial {
+                    at: Instant::now(),
+                    error: error.clone(),
+                });
+                Err(error)
+            }
+            other => {
+                *lock(&self.denied) = None;
+                other
+            }
+        }
+    }
+
+    /// The drive every call goes to, decided on the first call, and the state it was decided
+    /// with. The two change only together and only under `opened` (this sets both, a
+    /// reopening clears both), so they are read under one hold of it: a pair that belong
+    /// together, never the drive of one decision and the state of another.
+    fn resolved(&self) -> Result<(Arc<dyn Drive>, EncState), DriveError> {
+        let mut opened = self.opened.lock();
+        // The window a change was asked of is dropped: the lines below open the drive as the keyring says now.
+        let stale = *lock(&self.window) == Window::Asked;
+        if stale {
+            *opened = None;
+            *lock(&self.window) = Window::No;
+            *lock(&self.state) = EncState::Undecided;
+        } else if let Some(drive) = opened.as_ref() {
+            return Ok((Arc::clone(drive), *lock(&self.state)));
+        }
+        // The device's own words first. A keyring that cannot be read (a declined prompt, no
+        // keyring on this system, a failure) answers nothing: the error stands, nothing is
+        // decided, the next call asks again - "no key" is only what an intact keyring says. A
+        // declined prompt is asked again after a while, not with every call.
+        let facts = Facts::gather(
+            self.bucket.as_ref(),
+            self.recorded().encrypted,
+            || {
+                self.asked(|| device::load_drive_key(self.keyring.as_ref(), &self.drive))
+                    .map(|key| key.is_some())
+            },
+            || self.asked(|| device::setup_pending(self.keyring.as_ref(), &self.drive)),
+        )?;
+        let mut key_id = None;
+        let mut in_the_window = false;
+        let drive: Arc<dyn Drive> = if facts.encrypted() {
+            let Some(provider) = &self.provider else {
+                return Err(DriveError::Unsupported(String::from(
+                    "this drive is encrypted, and this build of the app has no drive index to \
+                     open encrypted drives with",
+                )));
+            };
+            let (encrypted, window) = open_noting_the_window(
+                Arc::clone(&self.bucket),
+                self.keyring.as_ref(),
+                &self.drive,
+                provider.as_ref(),
+            )?;
+            self.recorded().check_key(&self.drive, &encrypted)?;
+            key_id = Some(encrypted.drive_key_id());
+            in_the_window = window;
+            Arc::new(encrypted)
+        } else {
+            Arc::clone(&self.bucket)
+        };
+        let state = facts.state(key_id);
+        *opened = Some(Arc::clone(&drive));
+        *lock(&self.state) = state;
+        *lock(&self.window) = if in_the_window {
+            Window::Open
+        } else {
+            Window::No
+        };
+        // Without the lock: the app's note of it must not hold the next call up.
+        drop(opened);
+        if let Some(id) = key_id {
+            *lock(&self.record) = Recorded {
+                encrypted: true,
+                key_id: Some(id),
+                damaged: false,
+            };
+            if let Some(tell) = &self.on_encrypted {
+                tell(&id);
+            }
+        }
+        Ok((drive, state))
+    }
+}
+
+/// What [`AutoEncrypted::gate`] lets a call through to: the drive the call goes to, and the state that drive
+/// was decided with. A call made through it is made ONCE more through a fresh drive when its answer is the typed
+/// [`DriveError::KeyRefused`] of a drive this object kept past a key change that finished in another process
+/// ([`Gated::replaced`]): a rotation of AzDrive, with the same keychain, seals the index under the new key and
+/// puts the new key into the keyring, while this object's cached drive still has the old one - and every call
+/// answered "join it with a code" until the process restarted. The bridge builds one `AutoEncrypted` and never
+/// reopens it (X-DELTA-KEYS5-2, the twin of the read-only window's X-DELTA-KEYS4-3).
+///
+/// The call runs at most twice - never in a loop, never for an error that is not a typed `KeyRefused`, and not
+/// a second time when the keyring still holds the key the drive was opened with (the refusal is then true:
+/// nothing was replaced, and nothing is reopened for it). The second call's answer is the answer, whatever it is.
+struct Gated<'a> {
+    auto: &'a AutoEncrypted,
+    op: Op,
+    drive: Arc<dyn Drive>,
+    state: EncState,
+}
+
+impl Gated<'_> {
+    /// A call that can be made again.
+    fn call<T>(&self, call: impl Fn(&dyn Drive) -> Result<T, DriveError>) -> Result<T, DriveError> {
+        let answer = call(self.drive.as_ref());
+        if matches!(answer, Err(DriveError::KeyRefused { .. })) && self.replaced() {
+            let fresh = self.auto.gate(self.op)?;
+            return call(fresh.drive.as_ref());
+        }
+        answer
+    }
+
+    /// A call that cannot be made again - it reads a body that is gone, or spends a witness: a replaced
+    /// drive is dropped after its refusal (the next call opens a fresh one) and the refusal stays the answer.
+    fn once<T>(
+        &self,
+        call: impl FnOnce(&dyn Drive) -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
+        let answer = call(self.drive.as_ref());
+        if matches!(answer, Err(DriveError::KeyRefused { .. })) {
+            self.replaced();
+        }
+        answer
+    }
+
+    /// A batch of items that can be asked again: the items answered `KeyRefused` - they were refused before
+    /// anything was done - are asked once more through a fresh drive when the cached one was replaced; the
+    /// answers of the others stand, and those items are never asked again.
+    fn items<I: Copy, T>(
+        &self,
+        items: &[I],
+        call: impl Fn(&dyn Drive, &[I]) -> Vec<Result<T, DriveError>>,
+    ) -> Vec<Result<T, DriveError>> {
+        let mut answers = call(self.drive.as_ref(), items);
+        let refused: Vec<usize> = answers
+            .iter()
+            .enumerate()
+            .filter(|(_, answer)| matches!(answer, Err(DriveError::KeyRefused { .. })))
+            .map(|(at, _)| at)
+            .collect();
+        if refused.is_empty() || !self.replaced() {
+            return answers;
+        }
+        let again: Vec<I> = refused
+            .iter()
+            .filter_map(|at| items.get(*at).copied())
+            .collect();
+        let second = match self.auto.gate(self.op) {
+            Ok(fresh) => call(fresh.drive.as_ref(), &again),
+            Err(e) => again.iter().map(|_| Err(e.clone())).collect(),
+        };
+        for (at, answer) in refused.into_iter().zip(second) {
+            if let Some(slot) = answers.get_mut(at) {
+                *slot = answer;
+            }
+        }
+        answers
+    }
+
+    /// A batch that cannot be asked again (streams, a witness): a replaced drive is dropped after a refusal
+    /// of any item and the answers stay as they are.
+    fn once_items<T>(
+        &self,
+        call: impl FnOnce(&dyn Drive) -> Vec<Result<T, DriveError>>,
+    ) -> Vec<Result<T, DriveError>> {
+        let answers = call(self.drive.as_ref());
+        if answers
+            .iter()
+            .any(|answer| matches!(answer, Err(DriveError::KeyRefused { .. })))
+        {
+            self.replaced();
+        }
+        answers
+    }
+
+    /// A call of this drive was answered `KeyRefused`: whether the drive was opened with another key than the
+    /// keyring holds now - a key change finished elsewhere, with the same keychain - and so is dropped (the next
+    /// call opens it again, keeping the key id the drives file recorded: a key that is no successor of it is
+    /// still refused). One keyring read, on this failure path only. `false` - the refusal stands, and the drive
+    /// stays - for a drive that was not opened with a key, for the same key (the refusal is true: a key change of
+    /// this computer that is not finished, a keychain put back from a backup), and for a keyring that holds no
+    /// key or cannot be read: nothing says the drive was replaced, and nothing is reopened on a failed read.
+    fn replaced(&self) -> bool {
+        let opened_with = match self.state {
+            EncState::Encrypted {
+                key_id: Some(id), ..
+            } => id,
+            EncState::Encrypted { key_id: None, .. }
+            | EncState::Undecided
+            | EncState::SetupPending
+            | EncState::Unencrypted(_) => return false,
+        };
+        let auto = self.auto;
+        let held = match auto.asked(|| device::load_drive_key(auto.keyring.as_ref(), &auto.drive)) {
+            Ok(Some(key)) => key.id(),
+            Ok(None) | Err(_) => return false,
+        };
+        if held == opened_with {
+            return false;
+        }
+        // Under the hold every decision is made under, and only if it is still THIS drive: another thread may
+        // have opened a fresh one meanwhile, and that one is not dropped.
+        let mut opened = auto.opened.lock();
+        if opened
+            .as_ref()
+            .is_some_and(|cached| Arc::ptr_eq(cached, &self.drive))
+        {
+            *opened = None;
+            *lock(&auto.state) = EncState::Undecided;
+            *lock(&auto.window) = Window::No;
+        }
+        true
+    }
+}
+
+impl Drive for AutoEncrypted {
+    // Every method begins at the gate - which drive the call is let through to ([`AutoEncrypted::gate`]) - and
+    // a call that can be made again is made again once when a drive this object kept was replaced by a key
+    // change that finished in another process ([`Gated`], X-DELTA-KEYS5-2); one that cannot (a body that is
+    // gone, a spent witness) drops the replaced drive and keeps its answer.
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.gate(Op::Read)?.call(|drive| drive.list(request))
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.gate(Op::Read)?.call(|drive| drive.get(key))
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.gate(Op::Read)?
+            .call(|drive| drive.get_range(key, range))
+    }
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        self.gate(Op::Read)?
+            .call(|drive| drive.get_range_if(key, range, condition))
+    }
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.gate(Op::Read)?
+            .call(|drive| drive.get_limited(key, limit))
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.gate(Op::Write)?.call(|drive| drive.put(key, bytes))
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.gate(Op::Delete)?.call(|drive| drive.delete(key))
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.gate(Op::Read)?.call(|drive| drive.head(key))
+    }
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        self.gate(Op::Write)?
+            .once(|drive| drive.put_from(key, body))
+    }
+    // A file's upload resumes, plain (the bucket's parts) or encrypted (its copy's parts).
+    fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        ctl: &dyn Ctl,
+    ) -> Result<u64, DriveError> {
+        self.gate(Op::Write)?
+            .call(|drive| drive.put_file(key, path, ctl))
+    }
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        check: &crate::checked::FileCheck,
+        ctl: &dyn Ctl,
+    ) -> Result<crate::checked::CheckedUpload, DriveError> {
+        self.gate(Op::Write)?
+            .call(|drive| drive.put_file_checked(key, path, check, ctl))
+    }
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.gate(Op::Write)?
+            .call(|drive| drive.put_if(key, bytes, condition))
+    }
+    // Whether the drive writes conditionally is asked of the drive the gate hands out (the bucket
+    // plain, the encrypted drive over it otherwise): both do. A drive the gate refuses cannot be
+    // written, and the write that follows asks the same gate and says why.
+    fn conditional_writes(&self) -> bool {
+        // collapse-ok: the write that follows asks the same gate and says why it is closed
+        self.gate(Op::Write)
+            .is_ok_and(|gated| gated.drive.conditional_writes())
+    }
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        self.gate(Op::Write)?
+            .call(|drive| drive.put_file_if(key, path, condition, ctl))
+    }
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.gate(Op::Write)?.call(|drive| drive.copy(from, to))
+    }
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.gate(Op::Write)?
+            .call(|drive| drive.create_folder(prefix))
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.gate(Op::Write)?.call(|drive| drive.rename(from, to))
+    }
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.gate(Op::Delete)?
+            .call(|drive| drive.delete_folder(prefix))
+    }
+    // The reasons to delete go through the same gate as the deletes (ARCH30-1): a drive that is
+    // locked or undecidable answers before the reason is looked at, and the drive the gate hands out
+    // checks the reason against the key and then deletes with its own delete. A reason is spent by
+    // the call: it is not made again.
+    fn delete_for(&self, key: &str, why: crate::erase::Why<'_>) -> Result<(), DriveError> {
+        self.gate(Op::Delete)?
+            .once(|drive| drive.delete_for(key, why))
+    }
+    fn delete_many_for(
+        &self,
+        items: &[BatchDelete<'_>],
+        why: crate::erase::Why<'_>,
+    ) -> Vec<Result<(), DriveError>> {
+        match self.gate(Op::Delete) {
+            Ok(gated) => gated.once_items(|drive| drive.delete_many_for(items, why)),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+    fn delete_folder_for(
+        &self,
+        prefix: &str,
+        why: crate::erase::Why<'_>,
+    ) -> Result<(), DriveError> {
+        self.gate(Op::Delete)?
+            .once(|drive| drive.delete_folder_for(prefix, why))
+    }
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.gate(Op::Delete)?
+            .call(|drive| drive.remove_empty_folder(prefix))
+    }
+    // inherits: site - the place of an encrypted drive is its own key space (a logical key is no
+    // key of the bucket below), so the drive answers as the very object it is, and asking opens
+    // nothing: no keyring prompt, no network
+    // inherits: local_path, resume_folder - what an Azlin drive keeps is not a file of this disk,
+    // and an upload's resume state is the drive below's business (put_file asks it)
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        self.gate(Op::Read)?.call(|drive| drive.metadata(key))
+    }
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.gate(Op::Write)?
+            .once(|drive| drive.put_from_if(key, body, condition))
+    }
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        match self.gate(Op::Write) {
+            Ok(gated) => gated.items(items, |drive, items| drive.put_many(items)),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        match self.gate(Op::Delete) {
+            Ok(gated) => gated.items(items, |drive, items| drive.delete_many(items)),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        match self.gate(Op::Write) {
+            Ok(gated) => gated.items(items, |drive, items| drive.move_many(items)),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        match self.gate(Op::Write) {
+            Ok(gated) => gated.once_items(|drive| drive.put_from_many(items)),
+            Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
+}
+
+/// Whether a plain bucket holds a file of the drive (anything but its `.azlin/` bookkeeping):
+/// one made before encryption. Reads root listing pages until it finds one, and at most
+/// [`named::ROOT_SCAN_PAGES`] of them: a listing that is not over by then, or that names the page
+/// it was just asked for, says nothing of an empty bucket - the answer is "holds files", the
+/// drive that takes none of ours (`Unencrypted(HiddenOrAbsent)`), never "new" and never a read that
+/// keeps `resolved()` (and its lock) for ever (X-DELTA-AZDRIVE-KEYS-22).
+fn holds_plaintext_files(bucket: &dyn Drive) -> Result<bool, DriveError> {
+    // The drive's own folder, spelled once (S3 keys are case-sensitive: `.AZLIN/` is a plain folder).
+    let bookkeeping = format!("{}/", crate::names::BOOKKEEPING);
+    let mut request = ListRequest::folder("").with_max_keys(8);
+    for _ in 0..named::ROOT_SCAN_PAGES {
+        let page = bucket.list(&request)?;
+        if page.objects.iter().any(|o| crate::migrate::is_plaintext_key(&o.key))
+            || page.folders.iter().any(|f| *f != bookkeeping)
+        {
+            return Ok(true);
+        }
+        match page.next {
+            Some(next) if request.continuation.as_deref() != Some(next.as_str()) => {
+                request.continuation = Some(next);
+            }
+            Some(_) => return Ok(true),
+            None => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+
+/// The refusal of a drive that holds files and shows no key file, with no key and no record on
+/// this device ([`Why::HiddenOrAbsent`]): what a read, a write and a delete of it all answer, and
+/// what a sync pass stops with. It says that the device cannot tell, and what each case does.
+fn cannot_tell(drive: &str) -> String {
+    format!(
+        "\"{drive}\" holds files and shows no key file, and this computer has no key that opens it \
+         and no note that it was encrypted, so it cannot tell a drive from before the encryption \
+         from an encrypted one whose storage hides its key files: nothing is read from it or put \
+         into it. If it is encrypted, unlock it with its key; if it never was, Encrypt this drive"
+    )
+}
+
+/// What a decision about a drive rests on: the device's own words first (its keyring, its
+/// record), the bucket's listing last - the least trusted word there is. It can add to what the
+/// device knows (key files it lists make the drive encrypted, and locked without a key) and never
+/// take from it.
+#[derive(Clone, Copy, Debug)]
+struct Facts {
+    /// The drive key is in the keyring.
+    kept: bool,
+    /// The device wrote down that it found the drive encrypted.
+    recorded: bool,
+    /// A setup of this device stopped halfway.
+    unfinished: bool,
+    /// The bucket lists key files (asked only when nothing above says so).
+    listed: bool,
+    /// The bucket holds no file of the drive (nothing but its `.azlin/` bookkeeping).
+    fresh: bool,
+}
+
+impl Facts {
+    /// Reads the facts: `kept` is the keyring's answer about the drive key (an error stands:
+    /// nothing is decided), `pending` its answer about a setup that stopped. A setup of this
+    /// device that stopped (it kept the drive's key before it put anything into the bucket, and
+    /// the bucket may list the key files of that try) is a drive waiting for its encryption, not
+    /// a locked one: the same setup call finishes it.
+    fn gather(
+        bucket: &dyn Drive,
+        recorded: bool,
+        kept: impl FnOnce() -> Result<bool, DriveError>,
+        pending: impl FnOnce() -> Result<bool, DriveError>,
+    ) -> Result<Facts, DriveError> {
+        let kept = kept()?;
+        let unfinished = !kept && !recorded && pending()?;
+        let listed = !unfinished && !kept && !recorded && device::is_encrypted(bucket)?;
+        let encrypted = !unfinished && (kept || recorded || listed);
+        let fresh = !encrypted && !holds_plaintext_files(bucket)?;
+        Ok(Facts {
+            kept,
+            recorded,
+            unfinished,
+            listed,
+            fresh,
+        })
+    }
+
+    /// Whether the drive is encrypted: only the device's words, or key files the bucket lists.
+    fn encrypted(self) -> bool {
+        !self.unfinished && (self.kept || self.recorded || self.listed)
+    }
+
+    /// How the device came to take the drive for an encrypted one.
+    fn via(self) -> Via {
+        if self.kept {
+            Via::KeyInKeyring
+        } else if self.recorded {
+            Via::Record
+        } else {
+            Via::KeyFilesListed
+        }
+    }
+
+    /// The state these facts make; `key_id` is the id of the key the drive opened with, once it
+    /// did.
+    fn state(self, key_id: Option<KeyId>) -> EncState {
+        if self.encrypted() {
+            EncState::Encrypted {
+                key_id,
+                via: self.via(),
+            }
+        } else if self.fresh && self.unfinished {
+            EncState::SetupPending
+        } else if self.fresh {
+            EncState::Unencrypted(Why::New)
+        } else {
+            EncState::Unencrypted(Why::HiddenOrAbsent)
+        }
+    }
+}
+
+impl Recorded {
+    /// The record as the drives file (or the account file) holds it: whether the device found the
+    /// drive encrypted, and the id of its key as text. A key id that is not 32 hex digits is not
+    /// "no id": it is a record that cannot be compared with any key ([`Recorded::damaged`]), and
+    /// the drive counts as found encrypted. The one place the text is read.
+    #[must_use]
+    pub fn from_entry(encrypted: bool, key_id: Option<&str>) -> Recorded {
+        match key_id {
+            None => Recorded {
+                encrypted,
+                key_id: None,
+                damaged: false,
+            },
+            Some(text) => match KeyId::from_hex(text) {
+                Some(id) => Recorded {
+                    encrypted,
+                    key_id: Some(id),
+                    damaged: false,
+                },
+                None => Recorded {
+                    encrypted: true,
+                    key_id: None,
+                    damaged: true,
+                },
+            },
+        }
+    }
+
+    /// The key this device recorded is the key `drive` opened with, or a key it replaced (a
+    /// rotation: the drive's key chain holds the older keys). Another line of keys is not the key
+    /// of the drive this device found encrypted: [`DriveError::KeyRefused`]. A record without a
+    /// key id asks nothing; one whose id cannot be read is refused ([`Recorded::damaged`]).
+    ///
+    /// # Errors
+    ///
+    /// [`DriveError::KeyRefused`] naming both ids.
+    pub fn check_key<D: Drive>(
+        &self,
+        drive: &str,
+        opened: &EncryptedDrive<D>,
+    ) -> Result<(), DriveError> {
+        if self.damaged {
+            return Err(DriveError::KeyRefused {
+                drive: drive.to_string(),
+                reason: format!(
+                    "the id of the drive key that this computer recorded is not readable, so the \
+                     key it holds ({}) cannot be compared with it",
+                    opened.drive_key_id()
+                ),
+            });
+        }
+        match self.key_id {
+            Some(recorded) if !opened.holds_key(&recorded) => Err(DriveError::KeyRefused {
+                drive: drive.to_string(),
+                reason: format!(
+                    "this computer recorded the drive key {recorded}, and the key it holds opens \
+                     the drive as {}, which replaced no key of it",
+                    opened.drive_key_id()
+                ),
+            }),
+            Some(_) | None => Ok(()),
+        }
+    }
+}
+
+/// What a device can say of a drive without opening it: the facts of [`AutoEncrypted`]'s
+/// decision, read once. `keyring` is read for the drive key; an error (a declined prompt, none on
+/// the system) stands - "no key" is only what an intact keyring says.
+///
+/// # Errors
+///
+/// The keyring's or the bucket's.
+pub fn judge(
+    bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    record: Recorded,
+) -> Result<EncState, DriveError> {
+    let facts = Facts::gather(
+        bucket,
+        record.encrypted,
+        || device::load_drive_key(keyring, drive).map(|key| key.is_some()),
+        || device::setup_pending(keyring, drive),
+    )?;
+    Ok(facts.state(None))
+}
+
+/// Why an app that opens an encrypted drive only cannot open one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenRefusal {
+    /// The drive is encrypted and this device holds no key for it: a join code from a device that
+    /// has it, or the recovery code. `recorded`: this device found it encrypted before.
+    Locked { drive: String, recorded: bool },
+    /// The drive is not encrypted - a new one, an older one, or a bucket that hides its key files
+    /// (the bucket's listing cannot tell them apart): it is opened in AzDrive and encrypted there
+    /// first. Nothing is read from it and nothing written.
+    NotEncrypted(Why),
+    /// The keyring could not be read (a declined prompt, none on the system, a failure): nothing
+    /// is decided. The error is the keyring's, never the secret.
+    Keyring(DriveError),
+    /// Anything else the opening said: a key this device does not take, a bucket that did not
+    /// answer, a damaged key file.
+    Refused(DriveError),
+}
+
+impl fmt::Display for OpenRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OpenRefusal::Locked { drive, .. } => write!(
+                f,
+                "drive {drive} is encrypted and this device has no key for it: a join code from a \
+                 device that has it, or the recovery code"
+            ),
+            OpenRefusal::NotEncrypted(Why::New) => f.write_str(
+                "the drive is new and not encrypted yet: it takes no file until it is (open it in \
+                 AzDrive and press Encrypt this drive, or run the encrypt command)",
+            ),
+            OpenRefusal::NotEncrypted(Why::HiddenOrAbsent) => f.write_str(
+                "the drive holds files and shows no key file: it is not encrypted - or its storage \
+                 hides its key files, which cannot be told apart from here, so nothing is read from \
+                 it or written to it. If it is encrypted, add its key (a join code from a device \
+                 that has it, or the recovery code); if it never was, encrypt it (open it in \
+                 AzDrive and press Encrypt this drive, or run the encrypt command)",
+            ),
+            OpenRefusal::Keyring(e) | OpenRefusal::Refused(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for OpenRefusal {}
+
+/// The drive `drive` over its `bucket` for an app that opens an encrypted drive only (the
+/// command line): the drive key from the keyring (else this device's member wrap), the index from
+/// `provider`. The decision is [`AutoEncrypted`]'s - this device's keyring and `record` first, the
+/// bucket's listing as an addition to them and never a replacement - but where AutoEncrypted
+/// would let a drive that is not encrypted read as its bucket lists, this refuses it:
+/// [`OpenRefusal::NotEncrypted`]. There is no plaintext path.
+///
+/// # Errors
+///
+/// An [`OpenRefusal`].
+pub fn open_encrypted_only(
+    bucket: Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    provider: &dyn IndexProvider,
+    record: Recorded,
+) -> Result<EncryptedDrive<Arc<dyn Drive>>, OpenRefusal> {
+    let keyring_failed = Cell::new(false);
+    let facts = Facts::gather(
+        bucket.as_ref(),
+        record.encrypted,
+        || {
+            device::load_drive_key(keyring, drive)
+                .map(|key| key.is_some())
+                .inspect_err(|_| keyring_failed.set(true))
+        },
+        || device::setup_pending(keyring, drive).inspect_err(|_| keyring_failed.set(true)),
+    )
+    .map_err(|e| {
+        if keyring_failed.get() {
+            OpenRefusal::Keyring(e)
+        } else {
+            OpenRefusal::Refused(e)
+        }
+    })?;
+    match facts.state(None) {
+        EncState::Unencrypted(why) => return Err(OpenRefusal::NotEncrypted(why)),
+        // A setup that stopped is a new drive's: it takes no file until it is finished.
+        EncState::SetupPending => return Err(OpenRefusal::NotEncrypted(Why::New)),
+        EncState::Undecided | EncState::Encrypted { .. } => {}
+    }
+    let opened = open_encrypted(bucket, keyring, drive, provider).map_err(|e| match e {
+        DriveError::Locked { drive } => OpenRefusal::Locked {
+            drive,
+            recorded: facts.recorded,
+        },
+        other => OpenRefusal::Refused(other),
+    })?;
+    record
+        .check_key(drive, &opened)
+        .map_err(OpenRefusal::Refused)?;
+    Ok(opened)
+}
+
+/// The mutex's value, also after a thread panicked while holding it.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// An index in memory: for the tests, and for a drive used during one session only. Releasing
+/// objects looks through every entry (fine for thousands of files, not for millions).
+#[derive(Default)]
+pub struct MemoryIndex {
+    entries: Mutex<BTreeMap<String, IndexEntry>>,
+}
+
+impl MemoryIndex {
+    #[must_use]
+    pub fn new() -> MemoryIndex {
+        MemoryIndex::default()
+    }
+
+    /// Entries (files and folder markers).
+    #[must_use]
+    pub fn len(&self) -> usize {
+        lock(&self.entries).len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        lock(&self.entries).is_empty()
+    }
+}
+
+impl NameIndex for MemoryIndex {
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        Ok(lock(&self.entries).get(path).cloned())
+    }
+
+    /// An index in memory keeps no history: its head is everything there is.
+    fn live_objects(&self, _now: u64) -> Result<Option<LiveObjects>, DriveError> {
+        Ok(None)
+    }
+
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        let entries = lock(&self.entries);
+        // (key, entry): an entry, or `None` for a folder (a common prefix).
+        let mut found: Vec<(String, Option<IndexEntry>)> = Vec::new();
+        for (path, entry) in entries.range(request.prefix.clone()..) {
+            if !path.starts_with(&request.prefix) {
+                break;
+            }
+            let rest = &path[request.prefix.len()..];
+            let folder = request
+                .delimiter
+                .as_deref()
+                .filter(|d| !d.is_empty())
+                .and_then(|d| rest.find(d).map(|i| &rest[..i + d.len()]));
+            match folder {
+                Some(folder) => {
+                    let folder = format!("{}{folder}", request.prefix);
+                    if found.last().map(|(k, _)| k.as_str()) != Some(folder.as_str()) {
+                        found.push((folder, None));
+                    }
+                }
+                None => found.push((path.clone(), Some(entry.clone()))),
+            }
+        }
+        found.sort_by(|a, b| a.0.cmp(&b.0));
+        found.dedup_by(|a, b| a.0 == b.0);
+        if let Some(after) = request.continuation.as_deref() {
+            found.retain(|(key, _)| key.as_str() > after);
+        }
+        let size = if request.max_keys == 0 {
+            DEFAULT_PAGE_SIZE as usize
+        } else {
+            request.max_keys as usize
+        };
+        let next = (found.len() > size).then(|| found[size - 1].0.clone());
+        found.truncate(size);
+        let mut page = IndexPage {
+            next,
+            ..IndexPage::default()
+        };
+        for (key, entry) in found {
+            match entry {
+                Some(entry) => page.entries.push((key, entry)),
+                None => page.folders.push(key),
+            }
+        }
+        Ok(page)
+    }
+
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        let mut entries = lock(&self.entries);
+        // Every expectation against the state the earlier changes of the batch leave.
+        let mut staged: BTreeMap<String, Option<IndexEntry>> = BTreeMap::new();
+        for change in &changes {
+            let path = change.path();
+            let current = match staged.get(path) {
+                Some(staged) => staged.clone(),
+                None => entries.get(path).cloned(),
+            };
+            if !change.expect().holds(current.as_ref()) {
+                return Err(DriveError::Conflict {
+                    key: path.to_string(),
+                });
+            }
+            let next = match change {
+                IndexChange::Put { entry, .. } => Some(entry.clone()),
+                IndexChange::Remove { .. } => None,
+            };
+            staged.insert(path.to_string(), next);
+        }
+        let mut before: Vec<ObjectId> = staged
+            .keys()
+            .filter_map(|path| entries.get(path).and_then(IndexEntry::bucket_object))
+            .collect();
+        for (path, next) in staged {
+            match next {
+                Some(entry) => {
+                    entries.insert(path, entry);
+                }
+                None => {
+                    entries.remove(&path);
+                }
+            }
+        }
+        before.sort();
+        before.dedup();
+        before.retain(|id| !entries.values().any(|e| e.bucket_object() == Some(*id)));
+        Ok(Released::delete_now(before))
+    }
+}
+
+/// The listing's and `head`'s view of an entry: the plaintext size, the date, the object id
+/// as the entity tag (a new one for every write; [`Precondition::Matches`] takes it).
+pub(crate) fn info_of(path: String, entry: &IndexEntry) -> ObjectInfo {
+    ObjectInfo {
+        key: path,
+        size: entry.size,
+        modified: entry.modified,
+        etag: entry.object_id().map(|id| id.to_hex()),
+    }
+}
+
+/// A failed read of an object through a drive: the drive's own error, or the format's.
+#[derive(Debug)]
+pub enum ReadError {
+    Drive(DriveError),
+    Crypto(CryptoError),
+}
+
+impl From<CryptoError> for ReadError {
+    fn from(e: CryptoError) -> Self {
+        ReadError::Crypto(e)
+    }
+}
+
+impl From<ReadError> for io::Error {
+    fn from(e: ReadError) -> Self {
+        match e {
+            ReadError::Drive(e) => io::Error::other(e),
+            ReadError::Crypto(e) => e.into(),
+        }
+    }
+}
+
+/// An object in a drive as an AZL1 source: every read is one ranged GET.
+pub struct DriveObject<'a> {
+    drive: &'a dyn Drive,
+    key: String,
+}
+
+impl<'a> DriveObject<'a> {
+    #[must_use]
+    pub fn new(drive: &'a dyn Drive, object: &ObjectId) -> DriveObject<'a> {
+        DriveObject {
+            drive,
+            key: object.bucket_key(),
+        }
+    }
+}
+
+impl ObjectSource for DriveObject<'_> {
+    type Error = ReadError;
+
+    fn read_at(&self, offset: u64, len: u64) -> Result<Vec<u8>, ReadError> {
+        let cut = || ReadError::Crypto(CryptoError::Damaged(String::from("the object is cut short")));
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        let range = ByteRange::new(offset, Some(offset + len - 1));
+        let bytes = match self.drive.get_range(&self.key, range) {
+            Ok(bytes) => bytes,
+            Err(DriveError::InvalidRange { .. }) => return Err(cut()),
+            Err(e) => return Err(ReadError::Drive(e)),
+        };
+        if bytes.len() as u64 != len {
+            return Err(cut());
+        }
+        Ok(bytes)
+    }
+}
+
+/// A read's error as the drive's, about `path`: an object missing from the bucket is a
+/// damaged drive, not a missing file.
+pub(crate) fn read_error(e: ReadError, path: &str) -> DriveError {
+    match e {
+        ReadError::Drive(DriveError::NotFound { .. }) => DriveError::Corrupt {
+            key: path.to_string(),
+            reason: String::from("its object is missing from the bucket"),
+        },
+        ReadError::Drive(e) => e,
+        ReadError::Crypto(e) => e.for_key(path),
+    }
+}
+
+/// Bytes a spool keeps in memory before it moves to a temporary file.
+const SPOOL_MEMORY: usize = 8 << 20;
+
+/// Opened objects kept (their header and trailer read): reads of ranges of the same files
+/// need no more than the GET of their segments.
+const OPENED_CACHE: usize = 64;
+
+/// Where a streamed object is put together before it goes to the inner drive (its header is
+/// written last): memory up to [`SPOOL_MEMORY`] bytes, then a scratch file ([`Scratch`], purpose
+/// `spool`: a private folder, `rw-------`, a name that says which process made it) that holds
+/// ciphertext only and is removed when the spool is dropped; what a killed program leaves is
+/// swept by the next one (AZ-C6).
+pub(crate) struct Spool {
+    memory: Cursor<Vec<u8>>,
+    file: Option<ScratchFile>,
+    scratch: Scratch,
+}
+
+impl Spool {
+    pub(crate) fn new() -> Spool {
+        Spool::in_scratch(Scratch::new("spool"))
+    }
+
+    /// A spool whose file is made in `scratch` (a test's folder).
+    pub(crate) fn in_scratch(scratch: Scratch) -> Spool {
+        Spool {
+            memory: Cursor::new(Vec::new()),
+            file: None,
+            scratch,
+        }
+    }
+
+    /// Whether the spool went to a file.
+    pub(crate) fn is_in_file(&self) -> bool {
+        self.file.is_some()
+    }
+
+    /// Moves what is in memory to a new scratch file, keeping the position.
+    fn move_to_file(&mut self) -> io::Result<()> {
+        let mut file = self.scratch.file()?;
+        // A failed move drops `file`, which removes it.
+        file.write_all(self.memory.get_ref())?;
+        file.seek(SeekFrom::Start(self.memory.position()))?;
+        self.memory = Cursor::new(Vec::new());
+        self.file = Some(file);
+        Ok(())
+    }
+}
+
+impl Write for Spool {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.file.is_none() && self.memory.position() as usize + buf.len() > SPOOL_MEMORY {
+            self.move_to_file()?;
+        }
+        match &mut self.file {
+            Some(file) => file.write(buf),
+            None => self.memory.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match &mut self.file {
+            Some(file) => file.flush(),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Seek for Spool {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        match &mut self.file {
+            Some(file) => file.seek(to),
+            None => self.memory.seek(to),
+        }
+    }
+}
+
+impl Read for Spool {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match &mut self.file {
+            Some(file) => file.read(buf),
+            None => self.memory.read(buf),
+        }
+    }
+}
+
+/// The first bytes of a large file read to tell it from a small one: wiped when its reader
+/// goes.
+struct WipedHead(zeroize::Zeroizing<Vec<u8>>);
+
+impl AsRef<[u8]> for WipedHead {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// A file shared under a share key: the object and the file key wrapped for the share. With
+/// the share key and the object (the bucket, or a link to the object), [`read_shared`] reads
+/// this file and no other.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SharedFile {
+    pub object: ObjectId,
+    pub stored_size: u64,
+    pub wrapped_key: WrappedKey,
+}
+
+/// The plaintext of a shared file from `bucket` (the drive's bucket, or a drive that reaches
+/// the object through a link), opened with the share key.
+pub fn read_shared(
+    bucket: &dyn Drive,
+    file: &SharedFile,
+    share: &ShareKey,
+) -> Result<Vec<u8>, DriveError> {
+    let key = file.object.bucket_key();
+    let file_key = share
+        .unwrap_file_key(&file.wrapped_key, &file.object)
+        .map_err(|e| e.for_key(&key))?;
+    let limit = crate::Limit::new("a shared file's object", file.stored_size);
+    let bytes = bucket.get_limited(&key, limit)?;
+    if bytes.len() as u64 != file.stored_size {
+        return Err(DriveError::Corrupt {
+            key,
+            reason: String::from("the object is not the size the share names"),
+        });
+    }
+    azl1::decrypt(&bytes, &file.object, &file_key).map_err(|e| e.for_key(&key))
+}
+
+/// What an encrypted drive's index holds ([`EncryptedDrive::totals`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Totals {
+    pub files: u64,
+    /// The files' size before compression.
+    pub original_bytes: u64,
+    /// Their objects' bytes in the bucket (compressed and encrypted) as this device's index
+    /// records them: an ESTIMATE of the quota's count, for when the node does not say its own
+    /// ([`crate::S3Drive::space`] is the figure).
+    pub stored_bytes: u64,
+}
+
+/// What [`EncryptedDrive::rewrite`] did.
+pub(crate) enum Rewrite {
+    /// The path names the new object now; the old one left the bucket (when nothing else
+    /// names it).
+    Replaced(ObjectSummary),
+    /// `keep` declined the new object: nothing was uploaded.
+    Declined,
+    /// The path changed while it was rewritten (or went): the new object left the bucket again.
+    Conflict,
+}
+
+/// What became of a new object whose index change failed ([`Staged::failed`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use]
+pub(crate) enum Settled {
+    /// The index names the object: the change landed and only its answer got lost.
+    Named,
+    /// The change was never made (the index's own expectation did not hold, or the call was
+    /// stopped before it went out), nothing names the object, and it is out of the bucket again.
+    Dropped,
+    /// The object stays in the bucket, written in the journal of what is in flight: the change may
+    /// have landed (no answer, a service error, a refusal of POLICY - the answer of the last request
+    /// of a write the transport sent again, X-DELTA-SYNC7-1), the index could not be asked, or the
+    /// bucket would not delete it. An object nothing names is garbage at worst; one deleted while
+    /// the index names it is a file lost.
+    Kept,
+}
+
+/// A new data object that is in the bucket and that no index entry names yet: the object of a
+/// write between its upload and the index change that is to name it. It ends in one of three
+/// ways, and only the third deletes anything: the index named it ([`Staged::bound`]), or the
+/// change failed ([`Staged::failed`]) and the error says what is known of the change - never
+/// made (the index's own expectation did not hold, or the call never went out), the object goes;
+/// anything else, a refusal of policy included, it stays and is journaled (AZ-M1: the same flaw
+/// was written four times, at `bind`, `rewrite`, `promote` and `write_large`; X-AR5a-15; and the
+/// refusal of the LAST request of a write sent again is not the fate of the first, X-DELTA-SYNC7-1).
+pub(crate) struct Staged<'d, D: Drive> {
+    drive: &'d EncryptedDrive<D>,
+    id: ObjectId,
+    path: String,
+}
+
+impl<'d, D: Drive> Staged<'d, D> {
+    /// The object `id`, uploaded for the entry at `path`.
+    pub(crate) fn new(drive: &'d EncryptedDrive<D>, id: ObjectId, path: &str) -> Self {
+        Staged {
+            drive,
+            id,
+            path: path.to_string(),
+        }
+    }
+
+    /// The index named the object: nothing to undo.
+    pub(crate) fn bound(self) {}
+
+    /// The index change that was to name the object ended in `error`. The drive's index is asked
+    /// now, from the drive and not from a copy of it, whether the change landed after all (an
+    /// answer that got lost); an index that cannot be asked leaves the object where it is. Then
+    /// the error decides ([`drop_new_object_after`]): a change that was never made takes the object
+    /// back out of the bucket; one that may have landed - and a refusal of policy may be the answer
+    /// of the repeat of a write whose first request lands after this read - does not.
+    pub(crate) fn failed(self, error: &DriveError) -> Settled {
+        match self.drive.index.get_fresh(&self.path) {
+            Ok(Some(entry)) if entry.bucket_object() == Some(self.id) => return Settled::Named,
+            Ok(_) => {}
+            Err(_) => return self.kept(),
+        }
+        match drop_new_object_after(&self.drive.inner, &self.id, error) {
+            Some(Ok(())) => Settled::Dropped,
+            None | Some(Err(_)) => self.kept(),
+        }
+    }
+
+    /// The object stays, and is written in the journal of what is in flight: the upkeep clears it
+    /// up after a while - when the drive, read fresh and whole, names it, it was a change that
+    /// landed; when nothing does, it is garbage that costs quota.
+    fn kept(self) -> Settled {
+        self.drive.note_in_flight(&self.id);
+        Settled::Kept
+    }
+}
+
+/// `inner` (the bucket) seen through its drive key and its index: what it shows are the
+/// index's names with the plaintext of their objects; what it stores are AZL1 objects under
+/// random keys. See the module documentation.
+pub struct EncryptedDrive<D: Drive> {
+    /// The bucket.
+    pub(crate) inner: D,
+    pub(crate) drive_key: DriveKey,
+    /// The drive keys from before the drive's key rotations ([`crate::crypto::keys::KeyChain`]):
+    /// file keys wrapped by them - the history's old pointers, a restore's - still open.
+    older_keys: Vec<DriveKey>,
+    pub(crate) index: Arc<dyn NameIndex>,
+    /// How new objects are written (segment size, compression).
+    pub(crate) options: WriteOptions,
+    /// Objects opened for ranged reads (their header and trailer read), by id.
+    opened: Mutex<HashMap<ObjectId, Arc<OpenObject>>>,
+    /// Whether and how small files are packed, the packs in flight, the hot packs.
+    pub(crate) packs: PackState,
+    /// Objects the index released for deleting at once that the bucket would not delete: named by
+    /// nothing and counted in the quota, tried again with the next release and by
+    /// [`EncryptedDrive::retry_undeleted`] (AZ-U22).
+    undeleted: Mutex<BTreeSet<ObjectId>>,
+    /// What the upkeep does with an object only the drive's history can still name: with an index
+    /// that keeps history, [`ReclaimMode::Shadow`] reports and deletes nothing.
+    pub(crate) reclaim: ReclaimMode,
+    /// What the drive's shadow rounds last showed: the evidence a drive configured for
+    /// [`ReclaimMode::Delete`] asks the one gate with ([`EncryptedDrive::retired_delete_gate`]); a
+    /// drive without one deletes nothing of what only its history names.
+    reclaim_standing: Option<ReclaimStanding>,
+    /// The refusal of a drive whose index takes no change at all ([`own_rotation_window`]): every
+    /// upload of a data object is refused with it before a byte goes up.
+    changes_refused: Option<DriveError>,
+}
+
+impl<D: Drive> fmt::Debug for EncryptedDrive<D> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EncryptedDrive")
+            .field("drive_key", &self.drive_key.id())
+            .field("options", &self.options)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<D: Drive> EncryptedDrive<D> {
+    /// The bucket `inner` with the drive's key and its index.
+    pub fn new(inner: D, drive_key: DriveKey, index: Arc<dyn NameIndex>) -> EncryptedDrive<D> {
+        EncryptedDrive {
+            inner,
+            drive_key,
+            older_keys: Vec::new(),
+            index,
+            options: WriteOptions::default(),
+            opened: Mutex::new(HashMap::new()),
+            packs: PackState::new(None),
+            undeleted: Mutex::new(BTreeSet::new()),
+            reclaim: DEFAULT_MODE,
+            reclaim_standing: None,
+            changes_refused: None,
+        }
+    }
+
+    /// This drive's index takes no change ([`ReadOnlyIndex`]): every upload is refused with `refusal`, before
+    /// a byte goes up. A data object uploaded for a change the index refuses is an object that stays unless
+    /// the refusal proves nothing was sent (X-DELTA-SYNC7-1), so a drive that knows its index refuses
+    /// everything uploads nothing.
+    #[must_use]
+    pub(crate) fn with_changes_refused(mut self, refusal: DriveError) -> EncryptedDrive<D> {
+        self.changes_refused = Some(refusal);
+        self
+    }
+
+    /// The refusal, when this drive's index takes no change: asked before every upload of a data object.
+    pub(crate) fn refuse_changes(&self) -> Result<(), DriveError> {
+        match &self.changes_refused {
+            Some(refusal) => Err(refusal.clone()),
+            None => Ok(()),
+        }
+    }
+
+    /// The upkeep of this drive is configured by `mode` for the objects only its history can still
+    /// name ([`IndexProvider::reclaim_mode`]); a drive whose index keeps no history is not affected.
+    /// [`ReclaimMode::Delete`] is a configuration, not a licence: the upkeep deletes only when the
+    /// one gate ([`ask_retired_delete`]) says so of the drive's standing
+    /// ([`EncryptedDrive::with_reclaim_standing`]).
+    #[must_use]
+    pub fn with_reclaim(mut self, mode: ReclaimMode) -> EncryptedDrive<D> {
+        self.reclaim = mode;
+        self
+    }
+
+    /// What the drive's shadow rounds last showed, as the upkeep asks it ([`ReclaimStanding`]).
+    #[must_use]
+    pub fn with_reclaim_standing(mut self, standing: ReclaimStanding) -> EncryptedDrive<D> {
+        self.reclaim_standing = Some(standing);
+        self
+    }
+
+    /// The answer of the one gate ([`ask_retired_delete`]) for the upkeep of a drive that keeps
+    /// history, at `now`: its configured mode and the standing its provider holds of the last judged
+    /// shadow round. A licence only for a drive configured to delete whose evidence is there -
+    /// else what holds the delete back (X-DELTA-SYNC2-2).
+    pub(crate) fn retired_delete_gate(&self, now: u64) -> Gate {
+        let standing = self
+            .reclaim_standing
+            .as_ref()
+            .and_then(|standing| standing(now));
+        ask_retired_delete(
+            History::Kept {
+                mode: self.reclaim,
+                standing: standing.as_ref(),
+                // Read now, not remembered: a hold takes effect at this delete (X-DELTA-AZDRIVE-SYNC-6).
+                switch: Switch::read_drive(&self.inner),
+            },
+            now,
+        )
+    }
+
+    /// Writes with these options (segment size, compression) from now on.
+    #[must_use]
+    pub fn with_options(mut self, options: WriteOptions) -> EncryptedDrive<D> {
+        self.options = options;
+        self
+    }
+
+    /// Also opens the file keys wrapped by these older drive keys (from before a key rotation).
+    /// Everything written from now on is wrapped by the drive's current key.
+    #[must_use]
+    pub fn with_older_keys(mut self, keys: Vec<DriveKey>) -> EncryptedDrive<D> {
+        self.older_keys = keys;
+        self
+    }
+
+    /// Also opens the file keys wrapped by `key`, besides the older keys already known: the key a
+    /// window's drive key replaced.
+    #[must_use]
+    fn also_opening_file_keys_of(mut self, key: DriveKey) -> EncryptedDrive<D> {
+        if !self.older_keys.contains(&key) {
+            self.older_keys.push(key);
+        }
+        self
+    }
+
+    /// Opens the drive's key chain in its bucket with the current drive key, and with it the
+    /// older keys ([`Self::with_older_keys`]): a drive that was rotated reads its history. A
+    /// drive that never was has no chain. A chain that is damaged, or whose links do not open,
+    /// gives fewer keys, never wrong ones.
+    pub fn with_key_chain(self, drive: &str) -> Result<EncryptedDrive<D>, DriveError> {
+        let older = match load_key_chain(&self.inner) {
+            Ok(Some(chain)) => chain.open(drive, &self.drive_key),
+            Ok(None) => Vec::new(),
+            // A file that is damaged, or too big to be a chain (the bucket's writers can put
+            // either there), opens nothing: fewer keys, as this says, and not a drive that no
+            // device opens. The files of the history that needed a key it held read as damaged.
+            Err(DriveError::Corrupt { .. }) => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        Ok(self.with_older_keys(older))
+    }
+
+    /// The file key of `object` that `wrapped` holds: opened with the drive key that wrapped it
+    /// - the current one, else an older one of the key chain. `WrongKey` when none of them did.
+    pub(crate) fn unwrap_file_key(
+        &self,
+        wrapped: &WrappedKey,
+        object: &ObjectId,
+    ) -> Result<FileKey, CryptoError> {
+        let key = if wrapped.key_id == self.drive_key.id() {
+            &self.drive_key
+        } else {
+            self.older_keys
+                .iter()
+                .find(|older| older.id() == wrapped.key_id)
+                .unwrap_or(&self.drive_key)
+        };
+        key.unwrap_file_key(wrapped, object)
+    }
+
+    /// The bucket.
+    #[must_use]
+    pub fn inner(&self) -> &D {
+        &self.inner
+    }
+
+    /// The options new objects are written with.
+    #[must_use]
+    pub fn options(&self) -> &WriteOptions {
+        &self.options
+    }
+
+    #[must_use]
+    pub fn index(&self) -> &Arc<dyn NameIndex> {
+        &self.index
+    }
+
+    /// The id of the drive key this drive reads and writes with.
+    #[must_use]
+    pub fn drive_key_id(&self) -> KeyId {
+        self.drive_key.id()
+    }
+
+    /// Whether `id` is the id of the drive key this drive reads and writes with, or of an older
+    /// key of its chain (a key a rotation replaced).
+    #[must_use]
+    pub fn holds_key(&self, id: &KeyId) -> bool {
+        self.drive_key.id() == *id || self.older_keys.iter().any(|older| older.id() == *id)
+    }
+
+    /// Forgets the opened objects (their derived keys are wiped): when the drive locks.
+    pub fn forget_opened(&self) {
+        lock(&self.opened).clear();
+    }
+
+    /// The index entry of `path` (a file, or a folder marker ending in `/`).
+    pub fn entry(&self, path: &str) -> Result<IndexEntry, DriveError> {
+        if path.ends_with('/') {
+            check_folder(path)?;
+            check_prefix(path)?;
+        } else {
+            check_key(path)?;
+        }
+        self.index.get(path)?.ok_or_else(|| DriveError::NotFound {
+            key: path.to_string(),
+        })
+    }
+
+    /// The header and the tail of the object (cached), then one ranged GET of the segments covering
+    /// the range - of the object the name names now, and of this version only when `pin` is one: the
+    /// object id as [`Drive::head`] shows it ([`DriveError::Conflict`] for another, before any byte of
+    /// it is read).
+    fn ranged(
+        &self,
+        key: &str,
+        range: ByteRange,
+        pin: Option<&str>,
+    ) -> Result<Vec<u8>, DriveError> {
+        let entry = self.entry(key)?;
+        let Some(object) = &entry.object else {
+            return Err(DriveError::NotFound {
+                key: key.to_string(),
+            });
+        };
+        if let Some(tag) = pin {
+            if !same_etag(info_of(key.to_string(), &entry).etag.as_deref(), tag) {
+                return Err(DriveError::Conflict {
+                    key: key.to_string(),
+                });
+            }
+        }
+        let out_of_range = || DriveError::InvalidRange {
+            key: key.to_string(),
+        };
+        if range.start >= entry.size {
+            return Err(out_of_range());
+        }
+        let end = range
+            .end
+            .map_or(entry.size - 1, |end| end.min(entry.size - 1));
+        if end < range.start {
+            return Err(out_of_range());
+        }
+        if let Some(packed) = &object.packed {
+            // A packed file is small: it is read whole (one ranged GET) and cut here.
+            let plain = zeroize::Zeroizing::new(self.read_packed(key, &entry, object, packed)?);
+            return Ok(plain[range.start as usize..=end as usize].to_vec());
+        }
+        let open = self.opened(key, object)?;
+        let source = DriveObject::new(&self.inner, &object.id);
+        open.read_range(&source, range.start, end)
+            .map_err(|e| read_error(e, key))
+    }
+
+    /// The object of the file `path` (a folder marker has none: not found as a file).
+    fn object_of(&self, path: &str) -> Result<StoredObject, DriveError> {
+        self.entry(path)?.object.ok_or_else(|| DriveError::NotFound {
+            key: path.to_string(),
+        })
+    }
+
+    /// `path`'s object opened (its header and trailer read and checked against the index),
+    /// from the cache when it was opened before.
+    fn opened(&self, path: &str, object: &StoredObject) -> Result<Arc<OpenObject>, DriveError> {
+        if let Some(open) = lock(&self.opened).get(&object.id) {
+            return Ok(Arc::clone(open));
+        }
+        let file_key = self
+            .unwrap_file_key(&object.wrapped_key, &object.id)
+            .map_err(|e| e.for_key(path))?;
+        let source = DriveObject::new(&self.inner, &object.id);
+        // The header's length against the index's before the tail is read: the tail's size is
+        // the header's word.
+        let open = OpenObject::open_expecting(&source, &object.id, &file_key, object.stored_size)
+            .map_err(|e| read_error(e, path))?;
+        let same_hash = blake3::Hash::from_bytes(open.blake3()) == object.blake3;
+        if open.object_len() != object.stored_size || !same_hash {
+            return Err(DriveError::Corrupt {
+                key: path.to_string(),
+                reason: String::from("the object is not the one the index names"),
+            });
+        }
+        let open = Arc::new(open);
+        let mut cache = lock(&self.opened);
+        if cache.len() >= OPENED_CACHE {
+            cache.clear();
+        }
+        cache.insert(object.id, Arc::clone(&open));
+        Ok(open)
+    }
+
+    /// A reader of `path`'s plaintext, a segment at a time (one ranged GET each). A packed file
+    /// (small: it is read whole with `get`) has none: `Unsupported`.
+    pub fn open_reader(&self, path: &str) -> Result<Azl1Reader<DriveObject<'_>>, DriveError> {
+        let object = self.object_of(path)?;
+        if object.packed.is_some() {
+            return Err(DriveError::Unsupported(format!(
+                "a segment reader of the packed file \"{path}\" (read it whole)"
+            )));
+        }
+        let file_key = self
+            .unwrap_file_key(&object.wrapped_key, &object.id)
+            .map_err(|e| e.for_key(path))?;
+        let source = DriveObject::new(&self.inner, &object.id);
+        let open = OpenObject::open_expecting(&source, &object.id, &file_key, object.stored_size)
+            .map_err(|e| read_error(e, path))?;
+        Ok(open.into_reader(source))
+    }
+
+    /// Puts a new object's bytes: conditionally where the inner drive can.
+    pub(crate) fn put_object(&self, id: &ObjectId, bytes: &[u8]) -> Result<(), DriveError> {
+        self.refuse_changes()?;
+        let key = id.bucket_key();
+        match self.inner.put_if(&key, bytes, &Precondition::Absent) {
+            Ok(_) => Ok(()),
+            Err(DriveError::Unsupported(_)) => self.inner.put(&key, bytes),
+            // The id is 128 random bits, so an object under it is this very write: its answer was
+            // lost and the request, sent again, met the object it had made. A 412 is only the
+            // storage's word for it: the object is looked at before the write counts as done
+            // (AZ-C13) - a proxy or a node that refuses for another reason leaves no object, and a
+            // name bound to it would be a name without its bytes.
+            Err(DriveError::Conflict { .. }) => self.landed_already(&key, bytes.len() as u64),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// A conditional write of a new object answered "precondition failed": whether the object
+    /// under `key` is the write itself - there, with the length of what was sent. The storage
+    /// holding no such object is a refusal for another reason; an object of another length is not
+    /// ours.
+    fn landed_already(&self, key: &str, sent: u64) -> Result<(), DriveError> {
+        match self.inner.head(key) {
+            Ok(info) if info.size == sent => Ok(()),
+            Ok(info) => Err(DriveError::Corrupt {
+                key: key.to_string(),
+                reason: format!(
+                    "an object of {} bytes is under the key of a write of {sent} bytes",
+                    info.size
+                ),
+            }),
+            Err(DriveError::NotFound { .. }) => Err(DriveError::Protocol(format!(
+                "the storage refused the new object \"{key}\" (precondition failed) and holds no \
+                 such object"
+            ))),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Names the new object in the index (when `expect` holds); takes the object back out of
+    /// the bucket when the change was never made ([`Staged::failed`]), and deletes what the
+    /// index released.
+    pub(crate) fn bind(
+        &self,
+        path: &str,
+        summary: ObjectSummary,
+        expect: Expect,
+    ) -> Result<ObjectInfo, DriveError> {
+        let id = summary.object_id;
+        let entry = IndexEntry {
+            size: summary.plaintext_size,
+            modified: Some(now_unix()),
+            object: Some(StoredObject {
+                id,
+                stored_size: summary.object_len,
+                blake3: summary.blake3,
+                wrapped_key: summary.wrapped_key,
+                compressed: summary.compressed,
+                packed: None,
+            }),
+        };
+        let info = info_of(path.to_string(), &entry);
+        let change = IndexChange::Put {
+            path: path.to_string(),
+            entry,
+            expect,
+        };
+        let staged = Staged::new(self, id, path);
+        match self.index.apply(vec![change]) {
+            Ok(released) => {
+                staged.bound();
+                self.release(released);
+                Ok(info)
+            }
+            Err(e) => match staged.failed(&e) {
+                // The change landed and only its answer got lost.
+                Settled::Named => Ok(info),
+                Settled::Dropped | Settled::Kept => Err(e),
+            },
+        }
+    }
+
+    /// Deletes the objects the index released for deleting at once ([`Released::delete_now`]; an
+    /// index that keeps history releases none: its objects stay until the reclaimer proves them
+    /// past their retention). What the bucket would not delete is named by nothing and counts in
+    /// the quota; it is kept ([`EncryptedDrive::undeleted`]) and tried again with the next release
+    /// and by [`EncryptedDrive::retry_undeleted`]. It is no error of the call that released it.
+    pub(crate) fn release(&self, released: Released) {
+        {
+            let mut cache = lock(&self.opened);
+            for id in released.delete_now.iter().chain(&released.held_by_history) {
+                cache.remove(id);
+            }
+        }
+        for id in released.delete_now.iter().chain(&released.held_by_history) {
+            self.forget_pack(id);
+        }
+        let mut now = released.delete_now;
+        now.extend(std::mem::take(&mut *lock(&self.undeleted)));
+        now.sort();
+        now.dedup();
+        let failed = delete_released(&self.inner, &Released::delete_now(now));
+        lock(&self.undeleted).extend(failed.into_iter().map(|(id, _)| id));
+    }
+
+    /// The objects an index released that the bucket would not delete yet: named by nothing,
+    /// counted in the quota, tried again by the next release and [`EncryptedDrive::retry_undeleted`].
+    #[must_use]
+    pub fn undeleted(&self) -> Vec<ObjectId> {
+        lock(&self.undeleted).iter().copied().collect()
+    }
+
+    /// Tries to delete the [`EncryptedDrive::undeleted`] objects again; how many are left.
+    pub fn retry_undeleted(&self) -> usize {
+        self.release(Released::none());
+        lock(&self.undeleted).len()
+    }
+
+    /// Writes `path` from `bytes` when `expect` holds of its index entry; what the listing now
+    /// shows of it.
+    pub fn write(&self, path: &str, bytes: &[u8], expect: Expect) -> Result<ObjectInfo, DriveError> {
+        check_key(path)?;
+        if self.packs_size(bytes.len() as u64) {
+            return self.write_packed(path, bytes, expect);
+        }
+        let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
+        let hint = FileHint::for_path(path, Some(bytes.len() as u64));
+        let (object, summary) = azl1::encrypt_as(bytes, id, &self.drive_key, &self.options, &hint)
+            .map_err(|e| e.for_key(path))?;
+        self.put_object(&id, &object)?;
+        self.bind(path, summary, expect)
+    }
+
+    /// Writes `path` from what `body` reads, when `expect` holds of its index entry: one
+    /// segment of plaintext in memory at a time; the object put together in a spool and
+    /// handed to the inner drive's `put_from` (a conditional PUT when it fits in memory). A
+    /// drive that packs reads up to its threshold first: a body that ends before it is packed.
+    pub fn write_from(
+        &self,
+        path: &str,
+        body: &mut dyn Read,
+        expect: Expect,
+    ) -> Result<ObjectInfo, DriveError> {
+        self.write_from_ctl(path, body, expect, &Quiet)
+    }
+
+    /// [`EncryptedDrive::write_from`] that stops, with [`DriveError::Cancelled`] and nothing named,
+    /// once `ctl` says so - in either long phase: the body read into the spool, and the spool
+    /// sent to the bucket, which used to go on to its end whatever was pressed
+    /// (X-DELTA-AZDRIVE-FILES-13).
+    pub fn write_from_ctl(
+        &self,
+        path: &str,
+        body: &mut dyn Read,
+        expect: Expect,
+        ctl: &dyn Ctl,
+    ) -> Result<ObjectInfo, DriveError> {
+        check_key(path)?;
+        let Some(threshold) = self.pack_threshold() else {
+            return self.write_stream(path, body, expect, ctl);
+        };
+        let head = crate::crypto::read_wiped(&mut *body, threshold)?;
+        if (head.len() as u64) < threshold {
+            return self.write_packed(path, &head, expect);
+        }
+        let mut whole = Cursor::new(head.as_slice()).chain(body);
+        self.write_stream(path, &mut whole, expect, ctl)
+    }
+
+    /// [`EncryptedDrive::write_from`] into an object of its own.
+    fn write_stream(
+        &self,
+        path: &str,
+        body: &mut dyn Read,
+        expect: Expect,
+        ctl: &dyn Ctl,
+    ) -> Result<ObjectInfo, DriveError> {
+        let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
+        let mut spool = Spool::new();
+        let hint = FileHint::for_path(path, None);
+        let mut stoppable = crate::transfer::StopReader::new(body, ctl);
+        let summary = azl1::encrypt_stream_as(
+            &mut stoppable,
+            &mut spool,
+            id,
+            &self.drive_key,
+            &self.options,
+            &hint,
+        )
+        .map_err(|e| e.for_key(path))?;
+        self.put_spooled(&id, spool, ctl)?;
+        self.bind(path, summary, expect)
+    }
+
+    /// Puts a new object from its spool: conditionally when it is in memory, streamed through
+    /// the inner drive's `put_from` when it went to a file - read through a reader that asks `ctl`
+    /// before every read, so a stop reaches the upload (the bucket aborts it).
+    fn put_spooled(
+        &self,
+        id: &ObjectId,
+        mut spool: Spool,
+        ctl: &dyn Ctl,
+    ) -> Result<(), DriveError> {
+        self.refuse_changes()?;
+        if ctl.cancelled() {
+            return Err(DriveError::Cancelled);
+        }
+        if spool.is_in_file() {
+            spool.seek(SeekFrom::Start(0))?;
+            let mut stoppable = crate::transfer::StopReader::new(&mut spool, ctl);
+            self.inner.put_from(&id.bucket_key(), &mut stoppable)?;
+            Ok(())
+        } else {
+            let bytes = std::mem::take(spool.memory.get_mut());
+            self.put_object(id, &bytes)
+        }
+    }
+
+    /// Writes the file `path` again - the same plaintext from `body` (its reader), a NEW object
+    /// with a new file key, under `options` and the drive key this drive holds now - and names
+    /// it in `entry`'s place when the path still names `entry`'s object
+    /// ([`Expect::Object`]); the size and the date stay `entry`'s (a rewrite is no edit).
+    /// `keep` sees the new object before it is uploaded and may decline it. `before_bind` runs
+    /// between the upload and the index change (the tests' concurrent edit). The plaintext
+    /// must hash to `entry`'s BLAKE3, else nothing changes and the file is `Corrupt`.
+    pub(crate) fn rewrite(
+        &self,
+        path: &str,
+        entry: &IndexEntry,
+        body: &mut dyn Read,
+        options: &WriteOptions,
+        keep: &dyn Fn(&ObjectSummary) -> bool,
+        before_bind: &dyn Fn(),
+    ) -> Result<Rewrite, DriveError> {
+        let Some(old) = &entry.object else {
+            return Err(DriveError::NotFound {
+                key: path.to_string(),
+            });
+        };
+        let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
+        let mut spool = Spool::new();
+        let hint = FileHint::for_path(path, Some(entry.size));
+        let summary = azl1::encrypt_stream_as(body, &mut spool, id, &self.drive_key, options, &hint)
+            .map_err(|e| e.for_key(path))?;
+        if summary.blake3 != old.blake3 || summary.plaintext_size != entry.size {
+            return Err(DriveError::Corrupt {
+                key: path.to_string(),
+                reason: String::from("its plaintext is not the one the index names"),
+            });
+        }
+        if !keep(&summary) {
+            return Ok(Rewrite::Declined);
+        }
+        self.put_spooled(&id, spool, &Quiet)?;
+        before_bind();
+        let new_entry = IndexEntry {
+            size: entry.size,
+            modified: entry.modified,
+            object: Some(StoredObject {
+                id,
+                stored_size: summary.object_len,
+                blake3: summary.blake3,
+                wrapped_key: summary.wrapped_key.clone(),
+                compressed: summary.compressed,
+                packed: None,
+            }),
+        };
+        let change = IndexChange::Put {
+            path: path.to_string(),
+            entry: new_entry,
+            expect: Expect::Object(old.id),
+        };
+        let staged = Staged::new(self, id, path);
+        match self.index.apply(vec![change]) {
+            Ok(released) => {
+                staged.bound();
+                self.release(released);
+                Ok(Rewrite::Replaced(summary))
+            }
+            Err(e) => match (staged.failed(&e), e) {
+                (Settled::Named, _) => Ok(Rewrite::Replaced(summary)),
+                (Settled::Dropped | Settled::Kept, DriveError::Conflict { .. }) => {
+                    Ok(Rewrite::Conflict)
+                }
+                (Settled::Dropped | Settled::Kept, other) => Err(other),
+            },
+        }
+    }
+
+    /// `path`'s file key wrapped for `share`: what a share of the file carries. The drive key
+    /// stays out of it; a share of a folder is a share of each of its files (folder keys come
+    /// with the metadata repository).
+    pub fn share_file(&self, path: &str, share: &ShareKey) -> Result<SharedFile, DriveError> {
+        let object = self.object_of(path)?;
+        // A pack's key opens every file in the pack: the file moves into an object of its own.
+        let object = if object.packed.is_some() {
+            self.promote(path)?
+        } else {
+            object
+        };
+        let file_key = self
+            .unwrap_file_key(&object.wrapped_key, &object.id)
+            .map_err(|e| e.for_key(path))?;
+        let wrapped_key = share
+            .wrap_file_key(&file_key, &object.id)
+            .map_err(|e| e.for_key(path))?;
+        Ok(SharedFile {
+            object: object.id,
+            stored_size: object.stored_size,
+            wrapped_key,
+        })
+    }
+
+    /// Moves the packed file `path` into an object of its own (when it still names that
+    /// version); its record in the pack becomes garbage. Its new object.
+    pub(crate) fn promote(&self, path: &str) -> Result<StoredObject, DriveError> {
+        let entry = self.entry(path)?;
+        let Some(object) = entry.object.clone() else {
+            return Err(DriveError::NotFound {
+                key: path.to_string(),
+            });
+        };
+        let Some(packed) = object.packed.clone() else {
+            return Ok(object);
+        };
+        let plain = zeroize::Zeroizing::new(self.read_packed(path, &entry, &object, &packed)?);
+        let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
+        let hint = FileHint::for_path(path, Some(plain.len() as u64));
+        let (bytes, summary) = azl1::encrypt_as(&plain, id, &self.drive_key, &self.options, &hint)
+            .map_err(|e| e.for_key(path))?;
+        self.put_object(&id, &bytes)?;
+        let own = StoredObject {
+            id,
+            stored_size: summary.object_len,
+            blake3: summary.blake3,
+            wrapped_key: summary.wrapped_key,
+            compressed: summary.compressed,
+            packed: None,
+        };
+        let change = IndexChange::Put {
+            path: path.to_string(),
+            entry: IndexEntry {
+                size: entry.size,
+                modified: entry.modified,
+                object: Some(own.clone()),
+            },
+            expect: Expect::Object(object.id),
+        };
+        let staged = Staged::new(self, id, path);
+        match self.index.apply(vec![change]) {
+            Ok(released) => {
+                staged.bound();
+                self.release(released);
+                Ok(own)
+            }
+            Err(e) => match staged.failed(&e) {
+                Settled::Named => Ok(own),
+                Settled::Dropped | Settled::Kept => Err(e),
+            },
+        }
+    }
+
+    /// What the drive's index holds: its files, their size before compression and their
+    /// objects' bytes in the bucket (an object two paths name - a copy - counted once, a pack
+    /// once with all its padding and garbage). The
+    /// quota counts stored bytes as the drive's node counts them ([`crate::S3Drive::space`]);
+    /// [`Totals::stored_bytes`] is only this device's estimate of that (the index's own objects
+    /// aside), the original size only extra information. Walks the whole index: call it from a
+    /// worker thread.
+    pub fn totals(&self) -> Result<Totals, DriveError> {
+        let mut totals = Totals::default();
+        let mut seen: HashSet<ObjectId> = HashSet::new();
+        for (_, entry) in self.all_entries("")? {
+            let Some(object) = entry.object.as_ref() else {
+                continue;
+            };
+            totals.files += 1;
+            totals.original_bytes += entry.size;
+            if seen.insert(object.bucket_object()) {
+                totals.stored_bytes += object
+                    .packed
+                    .as_ref()
+                    .map_or(object.stored_size, |packed| packed.pack.object_len);
+            }
+        }
+        Ok(totals)
+    }
+
+    /// Every entry under `prefix`, across all pages.
+    pub(crate) fn all_entries(&self, prefix: &str) -> Result<Vec<(String, IndexEntry)>, DriveError> {
+        let mut out = Vec::new();
+        let mut request = ListRequest::recursive(prefix);
+        loop {
+            let page = self.index.list(&request)?;
+            out.extend(page.entries);
+            match page.next {
+                Some(token) => request = request.with_continuation(token),
+                None => break,
+            }
+        }
+        Ok(out)
+    }
+
+    /// What a remove or a move of `entry` expects: its object, or (a folder marker) that it is
+    /// there.
+    fn expect_of(entry: &IndexEntry) -> Expect {
+        match entry.object_id() {
+            Some(id) => Expect::Object(id),
+            None => Expect::Present,
+        }
+    }
+
+    fn taken(key: &str) -> DriveError {
+        DriveError::InvalidKey {
+            key: key.to_string(),
+            reason: "something has this name already",
+        }
+    }
+
+    /// [`Drive::put_from_many`]: each body read up to the packing threshold first; one that ends
+    /// before it goes into a pack ([`EncryptedDrive::write_many`]), every larger file into an
+    /// object of its own - [`PARALLEL_FILES`] uploads at once - and all of those are named in
+    /// ONE index change. A crash before that change leaves objects nothing names (garbage for
+    /// the collector), never a name without its bytes; a path whose condition failed drops
+    /// out, and its object leaves the bucket again.
+    fn write_streams(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        let mut results: Vec<Option<Result<Option<String>, DriveError>>> = vec![None; items.len()];
+        // (item, its bytes) of the small files; (item, path, what the path must hold, reader) of
+        // the large ones.
+        let mut small: Vec<(usize, &str, Option<&Precondition>, zeroize::Zeroizing<Vec<u8>>)> =
+            Vec::new();
+        let mut large: Vec<(usize, &str, Expect, Box<dyn Read + Send + '_>)> = Vec::new();
+        let threshold = self.pack_threshold();
+        for (i, item) in items.iter_mut().enumerate() {
+            let expect = match item.condition {
+                None => Ok(Expect::Any),
+                Some(condition) => expect_of(item.key, condition),
+            };
+            let expect = match expect.and_then(|e| check_key(item.key).map(|()| e)) {
+                Ok(expect) => expect,
+                Err(e) => {
+                    results[i] = Some(Err(e));
+                    continue;
+                }
+            };
+            let (key, condition) = (item.key, item.condition);
+            let body: &mut (dyn Read + Send) = &mut *item.body;
+            let Some(threshold) = threshold else {
+                large.push((i, key, expect, Box::new(body)));
+                continue;
+            };
+            let head = match crate::crypto::read_wiped(&mut *body, threshold) {
+                Ok(head) => head,
+                Err(e) => {
+                    results[i] = Some(Err(e.into()));
+                    continue;
+                }
+            };
+            if (head.len() as u64) < threshold {
+                small.push((i, key, condition, head));
+            } else {
+                large.push((i, key, expect, Box::new(Cursor::new(WipedHead(head)).chain(body))));
+            }
+        }
+        if !small.is_empty() {
+            let puts: Vec<BatchPut<'_>> = small
+                .iter()
+                .map(|(_, key, condition, bytes)| BatchPut {
+                    key: *key,
+                    bytes: bytes.as_slice(),
+                    condition: *condition,
+                })
+                .collect();
+            for ((i, _, _, _), result) in small.iter().zip(self.write_many(&puts)) {
+                results[*i] = Some(result);
+            }
+        }
+        if !large.is_empty() {
+            self.write_large(&mut large, &mut results);
+        }
+        results
+            .into_iter()
+            .map(|result| {
+                result.unwrap_or_else(|| Err(DriveError::Protocol(String::from("not written"))))
+            })
+            .collect()
+    }
+
+    /// The large files of [`EncryptedDrive::write_streams`]: each into an object of its own,
+    /// [`PARALLEL_FILES`] at once, then ONE index change names them all.
+    fn write_large(
+        &self,
+        large: &mut [(usize, &str, Expect, Box<dyn Read + Send + '_>)],
+        results: &mut [Option<Result<Option<String>, DriveError>>],
+    ) {
+        let count = large.len();
+        let staged: Mutex<Vec<Option<Result<IndexEntry, DriveError>>>> =
+            Mutex::new(vec![None; count]);
+        {
+            let queue: Mutex<Vec<(usize, &str, &mut Box<dyn Read + Send + '_>)>> = Mutex::new(
+                large
+                    .iter_mut()
+                    .enumerate()
+                    .rev()
+                    .map(|(j, (_, key, _, body))| (j, *key, body))
+                    .collect(),
+            );
+            std::thread::scope(|scope| {
+                for _ in 0..PARALLEL_FILES.min(count) {
+                    scope.spawn(|| loop {
+                        let next = lock(&queue).pop();
+                        let Some((j, key, body)) = next else {
+                            break;
+                        };
+                        let result = self.stage(key, &mut **body);
+                        lock(&staged)[j] = Some(result);
+                    });
+                }
+            });
+        }
+        let staged = staged.into_inner().unwrap_or_else(PoisonError::into_inner);
+        // (item, path, entry, what the path must hold)
+        let mut live: Vec<(usize, String, IndexEntry, Expect)> = Vec::new();
+        for ((i, key, expect, _), entry) in large.iter().zip(staged) {
+            match entry {
+                Some(Ok(entry)) => live.push((*i, key.to_string(), entry, expect.clone())),
+                Some(Err(e)) => results[*i] = Some(Err(e)),
+                None => {
+                    results[*i] = Some(Err(DriveError::Protocol(String::from("not written"))))
+                }
+            }
+        }
+        loop {
+            let changes: Vec<IndexChange> = live
+                .iter()
+                .map(|(_, path, entry, expect)| IndexChange::Put {
+                    path: path.clone(),
+                    entry: entry.clone(),
+                    expect: expect.clone(),
+                })
+                .collect();
+            if changes.is_empty() {
+                break;
+            }
+            match self.index.apply(changes) {
+                Ok(released) => {
+                    for (i, path, entry, _) in &live {
+                        results[*i] = Some(Ok(info_of(path.clone(), entry).etag));
+                    }
+                    self.release(released);
+                    break;
+                }
+                Err(DriveError::Conflict { key }) => {
+                    let Some(at) = live.iter().position(|(_, path, _, _)| *path == key) else {
+                        for (i, _, _, _) in &live {
+                            results[*i] = Some(Err(DriveError::Conflict { key: key.clone() }));
+                        }
+                        break;
+                    };
+                    let (i, _, entry, _) = live.remove(at);
+                    let refused = DriveError::Conflict { key: key.clone() };
+                    let settled = entry
+                        .object_id()
+                        .map(|id| Staged::new(self, id, &key).failed(&refused));
+                    results[i] = Some(match settled {
+                        // This very change landed before, its answer lost.
+                        Some(Settled::Named) => Ok(info_of(key.clone(), &entry).etag),
+                        // Nothing names its object: it went (or stays where the bucket would
+                        // not let it go).
+                        _ => Err(refused),
+                    });
+                }
+                Err(e) => {
+                    // The one compensation of every new object ([`Staged::failed`]): the index is
+                    // asked, and an object it names is the change that landed with its answer
+                    // lost; a change that may have landed - a refusal of policy included - leaves
+                    // the objects in the bucket, journaled for the upkeep (garbage at worst); one
+                    // that was never made takes them out again (X-DELTA-SYNC7-1).
+                    for (i, path, entry, _) in &live {
+                        let settled = entry
+                            .object_id()
+                            .map(|id| Staged::new(self, id, path).failed(&e));
+                        results[*i] = Some(match settled {
+                            Some(Settled::Named) => Ok(info_of(path.clone(), entry).etag),
+                            _ => Err(e.clone()),
+                        });
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Puts `body` into a new object for `path`: the entry that will name it (nothing does yet).
+    fn stage(&self, path: &str, body: &mut dyn Read) -> Result<IndexEntry, DriveError> {
+        let id = ObjectId::generate().map_err(|e| e.for_key(path))?;
+        let mut spool = Spool::new();
+        let hint = FileHint::for_path(path, None);
+        let summary =
+            azl1::encrypt_stream_as(body, &mut spool, id, &self.drive_key, &self.options, &hint)
+                .map_err(|e| e.for_key(path))?;
+        self.put_spooled(&id, spool, &Quiet)?;
+        Ok(IndexEntry {
+            size: summary.plaintext_size,
+            modified: Some(now_unix()),
+            object: Some(StoredObject {
+                id,
+                stored_size: summary.object_len,
+                blake3: summary.blake3,
+                wrapped_key: summary.wrapped_key,
+                compressed: summary.compressed,
+                packed: None,
+            }),
+        })
+    }
+
+    /// [`Drive::delete_many`]: every path removed in ONE index change. A path that names
+    /// another version than its item says is a conflict and drops out (the rest is applied
+    /// again); a path that is gone is deleted already.
+    fn delete_batch(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
+        let mut live: Vec<(usize, Expect)> = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            // A folder's marker (`a/`): the index removes the folder only when nothing is left in
+            // it at the end of the change, so what another device put there meanwhile stays.
+            let checked = if item.key.ends_with('/') {
+                check_folder(item.key).and_then(|()| check_prefix(item.key))
+            } else {
+                check_key(item.key)
+            };
+            if let Err(e) = checked {
+                results[i] = Some(Err(e));
+                continue;
+            }
+            let Some(version) = item.version else {
+                live.push((i, Expect::Any));
+                continue;
+            };
+            let conflict = || DriveError::Conflict {
+                key: item.key.to_string(),
+            };
+            let Some(id) = ObjectId::from_hex(version.trim_matches('"')) else {
+                results[i] = Some(Err(conflict()));
+                continue;
+            };
+            match self.index.get(item.key) {
+                Ok(None) => results[i] = Some(Ok(())),
+                Ok(Some(entry)) if entry.object_id() == Some(id) => {
+                    live.push((i, Expect::Object(id)));
+                }
+                Ok(Some(_)) => results[i] = Some(Err(conflict())),
+                Err(e) => results[i] = Some(Err(e)),
+            }
+        }
+        loop {
+            let changes: Vec<IndexChange> = live
+                .iter()
+                .map(|(i, expect)| IndexChange::Remove {
+                    path: items[*i].key.to_string(),
+                    expect: expect.clone(),
+                })
+                .collect();
+            if changes.is_empty() {
+                break;
+            }
+            match self.index.apply(changes) {
+                Ok(released) => {
+                    for (i, _) in &live {
+                        results[*i] = Some(Ok(()));
+                    }
+                    self.release(released);
+                    break;
+                }
+                Err(DriveError::Conflict { key }) => {
+                    match live.iter().position(|(i, _)| items[*i].key == key) {
+                        Some(at) => {
+                            let (i, _) = live.remove(at);
+                            results[i] = Some(Err(DriveError::Conflict { key }));
+                        }
+                        None => {
+                            for (i, _) in &live {
+                                results[*i] = Some(Err(DriveError::Conflict { key: key.clone() }));
+                            }
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    for (i, _) in &live {
+                        results[*i] = Some(Err(e.clone()));
+                    }
+                    break;
+                }
+            }
+        }
+        results
+            .into_iter()
+            .map(|result| result.unwrap_or(Ok(())))
+            .collect()
+    }
+
+    /// [`Drive::move_many`]: every move in ONE index change (the entry leaves `from` and names
+    /// the same object at `to`). A target that is there, a source that is gone or no longer the
+    /// version its item says drops out; the rest is applied again.
+    fn move_batch(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        let mut results: Vec<Option<Result<(), DriveError>>> = vec![None; items.len()];
+        // (item, the entry it moves, what its source must still be)
+        let mut live: Vec<(usize, IndexEntry, Expect)> = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            if let Some(folder) = [item.from, item.to].into_iter().find(|k| k.ends_with('/')) {
+                results[i] = Some(Err(DriveError::InvalidKey {
+                    key: folder.to_string(),
+                    reason: "a folder moves with rename",
+                }));
+                continue;
+            }
+            let entry = check_key(item.from)
+                .and_then(|()| check_key(item.to))
+                .and_then(|()| self.entry(item.from));
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    results[i] = Some(Err(e));
+                    continue;
+                }
+            };
+            let expect = Self::expect_of(&entry);
+            let stale = item.version.is_some_and(|version| {
+                entry.object_id().map(|id| id.to_hex()).as_deref()
+                    != Some(version.trim_matches('"'))
+            });
+            if stale {
+                results[i] = Some(Err(DriveError::Conflict {
+                    key: item.from.to_string(),
+                }));
+                continue;
+            }
+            live.push((i, entry, expect));
+        }
+        loop {
+            let mut changes = Vec::with_capacity(live.len() * 2);
+            for (i, entry, expect) in &live {
+                changes.push(IndexChange::Remove {
+                    path: items[*i].from.to_string(),
+                    expect: expect.clone(),
+                });
+                changes.push(IndexChange::Put {
+                    path: items[*i].to.to_string(),
+                    entry: entry.clone(),
+                    expect: Expect::Absent,
+                });
+            }
+            if changes.is_empty() {
+                break;
+            }
+            match self.index.apply(changes) {
+                Ok(released) => {
+                    for (i, _, _) in &live {
+                        results[*i] = Some(Ok(()));
+                    }
+                    self.release(released);
+                    break;
+                }
+                Err(DriveError::Conflict { key }) => {
+                    let at = live
+                        .iter()
+                        .position(|(i, _, _)| items[*i].from == key || items[*i].to == key);
+                    let Some(at) = at else {
+                        for (i, _, _) in &live {
+                            results[*i] = Some(Err(DriveError::Conflict { key: key.clone() }));
+                        }
+                        break;
+                    };
+                    let (i, _, _) = live.remove(at);
+                    results[i] = Some(Err(if items[i].to == key {
+                        Self::taken(&key)
+                    } else {
+                        DriveError::Conflict { key }
+                    }));
+                }
+                Err(e) => {
+                    for (i, _, _) in &live {
+                        results[*i] = Some(Err(e.clone()));
+                    }
+                    break;
+                }
+            }
+        }
+        results
+            .into_iter()
+            .map(|result| result.unwrap_or(Ok(())))
+            .collect()
+    }
+
+    /// Moves every entry under the folder `from` to the folder `to`, in one index change.
+    fn rename_folder(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        for folder in [from, to] {
+            check_folder(folder)?;
+            check_prefix(folder)?;
+        }
+        if to.starts_with(from) {
+            return Err(DriveError::InvalidKey {
+                key: to.to_string(),
+                reason: "a folder cannot move into itself",
+            });
+        }
+        let moving = self.all_entries(from)?;
+        if moving.is_empty() {
+            return Err(DriveError::NotFound {
+                key: from.to_string(),
+            });
+        }
+        if !self.all_entries(to)?.is_empty() || self.index.get(&to[..to.len() - 1])?.is_some() {
+            return Err(Self::taken(to));
+        }
+        let mut changes = Vec::with_capacity(moving.len() * 2);
+        for (path, entry) in moving {
+            changes.push(IndexChange::Remove {
+                path: path.clone(),
+                expect: Self::expect_of(&entry),
+            });
+            changes.push(IndexChange::Put {
+                path: format!("{to}{}", &path[from.len()..]),
+                entry,
+                expect: Expect::Absent,
+            });
+        }
+        let released = self.index.apply(changes)?;
+        self.release(released);
+        Ok(())
+    }
+}
+
+impl<D: Drive> Drive for EncryptedDrive<D> {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        check_prefix(&request.prefix)?;
+        let page = self.index.list(request)?;
+        Ok(ListPage {
+            folders: page.folders,
+            objects: page
+                .entries
+                .into_iter()
+                .map(|(path, entry)| info_of(path, &entry))
+                .collect(),
+            next: page.next,
+        })
+    }
+
+    /// One GET of the whole object; its plaintext checked against the header's hash and the
+    /// index's.
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        let entry = self.entry(key)?;
+        let Some(object) = entry.object.clone() else {
+            return Err(DriveError::NotFound {
+                key: key.to_string(),
+            });
+        };
+        if let Some(packed) = &object.packed {
+            return self.read_packed(key, &entry, &object, packed);
+        }
+        let file_key = self
+            .unwrap_file_key(&object.wrapped_key, &object.id)
+            .map_err(|e| e.for_key(key))?;
+        // The object is asked for within the size the index names: a bucket that answers with more
+        // (a storage that streams for ever) is refused on its way in and not after it filled the
+        // memory (X-DELTA-AZDRIVE-KEYS-43).
+        let bytes = Limit::new("an object the index names", object.stored_size)
+            .read_from(&self.inner, &object.id.bucket_key())
+            .map_err(|e| read_error(ReadError::Drive(e), key))?;
+        // The index's sizes against the object's before a segment is opened or any memory is
+        // reserved for the plaintext: the header's sizes are a writer's word.
+        if bytes.len() as u64 != object.stored_size {
+            return Err(DriveError::Corrupt {
+                key: key.to_string(),
+                reason: String::from("the object is not the size the index names"),
+            });
+        }
+        let plain = azl1::decrypt_expecting(&bytes, &object.id, &file_key, Some(entry.size))
+            .map_err(|e| e.for_key(key))?;
+        if blake3::hash(&plain) != object.blake3 {
+            return Err(DriveError::Corrupt {
+                key: key.to_string(),
+                reason: String::from("the object is not the one the index names"),
+            });
+        }
+        Ok(plain)
+    }
+
+    /// [`Drive::get`] of a file whose plaintext size the index names within `limit`: a bigger
+    /// one is refused before any object is fetched or any plaintext made.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        let entry = self.entry(key)?;
+        limit.check_object(key, entry.size)?;
+        self.get(key)
+    }
+
+    /// The header and the tail of the object (cached), then one ranged GET of the segments
+    /// covering the range.
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.ranged(key, range, None)
+    }
+
+    /// [`Drive::get_range`] of the object the name still names: the index resolves the name on every
+    /// call, so each range of a long read comes from whatever object it names THEN. A call that asks
+    /// for a version ([`Precondition::Matches`]: the object id as [`Drive::head`] shows it) is
+    /// [`DriveError::Conflict`] when the name names another object now (X-DELTA-SYNC2-3).
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        match condition {
+            Precondition::Matches(tag) => self.ranged(key, range, Some(tag)),
+            Precondition::Absent => Err(DriveError::Unsupported(format!(
+                "reading a range of \"{key}\" only if it is absent"
+            ))),
+        }
+    }
+
+    /// A folder marker for a key ending in `/` and no bytes (as S3 consoles make them);
+    /// otherwise a new object for the file.
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        if key.ends_with('/') && bytes.is_empty() {
+            return self.create_folder(key);
+        }
+        self.write(key, bytes, Expect::Any).map(|_| ())
+    }
+
+    fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
+        self.write_from(key, body, Expect::Any).map(|info| info.size)
+    }
+
+    /// A local file's upload that a cut does not start over: encrypted once beside the
+    /// bucket's resume state, then the bucket's resumable upload of it (`encrypted_upload`);
+    /// streamed as [`Drive::put_from`] when the bucket resumes
+    /// no uploads, or the file is one a packing drive packs.
+    fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        ctl: &dyn Ctl,
+    ) -> Result<u64, DriveError> {
+        match self.put_file_resumable(key, path, None, Expect::Any, ctl)? {
+            Some(crate::encrypted_upload::Spooled::Sent(written, _)) => Ok(written),
+            Some(crate::encrypted_upload::Spooled::Changed) => Err(DriveError::Io(format!(
+                "{} changed while it was uploaded",
+                path.display()
+            ))),
+            None => {
+                let mut file = File::open(path)?;
+                let mut reader = crate::transfer::ProgressReader::new(&mut file, ctl);
+                self.write_from_ctl(key, &mut reader, Expect::Any, ctl)
+                    .map(|info| info.size)
+            }
+        }
+    }
+
+    /// [`Drive::put_file`] of a file that must be the one `check` describes (a sync's): resumed
+    /// the same way, or streamed and hashed as it is read.
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        check: &crate::checked::FileCheck,
+        ctl: &dyn Ctl,
+    ) -> Result<crate::checked::CheckedUpload, DriveError> {
+        use crate::checked::{open_checked, CheckedUpload, HashCheck};
+        match self.put_file_resumable(key, path, Some(check), Expect::Any, ctl)? {
+            Some(crate::encrypted_upload::Spooled::Sent(written, _)) => {
+                return Ok(CheckedUpload::Sent(written));
+            }
+            Some(crate::encrypted_upload::Spooled::Changed) => return Ok(CheckedUpload::Changed),
+            None => {}
+        }
+        let Some(file) = open_checked(path, check)? else {
+            return Ok(CheckedUpload::Changed);
+        };
+        let mut hashed = HashCheck::new(file, &check.blake3);
+        let sent = {
+            let mut reader = crate::transfer::ProgressReader::new(&mut hashed, ctl);
+            self.write_from_ctl(key, &mut reader, Expect::Any, ctl)
+                .map(|info| info.size)
+        };
+        match sent {
+            Ok(written) => Ok(CheckedUpload::Sent(written)),
+            Err(_) if hashed.changed() => Ok(CheckedUpload::Changed),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The index change that names an object is conditional, whatever the inner drive supports:
+    /// this drive asks its conditions there ([`Drive::put_if`], [`Drive::put_from_if`],
+    /// [`Drive::put_file_if`]).
+    fn conditional_writes(&self) -> bool {
+        true
+    }
+
+    /// [`Drive::put_file`] that names the object in the index only when `condition` holds of the
+    /// entry then, after the hours the upload may have taken (X-DELTA-AZDRIVE-FILES-3): a name
+    /// made meanwhile is a [`DriveError::Conflict`], the object goes back out of the bucket and
+    /// the file's encrypted copy is dropped. Uploaded the way [`Drive::put_file`] uploads (resumed
+    /// at its next part), or streamed through [`Drive::put_from_if`] when the drive does not.
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: &Precondition,
+        ctl: &dyn Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        let expect = expect_of(key, condition)?;
+        match self.put_file_resumable(key, path, None, expect, ctl)? {
+            Some(crate::encrypted_upload::Spooled::Sent(_, etag)) => Ok(etag),
+            Some(crate::encrypted_upload::Spooled::Changed) => Err(DriveError::Io(format!(
+                "{} changed while it was uploaded",
+                path.display()
+            ))),
+            None => {
+                let mut file = File::open(path)?;
+                let mut reader = crate::transfer::ProgressReader::new(&mut file, ctl);
+                self.write_from_ctl(key, &mut reader, expect_of(key, condition)?, ctl)
+                    .map(|info| info.etag)
+            }
+        }
+    }
+
+    /// Conditional on the index entry, whatever the inner drive supports: absent, or still
+    /// naming the object whose id is the entity tag.
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let expect = expect_of(key, condition)?;
+        self.write(key, bytes, expect).map(|info| info.etag)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        check_key(key)?;
+        let released = self.index.apply(vec![IndexChange::Remove {
+            path: key.to_string(),
+            expect: Expect::Any,
+        }])?;
+        self.release(released);
+        Ok(())
+    }
+
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let entry = self.entry(key)?;
+        Ok(info_of(key.to_string(), &entry))
+    }
+
+    /// In the index only: `to` names the same object as `from` (replacing what `to` named).
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        if let Some(folder) = [from, to].into_iter().find(|k| k.ends_with('/')) {
+            return Err(DriveError::InvalidKey {
+                key: folder.to_string(),
+                reason: "a folder is copied object by object",
+            });
+        }
+        check_key(to)?;
+        let mut entry = self.entry(from)?;
+        entry.modified = Some(now_unix());
+        let released = self.index.apply(vec![IndexChange::Put {
+            path: to.to_string(),
+            entry,
+            expect: Expect::Any,
+        }])?;
+        self.release(released);
+        Ok(())
+    }
+
+    /// A marker in the index; the bucket sees nothing.
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        check_folder(prefix)?;
+        check_prefix(prefix)?;
+        self.index.apply(vec![IndexChange::Put {
+            path: prefix.to_string(),
+            entry: IndexEntry {
+                size: 0,
+                modified: Some(now_unix()),
+                object: None,
+            },
+            expect: Expect::Any,
+        }])?;
+        Ok(())
+    }
+
+    /// In the index only: the objects stay where they are.
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        if from.ends_with('/') != to.ends_with('/') {
+            return Err(DriveError::InvalidKey {
+                key: to.to_string(),
+                reason: "a file and a folder cannot trade places",
+            });
+        }
+        if from.ends_with('/') {
+            return self.rename_folder(from, to);
+        }
+        check_key(to)?;
+        let entry = self.entry(from)?;
+        let changes = vec![
+            IndexChange::Remove {
+                path: from.to_string(),
+                expect: Self::expect_of(&entry),
+            },
+            IndexChange::Put {
+                path: to.to_string(),
+                entry,
+                expect: Expect::Absent,
+            },
+        ];
+        let released = self.index.apply(changes).map_err(|e| match e {
+            DriveError::Conflict { key } if key == to => Self::taken(to),
+            other => other,
+        })?;
+        self.release(released);
+        Ok(())
+    }
+
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        check_folder(prefix)?;
+        check_prefix(prefix)?;
+        let changes: Vec<IndexChange> = self
+            .all_entries(prefix)?
+            .into_iter()
+            .map(|(path, _)| IndexChange::Remove {
+                path,
+                expect: Expect::Any,
+            })
+            .collect();
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let released = self.index.apply(changes)?;
+        self.release(released);
+        Ok(())
+    }
+    // inherits: remove_empty_folder - the trait's: a listing of the index shows what is in the
+    // folder, and its markers go in one change of the index
+    // inherits: delete_for, delete_many_for, delete_folder_for - the trait's (ARCH30-1): the reason
+    // is checked against the NAME the caller gives, and this drive's own delete, delete_many and
+    // delete_folder then change the index; the data objects stay in the history, and leave the bucket
+    // only through the reclaimer's licence and its proof for the object (`Why::Retired`), a reason
+    // for a bucket key, never for a name
+    // inherits: site - the place of an encrypted drive is its own key space (a logical key is no
+    // key of the inner drive), so it answers as the very object it is
+    // inherits: local_path, resume_folder - the inner drive's files are ciphertext, not the file
+    // of this disk a key names, and the resume state is the inner drive's business
+
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        let entry = self.entry(key)?;
+        let mut pairs = vec![(
+            String::from("Encryption"),
+            String::from("AZL1 (XChaCha20-Poly1305, on this device)"),
+        )];
+        if let Some(object) = &entry.object {
+            pairs.push((
+                crate::CONTENT_HASH_METADATA.to_string(),
+                blake3::Hash::from(object.blake3).to_hex().to_string(),
+            ));
+            pairs.push((
+                String::from("Stored size"),
+                format!("{} bytes", object.stored_size),
+            ));
+            pairs.push((
+                String::from("Compressed"),
+                String::from(if object.compressed { "Yes" } else { "No" }),
+            ));
+            if let Some(packed) = &object.packed {
+                pairs.push((
+                    String::from("Packed"),
+                    format!(
+                        "with other small files in one object of {} bytes",
+                        packed.pack.object_len
+                    ),
+                ));
+            }
+            pairs.push((
+                crate::OBJECT_KEY_METADATA.to_string(),
+                object.bucket_object().bucket_key(),
+            ));
+        }
+        Ok(pairs)
+    }
+
+    /// Small files into packs, one index change per pack, when the drive packs
+    /// ([`crate::packing`]); every other file one at a time.
+    fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
+        self.write_many(items)
+    }
+
+    /// One index change for every file; the objects nothing names any more then leave the
+    /// bucket in batches (packed files only leave the index: their packs wait for the repack).
+    fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
+        self.delete_batch(items)
+    }
+
+    /// One index change for every move: no object is copied, written or deleted.
+    fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
+        self.move_batch(items)
+    }
+
+    /// Small files into packs; the large ones in objects of their own, [`PARALLEL_FILES`]
+    /// uploads at once, named together in one index change.
+    fn put_from_many(
+        &self,
+        items: &mut [BatchStream<'_>],
+    ) -> Vec<Result<Option<String>, DriveError>> {
+        self.write_streams(items)
+    }
+
+    /// [`EncryptedDrive::put_if`]'s condition on a streamed body: encrypted as it is read, named
+    /// in the index only when the condition holds.
+    fn put_from_if(
+        &self,
+        key: &str,
+        body: &mut dyn Read,
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        let expect = expect_of(key, condition)?;
+        self.write_from(key, body, expect).map(|info| info.etag)
+    }
+}
+
+/// What the index must hold for a conditional write: absent, or still naming the object whose
+/// id is the entity tag (a tag that is no object id cannot match: a conflict).
+pub(crate) fn expect_of(key: &str, condition: &Precondition) -> Result<Expect, DriveError> {
+    match condition {
+        Precondition::Absent => Ok(Expect::Absent),
+        Precondition::Matches(etag) => match ObjectId::from_hex(etag) {
+            Some(id) => Ok(Expect::Object(id)),
+            None => Err(DriveError::Conflict {
+                key: key.to_string(),
+            }),
+        },
+    }
+}

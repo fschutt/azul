@@ -1,0 +1,45 @@
+[
+  {
+    "name": "1,000 photos uploaded through three crashes: exactly 1,000 files on the drive, no duplicate, no conflict copy",
+    "description": "MAGENTA-008 (MagentaCLOUD automatic photo upload): many upload conflicts and many files several times in the cloud. Rules E8, A4 and A7: a crash at any point converges in the next pass; the index commit is idempotent by content, so nothing is doubled. sync-chaos mobile-camera-upload.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "DCIM", "count": 1000, "size": 2048, "seed": 8 },
+      { "op": "drive_sync", "device": "a", "crash_at": "after-blob", "expect": "crash", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "a", "crash_at": "after-scan", "expect": "crash", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "a", "crash_at": "before-base-save", "expect": "crash", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_count", "glob": "DCIM/*", "count": 1000 },
+      { "op": "drive_check", "check": "remote_count", "glob": "*conflict*", "count": 0 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "DCIM/*", "count": 1000 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "DCIM/*", "count": 1000 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "*conflict*", "count": 0 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "wiping the cloud copy of a phone's backup never deletes the originals on the phone",
+    "description": "MAGENTA-008: the user wanted to wipe the cloud copy and feared the deletion would reach the phone. Rules D1, D2 and delete-backup-mode: a backup (one-way) pairing never applies a remote delete to its source.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "phone", "remote": "r" },
+      { "op": "drive_pair", "device": "phone", "mode": "backup" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "phone", "dir": "DCIM", "count": 30, "size": 1024, "seed": 9 },
+      { "op": "drive_sync", "device": "phone" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "phone", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "phone", "glob": "DCIM/*", "count": 30 },
+      { "op": "drive_check", "check": "trash_empty", "device": "phone" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

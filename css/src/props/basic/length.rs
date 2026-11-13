@@ -1,8 +1,8 @@
 //! Hash-able floating-point wrappers, percentage values, and CSS size
 //! metric types used by the CSS property system.
 
-use core::fmt;
-use std::num::ParseFloatError;
+use alloc::string::ToString;
+use core::{fmt, num::ParseFloatError};
 
 use crate::corety::AzString;
 
@@ -80,6 +80,15 @@ impl PercentageValue {
     #[must_use]
     pub fn normalized(&self) -> f32 {
         self.number.get() / 100.0
+    }
+
+    /// The raw fixed-point number, for the code generator's exact
+    /// round-trip (`normalized()` is lossy). Crate-private on purpose.
+    #[cfg(feature = "codegen")]
+    #[inline]
+    #[must_use]
+    pub(crate) const fn raw_number(&self) -> FloatValue {
+        self.number
     }
 
     #[inline]

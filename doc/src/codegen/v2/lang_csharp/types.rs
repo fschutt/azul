@@ -20,6 +20,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -158,6 +159,7 @@ fn generate_monomorphized_alias(
             builder.blank();
 
             // Per-variant struct
+            let payload = union_payload_layout(&ta.name, ir);
             for v in variants {
                 let variant_struct = format!("{}Variant_{}", name, v.name);
                 builder.line("[StructLayout(LayoutKind.Sequential)]");
@@ -165,6 +167,7 @@ fn generate_monomorphized_alias(
                 builder.line("{");
                 builder.indent();
                 builder.line(&format!("public {}_Tag tag;", name));
+                emit_variant_padding(builder, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
                 emit_monomorphized_payload_csharp(builder, v, ir);
                 builder.dedent();
                 builder.line("}");
@@ -321,6 +324,17 @@ fn enum_underlying_type(enum_def: &EnumDef) -> &'static str {
 // Tagged union (FFI form: tag + payload union)
 // ============================================================================
 
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant), as N `byte`
+/// fields: a `byte[]` is a managed reference the Explicit outer union cannot
+/// overlap, and a `fixed` buffer needs unsafe code.
+fn emit_variant_padding(builder: &mut CodeBuilder, padding: usize) {
+    for i in 0..padding {
+        builder.line(&format!("public byte _pad0_{};", i));
+    }
+}
+
 fn generate_tagged_union(
     builder: &mut CodeBuilder,
     enum_def: &EnumDef,
@@ -340,7 +354,9 @@ fn generate_tagged_union(
     builder.line("}");
     builder.blank();
 
-    // Per-variant payload struct (Sequential): tag + payload field(s).
+    // Per-variant payload struct (Sequential): tag, azul.h's padding,
+    // payload field(s).
+    let payload = union_payload_layout(&enum_def.name, ir);
     for v in &enum_def.variants {
         let variant_struct = format!("{}Variant_{}", name, v.name);
         builder.line("[StructLayout(LayoutKind.Sequential)]");
@@ -348,6 +364,7 @@ fn generate_tagged_union(
         builder.line("{");
         builder.indent();
         builder.line(&format!("public {}_Tag tag;", name));
+        emit_variant_padding(builder, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
 
         match &v.kind {
             EnumVariantKind::Unit => {}

@@ -1,0 +1,3 @@
+# The root .gitignore drops generated C/C++ headers; these goldens ARE headers.
+!*.h
+!*.hpp

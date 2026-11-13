@@ -23,13 +23,148 @@
 mod full;
 pub use full::*;
 
+// AzBuilder's document model (drag and drop, undo, convert-to-component,
+// template components, palette thumbnails) behind the `builder_*` ops.
+mod builder;
+
+// AzBuilder projects: a folder on disk the builder browses, edits and saves
+// into (the `project_*` ops), every path confined to the project root.
+mod project;
+
+// AzBuilder's quick exports ("Compile CSS to…", "Subtree → code",
+// "Component → code") and what Export > Code writes.
+mod export;
+
 mod cpu_backend;
+
+// The renderer a host without one does not have, as bookkeeping: the fonts and
+// images the display lists draw, for the renderer-side counters of
+// `assert_resource_counts` (E2E-R8).
+mod virtual_renderer;
+pub use virtual_renderer::VirtualRenderer;
+
+// Virtual views in a mounted document: `mount`'s `virtual_views` turn an empty element into a
+// list of N rows backed by a deterministic, windowed callback (E2E-M1).
+mod mount_views;
+pub use mount_views::{
+    apply_mount_views, apply_views, rows_window, MountView, MOUNT_VIEW_MAX_ROWS,
+    MOUNT_VIEW_MAX_ROW_HEIGHT,
+};
 
 mod runner;
 pub use runner::run_e2e_test;
 
 mod report;
+#[cfg(feature = "std")]
+pub use report::e2e_files;
 pub use report::{load_e2e_tests, render_report, E2eVerdict};
+
+// The AzBuilder server messages (drag and drop, convert, previews), driven
+// through the real dispatcher on a headless window.
+#[cfg(test)]
+mod builder_tests;
+
+// AzBuilder projects: a folder on disk (tree, read / write / rename / delete
+// confined to the root, save / load of the document, components and
+// stylesheets, zip export / import), driven through the real dispatcher.
+#[cfg(test)]
+mod project_tests;
+
+// The builder's quick exports and Export > Code, driven through the real
+// dispatcher on a headless window.
+#[cfg(test)]
+mod export_tests;
+
+// The app's light / dark mode and its theme over the debug server
+// (`get_mode` / `set_mode`, `get_theme` / `set_theme`), driven through the
+// real dispatcher on a headless window.
+#[cfg(test)]
+mod mode_ops_tests;
+
+// The key names `key_down` / `key_up` accept: punctuation and the numeric
+// keypad, so a scenario can type an operator (`plus`, `numpad_multiply`).
+#[cfg(test)]
+mod key_names_tests;
+
+// An application's own ops (`AppConfig::add_e2e_command`): unknown op names
+// reach them, `success` / `pending` decide the step, `assert_response` reads
+// a path of their answer.
+#[cfg(test)]
+mod app_commands_tests;
+
+// The DOM-mutation ops and `mouse_move` name their target by CSS selector, or
+// refuse loudly when it names none or several nodes.
+#[cfg(test)]
+mod selector_ops_tests;
+
+// A string param with a closed set of values (`which`, `frame`, `block`,
+// `inline`, `behavior`) refuses any other value by name.
+#[cfg(test)]
+mod closed_values_tests;
+
+// `mounted_nodes`: which node each numeric id of a mounted document is, for
+// `gen-e2e`'s gate - and the table is the engine's own.
+#[cfg(test)]
+mod mounted_nodes_tests;
+
+// `assert_resource_counts` judges every counter it is given and reports each one
+// that fails: a dead counter no longer hides a live one.
+#[cfg(test)]
+mod resource_counts_tests;
+
+// The renderer-side counters (`fonts`, `images`, `font_hash_map`, `image_key_map`) of
+// a host with no renderer count what the display lists draw: they move (E2E-R8).
+#[cfg(test)]
+mod virtual_renderer_tests;
+
+// `assert_changed` says whose fault a missing repaint is: a fresh render that
+// differs from the snapshot is a STALE SCREEN (engine), one that does not is a
+// DEAD CONTROL (the test).
+#[cfg(test)]
+mod changed_attribution_tests;
+
+// What a `set_node_css_override` costs in layout passes: one for a geometry
+// property, none for a paint-only one or for the value the node already has.
+#[cfg(test)]
+mod css_override_cost_tests;
+
+// A frame whose only change is a MOVE (every moved box translated by one delta,
+// an empty damage list) is rendered, not skipped: the runner's presenter asks the
+// same `cpurender::FrameChanges::is_idle` as the shells'.
+#[cfg(test)]
+mod moved_frame_tests;
+
+// `assert_damage_sound` takes `which` ("paint" by default, "present" for a frame
+// whose boxes a blit moved): the same closed set as `assert_damage_covers_changes`.
+#[cfg(test)]
+mod damage_which_tests;
+
+// `wait_settled` in a scripted run moves the engine's clock until the window is at
+// rest (a scrollbar still to fade out is not), or fails at its deadline naming what moves.
+#[cfg(test)]
+mod wait_settled_tests;
+
+// A mounted virtual view: the rows it materializes follow the scroll offset, the document stays
+// whole for the scroll bar, and a view that cannot land is refused at the `mount` (E2E-M1).
+#[cfg(test)]
+mod mount_views_tests;
+
+// `assert_idle_frames` holds a window idle for N frames in one step: the engine clock
+// moves a frame at a time, and every frame must be no damage, the same pixels, and rendered
+// (E2E-M2).
+#[cfg(test)]
+mod idle_frames_tests;
+
+// A box fades its overlay scrollbar by the `-azul-scrollbar-fade-delay` /
+// `-azul-scrollbar-fade-duration` it declares (E2E-R9), not by the window's constants.
+#[cfg(test)]
+mod scrollbar_fade_css_tests;
+
+// `set_node_classes` re-runs the cascade for the new classes (R-classes): the rules
+// of the class a node has now apply, a colour-only swap changes a pixel, the
+// classes a node already has cost nothing.
+#[cfg(test)]
+mod class_swap_tests;
 
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in

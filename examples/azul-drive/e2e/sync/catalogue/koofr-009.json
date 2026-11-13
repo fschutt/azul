@@ -1,0 +1,71 @@
+[
+  {
+    "name": "NFC and NFD spellings of one name on the drive: a macOS or Windows disk gets one and lists the other, both stay on the drive",
+    "description": "KOOFR-009 (Koofr, names compared after normalization): an NFC and an NFD spelling of one name in one folder became '<name> (Unicode Encoding Conflict)'. Rules P2 and P1: the original bytes are stored, names are compared in NFC, a disk that ignores normalization gets one and lists the other (name-collision); the outcome is the same on every pass, never a rename loop. sync-chaos port-nfc-nfd, port-linux-nfd-distinct.",
+    "only_on": ["macos", "windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "Caf*", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision" },
+      { "op": "drive_check", "check": "remote_file", "key": "Caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_check", "check": "remote_file", "key": "Cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "on Linux both spellings are two files: both go up unchanged and nothing is renamed",
+    "description": "KOOFR-009 (Koofr, names compared after normalization): an NFC and an NFD spelling of one name in one folder became '<name> (Unicode Encoding Conflict)'. Rules P2 and P1: the original bytes are stored, names are compared in NFC, a disk that ignores normalization gets one and lists the other (name-collision); the outcome is the same on every pass, never a rename loop. sync-chaos port-nfc-nfd, port-linux-nfd-distinct.",
+    "only_on": ["linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_write", "device": "a", "path": "Cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "Caf*", "count": 2 },
+      { "op": "drive_check", "check": "remote_file", "key": "Caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_check", "check": "remote_file", "key": "Cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "one device writes the NFD spelling, the other the NFC spelling: both texts survive, the result is stable",
+    "description": "KOOFR-009 (Koofr, names compared after normalization): an NFC and an NFD spelling of one name in one folder became '<name> (Unicode Encoding Conflict)'. Rules P2 and P1: the original bytes are stored, names are compared in NFC, a disk that ignores normalization gets one and lists the other (name-collision); the outcome is the same on every pass, never a rename loop. sync-chaos port-nfc-nfd, port-linux-nfd-distinct.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Cafe\u0301.txt", "text": "from the mac" },
+      { "op": "drive_write", "device": "b", "path": "Caf\u00e9.txt", "text": "from the pc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "kept_live", "texts": ["from the mac", "from the pc"] },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

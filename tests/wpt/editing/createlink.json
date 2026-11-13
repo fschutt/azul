@@ -1,0 +1,712 @@
+{
+ "source": "editing/data/createlink.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 49,
+ "eligible_cases": 41,
+ "left_out": {
+  "attribute name": 2,
+  "markup outside the mail subset": 6
+ },
+ "cases": [
+  {
+   "id": "createlink-4a14cddf",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo[]bar"
+   ],
+   "expected_canonical": [
+    "foo[]bar"
+   ]
+  },
+  {
+   "id": "createlink-ae55949b",
+   "initial": "<p>[foo</p> <p>bar]</p>",
+   "initial_xhtml": "<p>[foo</p> <p>bar]</p>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<p><a href=\"http://www.google.com/\">[foo</a></p> <p><a href=\"http://www.google.com/\">bar]</a></p>"
+   ],
+   "expected_canonical": [
+    "<p><a>[foo</a></p> <p><a>bar]</a></p>"
+   ]
+  },
+  {
+   "id": "createlink-18c8f4a0",
+   "initial": "<span>[foo</span> <span>bar]</span>",
+   "initial_xhtml": "<span>[foo</span> <span>bar]</span>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\"><span>[foo</span> <span>bar]</span></a>"
+   ],
+   "expected_canonical": [
+    "<a><span>[foo</span> <span>bar]</span></a>"
+   ]
+  },
+  {
+   "id": "createlink-96b45846",
+   "initial": "<p>[foo</p><p> <span>bar</span> </p><p>baz]</p>",
+   "initial_xhtml": "<p>[foo</p><p> <span>bar</span> </p><p>baz]</p>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<p><a href=\"http://www.google.com/\">[foo</a></p><p> <a href=\"http://www.google.com/\"><span>bar</span></a> </p><p><a href=\"http://www.google.com/\">baz]</a></p>"
+   ],
+   "expected_canonical": [
+    "<p><a>[foo</a></p><p> <a><span>bar</span></a> </p><p><a>baz]</a></p>"
+   ]
+  },
+  {
+   "id": "createlink-d442a418",
+   "initial": "<p>[foo<p><br><p>bar]",
+   "initial_xhtml": "<p>[foo</p><p><br/></p><p>bar]</p>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<p><a href=\"http://www.google.com/\">[foo</a></p><p><a href=\"http://www.google.com/\"><br></a></p><p><a href=\"http://www.google.com/\">bar]</a></p>"
+   ],
+   "expected_canonical": [
+    "<p><a>[foo</a></p><p><a><br/></a></p><p><a>bar]</a></p>"
+   ]
+  },
+  {
+   "id": "createlink-8199750f",
+   "initial": "<b>foo[]bar</b>",
+   "initial_xhtml": "<b>foo[]bar</b>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<b>foo[]bar</b>"
+   ],
+   "expected_canonical": [
+    "<b>foo[]bar</b>"
+   ]
+  },
+  {
+   "id": "createlink-9c539fdf",
+   "initial": "<i>foo[]bar</i>",
+   "initial_xhtml": "<i>foo[]bar</i>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<i>foo[]bar</i>"
+   ],
+   "expected_canonical": [
+    "<i>foo[]bar</i>"
+   ]
+  },
+  {
+   "id": "createlink-e42ceec4",
+   "initial": "<span>foo</span>{}<span>bar</span>",
+   "initial_xhtml": "<span>foo</span>{}<span>bar</span>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<span>foo</span>{}<span>bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo</span>{}<span>bar</span>"
+   ]
+  },
+  {
+   "id": "createlink-67b1091c",
+   "initial": "<span>foo[</span><span>]bar</span>",
+   "initial_xhtml": "<span>foo[</span><span>]bar</span>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<span>foo[</span><span>]bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo[</span><span>]bar</span>"
+   ]
+  },
+  {
+   "id": "createlink-a9114da3",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/\">[bar]</a>baz"
+   ],
+   "expected_canonical": [
+    "foo<a>[bar]</a>baz"
+   ]
+  },
+  {
+   "id": "createlink-3888f605",
+   "initial": "foo[bar<b>baz]qoz</b>quz",
+   "initial_xhtml": "foo[bar<b>baz]qoz</b>quz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/\">[bar</a><b><a href=\"http://www.google.com/\">baz]</a>qoz</b>quz"
+   ],
+   "expected_canonical": [
+    "foo<a>[bar</a><b><a>baz]</a>qoz</b>quz"
+   ]
+  },
+  {
+   "id": "createlink-9b023f49",
+   "initial": "foo[bar<i>baz]qoz</i>quz",
+   "initial_xhtml": "foo[bar<i>baz]qoz</i>quz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/\">[bar</a><i><a href=\"http://www.google.com/\">baz]</a>qoz</i>quz"
+   ],
+   "expected_canonical": [
+    "foo<a>[bar</a><i><a>baz]</a>qoz</i>quz"
+   ]
+  },
+  {
+   "id": "createlink-953cc9cc",
+   "initial": "{<p><p> <p>foo</p>}",
+   "initial_xhtml": "{<p></p><p> </p><p>foo</p>}",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "{<p></p><p> </p><p><a href=\"http://www.google.com/\">foo</a></p>}"
+   ],
+   "expected_canonical": [
+    "{<p></p><p> </p><p><a>foo</a></p>}"
+   ]
+  },
+  {
+   "id": "createlink-135d1e51",
+   "initial": "<a href=http://www.google.com/>foo[bar]baz</a>",
+   "initial_xhtml": "<a href=\"http://www.google.com/\">foo[bar]baz</a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">foo[bar]baz</a>"
+   ],
+   "expected_canonical": [
+    "<a>foo[bar]baz</a>"
+   ]
+  },
+  {
+   "id": "createlink-a2182861",
+   "initial": "<a href=http://www.google.com/>foo[barbaz</a>}",
+   "initial_xhtml": "<a href=\"http://www.google.com/\">foo[barbaz</a>}",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">foo[barbaz</a>}"
+   ],
+   "expected_canonical": [
+    "<a>foo[barbaz</a>}"
+   ]
+  },
+  {
+   "id": "createlink-7caa415f",
+   "initial": "{<a href=http://www.google.com/>foobar]baz</a>",
+   "initial_xhtml": "{<a href=\"http://www.google.com/\">foobar]baz</a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "{<a href=\"http://www.google.com/\">foobar]baz</a>"
+   ],
+   "expected_canonical": [
+    "{<a>foobar]baz</a>"
+   ]
+  },
+  {
+   "id": "createlink-02da3396",
+   "initial": "{<a href=http://www.google.com/>foobarbaz</a>}",
+   "initial_xhtml": "{<a href=\"http://www.google.com/\">foobarbaz</a>}",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "{<a href=\"http://www.google.com/\">foobarbaz}</a>"
+   ],
+   "expected_canonical": [
+    "{<a>foobarbaz}</a>"
+   ]
+  },
+  {
+   "id": "createlink-68ce7b4e",
+   "initial": "<a href=http://www.google.com/>[foobarbaz]</a>",
+   "initial_xhtml": "<a href=\"http://www.google.com/\">[foobarbaz]</a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">[foobarbaz]</a>"
+   ],
+   "expected_canonical": [
+    "<a>[foobarbaz]</a>"
+   ]
+  },
+  {
+   "id": "createlink-6d7f3c2a",
+   "initial": "foo<a href=http://www.google.com/>[bar]</a>baz",
+   "initial_xhtml": "foo<a href=\"http://www.google.com/\">[bar]</a>baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/\">[bar]</a>baz"
+   ],
+   "expected_canonical": [
+    "foo<a>[bar]</a>baz"
+   ]
+  },
+  {
+   "id": "createlink-e2be9b5b",
+   "initial": "[foo]<a href=http://www.google.com/>bar</a>baz",
+   "initial_xhtml": "[foo]<a href=\"http://www.google.com/\">bar</a>baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">[foo]bar</a>baz"
+   ],
+   "expected_canonical": [
+    "<a>[foo]bar</a>baz"
+   ]
+  },
+  {
+   "id": "createlink-4701570d",
+   "initial": "foo<a href=http://www.google.com/>bar</a>[baz]",
+   "initial_xhtml": "foo<a href=\"http://www.google.com/\">bar</a>[baz]",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/\">bar[baz]</a>"
+   ],
+   "expected_canonical": [
+    "foo<a>bar[baz]</a>"
+   ]
+  },
+  {
+   "id": "createlink-8fa8b555",
+   "initial": "foo[<a href=http://www.google.com/>bar</a>]baz",
+   "initial_xhtml": "foo[<a href=\"http://www.google.com/\">bar</a>]baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo[<a href=\"http://www.google.com/\">bar</a>]baz"
+   ],
+   "expected_canonical": [
+    "foo[<a>bar</a>]baz"
+   ]
+  },
+  {
+   "id": "createlink-fd336cb0",
+   "initial": "foo<a href=http://www.google.com/>[bar</a>baz]",
+   "initial_xhtml": "foo<a href=\"http://www.google.com/\">[bar</a>baz]",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/\">[barbaz]</a>"
+   ],
+   "expected_canonical": [
+    "foo<a>[barbaz]</a>"
+   ]
+  },
+  {
+   "id": "createlink-bfcedd88",
+   "initial": "[foo<a href=http://www.google.com/>bar]</a>baz",
+   "initial_xhtml": "[foo<a href=\"http://www.google.com/\">bar]</a>baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">[foobar]</a>baz"
+   ],
+   "expected_canonical": [
+    "<a>[foobar]</a>baz"
+   ]
+  },
+  {
+   "id": "createlink-76ef0b82",
+   "initial": "[foo<a href=http://www.google.com/>bar</a>baz]",
+   "initial_xhtml": "[foo<a href=\"http://www.google.com/\">bar</a>baz]",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">[foobarbaz]</a>"
+   ],
+   "expected_canonical": [
+    "<a>[foobarbaz]</a>"
+   ]
+  },
+  {
+   "id": "createlink-8e894338",
+   "initial": "<a href=otherurl>foo[bar]baz</a>",
+   "initial_xhtml": "<a href=\"otherurl\">foo[bar]baz</a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">foo[bar]baz</a>"
+   ],
+   "expected_canonical": [
+    "<a>foo[bar]baz</a>"
+   ]
+  },
+  {
+   "id": "createlink-6dd2fb23",
+   "initial": "<a href=otherurl>foo[barbaz</a>}",
+   "initial_xhtml": "<a href=\"otherurl\">foo[barbaz</a>}",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">foo[barbaz</a>}"
+   ],
+   "expected_canonical": [
+    "<a>foo[barbaz</a>}"
+   ]
+  },
+  {
+   "id": "createlink-e91a9baf",
+   "initial": "{<a href=otherurl>foobar]baz</a>",
+   "initial_xhtml": "{<a href=\"otherurl\">foobar]baz</a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "{<a href=\"http://www.google.com/\">foobar]baz</a>"
+   ],
+   "expected_canonical": [
+    "{<a>foobar]baz</a>"
+   ]
+  },
+  {
+   "id": "createlink-c35f6245",
+   "initial": "{<a href=otherurl>foobarbaz</a>}",
+   "initial_xhtml": "{<a href=\"otherurl\">foobarbaz</a>}",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "{<a href=\"http://www.google.com/\">foobarbaz}</a>"
+   ],
+   "expected_canonical": [
+    "{<a>foobarbaz}</a>"
+   ]
+  },
+  {
+   "id": "createlink-94f28b15",
+   "initial": "<a href=otherurl>[foobarbaz]</a>",
+   "initial_xhtml": "<a href=\"otherurl\">[foobarbaz]</a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">[foobarbaz]</a>"
+   ],
+   "expected_canonical": [
+    "<a>[foobarbaz]</a>"
+   ]
+  },
+  {
+   "id": "createlink-09191ca2",
+   "initial": "foo<a href=otherurl>[bar]</a>baz",
+   "initial_xhtml": "foo<a href=\"otherurl\">[bar]</a>baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/\">[bar]</a>baz"
+   ],
+   "expected_canonical": [
+    "foo<a>[bar]</a>baz"
+   ]
+  },
+  {
+   "id": "createlink-4ab256ea",
+   "initial": "foo[<a href=otherurl>bar</a>]baz",
+   "initial_xhtml": "foo[<a href=\"otherurl\">bar</a>]baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo[<a href=\"http://www.google.com/\">bar</a>]baz"
+   ],
+   "expected_canonical": [
+    "foo[<a>bar</a>]baz"
+   ]
+  },
+  {
+   "id": "createlink-46696644",
+   "initial": "foo<a href=otherurl>[bar</a>baz]",
+   "initial_xhtml": "foo<a href=\"otherurl\">[bar</a>baz]",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/\">[barbaz]</a>"
+   ],
+   "expected_canonical": [
+    "foo<a>[barbaz]</a>"
+   ]
+  },
+  {
+   "id": "createlink-23947142",
+   "initial": "[foo<a href=otherurl>bar]</a>baz",
+   "initial_xhtml": "[foo<a href=\"otherurl\">bar]</a>baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">[foobar]</a>baz"
+   ],
+   "expected_canonical": [
+    "<a>[foobar]</a>baz"
+   ]
+  },
+  {
+   "id": "createlink-0ba63792",
+   "initial": "[foo<a href=otherurl>bar</a>baz]",
+   "initial_xhtml": "[foo<a href=\"otherurl\">bar</a>baz]",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\">[foobarbaz]</a>"
+   ],
+   "expected_canonical": [
+    "<a>[foobarbaz]</a>"
+   ]
+  },
+  {
+   "id": "createlink-0d57f532",
+   "initial": "<a href=otherurl><b>foo[bar]baz</b></a>",
+   "initial_xhtml": "<a href=\"otherurl\"><b>foo[bar]baz</b></a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\"><b>foo[bar]baz</b></a>"
+   ],
+   "expected_canonical": [
+    "<a><b>foo[bar]baz</b></a>"
+   ]
+  },
+  {
+   "id": "createlink-4a5218db",
+   "initial": "<a href=otherurl><b>foo[barbaz</b></a>}",
+   "initial_xhtml": "<a href=\"otherurl\"><b>foo[barbaz</b></a>}",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\"><b>foo[barbaz</b></a>}"
+   ],
+   "expected_canonical": [
+    "<a><b>foo[barbaz</b></a>}"
+   ]
+  },
+  {
+   "id": "createlink-acc88f3a",
+   "initial": "{<a href=otherurl><b>foobar]baz</b></a>",
+   "initial_xhtml": "{<a href=\"otherurl\"><b>foobar]baz</b></a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "{<a href=\"http://www.google.com/\"><b>foobar]baz</b></a>"
+   ],
+   "expected_canonical": [
+    "{<a><b>foobar]baz</b></a>"
+   ]
+  },
+  {
+   "id": "createlink-239e2397",
+   "initial": "<a href=otherurl><b>[foobarbaz]</b></a>",
+   "initial_xhtml": "<a href=\"otherurl\"><b>[foobarbaz]</b></a>",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/"
+    ]
+   ],
+   "expected": [
+    "<a href=\"http://www.google.com/\"><b>[foobarbaz]</b></a>"
+   ],
+   "expected_canonical": [
+    "<a><b>[foobarbaz]</b></a>"
+   ]
+  },
+  {
+   "id": "createlink-99b3098e",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "createlink",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "createlink-e54ee763",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "createlink",
+     "http://www.google.com/日本語パス"
+    ]
+   ],
+   "expected": [
+    "foo<a href=\"http://www.google.com/日本語パス\">[bar]</a>baz"
+   ],
+   "expected_canonical": [
+    "foo<a>[bar]</a>baz"
+   ]
+  }
+ ]
+}

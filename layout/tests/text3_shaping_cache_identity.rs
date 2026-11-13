@@ -1,6 +1,6 @@
 //! T2 — the shaping-cache IDENTITY gate (SHAPED_TEXT_REFACTOR_PLAN §2.3).
 //!
-//! `shape_visual_items_with_per_item_cache`'s hit path re-stamps paint
+//! `shape_bidi_runs_with_per_item_cache`'s hit path re-stamps paint
 //! (colour) and identity (`source_node_id`) onto cached clusters — the
 //! correctness fix of commit `8ec9f387d`, which had NO test until this
 //! file. Any cache-sharing scheme (the §3.2 ShapedRun relocation, Option

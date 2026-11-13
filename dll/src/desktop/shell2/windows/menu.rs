@@ -22,8 +22,12 @@ pub struct WindowsMenuBar {
     pub _native_ptr: HMENU,
     /// Map from Win32 command ID -> azul CoreMenuCallback
     pub callbacks: BTreeMap<u16, CoreMenuCallback>,
-    /// Hash of the Menu structure for change detection
+    /// What the bar shows (`Menu::get_structure_hash`): a menu built again
+    /// with equal items only rebinds its callbacks (`set_menu_bar`).
     pub hash: u64,
+    /// Every leaf's command id in `Menu::leaf_callbacks` order, `None` for a
+    /// leaf without a callback: where a rebuilt menu's callbacks go.
+    leaf_commands: Vec<Option<u16>>,
     /// Stored DestroyMenu function pointer for cleanup in Drop
     destroy_menu_fn: unsafe extern "system" fn(HMENU) -> i32,
 }
@@ -35,18 +39,39 @@ static WINDOWS_UNIQUE_COMMAND_ID_GENERATOR: AtomicUsize = AtomicUsize::new(1);
 impl WindowsMenuBar {
     /// Creates a new WindowsMenuBar from an Azul Menu structure
     pub fn new(menu: &Menu, win32: &Win32Libraries) -> Self {
-        let hash = menu.get_hash();
+        let hash = menu.get_structure_hash();
         let mut root = unsafe { (win32.user32.CreateMenu)() };
         let mut command_map = BTreeMap::new();
+        let mut leaf_commands = Vec::new();
 
-        Self::recursive_construct_menu(&mut root, menu.items.as_ref(), &mut command_map, win32);
+        Self::recursive_construct_menu(
+            &mut root,
+            menu.items.as_ref(),
+            &mut command_map,
+            &mut leaf_commands,
+            win32,
+        );
 
         Self {
             _native_ptr: root,
             callbacks: command_map,
             hash,
+            leaf_commands,
             destroy_menu_fn: win32.user32.DestroyMenu,
         }
+    }
+
+    /// Takes `menu`'s callbacks into the commands this bar has, when `menu`
+    /// shows the same items. `false` when the bar must be built again.
+    fn rebind(&mut self, menu: &Menu) -> bool {
+        if menu.get_structure_hash() != self.hash {
+            return false;
+        }
+        let Some(bound) = menu.rebind_leaf_callbacks(&self.leaf_commands) else {
+            return false;
+        };
+        self.callbacks = bound.into_iter().collect();
+        true
     }
 
     /// Generates a new unique Win32 command ID
@@ -59,6 +84,7 @@ impl WindowsMenuBar {
         menu: &mut HMENU,
         items: &[MenuItem],
         command_map: &mut BTreeMap<u16, CoreMenuCallback>,
+        leaf_commands: &mut Vec<Option<u16>>,
         win32: &Win32Libraries,
     ) {
         use super::dlopen::{constants::*, encode_wide};
@@ -69,7 +95,10 @@ impl WindowsMenuBar {
                     if mi.children.as_ref().is_empty() {
                         // Leaf menu item with optional callback
                         let command = match mi.callback.as_ref() {
-                            None => 0,
+                            None => {
+                                leaf_commands.push(None);
+                                0
+                            }
                             Some(c) => {
                                 let raw_id = Self::get_new_command_id() % (core::u16::MAX as usize);
                                 // Skip 0 since it means "no command"
@@ -79,6 +108,7 @@ impl WindowsMenuBar {
                                     raw_id
                                 } as u16;
                                 command_map.insert(new_command_id, c.clone() as CoreMenuCallback);
+                                leaf_commands.push(Some(new_command_id));
                                 new_command_id as usize
                             }
                         };
@@ -97,6 +127,7 @@ impl WindowsMenuBar {
                             &mut submenu,
                             mi.children.as_ref(),
                             command_map,
+                            leaf_commands,
                             win32,
                         );
                         unsafe {
@@ -133,7 +164,10 @@ impl Drop for WindowsMenuBar {
 /// This function handles three cases:
 /// 1. Removing an existing menu (new_menu = None)
 /// 2. Creating a new menu (old_menu = None, new_menu = Some)
-/// 3. Updating an existing menu if the hash changed
+/// 3. Updating an existing menu: built again when what it shows changed,
+///    otherwise only its callbacks move. An app builds its bar again with
+///    fresh callback data in every layout pass, and a new HMENU per pass
+///    redrew the bar on every frame of a slider drag.
 pub fn set_menu_bar(
     hwnd: super::dlopen::HWND,
     old_menu: &mut Option<WindowsMenuBar>,
@@ -154,10 +188,9 @@ pub fn set_menu_bar(
             unsafe { (win32.user32.SetMenu)(hwnd, new_menu_bar._native_ptr) };
             *old_menu = Some(new_menu_bar);
         }
-        // Update menu if hash changed
-        (Some(old_hash), Some(menu)) => {
-            let menu_hash = menu.get_hash();
-            if old_hash != menu_hash {
+        (Some(_), Some(menu)) => {
+            let rebound = old_menu.as_mut().is_some_and(|bar| bar.rebind(menu));
+            if !rebound {
                 let new_menu_bar = WindowsMenuBar::new(menu, win32);
                 unsafe { (win32.user32.SetMenu)(hwnd, new_menu_bar._native_ptr) };
                 *old_menu = Some(new_menu_bar);

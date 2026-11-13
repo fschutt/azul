@@ -1,0 +1,73 @@
+[
+  {
+    "name": "FILEN-031: a download that would eat the disk reserve is not started; the old version stays whole and the small files still arrive",
+    "description": "FILEN-031 (Filen): copying 600 GB-1.2 TB into the mounted drive filled the local SSD with the write cache until the disk was full. Rule E3: a download that cannot fit, keeping a reserve free (default 1 GiB), is not started; others go on. sync-chaos res-disk-full.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 300000, "seed": 1 },
+      { "op": "drive_write", "device": "a", "path": "small.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 3000000, "seed": 2 },
+      { "op": "drive_write", "device": "a", "path": "small.txt", "text": "v2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_disk", "device": "b", "free_bytes": 1074790400 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["disk-reserve", "disk-full"], "key": "big.bin" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "size": 300000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "small.txt", "text": "v2" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_disk", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-031: a disk that is full when the download is written leaves the old version whole and no temp file",
+    "description": "FILEN-031 (Filen): 'cannot create directory' errors at random when the disk filled. Rule E3: one that hits ENOSPC anyway leaves the old version whole and no temp file. sync-chaos res-disk-full.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 300000, "seed": 1 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "big.bin", "size": 3000000, "seed": 2 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_disk", "device": "b", "full": true },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["disk-full", "disk-reserve"], "key": "big.bin" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "size": 300000 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_disk", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.bin", "same_as": "{root:a}/big.bin" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-031: an on-demand file cache is bounded and pushes back instead of filling the disk",
+    "description": "FILEN-031 (Filen): the network drive's write cache filled the local SSD. Rule P13 (a cache is bounded and pushes back), E3. sync-chaos placeholder-write-back (pending).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a", "on_demand": true },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_disk", "device": "a", "free_bytes": 1100000000 },
+      { "op": "drive_write_through_placeholder", "device": "a", "path": "huge.bin", "size": 100000000, "seed": 1 },
+      { "op": "assert_response", "path": "result.written", "equals": false },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["disk-reserve", "disk-full"] },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

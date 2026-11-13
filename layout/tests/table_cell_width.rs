@@ -171,17 +171,22 @@ fn test_table_two_cells_have_nonzero_width() {
         }
     }
 
-    // node[0] = body (implicit root)
-    // node[1] = table
-    // node[2] = tr
-    // node[3] = td (CellA)
-    // node[4] = text "CellA"
-    // node[5] = td (CellB)
-    // node[6] = text "CellB"
+    // `StyledDom::create` keeps the given root as node 0 (no implicit body):
+    // node[0] = table
+    // node[1] = tr
+    // node[2] = td (CellA)
+    // node[3] = text "CellA"
+    // node[4] = td (CellB)
+    // node[5] = text "CellB"
+    //
+    // The text nodes have no box of their own: a cell of loose text is ONE
+    // inline formatting context, and an inline text node's lines are its
+    // IFC root's (the cell's) - like a paragraph's text. The cells are what
+    // this test is about.
 
     // Find the table — should have non-zero width
     let table_rect = layout_window
-        .get_node_layout_rect(node_id(1))
+        .get_node_layout_rect(node_id(0))
         .expect("table rect");
     eprintln!(
         "\nTable: w={:.1} h={:.1}",
@@ -195,10 +200,10 @@ fn test_table_two_cells_have_nonzero_width() {
 
     // Find td cells — both should have non-zero width
     let td_a = layout_window
-        .get_node_layout_rect(node_id(3))
+        .get_node_layout_rect(node_id(2))
         .expect("td CellA rect");
     let td_b = layout_window
-        .get_node_layout_rect(node_id(5))
+        .get_node_layout_rect(node_id(4))
         .expect("td CellB rect");
     eprintln!(
         "TD(CellA): w={:.1} h={:.1}",
@@ -242,8 +247,10 @@ fn test_single_table_cell_nonzero_width() {
         }
     }
 
+    // node[0] = table, node[1] = tr, node[2] = td, node[3] = the text (no
+    // box of its own: its lines are the cell's inline formatting context's).
     let td_rect = layout_window
-        .get_node_layout_rect(node_id(3))
+        .get_node_layout_rect(node_id(2))
         .expect("td rect");
     eprintln!(
         "\nTD: w={:.1} h={:.1}",

@@ -1,6 +1,6 @@
 {
   "name": "manager_keys_drop_with_their_nodes",
-  "description": "X10 across every manager that keys state by node, with gpu_state as the point: scroll a container so the scrollbar fade arms GPU opacity keys for it, then replace the DOM with one that does not contain the container at all. Every manager key must go with the node it referred to. gpu_state is the reason this scenario exists \u2014 it was NOT in KNOWN_MANAGERS, so nothing here could see it, and the scrollbar-fade latch was caught only incidentally by a hard-coded field read in assert_state_machines_idle. A GpuValueCache entry keyed to a deleted node is invisible in the DOM and invisible in the display list: an assertion is the only thing that can find it. The `tick_ms` past the fade window matters \u2014 it is what makes the fade RUN rather than sit idle, so the keys are genuinely live before the mutation removes their nodes.",
+  "description": "X10 across every manager that keys state by node, with gpu_state as the point: scroll a container so the scrollbar fade arms GPU opacity keys for it, then replace the DOM with one that does not contain the container at all: a <p> where the <div> stood, because under React's identity rules (the default since IDENTITY29) a <div> with another id at the same place is the SAME node - only a node of another type is gone - and the scenario is about nodes that are gone. (The scroller that survives as a plain box is scroller-rebuilt-as-a-plain-box.json.) Every manager key must go with the node it referred to. gpu_state is the reason this scenario exists \u2014 it was NOT in KNOWN_MANAGERS, so nothing here could see it, and the scrollbar-fade latch was caught only incidentally by a hard-coded field read in assert_state_machines_idle. A GpuValueCache entry keyed to a deleted node is invisible in the DOM and invisible in the display list: an assertion is the only thing that can find it. The `tick_ms` past the fade window matters \u2014 it is what makes the fade RUN rather than sit idle, so the keys are genuinely live before the mutation removes their nodes.",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -72,7 +72,7 @@
     {
       "op": "mount",
       "html": [
-        "<div id=\"plain\">no scroller here</div>"
+        "<p id=\"plain\">no scroller here</p>"
       ],
       "css": [
         "html, body { margin: 0; padding: 0; }",

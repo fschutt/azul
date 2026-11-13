@@ -1,0 +1,59 @@
+[
+  {
+    "name": "a download that keeps failing is retried every pass and listed, never excluded for good",
+    "description": "SYNCCOM-016 (Sync.com): a download failed by low memory left the files permanently and silently excluded from sync. Rules E6/O1 (sync-chaos res-one-file-keeps-failing): per-file retry, the failing file listed every pass, the others go on, it arrives once the fault is gone (also after a restart). The failure is b's GET of the file's blob answering 500 (fail_keys on the blob key: .azlin/blobs/<fan>/<blake3>).",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "batch", "count": 20, "text_prefix": "item" },
+      { "op": "drive_write", "device": "a", "path": "big/stuck.bin", "text": "the one that keeps failing" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_fault", "device": "b", "fail_keys": ["*591710efa2eabf9cecce754c70c4de0b166464aaab8bfe647fda3cddcea9e682"] },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "batch/*", "count": 20 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big/stuck.bin", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["transient", "io-error"], "key": "big/stuck.bin", "when": "last" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["transient", "io-error"], "key": "big/stuck.bin", "when": "last" },
+      { "op": "drive_restart", "device": "b" },
+      { "op": "drive_fault", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big/stuck.bin", "text": "the one that keeps failing" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["transient", "io-error"], "key": "big/stuck.bin", "absent": true, "when": "last" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a download that fails writing locally (the machine out of resources) is retried later, never excluded",
+    "description": "SYNCCOM-016 (Sync.com): a local failure during a download made the file permanently excluded. Rules E6/O1/A5: the failure is listed, the old state stays whole with no temp file, and the next pass after the fault retries it. Low memory itself cannot be injected; the local write failure is the disk fault (writes answer 'no space').",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "report.pdf", "text": "the quarterly report" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_disk", "device": "b", "full": true },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "report.pdf", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["disk-full", "disk-reserve", "io-error", "transient"], "key": "report.pdf" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_disk", "device": "b", "clear": true },
+      { "op": "drive_restart", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "report.pdf", "text": "the quarterly report" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

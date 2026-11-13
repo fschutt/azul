@@ -242,14 +242,23 @@ fn contenteditable_change_detected_by_attrs_hash() {
 }
 
 #[test]
-fn tab_index_change_detected_by_attrs_hash() {
-    use azul_core::dom::TabIndex;
+fn a_tab_index_change_is_no_layout_change_but_the_dom_still_rebuilds() {
+    // Which node Tab lands on changes neither layout nor paint: a roving
+    // tabindex group moving its stop must not make its rows layout-dirty.
+    use azul_core::dom::{Dom, TabIndex};
     let a = NodeData::create_div();
     let mut b = NodeData::create_div();
     b.set_tab_index(TabIndex::Auto);
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
-    assert_ne!(fa.attrs_hash, fb.attrs_hash);
+    assert_eq!(fa.attrs_hash, fb.attrs_hash);
+    assert!(!fa.might_affect_layout(&fb));
+    // But the rebuild is not SKIPPED: the pre-cascade structure tier still
+    // sees it, so the fresh tab index is what the focus manager reads.
+    let (da, _) = azul_core::diff::fingerprint_dom(&Dom::create_div());
+    let (db, _) =
+        azul_core::diff::fingerprint_dom(&Dom::create_div().with_tab_index(TabIndex::Auto));
+    assert_ne!(da.structure_root, db.structure_root);
 }
 
 // =========================================================================

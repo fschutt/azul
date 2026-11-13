@@ -1,0 +1,279 @@
+{
+  "source": "layout/src/solver3/fc.rs",
+  "target_dir": "layout/src/solver3/fc",
+  "copy_use_block": true,
+  "glob_preamble": [
+    "#[allow(clippy::wildcard_imports)]",
+    "// the formatting contexts' items, re-exported from the sibling modules by mod.rs"
+  ],
+  "super_paths": ["calc", "geometry", "svg", "PositionVec"],
+  "mod_block_comment": [
+    "// The modules of what was one file. Every item keeps the visibility it had there: a",
+    "// `pub(crate)` one in a private module is what clippy would rather call `pub`, which a",
+    "// `pub use` would publish."
+  ],
+  "pub_crate_module_attrs": ["#[allow(clippy::redundant_pub_crate)]"],
+  "keep_in_mod_rs": [],
+  "outline_modules": [
+    "autotest_generated",
+    "window_layout_tests",
+    "vertical_align_of_nested_inline_boxes_tests",
+    "a_flex_items_content_takes_its_final_width_tests",
+    "a_fit_content_block_item_fits_its_column_tests",
+    "an_absolute_box_keeps_its_static_position_tests"
+  ],
+  "modules": [
+    {
+      "name": "types",
+      "doc": "What flows through the formatting contexts: constraints, layout outputs and block formatting state.",
+      "items": [
+        "const DEFAULT_SCROLLBAR_WIDTH_PX",
+        "struct BfcLayoutResult",
+        "enum OverflowBehavior",
+        "struct FragmentainerSpace",
+        "struct LayoutConstraints",
+        "struct BfcState",
+        "struct MarginCollapseContext",
+        "struct LayoutOutput",
+        "enum TextAlign",
+        "struct BfcLayoutState"
+      ]
+    },
+    {
+      "name": "floats",
+      "doc": "Floats (CSS 2.2 9.5): the floating context, float placement and clearance.",
+      "items": [
+        "struct FloatBox",
+        "struct FloatingContext",
+        "fn position_float",
+        "fn position_floated_child",
+        "fn get_float_property",
+        "fn get_clear_property"
+      ]
+    },
+    {
+      "name": "dispatch",
+      "doc": "The entry point: lays a node out with the algorithm of its formatting context.",
+      "items": ["fn layout_formatting_context"]
+    },
+    {
+      "name": "flex_grid",
+      "doc": "Flex and grid containers, laid out by Taffy.",
+      "items": [
+        "fn layout_flex_grid",
+        "enum Axis",
+        "fn border_box_to_content",
+        "fn definite_or_auto",
+        "fn resolve_explicit_dimension_width",
+        "fn resolve_explicit_dimension_height",
+        "fn translate_taffy_size",
+        "fn resolve_size_metric",
+        "fn translate_taffy_size_back",
+        "fn translate_taffy_point_back"
+      ]
+    },
+    {
+      "name": "bfc",
+      "doc": "Block formatting contexts (CSS 2.2 9.4.1): block flow, margin collapsing, floats, clearance and fragmentation.",
+      "items": ["fn centers_blocks_the_legacy_way", "fn layout_bfc"]
+    },
+    {
+      "name": "block_rules",
+      "doc": "What a block box is to its flow: new formatting contexts, margin collapsing, emptiness, in-flow boxes, scrollbar needs.",
+      "items": [
+        "fn establishes_new_bfc",
+        "fn is_block_level_replaced",
+        "fn check_scrollbar_necessity",
+        "fn collapse_margins",
+        "fn advance_pen_with_margin_collapse",
+        "fn has_margin_collapse_blocker",
+        "fn is_empty_block",
+        "fn is_in_flow_box",
+        "fn first_in_flow_child"
+      ]
+    },
+    {
+      "name": "columns",
+      "doc": "Multi-column block containers (CSS Multicol 1).",
+      "items": [
+        "struct BlockColumns",
+        "struct ColumnsExtent",
+        "fn block_columns",
+        "fn distribute_into_columns",
+        "fn splittable_lines",
+        "fn split_into_columns"
+      ]
+    },
+    {
+      "name": "ifc",
+      "doc": "Inline formatting contexts: line layout through text3, text-box-trim and initial letters.",
+      "items": [
+        "fn apply_text_box_trim",
+        "fn editing_host_strut_height",
+        "fn ifc_extent",
+        "fn layout_ifc",
+        "fn hash_resolved_style",
+        "fn layout_initial_letter"
+      ]
+    },
+    {
+      "name": "text_constraints",
+      "doc": "From CSS to text3: the constraints, fonts and languages an inline formatting context lays out with.",
+      "items": [
+        "fn convert_font_style",
+        "fn convert_font_weight",
+        "fn content_language",
+        "fn hyphenation_language_of_tag",
+        "fn translate_to_text3_constraints"
+      ]
+    },
+    {
+      "name": "inline_content",
+      "doc": "An inline formatting context's content: text runs, inline boxes, images and atomic inlines.",
+      "items": [
+        "fn collect_and_measure_inline_content",
+        "fn slice_inline_content_by_bytes",
+        "fn collect_and_measure_inline_content_impl",
+        "fn push_inline_image",
+        "fn nested_vertical_align",
+        "fn collect_inline_span_recursive"
+      ]
+    },
+    {
+      "name": "atomic_inline",
+      "doc": "Atomic inlines (inline-block, inline-table, replaced boxes): their size and baseline on a line.",
+      "items": [
+        "fn atomic_inline_containing_block",
+        "fn atomic_inline_measure_key",
+        "fn atomic_inline_children_are_laid_out",
+        "fn atomic_inline_auto_height",
+        "fn publish_interior_positions",
+        "fn last_line_box_baseline",
+        "fn atomic_inline_baseline_offset",
+        "fn measure_atomic_inline"
+      ]
+    },
+    {
+      "name": "list_markers",
+      "doc": "List markers: which box carries a marker, which line it rides, and its content.",
+      "items": [
+        "const MARKER_WALK_LIMIT",
+        "fn is_marker_box",
+        "fn has_inside_marker",
+        "fn is_outside_marker",
+        "fn ifc_root_style_dom_id",
+        "fn anonymous_block_holds_the_first_line",
+        "fn marker_line_host",
+        "fn is_marker_on_a_line",
+        "fn markers_on_first_line",
+        "fn push_marker_content",
+        "fn generate_list_marker_text",
+        "fn generate_list_marker_segments"
+      ]
+    },
+    {
+      "name": "white_space",
+      "doc": "White space processing, segment breaks and text transforms (CSS Text 3).",
+      "items": [
+        "fn is_bk_or_nl_class",
+        "fn split_at_forced_breaks",
+        "fn split_at_bk_nl_chars",
+        "fn is_east_asian_wide",
+        "fn is_east_asian_fullwidth_or_wide",
+        "fn apply_segment_break_transform",
+        "fn is_bidi_control",
+        "fn is_css_document_whitespace",
+        "fn split_text_for_whitespace",
+        "fn white_space_runs",
+        "fn apply_text_transform"
+      ]
+    },
+    {
+      "name": "table",
+      "doc": "Table formatting contexts (CSS 2.2 17): the table's structure, its properties and the table layout.",
+      "items": [
+        "struct TableColumnInfo",
+        "struct TableCellInfo",
+        "struct TableColumnBox",
+        "struct TableColumnGroupBox",
+        "struct TableLayoutContext",
+        "fn get_table_layout_property",
+        "fn uses_fixed_table_layout",
+        "fn table_has_definite_width",
+        "fn get_border_collapse_property",
+        "fn get_border_spacing_property",
+        "fn resolve_table_border_spacing",
+        "fn get_empty_cells_property",
+        "fn get_caption_side_property",
+        "fn specified_caption_side",
+        "fn is_visibility_collapsed",
+        "fn is_cell_empty",
+        "fn layout_table_fc",
+        "fn analyze_table_structure",
+        "fn is_table_column_box",
+        "fn table_column_span",
+        "fn analyze_table_colgroup",
+        "fn get_cell_spans",
+        "fn analyze_table_row"
+      ]
+    },
+    {
+      "name": "table_borders",
+      "doc": "Table borders: the separated and the collapsing border models (CSS 2.2 17.6).",
+      "items": [
+        "enum BorderSource",
+        "struct BorderInfo",
+        "fn get_border_info",
+        "fn resolve_system_border_colors",
+        "struct CollapsedBorders",
+        "fn half_of_widest",
+        "fn collapse_edge",
+        "fn resolve_collapsed_borders",
+        "fn apply_table_border_model",
+        "fn set_collapsed_box"
+      ]
+    },
+    {
+      "name": "table_columns",
+      "doc": "Table column widths: the fixed and the automatic table layout (CSS 2.2 17.5.2).",
+      "items": [
+        "fn calculate_column_widths_fixed",
+        "fn fixed_column_widths",
+        "fn fixed_table_content_width",
+        "fn fixed_layout_width",
+        "fn clear_subtree_cache",
+        "fn measure_cell_content_width",
+        "fn specified_length_height",
+        "fn cell_specified_border_box_height",
+        "fn measure_cell_widths",
+        "fn calculate_column_widths_auto",
+        "fn calculate_column_widths_auto_with_width"
+      ]
+    },
+    {
+      "name": "table_rows",
+      "doc": "Table rows: cell heights, baselines and vertical alignment, and placing the cells and grid boxes.",
+      "items": [
+        "fn cell_is_inline_formatting_context",
+        "fn layout_cell_for_height",
+        "fn compute_cell_baseline",
+        "fn first_line_baseline",
+        "fn inline_block_baseline",
+        "fn cell_vertical_align",
+        "fn is_baseline_aligned",
+        "fn calculate_row_heights",
+        "fn stretch_rows_to",
+        "fn position_table_cells",
+        "fn content_box_offset",
+        "fn row_group_of",
+        "fn place_table_grid_boxes"
+      ]
+    }
+  ],
+  "member_visibility": {
+    "struct FloatBox": ["kind", "rect", "margin"],
+    "struct BlockColumns": ["geometry"],
+    "struct ColumnsExtent": ["height", "width"],
+    "impl TableLayoutContext": ["new"]
+  }
+}

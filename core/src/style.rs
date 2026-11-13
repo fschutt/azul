@@ -6,16 +6,19 @@
 
 use alloc::vec::Vec;
 
-use azul_css::css::{
-    AttributeMatchOp, CssAttributeSelector, CssContentGroup, CssNthChildSelector,
-    CssNthChildSelector::{Even, Number, Odd, Pattern},
-    CssPath, CssPathPseudoSelector, CssPathSelector,
+use azul_css::{
+    css::{
+        AttributeMatchOp, CssAttributeSelector, CssContentGroup, CssNthChildSelector,
+        CssNthChildSelector::{Even, Number, Odd, Pattern},
+        CssPath, CssPathPseudoSelector, CssPathSelector,
+    },
+    dynamic_selector::PseudoStateType,
 };
 
 use crate::{
     dom::NodeData,
     id::{NodeDataContainer, NodeDataContainerRef, NodeHierarchyRef, NodeId},
-    styled_dom::NodeHierarchyItem,
+    styled_dom::{NodeHierarchyItem, StyledNodeState},
 };
 
 /// Has all the necessary information about the style CSS path
@@ -55,10 +58,59 @@ impl CascadeInfoVec {
     }
 }
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How often [`matches_html_element`] ran on this thread. A restyle's cost
+    /// is this count, so tests read it to see which rules a node is tried
+    /// against.
+    pub(crate) static MATCH_ATTEMPTS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// The interaction states selector matching reads for the compounds LEFT of
+/// a rule's subject: the `.btn:hover` of `.btn:hover .ink`.
+///
+/// The subject's own pseudo-classes are decided by the cascade pass: a rule
+/// ending in `:hover` is matched in the hover pass and stored under the hover
+/// state, and the lookup applies it whenever the node is hovered. An
+/// ancestor's or a sibling's state has no pass of its own, so such a rule
+/// holds by the state that node is in when the cascade runs, and a change of
+/// that state runs the cascade again (`StyledDom::restyle_nodes_state`).
+#[derive(Debug, Clone, Copy)]
+pub struct AncestorStates<'a> {
+    /// Every node's flags, by node index. A node past the end is in no state.
+    pub nodes: &'a [StyledNodeState],
+    /// Whether the window is not the active one. `:backdrop` names that
+    /// window state, so it holds for every node then.
+    pub window_inactive: bool,
+    /// Every interaction pseudo-class holds: what a rule COULD select in
+    /// some state. Generated content asks this when it decides which hosts
+    /// get a `::before` node at all.
+    pub every_state: bool,
+}
+
+impl AncestorStates<'_> {
+    /// Whether `node` is in the state `pseudo` names. Structural
+    /// pseudo-classes are not states and never hold here.
+    fn holds(&self, node: NodeId, pseudo: &CssPathPseudoSelector) -> bool {
+        if self.every_state {
+            return true;
+        }
+        if matches!(pseudo, CssPathPseudoSelector::Backdrop) {
+            return self.window_inactive;
+        }
+        match (pseudo.dynamic_state(), self.nodes.get(node.index())) {
+            (Some(ty), Some(state)) => crate::styled_dom::state_is_raised(state, ty),
+            _ => false,
+        }
+    }
+}
+
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by
-/// that element)
+/// that element).
+///
+/// The compounds left of the subject are in no interaction state; the cascade passes the real
+/// ones through [`matches_html_element_in`].
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
-#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
 #[must_use]
 pub fn matches_html_element(
     css_path: &CssPath,
@@ -68,7 +120,38 @@ pub fn matches_html_element(
     html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,
 ) -> bool {
+    matches_html_element_in(
+        css_path,
+        node_id,
+        node_hierarchy,
+        node_data,
+        html_node_tree,
+        expected_path_ending,
+        None,
+    )
+}
+
+/// [`matches_html_element`] with the states of the nodes the compounds left
+/// of the subject land on.
+///
+/// As in `.btn:hover .ink` or `.anchor:hover + .tip`: without states such a
+/// compound's interaction pseudo-class never holds.
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
+#[must_use]
+pub fn matches_html_element_in(
+    css_path: &CssPath,
+    node_id: NodeId,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
+    html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+    expected_path_ending: Option<CssPathPseudoSelector>,
+    ancestor_states: Option<AncestorStates<'_>>,
+) -> bool {
     use self::CssGroupSplitReason::{AdjacentSibling, Children, DirectChildren, GeneralSibling};
+
+    #[cfg(all(test, feature = "std"))]
+    MATCH_ATTEMPTS.with(|c| c.set(c.get() + 1));
 
     if css_path.selectors.is_empty() {
         return false;
@@ -80,16 +163,14 @@ pub fn matches_html_element(
         return false;
     }
 
-    // Collect all selector groups (processed right-to-left from the CSS path).
-    let groups: Vec<(CssContentGroup<'_>, CssGroupSplitReason)> =
-        CssGroupIterator::new(css_path.selectors.as_ref()).collect();
-
-    if groups.is_empty() {
-        return false;
-    }
+    // The selector groups, right to left, walked without collecting them:
+    // this runs for every node x rule.
+    let mut groups = CssGroupIterator::new(css_path.selectors.as_ref());
 
     // The rightmost group must match the target node directly.
-    let (ref first_group, first_reason) = groups[0];
+    let Some((first_group, first_reason)) = groups.next() else {
+        return false;
+    };
     // groups[0] is ALWAYS the subject (rightmost) group, so it is the "last content
     // group" that an interactive pseudo (:hover/:focus/:active) attaches to — regardless
     // of how many ancestor groups precede it. The old `groups.len() == 1` disabled
@@ -109,25 +190,25 @@ pub fn matches_html_element(
     // Navigate from the target node upward/sideways through the DOM,
     // matching each remaining selector group with its combinator.
     let mut current_node = node_id;
+    // The combinator to a group's right comes from the PREVIOUS group's reason.
+    let mut combinator = first_reason;
 
-    for (group_idx, (content_group, _reason)) in groups.iter().enumerate().skip(1) {
-        // The combinator comes from the PREVIOUS group's reason
-        let combinator = groups[group_idx - 1].1;
-        let is_last = group_idx == groups.len() - 1;
+    for (content_group, reason) in groups {
+        let this_combinator = combinator;
+        combinator = reason;
 
-        match combinator {
+        match this_combinator {
             DirectChildren => {
                 // Parent must match directly (child combinator `>`)
                 let parent = find_non_anonymous_parent(current_node, node_hierarchy, node_data);
                 match parent {
                     Some(p)
-                        if selector_group_matches(
+                        if left_group_matches(
                             content_group,
                             html_node_tree[p],
                             &node_data[p],
                             p,
-                            expected_path_ending.as_ref(),
-                            is_last,
+                            ancestor_states,
                         ) =>
                     {
                         current_node = p;
@@ -141,13 +222,12 @@ pub fn matches_html_element(
                     find_non_anonymous_parent(current_node, node_hierarchy, node_data);
                 let mut found = false;
                 while let Some(anc) = ancestor {
-                    if selector_group_matches(
+                    if left_group_matches(
                         content_group,
                         html_node_tree[anc],
                         &node_data[anc],
                         anc,
-                        expected_path_ending.as_ref(),
-                        is_last,
+                        ancestor_states,
                     ) {
                         current_node = anc;
                         found = true;
@@ -165,13 +245,12 @@ pub fn matches_html_element(
                     find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
                 match sibling {
                     Some(s)
-                        if selector_group_matches(
+                        if left_group_matches(
                             content_group,
                             html_node_tree[s],
                             &node_data[s],
                             s,
-                            expected_path_ending.as_ref(),
-                            is_last,
+                            ancestor_states,
                         ) =>
                     {
                         current_node = s;
@@ -185,13 +264,12 @@ pub fn matches_html_element(
                     find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
                 let mut found = false;
                 while let Some(sib) = sibling {
-                    if selector_group_matches(
+                    if left_group_matches(
                         content_group,
                         html_node_tree[sib],
                         &node_data[sib],
                         sib,
-                        expected_path_ending.as_ref(),
-                        is_last,
+                        ancestor_states,
                     ) {
                         current_node = sib;
                         found = true;
@@ -225,6 +303,14 @@ fn find_non_anonymous_parent(
     None
 }
 
+/// Whether a node counts among its parent's element children for the
+/// structural pseudo-classes and the sibling combinators: not a text node
+/// and not generated content, which is no element of the document (a
+/// `ul::before` must not make the first `li` the second child).
+const fn is_element_sibling(node_data: &NodeData) -> bool {
+    !node_data.is_text_node() && !node_data.is_generated_content()
+}
+
 /// Find the first previous sibling of a node that the `+`/`~` combinators can target:
 /// an element, skipping anonymous boxes AND non-element (text) nodes.
 ///
@@ -238,7 +324,7 @@ fn find_non_anonymous_prev_sibling(
 ) -> Option<NodeId> {
     let mut next = node_hierarchy[node_id].previous_sibling_id();
     while let Some(n) = next {
-        if !node_data[n].is_anonymous() && !node_data[n].is_text_node() {
+        if !node_data[n].is_anonymous() && is_element_sibling(&node_data[n]) {
             return Some(n);
         }
         next = node_hierarchy[n].previous_sibling_id();
@@ -295,13 +381,12 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     fn next(&mut self) -> Option<(CssContentGroup<'a>, CssGroupSplitReason)> {
         use self::CssPathSelector::{AdjacentSibling, Children, DirectChildren, GeneralSibling};
 
-        let mut new_idx = self.current_idx;
+        let end = self.current_idx;
+        let mut new_idx = end;
 
         if new_idx == 0 {
             return None;
         }
-
-        let mut current_path = Vec::new();
 
         while new_idx != 0 {
             match self.css_path.get(new_idx - 1)? {
@@ -321,15 +406,15 @@ impl<'a> Iterator for CssGroupIterator<'a> {
                     self.last_reason = CssGroupSplitReason::GeneralSibling;
                     break;
                 }
-                other => current_path.push(other),
+                _ => {}
             }
             new_idx -= 1;
         }
 
-        // NOTE: Order inside of a ContentGroup is not important
-        // for matching elements, only important for testing
-        #[cfg(test)]
-        current_path.reverse();
+        // A group is a contiguous run of the path: borrowed, not collected.
+        // Selector matching runs this for every node x rule, and the Vec it
+        // built per group was most of a 300-contact list's restyle.
+        let current_path = &self.css_path[new_idx..end];
 
         if new_idx == 0 {
             if current_path.is_empty() {
@@ -368,7 +453,7 @@ pub fn construct_html_cascade_tree(
         // We count only element siblings when computing index_in_parent.
         let element_index_in_parent = parent_id
             .preceding_siblings(node_hierarchy)
-            .filter(|sib_id| !node_data[*sib_id].is_text_node())
+            .filter(|sib_id| is_element_sibling(&node_data[*sib_id]))
             .count();
 
         let parent_html_matcher = CascadeInfo {
@@ -379,7 +464,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last_element = true;
                 let mut next = node_hierarchy[*parent_id].next_sibling;
                 while let Some(sib_id) = next {
-                    if !node_data[sib_id].is_text_node() {
+                    if is_element_sibling(&node_data[sib_id]) {
                         is_last_element = false;
                         break;
                     }
@@ -394,7 +479,7 @@ pub fn construct_html_cascade_tree(
         // Count only element children for index_in_parent
         let mut element_idx: u32 = 0;
         for child_id in parent_id.children(node_hierarchy) {
-            let is_text = node_data[child_id].is_text_node();
+            let is_text = !is_element_sibling(&node_data[child_id]);
 
             // Find whether this is the last element child (skip trailing text nodes)
             let is_last_element_child = if is_text {
@@ -403,7 +488,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last = true;
                 let mut next = node_hierarchy[child_id].next_sibling;
                 while let Some(sib_id) = next {
-                    if !node_data[sib_id].is_text_node() {
+                    if is_element_sibling(&node_data[sib_id]) {
                         is_last = false;
                         break;
                     }
@@ -428,6 +513,157 @@ pub fn construct_html_cascade_tree(
     NodeDataContainer { internal: nodes }
 }
 
+/// Which rules of a stylesheet a node can match, by where each rule's
+/// subject can be.
+///
+/// A rule scoped to a subtree (`Dom::with_css`, the leading
+/// [`CssPathSelector::Root`]) only matches inside that subtree, and a page of
+/// widgets carries one such sheet per widget instance: trying every node
+/// against every rule made a restyle cost nodes times rules. The index hands
+/// a node the unscoped rules and the rules of the scopes around it, in rule
+/// order, so the cascade's "the last match wins" order is unchanged.
+///
+/// The walk goes through the nodes in ascending order
+/// ([`Self::candidates`]), entering and leaving scopes as it goes.
+pub(crate) struct ScopedRuleIndex {
+    /// The rules that can match anywhere, ascending.
+    unscoped: Vec<usize>,
+    /// `(first node, last node, rule)` of every scoped rule, by first node.
+    scoped: Vec<(usize, usize, usize)>,
+    /// How many entries of `scoped` the walk has entered.
+    entered: usize,
+    /// `(last node, rule)` of the entered scopes the walk is still inside.
+    active: Vec<(usize, usize)>,
+    /// The scoped rules of the node the walk is at, ascending.
+    here: Vec<usize>,
+}
+
+impl ScopedRuleIndex {
+    /// The index of `paths`, the rules in cascade order (a rule is its
+    /// position in `paths`), over the tree `hierarchy`.
+    // An `impl Trait` argument cannot elide the lifetime of its item (unstable), so the one
+    // named lifetime stays.
+    #[allow(single_use_lifetimes)]
+    pub(crate) fn new<'a>(
+        paths: impl Iterator<Item = &'a CssPath>,
+        hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    ) -> Self {
+        let mut unscoped = Vec::new();
+        let mut scoped = Vec::new();
+        for (rule, path) in paths.enumerate() {
+            match subject_range(path, hierarchy) {
+                Some((first, last)) => scoped.push((first, last, rule)),
+                None => unscoped.push(rule),
+            }
+        }
+        scoped.sort_unstable();
+        Self {
+            unscoped,
+            scoped,
+            entered: 0,
+            active: Vec::new(),
+            here: Vec::new(),
+        }
+    }
+
+    /// The rules `node` can match, in rule order. Nodes must be asked for in
+    /// ascending order: a scope the walk has left is not entered again.
+    pub(crate) fn candidates(&mut self, node: usize) -> MergedRules<'_> {
+        while let Some(&(first, last, rule)) = self.scoped.get(self.entered) {
+            if first > node {
+                break;
+            }
+            self.active.push((last, rule));
+            self.entered += 1;
+        }
+        self.active.retain(|&(last, _)| last >= node);
+        self.here.clear();
+        self.here.extend(self.active.iter().map(|&(_, rule)| rule));
+        self.here.sort_unstable();
+        MergedRules {
+            a: &self.unscoped,
+            b: &self.here,
+        }
+    }
+}
+
+/// Two ascending lists of rules read as one ascending list.
+#[derive(Clone)]
+pub(crate) struct MergedRules<'a> {
+    a: &'a [usize],
+    b: &'a [usize],
+}
+
+impl Iterator for MergedRules<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        let take_a = match (self.a.first(), self.b.first()) {
+            (Some(x), Some(y)) => x <= y,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => return None,
+        };
+        if take_a {
+            let (&rule, rest) = self.a.split_first()?;
+            self.a = rest;
+            Some(rule)
+        } else {
+            let (&rule, rest) = self.b.split_first()?;
+            self.b = rest;
+            Some(rule)
+        }
+    }
+}
+
+/// The nodes a rule's subject can be, `(first, last)` inclusive, or `None`
+/// when it can be anywhere.
+///
+/// A `Root(range)` selector holds only for a node inside `range`. In the
+/// subject's own compound it bounds the subject itself. Further left, with
+/// only descendant and child combinators after it, it bounds an ancestor of
+/// the subject, so the subject lies in the subtree of the range's first node
+/// (a scope range is that node's subtree, or the node alone). A sibling
+/// combinator can lead out of the range, and a range that is not a subtree
+/// bounds nothing that is easy to state: such rules stay unscoped.
+fn subject_range(
+    path: &CssPath,
+    hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+) -> Option<(usize, usize)> {
+    let is_combinator = |s: &CssPathSelector| {
+        matches!(
+            s,
+            CssPathSelector::Children
+                | CssPathSelector::DirectChildren
+                | CssPathSelector::AdjacentSibling
+                | CssPathSelector::GeneralSibling
+        )
+    };
+    let selectors = path.selectors.as_ref();
+    let (at, range) = selectors.iter().enumerate().find_map(|(i, s)| match s {
+        CssPathSelector::Root(range) => Some((i, *range)),
+        _ => None,
+    })?;
+    if !selectors[at + 1..].iter().any(is_combinator) {
+        return Some((range.start, range.end));
+    }
+    let sibling = selectors.iter().any(|s| {
+        matches!(
+            s,
+            CssPathSelector::AdjacentSibling | CssPathSelector::GeneralSibling
+        )
+    });
+    if sibling {
+        return None;
+    }
+    if range.start >= hierarchy.len() {
+        // No node can be the ancestor the range asks for: nothing matches.
+        return Some((range.start, range.start));
+    }
+    let last = range.start + hierarchy.subtree_len(NodeId::new(range.start));
+    (range.end <= last).then_some((range.start, last))
+}
+
 /// Checks whether the last selector in `path` matches the given pseudo-selector `target`.
 ///
 /// Known limitation: this only inspects the final selector in the path, so compound
@@ -437,19 +673,10 @@ pub fn construct_html_cascade_tree(
 #[must_use]
 pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
     // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)
-    // vs "structural" (based on DOM structure only)
+    // vs "structural" (based on DOM structure only): the one mapping of the
+    // crate, `CssPathPseudoSelector::dynamic_state`.
     const fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
-        matches!(
-            p,
-            CssPathPseudoSelector::Hover
-                | CssPathPseudoSelector::Active
-                | CssPathPseudoSelector::Focus
-                | CssPathPseudoSelector::SeatFocus
-                | CssPathPseudoSelector::Backdrop
-                | CssPathPseudoSelector::Dragging
-                | CssPathPseudoSelector::DragOver
-                | CssPathPseudoSelector::Placeholder
-        )
+        p.dynamic_state().is_some()
     }
 
     let Some(last) = path.selectors.as_ref().last() else {
@@ -466,27 +693,122 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
     )
 }
 
+/// Inline-style detection for the `Global` arm: a bare-declaration
+/// `with_css` rule is scoped to EXACTLY its owner node when the scope is
+/// pushed (`push_front_scope_for` collapses the range to `[owner, owner]`
+/// for INLINE-priority bare `*` wrappers). Such a rule is the author
+/// addressing THIS node directly — it must style a text node too.
+fn scoped_to_self(selectors: &[CssPathSelector], node_id: NodeId) -> bool {
+    selectors.iter().any(|s| {
+        matches!(s, CssPathSelector::Root(r)
+            if r.start == r.end && r.start == node_id.index())
+    })
+}
+
+/// A compound LEFT of the subject (an ancestor's or a preceding sibling's):
+/// its interaction pseudo-classes hold by the node's current state, every
+/// other selector matches as it does on the subject.
+fn left_group_matches(
+    selectors: &[CssPathSelector],
+    html_node: CascadeInfo,
+    node_data: &NodeData,
+    node_id: NodeId,
+    states: Option<AncestorStates<'_>>,
+) -> bool {
+    let node_scoped_to_self = scoped_to_self(selectors, node_id);
+    selectors.iter().all(|selector| match selector {
+        CssPathSelector::PseudoSelector(p) if p.dynamic_state().is_some() => {
+            states.is_some_and(|s| s.holds(node_id, p))
+        }
+        _ => match_single_selector(
+            selector,
+            html_node,
+            node_data,
+            node_id,
+            None,
+            false,
+            node_scoped_to_self,
+        ),
+    })
+}
+
+/// One bit per `PseudoStateType`, for the masks below.
+#[must_use]
+pub(crate) const fn state_bit(ty: PseudoStateType) -> u32 {
+    1 << (ty as u32)
+}
+
+/// The states `path` names in compounds LEFT of its subject, one
+/// [`state_bit`] each: the states of an ancestor or a sibling that switch
+/// the rule on or off.
+#[must_use]
+pub(crate) fn left_state_bits(path: &CssPath) -> u32 {
+    let mut groups = CssGroupIterator::new(path.selectors.as_ref());
+    let _subject = groups.next();
+    groups
+        .flat_map(|(group, _)| group.iter())
+        .filter_map(|s| match s {
+            CssPathSelector::PseudoSelector(p) => p.dynamic_state(),
+            _ => None,
+        })
+        .fold(0, |bits, ty| bits | state_bit(ty))
+}
+
+/// Whether `node_id` can anchor one of `path`'s compounds left of the
+/// subject that names `state`: that compound matches the node with every
+/// interaction pseudo-class taken as holding. A state change of a node that
+/// anchors no such compound cannot switch the rule.
+#[must_use]
+pub(crate) fn can_anchor(
+    path: &CssPath,
+    state: PseudoStateType,
+    node_id: NodeId,
+    html_node: CascadeInfo,
+    node_data: &NodeData,
+) -> bool {
+    let mut groups = CssGroupIterator::new(path.selectors.as_ref());
+    let _subject = groups.next();
+    groups.any(|(group, _)| {
+        let names_state = group.iter().any(|s| {
+            matches!(s, CssPathSelector::PseudoSelector(p) if p.dynamic_state() == Some(state))
+        });
+        if !names_state {
+            return false;
+        }
+        let scoped = scoped_to_self(group, node_id);
+        group.iter().all(|s| match s {
+            CssPathSelector::PseudoSelector(p) if p.dynamic_state().is_some() => true,
+            _ => match_single_selector(s, html_node, node_data, node_id, None, false, scoped),
+        })
+    })
+}
+
+/// Whether `path` reaches its subject through a sibling combinator, so that
+/// a state change of its anchor can restyle a node beside it, not only the
+/// nodes below it.
+#[must_use]
+pub(crate) fn has_sibling_combinator(path: &CssPath) -> bool {
+    path.selectors.as_ref().iter().any(|s| {
+        matches!(
+            s,
+            CssPathSelector::AdjacentSibling | CssPathSelector::GeneralSibling
+        )
+    })
+}
+
 /// Matches a single group of CSS selectors against a DOM node.
 ///
 /// Returns true if all selectors in the group match the given node.
 /// Combinator selectors (>, +, ~, space) should not appear in the group.
 fn selector_group_matches(
-    selectors: &[&CssPathSelector],
+    selectors: &[CssPathSelector],
     html_node: CascadeInfo,
     node_data: &NodeData,
     node_id: NodeId,
     expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
-    // Inline-style detection for the `Global` arm: a bare-declaration
-    // `with_css` rule is scoped to EXACTLY its owner node when the scope is
-    // pushed (`push_front_scope_for` collapses the range to `[owner, owner]`
-    // for INLINE-priority bare `*` wrappers). Such a rule is the author
-    // addressing THIS node directly — it must style a text node too.
-    let node_scoped_to_self = selectors.iter().any(|s| {
-        matches!(s, CssPathSelector::Root(r)
-            if r.start == r.end && r.start == node_id.index())
-    });
+    let node_scoped_to_self = scoped_to_self(selectors, node_id);
     selectors.iter().all(|selector| {
         match_single_selector(
             selector,
@@ -526,7 +848,12 @@ fn match_single_selector(
         // `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")`
         // must apply. Subtree-scoped and unscoped `*` rules keep refusing
         // text nodes.
-        Global => !node_data.is_text_node() || node_scoped_to_self,
+        // Nor generated content: `*` selects elements, and a `::before` is
+        // selected by its own node type (`div > ::before`).
+        Global => {
+            (!node_data.is_text_node() && !node_data.is_generated_content())
+                || node_scoped_to_self
+        }
         // `Root(range)` (scope marker, #47): matches any node WITHIN the subtree
         // range `[start, end]`. The range is chosen when the scope is pushed
         // (`CssPath::push_front_scope`):
@@ -625,6 +952,16 @@ fn match_pseudo_selector(
         ),
         CssPathPseudoSelector::SeatFocus => match_interactive_pseudo(
             &CssPathPseudoSelector::SeatFocus,
+            expected_path_ending,
+            is_last_content_group,
+        ),
+        CssPathPseudoSelector::FocusVisible => match_interactive_pseudo(
+            &CssPathPseudoSelector::FocusVisible,
+            expected_path_ending,
+            is_last_content_group,
+        ),
+        CssPathPseudoSelector::FocusWithin => match_interactive_pseudo(
+            &CssPathPseudoSelector::FocusWithin,
             expected_path_ending,
             is_last_content_group,
         ),

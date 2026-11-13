@@ -87,7 +87,8 @@ fn every_backend_dispatches_accessibility_actions() {
 /// styling never re-evaluates. `EventType::ThemeChange` and
 /// `WindowEventFilter::ThemeChanged` are fully wired in azul-core, so all a
 /// backend owes is the observation and a regeneration tagged
-/// [`RelayoutReason::ThemeChange`].
+/// [`RelayoutReason::ModeChange`] (the light / dark rebuild; `ThemeChange` is
+/// the app theme's).
 ///
 /// Each platform's notification, and none of them are the same API:
 ///   * Windows — `WM_SETTINGCHANGE | WM_THEMECHANGED`;
@@ -106,7 +107,7 @@ fn every_backend_dispatches_accessibility_actions() {
 ///     it no scenario could cover theme-dependent layout.
 ///
 /// SCAN KEY, and why it changed. The original check was `mod.rs` contains
-/// `RelayoutReason::ThemeChange`, chosen because requesting a regeneration
+/// `RelayoutReason::ModeChange` (then called `ThemeChange`), chosen because requesting a regeneration
 /// under that reason is the thing only a real runtime handler does — a
 /// constructor calling `discover_system_style()` does not. That stopped being
 /// true when the theme-switch POLICY moved into
@@ -117,10 +118,10 @@ fn every_backend_dispatches_accessibility_actions() {
 /// windows/macos/x11/wayland — the four that had REAL handlers — while the
 /// three that inline it stayed green, i.e. it had inverted.
 ///
-/// So the key is now "requests a ThemeChange regeneration, directly or through
+/// So the key is now "requests a ModeChange regeneration, directly or through
 /// the one shared helper that does", and the helper is checked separately for
 /// still doing it. That is not a widening: `adopt_system_style` has exactly one
-/// behaviour, and a helper that stopped tagging `ThemeChange` would now fail
+/// behaviour, and a helper that stopped tagging `ModeChange` would now fail
 /// here where before it would have gone unnoticed at every one of its callers.
 /// The observation itself — the half a `RelayoutReason` cannot speak for — is
 /// pinned by `every_backend_names_the_os_notification_it_observes` below, and
@@ -136,13 +137,13 @@ fn every_backend_reacts_to_a_runtime_theme_change() {
         .copied()
         .filter(|b| {
             let src = backend_src(b);
-            !src.contains("RelayoutReason::ThemeChange") && !src.contains("adopt_system_style(")
+            !src.contains("RelayoutReason::ModeChange") && !src.contains("adopt_system_style(")
         })
         .collect();
 
     assert!(
         missing.is_empty(),
-        "these backends never request a regeneration tagged ThemeChange, so a user toggling dark \
+        "these backends never request a regeneration tagged ModeChange, so a user toggling dark \
          mode sees no change until restart: {missing:?}",
     );
 
@@ -167,8 +168,8 @@ fn every_backend_reacts_to_a_runtime_theme_change() {
     // starts the following method.
     let body = adopt.split("\n    fn ").next().unwrap_or(adopt);
     assert!(
-        body.contains("RelayoutReason::ThemeChange"),
-        "PlatformWindow::adopt_system_style no longer requests a ThemeChange regeneration, so \
+        body.contains("RelayoutReason::ModeChange"),
+        "PlatformWindow::adopt_system_style no longer requests a ModeChange regeneration, so \
          every backend that delegates its theme switch to it now rebuilds under some other reason \
          (or not at all) — and LayoutCallbackInfo::relayout_reason() stops telling callbacks to \
          re-read system colours",

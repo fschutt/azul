@@ -52,6 +52,13 @@ pub fn is_debug_enabled() -> bool {
     false
 }
 
+/// Always `false` in the lean build: no scripted run can own the animation
+/// clock when the E2E engine is compiled out.
+#[inline(always)]
+pub fn scripted_run_owns_the_clock() -> bool {
+    false
+}
+
 /// Whether the `log_*!` macros should fire in the lean build. Unlike the full
 /// server (which gates on `is_debug_enabled()` to feed its queue), the lean
 /// build forwards messages to the `log` facade, so this follows `AZ_LOG` and is
@@ -143,5 +150,13 @@ pub fn register_debug_timer(
     _window: &mut dyn crate::desktop::shell2::common::event::PlatformWindow,
     _request_rx: spmc::Receiver<DebugRequest>,
     _component_map: std::sync::Arc<std::sync::Mutex<azul_core::xml::ComponentMap>>,
+) {
+}
+
+/// No-op: the debug timer only exists when the server is built.
+#[cfg(feature = "std")]
+#[inline(always)]
+pub fn register_debug_timer_on_new_window(
+    _window: &mut dyn crate::desktop::shell2::common::event::PlatformWindow,
 ) {
 }

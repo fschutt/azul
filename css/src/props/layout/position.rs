@@ -230,6 +230,7 @@ pub enum LayoutZIndex {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for LayoutZIndex {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -444,7 +445,9 @@ mod autotest_generated {
     use alloc::{string::String, vec::Vec};
 
     use super::*;
-    use crate::{codegen::format::FormatAsRustCode, props::basic::length::SizeMetric};
+    #[cfg(feature = "codegen")]
+    use crate::codegen::format::FormatAsRustCode;
+    use crate::props::basic::length::SizeMetric;
 
     /// Every `LayoutPosition` variant, so tests stay exhaustive if one is added.
     const ALL_POSITIONS: [LayoutPosition; 5] = [
@@ -652,6 +655,7 @@ mod autotest_generated {
         }
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn position_format_as_rust_code_names_the_variant() {
         assert_eq!(
@@ -857,6 +861,7 @@ mod autotest_generated {
         assert_eq!(LayoutZIndex::default().print_as_css_value(), "auto");
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn z_index_format_as_rust_code_survives_i32_min() {
         assert_eq!(

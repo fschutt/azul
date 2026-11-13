@@ -1,0 +1,136 @@
+[
+ {
+  "type": "STOP",
+  "name": "Berlin Hbf",
+  "id": "at-Railway-Current-Reference-Data-2026_de:11000:900003200:1:51",
+  "lat": 52.52498,
+  "lon": 13.369114000000001,
+  "country": "DE",
+  "areas": [
+   {
+    "name": "Deutschland",
+    "adminLevel": 2.0,
+    "default": false
+   },
+   {
+    "name": "Berlin",
+    "adminLevel": 4.0,
+    "default": true
+   },
+   {
+    "name": "Mitte",
+    "adminLevel": 9.0,
+    "default": false
+   },
+   {
+    "name": "Moabit",
+    "adminLevel": 10.0,
+    "default": false
+   }
+  ],
+  "modes": [
+   "HIGHSPEED_RAIL",
+   "LONG_DISTANCE",
+   "COACH",
+   "NIGHT_RAIL",
+   "REGIONAL_RAIL",
+   "SUBURBAN",
+   "SUBWAY",
+   "TRAM",
+   "BUS"
+  ]
+ },
+ {
+  "type": "PLACE",
+  "name": "A&O Berlin Hauptbahnhof",
+  "id": "way/[423971811]",
+  "lat": 52.5288704,
+  "lon": 13.3636863,
+  "country": "DE",
+  "areas": [
+   {
+    "name": "Deutschland",
+    "adminLevel": 2.0,
+    "default": false
+   },
+   {
+    "name": "Berlin",
+    "adminLevel": 4.0,
+    "default": true
+   },
+   {
+    "name": "Mitte",
+    "adminLevel": 9.0,
+    "default": false
+   },
+   {
+    "name": "Moabit",
+    "adminLevel": 10.0,
+    "default": false
+   }
+  ],
+  "category": "hostel_16"
+ },
+ {
+  "type": "PLACE",
+  "name": "Ibis Berlin Hauptbahnhof",
+  "id": "way/[237687064]",
+  "lat": 52.5270751,
+  "lon": 13.370017,
+  "country": "DE",
+  "areas": [
+   {
+    "name": "Deutschland",
+    "adminLevel": 2.0,
+    "default": false
+   },
+   {
+    "name": "Berlin",
+    "adminLevel": 4.0,
+    "default": true
+   },
+   {
+    "name": "Mitte",
+    "adminLevel": 9.0,
+    "default": false
+   },
+   {
+    "name": "Moabit",
+    "adminLevel": 10.0,
+    "default": false
+   }
+  ],
+  "category": "hotel_16"
+ },
+ {
+  "type": "PLACE",
+  "name": "Motel One Berlin-Hauptbahnhof",
+  "id": "way/[25557953]",
+  "lat": 52.5258237,
+  "lon": 13.3660962,
+  "country": "DE",
+  "areas": [
+   {
+    "name": "Deutschland",
+    "adminLevel": 2.0,
+    "default": false
+   },
+   {
+    "name": "Berlin",
+    "adminLevel": 4.0,
+    "default": true
+   },
+   {
+    "name": "Mitte",
+    "adminLevel": 9.0,
+    "default": false
+   },
+   {
+    "name": "Moabit",
+    "adminLevel": 10.0,
+    "default": false
+   }
+  ],
+  "category": "hotel_16"
+ }
+]

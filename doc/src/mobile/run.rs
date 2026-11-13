@@ -30,7 +30,8 @@ pub struct Target {
     pub crate_name: String,
     /// App/bundle name used for the artifact, e.g. `AzWriter`.
     pub app_name: String,
-    /// `com.azul.azwriter`.
+    /// `--package`, else `[package.metadata.bundle] identifier`, else
+    /// `com.azul.<crate>` (`com.azul.azwriter`).
     pub bundle_id: String,
     pub manifest_dir: PathBuf,
     /// The cargo workspace the crate belongs to — what the build scripts run
@@ -89,9 +90,13 @@ impl Target {
             .ok_or_else(|| anyhow::anyhow!("no [package] name in {}", manifest.display()))?;
 
         let app_name = crate_name.clone();
+        // `--package`, else the crate's `[package.metadata.bundle]
+        // identifier` (the id the app sets as `AppConfig::app_id`), else one
+        // derived from the crate name.
         let bundle_id = opts
             .package
             .clone()
+            .or_else(|| crate::bundle::configured_identifier(&text))
             .unwrap_or_else(|| format!("com.azul.{}", crate_name.to_lowercase().replace('-', "_")));
 
         let manifest_dir = manifest.parent().unwrap_or(Path::new(".")).to_path_buf();

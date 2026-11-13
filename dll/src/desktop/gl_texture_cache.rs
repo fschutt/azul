@@ -66,6 +66,21 @@ impl TextureSlotKey {
     }
 }
 
+/// The stable `ExternalImageId` of a background layer's callback frames: the
+/// same layer always draws under the same id, so a new frame of it is new
+/// pixels under the old id. The top bit is set, which neither the image ids
+/// (a counter) nor the node slots (`TextureSlotKey`: the DOM in the high and
+/// the node in the low 32 bits) ever do.
+pub(crate) fn background_texture_id(slot: &azul_core::resources::BackgroundSlot) -> ExternalImageId {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    slot.hash(&mut hasher);
+    ExternalImageId {
+        inner: hasher.finish() | (1 << 63),
+    }
+}
+
 /// Entry for a texture in the cache, tracking the texture and when it was last updated.
 struct TextureEntry {
     texture: Texture,
@@ -113,6 +128,30 @@ pub fn insert_texture_by_id(
         let document_storage = cache.entry(document_id).or_default();
         document_storage.insert(external_image_id, TextureEntry { texture, epoch });
     });
+}
+
+/// The texture under `external_image_id` is drawn by a display list sent at
+/// `epoch`: it stays until [`remove_old_epochs`] finds no list of the last
+/// two epochs drew it. Returns whether the cache holds such a texture.
+pub fn keep_alive(
+    document_id: &DocumentId,
+    external_image_id: &ExternalImageId,
+    epoch: Epoch,
+) -> bool {
+    TEXTURE_CACHE.with(|cell| {
+        let mut cache_opt = cell.borrow_mut();
+        let Some(entry) = cache_opt
+            .as_mut()
+            .and_then(|cache| cache.get_mut(document_id))
+            .and_then(|storage| storage.get_mut(external_image_id))
+        else {
+            return false;
+        };
+        if entry.epoch < epoch {
+            entry.epoch = epoch;
+        }
+        true
+    })
 }
 
 /// Remove all textures with epochs older than the threshold.

@@ -1,0 +1,61 @@
+[
+  {
+    "name": "a mailbox file appended to while it is read for upload never reaches the drive torn; once it holds still it goes up whole",
+    "description": "JOTTA-016 (Jottacloud): an Outlook .pst that changes during upload restarted the backup again and again. Rules A6 (upload of a file that holds still: fstat before and after, else changed-during-sync and no commit) and E2. sync-chaos res-growing-file, res-changed-while-uploading.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "outlook.pst", "size": 2000000, "seed": 16 },
+      { "op": "drive_sync", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_append", "device": "a", "path": "outlook.pst", "text": "new mail 1" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "changed-during-sync", "key": "outlook.pst" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "outlook.pst", "absent": true },
+      { "op": "drive_sync", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_append", "device": "a", "path": "outlook.pst", "text": "new mail 2" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "outlook.pst", "absent": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "outlook.pst", "same_as": "{root:a}/outlook.pst" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "changed-during-sync", "absent": true, "when": "last" },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "outlook.pst", "same_as": "{root:a}/outlook.pst" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file that keeps changing is listed as settling, not restarted forever; once quiet it goes up once",
+    "description": "JOTTA-016 (Jottacloud): 'file keeps changing' must be a clear status, not an infinite restart. Rules A6 and O1 (settling is listed); the device's sync clock moved on stands for the file falling quiet.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r", "settle_ms": 800 },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "outlook.pst", "size": 500000, "seed": 17 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "settling", "key": "outlook.pst", "when": "last" },
+      { "op": "drive_append", "device": "a", "path": "outlook.pst", "text": "more mail" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "settling", "key": "outlook.pst", "when": "last" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "outlook.pst", "absent": true },
+      { "op": "drive_clock", "device": "a", "jump": 5 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "outlook.pst", "same_as": "{root:a}/outlook.pst" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "settling", "absent": true, "when": "last" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "outlook.pst", "same_as": "{root:a}/outlook.pst" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

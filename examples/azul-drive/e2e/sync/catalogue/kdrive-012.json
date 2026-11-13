@@ -1,0 +1,83 @@
+[
+  {
+    "name": "the server sends bytes that do not match the file's hash: nothing is written, the old version stays",
+    "description": "KDRIVE-012 (kDrive): file A's content was overwritten with file B's (adjacent ids, one edited remotely minutes before). Rules S15, M2 and A5: every download is bound to its own entry's hash; foreign bytes fail it, nothing is written, the old version stays. sync-chaos sec-wrong-bytes.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "doc.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "doc.txt", "text": "v2, the genuine one" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "corrupt_blob", "key": "doc.txt" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "doc.txt" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "doc.txt", "text": "v1" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "two near-identical sheets in two folders, one edited again while the other device downloads both: each file gets its own bytes",
+    "description": "KDRIVE-012 (kDrive), the catalogue's repro: concurrent downloads of two files with adjacent ids while one is edited remotely. Rules A5, A7 and E2: each download is checked against its own entry, a pass resumed after the drive moved on re-checks before it writes; every file ends with its own content.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "dirA/sheet1.xlsx", "text": "sheet A v1" },
+      { "op": "drive_write", "device": "a", "path": "dirB/sheet1.xlsx", "text": "sheet B v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "dirA/sheet1.xlsx", "text": "sheet A v2" },
+      { "op": "drive_write", "device": "a", "path": "dirB/sheet1.xlsx", "text": "sheet B v2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "pause_at": "download-start" },
+      { "op": "drive_write", "device": "a", "path": "dirB/sheet1.xlsx", "text": "sheet B v3, the web office save" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_cont", "device": "b" },
+      { "op": "drive_wait", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "dirA/sheet1.xlsx", "text": "sheet A v2" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "dirB/sheet1.xlsx", "text": "sheet B v3, the web office save" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "dirA/sheet1.xlsx", "count": 0 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "dirB/sheet1.xlsx", "count": 0 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "two accounts on one AzDrive, a token refresh racing a listing: nothing of one account reaches the other",
+    "description": "KDRIVE-012 (kDrive): a mixed-up binding of content to file. Rule M2: responses are keyed by account and a foreign one is dropped. sync-chaos sec-never-mix-accounts.",
+    "steps": [
+      { "op": "drive_create", "remote": "work", "account": "work" },
+      { "op": "drive_create", "remote": "home", "account": "home" },
+      { "op": "drive_open", "device": "w", "remote": "work", "account": "work" },
+      { "op": "drive_open", "device": "h", "remote": "home", "account": "home" },
+      { "op": "drive_pair", "device": "w" },
+      { "op": "drive_pair", "device": "h" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "w", "path": "sheet.xlsx", "text": "work sheet" },
+      { "op": "drive_write", "device": "h", "path": "sheet.xlsx", "text": "home sheet" },
+      { "op": "drive_sync", "device": "w" },
+      { "op": "drive_fault", "device": "h", "auth_failed": true },
+      { "op": "drive_sync", "device": "h", "expect": "any" },
+      { "op": "drive_fault", "device": "h", "clear": true },
+      { "op": "drive_sync", "device": "h" },
+      { "op": "drive_sync", "device": "w" },
+      { "op": "drive_check", "check": "file", "device": "w", "path": "sheet.xlsx", "text": "work sheet" },
+      { "op": "drive_check", "check": "file", "device": "h", "path": "sheet.xlsx", "text": "home sheet" },
+      { "op": "drive_check", "check": "remote_file", "remote": "work", "key": "sheet.xlsx", "text": "work sheet" },
+      { "op": "drive_check", "check": "remote_file", "remote": "home", "key": "sheet.xlsx", "text": "home sheet" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

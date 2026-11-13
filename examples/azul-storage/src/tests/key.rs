@@ -1,0 +1,295 @@
+use crate::{
+    key::{
+        check_path_key, check_path_key_on, check_path_prefix, folder_trail, last_segment,
+        parent_prefix, safe_file_name, without_twins, without_twins_keeping, System,
+    },
+    DriveError,
+};
+
+fn refused(key: &str) -> bool {
+    matches!(check_path_key(key), Err(DriveError::InvalidKey { .. }))
+}
+
+#[test]
+fn a_key_with_a_parent_segment_is_refused() {
+    assert!(refused(".."));
+    assert!(refused("../etc/passwd"));
+    assert!(refused("mail/../../etc/passwd"));
+    assert!(refused("mail/.."));
+}
+
+#[test]
+fn a_key_with_a_dot_segment_is_refused() {
+    assert!(refused("."));
+    assert!(refused("./mail"));
+    assert!(refused("mail/./inbox"));
+}
+
+#[test]
+fn an_absolute_key_is_refused() {
+    assert!(refused("/etc/passwd"));
+    assert!(refused("\\\\server\\share"));
+    assert!(refused("C:/Windows/win.ini"));
+    // `c:evil` is relative to drive C's current folder: a path that leaves the root where a key
+    // becomes a path on Windows, and a plain name on macOS and Linux.
+    assert!(check_path_key_on("c:evil", System::Windows).is_err());
+}
+
+#[test]
+fn a_key_with_a_backslash_or_nul_is_refused() {
+    assert!(refused("mail\\..\\..\\secret"));
+    assert!(refused("mail/a\0b"));
+}
+
+#[test]
+fn an_empty_key_or_an_empty_segment_is_refused() {
+    assert!(refused(""));
+    assert!(refused("mail//inbox"));
+    assert!(refused("mail/inbox/"));
+}
+
+#[test]
+fn ordinary_keys_pass() {
+    for key in [
+        "mail/inbox/0001.eml",
+        "a b/c.txt",
+        "..hidden",
+        "mail/.config",
+        "notes...txt",
+        "\u{00e4}rger/\u{1f600}.txt",
+    ] {
+        assert_eq!(check_path_key(key), Ok(()), "{key}");
+    }
+}
+
+#[test]
+fn a_folder_prefix_ends_with_the_delimiter() {
+    assert_eq!(check_path_prefix(""), Ok(()));
+    assert_eq!(check_path_prefix("mail/"), Ok(()));
+    assert_eq!(check_path_prefix("mail/inbox/"), Ok(()));
+    assert_eq!(check_path_prefix("mail/in"), Ok(()));
+    assert!(check_path_prefix("../").is_err());
+    assert!(check_path_prefix("mail/../").is_err());
+    assert!(check_path_prefix("/").is_err());
+}
+
+#[test]
+fn parent_prefix_walks_up_one_folder() {
+    assert_eq!(parent_prefix("mail/inbox/"), "mail/");
+    assert_eq!(parent_prefix("mail/"), "");
+    assert_eq!(parent_prefix(""), "");
+}
+
+#[test]
+fn last_segment_names_files_and_folders() {
+    assert_eq!(last_segment("mail/inbox/0001.eml"), "0001.eml");
+    assert_eq!(last_segment("mail/inbox/"), "inbox");
+    assert_eq!(last_segment("readme.txt"), "readme.txt");
+    assert_eq!(last_segment(""), "");
+}
+
+#[test]
+fn the_folder_trail_lists_every_folder_down_to_the_prefix() {
+    assert_eq!(folder_trail(""), Vec::<(String, String)>::new());
+    assert_eq!(
+        folder_trail("mail/inbox/"),
+        vec![
+            ("mail".to_string(), "mail/".to_string()),
+            ("inbox".to_string(), "mail/inbox/".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn a_download_name_never_leaves_the_folder() {
+    assert_eq!(
+        safe_file_name("../../etc/passwd"),
+        Some("passwd".to_string())
+    );
+    assert_eq!(
+        safe_file_name("mail/inbox/0001.eml"),
+        Some("0001.eml".to_string())
+    );
+    assert_eq!(safe_file_name("mail/inbox/"), Some("inbox".to_string()));
+    assert_eq!(safe_file_name("mail/.."), None);
+    assert_eq!(safe_file_name("mail/."), None);
+    assert_eq!(safe_file_name(""), None);
+    assert_eq!(safe_file_name("a/b\\c.txt"), Some("b_c.txt".to_string()));
+    assert_eq!(safe_file_name("con:x?.txt"), Some("con_x_.txt".to_string()));
+}
+
+/// How APFS and NTFS compare names, for a test: case ignored (Unicode forms are the caller's).
+fn lower(name: &str) -> String {
+    name.to_lowercase()
+}
+
+#[test]
+fn keys_a_disk_would_take_for_one_name_get_names_of_their_own_in_the_order_given() {
+    let names = without_twins(
+        &[
+            "Report.txt",
+            "report.txt",
+            "REPORT.TXT",
+            "notes/Report.txt",
+            "other.md",
+        ],
+        &lower,
+    );
+    assert_eq!(
+        names,
+        [
+            "Report.txt",
+            "report (2).txt",
+            "REPORT (3).TXT",
+            "notes/Report.txt",
+            "other.md"
+        ]
+    );
+    // Keys that are different stay as they are.
+    let same = ["a.txt", "b.txt", "dir/a.txt", ".env"];
+    assert_eq!(without_twins(&same, &lower), same);
+    // A name made for a twin is free: it is not another key's (the first number that is).
+    let names = without_twins(&["a.txt", "A.txt", "a (2).txt", "A (2).txt"], &lower);
+    let folds: std::collections::BTreeSet<String> = names.iter().map(|n| lower(n)).collect();
+    assert_eq!(folds.len(), 4, "{names:?}");
+    assert_eq!(names[0], "a.txt");
+    assert_eq!(names[1], "A (2).txt");
+    // No extension, a hidden file, a folder in the name: the number goes before the extension of
+    // the last name only.
+    let names = without_twins(
+        &[
+            "Makefile",
+            "makefile",
+            ".ENV",
+            ".env",
+            "v1.2/Doc.tar.gz",
+            "v1.2/doc.tar.gz",
+        ],
+        &lower,
+    );
+    assert_eq!(
+        names,
+        [
+            "Makefile",
+            "makefile (2)",
+            ".ENV",
+            ".env (2)",
+            "v1.2/Doc.tar.gz",
+            "v1.2/doc.tar (2).gz"
+        ]
+    );
+    // The same call gives the same names.
+    let again = without_twins(&["Report.txt", "report.txt"], &lower);
+    assert_eq!(again, without_twins(&["Report.txt", "report.txt"], &lower));
+}
+
+/// X-DELTA-AZDRIVE-FILES-17: a key an earlier run wrote keeps the name it got, whatever order the
+/// keys come in now, and a later twin takes the number - not the earlier file's name.
+#[test]
+fn x_delta_azdrive_files_17_a_name_an_earlier_run_gave_is_kept_and_a_later_twin_is_numbered() {
+    // "Report.txt" sorts first and is new; "report.txt" was written by a run before.
+    let names = without_twins_keeping(
+        &["Report.txt", "report.txt"],
+        &[None, Some("report.txt")],
+        &[],
+        &lower,
+    );
+    assert_eq!(names, ["Report (2).txt", "report.txt"]);
+    // The name of a file that is not among the keys any more is taken too.
+    let names = without_twins_keeping(&["Report.txt"], &[None], &["report.txt"], &lower);
+    assert_eq!(names, ["Report (2).txt"]);
+    // Two kept names the fold makes one: the first keeps its name, the other is numbered.
+    let names = without_twins_keeping(
+        &["a", "b"],
+        &[Some("same.txt"), Some("SAME.txt")],
+        &[],
+        &lower,
+    );
+    assert_eq!(names, ["same.txt", "b"]);
+    // Nothing kept, nothing held: the plain rule.
+    assert_eq!(
+        without_twins_keeping(&["Report.txt", "report.txt"], &[], &[], &lower),
+        without_twins(&["Report.txt", "report.txt"], &lower)
+    );
+}
+
+/// AZ-C8. `safe_file_name` replaced separators and characters Windows refuses and nothing else:
+/// `CON` and `NUL.txt` opened a device on a download carried to Windows, and `a.` and `a` were one
+/// file there. The name table says what the others are: a device name gets a `_` before it, the
+/// dots and spaces at the end go, and a name over 255 bytes is cut in its stem.
+#[test]
+fn az_c8_a_download_never_gets_a_device_name_a_trailing_dot_or_more_than_255_bytes() {
+    for (key, name) in [
+        ("docs/CON", "_CON"),
+        ("docs/con", "_con"),
+        ("nul.txt", "_nul.txt"),
+        ("docs/aux.TXT", "_aux.TXT"),
+        ("COM1", "_COM1"),
+        ("lpt9.log", "_lpt9.log"),
+        ("COM\u{b9}", "_COM\u{b9}"),
+        ("CONIN$", "_CONIN$"),
+        ("a.", "a"),
+        ("a...", "a"),
+        ("report.pdf  ", "report.pdf"),
+        ("x/y.txt. .", "y.txt"),
+        // Names that only look like a device are ordinary.
+        ("console.log", "console.log"),
+        ("auxiliary", "auxiliary"),
+        ("COM10", "COM10"),
+        ("nullable.rs", "nullable.rs"),
+        // Colons and the rest were replaced before; they still are.
+        ("con:x?.txt", "con_x_.txt"),
+    ] {
+        assert_eq!(safe_file_name(key).as_deref(), Some(name), "{key:?}");
+    }
+    for key in ["...", "x/...", "  ", "x/ . ", "..", "."] {
+        assert_eq!(safe_file_name(key), None, "{key:?}");
+    }
+    let long = format!("{}.pdf", "n".repeat(300));
+    let cut = safe_file_name(&long).unwrap();
+    assert!(
+        cut.len() <= 255 && cut.ends_with(".pdf") && cut.starts_with("nnn"),
+        "{}",
+        cut.len()
+    );
+    let wide = safe_file_name(&"é".repeat(200)).unwrap();
+    assert!(
+        wide.len() <= 255 && wide.chars().all(|c| c == 'é'),
+        "{}",
+        wide.len()
+    );
+    // Whatever it makes passes the table of the system a download is carried to.
+    for key in [
+        "CON",
+        "nul.txt",
+        "a.",
+        "docs/aux.TXT",
+        "x...",
+        "e\u{301}.txt",
+    ] {
+        let name = safe_file_name(key).unwrap();
+        assert_eq!(
+            crate::key::windows_name_problem(&name),
+            None,
+            "{key:?} -> {name:?}"
+        );
+    }
+}
+
+/// X-DELTA-AZDRIVE-FILES-32: the 255-byte cut can end in a space or a dot, which Windows drops (`a `
+/// and `a` would be one file).
+#[test]
+fn x_delta_azdrive_files_32_the_cut_of_a_long_name_does_not_end_in_a_space_or_a_dot() {
+    let spaced = format!("{} {}", "a".repeat(254), "b".repeat(10));
+    let name = safe_file_name(&spaced).unwrap();
+    assert!(name.len() <= 255, "{}", name.len());
+    assert!(!name.ends_with(' ') && !name.ends_with('.'), "{name:?}");
+    let dotted = format!("{}.{}", "a".repeat(254), "b".repeat(300));
+    let name = safe_file_name(&dotted).unwrap();
+    assert!(name.len() <= 255, "{}", name.len());
+    assert!(!name.ends_with(' ') && !name.ends_with('.'), "{name:?}");
+    // The extension stays when there is one.
+    let long = format!("{} .txt", "a".repeat(300));
+    let name = safe_file_name(&long).unwrap();
+    assert!(name.ends_with(".txt") && name.len() <= 255, "{name:?}");
+}

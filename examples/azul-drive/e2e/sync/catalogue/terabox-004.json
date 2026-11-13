@@ -1,0 +1,60 @@
+[
+  {
+    "name": "a bulk upload where 3 of 30 files fail: each failing file is named, 'up to date' is said only once all 30 are on the drive",
+    "description": "TERABOX-004 (TeraBox): bulk uploads and a migration lost files behind 'system errors'; the user could not tell what was uploaded. Rules O1 (every failing file listed until resolved) and E6. sync-chaos res-one-file-keeps-failing.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "bulk", "count": 27, "text_prefix": "item" },
+      { "op": "drive_write", "device": "a", "path": "bulk/fail-1.bin", "text": "failing 1" },
+      { "op": "drive_write", "device": "a", "path": "bulk/fail-2.bin", "text": "failing 2" },
+      { "op": "drive_write", "device": "a", "path": "bulk/fail-3.bin", "text": "failing 3" },
+      { "op": "drive_fault", "device": "a", "fail_files": ["bulk/fail-*"] },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "bulk/fail-1.bin", "when": "last" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "bulk/fail-2.bin", "when": "last" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "transient", "key": "bulk/fail-3.bin", "when": "last" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "bulk/*", "count": 27 },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "bulk/*", "count": 30 },
+      { "op": "drive_problems", "device": "a" },
+      { "op": "assert_response", "path": "result.problems", "len": 0 },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "contains": "azdrive-sync-status-up-to-date" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a local file whose bytes rot while its size and times stay is found by a verify pass and restored from the drive, never uploaded as an edit",
+    "description": "TERABOX-004 (TeraBox), the silent-damage half. Rules A1 and S15. sync-chaos port-local-bitrot (pending there).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "thesis.pdf", "size": 100000, "seed": 40 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_bitrot", "device": "a", "path": "thesis.pdf", "offset": 5000, "byte": "ff" },
+      { "op": "drive_verify", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "hash-mismatch", "key": "thesis.pdf" },
+      { "op": "drive_check", "check": "remote_puts", "device": "a", "max": 1 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "thesis.pdf", "same_as": "{root:b}/thesis.pdf" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "thesis.pdf", "size": 100000 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

@@ -545,15 +545,21 @@ fn emit_string_helpers(b: &mut CodeBuilder) {
     b.line("// Str copies a Go string into a freshly allocated AzString. The returned");
     b.line("// value is consumed by whichever libazul call it is passed to.");
     b.line("func Str(s string) *String {");
+    b.line("    raw := azGoAzString(s)");
+    b.line("    ret := &String{ inner: &raw }");
+    b.line("    runtime.SetFinalizer(ret, func(x *String) { x.Close() })");
+    b.line("    return ret");
+    b.line("}");
+    b.blank();
+    b.line("// azGoAzString copies a Go string into a fresh AzString value, owned by");
+    b.line("// the caller (a string field setter moves it into the field).");
+    b.line("func azGoAzString(s string) AzString {");
     b.line("    b := []byte(s)");
     b.line("    ptr := &azGoEmptyByte");
     b.line("    if len(b) > 0 {");
     b.line("        ptr = &b[0]");
     b.line("    }");
-    b.line("    raw := AzString_fromUtf8(ptr, uintptr(len(b)))");
-    b.line("    ret := &String{ inner: &raw }");
-    b.line("    runtime.SetFinalizer(ret, func(x *String) { x.Close() })");
-    b.line("    return ret");
+    b.line("    return AzString_fromUtf8(ptr, uintptr(len(b)))");
     b.line("}");
     b.blank();
     b.line("// GoStr copies an AzString's UTF-8 bytes into a Go string. The AzString");
@@ -708,6 +714,19 @@ fn emit_refany_helpers(b: &mut CodeBuilder, refany: &RefAnyInfo) {
     b.line("    }");
     b.line("}");
     b.blank();
+    b.line("// Bind3 is Bind for a callback with one more argument after the context,");
+    b.line("// such as a resume callback's result: `func(*T, *CallbackInfo, any) Ret`.");
+    b.line("func Bind3[T any, Ctx any, A any, Ret any](cb func(*T, Ctx, A) Ret) func(any, Ctx, A) any {");
+    b.line("    return func(data any, ctx Ctx, a A) any {");
+    b.line("        model, ok := data.(*T)");
+    b.line("        if !ok {");
+    b.line("            azGoReportError(fmt.Sprintf(\"azul.Bind3: type assertion failed, expected %T, got %T\", new(T), data), any(ctx))");
+    b.line("            return nil");
+    b.line("        }");
+    b.line("        return cb(model, ctx, a)");
+    b.line("    }");
+    b.line("}");
+    b.blank();
 }
 
 fn emit_register_fns(
@@ -803,7 +822,18 @@ fn emit_register_fns(
                     "        {nm}_wrap := &{w}{{ inner: (*{n})(args[{i}]), borrowed: true }}",
                     n = go_native(t)
                 ));
-                b.line(&format!("        {nm}, _ := {w}Get({nm}_wrap)"));
+                if i == 0 {
+                    b.line(&format!("        {nm}, _ := {w}Get({nm}_wrap)"));
+                } else {
+                    // A RefAny after the data (a resume callback's result)
+                    // usually holds a value libazul made, not a Go one: the
+                    // callback then gets the *RefAny itself, which the
+                    // `<Type>Downcast` functions take.
+                    b.line(&format!("        var {nm} any = {nm}_wrap"));
+                    b.line(&format!("        if v, ok := {w}Get({nm}_wrap); ok {{"));
+                    b.line(&format!("            {nm} = v"));
+                    b.line("        }");
+                }
             } else if wrapper_types.iter().any(|w| w == t) {
                 let has_del = has_destructor(t, ir);
                 let inner_expr = if has_del {
@@ -902,6 +932,36 @@ fn emit_register_fns(
         b.line(&format!("    var out Az{w}", w = k.wrapper));
         b.line(&format!("    azGoCreate{w}(id, &out)", w = k.wrapper));
         b.line("    return out");
+        b.line("}");
+        b.blank();
+        // What a function parameter of this callback type accepts: the
+        // wrapper, the raw struct, or a Go function (`Bind3(onPickFolder)`),
+        // which is registered here.
+        let fn_shape = match &rk {
+            RetKind::Enum(_) | RetKind::Wrapper(_) => format!("func({}) any", sig),
+            RetKind::Void | RetKind::OutParam(_) => format!("func({})", sig),
+        };
+        b.line(&format!(
+            "// azGo{w}Arg is a {w} argument: a *{w}, an Az{w}, or a Go function.",
+            w = k.wrapper
+        ));
+        b.line(&format!("func azGo{w}Arg(v any) Az{w} {{", w = k.wrapper));
+        b.line("    switch f := v.(type) {");
+        if wrapper_types.iter().any(|w| *w == k.wrapper) {
+            b.line(&format!("    case *{}:", k.wrapper));
+            b.line("        return f.Raw()");
+        }
+        b.line(&format!("    case Az{}:", k.wrapper));
+        b.line("        return f");
+        b.line(&format!("    case {}Func:", k.wrapper));
+        b.line(&format!("        return Register{}(f)", k.wrapper));
+        b.line(&format!("    case {}:", fn_shape));
+        b.line(&format!("        return Register{}(f)", k.wrapper));
+        b.line("    }");
+        b.line(&format!(
+            "    panic(fmt.Sprintf(\"azul: %T is not a {} callback\", v))",
+            k.wrapper
+        ));
         b.line("}");
         b.blank();
     }
@@ -1017,6 +1077,8 @@ fn emit_raw_accessors(b: &mut CodeBuilder, ir: &CodegenIR, wrapper_types: &[Stri
     b.line("// libazul parameter (AddChild, Run, ...). Clone() the wrapper first");
     b.line("// if you still need it afterwards. A wrapper that merely borrows its value");
     b.line("// (a callback argument) hands out a clone instead and stays usable.");
+    b.line("// Inner() is the non-destructive counterpart: a pointer to the value the");
+    b.line("// wrapper keeps owning.");
     b.blank();
     for t in wrapper_types {
         let ffi = go_native(t);

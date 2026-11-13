@@ -5,7 +5,7 @@
 //! Two entry points are exercised:
 //!   * `shape_text_for_parsed_font` — raw allsorts shaping (advances, kerning, cmap, combining
 //!     marks) straight off a `ParsedFont`.
-//!   * `create_logical_items` -> `reorder_logical_items` -> `shape_visual_items` -> `BreakCursor`
+//!   * `create_logical_items` -> `split_into_bidi_runs` -> `shape_bidi_runs` -> `BreakCursor`
 //!     -> `perform_fragment_layout` — the exact stage-1..4 pipeline
 //!     `window.rs::relayout_text_node_internal` runs, producing a real `UnifiedLayout` with
 //!     positioned clusters and line indices.
@@ -24,8 +24,8 @@ use azul_layout::{
     parsed_font_to_font_ref,
     text3::{
         cache::{
-            create_logical_items, perform_fragment_layout, reorder_logical_items,
-            shape_visual_items, AvailableSpace, BidiDirection, BreakCursor, BreakType, ClearType,
+            create_logical_items, perform_fragment_layout, split_into_bidi_runs,
+            shape_bidi_runs, AvailableSpace, BidiDirection, BreakCursor, BreakType, ClearType,
             FontChainKey, FontStack, Glyph, InlineBreak, InlineContent, LoadedFonts, ShapedItem,
             Spacing, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout,
             WhiteSpaceMode,
@@ -120,13 +120,13 @@ fn layout_content(
         };
     }
     let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
-    let visual = reorder_logical_items(&logical, base_direction, UnicodeBidi::Normal, &mut None)
+    let visual = split_into_bidi_runs(&logical, base_direction, UnicodeBidi::Normal, &mut None)
         .expect("bidi reorder must succeed");
 
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
     let shaped =
-        shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shaping must succeed");
+        shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shaping must succeed");
 
     let mut cursor = BreakCursor::new(&shaped);
     perform_fragment_layout(&mut cursor, &logical, constraints, &mut None, &loaded)

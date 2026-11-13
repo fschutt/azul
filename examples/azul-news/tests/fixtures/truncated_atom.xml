@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Science Daily Example</title>
+  <link href="https://science.example.org/"/>
+  <updated>2026-09-30T12:00:00Z</updated>
+  <entry>
+    <title>Coral reefs recover faster than expected</title>
+    <link href="https://science.example.org/reefs"/>
+    <id>urn:uuid:7d0c6f8e-0001-4c2a-9a55-1b2f3c4d5e6f</id>
+    <updated>2026-09-30T11:00:00Z</updated>
+    <summary>Reefs in the survey area recovered in five years.</summary>
+  </entry>
+  <entry>
+    <title>A second story that is cut</title>
+    <link href="https://science.example.org/cut"/>
+    <id>urn:uuid:7d0c6f8e-0002-4c2a-9a55-1b2f3c4d5e6f</id>
+    <updated>2026-09-30T10:00:00Z</updated>
+    <summary>The connection dropped in the mid

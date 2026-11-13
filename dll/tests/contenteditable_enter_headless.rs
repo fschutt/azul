@@ -352,12 +352,8 @@ fn enter_splits_the_paragraph_and_moves_the_caret_through_the_shell_pipeline() {
             .multi_cursor
             .as_ref()
             .expect("a caret exists after the split was acked");
-        let caret_node = mc
-            .node_id
-            .node
-            .into_crate_internal()
-            .expect("caret on a real node");
-        assert_eq!(mc.node_id.dom, nested2, "caret stays in the nested dom");
+        let caret_node = mc.block.container();
+        assert_eq!(mc.block.dom(), nested2, "caret stays in the nested dom");
 
         let lr = lw.layout_results.get(&nested2).unwrap();
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();

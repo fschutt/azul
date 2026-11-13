@@ -16,7 +16,63 @@
 //! a time (the demo reveals one entry at a time); request↔result
 //! correlation by id is a future refinement.
 
+use alloc::string::ToString;
+
 use azul_css::AzString;
+
+/// Which keyring service an entry lives in.
+///
+/// An app sees only the entries of the namespaces it names. The default (an empty service) is the app's own id
+/// (`AppConfig::app_id`, or what its bundle / package declares), so two azul
+/// apps never read each other's secrets by accident; apps that share entries
+/// (the Azlin apps, `io.azlin.shared`) name the same service.
+///
+/// On macOS and iOS the service is the Keychain item's service, on Linux the
+/// libsecret schema, on Windows the credential's target prefix. Android keeps
+/// every app's entries in the app's own storage already, so there the
+/// namespace changes nothing. On Linux and Windows any program of the same
+/// user can still read every entry: a namespace stops accidental sharing, not
+/// a hostile program.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct KeyringNamespace {
+    /// The service name (reverse-DNS); empty: the app's own id.
+    pub service: AzString,
+}
+
+impl KeyringNamespace {
+    /// The service every azul app shared before namespaces existed. An entry
+    /// still there moves into the namespace that first asks for its name.
+    pub const LEGACY_SERVICE: &'static str = "com.azul.keyring";
+
+    /// The namespace `service` (reverse-DNS, `io.azlin.shared`); an empty one
+    /// is the app's own.
+    #[must_use]
+    pub fn create(service: AzString) -> Self {
+        let trimmed = service.as_str().trim();
+        if trimmed.len() == service.as_str().len() {
+            Self { service }
+        } else {
+            Self {
+                service: AzString::from(trimmed.to_string()),
+            }
+        }
+    }
+
+    /// The app's own namespace: its id, which the platform layer fills in.
+    #[must_use]
+    pub const fn app() -> Self {
+        Self {
+            service: AzString::from_const_str(""),
+        }
+    }
+
+    /// Whether this is the app's own namespace (no service named).
+    #[must_use]
+    pub fn is_app(&self) -> bool {
+        self.service.as_str().trim().is_empty()
+    }
+}
 
 /// A keyring operation queued by a callback
 /// (`CallbackInfo::keyring_store` / `keyring_get` / `keyring_delete`) and
@@ -24,7 +80,8 @@ use azul_css::AzString;
 ///
 /// `secret` is an [`AzString`] — the common case is a password / token;
 /// binary blobs are base64-encoded by the caller. `key` is the lookup
-/// name, scoped to the app's keyring service.
+/// name, scoped to a [`KeyringNamespace`] (the app's own unless the call
+/// names one).
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyringRequest {

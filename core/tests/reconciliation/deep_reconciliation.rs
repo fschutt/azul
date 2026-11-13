@@ -20,7 +20,7 @@
 
 use azul_core::{
     callbacks::CoreCallback,
-    diff::reconcile_dom,
+    diff::{reconcile_dom, NodeIdentityConfig},
     dom::{Dom, DomId, NodeData},
     events::{ComponentEventFilter, EventData, EventFilter, EventType, LifecycleReason},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -106,6 +106,7 @@ fn deep_nested_mount_produces_mount_events_for_each_new_node() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let mount_events: Vec<_> = result
@@ -158,6 +159,7 @@ fn deep_nested_unmount_fires_for_removed_subtree_root_only() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let unmounts: Vec<_> = result
@@ -205,6 +207,7 @@ fn nth_of_type_distinguishes_siblings_of_same_type() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     // Exactly one of the two old children should unmount; the other should
@@ -290,6 +293,7 @@ fn identical_leaves_under_different_parents_do_not_match() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     // No mounts: identical frames match perfectly.
@@ -361,6 +365,7 @@ fn deep_resize_event_fires_when_bounds_change_on_matched_node() {
         &new_layout,
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let resizes: Vec<_> = result
@@ -420,6 +425,7 @@ fn keyed_update_fires_on_content_change() {
         &zero_layout(new_nd.len()),
         DomId::ROOT_ID,
         Instant::now(),
+        NodeIdentityConfig::default(),
     );
 
     let updates: Vec<_> = result
@@ -445,4 +451,128 @@ fn keyed_update_fires_on_content_change() {
             .map(|e| e.event_type)
             .collect::<Vec<_>>()
     );
+}
+
+// =========================================================================
+// Chrome injection — a wrapper above the user's root is not a new document
+// =========================================================================
+
+/// The user's document, exactly the shape `inject_software_menubar` leaves
+/// behind on Linux: an `<html>` root holding the menu bar and the app body.
+///
+///   0 html · 1 div.menubar · 2 "File" · 3 body · 4 div.page
+///   5 div.button · 6 "Press me" · 7 div.status · 8 `counter`
+fn user_document(counter: &str) -> Dom {
+    Dom::create_html()
+        .with_child(
+            Dom::create_div()
+                .with_class("menubar".into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "File",
+                )),
+        )
+        .with_child(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_class("page".into())
+                    .with_child(
+                        Dom::create_div().with_class("button".into()).with_child(
+                            Dom::create_text_do_not_use_without_block_level_wrapper("Press me"),
+                        ),
+                    )
+                    .with_child(
+                        Dom::create_div().with_class("status".into()).with_child(
+                            Dom::create_text_do_not_use_without_block_level_wrapper(counter),
+                        ),
+                    ),
+            ),
+        )
+}
+
+/// The client-side titlebar `csd::wrap_user_dom_with_decorations` prepends:
+/// 13 nodes, which together with the wrapping `<html>` are the 14 the live
+/// AzWidgets demo grows by (680 -> 694 nodes) the frame the decoration flip
+/// arrives.
+fn csd_titlebar() -> Dom {
+    let mut titlebar = Dom::create_div().with_class("titlebar".into());
+    for label in ["icon", "title", "spacer", "min", "max", "close"] {
+        titlebar = titlebar.with_child(
+            Dom::create_div()
+                .with_class("titlebar-button".into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    label,
+                )),
+        );
+    }
+    titlebar
+}
+
+#[test]
+fn csd_chrome_wrapper_keeps_every_user_node_matched() {
+    // THE LAW: injecting window chrome re-parents the user's document, it does
+    // not replace it. Frame N is `html > [menubar, body]`; frame N+1 is
+    // `html > [titlebar, html > [menubar, body]]`. Every one of the nine user
+    // nodes is the SAME node it was — only the status counter's text differs —
+    // so each must pair with its new self, shifted by the 14 chrome nodes, and
+    // only the chrome may mount.
+    //
+    // A node that fails to pair is not cosmetic: `FocusManager::remap_node_ids`
+    // drops focus on an unmatched node, scroll offsets die with it, and the
+    // FLIP pass animates the "new" node in from nowhere.
+    const CHROME_NODES: usize = 14;
+
+    let (old_nd, old_hier) = flatten(user_document("callbacks fired: 3"));
+    let (new_nd, new_hier) = flatten(
+        Dom::create_html()
+            .with_child(csd_titlebar())
+            .with_child(user_document("callbacks fired: 4")),
+    );
+
+    assert_eq!(old_nd.len(), 9, "the user document is nine nodes");
+    assert_eq!(
+        new_nd.len(),
+        old_nd.len() + CHROME_NODES,
+        "chrome injection adds exactly the wrapper plus the titlebar"
+    );
+
+    let result = reconcile_dom(
+        &old_nd,
+        &new_nd,
+        &old_hier,
+        &new_hier,
+        &zero_layout(old_nd.len()),
+        &zero_layout(new_nd.len()),
+        DomId::ROOT_ID,
+        Instant::now(),
+        NodeIdentityConfig::default(),
+    );
+
+    let map: std::collections::BTreeMap<usize, usize> = result
+        .node_moves
+        .iter()
+        .map(|m| (m.old_node_id.index(), m.new_node_id.index()))
+        .collect();
+
+    // 1. The chrome is NEW. Nothing old may be claimed by it — in particular
+    //    the injected `<html>` wrapper must not claim the user's old `<html>`
+    //    root just because both are a classless root-level Html node.
+    for chrome in 0..CHROME_NODES {
+        assert!(
+            !map.values().any(|&new| new == chrome),
+            "chrome node {chrome} is freshly injected and must not claim an old \
+             user node; old -> new = {map:?}",
+        );
+    }
+
+    // 2. Every user node survives, shifted by the chrome it now sits below.
+    for (old, node) in old_nd.iter().enumerate() {
+        assert_eq!(
+            map.get(&old).copied(),
+            Some(old + CHROME_NODES),
+            "user node {old} ({:?}) must survive the chrome wrapper as new node \
+             {}; old -> new = {map:?}",
+            node.get_node_type(),
+            old + CHROME_NODES,
+        );
+    }
 }

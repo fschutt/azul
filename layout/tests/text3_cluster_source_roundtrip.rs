@@ -21,7 +21,7 @@ use azul_layout::{
     font::parsed::ParsedFont,
     parsed_font_to_font_ref,
     text3::cache::{
-        create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection, FontStack,
+        create_logical_items, split_into_bidi_runs, shape_bidi_runs, BidiDirection, FontStack,
         InlineContent, LoadedFonts, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
     },
 };
@@ -52,12 +52,12 @@ fn shape(text: &str, dir: BidiDirection) -> Vec<ShapedItem> {
     })];
     let logical = create_logical_items(&content, &[], &mut None);
     let visual =
-        reorder_logical_items(&logical, dir, UnicodeBidi::Normal, &mut None).expect("bidi");
+        split_into_bidi_runs(&logical, dir, UnicodeBidi::Normal, &mut None).expect("bidi");
     let mut loaded: LoadedFonts<FontRef> = LoadedFonts::new();
     loaded.insert(FontId::new(), font_ref);
     let chain: HashMap<_, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape")
+    shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape")
 }
 
 /// Property 2: source slices, in logical order, reproduce the input.
@@ -97,7 +97,7 @@ fn assert_source_roundtrip(input: &str, dir: BidiDirection) {
 
 /// Property 3: `source_cluster_id` values are strictly increasing within
 /// a run and unique across the layout — bidi reordering must not collide
-/// them (`VisualItem::run_byte_offset` exists precisely to prevent this).
+/// them (`BidiRun::run_byte_offset` exists precisely to prevent this).
 fn assert_ids_monotonic_and_unique(input: &str, dir: BidiDirection) {
     let shaped = shape(input, dir);
     let mut seen = std::collections::HashSet::new();

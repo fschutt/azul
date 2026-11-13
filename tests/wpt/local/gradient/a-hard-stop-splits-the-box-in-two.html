@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<!-- azul's own reftest (MIT, like the rest of azul); WPT reftest format. -->
+<meta charset="utf-8">
+<title>a hard stop splits the box into two colours</title>
+<link rel="match" href="a-hard-stop-splits-the-box-in-two-ref.html">
+<meta name="assert" content="CSS Images 3 3.5.1: two stops at the same position make a sharp transition (the exploration saw nothing painted).">
+<meta name="fuzzy" content="0-255;0-40">
+<div style="width:100px;height:40px;background:linear-gradient(to right, red 50%, blue 50%)"></div>

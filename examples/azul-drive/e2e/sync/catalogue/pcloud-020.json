@@ -1,0 +1,51 @@
+[
+  {
+    "name": "a connection cut in the middle of 20 uploads never leaves the index naming a missing or empty object",
+    "description": "PCLOUD-020 (pCloud): 0-byte and missing chunk files after uploads the backup tool took as successful. Rules E5/A7 (sync-chaos res-partition-mid-transfer): blobs first, then the index by compare-and-swap; the next pass finishes.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "up", "count": 20, "text_prefix": "part" },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 8 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["remote-offline", "transient"] },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "glob": "up/*", "count": 20 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a short or empty body from the server is refused by its hash: no 0-byte file, the old version stays",
+    "description": "PCLOUD-020 (pCloud) via sync-chaos res-truncated-download. Rules A5/S15/P7: a failed download never leaves a 0-byte file.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "video.mp4", "size": 300000, "seed": 9 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "video.mp4", "size": 300000, "seed": 10 },
+      { "op": "drive_write", "device": "a", "path": "new.mov", "size": 200000, "seed": 11 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "truncate_blob", "key": "video.mp4", "keep": 200000 },
+      { "op": "drive_tamper", "remote": "r", "action": "truncate_blob", "key": "new.mov", "keep": 0 },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "video.mp4" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "hash-mismatch", "key": "new.mov" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "video.mp4", "size": 300000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "new.mov", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

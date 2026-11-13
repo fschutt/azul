@@ -1,0 +1,27 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Collapsed borders of empty cells are painted</title>
+<style>
+  table {
+    border-collapse: collapse;
+    empty-cells: hide;
+  }
+  td {
+    width:50px;
+    height:50px;
+    border: 10px solid gray;
+  }
+</style>
+</head>
+<body><table>
+  <tbody><tr>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td></td>
+    <td></td>
+  </tr>
+</tbody></table>
+</body>
+</html>

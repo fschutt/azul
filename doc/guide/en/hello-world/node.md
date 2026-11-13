@@ -125,6 +125,45 @@ Callbacks are plain functions `(data, info) => ...` returning `azul.Update.*`
 (or an `azul.Dom` for layout). Enums and helpers sit at the top level of the
 module (`azul.Update.RefreshDom`, `azul.ButtonType.Primary`).
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is `null` or the value: a parameter takes `null` 
+(or `undefined`) for "none", a field or a return value is `null` when there is 
+nothing, so `?.` and `??` read a whole chain. A failed call (an `Err`) throws; an 
+exception thrown inside a callback is logged and the callback does nothing.
+
+A folder picker. Before, the start folder had to be an `azul.OptionString` object 
+(`null` was not accepted), the picked path was a view of a raw `OptionFilePath`, 
+and the resume callback's `result` arrived as `null`, so the downcast never matched:
+
+```javascript
+function onPickFolder(model, _info, result) {
+    const picked = azul.FileOpenResult.downcast(result); // always null
+    ...
+}
+```
+
+Now:
+
+```javascript
+function onChooseFolder(model, _info) {
+    azul.FileDialog.openDirectory('Choose a folder', null, model, onPickFolder);
+    return azul.Update.DoNothing;
+}
+
+function onPickFolder(model, _info, result) {
+    const path = azul.FileOpenResult.downcast(result)?.path;
+    if (path == null) return azul.Update.DoNothing; // not a folder pick, or cancelled
+    model.folder = path.inner;
+    return azul.Update.RefreshDom;
+}
+
+function onOpenLink(model, _info) {
+    azul.Url.parse(model.link); // an Err throws: logged, the callback does nothing
+    return azul.Update.RefreshDom;
+}
+```
+
 ## Build and run
 
 ```sh

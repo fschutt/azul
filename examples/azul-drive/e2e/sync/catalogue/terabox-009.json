@@ -1,0 +1,31 @@
+{
+  "name": "the plan changes on the server while two devices are signed in: both keep showing every file, and the bigger plan is used at once",
+  "description": "TERABOX-009 (TeraBox): the Android client disagreed with the server about the plan and hid items. Rules O1 and M2: a listing never depends on cached plan data; a smaller plan refuses uploads per file (E4) and hides nothing.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "docs", "count": 5, "text_prefix": "doc" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_fault", "remote": "r", "quota_bytes": 1 },
+    { "op": "drive_sync", "device": "a", "expect": "any" },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_states", "device": "a" },
+    { "op": "assert_response", "path": "result.files", "len": 5 },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files", "len": 5 },
+    { "op": "drive_check", "check": "files_count", "device": "a", "count": 5 },
+    { "op": "drive_check", "check": "files_count", "device": "b", "count": 5 },
+    { "op": "drive_fault", "remote": "r", "clear": true },
+    { "op": "drive_write", "device": "a", "path": "after-upgrade.txt", "text": "the bigger plan" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "after-upgrade.txt", "text": "the bigger plan" },
+    { "op": "drive_check", "check": "files_count", "device": "b", "count": 6 },
+    { "op": "drive_cleanup" }
+  ]
+}

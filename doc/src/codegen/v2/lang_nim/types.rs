@@ -32,6 +32,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -160,11 +161,13 @@ fn emit_type_alias(builder: &mut CodeBuilder, ta: &TypeAliasDef, ir: &CodegenIR)
                 // overlay — the same shape `emit_tagged_union` produces for a
                 // real enum (azul data enums are all `#[repr(C, u8)]`, so the
                 // discriminant is a single byte).
+                let payload = union_payload_layout(&ta.name, ir);
                 for v in variants {
                     let variant_ty = format!("{}Variant_{}", t, v.name);
                     builder.line(&format!("{}* {{.bycopy.}} = object", variant_ty));
                     builder.indent();
                     builder.line("tag*: uint8");
+                    emit_variant_padding(builder, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
                     if let Some(payload_ty) = &v.payload_type {
                         builder.line(&format!(
                             "payload*: {}",
@@ -322,14 +325,25 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
 // Tagged-union enum (per-variant tag+payload structs + {.union.} object)
 // ============================================================================
 
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant). `pad0`, not
+/// `_pad0`: a Nim identifier cannot start with an underscore.
+fn emit_variant_padding(builder: &mut CodeBuilder, padding: usize) {
+    if padding > 0 {
+        builder.line(&format!("pad0*: array[{}, uint8]", padding));
+    }
+}
+
 fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     for d in &e.doc {
         builder.line(&format!("# {}", sanitize_comment(d)));
     }
 
     let t = ffi_type_name(&e.name);
+    let payload = union_payload_layout(&e.name, ir);
 
-    // 1. One `{tag: uint8, payload…}` struct per variant.
+    // 1. One `{tag: uint8, [pad0,] payload…}` struct per variant.
     for v in &e.variants {
         // `AzFooVariant_Bar` is a single compound identifier -> raw name.
         let variant_ty = format!("{}Variant_{}", t, v.name);
@@ -338,6 +352,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         // Every variant leads with the discriminant byte (matches the
         // C header's `uint8_t tag;`).
         builder.line("tag*: uint8");
+        emit_variant_padding(builder, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
         match &v.kind {
             EnumVariantKind::Unit => {}
             EnumVariantKind::Tuple(types) => {

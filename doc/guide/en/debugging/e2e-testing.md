@@ -71,6 +71,8 @@ A test file is either one test object or an array of them.
 {
   "name": "string",
   "description": "string?",
+  "expect": "string?",
+  "only_on": ["linux", "windows"],
   "config": {
     "continue_on_failure": false,
     "delay_between_steps_ms": 0
@@ -86,6 +88,10 @@ A test file is either one test object or an array of them.
   ]
 }
 ```
+
+`expect: "fail"` marks a known failure: its FAIL is reported as XFAIL (green), and a PASS as XPASS (red: the bug is fixed, remove the marker).
+
+`only_on` (optional) lists the hosts the test holds on: `"linux"`, `"windows"`, `"macos"`, `"ios"`, `"android"`, `"web"`. Use it when the app itself differs per platform, for example a global hotkey that is `Cmd+Shift+K` on a Mac and `Ctrl+Alt+K` elsewhere: write one variant per host, each gated to its host (`examples/azul-widgets/e2e/global_hotkey.json`). On any other host the test runs no step, not even its `setup`, and reports `SKIP` with the reason (`only on linux, windows; this host is macos`). A skip is never a pass and never a failure: it does not fail the run, whatever `expect` says, and the summary line counts it as `skipped`. Without `only_on` a test runs everywhere. An unknown name (`"macOS"`) or an empty list fails the test, so a typo cannot skip it on every host.
 
 `config.continue_on_failure` keeps running steps after the first failure (still reports the test as failed). `config.delay_between_steps_ms` inserts a sleep, useful for visually inspecting a test that runs against a visible window. `setup.app_state` puts each test into a known state without restarting the process.
 
@@ -115,7 +121,23 @@ Every `op` accepted by `POST /` (covered in [Debugging](..md)) is a valid step. 
   "css":  [".a { width: 100px; background: blue; }"] }
 ```
 
-The lines are joined with `\n`, the CSS is injected as a `<style>` element and the document is parsed by azul's XML→StyledDom parser. `unmount` restores the app's own DOM.
+The lines are joined with `\n`, the CSS is injected as a `<style>` element and the document is parsed by azul's XML→StyledDom parser. `unmount` restores the app's own DOM. `collapse_whitespace: true` drops the white space that only lays the markup out (a line break and indent between two tags), so the node ids count the elements.
+
+#### A list too long to build: `virtual_views`
+
+Markup cannot make a VirtualView (`<virtual-view>` and `<iframe>` mount as plain `<div>`s). A `mount` that needs one names it in `virtual_views`: each entry turns the one **empty** element its `selector` names into a view of `rows` rows of `row_height` px, row `i` built from `row_html` (`{i}` is its zero-based index, `{n}` its number from 1; `row_css` styles the rows, because the page's `css` does not reach into a view's document):
+
+```json
+{ "op": "mount",
+  "collapse_whitespace": true,
+  "html": ["<div id=\"list\"></div>"],
+  "css":  ["#list { width: 300px; height: 200px; overflow: auto; }"],
+  "virtual_views": [{ "selector": "#list", "rows": 5000, "row_height": 24,
+                      "row_html": ["<div class=\"label\">Row {n}</div>"],
+                      "row_css":  [".label { font-size: 14px; }"] }] }
+```
+
+The host keeps its id, classes and style, and sizes the view (give it a width, a height and `overflow`). Each row sits in `<div class="e2e-row" id="row-{i}">` of `row_height` px. Like an app's list the view builds only the visible rows and a screen of rows either side, and is asked for more when the scroll position comes within 200 px of the edge of what it built (`scroll_node_by`, `wheel`, a dragged thumb) — so a scenario can scroll through 5000 rows and watch how few nodes exist. `get_virtual_view_states` reports the whole document (`virtual_scroll_size_height` is `rows × row_height`) and the rows built (`scroll_size_height`); `get_virtual_view_layout {"node_id": <the host's id>}` lists the nodes of the view's document (with `collapse_whitespace` the html is node 0, the body 1, the first element 2), among them `row-100`. A view that cannot land — a selector that matches no element or several, an element with content, `rows` outside 1 to 10,000,000, a `row_height` that is not above 0 up to 100,000, a `row_html` that is not well-formed — fails the `mount` step with the reason, and `azul-doc gen-e2e` refuses the scenario with the same words. A second `mount` replaces the views (one without `virtual_views` has none), `unmount` drops them.
 
 ### Damage, frame-work and resource assertions
 
@@ -130,12 +152,13 @@ Three more plain ops make the frame report directly observable:
 The `assert_damage*` ops look at the damage **accumulated since the last `reset_frame_counters`**, not at the last frame — between the step that changed something and the assertion, the engine may render further idle frames whose damage is `None`, and those would otherwise clobber it. Pass `"frame": "last"` to look at the most recent frame only. `assert_idle_stable` always looks at the last frame.
 
 - `assert_damage` (params: `which?` = `paint`|`present`, `kind?` = `none`|`rects`|`full`, `min_rects?`, `max_rects?`, `max_area_ratio?`, `frame?`).
-- `assert_changed` (params: `vs`, `min_damage_rects?`, `threshold?`). LIVENESS: damage must be non-empty **and** pixels must actually differ from the snapshot.
+- `assert_changed` (params: `vs`, `min_damage_rects?`, `threshold?`, `which?`, `frame?`). LIVENESS: damage must be non-empty **and** pixels must actually differ from the snapshot. With no damage and a `vs` snapshot, the failure says whose fault it is by rendering the window afresh and comparing: pixels that differ are `STALE SCREEN (engine)` (what the window shows changed and nothing was repainted), pixels that do not are `DEAD CONTROL (the test)` (nothing the scenario did could change a pixel, so a control that expected one proves nothing).
 - `assert_damage_covers_changes` (params: `vs`, `threshold?`, `slack_px?`). SOUNDNESS: every changed pixel lies inside the damage rects (under-paint ⇒ stale screen).
 - `assert_damage_incremental` (params: `max_area_ratio?`, default `0.5`). The repaint is a PATCH, not a full redraw.
 - `assert_idle_stable` (params: `vs?`). No input ⇒ damage drained to `none` (and pixels identical to `vs`). The infinite-redraw detector.
+- `assert_idle_frames` (params: `frames`, `step_ms?`, `vs?`, `threshold?`). The window stays idle for `frames` frames (1–120), in one step. It restarts the frame counters, then moves the engine clock by `step_ms` (default 16) a frame at a time, waits for each frame and requires: no paint or present damage so far, a full repaint with the same pixels as the window as the step found it (or as the snapshot `vs`; `threshold` is the per-channel tolerance), and a frame rendered for the turn at all. Every frame is held to the same picture, so a window that goes A, B, A, B fails at the first B; the failure names the frame (`frame 7 of 40 (+112 ms)`). An `assert_work_bounded` after it reads the counters of exactly those frames.
 - `assert_work_bounded` (params: `max_relayouts?`, `max_dom_regens?`, `allow_depth_cap?`). Measured since the last `reset_frame_counters`. Fails if `MAX_EVENT_RECURSION_DEPTH` was hit — an invalidation loop is now a red test rather than a `log_warn`.
-- `assert_resource_counts` (params: `vs`, then one mode per counter: `"eq"`|`"le"`|`"ge"` or an exact number). Counters: `fonts`, `font_hash_map`, `font_id_map`, `font_families_map`, `images`, `image_key_map`, `parsed_fonts`, `font_hash_to_families`, `font_chain_cache`.
+- `assert_resource_counts` (params: `vs`, then one mode per counter: `"eq"`|`"le"`|`"ge"`|`"gt"`|`"lt"` or an exact number). Every counter given is judged and every red one is reported in the one failure. Counters: `fonts`, `font_hash_map`, `images`, `image_key_map` (a renderer's own tables in a shell; in a host with no renderer - the in-process runner, the headless shell - what the display lists on screen draw: one font per font the text is drawn in, one image per decoded picture, gone the moment no list draws it), `parsed_fonts`, `font_hash_to_families`, `font_chain_cache`, and the legacy `font_id_map` and `font_families_map`, which no shell writes and which stay 0.
 
 ### Manager assertions: consistency, and non-interference
 
@@ -184,6 +207,9 @@ A *request* (`FileDialog::open_file`, `HttpRequestConfig::http_get`, `FilePath::
   - `http: { "<pattern>": { "status": 200, "text": "...", "content_type": "..." } }` or `{ "error": "..." }` per pattern - canned answers for `http_get`, `http_post`, `http_request`, `download_bytes`, `is_url_reachable` and the Db sync endpoints. A pattern is an exact URL, a prefix ending in `*`, or `*`; `b64` replaces `text` for binary bodies.
   - `audio_devices: { "outputs": [...], "inputs": [...] }` - `AudioDeviceList::enumerate`.
   - `video_decode: { "none": true }` - `decode_mp4_h264` resumes without a video.
+  - `microphone: "tone"`, `camera: "pattern"`, `screen: "pattern"`, `audio_sink: "count"` (or `null`) - the synthetic stand-in a device opened after this step gets, see below.
+
+**Devices.** While the store is armed no microphone, camera, screen capture or audio output is opened for real: no camera light, no sound, no permission prompt. `MicrophoneWidget`, `CameraWidget`, `ScreenCaptureWidget` and `AudioSink::open` get the synthetic stand-in the run asked for (a 440 Hz tone, a colour-cycle pattern, a moving band, a sink that counts frames and plays nothing), else nothing: the widget delivers no frame, `AudioSink::is_open` is `false`, stderr says `not available in a headless run` once, and each attempt is recorded (`assert_unmocked_request` with `"CameraWidget capture"`, `"MicrophoneWidget capture"`, `"ScreenCaptureWidget capture"` or `"AudioSink::open"`). Name the stand-ins at launch with `AZ_SYNTHETIC_DEVICES=microphone,camera,screen,audio_sink` (or `all`), or with the `mock` keys above. The `mock` op makes a run scripted, so an unmocked HTTP request is then refused; a bare headless run that needs the network (two AzMeet clients meeting through a local server) names its devices with the environment variable instead.
 
 A request that runs while the store is armed but has no queued answer never opens a native dialog and never touches the network: it resumes as cancelled (dialogs), unreachable (HTTP) or empty (devices), **and is recorded**. That keeps a scenario that forgot to mock something from hanging on a dialog nobody can click; three assertions turn the record into a verdict:
 
@@ -202,6 +228,28 @@ A request that runs while the store is armed but has no queued answer never open
 ```
 
 Mocked answers are delivered by the pump that also runs timers, and the pump keeps going while a resume callback issues further requests, so one `wait_frame` after the click settles a whole chain such as open -> read. The `resume` example (`examples/rust/src/resume.rs`) has one button per request kind, and the specs in `tests/e2e/resume_*.json` drive all of them, including the "forgot to mock" case.
+
+### Native notifications
+
+Under `AZ_BACKEND=headless` the notification backend records what the app posts and withdraws instead of showing it. A scenario asserts on the recording and plays the user's side:
+
+- `assert_notification` (params, all optional: `id`, `title`, `body`, `action`, `payload`, `withdrawn`, `count`). `id` / `title` / `body` pick the most recent matching post; `action` requires a button with that id; `payload` requires exactly the payload the app attached (`Notification::with_payload`); `withdrawn` requires it to be withdrawn or not; `count` is the number of posts with that `id`.
+- `notification_event` (params: `id`, `kind`, `action?`, `reason?`, `payload?`, `launched_app?`). Reports what the user did to the notification with that `id`, as if the OS had: `kind` is `click` (the notification itself), `action` (a button: `action` is its id), `dismiss` or `failed` (both take an optional `reason`). A `payload` rides along like the one a platform carries back; without one, the notification's own payload is filled in. The run loop's notification pump runs the notification's callback (or the app-level handler), which reads the event with `CallbackInfo::get_notification_event`, before the next `wait_frame` completes. An unknown `kind`, an `action` kind without `action`, or an empty `id` fails the step.
+
+```json
+{ "op": "click", "text": "Post a notification" },
+{ "op": "wait_frame" },
+{ "op": "assert_notification", "id": "azul-widgets-demo", "action": "show-me",
+  "payload": "azul-widgets-demo:show" },
+{ "op": "notification_event", "id": "azul-widgets-demo", "kind": "action", "action": "show-me" },
+{ "op": "wait_frame" },
+{ "op": "find_node_by_text", "text": "Button pressed: \"show-me\"." },
+{ "op": "assert_response", "contains": "\"found\":true" }
+```
+
+(`examples/azul-widgets/e2e/notifications.json` is the whole scenario.) `find_node_by_text` answers `found: false` rather than failing, so pair it with `assert_response`.
+
+The in-crate headless runner (`azul-doc e2e`) has no notification service: there `notification_event` only queues the event, and nothing runs it.
 
 ## Step results
 
@@ -253,7 +301,7 @@ Default request timeout is 30 s; tests that take longer must either pass `"timeo
 
 Some steps (`resize`, `set_node_text`, `delete_node`) require a relayout pass to complete before the next step can read the resulting state. The runner detects these and yields back to the timer; the test resumes on the next tick. From the test author's perspective this is invisible: write `resize` followed by `assert_layout` and the runner handles the suspension.
 
-This is why `AZ_E2E` requires the application to reach the event loop. The test cannot make progress while the timer is not running. With `AZ_BACKEND=headless` (or `AZUL_HEADLESS=1`) the event loop runs without an OS window, which is the standard CI configuration.
+This is why `AZ_E2E` requires the application to reach the event loop. The test cannot make progress while the timer is not running. With `AZ_BACKEND=headless` the event loop runs without an OS window, which is the standard CI configuration.
 
 ## CI integration
 

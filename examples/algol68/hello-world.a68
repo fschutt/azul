@@ -68,7 +68,7 @@ BEGIN
   );
 
   AZWINDOWCREATEOPTIONS window := az window create options create (layout);
-  title OF window state OF window := az str ("Hello World");
+  replace az string text (title OF window state OF window, "Hello World");
   width OF dimensions OF size OF window state OF window := 400.0;
   height OF dimensions OF size OF window state OF window := 300.0;
 

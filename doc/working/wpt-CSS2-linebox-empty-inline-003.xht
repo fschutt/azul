@@ -1,0 +1,44 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Line height calculations - Empty inline elements influence</title>
+<meta name="assert" content="The line-height of an empty inline element influences the height of a line containing it with some other content"/>
+<style>
+  div#rel-pos-wrapper {position: relative;}
+
+  div#test
+  {
+  background-color: green;
+  color: white;
+  line-height: 1;
+  }
+
+  span#empty-inline-element {line-height: 5;}
+
+  div#reference-overlapped-red
+  {
+  background-color: red;
+  left: 0;
+  line-height: 5;
+  position: absolute;
+  top: 0;
+  width: 100%;
+  z-index: -1;
+  }
+  
+</style>
+</head>
+<body>
+
+  <p>Test passes if there is a wide filled green rectangle with one "X" in it and if there is <strong>no red</strong>.</p>
+
+  <div id="rel-pos-wrapper">
+
+    <div id="test"><span id="empty-inline-element"></span>X</div>
+
+    <div id="reference-overlapped-red">X</div>
+
+  </div>
+
+ 
+</body>
+</html>

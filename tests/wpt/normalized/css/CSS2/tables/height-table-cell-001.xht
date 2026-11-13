@@ -1,0 +1,44 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS test: height - table cell height</title>
+<meta name="assert" content="The height of a 'table-row' element's box is the maximum of the row's computed 'height', the computed 'height' of each cell in such row and the minimum height required by the content of the cells. The height of a cell is the maximum between its specified 'height' and the minimum height required by its content."/>
+<style>
+  div#overlapped-red-reference
+  {
+  background-color: red;
+  height: 100px;
+  position: absolute;
+  width: 100px;
+  z-index: -1;
+  }
+
+  table#overlapping-green-test {border-spacing: 0px;}
+
+  td
+  {
+  background-color: green;
+  border: green solid 10px;
+  height: 50px;
+  padding: 15px;
+  width: 50px;
+  }
+  
+</style>
+</head>
+<body>
+
+  <p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+
+  <div id="overlapped-red-reference"></div>
+
+  <table id="overlapping-green-test">
+    <tr>
+      <td></td>
+    </tr>
+  </table>
+
+  
+
+ 
+</body>
+</html>

@@ -1,0 +1,58 @@
+[
+  {
+    "name": "a new file still being written while the pass reads it is not committed half-written; the next pass sends it once, complete, with no conflict copy",
+    "description": "KOOFR-001 (Koofr desktop before June 2020): a file exported over a few seconds was synced while being written; the half-written file kept the name and the complete one became a 'conflicted copy'. Rule A6: fstat before and after the read must equal the scan; a file changed while read is not committed (changed-during-sync) and is taken once it holds still. sync-chaos res-growing-file.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "other.txt", "text": "other" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "export.mov", "text": "frame of video 1\n" },
+      { "op": "drive_sync", "device": "a", "pause_at": "mid-read", "expect": "any" },
+      { "op": "drive_append", "device": "a", "path": "export.mov", "text": "frame of video 2\n" },
+      { "op": "drive_append", "device": "a", "path": "export.mov", "text": "frame of video 3\n" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["changed-during-sync", "settling"], "key": "export.mov" },
+      { "op": "drive_check", "check": "remote_file", "key": "export.mov", "absent": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "export.mov", "text": "frame of video 1\nframe of video 2\nframe of video 3\n" },
+      { "op": "drive_check", "check": "remote_count", "glob": "export*", "count": 1 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "export.mov", "count": 0 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "export.mov", "same_as": "{root:a}/export.mov" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "export.mov", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file written within the settle period waits, and goes up once after it is quiet",
+    "description": "KOOFR-001: an export that takes seconds. Rule A6: a file modified within the settle period is listed (settling) and taken once it is quiet, never uploaded in between; the device's clock jump stands in for the seconds passing.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r", "settle_ms": 2000 },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "other.txt", "text": "other" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "export.mov", "text": "part one\n" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "settling", "key": "export.mov" },
+      { "op": "drive_check", "check": "remote_file", "key": "export.mov", "absent": true },
+      { "op": "drive_append", "device": "a", "path": "export.mov", "text": "part two\n" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "export.mov", "absent": true },
+      { "op": "drive_clock", "device": "a", "jump": 10 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "export.mov", "text": "part one\npart two\n" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "export.mov", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

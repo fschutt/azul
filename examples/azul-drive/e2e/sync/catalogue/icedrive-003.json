@@ -1,0 +1,29 @@
+{
+  "name": "while the drive key is locked nothing syncs one way only: no upload and no delete, and the folder says why",
+  "description": "ICEDRIVE-003 (Icedrive): after Mount/Unmount the crypto area was locked; deletions still mirrored to the cloud but new files were not uploaded. Rules D6/O1/E6: when uploads cannot run, deletes do not run either; the problem list names the lock.",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "old.txt", "text": "old" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_lock", "device": "a" },
+    { "op": "drive_write", "device": "a", "path": "test5.txt", "text": "new while locked" },
+    { "op": "drive_rm", "device": "a", "path": "old.txt" },
+    { "op": "drive_sync", "device": "a", "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["uploads-paused", "sign-in-needed"] },
+    { "op": "drive_check", "check": "remote_file", "key": "old.txt", "text": "old" },
+    { "op": "drive_check", "check": "remote_file", "key": "test5.txt", "absent": true },
+    { "op": "drive_unlock", "device": "a" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "remote_file", "key": "test5.txt", "text": "new while locked" },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_cleanup" }
+  ]
+}

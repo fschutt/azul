@@ -1,0 +1,2 @@
+[registries]
+azul = { index = "sparse+https://azul.rs/ui/cargo/" }

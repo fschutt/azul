@@ -1,0 +1,55 @@
+[
+  {
+    "name": "free disk below the plan's size but above what the drive holds: everything comes down, only into the chosen folder",
+    "description": "MAGENTA-009 (MagentaCloud Windows software): the installer demanded more free disk than the whole 500 GB plan, synced '0 of N' and then wrote to C: although D: was chosen. Rule E3: room is measured per download against the bytes actually needed plus the reserve, never against the quota; every write stays in the pairing's folder. sync-chaos sec-share-quota-dos.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "one.bin", "size": 1048576, "seed": 1 },
+      { "op": "drive_write", "device": "a", "path": "two.bin", "size": 1048576, "seed": 2 },
+      { "op": "drive_write", "device": "a", "path": "three.bin", "size": 1048576, "seed": 3 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_fault", "remote": "r", "quota_bytes": 536870912000 },
+      { "op": "drive_disk", "device": "b", "free_bytes": 2147483648 },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 3 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "two.bin", "same_as": "{root:a}/two.bin" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["disk-reserve", "disk-full"], "absent": true },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "free disk below the reserve: downloads wait and are listed, this device's own work still goes up",
+    "description": "MAGENTA-009: endless 'could not be synchronised' errors. Rules E3 and O1: a download that would eat into the reserve is not started and is listed (disk-reserve); uploads go on; nothing half-written is left.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big1.bin", "size": 1048576, "seed": 11 },
+      { "op": "drive_write", "device": "a", "path": "big2.bin", "size": 1048576, "seed": 12 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_disk", "device": "b", "free_bytes": 536870912 },
+      { "op": "drive_write", "device": "b", "path": "mine.txt", "text": "my own work" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "disk-reserve" },
+      { "op": "drive_check", "check": "remote_file", "key": "mine.txt", "text": "my own work" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big1.bin", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_disk", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big1.bin", "same_as": "{root:a}/big1.bin" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

@@ -1,0 +1,87 @@
+[
+  {
+    "name": "600 photos at once arrive as 600 distinct files; a downloaded photo is never sent back up",
+    "description": "KDRIVE-018 (kDrive): uploading 500+ photos at once created duplicates and missed some; a photo downloaded from the drive was re-uploaded by photo sync. Rules E7, A3 and E8: every file goes up exactly once, none overwrites another; a file that came down is in the base and is never uploaded again; the passes after settle.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "DCIM/100APPLE", "count": 600, "size": 4096, "seed": 181 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "assert_response", "path": "result.up", "equals": 600 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "DCIM/*", "count": 600 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "assert_response", "path": "result.down", "equals": 600 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "DCIM/*", "count": 600 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a burst of ten shots with one name and one capture second, and 600 assets at once, through the camera upload queue: 610 distinct files",
+    "description": "KDRIVE-018 (kDrive): burst photos were treated as versions of one file (all but the last overwritten); same-second photos failed. Rules E8 and O1 (mobile upload: keyed by asset id and content hash, bursts never overwrite each other). sync-chaos mobile-camera-upload.",
+    "pending": "AzDrive has no mobile app yet (MISS25-A): the camera upload queue - assets by id and content hash, kept across a reinstall, within the system's background-task budget - is planning/mobile's; drive_camera_upload and drive_reinstall need that queue (a one-way camera pairing exists: drive_pair mode camera-upload)",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_camera_upload", "device": "a", "assets": [{"id": "burst-0", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 200}, {"id": "burst-1", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 201}, {"id": "burst-2", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 202}, {"id": "burst-3", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 203}, {"id": "burst-4", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 204}, {"id": "burst-5", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 205}, {"id": "burst-6", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 206}, {"id": "burst-7", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 207}, {"id": "burst-8", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 208}, {"id": "burst-9", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 209}] },
+      { "op": "drive_camera_upload", "device": "a", "count": 600, "size": 4096, "seed": 300 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 610 },
+      { "op": "drive_camera_upload", "device": "a", "assets": [{"id": "burst-0", "name": "IMG_0001.HEIC", "taken_at": 1700000000, "size": 30000, "seed": 200}] },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 610 },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a photo dated 1969 syncs like any file",
+    "description": "KDRIVE-018 (kDrive): photos dated before 1970 were not synced. Rules P12 and O1: a time is a hint; a file is never skipped silently for its date.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/old/IMG_1969.JPG", "size": 20000, "seed": 182, "mtime": -31536000000000000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 1 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/old/IMG_1969.JPG", "same_as": "{root:a}/DCIM/old/IMG_1969.JPG" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a photo dated 1969 keeps its date on the other device",
+    "description": "KDRIVE-018 (kDrive): the date of a photo taken before 1970. Rule P12: the time a file had where it was written comes back with it where the system can hold it.",
+    "pending": "the engine keeps times as unsigned counts from 1970 (beneath::Stat.mtime_ns, LocalFile / BaseEntry mtime_ns, RemoteFile.mtime_ns, and the encrypted index's IndexEntry.modified in seconds): a time before 1970 is read as 0 and a download sets none. It needs signed times through the scan, the plain index (RemoteFile.mtime is signed already) and the pointer format",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/old/IMG_1969.JPG", "size": 20000, "seed": 182, "mtime": -31536000000000000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "mtime", "device": "b", "path": "DCIM/old/IMG_1969.JPG", "ns": -31536000000000000, "tolerance_ns": 2000000000 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

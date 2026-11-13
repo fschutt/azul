@@ -487,9 +487,11 @@ pub fn create_bindings_bundles(
                             if entry.is_dir() {
                                 continue;
                             }
+                            // An entry name that is neither UTF-8 nor CP437 fails the bundle.
+                            let entry_name = entry.name()?.into_owned();
                             let mut data = Vec::with_capacity(entry.size() as usize);
                             entry.read_to_end(&mut data)?;
-                            tar.add(&format!("{dst}{}", entry.name()), &data)?;
+                            tar.add(&format!("{dst}{entry_name}"), &data)?;
                         }
                     }
                     Err(e) => {

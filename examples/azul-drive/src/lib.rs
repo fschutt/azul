@@ -1,0 +1,4620 @@
+//! AzDrive: a file manager on the public azul API that looks and works like
+//! Windows 8's File Explorer, with a Finder window for its body.
+//!
+//! The window is the S5 `BrowserShell` without a title row: the ribbon (`ui_ribbon`: File - a
+//! mini backstage in a popup under its tab -, Home, Share, View; Computer at This PC) whose tab
+//! strip is the window's title bar - its tabs are buttons on the leather whose content opens
+//! while a tab is hovered and locks on a double click, and its right end holds the location
+//! tabs' button -, over the address row (round Back / Forward, Up, the
+//! breadcrumb box - a chevron per crumb dropping its folders, the first crumbs folded into «
+//! when the path is long, a click on its empty part for the typed path -, Refresh, "Search
+//! <folder>"). The strip shows no title; the window's title (the open place's path) is what the
+//! system's window list names it by. Under it the body is a Finder window in the app theme
+//! (`look`: flora's linen, leaves and Calmet UI's capitals; Office 2010's silver in flat): the
+//! navigation pane is Finder's source list (`ui_sidebar`: FAVORITES - Quick access, the
+//! standard folders, the pins -, LOCATIONS - This PC and the drives on this computer, their
+//! folders listed when a row opens -, CLOUD - the S3 drives with their state -, and its foot:
+//! + and the gear, and two pies for the sync and the drive's space, `ui_pies`); the content is
+//! a leaf on the page (This PC's drive tiles, Quick access's pinned folders, or a folder in one
+//! of Explorer's eight layouts - Details by default, the icon layouts on azul's IconGrid -
+//! grouped or not, with check boxes or not); the preview pane OR the details pane at the
+//! right, a leaf too. There is no status bar: no path bar, no status line, no item count or
+//! free space anywhere; the pies' popover has the numbers. The Options and About are the
+//! backstage (File > Options, File > About).
+//!
+//! The window has location tabs (`location_tabs`, `ui_tabs`): Ctrl+T opens one on the folder
+//! in view, Ctrl+W closes one, Ctrl+Tab and Ctrl+1..9 switch, the strip's tab button (or
+//! Ctrl+Shift+A) lists them over a scrim. Each keeps its place, history, selection, layout,
+//! search and scroll.
+//!
+//! A folder of any size opens at once (`listing`, `jobs`): its scan reads the
+//! names and kinds with one `read_dir` - no stat per entry - and streams them
+//! in batches into the rows (kept in the view's order), a navigation stops it;
+//! the views are virtual (only the rows in view and a screen either side are
+//! built); the rows in view get their sizes and dates (a stat each), the
+//! folders among them their item counts (one `read_dir` each) and the pictures
+//! their thumbnails, nothing else.
+//!
+//! The search box turns the leaf into the search view (`find`, `rank`, `ui_find`, on
+//! azul-search: ripgrep's parallel walker and searcher, AzCode's find in files' engine too):
+//! where its scope says (this folder, this drive - the default -, all drives) the names first,
+//! then - "File contents", on by default - the files whose lines hold the text. The results
+//! stream in, ranked by BM25 and grouped by their folder, the best folder first, each row with
+//! its name and two lines of its text, the terms marked; the search's bar counts them
+//! ("Searching... 1,234 found"); every key starts the search again (the one running stops
+//! within milliseconds); Escape clears the box, then closes the view. A cloud drive is searched
+//! by name over a recursive listing - slower, and its files are not read.
+//!
+//! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
+//! folders and S3 drives the user added (any S3-compatible storage). Every
+//! storage call goes through `azul_storage::Drive` on an azul `Thread`; no
+//! callback waits on a drive. Copies, moves, uploads and downloads go
+//! through ONE queue (one transfer at a time, progress in the source list):
+//! a plan first (every file under a folder, every name taken at the target),
+//! a dialog per conflict (Replace / Skip / Keep both, for all), then the run.
+//! Delete moves an item into `.azdrive-trash/` on a local drive (Ctrl+Z
+//! brings it back) and asks first on a cloud drive. Errors show in an
+//! InfoBar over the content.
+//!
+//! The drives list is `<config dir>/azul-storage/drives.json` WITHOUT
+//! secrets (shared with AzMail); the keys go to the OS keyring. They are read when something
+//! needs them, never by the start ([`mod@unlock`]): what the window does by itself (its start, the
+//! sync's timers) reads them quietly, all its drives in one round, and a drive whose keys the
+//! keychain hands over only after asking waits for the user's Unlock (the bar over the
+//! content, the drive's menu); the keys stay for the session and leave memory with Lock and the
+//! window's close. Two tiers: the keys sync needs are plain keychain items (no Touch ID), and
+//! Touch ID or the password are asked only before an action that reveals or changes keys
+//! ([`presence`]). A debug build and the test and dev profiles keep their keys in memory - or, with
+//! a libazul built with the cargo feature `test-hooks` (E2E and test builds only), in
+//! `AZ_KEYRING_FILE` -, never in the system keychain (`AZ_KEYRING=system` asks for it; a shipped
+//! libazul reads none of these test switches). The Azlin
+//! data tree (azul-appkit's data root: `--data-dir`, `$AZLIN_DATA`, else
+//! `<data dir>/Azlin`) is a drive of its own, "Azlin", and holds AzDrive's
+//! files: `drive/settings.json` (the app theme and mode, azul-appkit's) and
+//! `drive/view.json` (layout, sort, columns, panes, the Quick access pins),
+//! written through the data tree's `LocalDrive` on a Thread.
+//!
+//! Command line ([`args`]; each switch wins over the variable an older build read, which is the
+//! fallback when the switch is absent):
+//! - `--home <dir>` (`$AZDRIVE_HOME`): the folder the Home drive shows (default: the user's home).
+//! - `--drives <file>` (`$AZUL_DRIVES`): the drives file (default:
+//!   `<config dir>/azul-storage/drives.json`).
+//! - `--downloads <dir>` (`$AZDRIVE_DOWNLOADS`): where "Download" saves (default: the user's
+//!   Downloads folder).
+//! - `--data-dir <dir>` (`$AZLIN_DATA`): the data root (azul-appkit).
+//! - `--dialogs inline` (`$AZDRIVE_DIALOGS=inline`): show the dialogs as a sheet inside the
+//!   window instead of a modal dialog window (scripts: the debug server drives the main window).
+//! - `--open <path>`: open at a place as the address bar names it (File > Open new window).
+//! - `--pick`: answer another app's file request (one JSON line on stdin) as its file picker:
+//!   one `AZPICK <json>` line on stdout, then the run ends (`picker`).
+//!
+//! On stdout, for scripts: `AZDRIVE_PLACE quick-access | this-pc | <drive id> <prefix or />`,
+//! `AZDRIVE_LISTED <drive id> <prefix or /> <entries>`, `AZDRIVE_TREE <drive id>
+//! <prefix or /> <folders>`, `AZDRIVE_SELECTED <n> <first key or ->`, `AZDRIVE_LAYOUT <name>`,
+//! `AZDRIVE_SORT <column> <asc|desc>`, `AZDRIVE_GROUP <name>`, `AZDRIVE_PANES <nav> <preview> <details>`,
+//! `AZDRIVE_TRANSFER <id> planned|conflict|done|failed|cancelled <n>`, `AZDRIVE_DONE <what> <key>`,
+//! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
+//! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
+//! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>|voucher`, `AZDRIVE_TIERS <n>`,
+//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive id>`,
+//! `AZDRIVE_PERIOD_TOKENS <checkout id> <drive id> <n>`, `AZDRIVE_PERIOD_REDEEMED <drive id> <n>
+//! <until>`, `AZDRIVE_PROBLEM <drive id> <code> <request id>`, `AZDRIVE_PROBLEM_GONE <drive
+//! id>`, `AZDRIVE_LOCKDOWN_PENDING <drive id> <until>`, `AZDRIVE_LOCKDOWN_CANCELLED <drive id>`,
+//! `AZDRIVE_VOUCHER [new] <drive id> [<days>]`, `AZDRIVE_RECOVERY_KEY <drive id>`,
+//! `AZDRIVE_RECOVERY_LOCKDOWN <drive id>`, `AZDRIVE_SPACE <drive id> <used> <quota>` (the
+//! node's HeadBucket count of stored bytes, `-` what it did not say),
+//! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
+//! `AZDRIVE_NEW_WINDOW <path>`, `AZDRIVE_SEARCHING <text>`,
+//! `AZDRIVE_SEARCHED <results> names|contents <text>`, `AZDRIVE_SEARCH_CLEARED` (Escape emptied
+//! the box; the search view stays), `AZDRIVE_SEARCH_CLOSED`, `AZDRIVE_SEARCH_SCOPE
+//! Folder|Drive|AllDrives`, `AZDRIVE_TABS <count> <index of the tab showing>`,
+//! `AZDRIVE_TAB_OVERVIEW open|closed`, `AZDRIVE_PIE_ACTION <action>`. Keys,
+//! passwords, tokens and payment pages are never printed.
+//!
+//! Add drive (Home > Add drive, Computer > Add drive, the source list's "Add drive...", the
+//! Options' Drives) is a modal dialog - a transient window over the window: Buy storage (Azlin's
+//! tiers from the token server, a test drive on a development server, a checkout paid in the
+//! browser; azcloud-kit) or Connect data source (azul-storage's catalog: S3-compatible storage,
+//! a folder on this computer, OpenDAL's services with the feature `opendal`, PostgreSQL / MySQL /
+//! SQLite browsed as tables with `sql`; a form per source, "Test connection", "Add drive").
+//! `--token-url <url>` / `--profile <name>` name the token server (else `$AZLIN_TOKEN_URL`, the
+//! shared Azlin config, the profile's) in a TEST build only (cargo feature `test-hooks`, the E2E
+//! stacks): a shipped AzDrive sends a drive token to the live token server and to nothing a file, a
+//! variable or a switch names (`azul_appkit::anchors`).
+//!
+//! A checkout names a claim key of its own (azcloud-kit's `claim`): the token server seals the
+//! paid drive's sign-up to it. The checkout and its key go on the keyring's list of unfinished
+//! checkouts before the payment page opens, so a drive paid after "Stop waiting" joins the
+//! source list in the background, and one paid while AzDrive was closed arrives at the next start
+//! (azcloud-kit's `pending`). An Azlin drive's session is written by worker threads only, under
+//! the drive's lock every AzDrive window shares: a second window never spends a drive token the
+//! first one has spent (the token server would revoke the device).
+//!
+//! A cloud drive syncs with a folder on this computer (`sync_view`, `sync_jobs`; azcloud-kit's
+//! `sync::session`): "Sync with a folder..." pairs it (by default `AzDrive/<drive name>` in
+//! Home), the folder's files carry their state (cloud only, downloading, on this device,
+//! pinned, a conflict, an error), cloud-only files are listed and come down when opened,
+//! Share > Sync has Sync now, "Always keep on this device" and "Free up space", the drive's
+//! status ("Up to date", "Syncing 12 files (340 MB)", "Paused", "Read-only (payment due)") is
+//! the sync pie's (its colour, its words, its popover) and on its row in the source list, a
+//! conflict asks keep mine /
+//! take theirs / keep both, Options > Drives > Sync has each drive's settings. A timer polls
+//! every synced drive every `$AZDRIVE_SYNC_POLL` seconds (30 by default). Markers:
+//! `AZDRIVE_SYNC_PAIRED <drive id> <folder>`, `AZDRIVE_SYNC_STARTED <drive id>`,
+//! `AZDRIVE_SYNC_DONE <drive id> up=<n> down=<n> deleted=<n> conflicts=<n> cloud_only=<n>
+//! freed=<n> paused=<bool> newer_format=<n>`, `AZDRIVE_SYNC_FAILED <drive id> <why>`,
+//! `AZDRIVE_SYNC_STATUS <drive id> <status line>` (its key and arguments, the same in any
+//! language: `azdrive-sync-status-up-to-date`), `AZDRIVE_SYNC_FILE <drive id> <state> <key>` (a
+//! file whose state changed: cloud-only, on-device, on-device-encrypted, pinned, conflict,
+//! error, gone), `AZDRIVE_SYNC_CONFLICT
+//! <drive id> <key>` (the question shows), `AZDRIVE_SYNC_RESOLVED <drive id> mine|theirs|both
+//! <key>`, `AZDRIVE_SYNC_OPENED <drive id> <key>`, `AZDRIVE_SYNC_PINNED <drive id> on|off`,
+//! `AZDRIVE_SYNC_FREED <drive id>`, `AZDRIVE_SYNC_DELETED <drive id>` (files deleted through
+//! the sync: kept in the cloud only, or a plain drive's - its own listing shows its sync index's
+//! files), `AZDRIVE_SYNC_PAUSED|RESUMED|STOPPED <drive id>`, `AZDRIVE_SYNC_SETTING <drive id>
+//! <name> <value>`, `AZDRIVE_PREVIEW synced <key>` (a cloud-only row's preview is a sentence),
+//! `AZDRIVE_SYNC_BURST <drive id> burst|encryption <changes>` (the burst guard paused the
+//! uploads), `AZDRIVE_SYNC_MASS_DELETE <drive id> here|there <count>`, `AZDRIVE_SYNC_QUESTION
+//! <drive id> burst|mass` (asked), `AZDRIVE_SYNC_ANSWERED <drive id> burst mine|mass-delete
+//! delete|mass-delete keep`, `AZDRIVE_SYNC_HACKED <drive id>`, `AZDRIVE_SYNC_RENAMED <drive id>
+//! <key>`, `AZDRIVE_SYNC_FETCHED <drive id>` (cloud-only files a copy, move or download of a
+//! plain drive's own listing waited for).
+//! An Azlin drive is "Read-only (payment due)" when its token server's drive status says so.
+
+mod actions;
+/// One notice per user action that moves files: what it does, then how it went.
+mod transfer_actions;
+#[cfg(test)]
+mod delete_tests;
+/// The copies of an older AzDrive that stay on the computer, and what the start says about them (X-DELTA-SYNC9-11).
+#[cfg(test)]
+mod legacy_copies_tests;
+/// The file operations on the drives the app really opens (`Slot::open`), not on bare folders.
+#[cfg(test)]
+mod files_tests;
+/// The window's close while transfers, sync passes or an encryption run.
+mod closing;
+/// When a drive's keys are read from the keychain (lazily, quietly, in rounds) and wiped.
+mod unlock;
+#[cfg(test)]
+mod unlock_tests;
+/// Touch ID or the password before an action that reveals or changes a drive's keys.
+mod presence;
+#[cfg(test)]
+mod presence_tests;
+/// AzDrive as another app's file picker (`--pick`): the request, the strip, the answer.
+mod picker;
+#[cfg(test)]
+mod fileops_batch_tests;
+#[cfg(test)]
+mod copy_path_tests;
+#[cfg(test)]
+mod grid_keys_tests;
+#[cfg(test)]
+mod tree_leaves_tests;
+#[cfg(test)]
+mod notices_tests;
+#[cfg(test)]
+mod options_cancel_tests;
+#[cfg(test)]
+mod stop_jobs_tests;
+/// What a drive's state takes (the contract's table): the window's refusals, the sync's passes.
+mod access;
+/// A banned Azlin drive (ban contract v1): the banner, the refusals, Copy everything, closed.
+mod ban;
+#[cfg(test)]
+mod ban_tests;
+#[cfg(test)]
+mod access_tests;
+/// An unpaid Azlin drive's last months (the bar, the copy to this computer), its lock and its
+/// way back (Get my drive back).
+mod archive;
+#[cfg(test)]
+mod archive_tests;
+/// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
+mod add_drive;
+#[cfg(test)]
+mod add_drive_tests;
+/// What the Add drive dialog's buttons start, and the answers of its jobs.
+mod add_flow;
+/// Cash by post: the two pages, the waiting line, a claim code picked up, the daily look.
+mod cash;
+#[cfg(test)]
+mod cash_tests;
+/// When the window's timer starts the next run of the background claims: a value a test drives.
+mod claims_clock;
+/// The background claims over days: a clock that only a pause moves, a token server that
+/// remembers when it was asked.
+#[cfg(test)]
+mod claims_tests;
+/// Buy storage's first question: the buyer's country (the list, the guess, the search).
+mod countries;
+#[cfg(test)]
+mod countries_tests;
+/// Add drive > Google Drive / Dropbox / OneDrive: the sign-in as data.
+mod sign_in;
+pub mod args;
+pub mod browse;
+pub mod fileops;
+/// A local drive's trash and what becomes of it: kept 30 days, removed by a second look a week after
+/// the first, never by the wall clock alone.
+mod trash;
+/// The search box's search of the open folder and below it, as plain data.
+pub mod find;
+#[cfg(test)]
+mod find_tests;
+#[cfg(test)]
+mod sync_tests;
+#[cfg(test)]
+mod chaos_tests;
+mod ids;
+/// The Azlin drives' paid months: when their periods are looked at, the redemptions.
+mod periods;
+mod renewals;
+/// The Azlin drives' iroh dialer: iroh to the nodes first, HTTPS as the fallback.
+mod iroh_lane;
+/// A drive's errors as the user sees them: the table's words, the error ID, notifications.
+mod problems;
+/// An Azlin drive's space: the quota counts stored bytes, the original size as extra information.
+mod usage_view;
+/// The customer's receipts, saved as PDF (Options > Drives).
+mod receipt;
+#[cfg(test)]
+mod receipt_tests;
+/// Vouchers on a drive (Options > Drives).
+mod vouchers;
+/// The devices of an Azlin drive and their removal (Options > Drives).
+mod devices;
+/// AzDrive's words through azul's localization: its resources, the kit's error table.
+mod l10n;
+/// "Restore as of..." of an Azlin drive (Options > Drives, the drive's menu).
+mod restore;
+#[cfg(test)]
+mod periods_tests;
+#[cfg(test)]
+mod devices_tests;
+#[cfg(test)]
+mod renewals_tests;
+/// The opening of an Azlin drive over a fake bucket: the gate it comes out as, the notice, the vault, the Lock.
+#[cfg(all(test, feature = "encryption"))]
+mod open_tests;
+#[cfg(test)]
+mod problems_tests;
+#[cfg(test)]
+mod restore_tests;
+#[cfg(test)]
+mod l10n_tests;
+/// Encrypted drives: AutoEncrypted around Azlin drives, the recovery sheet, the unlock.
+#[cfg(feature = "encryption")]
+mod encryption;
+/// What a removed drive leaves on this computer, and the removal that takes it all off.
+#[cfg(feature = "encryption")]
+mod footprint;
+/// An encrypted drive's recovery methods (C14): the emergency kit, the setup's check, the
+/// drills, trusted contacts, the methods list.
+#[cfg(feature = "encryption")]
+mod recovery;
+/// Trusted contacts: the owner's shares, a contact's side, the recovery with two shares.
+#[cfg(feature = "encryption")]
+mod recovery_contacts;
+/// The window's one dialog: what opens, waits and closes it.
+mod popup_slot;
+#[cfg(all(test, feature = "encryption"))]
+mod popup_slot_tests;
+/// A drive's several recovery keys: the kit's lookup on a computer that never had the drive,
+/// a second kit, removing a key.
+#[cfg(feature = "encryption")]
+mod recovery_keys;
+/// A drive's recovery state (the code's checks, the drills, the trusted contacts) and its
+/// Recovery health: plain data in the settings.
+pub mod recovery_health;
+mod jobs;
+pub mod keys;
+/// The open folder's listing as it streams in, and the window of it the views build.
+pub mod listing;
+/// The window's location tabs: each keeps its place, history, selection, layout, search, scroll.
+pub mod location_tabs;
+/// The body's looks in flat and flora, by day and at night.
+mod look;
+pub mod model;
+/// The command palette (Cmd+K): what it lists for what was typed.
+pub mod palette;
+mod paper;
+mod pay_words;
+#[cfg(test)]
+mod pay_words_tests;
+pub mod preview;
+/// The search's ranking (BM25) and its grouping by folder.
+pub mod rank;
+mod source_words;
+#[cfg(test)]
+mod source_words_tests;
+/// The Add drive dialog's pages.
+mod ui_add_drive;
+/// Options > Drives' "Use with other programs": the Azlin Bridge's settings to copy.
+mod ui_bridge;
+mod ui_dialogs;
+/// The search's results in the folder view.
+mod ui_find;
+mod ui_panes;
+/// The navigation pane's two pies (the sync, the drive's space) and their popover.
+mod ui_pies;
+/// Windows 8's ribbon and its File menu.
+mod ui_ribbon;
+/// The location tabs in the window: the keys' commands, the tab overview.
+mod ui_tabs;
+/// Quick Look and the command palette, over the window on a scrim.
+mod ui_overlays;
+/// The navigation pane: Finder's source list.
+mod sync_lookup;
+mod ui_sidebar;
+mod ui_view;
+/// The folder sync on worker threads, and what starts it.
+mod sync_jobs;
+// The E2E commands a scenario drives the folder sync with (e2e/COMMANDS.md): registered only
+// when AZ_E2E or AZ_DEBUG is set.
+mod e2e;
+/// The synced drives' file states, shared by the window and the search.
+mod sync_store;
+/// The git side of a folder on this computer (gix): the address row's branch chip, the quick
+/// switcher's branches, the check before a switch.
+mod git_repo;
+#[cfg(test)]
+mod git_repo_tests;
+/// The command bar's model: what a typed line is, how the shell runs it, the history.
+mod command_line;
+#[cfg(test)]
+mod command_line_tests;
+/// The command bar's "/" actions: a registry later macros and agent actions join.
+mod micro_actions;
+#[cfg(test)]
+mod micro_actions_tests;
+/// The address row's branch chip and its quick switcher.
+mod ui_git;
+/// The command bar at the foot of the folder view.
+mod ui_command_bar;
+/// The folder sync as the window shows it: states, the status line, the dialogs, the Options.
+mod sync_view;
+/// This computer's client health (power, battery, network) and the background work it scales.
+mod health;
+
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
+
+use azul::{
+    callbacks::ShellOnPaneResizeCallbackType,
+    css::DarkLightMode,
+    error::KeyringResult,
+    file::FilePath,
+    prelude::*,
+    shells::{BrowserShell, ShellPane, ShellPaneKind, ShellThemeScope},
+    str::String as AzString,
+    url::Url,
+    widgets::{AlertKind, Dialog, IconGridView, ToastKind},
+};
+use azul_storage::{
+    azul_keyring::azul_namespace,
+    azul_transport::AzulTransport,
+    config::{self, DriveEntry, DriveLocation, DrivesFile},
+    keyring::KeyringNamespace,
+    key,
+    scratch::{self, Scratch},
+    Credentials, Drive, DriveError, LocalDrive,
+};
+use azul_appkit::l10n::{Phrase, Text};
+use browse::{Entry, History, Place};
+use l10n::drive_error_text;
+use fileops::{ConflictChoice, Plan, SourceItem, TransferKind, TransferQueue};
+use jobs::{Done, FolderSize, Job, JobInit, Outcome, PreviewContent};
+use model::{Selection, Settings, TypeAhead};
+
+pub(crate) const USER_AGENT: &str = "AzDrive/0.2";
+/// The view settings' key in the data tree (layout, sort, columns, panes, pins). The app theme
+/// and mode are azul-appkit's `drive/settings.json` beside it.
+pub(crate) const SETTINGS_KEY: &str = "drive/view.json";
+/// The last good copy of the settings file, written after it: a settings file cut off or
+/// damaged is read from here, so a pairing's settings (a backup's "keep") are never lost to
+/// the defaults.
+pub(crate) const SETTINGS_BACKUP_KEY: &str = "drive/view.json.bak";
+
+/// The settings as a start reads them: the settings file, else its last good copy, else the
+/// defaults.
+pub(crate) fn read_settings(drive: &LocalDrive) -> Settings {
+    let read = |key: &str| {
+        drive
+            .get(key)
+            .ok()
+            .and_then(|bytes| Settings::parse(&String::from_utf8_lossy(&bytes)))
+    };
+    match read(SETTINGS_KEY) {
+        Some(settings) => settings,
+        None => {
+            let fallback = read(SETTINGS_BACKUP_KEY);
+            if fallback.is_some() && drive.get(SETTINGS_KEY).is_ok() {
+                println!("AZDRIVE_SETTINGS_FROM_BACKUP");
+            }
+            fallback.unwrap_or_default()
+        }
+    }
+}
+
+/// Writes the settings file, then its last good copy.
+///
+/// # Errors
+///
+/// When either cannot be written.
+pub(crate) fn write_settings(drive: &LocalDrive, text: &str) -> Result<(), azul_storage::DriveError> {
+    drive.put(SETTINGS_KEY, text.as_bytes())?;
+    drive.put(SETTINGS_BACKUP_KEY, text.as_bytes())
+}
+
+/// How the entries of the settings' lists are told apart when two windows' versions are merged:
+/// a pinned folder by its drive and folder, a pairing by its drive and folder, a recovery by its
+/// drive, a held share by its key, a saved search by its name, a plain string by itself.
+pub(crate) fn settings_key(path: &str, item: &serde_json::Value) -> Option<String> {
+    let text = |field: &str| item.get(field).and_then(serde_json::Value::as_str);
+    match path {
+        ".pinned" => Some(format!("{}\u{0}{}", text("drive")?, text("prefix")?)),
+        ".synced" => Some(format!(
+            "{}\u{0}{}",
+            text("drive_id")?,
+            text("prefix").unwrap_or("")
+        )),
+        ".saved_searches" => text("name").map(str::to_string),
+        ".recovery.drives" | ".recovery.pending" => text("drive_id").map(str::to_string),
+        ".recovery.held" => text("key_id").map(str::to_string),
+        ".indexed_drives" | ".recent_searches" => item.as_str().map(str::to_string),
+        _ => None,
+    }
+}
+
+/// Saves the settings by merging them into the file ([`azul_storage::docs::Doc::save_merged`]):
+/// `mine` is what this window has, `start` what it last read from the file or saved to it. What
+/// this window changed is written; what another window (another process) changed in the meantime
+/// - a pairing, a recovery record, a held share - stays. Then the last good copy.
+///
+/// # Errors
+///
+/// When the file is another build's, is held by another writer for long, or cannot be written.
+pub(crate) fn save_settings_merged(
+    drive: &LocalDrive,
+    start: &Settings,
+    mine: &Settings,
+) -> Result<(), azul_storage::DriveError> {
+    let path = drive.root().join(SETTINGS_KEY);
+    let merged = azul_storage::docs::Doc::<Settings>::new(&path)
+        .save_merged(start, mine, settings_key)
+        .map_err(|e| azul_storage::DriveError::Io(format!("{}: {e}", path.display())))?;
+    drive.note_written(SETTINGS_KEY);
+    drive.put(SETTINGS_BACKUP_KEY, merged.to_json().as_bytes())
+}
+/// The data tree's drive id (the data root, a `LocalDrive` now, the user's bucket later).
+pub(crate) const DATA_ID: &str = "azlin";
+/// What the About page and azul-appkit say about AzDrive.
+pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
+    name: "AzDrive",
+    version: env!("CARGO_PKG_VERSION"),
+    summary: "A file manager like Windows Explorer for the Azlin data tree, the folders of this \
+              computer, S3 buckets, Azlin cloud storage and the data sources OpenDAL reaches \
+              (WebDAV, FTP, Google Drive, Dropbox, OneDrive, GitHub, ...), with databases \
+              browsed as tables.",
+    license: "MIT",
+    app_folder: "drive",
+};
+/// The Home drive's id (never in the drives file).
+pub(crate) const HOME_ID: &str = "home";
+/// The home folder's name, a key of the resources ([`Slot::label`]).
+pub(crate) const HOME_NAME: &str = "azdrive-home-drive";
+/// The places "Recent locations" remembers.
+const RECENT_PLACES: usize = 10;
+
+/// A node of the navigation tree: a drive's folder.
+pub(crate) type TreeKey = (String, String);
+
+/// The content's leaf frame across: the page's padding either side and the leaf's rule.
+const LEAF_FRAME_X: f32 = 2.0 * 8.0 + 2.0;
+/// ... and down: the page's padding and the rule (the leaf has no foot).
+const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0;
+
+// ==== Drives ====
+
+/// A session an Azlin drive switched to on a worker thread: refreshed there (and stored in the
+/// keyring under the drive's lock before anything used it) or read from the keyring (another
+/// window refreshed). The UI thread takes it as the drive's secret (`take_rotated`).
+pub(crate) struct Rotated {
+    pub drive_id: String,
+    /// The keyring text of the session. Never printed; wiped when dropped.
+    pub secret: azcloud_kit::Zeroizing<String>,
+    /// Why the keyring did not take it: it lives in this process only.
+    pub unsaved: Option<String>,
+}
+
+/// The sessions Azlin drives switched to on worker threads, for the UI thread.
+pub(crate) type RotatedSessions = Arc<std::sync::Mutex<Vec<Rotated>>>;
+
+/// An Azlin drive that opened encrypted on a worker thread, with the id of its drive key: the UI
+/// thread writes it into the drives file (`take_key_records`), so the drive never opens as a
+/// plain one again, whatever its bucket lists.
+pub(crate) struct KeyRecord {
+    /// The slot's drive id.
+    pub drive_id: String,
+    /// The drive key's id (32 hex digits): a fingerprint, never the key.
+    pub key_id: String,
+}
+
+/// The drives that opened encrypted on worker threads, for the UI thread.
+pub(crate) type KeyRecords = Arc<std::sync::Mutex<Vec<KeyRecord>>>;
+
+/// A drive.
+pub(crate) struct Slot {
+    pub entry: DriveEntry,
+    /// The text of the drive's keyring entry, once read or typed in: an S3 drive's keys, an
+    /// Azlin drive's session, a data source's secret settings. Kept for the session, zeroed when
+    /// dropped (a Lock, the window's close: `unlock::wipe`). Never printed.
+    pub secret: Option<azcloud_kit::Zeroizing<String>>,
+    /// The drive, once it could be opened; shared with the worker threads.
+    pub drive: Option<Arc<dyn Drive>>,
+    /// An Azlin drive's encryption seam (the same drive as `drive`): its plain bucket for the
+    /// keys, and its decision to take again after the keys changed.
+    #[cfg(feature = "encryption")]
+    pub auto: Option<Arc<azul_storage::AutoEncrypted>>,
+    /// An Azlin drive's own handle (the same drive): its lockdown ("I was hacked"), its node's
+    /// count of stored bytes (HeadBucket).
+    pub azlin: Option<Arc<azcloud_kit::AzlinAccount>>,
+    /// An Azlin drive's AZL1 objects kept on this computer, below its encryption: a synced
+    /// encrypted drive's "encrypted local copies".
+    #[cfg(feature = "encryption")]
+    pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
+}
+
+/// What the opening of an Azlin drive takes from this computer: how its requests are sent, where its node
+/// list is kept between starts, the iroh dialer (iroh to the nodes first, through the relay, and HTTPS as
+/// the fallback) and what the layers over its bytes are made of ([`encryption::Layers`]). A test gives it
+/// a fake transport and its own keyring and folders.
+#[cfg(feature = "encryption")]
+pub(crate) struct AzlinWorld<'a> {
+    pub transports: azcloud_kit::drive::TransportFactory,
+    pub nodes_file: PathBuf,
+    pub iroh: Option<(Arc<dyn azcloud_kit::transport::IrohDialer>, Option<&'a str>)>,
+    pub layers: encryption::Layers,
+}
+
+#[cfg(feature = "encryption")]
+impl<'a> AzlinWorld<'a> {
+    /// This computer's: the Azlin transport, the node list of the drive `drive_id` kept beside the drives,
+    /// the dialer `AZCLOUD_TRANSPORT` allows, this computer's keyring and cache folder.
+    pub(crate) fn here(drive_id: &str, relay: Option<&'a str>) -> AzlinWorld<'a> {
+        AzlinWorld {
+            transports: Arc::new(|| {
+                Box::new(AzulTransport::azlin(USER_AGENT)) as Box<dyn azul_storage::Transport>
+            }),
+            // The node list of the last refresh outlives the app: the next start fails over to the
+            // nodes before its first refresh.
+            nodes_file: nodes_file(drive_id),
+            // iroh to the nodes first (their iroh ids and sockets come with the node list), then HTTPS;
+            // AZCLOUD_TRANSPORT=https keeps to HTTPS.
+            iroh: crate::iroh_lane::dialer(&|var: &str| std::env::var(var).ok())
+                .map(|dialer| (dialer, relay)),
+            layers: encryption::Layers::here(),
+        }
+    }
+}
+
+impl Slot {
+    pub fn new(entry: DriveEntry) -> Self {
+        Slot {
+            entry,
+            secret: None,
+            drive: None,
+            #[cfg(feature = "encryption")]
+            auto: None,
+            azlin: None,
+            #[cfg(feature = "encryption")]
+            objects: None,
+        }
+    }
+
+    /// Whether opening it waits for the keyring.
+    pub fn locked(&self) -> bool {
+        self.drive.is_none() && self.secret.is_none() && self.entry.needs_keyring()
+    }
+
+    /// The drive, opened on first use: an Azlin drive through azcloud-kit (it refreshes its
+    /// credentials under the drive's lock in `keyring`, which it re-reads first - another window
+    /// may have refreshed - and writes before it lets go; every session it switches to lands in
+    /// `rotated`; its token server is the one the entry names, else `token_url`; its requests go
+    /// over iroh to its nodes first, through `relay`, and over HTTPS as the fallback), every
+    /// other one through azul-storage (HTTPS only).
+    pub fn open(
+        &mut self,
+        rotated: &RotatedSessions,
+        records: &KeyRecords,
+        token_url: Option<&str>,
+        relay: Option<&str>,
+        keyring: &azcloud_kit::SharedKeyring,
+    ) -> Result<Arc<dyn Drive>, DriveError> {
+        if let Some(drive) = &self.drive {
+            return Ok(drive.clone());
+        }
+        if let Some(refusal) = azlin_needs_encryption(&self.entry, cfg!(feature = "encryption")) {
+            return Err(refusal);
+        }
+        let drive: Arc<dyn Drive> = if self.entry.azlin().is_some() {
+            self.open_azlin_slot(rotated, records, token_url, relay, keyring)?
+        } else {
+            // A signed-in consumer cloud (Google Drive, Dropbox, OneDrive) refreshes its access
+            // token itself; a refresh token its provider rotates (OneDrive) is stored at once,
+            // on the worker thread that got it - on the keyring's text as it is THEN, so a
+            // sign-in made since is not overwritten (AZ-CN15) -, and handed to the slot like an
+            // Azlin session.
+            let queue = rotated.clone();
+            let id = self.entry.id.clone();
+            let keyring = keyring.clone();
+            let opened: Option<String> = self.secret.as_deref().map(String::to_string);
+            let keep: azul_storage::oauth::SecretSink =
+                Box::new(move |rotation: azul_storage::oauth::Rotation| {
+                    let stored = sign_in::store_rotation(
+                        &keyring,
+                        &config::keyring_key(&id),
+                        opened.as_deref(),
+                        &rotation,
+                    );
+                    let Some((secret, unsaved)) = stored else {
+                        return;
+                    };
+                    if let Ok(mut queue) = queue.lock() {
+                        queue.push(Rotated {
+                            drive_id: id.clone(),
+                            secret: azcloud_kit::Zeroizing::new(secret),
+                            unsaved,
+                        });
+                    }
+                });
+            connection(Arc::from(self.entry.open_with_secret_rotating(
+                self.secret.as_deref().map(String::as_str),
+                Box::new(AzulTransport::foreign(USER_AGENT)),
+                Some(keep),
+            )?))
+        };
+        self.drive = Some(drive.clone());
+        Ok(drive)
+    }
+
+    /// An Azlin drive's opening on this computer: [`Slot::open_azlin_in`] over the machine's own transport,
+    /// node list, iroh dialer and keyring. A build made without the encryption never gets here (`open`
+    /// refuses the drive first) and has no arm that could open the drive without it: the drive that comes
+    /// out of the opener is the encryption's gate or there is none (X-DELTA-STRUCT3-10).
+    #[cfg(feature = "encryption")]
+    fn open_azlin_slot(
+        &mut self,
+        rotated: &RotatedSessions,
+        records: &KeyRecords,
+        token_url: Option<&str>,
+        relay: Option<&str>,
+        keyring: &azcloud_kit::SharedKeyring,
+    ) -> Result<Arc<dyn Drive>, DriveError> {
+        let world = AzlinWorld::here(&self.entry.id, relay);
+        self.open_azlin_in(rotated, records, token_url, keyring, world)
+    }
+
+    /// The refusal of a build without the encryption: an Azlin drive is encrypted, always.
+    #[cfg(not(feature = "encryption"))]
+    fn open_azlin_slot(
+        &mut self,
+        _rotated: &RotatedSessions,
+        _records: &KeyRecords,
+        _token_url: Option<&str>,
+        _relay: Option<&str>,
+        _keyring: &azcloud_kit::SharedKeyring,
+    ) -> Result<Arc<dyn Drive>, DriveError> {
+        Err(azlin_needs_encryption(&self.entry, false).unwrap_or_else(|| {
+            DriveError::Unsupported(String::from(
+                "this build of AzDrive was made without the encryption and opens no Azlin drive",
+            ))
+        }))
+    }
+
+    /// The Azlin drive of this slot, opened over `world` by `azcloud_kit::open_azlin`: the ONE place the drive's
+    /// token server is resolved, and the one that makes the drive's layers - the retries, the encrypted copies kept
+    /// here and the encryption's gate - over the account's own bytes, under the account's own drive id. This function
+    /// gives it parts that carry neither ([`encryption::gate_parts`]: the keyring, how the index is kept, where the key
+    /// ids are told to) and takes the account, the gate and the copies back: the bucket's plain store never passes
+    /// through anything of this app (X-DELTA-AZDRIVE-KEYS-4, -9; ARCH29 C6d; X-DELTA-STRUCT3-10; X-DELTA-STRUCT4-1).
+    /// The slot keeps the three, and the gate is its drive.
+    #[cfg(feature = "encryption")]
+    pub(crate) fn open_azlin_in(
+        &mut self,
+        rotated: &RotatedSessions,
+        records: &KeyRecords,
+        token_url: Option<&str>,
+        keyring: &azcloud_kit::SharedKeyring,
+        world: AzlinWorld<'_>,
+    ) -> Result<Arc<dyn Drive>, DriveError> {
+        let secret = self
+            .secret
+            .as_deref()
+            .map(String::as_str)
+            .ok_or_else(|| DriveError::Denied {
+                message: format!(
+                    "\"{}\" has no session (the keyring has no entry for it)",
+                    self.entry.name
+                ),
+            })?;
+        let session = azcloud_kit::AzlinSession::from_keyring_secret(secret)
+            .map_err(|e| DriveError::InvalidConfig(e.to_string()))?;
+        let queue = rotated.clone();
+        let id = self.entry.id.clone();
+        let entry = &self.entry;
+        let opened = azcloud_kit::open_azlin(
+            entry,
+            azcloud_kit::AzlinOpen {
+                session,
+                token_url: token_url.unwrap_or_default(),
+                keyring: keyring.clone(),
+                transports: world.transports,
+                on_rotated: Box::new(
+                    move |session: &azcloud_kit::AzlinSession, saved: Result<(), String>| {
+                        if let Ok(mut queue) = queue.lock() {
+                            queue.push(Rotated {
+                                drive_id: id.clone(),
+                                secret: azcloud_kit::Zeroizing::new(session.to_keyring_secret()),
+                                unsaved: saved.err(),
+                            });
+                        }
+                    },
+                ),
+                nodes_file: Some(&world.nodes_file),
+                iroh: world.iroh,
+            },
+            encryption::gate_parts(world.layers, entry.slot(), records),
+        )?;
+        self.azlin = Some(opened.account);
+        self.objects = opened.objects;
+        self.auto = Some(opened.gate.clone());
+        Ok(opened.gate)
+    }
+
+    /// An S3 drive's keys (an Azlin drive's current ones), for a presigned link.
+    pub fn credentials(&self) -> Option<Credentials> {
+        match &self.entry.location {
+            DriveLocation::S3 { .. } => self
+                .secret
+                .as_deref()
+                .and_then(|s| Credentials::from_keyring_secret(s.as_str()).ok()),
+            _ => None,
+        }
+    }
+
+    pub fn is_local(&self) -> bool {
+        matches!(self.entry.location, DriveLocation::Local { .. })
+    }
+
+    /// Home and the Azlin data tree: always there, never in the drives file, never removed.
+    pub fn is_built_in(&self) -> bool {
+        self.entry.id == HOME_ID || self.entry.id == DATA_ID
+    }
+
+    /// The drive is browsed, not written (a database, a web server, an IPFS gateway).
+    pub fn read_only(&self) -> bool {
+        azul_storage::catalog::service_of(&self.entry).is_some_and(|s| s.read_only)
+    }
+
+    /// The icon of the drive's tiles and tree rows.
+    pub fn icon(&self) -> &'static str {
+        if self.entry.id == HOME_ID {
+            "home"
+        } else if self.entry.id == DATA_ID {
+            "folder_special"
+        } else if self.is_local() {
+            "storage"
+        } else if self.entry.azlin().is_some() {
+            "cloud_done"
+        } else if let Some(spec) = azul_storage::catalog::service_of(&self.entry)
+            .filter(|_| !matches!(self.entry.location, DriveLocation::S3 { .. }))
+        {
+            spec.icon
+        } else {
+            "cloud"
+        }
+    }
+
+    /// The drive's name as a key-aware piece says it ([`azul_appkit::l10n::label`]): the home
+    /// folder's key ([`HOME_NAME`]: its name in the window's language), any other's own name.
+    pub fn label(&self) -> &str {
+        if self.entry.id == HOME_ID {
+            HOME_NAME
+        } else {
+            &self.entry.name
+        }
+    }
+
+    /// The drive's name in the window's language: the home folder's word ("Home", "Persönlicher
+    /// Ordner"; its entry's name without the resources), any other's own name.
+    pub fn name(&self) -> String {
+        if self.entry.id == HOME_ID {
+            azul_appkit::l10n::app_word("AzDrive", "home-drive", &self.entry.name)
+        } else {
+            self.entry.name.clone()
+        }
+    }
+
+    /// What the drive is: "Local Disk", "S3 bucket", "Azlin cloud drive", "WebDAV", "SQLite
+    /// database" (in the window's language).
+    pub fn kind(&self) -> String {
+        crate::source_words::kind(&azul_storage::catalog::kind_of(&self.entry))
+    }
+}
+
+// ==== State ====
+
+/// How serious a message of the InfoBar is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum MessageKind {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+impl MessageKind {
+    pub fn alert(self) -> AlertKind {
+        match self {
+            MessageKind::Info => AlertKind::Info,
+            MessageKind::Success => AlertKind::Success,
+            MessageKind::Warning => AlertKind::Warning,
+            MessageKind::Error => AlertKind::Danger,
+        }
+    }
+}
+
+/// The most notices kept for the toast stack (it shows the newest three).
+const MAX_TOASTS: usize = 6;
+
+/// A notice of the toast stack.
+#[derive(Clone, Debug)]
+pub(crate) struct Notice {
+    /// Its id: the toast's dismiss callback finds it by it, as the list shifts meanwhile.
+    pub id: u64,
+    /// What it says, in which colours.
+    pub message: Message,
+    /// The user action it reports (`transfer_actions`), whose later words take its place;
+    /// `None` for a notice of its own.
+    pub action: Option<u64>,
+}
+
+/// The toast stack's notices, oldest first.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Notices {
+    /// The notices still showing (or waiting behind the newest three).
+    pub list: Vec<Notice>,
+    /// The id the last notice took; ids never repeat, so a late dismiss cannot hit a newer one.
+    pub last_id: u64,
+}
+
+impl Notices {
+    /// Adds `message` as the newest notice and returns its id. Only the newest few are kept:
+    /// the stack shows three, and older ones would have left by themselves anyway.
+    pub fn push(&mut self, message: Message) -> u64 {
+        self.push_for(None, message)
+    }
+
+    fn push_for(&mut self, action: Option<u64>, message: Message) -> u64 {
+        self.last_id += 1;
+        self.list.push(Notice {
+            id: self.last_id,
+            message,
+            action,
+        });
+        if self.list.len() > MAX_TOASTS {
+            self.list.remove(0);
+        }
+        self.last_id
+    }
+
+    /// Shows `message` as the notice of user action `action`: in the place of the action's
+    /// notice while it still shows, else as the newest. The words take a new id, as the old
+    /// toast's clock may still run out and must take out only its own words.
+    pub fn report(&mut self, action: u64, message: Message) -> u64 {
+        match self.list.iter().position(|n| n.action == Some(action)) {
+            Some(at) => {
+                self.last_id += 1;
+                self.list[at] = Notice {
+                    id: self.last_id,
+                    message,
+                    action: Some(action),
+                };
+                self.last_id
+            }
+            None => self.push_for(Some(action), message),
+        }
+    }
+
+    /// What the transfers of `action` say now (`TransferActions::ended`).
+    pub fn apply(&mut self, action: u64, change: transfer_actions::NoticeChange) {
+        match change {
+            transfer_actions::NoticeChange::Show(message) => {
+                self.report(action, message);
+            }
+            transfer_actions::NoticeChange::Keep => {}
+            transfer_actions::NoticeChange::Remove => {
+                self.list.retain(|n| n.action != Some(action));
+            }
+        }
+    }
+
+    /// Takes the notice `id` out (its toast left); an id already gone changes nothing.
+    pub fn dismiss(&mut self, id: u64) {
+        self.list.retain(|n| n.id != id);
+    }
+
+    pub fn clear(&mut self) {
+        self.list.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+}
+
+impl MessageKind {
+    /// The toast's colours for the kind.
+    pub fn toast(self) -> ToastKind {
+        match self {
+            MessageKind::Info => ToastKind::Info,
+            MessageKind::Success => ToastKind::Success,
+            MessageKind::Warning => ToastKind::Warning,
+            MessageKind::Error => ToastKind::Danger,
+        }
+    }
+}
+
+/// What a notice toast or the InfoBar over the content says (its words in the window's
+/// language when shown).
+#[derive(Clone, Debug)]
+pub(crate) struct Message {
+    pub kind: MessageKind,
+    pub text: azul_appkit::l10n::Text,
+}
+
+/// Copy or Cut: the items to paste, their drive, whether a paste moves them.
+#[derive(Clone, Debug)]
+pub(crate) struct ClipboardItems {
+    pub drive: String,
+    pub items: Vec<SourceItem>,
+    pub cut: bool,
+}
+
+/// F2: the item being renamed in place and the name typed so far.
+#[derive(Clone, Debug)]
+pub(crate) struct Renaming {
+    pub key: String,
+    pub text: String,
+    pub is_folder: bool,
+}
+
+/// What Ctrl+Z takes back.
+#[derive(Clone, Debug)]
+pub(crate) enum UndoOp {
+    Rename {
+        drive: String,
+        from: String,
+        to: String,
+    },
+    /// A delete into the trash: (key, trash key) pairs.
+    Trash {
+        drive: String,
+        gone: Vec<(String, String)>,
+    },
+    /// A move within one drive: (from, to) pairs.
+    Move {
+        drive: String,
+        pairs: Vec<(String, String)>,
+    },
+    /// A new folder or file.
+    Create { drive: String, key: String },
+}
+
+impl UndoOp {
+    /// "Undo rename of "a.txt"" (the ribbon's Undo, the message while it runs).
+    #[must_use]
+    pub fn label(&self) -> Text {
+        let phrase = match self {
+            UndoOp::Rename { to, .. } => {
+                Phrase::new("azdrive-undo-rename").arg("name", key::last_segment(to))
+            }
+            UndoOp::Trash { gone, .. } => {
+                Phrase::new("azdrive-undo-delete").arg("count", gone.len())
+            }
+            UndoOp::Move { pairs, .. } => {
+                Phrase::new("azdrive-undo-move").arg("count", pairs.len())
+            }
+            UndoOp::Create { key, .. } => {
+                Phrase::new("azdrive-undo-new").arg("name", key::last_segment(key))
+            }
+        };
+        phrase.into()
+    }
+}
+
+/// A transfer of the queue: what it copies from where to where.
+pub(crate) struct TransferJob {
+    pub kind: TransferKind,
+    pub source_id: String,
+    pub target_id: String,
+    pub source: Arc<dyn Drive>,
+    pub target: Arc<dyn Drive>,
+    pub items: Vec<SourceItem>,
+    pub target_prefix: String,
+    /// Planned (`None` until the plan is back).
+    pub plan: Option<Plan>,
+    pub cancel: Arc<AtomicBool>,
+    /// Decides every conflict without asking (downloads keep both).
+    pub auto: Option<ConflictChoice>,
+    /// The user action it is part of (`transfer_actions`): its end updates that action's notice.
+    pub action: u64,
+}
+
+/// The preview pane's file and what it shows (`None` while it is fetched).
+#[derive(Clone)]
+pub(crate) struct PreviewState {
+    pub key: String,
+    pub content: Option<PreviewContent>,
+}
+
+/// What the Properties dialog shows.
+#[derive(Clone)]
+pub(crate) struct PropertiesState {
+    /// The items (one or more); empty for the open folder or a drive.
+    pub items: Vec<Entry>,
+    /// A drive's properties (This PC, the DRIVE tab).
+    pub drive: Option<usize>,
+    /// General (0) or Details (1).
+    pub tab: usize,
+    /// The size count of the folders, once back.
+    pub size: Option<Result<FolderSize, Text>>,
+    pub serial: u64,
+    /// One file's metadata, once back.
+    pub metadata: Option<Result<Vec<(String, String)>, Text>>,
+}
+
+/// The dialog (or the inline sheet) open over the window.
+pub(crate) enum Popup {
+    /// "Add drive": Buy storage or Connect data source (or new secrets for a drive whose keyring
+    /// entry is gone: the dialog's `editing`).
+    AddDrive(add_drive::AddDialog),
+    /// A delete that cannot be undone (a cloud drive, Shift+Delete, the trash).
+    ConfirmDelete {
+        drive_id: String,
+        items: Vec<SourceItem>,
+    },
+    ConfirmForget {
+        drive_id: String,
+    },
+    /// "Replace or Skip Files" for transfer `id`'s next conflict.
+    Conflict {
+        id: u64,
+        apply_all: bool,
+    },
+    Properties(PropertiesState),
+    /// "Move to / Copy to > Choose location": a typed path.
+    ChooseLocation {
+        kind: TransferKind,
+        text: String,
+        error: azul_appkit::l10n::Text,
+    },
+    /// The transfer queue, with Cancel: the running transfer as azul's ProgressDialog over the
+    /// others. `auto`: it opened by itself (a long transfer) and closes when the queue is done.
+    Transfers { auto: bool },
+    /// Encrypting a drive, its recovery sheet, unlocking it with the recovery code.
+    #[cfg(feature = "encryption")]
+    Encryption(encryption::Dialog),
+    /// Options > Drives' "Redeem a voucher" of an Azlin drive: the code, why not, a redemption
+    /// on its way.
+    Voucher {
+        drive_id: String,
+        code: String,
+        error: azul_appkit::l10n::Text,
+        busy: bool,
+    },
+    /// The folder sync's dialogs: pairing a drive with a folder, a conflict (D52), stopping.
+    Sync(sync_view::SyncDialog),
+    /// "Restore as of..." of an Azlin drive: the time typed, why not, a restore on its way.
+    Restore {
+        drive_id: String,
+        text: String,
+        error: azul_appkit::l10n::Text,
+        busy: bool,
+    },
+    /// Options > Drives > "Receipts": everything this computer paid, newest first, for any
+    /// drive - one still in the list or not - each page saved as a PDF (ENT27-B06).
+    Receipts {
+        records: Vec<azcloud_kit::pending::PaidRecord>,
+        error: azul_appkit::l10n::Text,
+    },
+    /// A computer with no way to check the user's presence (no sensor, no password that locks it):
+    /// the name of the drive typed in stands in for Touch ID before an action that reveals or
+    /// changes its keys (`presence.rs`).
+    Presence(presence::NameCheck),
+}
+
+impl Popup {
+    /// Whether its close box and Escape take it away: every popup but the recovery sheet (its
+    /// code shows only this once - the setup finishes when its groups are typed back).
+    pub(crate) fn may_close(&self) -> bool {
+        #[cfg(feature = "encryption")]
+        if let Popup::Encryption(dialog) = self {
+            return dialog.may_close();
+        }
+        true
+    }
+
+    /// Whether it shows something only this once (a recovery code, a join code, the shares
+    /// made for trusted contacts): the app neither replaces nor closes it, only its user does
+    /// ([`popup_slot::PopupSlot`]).
+    pub(crate) fn must_be_seen(&self) -> bool {
+        #[cfg(feature = "encryption")]
+        if let Popup::Encryption(dialog) = self {
+            return dialog.must_be_seen();
+        }
+        false
+    }
+
+    /// Whether it only reports work under way (an encryption's progress, the transfer queue
+    /// that opened by itself): it gives way to that work's answer and never waits for another
+    /// dialog.
+    pub(crate) fn reports_progress(&self) -> bool {
+        match self {
+            Popup::Transfers { auto } => *auto,
+            #[cfg(feature = "encryption")]
+            Popup::Encryption(dialog) => dialog.reports_progress(),
+            _ => false,
+        }
+    }
+}
+
+/// The source list: which sections are open, which drives and folders show their folders,
+/// whose folders are listed (the folder prefixes, one listing per opening), which are being
+/// listed.
+#[derive(Default)]
+pub(crate) struct TreeState {
+    /// FAVORITES: Quick access, the standard folders, the pins.
+    pub favorites_open: bool,
+    /// LOCATIONS: This PC and the drives on this computer.
+    pub locations_open: bool,
+    /// CLOUD: the S3 drives and "Add drive".
+    pub cloud_open: bool,
+    pub expanded: HashSet<TreeKey>,
+    pub loaded: HashMap<TreeKey, Vec<String>>,
+    pub listing: HashSet<TreeKey>,
+    /// Nodes to list once their drive's keys are read.
+    pub pending: Vec<TreeKey>,
+}
+
+/// A column edge being dragged in the Details header.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ColumnDrag {
+    pub column: browse::Column,
+    pub start_x: f32,
+    pub start_width: f32,
+}
+
+/// The whole app.
+pub(crate) struct DriveState {
+    pub slots: Vec<Slot>,
+    /// Where the window is.
+    pub place: Place,
+    pub history: History,
+    /// The places visited last (Recent locations), newest first.
+    pub recent: Vec<Place>,
+    /// The open folder's rows, in the view's sort order (a scan's batches merge into them).
+    pub entries: Vec<Entry>,
+    /// Nothing of the open folder has arrived yet ("Loading...").
+    pub loading: bool,
+    /// The scan of the open folder has handed over its last batch.
+    pub listing_done: bool,
+    /// The open folder could not be listed (its drive did not open, its keys could not be
+    /// read, the scan failed): the content says so instead of calling the folder empty.
+    pub listing_failed: bool,
+    /// The listing the rows belong to; an answer for an older one is dropped.
+    pub list_serial: u64,
+    /// The running scan's stop: set when the window goes elsewhere, so a big folder left
+    /// half-read is not read to its end.
+    pub list_cancel: Arc<AtomicBool>,
+    /// A refresh's rows, gathered while the rows it replaces still show; they take their place
+    /// when the scan ends (no folder blinks empty on F5).
+    pub refreshing: Option<Vec<Entry>>,
+    /// The rows whose size and date were asked for (the ones in view; a sort's).
+    pub stats_asked: HashSet<String>,
+    /// The item counts of the open folder's subfolders (their keys), and the ones asked for
+    /// during this listing (a listing asks again; the old count shows until the new one is in).
+    pub counts: HashMap<String, usize>,
+    pub counts_asked: HashSet<String>,
+    /// Where the folder view's last scroll left it: its offset and its height (px; the
+    /// height as the view last drew, 0 before it has).
+    pub view_scroll: (f32, f32),
+    /// When a scroll of the folder view last asked for the work of the rows in view (`None`:
+    /// not during this scroll): a scroll asks every `listing::SCROLL_WORK_MS`, its end always.
+    pub scroll_work_at: Option<std::time::Instant>,
+    /// The folder view's width as it last drew (its virtual view records it; 0 before it has):
+    /// the rows in view are counted in the columns the view draws.
+    pub view_width: f32,
+    pub selection: Selection,
+    /// The selected drive tile of This PC.
+    pub selected_drive: Option<usize>,
+    /// The selected pin of Quick access.
+    pub selected_pin: Option<usize>,
+    pub type_ahead: TypeAhead,
+    pub settings: Settings,
+    /// The settings as this window last read them from the file or saved them to it: the next
+    /// save writes what `settings` changed since, and leaves what another window changed.
+    pub settings_base: Settings,
+    /// The jobs running that a close would cut off half done ([`closing::Inflight`]).
+    pub inflight: Arc<std::sync::atomic::AtomicUsize>,
+    /// When the trash of the drives was last looked at (seconds since 1970; 0: not yet):
+    /// [`trash::look_if_due`] looks once a day.
+    pub trash_looked: u64,
+    /// A save of the settings is running (the next one waits for it).
+    pub settings_saving: bool,
+    /// The settings changed while a save ran: one more save follows.
+    pub settings_dirty: bool,
+    /// The search box's text.
+    pub search: String,
+    /// The search of the open folder and every folder below it, while the search box holds
+    /// text: its results are the rows the view shows.
+    pub find: Option<find::FindState>,
+    /// The searches started so far (a batch of an older one is dropped).
+    pub find_serial: u64,
+    /// The Search tab's Refine (Date modified, Kind, Size); forgotten when the search closes.
+    pub refines: find::Refines,
+    /// The drives' indexes as far as known (the ones the user asked for), by drive id.
+    pub indexes: HashMap<String, find::IndexInfo>,
+    /// The item to select once the open folder is listed (Open file location of a result).
+    pub select_when_listed: Option<String>,
+    /// Where to scroll the folder view once the open folder is listed: a location tab that
+    /// comes back scrolls to where it was left.
+    pub scroll_when_listed: Option<f32>,
+    /// The window's location tabs: the one showing lives in this state, the others are parked
+    /// there.
+    pub tabs: location_tabs::LocationTabs,
+    /// The tab overview is showing (the strip's tab button, Ctrl+Shift+A).
+    pub tab_overview: bool,
+    /// The overview row the keyboard highlights (`usize::MAX`: none); the widget reports each
+    /// move and the window is rebuilt with it.
+    pub tab_overview_highlight: usize,
+    /// The ribbon's reveal machine (a hovered tab opens its commands, a double click locks them
+    /// open): one handle kept for the window's life, so a rebuild keeps what is open.
+    pub ribbon_reveal: azul::widgets::TabReveal,
+    /// The search view is open: from the first key typed into the search box until Escape on
+    /// an empty box (or another place). An empty query shows the recent and saved searches.
+    pub search_open: bool,
+    /// The search box's own Escape emptied it just now: the window hears the same Escape next,
+    /// which then is not the second Escape that closes the search view.
+    pub search_cleared_now: bool,
+    /// Quick Look shows over the window (Space): the selected item's preview, large.
+    pub quick_look: bool,
+    /// Quick Look opens once the open folder is listed (a file the palette found).
+    pub quick_look_when_listed: bool,
+    /// The command palette, while it is open (Cmd+K): what was typed, the hot row.
+    pub palette: Option<ui_overlays::PaletteState>,
+    pub editing_path: bool,
+    pub renaming: Option<Renaming>,
+    pub column_drag: Option<ColumnDrag>,
+    /// The items being dragged in the window (their drive, their items).
+    pub dragging: Option<(String, Vec<SourceItem>)>,
+    pub tree: TreeState,
+    /// The standard folders the Home drive holds (Desktop, Documents, ...): FAVORITES' rows.
+    pub standard_folders: Vec<ui_sidebar::Favorite>,
+    /// Closed group headers (by label) of the folder view and This PC.
+    pub groups_closed: HashSet<String>,
+    /// The icon layouts' grid as its last event left it: the first row in view, a rubber band
+    /// in progress (its selection is the app's, handed in on every build).
+    pub grid_view: IconGridView,
+    /// The panes' widths as the user dragged their splitters, in px: the navigation pane's and
+    /// the right pane's (preview or details); `0.0` until a splitter moves, the panes then at
+    /// the design's widths ([`DriveState::pane_widths`]). The engine keeps them through a resize
+    /// (fixed-size panes): the content takes the change.
+    pub pane_widths: (f32, f32),
+    /// The backstage, open on its page (0 the Options, 1 About).
+    pub backstage: Option<usize>,
+    /// The ribbon's tab chosen last (the place shows it where it has it).
+    pub ribbon_tab: ui_ribbon::RibbonTabKind,
+    /// AzDrive's own settings as the Options found them when they opened: what their Cancel
+    /// puts back (`reload_settings`).
+    pub settings_found: Option<Settings>,
+    /// The Azlin Bridge's settings (Options > Drives), read when the Options open.
+    pub(crate) bridge: ui_bridge::BridgeView,
+    pub clipboard: Option<ClipboardItems>,
+    /// A close was held while work ran (`closing`): the window closes once it ended, and a
+    /// second close stops it.
+    pub closing: bool,
+    pub queue: TransferQueue,
+    pub transfers: HashMap<u64, TransferJob>,
+    /// The user actions with transfers still open: each has one notice in `toasts`.
+    pub actions: transfer_actions::TransferActions,
+    pub undo: Vec<UndoOp>,
+    pub preview: Option<PreviewState>,
+    /// One file's metadata for the details pane, by key.
+    pub metadata: HashMap<String, Result<Vec<(String, String)>, Text>>,
+    /// Items listed at a drive's root (the first page), once listed.
+    pub root_counts: HashMap<String, usize>,
+    /// A local drive's volume: (total, free) bytes.
+    pub disk: HashMap<String, (u64, u64)>,
+    /// An Azlin drive's space, by its Azlin id: the quota counts stored bytes
+    /// ([`usage_view`]).
+    pub usage: HashMap<String, usage_view::DriveUsage>,
+    pub message: Option<Message>,
+    /// The notices shown as toasts at the window's foot: each leaves by itself after a few
+    /// seconds, or with its close button (`ui_view::on_toast_dismissed`).
+    pub toasts: Notices,
+    /// The request of a `--pick` run (None in a normal run): the picker strip shows, the
+    /// filter thins the folder view, and the answer ends the run.
+    pub picker: Option<picker::Picker>,
+    /// The window's one dialog and the dialogs waiting for it (a new drive's recovery sheet
+    /// made while another dialog was open waits there too).
+    pub(crate) popup: popup_slot::PopupSlot,
+    pub popups_opened: u64,
+    pub keyring_waiting: Option<KeyringOp>,
+    pub keyring_queue: VecDeque<(KeyringOp, KeyringCall)>,
+    pub drives_file: Option<PathBuf>,
+    /// The data tree (the data root) the view settings are written into.
+    pub settings_drive: Option<LocalDrive>,
+    pub downloads: PathBuf,
+    /// Where the caches are kept (a cloud drive's last listing, the drives' indexes):
+    /// `--cache-dir`, else AzDrive's folder in the user's cache folder; `None` in a `--shot` run
+    /// without the switch (nothing kept) or on a system without a cache folder.
+    pub cache_dir: Option<PathBuf>,
+    /// The sync's answers for the search (local copies, sync states): SYNC17's store once it is
+    /// in, else none.
+    pub sync: Arc<dyn sync_lookup::SyncLookup>,
+    pub inline_dialogs: bool,
+    /// Worker threads running.
+    pub running: u32,
+    /// Deletes so far (names their folders in the trash).
+    pub trash_serial: u32,
+    /// The window's width, for the grid's rows (the arrow keys).
+    pub window_width: f32,
+    /// The window's height: the estimate of the rows in view until the folder view has drawn
+    /// (and says how tall it is).
+    pub window_height: f32,
+    /// The open folder's pictures as thumbnails (`None`: none can be made).
+    pub thumbnails: HashMap<String, Option<azul::image::ImageRef>>,
+    /// The pictures whose thumbnails are being made.
+    pub thumbnails_pending: HashSet<String>,
+    /// The preview's sound while it plays (dropping it stops it).
+    pub audio: Option<azul::audio::AudioSink>,
+    /// azul-appkit's kit: the data root, the theme and mode saved in `drive/settings.json`, the
+    /// Options' Appearance / Data / Shortcuts / About sections, the `--shot` timer.
+    pub kit: RefAny,
+    /// The Azlin token server of this run (Buy storage; the refreshes of Azlin drives that
+    /// name none): `--token-url`, the environment, the shared Azlin config, the profile.
+    pub token: azcloud_kit::TokenEndpoint,
+    /// The sessions Azlin drives switched to on worker threads, for the slots' secrets.
+    pub rotated: RotatedSessions,
+    /// The Azlin drives that opened encrypted on worker threads, for the drives file.
+    pub key_records: KeyRecords,
+    /// The keyring as the worker threads read and write it (azul's blocking keyring calls),
+    /// with the locks every AzDrive of this user shares beside the drives file: an Azlin
+    /// drive's session (its refreshes), the unfinished checkouts.
+    pub keyring: azcloud_kit::SharedKeyring,
+    /// The same keyring for the window's background work (the claims of the checkouts, the
+    /// daily look at the periods, the recovery registrations sent again): it never shows a
+    /// prompt - an entry the keychain hands over only after asking fails, and the work tries
+    /// again later.
+    pub quiet_keyring: azcloud_kit::SharedKeyring,
+    /// Which drives' keys are wanted, read now, or wait for the user's Unlock (`unlock.rs`).
+    pub unlocks: unlock::Unlocks,
+    /// The action that waits for Touch ID or the password (`presence.rs`); one at a time.
+    pub presence: Option<presence::Gated>,
+    /// The background claims of unfinished checkouts: whether a run goes (one job at a time) and
+    /// when the window's timer starts the next - what a run that ended named for the checkouts it
+    /// left with a pace of its own, a receipt awaited, a payment taken back
+    /// ([`add_flow::claims_if_due`], [`claims_clock::ClaimsClock`]).
+    pub claims: claims_clock::ClaimsClock,
+    /// The checkouts bought here whose payment may be under way (not claimed, not ended): a
+    /// new order in the Add drive dialog asks about the first one before it makes another, so
+    /// nobody pays twice. Filled by the background claims and by abandons the token server did
+    /// not end; a checkout leaves it when it is claimed or ends.
+    pub in_flight: Vec<azcloud_kit::PendingCheckout>,
+    /// The paid checkouts' period tokens until each buys its drive a month: one 0600 file per
+    /// drive in `period-tokens` beside the drives file.
+    pub period_tokens: azcloud_kit::PeriodTokenStore,
+    /// When each Azlin drive's period is looked at next (a day, an hour after a failure).
+    pub redemptions: periods::Schedule,
+    /// The drives' storage and token server problems as the user sees them.
+    pub problems: problems::Problems,
+    /// The drives with a recovery-key lockdown pending, and until when (seconds since 1970):
+    /// the bar with Cancel over the drive in view.
+    pub pending_lockdowns: HashMap<String, u64>,
+    /// Each Azlin drive's devices as its last look saw them: Options > Drives offers to remove
+    /// the others.
+    pub devices: HashMap<String, devices::DriveDevices>,
+    /// What the looks saw of each Azlin drive's next months (a reminder, a change of tier,
+    /// a monthly plan): the bar with Renew over the drive in view.
+    pub renewals: HashMap<String, renewals::RenewalSeen>,
+    /// The tier list the last look read: a full drive's offer, the price notices.
+    pub tier_news: Option<azcloud_kit::TierNews>,
+    /// The synced drives' states, passes and status lines in this window.
+    pub sync_view: sync_view::SyncView,
+    /// The OAuth clients of Connect data source's sign-ins (Google Drive, Dropbox, OneDrive):
+    /// `AZDRIVE_<PROVIDER>_<KEY>` over the shared Azlin config's `oauth` section, read at the
+    /// start (`sign_in`).
+    pub sign_in_settings: sign_in::SignInSettings,
+    /// The cash orders this AzDrive waits for (cash by post): the drive list's lines.
+    pub cash_waits: Vec<cash::Wait>,
+    /// When the cash orders are asked about next: once a day (`AZDRIVE_PERIOD_CHECK_SECS`).
+    pub cash_looks: periods::Schedule,
+    /// The banned Azlin drives (ban contract v1), by their Azlin id: why, until when.
+    pub bans: HashMap<String, azcloud_kit::Ban>,
+    /// What each Azlin drive takes, by its Azlin id, as the last look at it said.
+    pub(crate) access: access::Seen,
+    /// The repository of the folder in view (the address row's chip) and the quick switcher.
+    pub git: ui_git::GitView,
+    /// The command bar at the folder view's foot: its line, history and output.
+    pub command_bar: ui_command_bar::CommandBar,
+    /// The unpaid and the locked Azlin drives, by their Azlin id: their stage as the last look
+    /// saw it (the bar over the drive, the locked page).
+    pub archives: HashMap<String, archive::Seen>,
+    /// The copies of read-only Azlin drives to this computer, by their Azlin id: how far each
+    /// got, what it still misses.
+    pub rescues: HashMap<String, archive::Rescue>,
+    /// The stop flags of the copies that run (by the drive's Azlin id): a removal raises them.
+    pub rescue_stops: HashMap<String, Arc<AtomicBool>>,
+}
+
+impl DriveState {
+    /// The backstage page showing: the Options only while azul-appkit's settings page is open
+    /// (its OK / Cancel close it), About while it is chosen.
+    pub fn backstage_shown(&self) -> Option<usize> {
+        self.backstage
+            .filter(|page| *page != 0 || azul_appkit::ui::settings_open(&self.kit))
+    }
+
+    /// No preview any more - and no sound from it.
+    pub fn clear_preview(&mut self) {
+        self.preview = None;
+        self.audio = None;
+    }
+
+    pub fn slot_index(&self, drive_id: &str) -> Option<usize> {
+        self.slots.iter().position(|s| s.entry.id == drive_id)
+    }
+
+    /// What the looks last saw of the period of the drive `drive_id`, as the toast of a claimed
+    /// renewal reads it ([`renewals::month_due_at_once`]).
+    pub(crate) fn period_facts(&self, drive_id: &str) -> renewals::PeriodFacts<'_> {
+        renewals::PeriodFacts {
+            archives: &self.archives,
+            renewals: &self.renewals,
+            azlin_id: archive::azlin_of(self, drive_id),
+        }
+    }
+
+    /// The drive of the open folder.
+    pub fn current_drive(&self) -> Option<usize> {
+        match &self.place {
+            Place::QuickAccess | Place::ThisPc => None,
+            Place::Folder { drive, .. } => self.slot_index(drive),
+        }
+    }
+
+    /// The id of the open folder's drive.
+    pub fn current_drive_id(&self) -> Option<String> {
+        match &self.place {
+            Place::Folder { drive, .. } => Some(drive.clone()),
+            _ => None,
+        }
+    }
+
+    /// The open folder's prefix (`""` on This PC and Quick access too).
+    pub fn prefix(&self) -> &str {
+        match &self.place {
+            Place::QuickAccess | Place::ThisPc => "",
+            Place::Folder { prefix, .. } => prefix,
+        }
+    }
+
+    /// The rows shown: the search's results while a search is open (the walk left the hidden
+    /// items out unless they show), else the open folder's rows - hidden items only when asked.
+    pub fn visible_entries(&self) -> Vec<&Entry> {
+        if let Some(find) = &self.find {
+            return find.shown();
+        }
+        self.entries
+            .iter()
+            .filter(|e| self.settings.show_hidden || !e.is_hidden())
+            .filter(|e| browse::matches_search(e, &self.search))
+            // A picker's type filter: folders, and the files it lets through.
+            .filter(|e| self.picker.as_ref().map_or(true, |p| p.shows(&e.name, e.is_folder)))
+            .collect()
+    }
+
+    /// The layout the folder view draws: the search's results always in Details (a row each,
+    /// with its folder and the line it matched on), else the user's.
+    pub fn view_layout(&self) -> model::ViewLayout {
+        if self.find.is_some() || self.search_open {
+            model::ViewLayout::Details
+        } else {
+            self.settings.layout
+        }
+    }
+
+    /// The grouping the folder view draws: none for the search's results (they come in the
+    /// order they were found: names first), else the user's.
+    pub fn view_grouping(&self) -> model::GroupBy {
+        if self.find.is_some() || self.search_open {
+            model::GroupBy::None
+        } else {
+            self.settings.group_by
+        }
+    }
+
+    /// The keys of the rows shown, in order.
+    pub fn visible_keys(&self) -> Vec<String> {
+        self.visible_entries()
+            .iter()
+            .map(|e| e.key.clone())
+            .collect()
+    }
+
+    /// The selected rows, in the shown order.
+    pub fn selected_entries(&self) -> Vec<&Entry> {
+        // Nothing selected (the usual case) asks no row: a folder of 100,000 items would hash
+        // every key once per caller, several times per build of the window.
+        if self.selection.is_empty() {
+            return Vec::new();
+        }
+        self.visible_entries()
+            .into_iter()
+            .filter(|e| self.selection.contains(&e.key))
+            .collect()
+    }
+
+    /// The selected items as transfer items.
+    pub fn selected_items(&self) -> Vec<SourceItem> {
+        self.selected_entries()
+            .into_iter()
+            .map(SourceItem::of)
+            .collect()
+    }
+
+    /// The one selected row.
+    pub fn single_selected(&self) -> Option<&Entry> {
+        let key = self.selection.single()?;
+        self.entry(key)
+    }
+
+    /// The row of `key`: a search's result while a search is open, else the open folder's.
+    pub fn entry(&self, key: &str) -> Option<&Entry> {
+        match &self.find {
+            Some(find) => find.entry(key),
+            None => self.entries.iter().find(|e| e.key == key),
+        }
+    }
+
+    /// The drives as `(id, name)`, for the typed path: the name the window says, and the entry's
+    /// own where it differs (a new window's `--open` path, "Home/Documents").
+    pub fn drive_names(&self) -> Vec<(String, String)> {
+        let mut names = Vec::new();
+        for slot in &self.slots {
+            let shown = slot.name();
+            if shown != slot.entry.name {
+                names.push((slot.entry.id.clone(), slot.entry.name.clone()));
+            }
+            names.push((slot.entry.id.clone(), shown));
+        }
+        names
+    }
+
+    /// The name of the place's drive (This PC and Quick access in the window's language).
+    pub fn drive_name(&self, place: &Place) -> String {
+        match place {
+            Place::QuickAccess => browse::quick_access(),
+            Place::ThisPc => browse::this_pc(),
+            Place::Folder { drive, .. } => self
+                .slot_index(drive)
+                .map(|i| self.slots[i].name())
+                .unwrap_or_else(|| drive.clone()),
+        }
+    }
+
+    /// What a place is called: the drive, or its folder.
+    pub fn place_title(&self, place: &Place) -> String {
+        match place {
+            Place::QuickAccess => browse::quick_access(),
+            Place::ThisPc => browse::this_pc(),
+            Place::Folder { prefix, .. } if prefix.is_empty() => self.drive_name(place),
+            Place::Folder { prefix, .. } => key::last_segment(prefix).to_string(),
+        }
+    }
+
+    pub fn place_name(&self) -> String {
+        self.place_title(&self.place)
+    }
+
+    pub fn place_line(&self) -> String {
+        match &self.place {
+            Place::QuickAccess => String::from("quick-access"),
+            Place::ThisPc => String::from("this-pc"),
+            Place::Folder { drive, prefix } => format!(
+                "{drive} {}",
+                if prefix.is_empty() { "/" } else { prefix }
+            ),
+        }
+    }
+
+    /// Whether `drive_id` is a folder on this computer.
+    pub fn is_local_drive(&self, drive_id: &str) -> bool {
+        self.slot_index(drive_id)
+            .is_some_and(|i| self.slots[i].is_local())
+    }
+
+    pub fn info(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
+        self.notice(MessageKind::Info, text.into());
+    }
+
+    pub fn success(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
+        self.notice(MessageKind::Success, text.into());
+    }
+
+    pub fn warn(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
+        self.notice(MessageKind::Warning, text.into());
+    }
+
+    /// A notice as a toast at the window's foot (the design's place for them); an error stays
+    /// in the InfoBar over the content until it is dismissed.
+    fn notice(&mut self, kind: MessageKind, text: azul_appkit::l10n::Text) {
+        self.toasts.push(Message { kind, text });
+    }
+
+    pub fn error(&mut self, text: impl Into<azul_appkit::l10n::Text>) {
+        let text = text.into();
+        eprintln!("[azdrive] {text}");
+        self.message = Some(Message {
+            kind: MessageKind::Error,
+            text,
+        });
+    }
+
+    /// Clears the notices (not an error).
+    pub fn clear_notice(&mut self) {
+        self.toasts.clear();
+        if self
+            .message
+            .as_ref()
+            .is_some_and(|m| m.kind != MessageKind::Error)
+        {
+            self.message = None;
+        }
+    }
+
+    /// The items per row of a grid layout, for the arrow keys (the content
+    /// is the window minus the navigation pane and the right pane).
+    pub fn grid_columns(&self) -> usize {
+        if !self.view_layout().is_grid() {
+            return 1;
+        }
+        let width = self.content_pane_width(self.window_width);
+        self.view_layout().columns_in(width - 32.0 - LEAF_FRAME_X)
+    }
+
+    /// The navigation pane's and the right pane's widths in px: the ones the user dragged, else
+    /// the design's 228 px and 300 px (SPEC 2.7, 2.9), whatever the window's width.
+    pub fn pane_widths(&self) -> (f32, f32) {
+        let nav = if self.pane_widths.0 > 0.0 {
+            self.pane_widths.0
+        } else {
+            NAV_PANE_PX
+        };
+        let right = if self.pane_widths.1 > 0.0 {
+            self.pane_widths.1
+        } else {
+            RIGHT_PANE_PX
+        };
+        (nav, right)
+    }
+
+    /// What the content pane has of a window `width` px wide: the window less the panes
+    /// shown beside it and their splitters.
+    pub fn content_pane_width(&self, width: f32) -> f32 {
+        let (nav, right) = self.pane_widths();
+        let mut width = width;
+        if self.settings.navigation_pane {
+            width -= nav + PANE_SPLITTER_PX;
+        }
+        if self.settings.preview_pane || self.settings.details_pane {
+            width -= right + PANE_SPLITTER_PX;
+        }
+        width
+    }
+
+    /// The px the content pane has, for the icon grid (which draws exactly its viewport): the
+    /// window less the panes beside it (their shares as the splitters left them), the chrome
+    /// over it and the leaf's frame and foot around it. An estimate that errs small - an empty
+    /// strip, never a clipped row.
+    pub fn content_size(&self, window: (f32, f32)) -> (f32, f32) {
+        /// The ribbon (its tab strip in the title bar, its band) and the address row.
+        const CHROME_PX: f32 = 172.0;
+        /// A splitter and the pane's edges.
+        const SPLITTER_PX: f32 = 8.0;
+        let (mut width, mut height) = window;
+        if width <= 0.0 {
+            width = self.window_width;
+        }
+        if height <= 0.0 {
+            height = if self.window_height > 0.0 {
+                self.window_height
+            } else {
+                760.0
+            };
+        }
+        width = self.content_pane_width(width) - 2.0 * (SPLITTER_PX - PANE_SPLITTER_PX);
+        height -= CHROME_PX + LEAF_FRAME_Y + ui_command_bar::height(self);
+        width -= LEAF_FRAME_X;
+        if self.message.is_some() {
+            height -= 52.0;
+        }
+        ((width - 8.0).max(120.0), height.max(120.0))
+    }
+
+    /// [`Self::content_size`] of the window as it is now (its last resize).
+    pub fn content_estimate(&self) -> (f32, f32) {
+        self.content_size((self.window_width, self.window_height))
+    }
+
+    /// The folder on this computer that holds `prefix` of drive `index`, for a local drive (the
+    /// scan reads it with `read_dir`); `None` for a bucket.
+    pub fn local_dir(&self, index: usize, prefix: &str) -> Option<PathBuf> {
+        match &self.slots.get(index)?.entry.location {
+            DriveLocation::Local { root } => Some(jobs::path_in(Path::new(root), prefix)),
+            DriveLocation::S3 { .. }
+            | DriveLocation::Opendal { .. }
+            | DriveLocation::Database { .. } => None,
+        }
+    }
+
+    /// The root folder of drive `index` on this computer (`None` for a bucket).
+    pub fn local_root(&self, index: usize) -> Option<PathBuf> {
+        self.local_dir(index, "")
+    }
+
+    /// Prints the selection for scripts.
+    pub fn print_selection(&self) {
+        let first = self.selection.keys().first().cloned();
+        println!(
+            "AZDRIVE_SELECTED {} {}",
+            self.selection.len(),
+            first.map_or_else(|| String::from("-"), |key| key.replace('\u{0}', ":"))
+        );
+    }
+}
+
+// ==== Worker threads ====
+
+pub(crate) fn spawn(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, job: Job) {
+    s.running += 1;
+    // A job a close would cut off half done is counted from here until it ends.
+    let inflight = job
+        .cuts_data()
+        .then(|| closing::Inflight::start(&s.inflight));
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(
+            RefAny::new(JobInit {
+                job: Some(job),
+                inflight,
+            }),
+            app.clone(),
+            jobs::job_thread,
+        ),
+    );
+}
+
+/// The open drive, opened on first use; an error is shown.
+pub(crate) fn open_current(s: &mut DriveState) -> Option<Arc<dyn Drive>> {
+    let index = s.current_drive()?;
+    open_slot(s, index)
+}
+
+/// Drive `index`, opened on first use; an error is shown.
+pub(crate) fn open_slot(s: &mut DriveState, index: usize) -> Option<Arc<dyn Drive>> {
+    let rotated = s.rotated.clone();
+    let records = s.key_records.clone();
+    let token_url = s.token.url.clone();
+    let relay = s.token.relay.clone();
+    let keyring = s.keyring.clone();
+    let opened = s.slots.get_mut(index)?.open(
+        &rotated,
+        &records,
+        token_url.as_deref(),
+        relay.as_deref(),
+        &keyring,
+    );
+    match opened {
+        Ok(drive) => Some(drive),
+        Err(e) => {
+            s.loading = false;
+            s.error(e.to_string());
+            None
+        }
+    }
+}
+
+/// A drive's bucket as every request of the app reaches it: what fails for a moment (a 5xx, a
+/// dropped connection) is sent again, and after a 429 nothing goes out before its
+/// `Retry-After`. It sits below the encryption, so each index page, pack and blob is retried
+/// on its own.
+pub(crate) fn connection(bucket: Arc<dyn Drive>) -> Arc<dyn Drive> {
+    Arc::new(azcloud_kit::sync::retry::RetryingDrive::new(bucket))
+}
+
+/// The drive with id `drive_id`, opened on first use.
+pub(crate) fn open_drive(s: &mut DriveState, drive_id: &str) -> Option<Arc<dyn Drive>> {
+    let index = s.slot_index(drive_id)?;
+    open_slot(s, index)
+}
+
+/// Stops the running scan of the open folder (its batches would be dropped anyway: they carry
+/// an older serial) - a big folder the window left is not read to its end.
+pub(crate) fn cancel_listing(s: &mut DriveState) {
+    s.list_cancel.store(true, Ordering::SeqCst);
+}
+
+/// Tells what runs for the drive `drive_id` to stop - its index update, the transfers to or from
+/// it, and the open listing and search when they are its own -: a removal is about to take its
+/// credentials and files off this computer, and a job that goes on holds them and writes what the
+/// removal took (X-DELTA-AZDRIVE-KEYS-32). Raised flags only; the jobs end by themselves.
+pub(crate) fn stop_jobs_of(s: &mut DriveState, drive_id: &str) {
+    raise_cancels_of(&s.indexes, &s.transfers, drive_id);
+    // the copy of a locked drive to this computer reads through a drive that stops answering
+    if let Some(stop) = s.rescue_stops.get(drive_id) {
+        stop.store(true, Ordering::SeqCst);
+    }
+    if s.current_drive_id().as_deref() == Some(drive_id) {
+        cancel_listing(s);
+        stop_find(s);
+    }
+}
+
+/// The cancel flags of `drive_id`'s index update and of every transfer to or from it, raised.
+/// How many were raised.
+pub(crate) fn raise_cancels_of(
+    indexes: &HashMap<String, find::IndexInfo>,
+    transfers: &HashMap<u64, TransferJob>,
+    drive_id: &str,
+) -> usize {
+    let mut raised = 0;
+    if let Some(index) = indexes.get(drive_id) {
+        index.cancel.store(true, Ordering::SeqCst);
+        raised += 1;
+    }
+    for job in transfers.values() {
+        if job.source_id == drive_id || job.target_id == drive_id {
+            job.cancel.store(true, Ordering::SeqCst);
+            raised += 1;
+        }
+    }
+    raised
+}
+
+/// Scans the open folder: its rows stream in batches ([`Outcome::Scanned`]). A `refresh`
+/// gathers the new rows while the old ones still show and swaps them in at the end; otherwise
+/// the rows start empty and fill as the batches land.
+pub(crate) fn start_listing(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    refresh: bool,
+) {
+    let Some(index) = s.current_drive() else {
+        return;
+    };
+    let Some(drive) = open_slot(s, index) else {
+        // The drive cannot be opened (the message says why): nothing is being listed, so
+        // nothing is waited for - the content says so instead of "Loading...".
+        s.listing_done = true;
+        s.listing_failed = true;
+        return;
+    };
+    cancel_listing(s);
+    let cancel = Arc::new(AtomicBool::new(false));
+    s.list_cancel = cancel.clone();
+    s.list_serial += 1;
+    s.listing_done = false;
+    s.listing_failed = false;
+    s.stats_asked.clear();
+    s.counts_asked.clear();
+    if refresh && !s.entries.is_empty() {
+        s.refreshing = Some(Vec::new());
+    } else {
+        s.refreshing = None;
+        s.entries.clear();
+        s.loading = true;
+    }
+    let prefix = s.prefix().to_string();
+    let dir = s.local_dir(index, &prefix);
+    let serial = s.list_serial;
+    spawn(
+        info,
+        app,
+        s,
+        Job::Scan {
+            drive,
+            dir,
+            prefix,
+            // Read again (F5, a change): an encrypted drive's index asks its bucket first.
+            refresh,
+            serial,
+            cancel,
+        },
+    );
+}
+
+/// Stops the open search (its worker hears it within milliseconds; its batches would be dropped
+/// anyway): the folder's own rows show again. Whether one was open.
+pub(crate) fn stop_find(s: &mut DriveState) -> bool {
+    let Some(find) = s.find.take() else {
+        return false;
+    };
+    find.cancel.store(true, Ordering::SeqCst);
+    s.selection = Selection::default();
+    s.clear_preview();
+    true
+}
+
+/// The open search's text joins the recent searches when it found something (the empty search
+/// view offers it again). Whether the list changed (the settings are then saved).
+pub(crate) fn remember_open_search(s: &mut DriveState) -> bool {
+    let Some(query) = s
+        .find
+        .as_ref()
+        .filter(|f| !f.rows.is_empty())
+        .map(|f| f.query.clone())
+    else {
+        return false;
+    };
+    let before = s.settings.recent_searches.clone();
+    find::remember_search(&mut s.settings.recent_searches, &query);
+    s.settings.recent_searches != before
+}
+
+/// The search box's text changed, or a setting of the search did: the search running stops and
+/// a new one starts where the scope says (the open folder, its drive from the root, every
+/// drive) - with every folder below it, or ("Current folder") its own items - as the Search tab
+/// says: the names, then the files' contents when "File contents" is on, the Refine's kinds,
+/// sizes and dates; a cloud drive's names over its listing (slower, no contents); every drive
+/// on this computer a job each. Its results stream into the view as rows, ranked and grouped by
+/// folder. An empty box (Escape cleared it) keeps the search view open on the recent and saved
+/// searches; the text searched last joins the recent ones.
+pub(crate) fn start_find(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let query = s.search.trim().to_string();
+    if query.is_empty() && remember_open_search(s) {
+        save_settings(info, app, s);
+    }
+    let was_open = stop_find(s);
+    if query.is_empty() {
+        s.refines = find::Refines::default();
+        if was_open {
+            println!("AZDRIVE_SEARCH_CLEARED");
+            s.search_cleared_now = true;
+        }
+        return;
+    }
+    s.search_open = true;
+    let mut options = find::FindOptions {
+        contents: s.settings.search_contents && find::searches_contents(&query),
+        show_hidden: s.settings.show_hidden,
+        ignore_files: s.settings.search_ignore_files,
+        subfolders: s.settings.search_subfolders,
+        refine: s.refines.to_refine(&chrono::Local::now()),
+    };
+    s.find_serial += 1;
+    let serial = s.find_serial;
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut jobs = Vec::new();
+    let mut remote = false;
+    let mut drive_index = false;
+    let root = s.settings.search_scope.root(&s.place);
+    let searched = match &root {
+        find::SearchRoot::Folder { drive, prefix } => s
+            .slot_index(drive)
+            .map(|index| (index, prefix.clone())),
+        find::SearchRoot::AllDrives => None,
+    };
+    if let Some((index, prefix)) = searched {
+        let Some(drive) = open_slot(s, index) else {
+            return;
+        };
+        match s.local_dir(index, &prefix) {
+            Some(dir) => {
+                let ask = if options.contents {
+                    index_for_search(info, app, s, index, &prefix)
+                } else {
+                    None
+                };
+                jobs.push(Job::Find {
+                    serial,
+                    request: find::local_request(dir, &query, prefix.is_empty(), &options),
+                    prefix,
+                    index: ask,
+                    cancel: cancel.clone(),
+                });
+            }
+            None => {
+                remote = true;
+                // An encrypted drive's names come from its drive index.
+                drive_index = names_from_drive_index(&s.slots[index]);
+                // Contents only from the drive's index (its files are not on this computer).
+                let contents = if options.contents {
+                    remote_index_for_search(info, app, s, index)
+                } else {
+                    None
+                };
+                options.contents = contents.is_some();
+                // The drive's last complete listing is kept in the cache folder (never an
+                // encrypted drive's).
+                let cache = s
+                    .cache_dir
+                    .as_ref()
+                    .filter(|_| keeps_listing(&s.slots[index]))
+                    .map(|dir| find::drive_listing_file(dir, &s.slots[index].entry.id));
+                jobs.push(Job::FindRemote {
+                    find: jobs::RemoteFind {
+                        serial,
+                        prefix,
+                        pattern: azul_search::Pattern::guess(query.clone()),
+                        options: options.clone(),
+                        cache,
+                        drive_index,
+                        contents,
+                    },
+                    drive,
+                    cancel: cancel.clone(),
+                });
+            }
+        }
+    } else if root == find::SearchRoot::AllDrives {
+        // Every drive on this computer, from its root; a row's key names its drive.
+        for index in 0..s.slots.len() {
+            let Some(root) = s.local_root(index) else {
+                continue;
+            };
+            let prefix = find::pc_key(&s.slots[index].entry.id, "");
+            let ask = if options.contents {
+                index_for_search(info, app, s, index, "")
+            } else {
+                None
+            };
+            jobs.push(Job::Find {
+                serial,
+                request: find::local_request(root, &query, true, &options),
+                prefix,
+                index: ask,
+                cancel: cancel.clone(),
+            });
+        }
+    }
+    if jobs.is_empty() {
+        if was_open {
+            println!("AZDRIVE_SEARCH_CLOSED");
+        }
+        return;
+    }
+    let mut state = find::FindState::new(query.clone(), options.contents, remote, serial, cancel);
+    state.pending = jobs.len();
+    state.drive_index = drive_index;
+    s.find = Some(state);
+    // Windows 8: the Search tab (Search Tools) comes forward when a search opens - not again
+    // with every key typed into it (the user may have chosen another tab meanwhile).
+    if !was_open {
+        s.ribbon_tab = ui_ribbon::RibbonTabKind::Search;
+    }
+    s.view_scroll.0 = 0.0;
+    ui_view::scroll_view_to_top(info);
+    println!("AZDRIVE_SEARCHING {query}");
+    for job in jobs {
+        spawn(info, app, s, job);
+    }
+}
+
+/// Whether a cloud drive's last listing may be kept on this computer: not an encrypted drive's,
+/// nor an Azlin drive's not known to be plain yet - its names would lie in the cache in the
+/// clear. `state`: the decision of the drive's encryption seam, `None` for a drive without one
+/// (its listing holds the bucket's own keys).
+#[cfg(feature = "encryption")]
+fn keeps_listing_in(state: Option<azul_storage::trust::EncState>) -> bool {
+    state.is_none_or(azul_storage::trust::EncState::may_cache_listing)
+}
+
+#[cfg(feature = "encryption")]
+fn keeps_listing(slot: &Slot) -> bool {
+    keeps_listing_in(slot.auto.as_ref().map(|auto| auto.state()))
+}
+
+/// Without encrypted drives a listing holds the bucket's own keys: it may be kept.
+#[cfg(not(feature = "encryption"))]
+fn keeps_listing(_slot: &Slot) -> bool {
+    true
+}
+
+/// Whether a drive's names come from its drive index on this computer: an encrypted drive's.
+/// `state`: as for [`keeps_listing_in`].
+#[cfg(feature = "encryption")]
+fn names_from_drive_index_in(state: Option<azul_storage::trust::EncState>) -> bool {
+    state.is_some_and(azul_storage::trust::EncState::has_drive_index)
+}
+
+#[cfg(feature = "encryption")]
+fn names_from_drive_index(slot: &Slot) -> bool {
+    names_from_drive_index_in(slot.auto.as_ref().map(|auto| auto.state()))
+}
+
+/// Without encrypted drives every cloud drive's names are its bucket's listing.
+#[cfg(not(feature = "encryption"))]
+fn names_from_drive_index(_slot: &Slot) -> bool {
+    false
+}
+
+// ==== A drive's full-text index ====
+
+/// How old a drive's index may be before a search of it brings it up to date in the background
+/// (seconds); the search asks it as it is meanwhile and reads what changed itself.
+const INDEX_REFRESH_SECS: u64 = 600;
+
+/// The folder drive `drive_id`'s index is in: an encrypted drive's in its own cache folder
+/// beside its drive index (the plain text of its files never in the shared cache), any other's
+/// in the cache's `index/`; `None` without a cache folder, or for an Azlin drive not known to be
+/// plain or encrypted yet.
+fn index_folder(s: &DriveState, drive_id: &str) -> Option<PathBuf> {
+    #[cfg(feature = "encryption")]
+    {
+        use azul_storage::trust::IndexHome;
+        let auto = s
+            .slot_index(drive_id)
+            .and_then(|index| s.slots[index].auto.as_ref());
+        if let Some(auto) = auto {
+            match auto.state().index_home() {
+                IndexHome::DriveIndex => {
+                    return encryption::search_index_dir(
+                        encryption::drive_index_root(),
+                        auto.drive(),
+                    )
+                }
+                IndexHome::SharedCache => {}
+                IndexHome::NotYet => return None,
+            }
+        }
+    }
+    Some(find::drive_index_dir(s.cache_dir.as_ref()?, drive_id))
+}
+
+/// Brings drive `drive_id`'s index up to its files, on a worker thread: a drive on this
+/// computer's folder walked, a cloud or encrypted drive's listing read from its local copies -
+/// not while an update of it runs, or without a folder for it.
+pub(crate) fn update_index(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    let Some(slot) = s.slot_index(drive_id) else {
+        return;
+    };
+    let Some(dir) = index_folder(s, drive_id) else {
+        return;
+    };
+    if s.indexes.get(drive_id).is_some_and(|index| index.progress.is_some()) {
+        return;
+    }
+    let source = match s.local_root(slot) {
+        Some(root) => jobs::IndexSource::Folder(root),
+        // Its keys are not read for an index: a search or the user's next look updates it.
+        None if s.slots[slot].locked() => return,
+        None => {
+            let Some(drive) = open_slot(s, slot) else {
+                return;
+            };
+            jobs::IndexSource::Drive(jobs::DriveSource {
+                drive,
+                sync: s.sync.clone(),
+                // "Index files in the cloud": the files not on this computer, within the cap.
+                download_cap: s.settings.download_cap(),
+            })
+        }
+    };
+    let index = s.indexes.entry(drive_id.to_string()).or_default();
+    if index.progress.is_some() {
+        return;
+    }
+    index.progress = Some(azul_search_index::UpdateProgress::default());
+    index.error = None;
+    index.cancel = Arc::new(AtomicBool::new(false));
+    let cancel = index.cancel.clone();
+    println!("AZDRIVE_INDEXING {drive_id}");
+    spawn(
+        info,
+        app,
+        s,
+        Job::IndexDrive {
+            drive_id: drive_id.to_string(),
+            source,
+            dir,
+            cancel,
+        },
+    );
+}
+
+/// Throws drive `drive_id`'s index away (its folder), on a worker thread.
+pub(crate) fn remove_index(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+) {
+    s.indexes.remove(drive_id);
+    if let Some(dir) = index_folder(s, drive_id) {
+        spawn(
+            info,
+            app,
+            s,
+            Job::RemoveIndex {
+                drive_id: drive_id.to_string(),
+                dir,
+            },
+        );
+    }
+}
+
+/// The index a contents search of drive `index`'s folder `under` asks first: the drive's, when
+/// the user asked for one and it holds the drive. One older than [`INDEX_REFRESH_SECS`] (or not
+/// known yet) is brought up to date meanwhile, for the next search.
+fn index_for_search(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+    under: &str,
+) -> Option<find::IndexAsk> {
+    let (_, dir) = usable_index(info, app, s, index)?;
+    Some(find::IndexAsk {
+        dir,
+        root: s.local_root(index)?,
+        under: under.to_string(),
+    })
+}
+
+/// The index a contents search of the cloud or encrypted drive `index` asks: as
+/// [`index_for_search`]; a result's line comes from its local copy (the sync's).
+fn remote_index_for_search(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+) -> Option<find::RemoteContents> {
+    let (drive_id, dir) = usable_index(info, app, s, index)?;
+    Some(find::RemoteContents {
+        dir,
+        drive_id,
+        sync: s.sync.clone(),
+    })
+}
+
+/// Drive `index`'s id and index folder when the user asked for its index and it holds the
+/// drive (one older than [`INDEX_REFRESH_SECS`], or not known yet, is brought up to date
+/// meanwhile, for the next search).
+fn usable_index(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+) -> Option<(String, PathBuf)> {
+    let drive_id = s.slots.get(index)?.entry.id.clone();
+    if !s.settings.indexed_drives.contains(&drive_id) {
+        return None;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let old = s
+        .indexes
+        .get(&drive_id)
+        .and_then(|known| known.status)
+        .and_then(|status| status.updated)
+        .is_none_or(|at| now.saturating_sub(at) > INDEX_REFRESH_SECS);
+    // The catch-up runs in the background: not on a weak computer (the search asks the index
+    // as it is).
+    if old && health::index_allowed(health::health_of(s)) {
+        update_index(info, app, s, &drive_id);
+    }
+    if !s.indexes.get(&drive_id).is_some_and(find::IndexInfo::usable) {
+        return None;
+    }
+    let dir = index_folder(s, &drive_id)?;
+    Some((drive_id, dir))
+}
+
+/// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
+/// first when it needs the keyring.
+pub(crate) fn start_tree_listing(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    node: TreeKey,
+) {
+    if s.tree.listing.contains(&node) {
+        return;
+    }
+    let Some(index) = s.slot_index(&node.0) else {
+        return;
+    };
+    if s.slots[index].locked() {
+        if !s.tree.pending.contains(&node) {
+            s.tree.pending.push(node);
+        }
+        unlock(info, s, index);
+        return;
+    }
+    let Some(drive) = open_slot(s, index) else {
+        return;
+    };
+    let dir = s.local_dir(index, &node.1);
+    s.tree.listing.insert(node.clone());
+    spawn(info, app, s, Job::Folders { drive, dir, node });
+}
+
+/// Counts the items of the local folders `keys` of drive `index` (`""`: its root), the ones not
+/// asked for during this listing - one `read_dir` each, on a worker thread. A listing asks
+/// again (F5, a change on disk): the old count shows until the new one is in.
+pub(crate) fn request_counts(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+    keys: Vec<String>,
+) {
+    let Some(root) = s.local_root(index) else {
+        return;
+    };
+    let keys: Vec<String> = keys
+        .into_iter()
+        .filter(|k| !s.counts_asked.contains(k))
+        .collect();
+    if keys.is_empty() {
+        return;
+    }
+    s.counts_asked.extend(keys.iter().cloned());
+    let drive_id = s.slots[index].entry.id.clone();
+    let show_hidden = s.settings.show_hidden;
+    spawn(
+        info,
+        app,
+        s,
+        Job::Count {
+            drive_id,
+            root,
+            keys,
+            show_hidden,
+        },
+    );
+}
+
+/// This PC's local drive tiles say how many items each drive's root holds: one cheap count each
+/// (no listing of the drive).
+pub(crate) fn count_drive_roots(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let local: Vec<usize> = (0..s.slots.len())
+        .filter(|&i| s.slots[i].is_local() && !s.root_counts.contains_key(&s.slots[i].entry.id))
+        .collect();
+    for index in local {
+        let Some(root) = s.local_root(index) else {
+            continue;
+        };
+        let drive_id = s.slots[index].entry.id.clone();
+        let show_hidden = s.settings.show_hidden;
+        spawn(
+            info,
+            app,
+            s,
+            Job::Count {
+                drive_id,
+                root,
+                keys: vec![String::new()],
+                show_hidden,
+            },
+        );
+    }
+}
+
+/// Reads a drive's keys from the keyring for the user (once at a time); the system may ask
+/// them. While the window's start gathers, the keys join its quiet round instead
+/// ([`unlock::Unlocks`]): nothing the window does by itself shows a prompt.
+pub(crate) fn unlock(info: &mut CallbackInfo, s: &mut DriveState, index: usize) {
+    let drive_id = s.slots[index].entry.id.clone();
+    if matches!(&s.keyring_waiting, Some(KeyringOp::Unlock { drive_id: id }) if *id == drive_id)
+        || s
+            .keyring_queue
+            .iter()
+            .any(|(op, _)| matches!(op, KeyringOp::Unlock { drive_id: id } if *id == drive_id))
+        || s.unlocks.is_reading(&drive_id)
+    {
+        return;
+    }
+    if s.unlocks.gathering {
+        s.unlocks.want(&drive_id);
+        return;
+    }
+    let name = s.slots[index].entry.name.clone();
+    s.info(Phrase::new("azdrive-keyring-reading").arg("name", name.as_str()));
+    keyring(
+        info,
+        s,
+        KeyringOp::Unlock {
+            drive_id: drive_id.clone(),
+        },
+        KeyringCall::Get(config::keyring_key(&drive_id)),
+    );
+}
+
+/// Goes to `place`; `remember` puts the place being left on the Back list.
+pub(crate) fn go(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    place: Place,
+    remember: bool,
+) {
+    // A drive whose encryption setup never passed its sheet is not used until a new code's does.
+    #[cfg(feature = "encryption")]
+    encryption::guard_unfinished_setup(info, app, s, &place);
+    if remember && place != s.place {
+        let leaving = s.place.clone();
+        s.history.visit(leaving);
+    }
+    // The search being left joins the recent searches.
+    if remember_open_search(s) {
+        save_settings(info, app, s);
+    }
+    s.search_open = false;
+    ui_overlays::close_quick_look(s);
+    s.recent.retain(|p| *p != place);
+    s.recent.insert(0, place.clone());
+    s.recent.truncate(RECENT_PLACES);
+    s.place = place;
+    s.clear_notice();
+    s.editing_path = false;
+    s.renaming = None;
+    // A search ends where its folder is left (a result's folder opens without it): the box
+    // empties too - what was typed there outranks the rebuild until the app sets it.
+    let searching = stop_find(s);
+    if searching || !s.search.is_empty() {
+        println!("AZDRIVE_SEARCH_CLOSED");
+        actions::clear_search_box(info);
+    }
+    s.search.clear();
+    s.refines = find::Refines::default();
+    // The folder being left may still be read: that read stops here.
+    cancel_listing(s);
+    s.entries.clear();
+    s.refreshing = None;
+    s.listing_done = false;
+    s.listing_failed = false;
+    s.stats_asked.clear();
+    s.counts.clear();
+    s.counts_asked.clear();
+    s.selection = Selection::default();
+    s.selected_pin = None;
+    s.grid_view = IconGridView::create();
+    s.clear_preview();
+    s.thumbnails.clear();
+    s.thumbnails_pending.clear();
+    s.loading = false;
+    s.list_serial += 1;
+    s.backstage = None;
+    // The new folder opens at its top, wherever the last one was scrolled to.
+    s.view_scroll.0 = 0.0;
+    ui_view::scroll_view_to_top(info);
+    set_window_title(info, s);
+    println!("AZDRIVE_PLACE {}", s.place_line());
+    // The git chip of the new folder (a look on a worker thread).
+    ui_git::place_changed(info, app, s);
+    ui_sidebar::reveal_place(info, app, s);
+    if s.place == Place::ThisPc {
+        count_drive_roots(info, app, s);
+    }
+    let Some(index) = s.current_drive() else {
+        return;
+    };
+    if s.slots[index].locked() {
+        s.loading = true;
+        unlock(info, s, index);
+        return;
+    }
+    start_listing(info, app, s, false);
+}
+
+/// Lists the open folder again (F5), keeping the selection.
+pub(crate) fn refresh(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    // The git chip looks again too (a commit or a checkout made elsewhere).
+    ui_git::request_probe(info, app, s);
+    if s.current_drive().is_none() {
+        // This PC: the drives' sizes and item counts again.
+        refresh_disks(s);
+        s.root_counts.clear();
+        count_drive_roots(info, app, s);
+        return;
+    }
+    if s.find.is_some() {
+        // F5 on a search's results searches again.
+        start_find(info, app, s);
+        return;
+    }
+    start_listing(info, app, s, true);
+}
+
+/// The window's title is the open place's path (the title bar shows the ribbon's tabs, so the
+/// path is what the system's window list, the Dock and Mission Control name the window by).
+pub(crate) fn set_window_title(info: &mut CallbackInfo, s: &DriveState) {
+    let mut state = info.get_current_window_state();
+    let title = window_title(s);
+    println!("AZDRIVE_TITLE {title}");
+    if state.title.as_str() != title {
+        state.title = AzString::from(title);
+        info.modify_window_state(state);
+    }
+}
+
+/// The file in the cache folder that says what the start told about the copies of an older AzDrive that stay
+/// ([`tell_kept_copies`]).
+const LEGACY_COPIES_TOLD: &str = "legacy-copies-told";
+
+/// A folder an older AzDrive handed decrypted copies of files out of that stays on this computer, and how many files
+/// are in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct KeptCopies {
+    folder: PathBuf,
+    files: usize,
+}
+
+/// The folders of the copies an older AzDrive handed out that stay on this computer: the shared temp folder's
+/// `AzDrive-open` (`temp`, dealt with at the start) and the `open` folder of each sync pairing's state, which the kit's
+/// open no longer removes whole (X-DELTA-SYNC4-25). Each with the files that are in it.
+fn legacy_copies_kept(s: &DriveState, temp: &scratch::LegacyCopies) -> Vec<KeptCopies> {
+    let state_dirs: Vec<PathBuf> = match sync_jobs::state_root(s) {
+        Some(root) => s
+            .settings
+            .synced
+            .iter()
+            .map(|setup| setup.state_dir(&root))
+            .collect(),
+        None => Vec::new(),
+    };
+    kept_copies_in(&scratch::legacy_open_folder(), temp, &state_dirs)
+}
+
+/// [`legacy_copies_kept`] over what it reads: `temp_folder` was dealt with as `temp` says, and the `open` folder of every
+/// one of `state_dirs` is dealt with now (a folder with no file goes, one with files stays: [`scratch::remove_legacy_copies_at`]).
+fn kept_copies_in(
+    temp_folder: &Path,
+    temp: &scratch::LegacyCopies,
+    state_dirs: &[PathBuf],
+) -> Vec<KeptCopies> {
+    let mut kept = Vec::new();
+    if let scratch::LegacyCopies::Kept { files } = temp {
+        if *files > 0 {
+            kept.push(KeptCopies {
+                folder: temp_folder.to_path_buf(),
+                files: *files,
+            });
+        }
+    }
+    for dir in state_dirs {
+        let folder = dir.join(scratch::LEGACY_STATE_OPEN);
+        if let scratch::LegacyCopies::Kept { files } = scratch::remove_legacy_copies_at(&folder) {
+            if files > 0 {
+                kept.push(KeptCopies { folder, files });
+            }
+        }
+    }
+    kept
+}
+
+/// Whether the start says it: the notice is made for what is kept NOW and said once per change - not at every start for
+/// as long as the folders stay (X-DELTA-SYNC9-11). What was told last is kept in `record` (a file of the cache folder: each
+/// folder and how many files are in it): the same list is not told again, a folder that is gone or a count that changed
+/// is a new notice, and an empty list clears the record. A record that cannot be read is none: the notice is told.
+fn tell_kept_copies(record: Option<&Path>, kept: &[KeptCopies]) -> bool {
+    let now: String = kept
+        .iter()
+        .map(|copies| format!("{}\t{}\n", copies.folder.display(), copies.files))
+        .collect();
+    if let Some(record) = record {
+        // collapse-ok: a record that cannot be read is no record, and the notice is told again; one that cannot
+        // be written is told again at the next start - a notice too many, never one too few.
+        let told = std::fs::read_to_string(record).ok();
+        if told.as_deref() == Some(now.as_str()) {
+            return false;
+        }
+        let _ = azul_storage::durable::replace_cache(record, now.as_bytes());
+    }
+    !kept.is_empty()
+}
+
+/// [`set_window_title`]'s text: `Home/Documents - AzDrive`.
+pub(crate) fn window_title(s: &DriveState) -> String {
+    // Another app's file picker keeps the request's title, as a system's dialog does.
+    if let Some(picker) = &s.picker {
+        return picker.title();
+    }
+    let drive_name = s.drive_name(&s.place);
+    let path_drive = match &s.place {
+        Place::Folder { .. } => Some(drive_name.as_str()),
+        _ => None,
+    };
+    format!("{} - AzDrive", browse::path_text(&s.place, path_drive))
+}
+
+/// The local volumes' size and free space, from the OS - and the standard folders the Home
+/// drive holds (FAVORITES' rows: a Downloads folder made since shows after This PC's refresh).
+pub(crate) fn refresh_disks(s: &mut DriveState) {
+    let mut found = Vec::new();
+    let mut home = None;
+    for slot in &s.slots {
+        if let DriveLocation::Local { root } = &slot.entry.location {
+            if let Some(space) = FilePath::create(root.as_str()).disk_space().into_option() {
+                found.push((slot.entry.id.clone(), (space.total, space.free)));
+            }
+            if slot.entry.id == HOME_ID {
+                home = Some(PathBuf::from(root));
+            }
+        }
+    }
+    s.disk.extend(found);
+    if let Some(home) = home {
+        s.standard_folders = ui_sidebar::standard_folders(&home);
+    }
+}
+
+/// The place above the open one: the parent folder, the drive's root, This PC.
+pub(crate) fn place_up(place: &Place) -> Option<Place> {
+    match place {
+        Place::QuickAccess | Place::ThisPc => None,
+        Place::Folder { prefix, .. } if prefix.is_empty() => Some(Place::ThisPc),
+        Place::Folder { drive, prefix } => {
+            Some(Place::folder(drive, &key::parent_prefix(prefix)))
+        }
+    }
+}
+
+/// A folder's content changed: the tree lists it again on its next expand
+/// (now, when it is open).
+pub(crate) fn tree_invalidate(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    node: TreeKey,
+) {
+    if s.tree.loaded.remove(&node).is_some() && s.tree.expanded.contains(&node) {
+        start_tree_listing(info, app, s, node);
+    }
+}
+
+/// The Options opened (`was_open`: they showed already): AzDrive's own settings as they are
+/// now are what the Options' Cancel puts back.
+pub(crate) fn options_opened(s: &mut DriveState, was_open: bool) {
+    if !was_open {
+        s.settings_found = Some(s.settings.clone());
+        s.bridge = ui_bridge::BridgeView::load();
+    }
+}
+
+/// Cancel on the Options (azul-appkit's settings page): AzDrive's own settings - the view, the
+/// navigation - come back as the Options found them, and the settings file is written again.
+pub(crate) fn reload_settings(
+    app: &mut RefAny,
+    info: &mut CallbackInfo,
+    _settings: &azul_appkit::AppSettings,
+) {
+    let handle = app.clone();
+    if let Some(mut guard) = app.downcast_mut::<DriveState>() {
+        let s = &mut *guard;
+        if let Some(found) = s.settings_found.take() {
+            let back = settings_after_cancel(found, &s.settings);
+            if s.settings != back {
+                s.settings = back;
+                save_settings(info, &handle, s);
+            }
+        }
+    };
+}
+
+/// The settings the Options' Cancel leaves: those the Options found when they opened, with
+/// the recovery as it is now. The recovery is no page setting but the record of what was done
+/// with the codes and the contacts (a recovery noted or finished, a drill, a share made), at the
+/// token server as on this computer: putting it back would forget a drive this computer holds.
+pub(crate) fn settings_after_cancel(found: model::Settings, now: &model::Settings) -> model::Settings {
+    model::Settings {
+        recovery: now.recovery.clone(),
+        ..found
+    }
+}
+
+/// Saves the settings (on a Thread, through the settings folder's drive): merged into the file,
+/// one save at a time and in order - a save asked while one runs is made when it ends, with
+/// whatever the settings are by then, so two saves never land out of order.
+pub(crate) fn save_settings(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(drive) = s.settings_drive.clone() else {
+        return;
+    };
+    if s.settings_saving {
+        s.settings_dirty = true;
+        return;
+    }
+    s.settings_saving = true;
+    let job = Job::SaveSettings {
+        drive,
+        start: s.settings_base.clone(),
+        mine: s.settings.clone(),
+    };
+    spawn(info, app, s, job);
+}
+
+// ==== Keyring ====
+
+/// A keyring operation of the UI thread in flight or queued (the keyring answers one at a
+/// time). An Azlin drive's session is never written here: the worker threads write it under
+/// the drive's lock (`DriveState::keyring`), where a later write of the UI thread could put a
+/// spent drive token back over a newer one.
+pub(crate) enum KeyringOp {
+    /// Reading a drive's keyring entry (keys, a session, secret settings) to open it.
+    Unlock { drive_id: String },
+    /// Saving a new drive's keys.
+    Store { drive_id: String },
+    /// Removing a forgotten drive's keys (a build without the encryption: the other builds take
+    /// the drive off the computer with `footprint::forget`).
+    #[cfg(not(feature = "encryption"))]
+    Forget,
+    /// The Azlin Bridge's password, read into the clipboard (Options > Drives).
+    BridgePassword,
+}
+
+/// Whether `secret` is what the keyring entry of `entry` holds: an S3 drive's keys, an Azlin
+/// drive's session, a data source's secret settings. `Err` says what it is not.
+pub(crate) fn check_secret(entry: &DriveEntry, secret: &str) -> Result<(), String> {
+    if entry.azlin().is_some() {
+        return azcloud_kit::AzlinSession::from_keyring_secret(secret)
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+    match &entry.location {
+        DriveLocation::S3 { .. } => Credentials::from_keyring_secret(secret)
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+        DriveLocation::Opendal { .. } | DriveLocation::Database { .. } => {
+            azul_storage::SecretOptions::from_keyring_secret(secret)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        DriveLocation::Local { .. } => Ok(()),
+    }
+}
+
+/// Takes the sessions Azlin drives switched to on worker threads as their slots' secrets (a
+/// presigned link signs with the current keys). The keyring has them already - the refresh
+/// wrote them under the drive's lock -; one it did not take is said.
+pub(crate) fn take_rotated(s: &mut DriveState) {
+    let rotated: Vec<Rotated> = match s.rotated.lock() {
+        Ok(mut queue) => queue.drain(..).collect(),
+        Err(_) => return,
+    };
+    for session in rotated {
+        let Some(index) = s.slot_index(&session.drive_id) else {
+            continue;
+        };
+        s.slots[index].secret = Some(session.secret.clone());
+        if let Some(why) = session.unsaved {
+            let name = s.slots[index].name();
+            s.error(
+                Phrase::new("azdrive-session-not-saved")
+                    .arg("name", name)
+                    .arg("why", azul_appkit::l10n::t_label(&why)),
+            );
+        }
+    }
+}
+
+/// Writes down, in the slots and in the drives file, that Azlin drives opened encrypted on worker
+/// threads, with the ids of their drive keys: from then on such a drive is never opened as a plain
+/// one, whatever its bucket lists (the key may be gone from the keyring by then - it is locked,
+/// not plain). A file that cannot be written is said.
+pub(crate) fn take_key_records(s: &mut DriveState) {
+    let path = s.drives_file.clone();
+    for (name, why) in write_key_records(&mut s.slots, &s.key_records, path.as_deref()) {
+        s.error(Phrase::new("azdrive-drive-not-saved").arg("detail", format!("{name}: {why}")));
+    }
+}
+
+/// [`take_key_records`] without the window: empties `queue`, records each drive's key in its slot
+/// (a drive that is gone from the slots, or recorded with this key already, changes nothing) and
+/// in the drives file at `drives_file` (none: only the slots). The name and the reason of every
+/// write the file refused, for the caller to say.
+pub(crate) fn write_key_records(
+    slots: &mut [Slot],
+    queue: &KeyRecords,
+    drives_file: Option<&Path>,
+) -> Vec<(String, String)> {
+    let records: Vec<KeyRecord> = match queue.lock() {
+        Ok(mut queue) => queue.drain(..).collect(),
+        Err(_) => return Vec::new(),
+    };
+    let mut refused = Vec::new();
+    for record in records {
+        let Some(slot) = slots
+            .iter_mut()
+            .find(|slot| slot.entry.id == record.drive_id)
+        else {
+            continue;
+        };
+        if !slot.entry.record_encryption(&record.key_id) {
+            continue;
+        }
+        let Some(path) = drives_file else {
+            continue;
+        };
+        if let Err(e) = DrivesFile::record_encryption(path, &record.drive_id, &record.key_id) {
+            refused.push((slot.name(), e.to_string()));
+        }
+    }
+    refused
+}
+
+/// Why a build cannot open `entry`: an Azlin drive is encrypted, always, and a build made without
+/// the encryption (`encrypted_build` false: a build for the tests of the plain paths, never
+/// shipped) refuses it at the opening and never shows or fills its bucket as a plain one.
+pub(crate) fn azlin_needs_encryption(
+    entry: &DriveEntry,
+    encrypted_build: bool,
+) -> Option<DriveError> {
+    (entry.azlin().is_some() && !encrypted_build).then(|| {
+        DriveError::Unsupported(format!(
+            "\"{}\" is an Azlin drive, which is always encrypted, and this build of AzDrive was \
+             made without the encryption",
+            entry.name
+        ))
+    })
+}
+
+/// The request behind a [`KeyringOp`]. Holds a secret while queued; never printed.
+pub(crate) enum KeyringCall {
+    Get(String),
+    Store(String, String),
+    #[cfg(not(feature = "encryption"))]
+    Delete(String),
+}
+
+/// Every keyring call of AzDrive's UI goes to the namespace the Azlin apps share: the drive
+/// sessions there are the ones the jobs' `AzulKeyring` re-reads and rotates.
+fn issue(info: &mut CallbackInfo, call: &KeyringCall) {
+    let shared = || azul_namespace(&KeyringNamespace::azlin_shared());
+    match call {
+        KeyringCall::Get(key) => info.keyring_get_in(shared(), key.as_str()),
+        KeyringCall::Store(key, secret) => {
+            info.keyring_store_in(shared(), key.as_str(), secret.as_str(), false)
+        }
+        #[cfg(not(feature = "encryption"))]
+        KeyringCall::Delete(key) => info.keyring_delete_in(shared(), key.as_str()),
+    }
+}
+
+/// Sends a keyring request now, or after the one in flight (the keyring's
+/// answer does not say which request it answers, so there is one at a time).
+pub(crate) fn keyring(
+    info: &mut CallbackInfo,
+    s: &mut DriveState,
+    op: KeyringOp,
+    call: KeyringCall,
+) {
+    if s.keyring_waiting.is_none() {
+        issue(info, &call);
+        s.keyring_waiting = Some(op);
+    } else {
+        s.keyring_queue.push_back((op, call));
+    }
+}
+
+/// What went wrong with the keyring (a key of the resources).
+fn keyring_problem(result: &KeyringResult) -> &'static str {
+    match result {
+        KeyringResult::NotFound => "azdrive-keyring-not-found",
+        KeyringResult::Denied => "azdrive-keyring-denied",
+        KeyringResult::Unavailable => "azdrive-keyring-unavailable",
+        _ => "azdrive-keyring-failed",
+    }
+}
+
+/// "<what>: <the keyring's problem>. <what to do>" in the window's language.
+fn keyring_text(what: Phrase, result: &KeyringResult, then: &str) -> Text {
+    what.then(" ")
+        .then(Text::key(keyring_problem(result)))
+        .then(" ")
+        .then(Text::key(then))
+}
+
+/// The keyring answered the request in flight.
+extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(result) = info.get_keyring_result().into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = data.downcast_mut::<DriveState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(op) = s.keyring_waiting.take() else {
+        return Update::DoNothing;
+    };
+    match op {
+        KeyringOp::Unlock { drive_id } => {
+            let read = unlock::Read::of_result(&result);
+            unlock::answered(&mut info, &app, s, &drive_id, read, true);
+        }
+        KeyringOp::Store { drive_id } => {
+            let name = s
+                .slot_index(&drive_id)
+                .map(|i| s.slots[i].entry.name.clone())
+                .unwrap_or_default();
+            if matches!(result, KeyringResult::Stored) {
+                s.success(Phrase::new("azdrive-keyring-saved").arg("name", name.as_str()));
+            } else {
+                s.error(keyring_text(
+                    Phrase::new("azdrive-keyring-not-saved").arg("name", name.as_str()),
+                    &result,
+                    "azdrive-keyring-kept-until-close",
+                ));
+            }
+        }
+        #[cfg(not(feature = "encryption"))]
+        KeyringOp::Forget => {
+            // A key that stays in the keyring after its drive was removed is said.
+            if !matches!(result, KeyringResult::Deleted | KeyringResult::NotFound) {
+                s.error(keyring_text(
+                    Phrase::new("azdrive-keyring-not-forgotten"),
+                    &result,
+                    "azdrive-keyring-forget-by-hand",
+                ));
+            }
+        }
+        KeyringOp::BridgePassword => match &result {
+            KeyringResult::Retrieved(secret) => ui_bridge::copy_password(&mut info, s, secret.as_str()),
+            other => s.error(keyring_text(
+                Phrase::new("azdrive-keyring-bridge-unreadable"),
+                other,
+                "azdrive-keyring-bridge-new",
+            )),
+        },
+    }
+    if let Some((next, call)) = s.keyring_queue.pop_front() {
+        issue(&mut info, &call);
+        s.keyring_waiting = Some(next);
+    }
+    Update::RefreshDom
+}
+
+// ==== Answers of the worker threads ====
+
+/// "<what failed:> <the drive's error>" in the window's language.
+fn failed(what: &str, e: &DriveError) -> Text {
+    Text::key(what).then(" ").then(drive_error_text(e))
+}
+
+/// Opens `path` with the OS's default app.
+pub(crate) fn open_with_os(path: &Path) -> Result<(), Text> {
+    let url = browse::file_url(path);
+    match Url::parse(url.as_str()).into_result() {
+        Ok(url) if url.open() => Ok(()),
+        Ok(_) => Err(Phrase::new("azdrive-os-cannot-open")
+            .arg("path", path.display().to_string())
+            .into()),
+        Err(e) => Err(Phrase::new("azdrive-os-not-a-url")
+            .arg("url", url.as_str())
+            .arg("detail", e.message.as_str())
+            .into()),
+    }
+}
+
+/// Whether the open folder is `prefix` of `drive_id`.
+pub(crate) fn showing(s: &DriveState, drive_id: &str, prefix: &str) -> bool {
+    matches!(&s.place, Place::Folder { drive, prefix: open } if drive == drive_id && open == prefix)
+}
+
+/// The folder `prefix` of `drive_id` changed: list it again when it is
+/// open; the tree too.
+pub(crate) fn changed(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    drive_id: &str,
+    prefix: &str,
+) {
+    // An Azlin drive's space as its node counts it after the write.
+    usage_view::drive_written(info, app, s, drive_id);
+    if showing(s, drive_id, prefix) {
+        // Read again behind the rows that show: they stay until the new ones are in.
+        start_listing(info, app, s, true);
+    }
+    if s.find.is_some() && s.current_drive_id().as_deref() == Some(drive_id) {
+        // The search's results may hold what changed (a result renamed, deleted): it runs again.
+        start_find(info, app, s);
+    }
+    tree_invalidate(info, app, s, (drive_id.to_string(), prefix.to_string()));
+}
+
+/// The open folder of the open drive changed.
+fn changed_here(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if let Some(drive_id) = s.current_drive_id() {
+        let prefix = s.prefix().to_string();
+        changed(info, app, s, &drive_id, &prefix);
+    }
+}
+
+/// A batch of the open folder's scan landed (`done` with the last one): it merges into the rows
+/// in the view's order - while a refresh runs it is gathered behind the rows that still show,
+/// which it replaces at the end -, and the rows in view get their stats, counts and thumbnails.
+/// The selection is checked against the rows once, at the end (a batch only adds rows).
+fn scanned(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    batch: Vec<Entry>,
+    done: bool,
+    error: Option<azul_appkit::l10n::Text>,
+) {
+    let sort = s.settings.sort;
+    match s.refreshing.as_mut() {
+        Some(gathered) => gathered.extend(batch),
+        None => {
+            listing::merge_batch(&mut s.entries, batch, sort);
+            s.loading = false;
+        }
+    }
+    if let Some(e) = error {
+        s.loading = false;
+        s.listing_done = true;
+        s.listing_failed = true;
+        s.refreshing = None;
+        s.error(azul_appkit::l10n::Text::key("azdrive-list-failed").then(" ").then(e));
+        return;
+    }
+    if !done {
+        actions::request_view_work(info, app, s);
+        return;
+    }
+    s.listing_done = true;
+    s.loading = false;
+    // The drive answered: its problem leaves the sync pie and its popover.
+    problems::drive_answered(s);
+    if let Some(mut fresh) = s.refreshing.take() {
+        // The rows read again show the old sizes and dates until their own stats are in.
+        listing::carry_stats(&s.entries, &mut fresh);
+        browse::sort_entries(&mut fresh, sort);
+        s.entries = fresh;
+    }
+    // A synced folder lists its cloud-only files too.
+    sync_view::on_listed(s);
+    let keys = s.visible_keys();
+    let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+    s.selection.retain(&order);
+    // A location tab that came back: its view where it was left.
+    if let Some(y) = s.scroll_when_listed.take() {
+        ui_view::scroll_view_to(info, s, y);
+    }
+    // Open file location: the result the folder was opened for is selected, in view (and in
+    // Quick Look, for a file the palette found).
+    if let Some(key) = s.select_when_listed.take() {
+        if s.entries.iter().any(|e| e.key == key) {
+            s.selection.set(vec![key.clone()]);
+            s.print_selection();
+            ui_view::reveal_item(info, s, &key);
+            if std::mem::take(&mut s.quick_look_when_listed) {
+                ui_overlays::toggle_quick_look(info, app, s);
+            }
+        }
+    }
+    if let Place::Folder { drive, prefix } = &s.place {
+        if prefix.is_empty() {
+            s.root_counts.insert(drive.clone(), s.entries.len());
+        }
+        println!(
+            "AZDRIVE_LISTED {drive} {} {}",
+            if prefix.is_empty() { "/" } else { prefix },
+            s.entries.len()
+        );
+    }
+    // A new folder waiting for its name is scrolled into view (it may sort far down).
+    if let Some(key) = s.renaming.as_ref().map(|r| r.key.clone()) {
+        ui_view::reveal_item(info, s, &key);
+    }
+    actions::request_preview(info, app, s);
+    if actions::needs_all_stats(s) {
+        actions::request_sort_stats(info, app, s);
+    }
+    actions::request_view_work(info, app, s);
+    // An Azlin drive's space as its node counts it (at most every SPACE_EVERY_SECS).
+    usage_view::request_space(info, app, s);
+}
+
+/// Says what a transfer went on without: a check whose probe could not answer (the disk's free
+/// space, on a share that does not say) - "the report says what was not checked".
+fn say_unchecked(s: &mut DriveState) {
+    for note in azul_storage::cap::take_unchecked() {
+        s.warn(azul_appkit::l10n::Text::plain(note));
+    }
+}
+
+pub(crate) extern "C" fn on_job_done(
+    mut app: RefAny,
+    mut msg: RefAny,
+    mut info: CallbackInfo,
+) -> Update {
+    let handle = app.clone();
+    // The claim of a job that a close must wait for rides with its answer and ends below, once
+    // the answer is handled (X-DELTA-AZDRIVE-FILES-30); on any early return it ends with the
+    // function.
+    let claim = msg
+        .downcast_mut::<Done>()
+        .and_then(|mut done| done.inflight.take());
+    let Some(outcome) = msg
+        .downcast_mut::<Done>()
+        .and_then(|mut done| done.outcome.take())
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut guard) = app.downcast_mut::<DriveState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    // A scan's batches before its last one, a transfer's progress and what the background
+    // claims found are messages of a thread that still runs.
+    let still_running = matches!(
+        outcome,
+        Outcome::Progress { .. }
+            | Outcome::Thumbnail { .. }
+            | Outcome::Scanned { done: false, .. }
+            | Outcome::Claimed { serial: None, .. }
+            | Outcome::CheckoutDropped { .. }
+            | Outcome::TakenBack { .. }
+            | Outcome::CashWaiting { .. }
+            | Outcome::InFlight { .. }
+            | Outcome::CheckoutFinished {
+                from_claims: true,
+                ..
+            }
+            | Outcome::Searched { end: None, .. }
+            | Outcome::IndexProgress { .. }
+            | Outcome::RescueProgress { .. }
+            | Outcome::DriveProblem { .. }
+            | Outcome::Sync(sync_jobs::SyncOutcome::Progress { .. })
+    );
+    if !still_running {
+        s.running = s.running.saturating_sub(1);
+    }
+    // An Azlin drive may have switched sessions during the job (refreshed, or read another
+    // window's from the keyring): the slot's secret follows.
+    take_rotated(s);
+    take_key_records(s);
+    // Whether the window shows something new: every outcome but a sync pass that changed
+    // nothing shown.
+    let mut refresh = true;
+    match outcome {
+        Outcome::Scanned {
+            serial,
+            batch,
+            done,
+            error,
+        } => {
+            if serial != s.list_serial {
+                return Update::DoNothing; // another folder or drive by now
+            }
+            scanned(&mut info, &handle, s, batch, done, error);
+            // A new Azlin drive this run made and could not set up at once, or a setup of this
+            // computer that stopped halfway, goes on now (`encryption::resume_wanted`); a drive that
+            // merely lists empty waits for "Encrypt this drive" (X-DELTA-AZDRIVE-KEYS-19).
+            #[cfg(feature = "encryption")]
+            if done {
+                encryption::resume_new_drive_setup(&mut info, &handle, s);
+            }
+        }
+        Outcome::Stats { serial, stats } => {
+            if serial != s.list_serial {
+                return Update::DoNothing;
+            }
+            let mut changed = listing::apply_stats(&mut s.entries, &stats);
+            if let Some(find) = s.find.as_mut() {
+                // The search's rows in view were asked for (a result's key is the drive's).
+                changed += find.apply_stats(&stats);
+            }
+            if actions::needs_all_stats(s) {
+                // A sort by Size or Date modified is a chain: every answer asks for the next
+                // rows - even one that changed no row (its rows gone since) - and the answer
+                // that leaves no row unknown sorts.
+                if listing::all_known(&s.entries) {
+                    // The last sizes and dates are in: the rows take the order they ask for.
+                    browse::sort_entries(&mut s.entries, s.settings.sort);
+                } else {
+                    actions::request_sort_stats(&mut info, &handle, s);
+                }
+            } else if changed == 0 {
+                return Update::DoNothing;
+            }
+            // A picture's size is known now: it may get its thumbnail.
+            actions::request_view_work(&mut info, &handle, s);
+            // The sizes and dates are the rows' own: the rows draw them again, the window stays
+            // (a scroll asks for a batch every few rows). A selected item's also show in the
+            // details pane and the preview, and the icon grid is built with the window.
+            let beyond = listing::stats_reach_beyond_rows(&stats, |key| s.selection.contains(key));
+            if !beyond && !crate::ui_view::uses_icon_grid(s) && crate::ui_view::redraw_rows(&mut info)
+            {
+                return Update::DoNothing;
+            }
+        }
+        Outcome::Counted { drive_id, counts } => {
+            // A drive's own count shows on its tile; a folder's count only in its row.
+            let mut beyond_rows = false;
+            for (key, n) in counts {
+                if key.is_empty() {
+                    s.root_counts.insert(drive_id.clone(), n);
+                    beyond_rows = true;
+                } else if s.current_drive_id().as_deref() == Some(drive_id.as_str()) {
+                    beyond_rows |= s.selection.contains(key.as_str());
+                    s.counts.insert(key, n);
+                }
+            }
+            if !beyond_rows
+                && !crate::ui_view::uses_icon_grid(s)
+                && crate::ui_view::redraw_rows(&mut info)
+            {
+                return Update::DoNothing;
+            }
+        }
+        Outcome::Folders {
+            node,
+            result,
+            leaves,
+        } => {
+            s.tree.listing.remove(&node);
+            // The folders that hold no folder show no expander: their (empty) listing is known.
+            for leaf in leaves {
+                s.tree.loaded.entry((node.0.clone(), leaf)).or_default();
+            }
+            match result {
+                Ok((folders, items)) => {
+                    if node.1.is_empty() {
+                        s.root_counts.insert(node.0.clone(), items);
+                    }
+                    println!(
+                        "AZDRIVE_TREE {} {} {}",
+                        node.0,
+                        if node.1.is_empty() { "/" } else { &node.1 },
+                        folders.len()
+                    );
+                    let show_hidden = s.settings.show_hidden;
+                    let folders: Vec<String> = folders
+                        .into_iter()
+                        .filter(|f| show_hidden || !key::last_segment(f).starts_with('.'))
+                        .collect();
+                    s.tree.loaded.insert(node, folders);
+                }
+                Err(e) => {
+                    s.tree.expanded.remove(&node);
+                    s.error(failed("azdrive-list-folder-failed", &e));
+                }
+            }
+        }
+        Outcome::Planned { id, result } => {
+            actions::transfer_planned(&mut info, &handle, s, id, result);
+        }
+        Outcome::Progress { id, progress } => {
+            s.queue.progress(id, &progress);
+            actions::show_progress_when_long(s);
+        }
+        Outcome::Ran { id, report } => {
+            actions::transfer_ran(&mut info, &handle, s, id, report);
+            say_unchecked(s);
+        }
+        Outcome::Deleted { drive_id, deleted } => {
+            // What went is said and can be undone, also when another item of the batch did not.
+            let fileops::Deleted {
+                gone,
+                failed: not_deleted,
+            } = deleted;
+            if !gone.is_empty() || not_deleted.is_empty() {
+                println!("AZDRIVE_DELETED {}", gone.len());
+                let trashed: Vec<(String, String)> = gone
+                    .iter()
+                    .filter(|(_, to)| !to.is_empty())
+                    .cloned()
+                    .collect();
+                if trashed.is_empty() && actions::keeps_history(s, &drive_id) {
+                    // The drive keeps its last days: "for good" would not be true (AZ-U12).
+                    s.success(
+                        Phrase::new("azdrive-deleted-with-history")
+                            .arg("count", gone.len())
+                            .arg("days", restore::RESTORE_DAYS),
+                    );
+                } else if trashed.is_empty() {
+                    s.success(Phrase::new("azdrive-deleted-for-good").arg("count", gone.len()));
+                } else {
+                    s.success(Phrase::new("azdrive-trashed").arg("count", trashed.len()));
+                    s.undo.push(UndoOp::Trash {
+                        drive: drive_id.clone(),
+                        gone: trashed,
+                    });
+                }
+                s.selection.clear();
+            }
+            if let Some((_, why)) = not_deleted.first() {
+                s.error(failed("azdrive-delete-failed", why));
+            }
+            let prefix = s.prefix().to_string();
+            changed(&mut info, &handle, s, &drive_id, &prefix);
+        }
+        Outcome::Restored { drive_id, result } => {
+            match result {
+                Ok(count) => {
+                    s.success(Phrase::new("azdrive-restored-from-trash").arg("count", count));
+                }
+                Err(e) => s.error(failed("azdrive-restore-trash-failed", &e)),
+            }
+            let prefix = s.prefix().to_string();
+            changed(&mut info, &handle, s, &drive_id, &prefix);
+        }
+        Outcome::TrashPurged { drive_id, result } => match result {
+            Ok(done) => {
+                if done.removed > 0 || !done.failed.is_empty() || done.behind {
+                    eprintln!("[azdrive] the trash of {drive_id}: {done:?}");
+                }
+            }
+            Err(why) => eprintln!("[azdrive] the trash of {drive_id} was not looked at: {why}"),
+        },
+        Outcome::Renamed {
+            drive_id,
+            from,
+            to,
+            result,
+        } => match result {
+            Ok(()) => {
+                println!("AZDRIVE_DONE renamed {to}");
+                s.undo.push(UndoOp::Rename {
+                    drive: drive_id.clone(),
+                    from,
+                    to: to.clone(),
+                });
+                s.selection.set(vec![to]);
+                let prefix = s.prefix().to_string();
+                changed(&mut info, &handle, s, &drive_id, &prefix);
+            }
+            Err(e) => s.error(
+                Phrase::new("azdrive-rename-failed")
+                    .arg("name", key::last_segment(&from))
+                    .then(" ")
+                    .then(drive_error_text(&e)),
+            ),
+        },
+        Outcome::Created {
+            drive_id,
+            key,
+            result,
+        } => match result {
+            Ok(()) => {
+                println!("AZDRIVE_DONE created {key}");
+                s.undo.push(UndoOp::Create {
+                    drive: drive_id.clone(),
+                    key: key.clone(),
+                });
+                s.selection.set(vec![key.clone()]);
+                // Explorer: the new item waits for its name.
+                println!("AZDRIVE_RENAMING {key}");
+                s.renaming = Some(Renaming {
+                    text: key::last_segment(&key).to_string(),
+                    is_folder: key.ends_with('/'),
+                    key,
+                });
+                let prefix = s.prefix().to_string();
+                changed(&mut info, &handle, s, &drive_id, &prefix);
+            }
+            Err(e) => s.error(
+                Phrase::new("azdrive-create-failed")
+                    .arg("name", key::last_segment(&key))
+                    .then(" ")
+                    .then(drive_error_text(&e)),
+            ),
+        },
+        Outcome::Undone { result } => {
+            match result {
+                Ok(()) => s.success(Text::key("azdrive-undone")),
+                Err(e) => s.error(failed("azdrive-undo-failed", &e)),
+            }
+            changed_here(&mut info, &handle, s);
+        }
+        Outcome::Previewed { key, content } => {
+            if let Some(preview) = s.preview.as_mut().filter(|p| p.key == key) {
+                let kind = match &content {
+                    PreviewContent::Image { .. } => "image",
+                    PreviewContent::Text { .. } => "text",
+                    PreviewContent::Video(_) => "video",
+                    PreviewContent::Audio(_) => "audio",
+                    PreviewContent::Message(_) => "none",
+                };
+                println!("AZDRIVE_PREVIEW {kind} {key}");
+                preview.content = Some(content);
+            }
+        }
+        Outcome::Measured { serial, result } => {
+            if let Some(Popup::Properties(props)) = s.popup.as_mut() {
+                if props.serial == serial {
+                    props.size = Some(result.map_err(|e| drive_error_text(&e)));
+                }
+            }
+        }
+        Outcome::Metadata { key, result } => {
+            let result = result.map_err(|e| drive_error_text(&e));
+            if let Some(Popup::Properties(props)) = s.popup.as_mut() {
+                if props.items.len() == 1 && props.items[0].key == key {
+                    props.metadata = Some(result.clone());
+                }
+            }
+            s.metadata.insert(key, result);
+        }
+        Outcome::Zipped { zip_key, result } => match result {
+            Ok(bytes) => {
+                println!("AZDRIVE_DONE zipped {zip_key}");
+                s.success(
+                    Phrase::new("azdrive-zipped")
+                        .arg("name", key::last_segment(&zip_key))
+                        .arg("size", browse::format_size(Some(bytes))),
+                );
+                s.selection.set(vec![zip_key]);
+                changed_here(&mut info, &handle, s);
+            }
+            Err(e) => s.error(failed("azdrive-zip-failed", &e)),
+        },
+        Outcome::Opened {
+            key,
+            result,
+            kept_edit,
+        } => match result {
+            Ok(path) => {
+                println!("AZDRIVE_DONE opened {key}");
+                // The user's own work, found where the read-only copy goes, is said, with where it
+                // is: it is not deleted (AZ-U13, X-DELTA-AZDRIVE-FILES-7).
+                if let Some(edit) = kept_edit {
+                    s.info(
+                        Phrase::new("azdrive-open-edit-kept")
+                            .arg("name", key::last_segment(&key))
+                            .arg("path", edit.display().to_string()),
+                    );
+                }
+                if let Err(e) = open_with_os(&path) {
+                    s.error(e);
+                }
+            }
+            Err(e) => s.error(
+                Phrase::new("azdrive-sync-open-failed")
+                    .arg("name", key::last_segment(&key))
+                    .then(" ")
+                    .then(drive_error_text(&e)),
+            ),
+        },
+        Outcome::Tested { serial, result } => {
+            add_flow::tested(s, serial, result.map_err(|e| e.to_string()));
+        }
+        Outcome::SignedIn { serial, result } => add_flow::signed_in(s, serial, result),
+        Outcome::Tiers {
+            serial,
+            country,
+            result,
+            closed,
+        } => {
+            add_flow::tiers_answered(&mut info, &handle, s, serial, &country, result, closed);
+        }
+        Outcome::Options {
+            serial,
+            asked,
+            result,
+        } => add_flow::options_answered(s, serial, &asked, result),
+        Outcome::Surface { serial, result } => {
+            add_flow::surface_answered(&mut info, &handle, s, serial, result);
+        }
+        Outcome::Abandoned {
+            checkout_id,
+            result,
+        } => add_flow::abandoned(&mut info, &handle, s, &checkout_id, result),
+        Outcome::Bought { serial, result } => {
+            add_flow::bought(&mut info, &handle, s, serial, result);
+        }
+        Outcome::CheckoutStarted { serial, result } => {
+            add_flow::checkout_started(&mut info, &handle, s, serial, result);
+        }
+        Outcome::PaymentEnded { serial, why, ended } => {
+            add_flow::payment_ended(&mut info, &handle, s, serial, why, ended);
+        }
+        Outcome::Claimed {
+            serial,
+            checkout,
+            claimed,
+        } => add_flow::claimed(&mut info, &handle, s, serial, &checkout, &claimed),
+        Outcome::Renewed {
+            serial,
+            checkout_id,
+            drive_id,
+            months,
+            change_tier,
+            record,
+        } => add_flow::renewed(
+            &mut info,
+            &handle,
+            s,
+            serial,
+            &checkout_id,
+            &drive_id,
+            months,
+            change_tier,
+            &record,
+        ),
+        Outcome::PlanCancelled { drive_id, result } => {
+            renewals::plan_cancelled(s, &drive_id, result);
+        }
+        Outcome::ArchiveProven {
+            drive_id,
+            checkout,
+            result,
+        } => {
+            archive::proven(&mut info, &handle, s, &drive_id, checkout, result);
+        }
+        Outcome::RescueProgress {
+            drive_id,
+            copied,
+            total,
+        } => archive::rescue_progress(s, &drive_id, copied, total),
+        Outcome::RescueDone { drive_id, report } => {
+            for note in &report.notes {
+                s.warn(azul_appkit::l10n::Text::plain(note.clone()));
+            }
+            archive::rescue_done(s, &drive_id, report);
+        }
+        Outcome::DeviceKeyRegistered { drive_id, result } => match result {
+            Ok(key_id) => println!("AZDRIVE_DEVICE_KEY {drive_id} {key_id}"),
+            Err(why) => eprintln!("[azdrive] this computer's key of {drive_id} is not registered: {why}"),
+        },
+        Outcome::NoticeSaved { key, result } => match result {
+            Ok(()) => println!("AZDRIVE_NOTICE_SAVED {key}"),
+            Err(e) => s.error(failed("azdrive-notice-not-saved", &e)),
+        },
+        Outcome::CheckoutDropped { checkout_id, why } => {
+            add_flow::checkout_dropped(s, &checkout_id, &why);
+        }
+        Outcome::TakenBack {
+            checkout_id,
+            why,
+            days,
+        } => add_flow::taken_back(s, &checkout_id, &why, days),
+        Outcome::ClaimsDone { problem, again_in } => add_flow::claims_done(s, problem, again_in),
+        Outcome::CheckoutFinished {
+            checkout_id,
+            result,
+            ..
+        } => add_flow::checkout_finished(&mut info, &handle, s, &checkout_id, result),
+        Outcome::PeriodsRedeemed {
+            results,
+            renewals,
+            news,
+        } => {
+            periods::periods_redeemed(&mut info, s, results);
+            // a read-only drive's copy to this computer, when it is due
+            archive::after_look(&mut info, &handle, s);
+            if let Some(news) = news {
+                renewals::tier_news_seen(&mut info, s, news);
+            }
+            renewals::renewals_seen(&mut info, &handle, s, renewals);
+            // Each drive's space as its node counts it.
+            usage_view::request_space(&mut info, &handle, s);
+            // An encrypted drive's files' size before compression, for its usage line.
+            #[cfg(feature = "encryption")]
+            encryption::request_totals(&mut info, &handle, s);
+        }
+        Outcome::SettingsSaved { result, sent } => {
+            s.settings_saving = false;
+            match result {
+                // The file holds what this window sent (and whatever other windows changed): the
+                // next save is measured from what was sent.
+                Ok(()) => s.settings_base = sent,
+                Err(e) => s.error(failed("azdrive-settings-not-saved", &e)),
+            }
+            if s.settings_dirty {
+                s.settings_dirty = false;
+                save_settings(&mut info, &handle, s);
+            }
+        }
+        Outcome::Thumbnail { key, image } => {
+            if s.thumbnails_pending.remove(&key) {
+                if image.is_some() {
+                    println!("AZDRIVE_THUMBNAIL {key}");
+                }
+                s.thumbnails.insert(key, image);
+                // A picture of the rows: the rows alone draw again. The icon grid is built with
+                // the window, so it takes the window's rebuild below.
+                if !crate::ui_view::uses_icon_grid(s) && crate::ui_view::redraw_rows(&mut info) {
+                    return Update::DoNothing;
+                }
+            }
+        }
+        Outcome::ThumbnailsDone => {}
+        Outcome::Searched {
+            serial,
+            batch,
+            phase,
+            searched,
+            end,
+        } => {
+            let Some(find) = s.find.as_mut().filter(|f| f.serial == serial) else {
+                return Update::DoNothing; // an older search, or none open any more
+            };
+            // How many files were read counts in the ranking (BM25's corpus): before the merge.
+            find.phase = phase;
+            find.searched = searched;
+            find.merge(batch);
+            let mut removed = false;
+            if let Some(end) = end {
+                // A cloud drive's results of its last listing that the fresh one has not got.
+                removed = !end.stale.is_empty();
+                find.remove(&end.stale);
+                // The last job's end is the search's (This PC runs one per drive).
+                if find.job_ended(end) {
+                    println!(
+                        "AZDRIVE_SEARCHED {} {} {}",
+                        find.rows.len(),
+                        if find.contents { "contents" } else { "names" },
+                        find.query
+                    );
+                }
+            }
+            if removed {
+                let keys = s.visible_keys();
+                let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+                s.selection.retain(&order);
+            }
+            // The rows that came into view get their sizes and dates.
+            actions::request_view_work(&mut info, &handle, s);
+        }
+        Outcome::IndexProgress {
+            drive_id,
+            progress,
+            held,
+        } => {
+            let index = s.indexes.entry(drive_id).or_default();
+            index.progress = Some(progress);
+            // A former run's index is asked while it is brought up to date.
+            if index.status.is_none() {
+                index.status = Some(held);
+            }
+        }
+        Outcome::Indexed { drive_id, result } => {
+            let index = s.indexes.entry(drive_id.clone()).or_default();
+            index.progress = None;
+            match result {
+                Ok((summary, status)) => {
+                    println!(
+                        "AZDRIVE_INDEXED {drive_id} {} {} {}",
+                        status.files, summary.indexed, summary.removed
+                    );
+                    index.status = Some(status);
+                    index.error = None;
+                }
+                Err(error) => {
+                    // The error may name a URL with a password in it (AZ-CN3).
+                    let error = azul_storage::scrub::scrub_url(&error);
+                    println!("AZDRIVE_INDEX_FAILED {drive_id} {error}");
+                    index.error = Some(error);
+                }
+            }
+            // "Index this drive" was turned off while it ran: thrown away now that it stopped.
+            if !s.settings.indexed_drives.contains(&drive_id) {
+                remove_index(&mut info, &handle, s, &drive_id);
+            }
+        }
+        Outcome::IndexRemoved { drive_id, error } => match error {
+            None => println!("AZDRIVE_INDEX_REMOVED {drive_id}"),
+            Some(error) => {
+                s.error(Phrase::new("azdrive-index-not-removed").arg("detail", error.as_str()));
+            }
+        },
+        #[cfg(feature = "encryption")]
+        Outcome::Encryption(outcome) => encryption::on_outcome(&mut info, &handle, s, outcome),
+        Outcome::DriveProblem { serial, problem } => {
+            problems::drive_problem(&mut info, s, serial, problem);
+        }
+        Outcome::BucketSpace { azlin_id, result } => {
+            match result {
+                Ok(space) => usage_view::space_seen(s, &azlin_id, &space),
+                // Quiet: the line keeps what it knew; the next listing asks again.
+                Err(why) => {
+                    eprintln!("AZDRIVE_SPACE_UNKNOWN {azlin_id}: {why}");
+                    usage_view::space_failed(s, &azlin_id);
+                }
+            }
+            // Writes while the ask ran: once more.
+            usage_view::request_space(&mut info, &handle, s);
+        }
+        Outcome::VoucherRedeemed {
+            drive_id,
+            result,
+            grant,
+        } => {
+            // the days bought: read-only credentials are refreshed before the next write
+            if let Some(changed) = grant {
+                if let Some(azlin) = periods::azlin_drives(s).get(&drive_id) {
+                    azlin.apply(changed);
+                }
+            }
+            vouchers::redeemed(s, &drive_id, result);
+        }
+        Outcome::DeviceRemoved {
+            drive_id,
+            member,
+            result,
+        } => devices::removed(&mut info, &handle, s, &drive_id, &member, result),
+        Outcome::Sync(outcome) => {
+            refresh = sync_jobs::on_outcome(&mut info, &handle, s, outcome);
+        }
+        Outcome::KeysRead(read) => unlock::round_read(&mut info, &handle, s, read),
+        Outcome::DriveRestored {
+            drive_id,
+            as_of,
+            result,
+        } => restore::restored(&mut info, &handle, s, &drive_id, as_of, result),
+        Outcome::CashWaiting { checkout } => cash::waiting(s, checkout),
+        Outcome::InFlight { checkout } => add_flow::in_flight(s, checkout),
+        Outcome::PickedUp {
+            serial,
+            checkout,
+            result,
+        } => add_flow::picked_up_answered(&mut info, &handle, s, serial, checkout, result),
+        Outcome::Joined {
+            serial,
+            code,
+            result,
+        } => add_flow::joined(&mut info, &handle, s, serial, &code, result),
+    }
+    // A dialog that waited for the one before it (a new drive's recovery sheet, an answer that
+    // came while a dialog that must be seen showed).
+    let shown = s.popup.show_waiting();
+    // The answer is handled: this job no longer holds a close back.
+    drop(claim);
+    closing::after_job(&mut info, s);
+    if refresh || shown {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+// ==== Layout ====
+
+/// Runs `f` on the state with the app handle, and asks for a new DOM.
+pub(crate) fn with_state(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    f: impl FnOnce(&mut CallbackInfo, &RefAny, &mut DriveState),
+) -> Update {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<DriveState>() else {
+        return Update::DoNothing;
+    };
+    f(info, &app, &mut *guard);
+    // A dialog that waited for the one the user just closed.
+    guard.popup.show_waiting();
+    Update::RefreshDom
+}
+
+/// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
+/// Refresh, "Search <folder>"): the shell's address bar slot (the `shell-address-bar` host).
+fn chrome(s: &DriveState, app: &RefAny, width: f32) -> Dom {
+    Dom::create_div()
+        .with_id(ids::CHROME)
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(ui_git::address_row(s, app, ui_panes::address_bar(s, app, width)))
+}
+
+/// The DOM id of the details pane, which shares the right side with the preview pane.
+const DETAILS_PANE_ID: &str = "shell-details";
+
+/// The navigation pane's width until its splitter is dragged (SPEC 2.7).
+const NAV_PANE_PX: f32 = 228.0;
+/// The right pane's (preview or details) width until its splitter is dragged (SPEC 2.9).
+const RIGHT_PANE_PX: f32 = 300.0;
+/// A splitter's own width between two panes.
+const PANE_SPLITTER_PX: f32 = 4.0;
+
+/// A splitter was dragged: the pane it sizes keeps its new width (the navigation pane's, the
+/// right pane's - both are panes of fixed size, so the splitter reports px), handed back on
+/// every rebuild - and the icon grid takes the new width.
+extern "C" fn on_pane_resize(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    pane: usize,
+    width: f32,
+) -> Update {
+    let Some(mut s) = data.downcast_mut::<DriveState>() else {
+        return Update::DoNothing;
+    };
+    if !width.is_finite() || width <= 0.0 {
+        return Update::DoNothing;
+    }
+    // The index counts the panes shown: the navigation pane first, when it is.
+    let nav = s.settings.navigation_pane;
+    if nav && pane == 0 {
+        s.pane_widths.0 = width;
+    } else if (nav && pane == 1) || (!nav && pane == 0) {
+        s.pane_widths.1 = width;
+    } else {
+        return Update::DoNothing;
+    }
+    if ui_view::uses_icon_grid(&s) {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // The window's language for the text that is no DOM text node (titles, tooltips, menus);
+    // reading it makes a language switch rebuild the window.
+    azul_appkit::l10n::begin_layout(&info);
+    // Reading the mode makes a light / dark switch rebuild the window.
+    let dark = matches!(info.get_mode(), DarkLightMode::Dark);
+    let window = (info.get_window_width(), info.get_window_height());
+    let app = data.clone();
+    let Some(guard) = data.downcast_ref::<DriveState>() else {
+        return Dom::create_body();
+    };
+    let s = &*guard;
+    let width = if window.0 > 0.0 {
+        window.0
+    } else {
+        s.window_width
+    };
+
+    // Finder's body under the ribbon: the source list, the content as a leaf on the page, the
+    // right pane a leaf too.
+    let backstage = s.backstage_shown();
+    let mut browser = BrowserShell::create(
+        chrome(s, &app, width),
+        ui_sidebar::sidebar(s, &app),
+        ui_view::content(s, &app, s.content_size(window)),
+    )
+    .with_tree_visible(s.settings.navigation_pane)
+    .with_tree_width(s.pane_widths().0)
+    .with_preview_width(s.pane_widths().1);
+    if s.settings.preview_pane {
+        browser = browser.with_preview(ui_view::on_page(ui_panes::preview_pane(s, &app, dark)));
+    }
+    // Windows 8's ribbon over the address row; its tab strip is the window's title bar.
+    if backstage.is_none() {
+        browser = browser.with_ribbon(ui_ribbon::ribbon(s, &app));
+    }
+    let mut shell = browser.office_shell();
+    // Explorer 10's right side: the preview pane OR the details pane.
+    if s.settings.details_pane && !s.settings.preview_pane {
+        shell.add_pane(
+            ShellPane::create(DETAILS_PANE_ID, ui_view::on_page(ui_panes::details_pane(s)))
+                .with_kind(ShellPaneKind::Side)
+                .with_size(s.pane_widths().1)
+                .with_label(azul_appkit::l10n::label("azdrive-pane-details")),
+        );
+    }
+    // No title row while the ribbon shows - its tabs are the title bar; the backstage (the
+    // Options, About), which has no ribbon, keeps azul's title row to move the window by. There
+    // is no status bar: the navigation pane's pies say the sync and the space.
+    let mut shell =
+        shell.with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
+    if let Some(page) = backstage {
+        shell = shell
+            .with_title_row(azul_appkit::ui::title_row(&window_title(s)))
+            .with_backstage(ui_dialogs::backstage(s, &app, page));
+    }
+    let mut body = Dom::create_body()
+        // The design's typeface under flora: Calmet UI everywhere (EB Garamond for what it
+        // lacks), 15 px on 1.3, tabular figures so sizes and dates line up.
+        .with_css(
+            "display: flex; flex-direction: column; height: 100%; margin: 0px; font-size: 13px; \
+             position: relative; font-family: system:ui; color: system:text; @theme(flora) { font-family: \
+             \"Calmet UI\", \"EB Garamond\", \"Hoefler Text\", Georgia, serif; \
+             font-size: 15px; line-height: 1.3; font-variant-numeric: tabular-nums; }",
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+                .with_child(ShellThemeScope::create(shell.dom()).dom()),
+        )
+        // The keyring's answers arrive as a window event.
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::KeyringResult),
+            app.clone(),
+            on_keyring_result,
+        )
+        // So does Touch ID's (or the password's) before an action that changes keys.
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::BiometricResult),
+            app.clone(),
+            presence::on_biometric_result,
+        )
+        // Explorer's keyboard, wherever the focus is (a text field keeps its keys).
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            app.clone(),
+            actions::on_key_down,
+        )
+        // Files dropped from the OS upload into the open folder.
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::DroppedFile),
+            app.clone(),
+            actions::on_dropped_file,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::Resized),
+            app.clone(),
+            actions::on_resized,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app.clone(),
+            closing::on_close_requested,
+        );
+    if s.column_drag.is_some() {
+        body = body
+            .with_callback(
+                EventFilter::Window(WindowEventFilter::MouseOver),
+                app.clone(),
+                ui_view::on_column_drag_move,
+            )
+            .with_callback(
+                EventFilter::Window(WindowEventFilter::MouseUp),
+                app.clone(),
+                ui_view::on_column_drag_end,
+            );
+    }
+    // A picker's strip at the window's foot, under the folders.
+    if let Some(strip) = picker::strip(s, &app) {
+        body.add_child(strip);
+    }
+    // The location tabs' overview, Quick Look and the command palette over the window, while
+    // they are open.
+    if let Some(overview) = ui_tabs::overview(s, &app) {
+        body.add_child(overview);
+    }
+    if let Some(quick_look) = ui_overlays::quick_look(s, &app, dark) {
+        body.add_child(quick_look);
+    }
+    if let Some(palette) = ui_overlays::palette(s, &app) {
+        body.add_child(palette);
+    }
+    // The notices at the window's foot, above where the status bar would be.
+    if !s.toasts.is_empty() {
+        body.add_child(ui_view::toasts(s, &app));
+    }
+    if let Some(popup) = s.popup.as_ref() {
+        let (title, panel) = ui_dialogs::popup_parts(popup, s, &app);
+        if s.inline_dialogs {
+            body.add_child(ui_dialogs::inline_sheet(title, panel));
+        } else {
+            let (closed_by, close_box) = ui_dialogs::window_close(popup);
+            // Its fixed id keeps its window while it turns into another (a busy setup into its
+            // recovery sheet), whatever else this rebuild changed above it.
+            body.add_child(
+                Dialog::create(panel)
+                    .with_title(AzString::from(title))
+                    .with_open(true)
+                    .with_modal(true)
+                    .with_closed_by(closed_by)
+                    .with_close_button(close_box)
+                    .with_on_close(app.clone(), ui_dialogs::on_dialog_closed)
+                    .dom()
+                    .with_id(ids::POPUP),
+            );
+        }
+    }
+    body
+}
+
+// ==== Start ====
+
+/// The folder of the drives' node lists: `nodes` in the run's cache folder (`--cache-dir` too),
+/// set at the start; unset, AzDrive's own in the user's cache folder.
+static NODES_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Keeps the drives' node lists in `folder` from now on (the start: the run's cache folder).
+fn set_nodes_root(folder: PathBuf) {
+    let _ = NODES_ROOT.set(folder);
+}
+
+/// The folder the drives' node lists are kept in.
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))] // asked by the opening of an Azlin drive
+pub(crate) fn nodes_root() -> PathBuf {
+    NODES_ROOT.get().cloned().unwrap_or_else(|| {
+        match path_of(FilePath::get_cache_dir().into_option()) {
+            Some(cache) => cache.join("AzDrive").join("nodes"),
+            // No cache folder at all: a private folder of this run's scratch, never the shared
+            // temp folder (X-AR5a-23).
+            None => scratch_dir("nodes"),
+        }
+    })
+}
+
+/// The private folder of scratch for `purpose`, made and checked - the path of a caller that
+/// writes in it itself. When it cannot be had (another user made the place first, a link stands
+/// in its name) the path every system call refuses: nothing is written into a folder that is not
+/// this user's (X-DELTA-AZDRIVE-FILES-29).
+pub(crate) fn scratch_dir(purpose: &str) -> PathBuf {
+    Scratch::new(purpose).checked_dir().unwrap_or_else(|e| {
+        eprintln!("[azdrive] the private folder for {purpose} is not available: {e}");
+        scratch::refused_dir()
+    })
+}
+
+/// Where an Azlin drive keeps the node list of its last credential refresh (not secret), in the
+/// folder `root`. The one place the name is spelled; Remove drive asks it (`footprint.rs`).
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))] // asked by the opening of an Azlin drive
+pub(crate) fn nodes_file_in(root: &Path, drive_id: &str) -> PathBuf {
+    root.join(format!("{}.json", azul_storage::key::safe_file_name(drive_id).unwrap_or_default()))
+}
+
+/// Where an Azlin drive keeps the node list of its last credential refresh.
+#[cfg_attr(not(feature = "encryption"), allow(dead_code))] // asked by the opening of an Azlin drive
+fn nodes_file(drive_id: &str) -> PathBuf {
+    nodes_file_in(&nodes_root(), drive_id)
+}
+
+fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
+    dir.map(|d| PathBuf::from(d.inner.as_str()))
+        .filter(|p| !p.as_os_str().is_empty())
+}
+
+extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |info, app, s| {
+        // What the start opens by itself - the place it shows, the synced drives - reads its
+        // drives' keys quietly, in one round when the start is done: never a prompt.
+        s.unlocks.gathering = true;
+        azul_appkit::ui::on_window_created(&s.kit, info);
+        // The size the window opened at (a window manager may have changed it).
+        let size = info.get_current_window_state().size.dimensions;
+        if size.width > 0.0 && size.height > 0.0 {
+            s.window_width = size.width;
+            s.window_height = size.height;
+        }
+        let place = s.place.clone();
+        // `--screen settings` opens on the backstage, which a visit closes.
+        let backstage = s.backstage;
+        go(info, app, s, place, false);
+        s.backstage = backstage;
+        // The trash of the drives on this computer: what is a month old and was found so a week
+        // ago goes (AZ-U16).
+        trash::start(info, app, s);
+        // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
+        add_flow::start_claims(info, app, s);
+        // An Azlin drive whose period nears its end gets its next month from a kept token: now,
+        // then once a day while AzDrive runs.
+        periods::start_redemptions(info, app, s, None);
+        periods::start_timer(info, app, s);
+        // A recovery code the token server did not take yet is sent again (and a code from
+        // before the registration was kept is looked up in the server's list).
+        #[cfg(feature = "encryption")]
+        encryption::retry_registrations(info, app, s, None);
+        // Encrypted drives get smaller while the computer is idle on mains power.
+        #[cfg(feature = "encryption")]
+        encryption::start_recompression(info, app);
+        // This computer's client health: what the background work below scales by.
+        health::note(s, health::read());
+        // The drives' indexes catch up with what changed while AzDrive was closed - on a
+        // healthy computer; a weak one leaves it to a search (or the user) later.
+        if health::index_allowed(health::health_of(s)) {
+            for drive_id in s.settings.indexed_drives.clone() {
+                update_index(info, app, s, &drive_id);
+            }
+        }
+        // The synced drives show their kept states, and sync.
+        sync_jobs::start(info, app, s);
+        s.unlocks.gathering = false;
+        unlock::flush(info, app, s);
+    })
+}
+
+/// The folder of the paid checkouts' period tokens (one 0600 file per drive): beside the drives
+/// file (`<config dir>/azul-storage/period-tokens`), else a private folder of scratch - never
+/// the shared temp folder under a name every user can guess, where another user could have made
+/// the folder first (X-AR5a-23). The sweep leaves it alone: it removes only what scratch made.
+fn period_tokens_dir(drives_file: Option<&Path>) -> PathBuf {
+    drives_file
+        .and_then(Path::parent)
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map_or_else(
+            || scratch_dir("period-tokens"),
+            |dir| dir.join("period-tokens"),
+        )
+}
+
+/// The data tree as a drive: the data root, opened as the data tree's `LocalDrive` (the one that
+/// keeps its `.azlin/` bookkeeping, which it never lists), named "Azlin".
+fn data_slot(data_root: &Path) -> Slot {
+    let mut slot = Slot::new(DriveEntry {
+        id: DATA_ID.to_string(),
+        name: String::from("Azlin"),
+        location: DriveLocation::Local {
+            root: data_root.to_string_lossy().into_owned(),
+        },
+    });
+    slot.drive = Some(Arc::new(LocalDrive::new(data_root.to_path_buf())));
+    slot
+}
+
+pub fn start() {
+    // This thread runs the window: it never waits for a network answer, or every frame would
+    // wait with it (debug builds assert it).
+    azul_storage::ui_thread::mark_ui_thread();
+    // The folder sync's scan holds a descriptor for each folder on the path to the one it lists:
+    // the system's default soft limit (256 on macOS) is raised once, here (X-DELTA-EDGE-2).
+    azcloud_kit::sync::local::raise_open_files_limit();
+    // Every request to the Azlin services says which app and contract sent it.
+    if let Some(hello) = azcloud_kit::hello::of_app("azdrive", env!("CARGO_PKG_VERSION")) {
+        azcloud_kit::hello::announce(hello);
+    }
+    // The switches; a variable an older build read fills in a switch that is absent.
+    let args = match args::Args::parse(std::env::args().skip(1)) {
+        Ok(args) => args.with_env_fallbacks(|var| std::env::var(var).ok()),
+        Err(text) => {
+            eprintln!("{text}");
+            std::process::exit(2);
+        }
+    };
+    let home = args
+        .home
+        .clone()
+        .or_else(|| path_of(FilePath::get_home_dir().into_option()))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let downloads = args
+        .downloads
+        .clone()
+        .or_else(|| path_of(FilePath::get_download_dir().into_option()))
+        .unwrap_or_else(|| home.join("Downloads"));
+    let config_dir = path_of(FilePath::get_config_dir().into_option());
+    let drives_file = match &args.drives {
+        Some(file) => Some(file.clone()),
+        None => config::drives_file(None, config_dir.clone()),
+    };
+    // `--pick`: another app's request, read before the window opens (one line on stdin). A
+    // request this AzDrive does not answer gets its error line at once.
+    let picker = if args.pick {
+        let mut line = String::new();
+        let request = std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|e| e.to_string())
+            .and_then(|_| picker::parse_request(&line));
+        match request {
+            Ok(request) => Some(picker::Picker::new(request)),
+            Err(why) => {
+                println!("{}", picker::PickAnswer::error(why).line());
+                std::process::exit(2);
+            }
+        }
+    } else {
+        // Every normal run says where the picker is, beside the drives file (not a shot run's).
+        if args.kit.shot.is_none() {
+            if let Some(file) = &drives_file {
+                picker::register(file);
+            }
+        }
+        None
+    };
+    // The Azlin token server (Buy storage; the refreshes of Azlin drives that name none):
+    // `--token-url` / `--profile`, the environment, the shared Azlin config (`AZLIN_CONFIG`,
+    // else ~/.azlin/config.json - not in a `--shot` run), the profile's address.
+    let user_home = path_of(FilePath::get_home_dir().into_option());
+    let token = azcloud_kit::endpoints::token_endpoint(
+        args.token_url.as_deref(),
+        args.profile.as_deref(),
+        &|var: &str| std::env::var(var).ok(),
+        if args.kit.shot.is_some() {
+            None
+        } else {
+            user_home.as_deref()
+        },
+    );
+    for problem in &token.problems {
+        eprintln!("[azdrive] {problem}");
+    }
+    // The OAuth clients of the consumer clouds' sign-ins: AZDRIVE_<PROVIDER>_<KEY> over the
+    // shared Azlin config's `oauth` section (AZLIN_CONFIG, else ~/.azlin/config.json - not in a
+    // `--shot` run). No client id is built in.
+    let shared_config = if args.kit.shot.is_some() {
+        None
+    } else {
+        azul_appkit::azlin_config::config_path(
+            std::env::var(azul_appkit::azlin_config::CONFIG_VAR)
+                .ok()
+                .as_deref(),
+            user_home.as_deref(),
+        )
+    };
+    let sign_in_settings = sign_in::SignInSettings::resolve(
+        &|var: &str| std::env::var(var).ok(),
+        shared_config.as_deref(),
+    );
+    // The kit resolves the data root (--data-dir, $AZLIN_DATA, <data dir>/Azlin) and reads the
+    // theme and mode saved last time, before the window exists.
+    let kit = azul_appkit::ui::create_kit(
+        args::SPEC,
+        ABOUT,
+        &keys::SHORTCUTS,
+        &ui_dialogs::CATEGORIES,
+        args.kit.clone(),
+    );
+    let data_root = {
+        let mut kit = kit.clone();
+        let root = kit
+            .downcast_ref::<azul_appkit::ui::Kit>()
+            .map(|k| k.data_root.clone());
+        root.unwrap_or_else(|| PathBuf::from(azul_appkit::data::ROOT_DIR))
+    };
+    let settings_drive = Some(LocalDrive::new(data_root.clone()));
+    if args.screen == args::Screen::Settings {
+        azul_appkit::ui::open_settings(&kit, None);
+    }
+    let inline_dialogs = args.dialogs == Some(args::Dialogs::Inline);
+
+    if args.kit.sample {
+        match args::write_sample(&home) {
+            Ok(n) => eprintln!("[azdrive] {n} sample files in {}", home.display()),
+            Err(e) => eprintln!("[azdrive] the sample files could not be written: {e}"),
+        }
+    }
+
+    // The settings, read once before the window opens (no callback waits).
+    let settings_base = settings_drive
+        .as_ref()
+        .map(read_settings)
+        .unwrap_or_default();
+    let mut settings = settings_base.clone();
+    if let Some(layout) = args.layout {
+        settings.layout = layout;
+    }
+    // The preview pane and the details pane share the right side (an older build showed both).
+    if settings.preview_pane && settings.details_pane {
+        settings.details_pane = false;
+    }
+
+    let mut slots = vec![
+        Slot::new(DriveEntry {
+            id: HOME_ID.to_string(),
+            name: String::from("Home"),
+            location: DriveLocation::Local {
+                root: home.to_string_lossy().into_owned(),
+            },
+        }),
+        data_slot(&data_root),
+    ];
+    let mut message = None;
+    match drives_file.as_deref().map(DrivesFile::load) {
+        Some(Ok(file)) => slots.extend(
+            file.drives
+                .into_iter()
+                .filter(|d| d.id != HOME_ID && d.id != DATA_ID)
+                .map(Slot::new),
+        ),
+        Some(Err(e)) => {
+            message = Some(Message {
+                kind: MessageKind::Error,
+                text: Phrase::new("azdrive-drives-file-unreadable")
+                    .arg("detail", e.to_string())
+                    .into(),
+            });
+        }
+        None => {}
+    }
+    eprintln!(
+        "[azdrive] {} drive(s); drives file {}; downloads to {}",
+        slots.len(),
+        drives_file
+            .as_deref()
+            .map_or_else(|| String::from("none"), |p| p.display().to_string()),
+        downloads.display()
+    );
+
+    let place = match args.screen {
+        args::Screen::ThisPc | args::Screen::Settings => Place::ThisPc,
+        args::Screen::QuickAccess => Place::QuickAccess,
+        args::Screen::Home => Place::folder(HOME_ID, ""),
+        args::Screen::Default => match settings.start {
+            model::StartPlace::QuickAccess => Place::QuickAccess,
+            model::StartPlace::ThisPc => Place::ThisPc,
+        },
+    };
+    // `--open` (File > Open new window): the place as the address bar names it.
+    let drive_names: Vec<(String, String)> = slots
+        .iter()
+        .map(|slot| (slot.entry.id.clone(), slot.entry.name.clone()))
+        .collect();
+    let place = args
+        .open
+        .as_deref()
+        .and_then(|text| browse::parse_path(text, &drive_names))
+        .unwrap_or(place);
+    // A picker opens at its request's folder (when `--open` names none), in the drive of this
+    // computer that holds it.
+    let place = match picker.as_ref().and_then(|p| p.request.default_location.clone()) {
+        Some(folder) if args.open.is_none() => {
+            let roots: Vec<(String, PathBuf)> = slots
+                .iter()
+                .filter_map(|slot| match &slot.entry.location {
+                    DriveLocation::Local { root } => {
+                        Some((slot.entry.id.clone(), PathBuf::from(root)))
+                    }
+                    _ => None,
+                })
+                .collect();
+            picker::place_of_path(Path::new(&folder), &roots)
+                .map_or(place, |(id, prefix)| Place::folder(&id, &prefix))
+        }
+        _ => place,
+    };
+    // The keyring as the worker threads use it (azul's blocking calls); the locks of its
+    // entries are the keyring's, shared by every Azlin app and profile of this user.
+    let keyring = azcloud_kit::SharedKeyring::new(
+        Arc::new(azul_storage::azul_keyring::azlin_keyring(
+            azul_storage::keyring::Asking::User,
+        )),
+        KeyringNamespace::azlin_shared(),
+    );
+    // The same entries and locks, for background work: never a prompt.
+    let quiet_keyring = azcloud_kit::SharedKeyring::new(
+        Arc::new(azul_storage::azul_keyring::azlin_keyring(
+            azul_storage::keyring::Asking::Never,
+        )),
+        KeyringNamespace::azlin_shared(),
+    );
+    // The caches' folder: `--cache-dir`, else AzDrive's in the user's cache folder; none in a
+    // `--shot` run without the switch. The drives' index copies (encryption) live there too.
+    let cache_dir = match &args.cache_dir {
+        Some(dir) => Some(dir.clone()),
+        None if args.kit.shot.is_some() => None,
+        None => path_of(FilePath::get_cache_dir().into_option()).map(|dir| dir.join("AzDrive")),
+    };
+    // What the app keeps for a while and nobody asked for (the copies of cloud files in their
+    // apps, a page waiting for the PDF reader, the encrypted write's spool) lives in scratch
+    // under the cache folder; what a run before left behind and nothing uses any more goes.
+    scratch::set_root(cache_dir.as_deref());
+    scratch::sweep_all(jobs::OPEN_COPY_KEPT);
+    // The decrypted copies an earlier AzDrive left in the shared temp folder, readable by every
+    // user of the computer: a folder with no file in it goes (AZ-W4); one that holds files may hold what
+    // the user changed in them and never synced - it is made private and kept, and the start says so
+    // below (X-DELTA-SYNC4-25).
+    let legacy_copies = scratch::remove_legacy_open_copies();
+    // The period vault holds the issue keys of paid checkouts (bearers for months) and the
+    // period tokens: sealed under a random key the keyring holds (AZ-K13), plain only in a build
+    // without the encryption (tests of the plain paths, never shipped).
+    #[cfg(feature = "encryption")]
+    let period_tokens = azcloud_kit::PeriodTokenStore::sealed(
+        period_tokens_dir(drives_file.as_deref()),
+        keyring.clone(),
+    );
+    #[cfg(not(feature = "encryption"))]
+    let period_tokens =
+        azcloud_kit::PeriodTokenStore::new(period_tokens_dir(drives_file.as_deref()));
+    // Print's copies of a page (an emergency kit, cash by post's two) live there; a run before's
+    // go first.
+    paper::set_print_root(cache_dir.clone());
+    #[cfg(feature = "encryption")]
+    encryption::set_cache_dir(cache_dir.clone());
+    // A big upload outlives the app: its state file in the cache, resumed by the next upload of
+    // the same file to the same drive (azul-storage's multipart).
+    azul_storage::multipart::set_resume_folder(cache_dir.as_ref().map(|dir| dir.join("uploads")));
+    // The drives' node lists beside them: a run with its own cache folder keeps its own.
+    if let Some(dir) = &cache_dir {
+        set_nodes_root(dir.join("nodes"));
+    }
+    // The first location tab, on the place the window opens at.
+    let first_tab = location_tabs::TabState::at(place.clone(), settings.layout);
+    let mut state = DriveState {
+        slots,
+        place,
+        history: History::default(),
+        recent: Vec::new(),
+        entries: Vec::new(),
+        loading: false,
+        listing_done: false,
+        listing_failed: false,
+        list_serial: 0,
+        list_cancel: Arc::new(AtomicBool::new(false)),
+        refreshing: None,
+        stats_asked: HashSet::new(),
+        counts: HashMap::new(),
+        counts_asked: HashSet::new(),
+        view_scroll: (0.0, 0.0),
+        scroll_work_at: None,
+        view_width: 0.0,
+        selection: Selection::default(),
+        selected_drive: None,
+        selected_pin: None,
+        type_ahead: TypeAhead::default(),
+        settings,
+        settings_base,
+        inflight: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        trash_looked: 0,
+        settings_saving: false,
+        settings_dirty: false,
+        search: String::new(),
+        find: None,
+        find_serial: 0,
+        refines: find::Refines::default(),
+        indexes: HashMap::new(),
+        select_when_listed: None,
+        scroll_when_listed: None,
+        tabs: location_tabs::LocationTabs::new(first_tab),
+        tab_overview: false,
+        tab_overview_highlight: usize::MAX,
+        ribbon_reveal: azul::widgets::TabReveal::create(
+            azul::widgets::TabClickBehaviour::HoverRevealDoubleClickLock,
+        ),
+        search_open: false,
+        search_cleared_now: false,
+        quick_look: false,
+        quick_look_when_listed: false,
+        palette: None,
+        editing_path: false,
+        renaming: None,
+        column_drag: None,
+        dragging: None,
+        tree: TreeState {
+            favorites_open: true,
+            locations_open: true,
+            cloud_open: true,
+            ..TreeState::default()
+        },
+        // Read with the volumes' sizes, below (`refresh_disks`).
+        standard_folders: Vec::new(),
+        groups_closed: HashSet::new(),
+        grid_view: IconGridView::create(),
+        pane_widths: (0.0, 0.0),
+        backstage: (args.screen == args::Screen::Settings).then_some(0),
+        ribbon_tab: ui_ribbon::RibbonTabKind::default(),
+        settings_found: None,
+        bridge: if args.screen == args::Screen::Settings {
+            ui_bridge::BridgeView::load()
+        } else {
+            ui_bridge::BridgeView::default()
+        },
+        clipboard: None,
+        closing: false,
+        queue: TransferQueue::default(),
+        transfers: HashMap::new(),
+        actions: transfer_actions::TransferActions::default(),
+        undo: Vec::new(),
+        preview: None,
+        metadata: HashMap::new(),
+        root_counts: HashMap::new(),
+        disk: HashMap::new(),
+        usage: HashMap::new(),
+        message,
+        toasts: Notices::default(),
+        picker,
+        popup: popup_slot::PopupSlot::default(),
+        popups_opened: 0,
+        keyring_waiting: None,
+        keyring_queue: VecDeque::new(),
+        drives_file,
+        settings_drive,
+        downloads,
+        sync: Arc::new(sync_lookup::NoSync),
+        cache_dir,
+        inline_dialogs,
+        running: 0,
+        trash_serial: 0,
+        window_width: 1200.0,
+        window_height: 760.0,
+        thumbnails: HashMap::new(),
+        thumbnails_pending: HashSet::new(),
+        audio: None,
+        kit,
+        token,
+        rotated: RotatedSessions::default(),
+        key_records: KeyRecords::default(),
+        keyring,
+        quiet_keyring,
+        unlocks: unlock::Unlocks::default(),
+        presence: None,
+        claims: claims_clock::ClaimsClock::default(),
+        in_flight: Vec::new(),
+        period_tokens,
+        redemptions: periods::Schedule::default(),
+        problems: problems::Problems::default(),
+        pending_lockdowns: HashMap::new(),
+        devices: HashMap::new(),
+        renewals: HashMap::new(),
+        tier_news: None,
+        sync_view: sync_view::SyncView::default(),
+        sign_in_settings,
+        cash_waits: Vec::new(),
+        cash_looks: periods::Schedule::default(),
+        bans: HashMap::new(),
+        access: access::Seen::new(),
+        git: ui_git::GitView::default(),
+        command_bar: ui_command_bar::CommandBar::default(),
+        archives: HashMap::new(),
+        rescues: HashMap::new(),
+        rescue_stops: HashMap::new(),
+    };
+    if args.screen == args::Screen::Settings {
+        state.settings_found = Some(state.settings.clone());
+    }
+    refresh_disks(&mut state);
+    // What an older AzDrive handed out and that stays, said in one sentence that names the folders - once per change,
+    // not at every start (X-DELTA-SYNC4-25, X-DELTA-SYNC9-11).
+    let kept_copies = legacy_copies_kept(&state, &legacy_copies);
+    let told = state
+        .cache_dir
+        .as_ref()
+        .map(|dir| dir.join(LEGACY_COPIES_TOLD));
+    if tell_kept_copies(told.as_deref(), &kept_copies) {
+        let folders: Vec<String> = kept_copies
+            .iter()
+            .map(|copies| copies.folder.display().to_string())
+            .collect();
+        state.warn(
+            azul_appkit::l10n::Phrase::new("azdrive-legacy-copies-kept")
+                .arg(
+                    "files",
+                    kept_copies.iter().map(|copies| copies.files).sum::<usize>(),
+                )
+                .arg("folders", folders.join(", ")),
+        );
+    }
+
+    // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
+    let mut config = azul_appkit::ui::app_config(&state.kit);
+    // The design draws azul's monochrome Material icons in the icon ink under flora as well,
+    // not the flora theme's colourful Haiku pack.
+    azul_appkit::ui::remove_kit_icons(&mut config);
+    // AzDrive's words, appkit's and the kit's error table for the engine's localization.
+    l10n::register(&mut config);
+    // The design's typeface, Calmet UI (regular and italic): the app ships it, not libazul.
+    // Its stack is `azul_fonts_calmet::STACK`.
+    azul_fonts_calmet::register(&mut config);
+    // "Calmet everywhere" (SPEC 5): the theme's widgets set their words and capitals in it too.
+    config.set_theme_font(AzString::from(azul_fonts_calmet::STACK));
+    // The E2E commands, when a scenario or the debug server drives this run.
+    e2e::register(&mut config);
+    // A picker is a smaller window (as a system's file dialog).
+    let size = if state.picker.is_some() {
+        (900.0, 600.0)
+    } else {
+        (1280.0, 800.0)
+    };
+    let mut window =
+        azul_appkit::ui::window_options(&state.kit, layout, size, (640.0, 420.0), startup);
+    // The rows in view are estimated from the window's size until the folder view has drawn:
+    // the size this run opens at (`--size`, else the default).
+    let opens_at = window.window_state.size.dimensions;
+    state.window_width = opens_at.width;
+    state.window_height = opens_at.height;
+    // The title bar shows the ribbon's tabs: the title is what the system's window list names
+    // the window by - the open place's path.
+    window.window_state.title = AzString::from(window_title(&state));
+    // azul's network and battery monitors start now, so they have read the network and the
+    // battery by the first sync pass at the window's start (a metered network, a drained
+    // battery hold big files back).
+    let _ = azul::sensor::NetworkState::query();
+    let _ = azul::sensor::BatteryState::query();
+    let app = App::create(RefAny::new(state), config);
+    app.run(window);
+}

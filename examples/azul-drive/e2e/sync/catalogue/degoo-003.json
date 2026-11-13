@@ -1,0 +1,33 @@
+[
+  {
+    "name": "months of background-only passes, then the server empties the drive: every local file survives",
+    "description": "DEGOO-003 (sync-chaos srv-account-never-deleted, mobile-camera-upload): Degoo deleted accounts for 'inactivity' though the phone uploaded weekly. Rules C3, D1 and D2: no time-based decision on the client (a clock 120 days on changes nothing), and a drive emptied by the server is a held mass delete, never a local one.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Camera", "count": 12, "size": 10000, "seed": 36 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_clock", "device": "a", "jump": 2592000 },
+      { "op": "drive_write", "device": "a", "path": "Camera/week5.jpg", "size": 10000, "seed": 37 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_clock", "device": "a", "jump": 7776000 },
+      { "op": "drive_write", "device": "a", "path": "Camera/week17.jpg", "size": 10000, "seed": 38 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 1 },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "Camera/*", "count": 14 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "background uploads count as activity for the retention policy",
+    "description": "DEGOO-003: whether an account counts as active is the server's accounting (rule V7).",
+    "not_applicable": "activity accounting and retention are token-server policy (sync-chaos srv-account-never-deleted, dc mode); AzDrive's stand-in remote has no accounts",
+    "steps": []
+  }
+]

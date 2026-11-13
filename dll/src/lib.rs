@@ -22,7 +22,10 @@
 //! ### Optional Features
 //! - `web`: Enable the web backend (serve the app as HTML over HTTP)
 //! - `python-extension`: Build as a Python extension module (PyInit_azul)
+//! - `try-trait` (nightly): `?` on the FFI `Option*` / `Result*` types and in
+//!   callbacks returning `Update`
 
+#![cfg_attr(feature = "try-trait", feature(try_trait_v2))]
 // Lint policy: deny correctness/safety issues, warn on style
 #![deny(improper_ctypes_definitions)]
 #![deny(unused_must_use)]
@@ -279,6 +282,12 @@ extern crate azul_css;
 #[cfg(feature = "cabi_internal")]
 extern crate azul_layout;
 
+// `getrandom`: the random source of a sign-in's PKCE verifier and state
+// (`desktop::extra::auth_session::create_pkce`). A build without the desktop
+// module (link-dynamic, wasm) links it unused.
+#[cfg(not(all(feature = "cabi_internal", not(target_arch = "wasm32"))))]
+use getrandom as _;
+
 // Desktop windowing implementation (OpenGL, fonts, event loop, etc.)
 // Compiled when internal bindings are available (not for link-dynamic)
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
@@ -310,8 +319,8 @@ pub mod web;
 #[cfg(feature = "cabi_internal")]
 mod __ffi_internal {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/dll_api_internal.rs"
+        env!("AZ_CODEGEN_DIR_RESOLVED"),
+        "/dll_api_internal.rs"
     ));
 }
 
@@ -332,8 +341,8 @@ pub mod ffi {
 #[cfg(all(feature = "cabi_external", not(feature = "cabi_internal")))]
 mod __ffi_external {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/dll_api_external.rs"
+        env!("AZ_CODEGEN_DIR_RESOLVED"),
+        "/dll_api_external.rs"
     ));
 }
 
@@ -357,8 +366,8 @@ pub mod ffi {
 
 #[cfg(feature = "rust_api")]
 include!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../target/codegen/reexports.rs"
+    env!("AZ_CODEGEN_DIR_RESOLVED"),
+    "/reexports.rs"
 ));
 
 // =============================================================================
@@ -369,8 +378,8 @@ include!(concat!(
 #[cfg(feature = "python-extension")]
 mod python {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/python_api.rs"
+        env!("AZ_CODEGEN_DIR_RESOLVED"),
+        "/python_api.rs"
     ));
 }
 
@@ -416,7 +425,12 @@ pub mod php_extension;
 #[cfg(test)]
 mod memtest {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../target/codegen/memtest.rs"
+        env!("AZ_CODEGEN_DIR_RESOLVED"),
+        "/memtest.rs"
     ));
 }
+
+// The ABI guard's runtime half: the generated `AzAbi_getHash` export and the
+// check every binding runs before its first call (doc/src/codegen/v2/abi_guard.rs).
+#[cfg(all(test, feature = "cabi_internal"))]
+mod abi_guard_tests;

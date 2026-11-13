@@ -1,0 +1,49 @@
+[
+  {
+    "name": "azul_widgets_notification_reports_its_button_click_and_dismissal_with_its_payload",
+    "description": "The Notifications section under AZ_BACKEND=headless (the backend records posts instead of showing them). Post: the recorded notification has the 'show-me' button and the payload 'azul-widgets-demo:show'. notification_event plays the user's side through the run loop's notification pump: a button press, a click on the notification itself and a dismissal each reach on_notification_event, which shows the event and the payload the post carried as 'Last event'. Every event ends its notification, so each one is posted again first. Withdraw marks the recorded post withdrawn.",
+    "steps": [
+      { "op": "scroll_into_view", "text": "Post a notification", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "click", "text": "Post a notification" },
+      { "op": "wait_frame" },
+      {
+        "op": "assert_notification",
+        "id": "azul-widgets-demo",
+        "action": "show-me",
+        "payload": "azul-widgets-demo:show",
+        "withdrawn": false
+      },
+
+      { "op": "notification_event", "id": "azul-widgets-demo", "kind": "action", "action": "show-me" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "Button pressed: \"show-me\". Payload: \"azul-widgets-demo:show\"." },
+      { "op": "assert_response", "contains": "\"found\":true" },
+
+      { "op": "click", "text": "Post a notification" },
+      { "op": "wait_frame" },
+      { "op": "notification_event", "id": "azul-widgets-demo", "kind": "click" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "Clicked (the notification itself). Payload: \"azul-widgets-demo:show\"." },
+      { "op": "assert_response", "contains": "\"found\":true" },
+
+      { "op": "click", "text": "Post a notification" },
+      { "op": "wait_frame" },
+      { "op": "notification_event", "id": "azul-widgets-demo", "kind": "dismiss", "reason": "closed by the user" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "Dismissed (closed by the user)." },
+      { "op": "assert_response", "contains": "\"found\":true" },
+
+      { "op": "click", "text": "Post a notification" },
+      { "op": "wait_frame" },
+      { "op": "click", "text": "Withdraw it" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "assert_notification", "id": "azul-widgets-demo", "withdrawn": true },
+      { "op": "assert_notification", "id": "azul-widgets-demo", "count": 4 }
+    ]
+  }
+]

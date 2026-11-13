@@ -1,0 +1,98 @@
+[
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "pending",
+    "decline": {
+      "reason": "insufficient_funds",
+      "code": "card_declined",
+      "text": "Your card has insufficient funds."
+    },
+    "tier": "100GB",
+    "months": 12,
+    "amount_cents": 990,
+    "provider": "stripe",
+    "settles": "instant",
+    "months_paid": 0,
+    "recurring": false
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "awaiting_cash",
+    "activation_code": "AZC1-TEST-CODE",
+    "mail_to": {
+      "name": "Azlin",
+      "lines": [
+        "Postfach 1",
+        "10115 Berlin"
+      ]
+    },
+    "tier": "100GB",
+    "months": 12,
+    "amount_cents": 990,
+    "expires_at": "2026-12-20T08:00:00Z"
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "approved",
+    "sealed_signup": "c2VhbGVk",
+    "tier": "100GB",
+    "months": 12,
+    "amount_cents": 990,
+    "provider": "gocardless",
+    "settles": "days",
+    "months_paid": 12,
+    "recurring": false,
+    "receipt": {
+      "issue_day": "2026-10-21",
+      "service": "Azlin Storage 100GB, 12 months",
+      "gross_cents": 990,
+      "currency": "EUR",
+      "rate_permille": 190,
+      "country": "DE",
+      "scheme": "oss",
+      "checkout_id": "ck_4n2v8r6tqe",
+      "kind": "small_amount_invoice"
+    }
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "approved",
+    "tier": "100GB",
+    "months": 12,
+    "amount_cents": 990
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "declined",
+    "decline": {
+      "reason": "insufficient_funds",
+      "code": "card_declined",
+      "text": "Your card has insufficient funds."
+    },
+    "tier": "100GB",
+    "months": 12,
+    "amount_cents": 990
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "reversed",
+    "tier": "100GB",
+    "months": 12,
+    "amount_cents": 990
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "rejected",
+    "reason": "the envelope held EUR 5.00, not EUR 9.90",
+    "tier": "100GB",
+    "months": 12,
+    "amount_cents": 990
+  },
+  {
+    "checkout_id": "ck_4n2v8r6tqe",
+    "status": "expired",
+    "tier": "100GB",
+    "months": 12,
+    "amount_cents": 990
+  }
+]

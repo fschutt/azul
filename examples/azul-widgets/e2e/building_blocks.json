@@ -1,0 +1,32 @@
+[
+  {
+    "name": "azul_widgets_building_blocks_select_with_shift_and_the_theme_segment_is_the_app_theme",
+    "description": "The Building blocks section (2026-10-03): a click on Quarterly reports selects it alone, Shift + click on Travel plans extends the selection over Receipts 2026 (the range in list order). Then the toolbar's Flora segment switches the APP theme (get_theme answers flora), and the page is rebuilt in it.",
+    "steps": [
+      { "op": "scroll_into_view", "text": "Building blocks", "block": "start", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "scroll_into_view", "text": "Quarterly reports", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "click", "text": "Quarterly reports" },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "1 selected: Quarterly reports" },
+      { "op": "assert_response", "contains": "\"found\":true" },
+
+      { "op": "key_down", "key": "lshift", "modifiers": { "shift": true } },
+      { "op": "click", "text": "Travel plans" },
+      { "op": "wait_frame" },
+      { "op": "key_up", "key": "lshift", "modifiers": { "shift": false } },
+      { "op": "wait_frame" },
+      { "op": "find_node_by_text", "text": "3 selected: Quarterly reports, Receipts 2026, Travel plans" },
+      { "op": "assert_response", "contains": "\"found\":true" },
+
+      { "op": "scroll_into_view", "text": "Azul Widget Showcase", "block": "start", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "click", "text": "Flora" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "get_theme" },
+      { "op": "assert_response", "contains": "flora" }
+    ]
+  }
+]

@@ -1,0 +1,48 @@
+[
+  {
+    "name": "A.txt and a.txt from a case-sensitive system reach a disk that ignores case: one comes down, the other is listed, both stay on the drive",
+    "description": "KOOFR-010 (Koofr's case-insensitive namespace): 'Hello.doc' and 'hello.doc' could not coexist; one upload failed or overwrote the other. Rules P1 and P5: case is kept; on a disk that ignores case the file already here (else the one committed first) comes down and the other is listed (name-collision) and stays on the drive; nothing is overwritten. sync-chaos port-case-collision-remote.",
+    "only_on": ["macos", "windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Hello.doc", "text": "upper" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "hello.doc", "text": "lower" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Hello.doc", "text": "upper" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "?ello.doc", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "key": "hello.doc" },
+      { "op": "drive_check", "check": "remote_file", "key": "Hello.doc", "text": "upper" },
+      { "op": "drive_check", "check": "remote_file", "key": "hello.doc", "text": "lower" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "on a case-sensitive disk both files go up and both come down on another case-sensitive device",
+    "description": "KOOFR-010 (Koofr's case-insensitive namespace): 'Hello.doc' and 'hello.doc' could not coexist; one upload failed or overwrote the other. Rules P1 and P5: case is kept; on a disk that ignores case the file already here (else the one committed first) comes down and the other is listed (name-collision) and stays on the drive; nothing is overwritten. sync-chaos port-case-collision-remote.",
+    "only_on": ["linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "A.txt", "text": "upper" },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "lower" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "A.txt", "text": "upper" },
+      { "op": "drive_check", "check": "remote_file", "key": "a.txt", "text": "lower" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "A.txt", "text": "upper" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "a.txt", "text": "lower" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

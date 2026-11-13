@@ -1,0 +1,56 @@
+[
+  {
+    "name": "a 0-byte file and a file truncated to 0 bytes arrive as real 0-byte files, with no conflict copy",
+    "description": "JOTTA-021 (Jottacloud): a newest 0-byte version over an older N-byte one made a conflict; the CLI failed to download 0-byte files. Rule P7 (0-byte files are real files; a file truncated to 0 bytes syncs as 0 bytes). sync-chaos port-sparse-zero-byte.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "empty.txt", "text": "" },
+      { "op": "drive_write", "device": "a", "path": "log.txt", "text": "N bytes of log" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_overwrite_in_place", "device": "a", "path": "log.txt", "text": "" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "empty.txt", "size": 0 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "log.txt", "size": 0 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "empty.txt", "text": "" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "log.txt", "text": "" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "log.txt", "count": 0 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "log.txt", "count": 0 },
+      { "op": "drive_check", "check": "kept", "texts": ["N bytes of log"] },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_open", "device": "c", "remote": "r" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "empty.txt", "size": 0 },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "log.txt", "size": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a download cut off at its start never leaves a 0-byte file behind",
+    "description": "JOTTA-021 (Jottacloud). Rule P7: a failed download never leaves a 0-byte file; A5 (atomic download).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "big.txt", "fill": "X", "size": 100000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "crash_at": "download-start", "expect": "crash" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.txt", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "big.txt", "size": 100000 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

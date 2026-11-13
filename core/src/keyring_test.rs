@@ -300,16 +300,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn option_wrapper_into_option_clones_and_leaves_the_wrapper_intact() {
-        // `into_option(&self)` takes a reference and clones — calling it twice
+    fn option_wrapper_to_option_clones_and_leaves_the_wrapper_intact() {
+        // `to_option(&self)` takes a reference and clones — calling it twice
         // must not double-free or hollow out the wrapper.
         let payload = NASTY_BYTES;
         let wrapped = OptionKeyringResult::Some(KeyringResult::Retrieved(AzString::from(payload)));
 
-        let first = wrapped.into_option().expect("Some stays Some");
+        let first = wrapped.to_option().expect("Some stays Some");
         let second = wrapped
-            .into_option()
-            .expect("into_option must not consume the wrapper");
+            .to_option()
+            .expect("to_option must not consume the wrapper");
         assert_eq!(first, second);
         assert_eq!(first.secret().expect("payload survives").as_str(), payload);
         drop(first);

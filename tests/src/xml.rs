@@ -1,6 +1,5 @@
 #[cfg(test)]
 use azul_core::xml::{
-    compile_body_node_to_rust_code, compile_component,
     format_args_dynamic, get_body_node, get_item, normalize_casing,
     prepare_string, ComponentArgumentVec, ComponentMap, XmlNode,
 };

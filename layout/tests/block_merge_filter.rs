@@ -194,6 +194,23 @@ fn a_page_break_marker_blocks_the_merge() {
     assert_eq!(merge_partner(&mut lw, 4), None);
 }
 
+#[test]
+fn a_web_view_styled_as_a_block_is_not_a_merge_partner() {
+    // body > [p1=1 (text=2), webview=3, p2=4]: a web view is replaced
+    // content like an image - its page is not the document's, so even a
+    // `display: block` one has nothing to merge into.
+    let mut lw = layout(
+        Dom::create_body()
+            .with_child(para("first"))
+            .with_child(
+                Dom::create_webview("https://example.com/".into())
+                    .with_ids_and_classes(cls("p")),
+            )
+            .with_child(para("second")),
+    );
+    assert_eq!(merge_partner(&mut lw, 4), None);
+}
+
 // ---------------------------------------------------------------------------
 // C12: IME × structural interlock — no structural records mid-composition
 // ---------------------------------------------------------------------------

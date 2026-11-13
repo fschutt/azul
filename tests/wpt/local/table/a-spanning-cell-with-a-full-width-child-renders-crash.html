@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<!-- azul's own reftest (MIT, like the rest of azul); WPT reftest format. -->
+<meta charset="utf-8">
+<title>a spanning cell with a full-width child renders</title>
+<meta name="assert" content="The AzMail exploration's receipt: a colspan cell with a 100%-wide block and a two-cell row after it panicked the CPU renderer (RED a40976f60).">
+<table><tr><td colspan="2"><div style="width:100%;height:4px;background:black"></div></td></tr>
+<tr><td>a</td><td>b</td></tr></table>

@@ -23,7 +23,9 @@ use azul_layout::{
     Solver3LayoutCache,
 };
 
-fn run(html: &str, page_h: f32) -> Vec<TokenizedPage> {
+/// `html` laid out on pages `page_h` tall by the page loop over break
+/// tokens.
+pub fn run(html: &str, page_h: f32) -> Vec<TokenizedPage> {
     let styled_dom = Dom::from_xml_string(html);
     let fc_cache = build_font_cache();
     let mut font_manager = FontManager::new(fc_cache).expect("FontManager");

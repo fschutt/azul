@@ -58,6 +58,9 @@ use super::{
     super::{
         generator::CodeBuilder,
         ir::{CallbackTypedefDef, CodegenIR, EnumVariantKind, FunctionKind, TypeCategory},
+        // `"LayoutCallback"` -> `"layoutCallback"`: the JavaScript name of
+        // the local invoker variable.
+        lower_first,
         managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name},
     },
     is_refany_type, sanitize_js_identifier,
@@ -385,7 +388,11 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
         for (i, a) in cb.args.iter().enumerate() {
             let var_name = closure_args[i + 1].clone();
             if is_refany_type(&a.type_name, ir) {
-                user_args.push(format!("_refanyFromPtr({})", var_name));
+                // The data is the user's own value; a later RefAny (a resume
+                // callback's result) may hold a value libazul made, which the
+                // callback gets as a RefAny for `<Type>.downcast`.
+                let resolve = if i == 0 { "_refanyFromPtr" } else { "_refanyArg" };
+                user_args.push(format!("{}({})", resolve, var_name));
             } else {
                 user_args.push(var_name);
             }
@@ -748,12 +755,3 @@ fn emit_refany_helpers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.blank();
 }
 
-/// `"Callback"` → `"callback"`, `"LayoutCallback"` → `"layoutCallback"`
-/// — JavaScript convention for the local invoker variable.
-fn lower_first(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) => c.to_ascii_lowercase().to_string() + chars.as_str(),
-        None => String::new(),
-    }
-}

@@ -1,0 +1,21 @@
+{
+  "name": "sharing a folder needs the owner's fresh confirmation: a share started without it shares nothing",
+  "description": "ICLOUD-014 (sync-chaos share-links-and-revocation): CVE-2025-30448, another process could turn on sharing of an iCloud folder without authentication. Rules M1 and S14: a share is made only with the owner's fresh authentication; without it no share key is wrapped for anyone and the drive is unchanged.",
+  "pending": "account-to-account folder shares are not built (AzDrive's Share makes links only). The engine needs: a folder key per shared folder in the drive index, the files' keys wrapped by it in the same commit as each file, the folder key wrapped for each recipient's account public key (from the token server, confirmed by the owner's fresh authentication), revocation by a new folder key, and a participant's view of only the shared folder. Commands, once it is: drive_share {device, path, to, fresh_auth} answering {shared} (success either way), drive_check share_keys {device, path, count} (the recipients the folder key is wrapped for)",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "private/diary.txt", "text": "not for sharing" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_share", "device": "a", "path": "private", "to": "mallory", "fresh_auth": false },
+    { "op": "assert_response", "path": "result.shared", "equals": false },
+    { "op": "drive_check", "check": "share_keys", "device": "a", "path": "private", "count": 0 },
+    { "op": "drive_share", "device": "a", "path": "private", "to": "alice", "fresh_auth": true },
+    { "op": "assert_response", "path": "result.shared", "equals": true },
+    { "op": "drive_check", "check": "share_keys", "device": "a", "path": "private", "count": 1 },
+    { "op": "drive_check", "check": "remote_never_has", "marker": "not for sharing" },
+    { "op": "drive_cleanup" }
+  ]
+}

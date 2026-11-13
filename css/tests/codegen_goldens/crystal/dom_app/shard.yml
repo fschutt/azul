@@ -1,0 +1,10 @@
+name: azul_app
+version: 0.1.0
+
+dependencies:
+  azul:
+    path: ./azul
+
+targets:
+  azul_app:
+    main: main.cr

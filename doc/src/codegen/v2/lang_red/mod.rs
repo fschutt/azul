@@ -65,9 +65,13 @@
 use anyhow::Result;
 
 use super::{
+    c_layout::{self, type_layout},
     config::CodegenConfig,
     generator::CodeBuilder,
-    ir::{ArgRefKind, CodegenIR, EnumDef, FunctionDef, StructDef, TypeCategory},
+    ir::{
+        ArgRefKind, CodegenIR, EnumDef, FieldDef, FunctionDef, MonomorphizedKind, StructDef,
+        TypeAliasDef, TypeCategory,
+    },
     managed_host_invoker::{has_return, host_invoker_kinds, managed_c_symbol, wrapper_name},
 };
 
@@ -150,26 +154,44 @@ fn emit_types(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
         emit_unit_enum(b, e);
     }
 
-    // Structs in dependency order.
-    let mut structs: Vec<&StructDef> = ir
-        .structs
-        .iter()
-        .filter(|s| should_emit_struct(s, config))
-        .collect();
-    structs.sort_by_key(|s| s.sort_order);
-    for s in structs {
-        emit_struct_alias(b, s, ir);
+    // Structs, tagged unions and the monomorphized aliases
+    // (`LayoutWidthValue`, `OptionU32`, ...) together in dependency
+    // (sort_order) order - azul.h's order - so every alias is declared
+    // before a struct holds it by value. (All unions used to follow all
+    // structs, and the monomorphized aliases were never declared.)
+    enum Item<'a> {
+        Struct(&'a StructDef),
+        Union(&'a EnumDef),
+        Alias(&'a TypeAliasDef),
     }
-
-    // Tagged-union enums as opaque blobs (flagged).
+    let mut items: Vec<(usize, Item)> = Vec::new();
+    for s in ir.structs.iter().filter(|s| should_emit_struct(s, config)) {
+        items.push((s.sort_order, Item::Struct(s)));
+    }
     for e in &ir.enums {
-        if !config.should_include_type(&e.name) {
-            continue;
+        if e.is_union && e.generic_params.is_empty() && config.should_include_type(&e.name) {
+            items.push((e.sort_order, Item::Union(e)));
         }
-        if !e.is_union || !e.generic_params.is_empty() {
-            continue;
+    }
+    for ta in &ir.type_aliases {
+        if ta.monomorphized_def.is_some() && config.should_include_type(&ta.name) {
+            items.push((ta.sort_order, Item::Alias(ta)));
         }
-        emit_union_opaque(b, e);
+    }
+    items.sort_by_key(|(order, _)| *order);
+    for (_, item) in &items {
+        match item {
+            Item::Struct(s) => emit_struct_alias(b, s, ir),
+            Item::Union(e) => emit_union_blob(b, &e.name, ir),
+            Item::Alias(ta) => match ta.monomorphized_def.as_ref().map(|m| &m.kind) {
+                Some(MonomorphizedKind::TaggedUnion { .. }) => emit_union_blob(b, &ta.name, ir),
+                Some(MonomorphizedKind::Struct { fields }) => {
+                    emit_fields_alias(b, &ta.name, fields, ir)
+                }
+                // A unit enum is an `integer!` (`map_owned_type`).
+                Some(MonomorphizedKind::SimpleEnum { .. }) | None => {}
+            },
+        }
     }
     b.blank();
 }
@@ -197,35 +219,138 @@ fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef) {
 }
 
 fn emit_struct_alias(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
-    b.line(&format!("Az{}!: alias struct! [", s.name));
+    emit_fields_alias(b, &s.name, &s.fields, ir);
+}
+
+/// `Az<name>!: alias struct! [..]` over plain C fields (a struct or a
+/// monomorphized struct alias).
+///
+/// Every field sits at its azul.h offset (`c_layout::field_offsets`):
+/// Red/System has no 16-bit or 64-bit integer and only a 32-bit `logic!`,
+/// so a `bool` is one `byte!`, an `i16`/`u16` two `byte!`s (`name`,
+/// `name_1`, little-endian), an `i64`/`u64` two `integer!`s (`name` = low
+/// half, `name_hi`) - and since those are less aligned than the C type,
+/// explicit `_pN [byte!]` fields fill the gaps C's alignment leaves and the
+/// tail up to the C size. Every emitted field is then exactly as aligned as
+/// Red/System wants it, so its own layout adds no padding.
+fn emit_fields_alias(b: &mut CodeBuilder, name: &str, fields: &[FieldDef], ir: &CodegenIR) {
+    b.line(&format!("Az{}!: alias struct! [", name));
     b.indent();
-    if s.fields.is_empty() {
-        // Red/System has no zero-field struct; give it one padding word so
-        // the alias is valid. A truly empty C struct is 0 bytes, but the Az
-        // API has no zero-sized by-value types in practice.
-        b.line("_pad [integer!]        ;; placeholder (no public fields)");
+    if fields.is_empty() {
+        // Red/System has no zero-field struct; azul.h gives an empty struct
+        // a one-byte dummy member, so does this alias.
+        b.line("_pad [byte!]        ;; placeholder (no public fields)");
     }
-    for f in &s.fields {
-        let ty = field_type_token(&f.type_name, f.ref_kind, ir);
-        b.line(&format!("{} [{}]", sanitize_ident(&f.name), ty));
+    let offsets = c_layout::field_offsets_of(fields, ir);
+    let total = type_layout(name, ir).map(|l| l.size);
+    let mut cur = 0usize;
+    let mut pad = 0usize;
+    let mut fill = |b: &mut CodeBuilder, cur: &mut usize, to: usize| {
+        while *cur < to {
+            b.line(&format!("_p{} [byte!]", pad));
+            pad += 1;
+            *cur += 1;
+        }
+    };
+    for (i, f) in fields.iter().enumerate() {
+        let tokens = field_tokens(&sanitize_ident(&f.name), &f.type_name, f.ref_kind, ir);
+        if let Some(off) = offsets.as_ref().map(|o| o[i]) {
+            fill(b, &mut cur, off);
+            cur = off;
+        }
+        for (field, ty) in &tokens {
+            b.line(&format!("{} [{}]", field, ty));
+        }
+        cur += member_size(&f.type_name, f.ref_kind, ir).unwrap_or(0);
+    }
+    if let (Some(total), Some(_)) = (total, offsets.as_ref()) {
+        if !fields.is_empty() {
+            fill(b, &mut cur, total);
+        }
     }
     b.dedent();
     b.line("]");
     b.blank();
 }
 
-fn emit_union_opaque(b: &mut CodeBuilder, e: &EnumDef) {
-    // TODO2: exact byte size of tagged unions (AzOption*/AzResult*/unions)
-    // requires the shared `layout` pass the Fortran/Pascal bindings use.
-    // Until that is wired, emit a pointer-width opaque
-    // stand-in and flag it. This is correct for pointer-sized unions and
-    // UNDER-sized for larger payloads — the counter demo only round-trips
-    // AzUpdate (a unit enum) so it is unaffected.
+/// The C size of one field (a pointer for every non-owned ref kind).
+fn member_size(
+    type_name: &str,
+    ref_kind: super::ir::FieldRefKind,
+    ir: &CodegenIR,
+) -> Option<usize> {
+    match ref_kind {
+        super::ir::FieldRefKind::Owned => type_layout(type_name, ir).map(|l| l.size),
+        _ => Some(8),
+    }
+}
+
+/// The C primitive a type name stands for, through simple type aliases
+/// (`GLuint` -> `u32`).
+fn primitive_of<'a>(t: &'a str, ir: &'a CodegenIR) -> &'a str {
+    let mut t = t.trim();
+    for _ in 0..8 {
+        match ir.find_type_alias(t) {
+            Some(ta) if ta.monomorphized_def.is_none() => t = ta.target.trim(),
+            _ => break,
+        }
+    }
+    t
+}
+
+/// The `name [type]` field(s) one C field becomes (see [`emit_fields_alias`]).
+fn field_tokens(
+    name: &str,
+    type_name: &str,
+    ref_kind: super::ir::FieldRefKind,
+    ir: &CodegenIR,
+) -> Vec<(String, String)> {
+    let one = |ty: &str| vec![(name.to_string(), ty.to_string())];
+    if ref_kind != super::ir::FieldRefKind::Owned {
+        return one("byte-ptr!");
+    }
+    match primitive_of(type_name, ir) {
+        "bool" | "GLboolean" => one("byte!"),
+        "i16" | "u16" => vec![
+            (name.to_string(), "byte!".to_string()),
+            (format!("{}_1", name), "byte!".to_string()),
+        ],
+        "i64" | "u64" | "GLint64" | "GLuint64" => vec![
+            (name.to_string(), "integer!".to_string()),
+            (format!("{}_hi", name), "integer!".to_string()),
+        ],
+        _ => one(&field_type_token(type_name, ref_kind, ir)),
+    }
+}
+
+/// A tagged union (a data-carrying enum or a monomorphized alias) as an
+/// opaque blob of EXACTLY its C size and alignment, from the shared
+/// `c_layout::type_layout` - the numbers azul.h, the Fortran blobs and the
+/// host-invoker writeback use. It used to be one `byte-ptr!` (8 bytes)
+/// whatever the union, so every by-value union argument, return and field
+/// was the wrong size. The cells are the union's alignment wide
+/// (`byte-ptr!` for 8, `integer!` for 4, else `byte!`), so the blob is
+/// aligned like the C union and classified as integer words when it
+/// travels in registers. Read the tag and payload through libazul's own
+/// functions; Red/System has no view of the variants.
+fn emit_union_blob(b: &mut CodeBuilder, name: &str, ir: &CodegenIR) {
+    let Some(layout) = type_layout(name, ir) else {
+        b.line(&format!(";; SKIPPED: Az{}! (no C layout)", name));
+        b.blank();
+        return;
+    };
+    let (cell, width) = match layout.align {
+        a if a >= 8 => ("byte-ptr!", 8),
+        4 => ("integer!", 4),
+        _ => ("byte!", 1),
+    };
     b.line(&format!(
-        "Az{}!: alias struct! [    ;; TODO2: opaque union — needs exact layout size",
-        e.name
+        "Az{}!: alias struct! [    ;; tagged union: {} bytes, {}-aligned",
+        name, layout.size, layout.align
     ));
-    b.line("    opaque [byte-ptr!]");
+    for i in 0..(layout.size / width).max(1) {
+        b.line(&format!("    _{} [{}]", i, cell));
+    }
     b.line("]");
     b.blank();
 }
@@ -291,10 +416,11 @@ fn map_owned_type(rust_type: &str, ir: &CodegenIR, _as_field: bool) -> String {
                 // Raw fn-ptr typedef.
                 "byte-ptr!".to_string()
             } else if let Some(ta) = ir.find_type_alias(t) {
-                if ta.monomorphized_def.is_some() {
-                    format!("Az{}! value", t)
-                } else {
-                    map_owned_type(&ta.target, ir, _as_field)
+                match ta.monomorphized_def.as_ref().map(|m| &m.kind) {
+                    // A monomorphized unit enum is a C enum: an int.
+                    Some(MonomorphizedKind::SimpleEnum { .. }) => "integer!".to_string(),
+                    Some(_) => format!("Az{}! value", t),
+                    None => map_owned_type(&ta.target, ir, _as_field),
                 }
             } else if ir.find_struct(t).is_some() {
                 format!("Az{}! value", t)
@@ -756,4 +882,95 @@ fn to_kebab(name: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{bug_classes::ir, c_layout::type_layout, config::CodegenConfig};
+
+    fn reds() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| super::generate(ir(), &CodegenConfig::c_header()).unwrap())
+    }
+
+    /// The field lines of `Az<name>!: alias struct! [ ... ]`.
+    fn alias_fields(name: &str) -> Vec<&'static str> {
+        let head = format!("Az{}!: alias struct! [\n", name);
+        let out = reds();
+        let start = out.find(&head).unwrap_or_else(|| panic!("no {head}")) + head.len();
+        out[start..]
+            .lines()
+            .take_while(|l| l.trim() != "]")
+            .map(str::trim)
+            .collect()
+    }
+
+    /// Bytes one emitted field token occupies (Red/System on LP64).
+    fn token_size(line: &str) -> usize {
+        let tok = line
+            .split_once('[')
+            .and_then(|(_, r)| r.split_once(']'))
+            .map(|(t, _)| t.trim())
+            .unwrap_or_else(|| panic!("no type in `{line}`"));
+        match tok {
+            "byte!" => 1,
+            "integer!" | "float32!" | "logic!" => 4,
+            "float!" | "byte-ptr!" => 8,
+            value => {
+                let name = value
+                    .strip_suffix("! value")
+                    .and_then(|n| n.strip_prefix("Az"))
+                    .unwrap_or_else(|| panic!("unknown token `{value}`"));
+                type_layout(name, ir()).expect("layout").size
+            }
+        }
+    }
+
+    #[test]
+    fn a_bool_field_is_one_byte_not_a_32_bit_logic() {
+        let fields = alias_fields("FullWindowState");
+        assert!(fields.contains(&"window_focused [byte!]"), "{fields:?}");
+        let types = &reds()[..reds().find("#import [").unwrap()];
+        assert!(
+            !types.contains("[logic!]"),
+            "a struct field is still logic!"
+        );
+    }
+
+    #[test]
+    fn a_64_bit_integer_field_is_two_32_bit_halves() {
+        let s = ir()
+            .structs
+            .iter()
+            .find(|s| s.generic_params.is_empty() && s.fields.iter().any(|f| f.type_name == "u64"))
+            .expect("a struct with a u64 field");
+        let f = s.fields.iter().find(|f| f.type_name == "u64").unwrap();
+        let fields = alias_fields(&s.name);
+        assert!(
+            fields.contains(&format!("{} [integer!]", f.name).as_str()),
+            "{fields:?}"
+        );
+        assert!(
+            fields.contains(&format!("{}_hi [integer!]", f.name).as_str()),
+            "{fields:?}"
+        );
+    }
+
+    #[test]
+    fn every_struct_alias_is_exactly_its_c_size() {
+        let mut wrong = Vec::new();
+        for s in &ir().structs {
+            if !super::should_emit_struct(s, &CodegenConfig::c_header()) {
+                continue;
+            }
+            let Some(layout) = type_layout(&s.name, ir()) else {
+                continue;
+            };
+            let size: usize = alias_fields(&s.name).iter().map(|l| token_size(l)).sum();
+            if size != layout.size {
+                wrong.push(format!("{}: {} bytes, C has {}", s.name, size, layout.size));
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
 }

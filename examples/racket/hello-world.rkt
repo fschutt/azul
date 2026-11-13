@@ -29,8 +29,8 @@
   (define app (app-create data (app-config-create)))
 
   (define wco (make-window-create-options))
-  (define ws (AzWindowCreateOptions-window-state wco))
-  (set-AzFullWindowState-title! ws (az-str "Hello World"))
+  (define ws (window-create-options-window-state wco)) ; a view: writes reach wco
+  (set-full-window-state-title! ws "Hello World")
   (set-AzFullWindowState-layout-callback! ws (register-callback "LayoutCallback" layout))
 
   (define sz (AzFullWindowState-size ws))

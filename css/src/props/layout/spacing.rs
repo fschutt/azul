@@ -351,6 +351,7 @@ pub fn parse_layout_margin(input: &str) -> Result<LayoutMargin, LayoutMarginPars
 
 // -- Longhand Property Parsers --
 
+#[cfg(feature = "parser")]
 macro_rules! typed_pixel_value_parser {
     (
         $fn:ident, $fn_str:expr, $return:ident, $return_str:expr, $import_str:expr, $test_str:expr

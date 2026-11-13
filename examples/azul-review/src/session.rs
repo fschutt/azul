@@ -97,39 +97,19 @@ fn wav_name(index: usize) -> String {
     format!("clip-{index}.wav")
 }
 
+/// A mono voice clip as a 16-bit PCM WAV (azul's one WAV writer).
 fn wav(samples: &[f32], sample_rate: u32) -> Vec<u8> {
-    let data_len = samples.len() * 2;
-    let mut out = Vec::with_capacity(44 + data_len);
-    let mut tag = |s: &str| out.extend_from_slice(s.as_bytes());
-    tag("RIFF");
-    out.extend_from_slice(
-        &u32::try_from(36 + data_len)
-            .unwrap_or(u32::MAX)
-            .to_le_bytes(),
-    );
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&sample_rate.to_le_bytes());
-    out.extend_from_slice(&(sample_rate * 2).to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&u32::try_from(data_len).unwrap_or(u32::MAX).to_le_bytes());
-    for s in samples {
-        let v = (s.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out
+    azul::widgets::Waveform::encode_wav(azul::vec::F32Vec::from(samples.to_vec()), sample_rate, 1)
+        .as_ref()
+        .to_vec()
 }
 
-pub fn save(s: &AppState) -> bool {
-    let dir = crate::scratch_dir();
-    if std::fs::create_dir_all(&dir).is_err() {
-        return false;
-    }
-
+/// The session as an archive: its file name ([`archive_name`]) and its
+/// bytes - every voice clip as a WAV and `session.json` (the strokes, the
+/// findings, the clips). No disk here: the caller writes it into the data
+/// tree on a Thread (`crate::save_session`).
+#[must_use]
+pub fn archive(s: &AppState) -> (String, Vec<u8>) {
     let mut zip = Zip::create();
 
     let clips: Vec<&VoiceClip> = s.clips.iter().chain(s.recording.iter()).collect();
@@ -160,25 +140,33 @@ pub fn save(s: &AppState) -> bool {
         bytes(model.to_string_pretty().as_str().as_bytes()),
     );
 
-    let final_path = archive_path(s);
-    let temp_path = final_path.with_extension("zip.part");
-    if !zip.to_file(temp_path.to_string_lossy().as_ref()) {
-        return false;
-    }
-    std::fs::rename(&temp_path, &final_path).is_ok()
+    (
+        archive_name(s.file().map(|f| f.display.as_str())),
+        zip.to_bytes().as_slice().to_vec(),
+    )
 }
 
-fn archive_path(s: &AppState) -> std::path::PathBuf {
-    let stem = s.file().map_or_else(
-        || "session".to_string(),
-        |f| f.display.replace(['/', '\\'], "_"),
-    );
-    crate::scratch_dir().join(format!("{stem}.azreview.zip"))
+/// The archive's file name for the file under review (`src/lib.rs` ->
+/// `src_lib.rs.azreview.zip`; no file: `session.azreview.zip`).
+#[must_use]
+pub fn archive_name(display: Option<&str>) -> String {
+    let stem = display
+        .filter(|d| !d.is_empty())
+        .map_or_else(|| "session".to_string(), |d| d.replace(['/', '\\'], "_"));
+    format!("{stem}.azreview.zip")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_archive_is_named_after_the_file_under_review() {
+        assert_eq!(archive_name(Some("src/lib.rs")), "src_lib.rs.azreview.zip");
+        assert_eq!(archive_name(Some("a\\b.rs")), "a_b.rs.azreview.zip");
+        assert_eq!(archive_name(None), "session.azreview.zip");
+        assert_eq!(archive_name(Some("")), "session.azreview.zip");
+    }
 
     #[test]
     fn a_wav_header_declares_the_sample_count_it_actually_carries() {

@@ -313,3 +313,31 @@ fn test_at_os_top_level() {
         "Expected .button in the path"
     );
 }
+
+/// A nested descendant rule keeps its combinator: `.outer { .a .b { } }` is
+/// `.outer .a .b`, not the compound `.outer .a.b` (the tokenizer used to skip
+/// the space between nested selectors).
+#[test]
+fn test_nested_descendant_selector_keeps_its_combinator() {
+    let (result, _warnings) = new_from_str(".outer { .a .b { color: red; } }");
+    let rule = result
+        .rules()
+        .find(|r| {
+            r.path
+                .selectors
+                .iter()
+                .any(|s| matches!(s, CssPathSelector::Class(c) if c.as_str() == "b"))
+        })
+        .expect("a rule for .b");
+    let path: Vec<_> = rule.path.selectors.iter().collect();
+    let b = path
+        .iter()
+        .position(|s| matches!(s, CssPathSelector::Class(c) if c.as_str() == "b"))
+        .unwrap();
+    assert!(b >= 2, "{path:?}");
+    assert!(matches!(path[b - 1], CssPathSelector::Children), "{path:?}");
+    assert!(
+        matches!(path[b - 2], CssPathSelector::Class(c) if c.as_str() == "a"),
+        "{path:?}"
+    );
+}

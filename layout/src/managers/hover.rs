@@ -19,65 +19,78 @@ const MAX_HOVER_HISTORY: usize = 5;
 
 /// Pick the front-most deepest hovered node across all hit DOMs.
 ///
-/// Iterates DOMs from highest `DomId` (most-nested child, composited on top)
-/// to lowest and returns the FRONT-MOST hit of the first DOM that has a
-/// regular hit: the smallest `hit_depth` (both hit testers number hits
-/// front to back). Ties fall back to the highest `NodeId`, which is what
-/// this used to return outright - right while the arena's DFS order was
-/// also the depth order, wrong for an inline-docked `<transient-window>`
+/// The FRONT-MOST regular hit of every DOM: the smallest `hit_depth` -
+/// both hit testers number hits front to back along ONE list for the whole
+/// window, a child DOM's hits where its `VirtualView` paints. A box of the
+/// host painted after the view (a map's zoom button) is in front of the
+/// page; this used to take the highest `DomId` with any hit, so every click
+/// on such a box reached the page under it. Ties fall back to the higher
+/// `DomId`, then the highest `NodeId` - right while the arena's DFS order
+/// was also the depth order, wrong for an inline-docked `<transient-window>`
 /// grafted under a zone with a higher id than its own subtree.
 /// See [`HoverManager::current_hover_node_full`].
 #[must_use]
 pub fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
-    for (dom_id, hit) in ht.hovered_nodes.iter().rev() {
-        let front = hit
-            .regular_hit_test_nodes
-            .iter()
-            .min_by(|(a_id, a), (b_id, b)| a.hit_depth.cmp(&b.hit_depth).then(b_id.cmp(a_id)))
-            .map(|(node_id, _)| *node_id);
-        if let Some(node_id) = front {
-            return Some(DomNodeId {
-                dom: *dom_id,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
-                    node_id,
-                )),
-            });
-        }
-    }
-    None
+    ht.hovered_nodes
+        .iter()
+        .flat_map(|(dom_id, hit)| {
+            hit.regular_hit_test_nodes
+                .iter()
+                .map(move |(node_id, item)| (item.hit_depth, *dom_id, *node_id))
+        })
+        .min_by(|(a_depth, a_dom, a_id), (b_depth, b_dom, b_id)| {
+            a_depth
+                .cmp(b_depth)
+                .then(b_dom.cmp(a_dom))
+                .then(b_id.cmp(a_id))
+        })
+        .map(|(_, dom, node_id)| DomNodeId {
+            dom,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        })
 }
 
 /// The node a mouse press FOCUSES: the nearest focusable ancestor (self
-/// included) of the front-most hit, walking that node's OWN DOM only
-/// (9g-ii-e-ii).
+/// included) of the front-most hit, along the hit's EVENT PATH - its own
+/// DOM up to the root, then on at the node hosting that DOM
+/// (`VirtualView`) and up through the host's DOM, and so on (user ruling
+/// 2026-10-03, "nearest focus parent").
 ///
-/// `is_focusable(dom, node)` and `parent(dom, node)` are the two questions
-/// the walk asks of the layout results; taking them as closures keeps the
-/// rule testable without a laid-out document, and lets the e2e runner and
-/// the dll share it instead of each keeping a copy - both copies walked
-/// EVERY hit DOM in ascending id order and let the LAST focusable win, so a
-/// focusable host node under a `VirtualView` page took the focus a click on
-/// the page meant for the page (or for nobody: a click on unfocusable page
-/// content is a BLUR, not a focus of whatever the page covers).
+/// A child DOM is content of its host the way a shadow tree is content of
+/// its host element: a click on plain text inside a `VirtualView` focuses
+/// the focusable box around the view, exactly as a click on plain text
+/// inside a focusable `<div>` focuses that `<div>`. The walk is
+/// [`azul_core::events::get_event_path`] - the ONE path events bubble along
+/// - so focus and bubbling cannot disagree about who the ancestors are.
+/// This used to stop at the child DOM's root and blur.
+///
+/// Only the front-most hit's ancestors count (9g-ii-e-ii): a focusable node
+/// that merely lies UNDER the page, off the page's host chain, never takes
+/// the click - both earlier copies of this scan walked EVERY hit DOM and let
+/// the last focusable win.
+///
+/// `is_focusable(dom, node)`, `parent(dom, node)` and `host_of(dom)` (the
+/// node hosting a child DOM, `VirtualViewManager::host_of_nested_dom`;
+/// `None` for the root DOM) are the questions the walk asks of the layout
+/// results; taking them as closures keeps the rule testable without a
+/// laid-out document, and lets the e2e runner and the dll share it.
 #[must_use]
 pub fn focusable_under_pointer(
     ht: &FullHitTest,
     is_focusable: impl Fn(azul_core::dom::DomId, azul_core::id::NodeId) -> bool,
     parent: impl Fn(azul_core::dom::DomId, azul_core::id::NodeId) -> Option<azul_core::id::NodeId>,
+    host_of: impl Fn(azul_core::dom::DomId) -> Option<(azul_core::dom::DomId, azul_core::id::NodeId)>,
 ) -> Option<DomNodeId> {
     let target = deepest_node_across_doms(ht)?;
-    let dom = target.dom;
-    let mut current = target.node.into_crate_internal();
-    while let Some(nid) = current {
-        if is_focusable(dom, nid) {
-            return Some(DomNodeId {
-                dom,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(nid)),
-            });
-        }
-        current = parent(dom, nid);
-    }
-    None
+    // Root first, ending at the target: walk it backwards, nearest first.
+    azul_core::events::get_event_path(target, &parent, &host_of)
+        .into_iter()
+        .rev()
+        .find(|at| {
+            at.node
+                .into_crate_internal()
+                .is_some_and(|nid| is_focusable(at.dom, nid))
+        })
 }
 
 /// Which seat an event belongs to: the seat on a mouse, scroll or keyboard
@@ -177,6 +190,10 @@ pub struct HoverManager {
     /// (9b-ii): two cursors can hold Left at once, and the second press must
     /// not overwrite the first's target.
     press_targets: Vec<(u64, MouseButton, DomNodeId)>,
+    /// The doms [`Self::purge_dom`] forgot, per input point, until that
+    /// point's next hit test: that one stands in for what was hovered before
+    /// the rebuild too (see [`Self::push_hit_test`]).
+    rebuilt_doms: std::collections::BTreeSet<(InputPointId, azul_core::dom::DomId)>,
 }
 
 impl HoverManager {
@@ -186,6 +203,7 @@ impl HoverManager {
         Self {
             hover_histories: BTreeMap::new(),
             press_targets: Vec::new(),
+            rebuilt_doms: std::collections::BTreeSet::new(),
         }
     }
 
@@ -228,7 +246,18 @@ impl HoverManager {
     /// in its propagation path (`in_release_path(press, release)`), a second
     /// `MouseUp` for the pressed node — delivered AT THAT TARGET ONLY, its
     /// ancestors see the real release — is appended. The release through the
-    /// hovered node is untouched (click semantics stay hover-based).
+    /// hovered node is untouched.
+    ///
+    /// CLICK ACROSS NODES. `determine_all_events` clicks a left press and
+    /// release on ONE node; this is where the tree is known (`in_release_path`),
+    /// so the rest of the W3C rule lives here: `click` goes to the nearest
+    /// common inclusive ancestor of the press and the release targets. A
+    /// release on a descendant of the pressed node clicks the pressed node; a
+    /// release on an ancestor of it clicks that ancestor (never the DOM root -
+    /// a release off every node is targeted there). The content can move
+    /// under a still pointer between the two: a press that focuses a button
+    /// half under the fold scrolls it into view, and the release lands on its
+    /// label instead of its padding (`AzCalendar`'s "Save & Close", E2E-A).
     ///
     /// Call once per pass, after `determine_all_events`, before dispatch. A
     /// release derived from a blur (the OS handlers clear the buttons) goes
@@ -240,6 +269,8 @@ impl HoverManager {
         in_release_path: &dyn Fn(DomNodeId, DomNodeId) -> bool,
     ) {
         let mut captured_releases: Vec<SyntheticEvent> = Vec::new();
+        // (seat, the Click) of every release that completed a click across nodes.
+        let mut clicks: Vec<(u64, SyntheticEvent)> = Vec::new();
         for event in events.iter() {
             let EventData::Mouse(mouse) = &event.data else {
                 continue;
@@ -260,7 +291,34 @@ impl HoverManager {
                         continue;
                     };
                     let (_, _, press_target) = self.press_targets.remove(pos);
-                    if press_target == event.target || in_release_path(press_target, event.target) {
+                    if press_target == event.target {
+                        continue;
+                    }
+                    let press_on_path = in_release_path(press_target, event.target);
+                    if mouse.button == MouseButton::Left {
+                        let release_is_root = event.target.node.into_crate_internal()
+                            == Some(azul_core::id::NodeId::ZERO);
+                        let common = if press_on_path {
+                            Some(press_target)
+                        } else if !release_is_root && in_release_path(event.target, press_target) {
+                            Some(event.target)
+                        } else {
+                            None
+                        };
+                        if let Some(common) = common {
+                            clicks.push((
+                                mouse.seat_id,
+                                SyntheticEvent::new(
+                                    EventType::Click,
+                                    EventSource::User,
+                                    common,
+                                    event.timestamp.clone(),
+                                    event.data.clone(),
+                                ),
+                            ));
+                        }
+                    }
+                    if press_on_path {
                         continue;
                     }
                     captured_releases.push(
@@ -278,6 +336,17 @@ impl HoverManager {
             }
         }
         events.extend(captured_releases);
+        for (seat, click) in clicks {
+            // One click per release: the same-node one `determine_all_events`
+            // made stands.
+            let clicked = events.iter().any(|e| {
+                e.event_type == EventType::Click
+                    && matches!(&e.data, EventData::Mouse(m) if m.seat_id == seat)
+            });
+            if !clicked {
+                events.push(click);
+            }
+        }
     }
 
     /// (input points, total history entries across all points). Used by
@@ -293,6 +362,14 @@ impl HoverManager {
     ///
     /// The most recent result is always at index 0 for that input point.
     /// If the history is full, the oldest frame is dropped.
+    ///
+    /// A dom rebuilt in place since this point's last hit test
+    /// ([`Self::purge_dom`]) has no hits in the older frames: the new frame's
+    /// hits of that dom are copied into the frame before it, as if the pointer
+    /// had been over the same nodes all along. Otherwise every node under a
+    /// still pointer was "entered" again after each rebuild - a `VirtualView`
+    /// re-rendered on every move of a pan sent `MouseEnter` and a bubbling
+    /// `MouseOver` for each of them, on every move.
     pub fn push_hit_test(&mut self, input_id: InputPointId, hit_test: FullHitTest) {
         let history = self
             .hover_histories
@@ -301,6 +378,20 @@ impl HoverManager {
 
         // Add to front (most recent)
         history.push_front(hit_test);
+
+        let rebuilt: Vec<azul_core::dom::DomId> = self
+            .rebuilt_doms
+            .iter()
+            .filter(|(point, _)| *point == input_id)
+            .map(|(_, dom)| *dom)
+            .collect();
+        for dom in rebuilt {
+            self.rebuilt_doms.remove(&(input_id, dom));
+            let now = history[0].hovered_nodes.get(&dom).cloned();
+            if let (Some(now), Some(before)) = (now, history.get_mut(1)) {
+                before.hovered_nodes.insert(dom, now);
+            }
+        }
 
         // Remove oldest if we exceed the limit
         if history.len() > MAX_HOVER_HISTORY {
@@ -368,12 +459,17 @@ impl HoverManager {
     /// bounds (the `hit_test.rs` cursor panic: "len is 25 but the index is 27")
     /// or target the wrong node. Unlike incremental reconciles there is no
     /// `NodeId` map to `remap` with, so the only safe option is to forget that
-    /// DOM's hits; the next pointer move re-populates them from a fresh
-    /// hit test.
+    /// DOM's hits; the next hit test re-populates them, and stands in for the
+    /// frame before it as well ([`Self::push_hit_test`]), so a still pointer
+    /// enters nothing anew.
     pub fn purge_dom(&mut self, dom_id: &azul_core::dom::DomId) {
-        for history in self.hover_histories.values_mut() {
+        for (point, history) in &mut self.hover_histories {
+            let mut had_hits = false;
             for frame in history.iter_mut() {
-                frame.hovered_nodes.remove(dom_id);
+                had_hits |= frame.hovered_nodes.remove(dom_id).is_some();
+            }
+            if had_hits {
+                self.rebuilt_doms.insert((*point, *dom_id));
             }
         }
         // A press on a node of a purged (rebuilt) dom can never be released
@@ -384,6 +480,7 @@ impl HoverManager {
     /// Clear all hover history for all input points
     pub fn clear(&mut self) {
         self.hover_histories.clear();
+        self.rebuilt_doms.clear();
     }
 
     /// Clear history for a specific input point
@@ -664,7 +761,10 @@ mod autotest_generated {
         )];
         hm.apply_press_target_capture(&mut events, &descendant_of);
         assert_eq!(
-            events.len(),
+            events
+                .iter()
+                .filter(|e| e.event_type == EventType::MouseUp)
+                .count(),
             1,
             "no second release when the path already covers the press"
         );
@@ -682,6 +782,76 @@ mod autotest_generated {
         )];
         hm.apply_press_target_capture(&mut events, &descendant_of);
         assert_eq!(events.len(), 1, "same node: one release");
+    }
+
+    /// A click is a press and a release on the same CONTROL, not on the same box: the release
+    /// can land on another node of it - the content scrolled under the pointer between the two
+    /// (a press focuses a button half under the fold, and the focus scrolls it into view), or
+    /// the hand moved a pixel off the label onto the button's padding. W3C UI Events: `click`
+    /// goes to the nearest common inclusive ancestor of the press and the release targets.
+    /// AzCalendar's editor: "Save & Close" pressed on its label, released on the button, and
+    /// nothing was saved (E2E-A, 2026-10-06).
+    #[test]
+    fn a_release_on_an_ancestor_or_a_descendant_of_the_pressed_node_clicks_the_ancestor() {
+        // 3 is the button, 5 its label; `ancestor(a, d)`: a is d or one of d's ancestors.
+        fn ancestor(a: DomNodeId, d: DomNodeId) -> bool {
+            a == d || (a == press_dnid(3) && d == press_dnid(5))
+        }
+        fn clicks(events: &[SyntheticEvent]) -> Vec<DomNodeId> {
+            events
+                .iter()
+                .filter(|e| e.event_type == EventType::Click)
+                .map(|e| e.target)
+                .collect()
+        }
+        fn press_release(
+            hm: &mut HoverManager,
+            button: MouseButton,
+            press: usize,
+            release: usize,
+        ) -> Vec<SyntheticEvent> {
+            let mut events = vec![mouse_event(EventType::MouseDown, button, press_dnid(press))];
+            hm.apply_press_target_capture(&mut events, &ancestor);
+            let mut events = vec![mouse_event(EventType::MouseUp, button, press_dnid(release))];
+            hm.apply_press_target_capture(&mut events, &ancestor);
+            events
+        }
+        let mut hm = HoverManager::new();
+
+        let events = press_release(&mut hm, MouseButton::Left, 5, 3);
+        assert_eq!(
+            clicks(&events),
+            vec![press_dnid(3)],
+            "pressed on the label, released on the button: the button is clicked"
+        );
+        let events = press_release(&mut hm, MouseButton::Left, 3, 5);
+        assert_eq!(
+            clicks(&events),
+            vec![press_dnid(3)],
+            "pressed on the button, released on its label: the button is clicked"
+        );
+        let events = press_release(&mut hm, MouseButton::Left, 5, 9);
+        assert!(
+            clicks(&events).is_empty(),
+            "released on an unrelated node: no click"
+        );
+        let events = press_release(&mut hm, MouseButton::Right, 5, 3);
+        assert!(clicks(&events).is_empty(), "a right release is no click");
+
+        // A click the determination already made (press and release on one node) is not
+        // doubled.
+        let mut events = vec![mouse_event(
+            EventType::MouseDown,
+            MouseButton::Left,
+            press_dnid(3),
+        )];
+        hm.apply_press_target_capture(&mut events, &ancestor);
+        let mut events = vec![
+            mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(3)),
+            mouse_event(EventType::Click, MouseButton::Left, press_dnid(3)),
+        ];
+        hm.apply_press_target_capture(&mut events, &ancestor);
+        assert_eq!(clicks(&events), vec![press_dnid(3)], "one click");
     }
 
     #[test]
@@ -868,6 +1038,25 @@ mod autotest_generated {
         // dom 0 has the deeper NodeId (99) but dom 3 is composited on top.
         let ht = hits(&[(0, &[99]), (3, &[1])]);
         assert_eq!(deepest_node_across_doms(&ht), Some(dom_node(3, 1)));
+    }
+
+    #[test]
+    fn deepest_node_across_doms_takes_the_front_most_hit_whatever_its_dom() {
+        // A box of dom 0 painted over the VirtualView that shows dom 1 (a
+        // zoom button over a map) is nearer the user than the page: the hit
+        // depth says so, the dom id does not.
+        let mut full = FullHitTest::empty(None);
+        full.hovered_nodes
+            .entry(dom(0))
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(NodeId::new(7), hit_item(0));
+        full.hovered_nodes
+            .entry(dom(1))
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(NodeId::new(2), hit_item(1));
+        assert_eq!(deepest_node_across_doms(&full), Some(dom_node(0, 7)));
     }
 
     #[test]
@@ -1314,6 +1503,34 @@ mod autotest_generated {
         assert_eq!(hm.previous_hover_node_full(), Some(dom_node(0, 1)));
     }
 
+    /// After a dom is rebuilt in place (purged), the next hit test of a
+    /// point stands in for the frame before it too: a pointer that did not
+    /// move enters nothing again.
+    #[test]
+    fn a_purged_dom_is_rebaselined_by_the_next_hit_test() {
+        let mut hm = HoverManager::new();
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, &[1]), (1, &[2, 3])]));
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, &[1]), (1, &[2, 3])]));
+        hm.purge_dom(&dom(1));
+        // The same nodes under the pointer after the rebuild.
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, &[1]), (1, &[2, 3])]));
+        let now = hm.get_frame(&InputPointId::Mouse, 0).unwrap();
+        let before = hm.get_frame(&InputPointId::Mouse, 1).unwrap();
+        assert_eq!(
+            before.hovered_nodes.get(&dom(1)),
+            now.hovered_nodes.get(&dom(1))
+        );
+        // Only once: a later frame is diffed against what was recorded.
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, &[1])]));
+        let before = hm.get_frame(&InputPointId::Mouse, 1).unwrap();
+        assert!(before.hovered_nodes.contains_key(&dom(1)));
+        let now = hm.get_frame(&InputPointId::Mouse, 0).unwrap();
+        assert!(
+            !now.hovered_nodes.contains_key(&dom(1)),
+            "the pointer left the view"
+        );
+    }
+
     #[test]
     fn purge_dom_zero_leaves_child_dom_hits_intact() {
         let mut hm = mouse_history(vec![hits(&[(0, &[1]), (4, &[2])])]);
@@ -1605,8 +1822,9 @@ mod autotest_generated {
 
     // ------------------------------------------------- focusable_under_pointer
 
-    /// Hits: dom 0 (the host) node 3 at depth 1; dom 1 (a page over it) node
-    /// 2 at depth 0. Parents: in dom 0, 3 -> 1 -> 0; in dom 1, 2 -> 0.
+    /// Hits: dom 0 (the host's page) node 3 at depth 1; dom 1 (a child page
+    /// over it) node 2 at depth 0. Parents: in dom 0, 3 -> 1 -> 0 and
+    /// 5 -> 0; in dom 1, 2 -> 0.
     fn host_and_page() -> FullHitTest {
         let mut full = FullHitTest::empty(None);
         let mut host = HitTest::empty();
@@ -1624,32 +1842,59 @@ mod autotest_generated {
         match (d.inner, n.index()) {
             (0, 3) => Some(NodeId::new(1)),
             (0, 1) => Some(NodeId::new(0)),
+            (0, 5) => Some(NodeId::new(0)),
             (1, 2) => Some(NodeId::new(0)),
             _ => None,
         }
     }
 
+    /// Dom 1 is the page of the `VirtualView` at dom 0's node `host`.
+    fn page_hosted_by(host: usize) -> impl Fn(DomId) -> Option<(DomId, NodeId)> {
+        move |d: DomId| (d.inner == 1).then(|| (dom(0), NodeId::new(host)))
+    }
+
+    fn no_hosts(_: DomId) -> Option<(DomId, NodeId)> {
+        None
+    }
+
     #[test]
-    fn a_click_on_unfocusable_page_content_does_not_focus_the_host_beneath() {
-        // THE DEFECT: both copies of this scan walked every hit DOM and let
-        // the last focusable win, so the host's focusable node 1 - under the
-        // page, not in the click's own DOM at all - took the focus.
+    fn a_click_on_unfocusable_page_content_focuses_the_focusable_ancestor_of_its_host() {
+        // User ruling 2026-10-03 ("nearest focus parent"): the page is
+        // content of the VirtualView at node 3, so its press walks on past
+        // the page's root at node 3 and up to the focusable node 1. This
+        // used to stop at the page's root and blur.
+        let ht = host_and_page();
+        let host_node_1_is_focusable = |d: DomId, n: NodeId| d.inner == 0 && n.index() == 1;
+        let got =
+            focusable_under_pointer(&ht, host_node_1_is_focusable, parent_of, page_hosted_by(3))
+                .expect("the host's focusable ancestor");
+        assert_eq!(got.dom, dom(0));
+        assert_eq!(got.node.into_crate_internal(), Some(NodeId::new(1)));
+    }
+
+    #[test]
+    fn a_focusable_node_under_the_page_but_off_its_host_chain_does_not_take_the_click() {
+        // THE OLD DEFECT: both copies of this scan walked every hit DOM and
+        // let the last focusable win. Here the page is hosted by node 5, so
+        // node 1 - hit in dom 0 under the page, but not an ancestor of the
+        // page's host - must not take the focus.
         let ht = host_and_page();
         let host_node_1_is_focusable = |d: DomId, n: NodeId| d.inner == 0 && n.index() == 1;
         assert_eq!(
-            focusable_under_pointer(&ht, host_node_1_is_focusable, parent_of),
+            focusable_under_pointer(&ht, host_node_1_is_focusable, parent_of, page_hosted_by(5)),
             None,
-            "nothing focusable in the page's own chain: a blur, not the host"
+            "nothing focusable on the page's event path: a blur, not whatever lies beneath"
         );
     }
 
     #[test]
     fn a_click_on_a_page_focuses_the_pages_own_focusable_ancestor() {
         let ht = host_and_page();
-        // Both DOMs have a focusable root; the page's wins because the page
-        // is the front-most surface.
+        // Both DOMs have a focusable root; the page's is NEARER (the page is
+        // the front-most surface and its root comes before its host).
         let roots = |_: DomId, n: NodeId| n.index() == 0;
-        let got = focusable_under_pointer(&ht, roots, parent_of).expect("the page root");
+        let got = focusable_under_pointer(&ht, roots, parent_of, page_hosted_by(3))
+            .expect("the page root");
         assert_eq!(got.dom, dom(1));
         assert_eq!(got.node.into_crate_internal(), Some(NodeId::new(0)));
     }
@@ -1667,8 +1912,14 @@ mod autotest_generated {
         full.hovered_nodes.insert(dom(0), ht);
         let seven = |_: DomId, n: NodeId| n.index() == 7;
         let no_parents = |_: DomId, _: NodeId| None;
-        assert_eq!(focusable_under_pointer(&full, seven, no_parents), None);
-        assert!(focusable_under_pointer(&FullHitTest::empty(None), seven, no_parents).is_none());
+        assert_eq!(
+            focusable_under_pointer(&full, seven, no_parents, no_hosts),
+            None
+        );
+        assert!(
+            focusable_under_pointer(&FullHitTest::empty(None), seven, no_parents, no_hosts)
+                .is_none()
+        );
     }
 
     #[test]

@@ -1121,6 +1121,12 @@ pub fn run(cfg: &Config) -> Result<(), String> {
         subcommand: AutoreviewSubcommand::Autodoc,
         limit: None,
         reference: None,
+        rewrite: None,
+        force: false,
+        max_bytes: crate::reftest::rewrite_source::DEFAULT_MAX_BYTES,
+        effort: None,
+        out: None,
+        coverage: None,
     };
     crate::reftest::autodoc::dispatch_prompt_agents(&ar, &pdir, "CTX")?;
 

@@ -1,0 +1,357 @@
+{
+  "menu": [
+    { "key": "menu.fixed_assets", "path": "/accounting/assets" },
+    { "key": "menu.asset_categories", "path": "/assets/categories" },
+    { "key": "menu.asset_locations", "path": "/assets/locations" },
+    { "key": "menu.maintenance", "path": "/assets/maintenance" },
+    { "key": "menu.checkouts", "path": "/assets/checkouts" },
+    { "key": "menu.asset_reports", "path": "/assets/reports" }
+  ],
+  "views": {
+    "assets_fixed_asset_list": {
+      "id": "assets_fixed_asset_list",
+      "path": "/accounting/assets",
+      "type": "table",
+      "title_key": "view.fixed_assets.title",
+      "api": { "get": "/api/assets/fixed-assets" },
+      "actions": [
+        { "type": "link", "label_key": "actions.add_asset", "path": "/accounting/assets/new", "variant": "primary", "icon": "add" },
+        { "type": "link", "label_key": "actions.import_csv", "path": "/assets/import", "icon": "upload_file" },
+        { "type": "action", "id": "export_csv", "label_key": "actions.export_csv", "icon": "download" },
+        { "type": "link", "label_key": "actions.depreciation_run", "path": "/assets/depreciation-runs/new", "icon": "calculate" }
+      ],
+      "columns": [
+        { "data_field": "asset_number", "header_key": "fields.asset_number.label", "width": 96 },
+        { "data_field": "name", "header_key": "fields.asset_name.label", "width": 220 },
+        { "data_field": "category", "header_key": "fields.category.label", "width": 140 },
+        { "data_field": "location", "header_key": "fields.location.label", "width": 160 },
+        { "data_field": "acquisition_date", "header_key": "fields.acquisition_date.label", "type": "date", "width": 110 },
+        { "data_field": "acquisition_cost", "header_key": "fields.acquisition_cost.label", "type": "currency", "width": 120 },
+        { "data_field": "book_value", "header_key": "fields.book_value.label", "type": "currency", "width": 120 },
+        { "data_field": "status", "header_key": "fields.status.label", "type": "status_pill", "width": 110 }
+      ],
+      "row_actions": [
+        { "type": "link", "label_key": "actions.view", "path": "/accounting/assets/:id", "icon": "ViewIcon" }
+      ]
+    },
+    "assets_fixed_asset_form": {
+      "id": "assets_fixed_asset_form",
+      "path": ["/accounting/assets/new", "/accounting/assets/:id/edit"],
+      "type": "form",
+      "title_key": { "new": "view.asset_new.title", "edit": "view.asset_edit.title" },
+      "api": {
+        "get": "/api/assets/fixed-assets/:id",
+        "post": "/api/assets/fixed-assets",
+        "put": "/api/assets/fixed-assets/:id"
+      },
+      "fields": [
+        { "name": "name", "type": "text", "label_key": "fields.asset_name.label", "required": true },
+        { "name": "asset_number", "type": "text", "label_key": "fields.asset_number.label", "required": true },
+        { "name": "category_id", "type": "select_async", "label_key": "fields.category.label", "options_source": "/api/assets/categories" },
+        { "name": "location_id", "type": "select_async", "label_key": "fields.location.label", "options_source": "/api/assets/locations" },
+        { "name": "serial_number", "type": "text", "label_key": "fields.serial_number.label" },
+        { "name": "acquisition_date", "type": "date", "label_key": "fields.acquisition_date.label", "required": true, "default": "today" },
+        { "name": "acquisition_cost", "type": "decimal", "label_key": "fields.acquisition_cost.label", "required": true, "min": 0 },
+        { "name": "residual_value", "type": "decimal", "label_key": "fields.residual_value.label", "min": 0, "default": "0.00" },
+        { "name": "useful_life_years", "type": "integer", "label_key": "fields.useful_life_years.label", "required": true, "min": 0, "max": 100 },
+        {
+          "name": "depreciation_method",
+          "type": "select",
+          "label_key": "fields.depreciation_method.label",
+          "options": [
+            { "value": "STRAIGHT_LINE", "label_key": "depreciation.straight_line" },
+            { "value": "DECLINING_BALANCE", "label_key": "depreciation.declining_balance" }
+          ],
+          "required": true,
+          "default": "STRAIGHT_LINE"
+        },
+        {
+          "name": "declining_rate_percent",
+          "type": "decimal",
+          "label_key": "fields.declining_rate_percent.label",
+          "min": 0,
+          "max": 100,
+          "condition": "depreciation_method == 'DECLINING_BALANCE'"
+        },
+        { "name": "maintenance_interval_months", "type": "integer", "label_key": "fields.maintenance_interval_months.label", "min": 0, "max": 600 },
+        { "name": "notes", "type": "textarea", "label_key": "fields.notes.label" }
+      ],
+      "actions": [
+        { "type": "submit", "label_key": "actions.save", "variant": "primary" },
+        { "type": "cancel", "label_key": "actions.cancel" }
+      ]
+    },
+    "assets_fixed_asset_detail": {
+      "id": "assets_fixed_asset_detail",
+      "path": "/accounting/assets/:id",
+      "type": "detail",
+      "api": { "get": "/api/assets/fixed-assets/:id" },
+      "header": {
+        "title_field": "name",
+        "subtitle_field": "asset_number",
+        "status_field": "status",
+        "actions": [
+          { "type": "link", "label_key": "actions.edit", "path": "/accounting/assets/:id/edit", "variant": "secondary", "icon": "edit" },
+          { "type": "link", "label_key": "actions.check_out", "path": "/accounting/assets/:id/checkout", "icon": "logout", "condition": "status != 'CHECKED_OUT' && status != 'DISPOSED'" },
+          { "type": "action", "id": "check_in", "label_key": "actions.check_in", "icon": "login", "condition": "status == 'CHECKED_OUT'" },
+          { "type": "link", "label_key": "actions.log_maintenance", "path": "/accounting/assets/:id/maintenance/new", "icon": "build" },
+          { "type": "link", "label_key": "actions.dispose", "path": "/accounting/assets/:id/dispose", "icon": "delete_sweep", "condition": "status != 'DISPOSED'" },
+          { "type": "action", "id": "export_schedule", "label_key": "actions.export_schedule", "icon": "download" },
+          { "type": "action", "id": "delete", "label_key": "actions.delete", "icon": "delete" }
+        ]
+      },
+      "tabs": [
+        { "key": "tab.overview", "component": "FixedAssetOverviewPanel" },
+        { "key": "tab.depreciation_schedule", "component": "DepreciationSchedulePanel", "api": { "get": "/api/assets/fixed-assets/:id" } },
+        { "key": "tab.maintenance", "component": "EmbeddedTable", "view": "assets_maintenance_embedded" },
+        { "key": "tab.checkouts", "component": "EmbeddedTable", "view": "assets_checkout_embedded" }
+      ]
+    },
+    "assets_depreciation_run_wizard": {
+      "id": "assets_depreciation_run_wizard",
+      "path": "/assets/depreciation-runs/new",
+      "type": "wizard",
+      "title_key": "view.depreciation_run_new.title",
+      "api": { "post": "/api/assets/depreciation-runs" },
+      "steps": [
+        {
+          "key": "parameters",
+          "title_key": "steps.parameters",
+          "fields": [
+            { "name": "run_year", "type": "integer", "label_key": "fields.run_year.label", "required": true, "default": "this_year", "min": 1900, "max": 9999 }
+          ]
+        },
+        { "key": "preview", "title_key": "steps.preview", "component": "DepreciationRunPreview" }
+      ],
+      "actions": [
+        { "type": "submit", "label_key": "actions.run_and_post", "variant": "primary" }
+      ]
+    },
+    "assets_category_list": {
+      "id": "assets_category_list",
+      "path": "/assets/categories",
+      "type": "table",
+      "title_key": "view.asset_categories.title",
+      "api": { "get": "/api/assets/categories" },
+      "actions": [
+        { "type": "link", "label_key": "actions.add_category", "path": "/assets/categories/new", "variant": "primary", "icon": "add" }
+      ],
+      "columns": [
+        { "data_field": "name", "header_key": "fields.category_name.label", "width": 240 },
+        { "data_field": "useful_life_years", "header_key": "fields.useful_life_years.label", "type": "integer", "width": 140 },
+        { "data_field": "depreciation_method", "header_key": "fields.depreciation_method.label", "width": 170 },
+        { "data_field": "asset_count", "header_key": "fields.asset_count.label", "type": "integer", "width": 100 }
+      ],
+      "row_actions": [
+        { "type": "link", "label_key": "actions.edit", "path": "/assets/categories/:id/edit" }
+      ]
+    },
+    "assets_category_form": {
+      "id": "assets_category_form",
+      "path": ["/assets/categories/new", "/assets/categories/:id/edit"],
+      "type": "form",
+      "title_key": { "new": "view.category_new.title", "edit": "view.category_edit.title" },
+      "api": { "post": "/api/assets/categories", "put": "/api/assets/categories/:id" },
+      "fields": [
+        { "name": "name", "type": "text", "label_key": "fields.category_name.label", "required": true },
+        { "name": "useful_life_years", "type": "integer", "label_key": "fields.useful_life_years.label", "required": true, "min": 0, "max": 100, "default": "5" },
+        {
+          "name": "depreciation_method",
+          "type": "select",
+          "label_key": "fields.depreciation_method.label",
+          "options": [
+            { "value": "STRAIGHT_LINE", "label_key": "depreciation.straight_line" },
+            { "value": "DECLINING_BALANCE", "label_key": "depreciation.declining_balance" }
+          ],
+          "required": true,
+          "default": "STRAIGHT_LINE"
+        },
+        { "name": "notes", "type": "textarea", "label_key": "fields.notes.label" }
+      ],
+      "actions": [
+        { "type": "submit", "label_key": "actions.save", "variant": "primary" },
+        { "type": "cancel", "label_key": "actions.cancel" }
+      ]
+    },
+    "assets_location_list": {
+      "id": "assets_location_list",
+      "path": "/assets/locations",
+      "type": "table",
+      "title_key": "view.asset_locations.title",
+      "api": { "get": "/api/assets/locations" },
+      "actions": [
+        { "type": "link", "label_key": "actions.add_location", "path": "/assets/locations/new", "variant": "primary", "icon": "add" }
+      ],
+      "columns": [
+        { "data_field": "name", "header_key": "fields.location_name.label", "width": 240 },
+        { "data_field": "address", "header_key": "fields.address.label", "width": 300 },
+        { "data_field": "asset_count", "header_key": "fields.asset_count.label", "type": "integer", "width": 100 }
+      ],
+      "row_actions": [
+        { "type": "link", "label_key": "actions.edit", "path": "/assets/locations/:id/edit" }
+      ]
+    },
+    "assets_location_form": {
+      "id": "assets_location_form",
+      "path": ["/assets/locations/new", "/assets/locations/:id/edit"],
+      "type": "form",
+      "title_key": { "new": "view.location_new.title", "edit": "view.location_edit.title" },
+      "api": { "post": "/api/assets/locations", "put": "/api/assets/locations/:id" },
+      "fields": [
+        { "name": "name", "type": "text", "label_key": "fields.location_name.label", "required": true },
+        { "name": "address", "type": "text", "label_key": "fields.address.label" },
+        { "name": "notes", "type": "textarea", "label_key": "fields.notes.label" }
+      ],
+      "actions": [
+        { "type": "submit", "label_key": "actions.save", "variant": "primary" },
+        { "type": "cancel", "label_key": "actions.cancel" }
+      ]
+    },
+    "assets_maintenance_list": {
+      "id": "assets_maintenance_list",
+      "path": "/assets/maintenance",
+      "type": "table",
+      "title_key": "view.maintenance.title",
+      "api": { "get": "/api/assets/maintenance" },
+      "columns": [
+        { "data_field": "date", "header_key": "fields.maintenance_date.label", "type": "date", "width": 110 },
+        { "data_field": "asset_number", "header_key": "fields.asset_number.label", "width": 96 },
+        { "data_field": "asset_name", "header_key": "fields.asset_name.label", "width": 200 },
+        { "data_field": "kind", "header_key": "fields.maintenance_kind.label", "width": 110 },
+        { "data_field": "description", "header_key": "fields.description.label", "width": 260 },
+        { "data_field": "cost", "header_key": "fields.maintenance_cost.label", "type": "currency", "width": 110 },
+        { "data_field": "performed_by", "header_key": "fields.performed_by.label", "width": 160 }
+      ],
+      "row_actions": [
+        { "type": "link", "label_key": "actions.view_asset", "path": "/accounting/assets/:asset_id" }
+      ]
+    },
+    "assets_maintenance_embedded": {
+      "id": "assets_maintenance_embedded",
+      "path": "/accounting/assets/:id/maintenance",
+      "type": "table_embedded",
+      "api": { "get": "/api/assets/maintenance?asset_id=:id" },
+      "columns": [
+        { "data_field": "date", "header_key": "fields.maintenance_date.label", "type": "date", "width": 110 },
+        { "data_field": "kind", "header_key": "fields.maintenance_kind.label", "width": 110 },
+        { "data_field": "description", "header_key": "fields.description.label", "width": 260 },
+        { "data_field": "cost", "header_key": "fields.maintenance_cost.label", "type": "currency", "width": 110 },
+        { "data_field": "performed_by", "header_key": "fields.performed_by.label", "width": 160 }
+      ]
+    },
+    "assets_maintenance_form": {
+      "id": "assets_maintenance_form",
+      "path": "/accounting/assets/:id/maintenance/new",
+      "type": "form_modal",
+      "title_key": "view.maintenance_new.title",
+      "api": { "post": "/api/assets/maintenance" },
+      "fields": [
+        { "name": "date", "type": "date", "label_key": "fields.maintenance_date.label", "required": true, "default": "today" },
+        {
+          "name": "kind",
+          "type": "select",
+          "label_key": "fields.maintenance_kind.label",
+          "options": [
+            { "value": "SERVICE", "label_key": "maintenance.service" },
+            { "value": "INSPECTION", "label_key": "maintenance.inspection" },
+            { "value": "REPAIR", "label_key": "maintenance.repair" },
+            { "value": "CALIBRATION", "label_key": "maintenance.calibration" },
+            { "value": "OTHER", "label_key": "maintenance.other" }
+          ],
+          "required": true,
+          "default": "SERVICE"
+        },
+        { "name": "description", "type": "text", "label_key": "fields.description.label" },
+        { "name": "cost", "type": "decimal", "label_key": "fields.maintenance_cost.label", "min": 0, "default": "0.00" },
+        { "name": "performed_by", "type": "text", "label_key": "fields.performed_by.label" }
+      ],
+      "actions": [
+        { "type": "submit", "label_key": "actions.save", "variant": "primary" },
+        { "type": "cancel", "label_key": "actions.cancel" }
+      ]
+    },
+    "assets_checkout_list": {
+      "id": "assets_checkout_list",
+      "path": "/assets/checkouts",
+      "type": "table",
+      "title_key": "view.checkouts.title",
+      "api": { "get": "/api/assets/checkouts" },
+      "columns": [
+        { "data_field": "asset_number", "header_key": "fields.asset_number.label", "width": 96 },
+        { "data_field": "asset_name", "header_key": "fields.asset_name.label", "width": 200 },
+        { "data_field": "custodian", "header_key": "fields.custodian.label", "width": 180 },
+        { "data_field": "checked_out", "header_key": "fields.checked_out.label", "type": "date", "width": 110 },
+        { "data_field": "due_date", "header_key": "fields.due_date.label", "type": "date", "width": 110 },
+        { "data_field": "checked_in", "header_key": "fields.checked_in.label", "type": "date", "width": 110 }
+      ],
+      "row_actions": [
+        { "type": "link", "label_key": "actions.view_asset", "path": "/accounting/assets/:asset_id" }
+      ]
+    },
+    "assets_checkout_embedded": {
+      "id": "assets_checkout_embedded",
+      "path": "/accounting/assets/:id/checkouts",
+      "type": "table_embedded",
+      "api": { "get": "/api/assets/checkouts?asset_id=:id" },
+      "columns": [
+        { "data_field": "custodian", "header_key": "fields.custodian.label", "width": 180 },
+        { "data_field": "checked_out", "header_key": "fields.checked_out.label", "type": "date", "width": 110 },
+        { "data_field": "due_date", "header_key": "fields.due_date.label", "type": "date", "width": 110 },
+        { "data_field": "checked_in", "header_key": "fields.checked_in.label", "type": "date", "width": 110 },
+        { "data_field": "note", "header_key": "fields.note.label", "width": 220 }
+      ]
+    },
+    "assets_checkout_form": {
+      "id": "assets_checkout_form",
+      "path": "/accounting/assets/:id/checkout",
+      "type": "form_modal",
+      "title_key": "view.checkout_new.title",
+      "api": { "post": "/api/assets/checkouts" },
+      "fields": [
+        { "name": "custodian", "type": "text", "label_key": "fields.custodian.label", "required": true },
+        { "name": "checked_out", "type": "date", "label_key": "fields.checked_out.label", "required": true, "default": "today" },
+        { "name": "due_date", "type": "date", "label_key": "fields.due_date.label" },
+        { "name": "note", "type": "text", "label_key": "fields.note.label" }
+      ],
+      "actions": [
+        { "type": "submit", "label_key": "actions.check_out", "variant": "primary" },
+        { "type": "cancel", "label_key": "actions.cancel" }
+      ]
+    },
+    "assets_dispose_form": {
+      "id": "assets_dispose_form",
+      "path": "/accounting/assets/:id/dispose",
+      "type": "form_modal",
+      "title_key": "view.dispose.title",
+      "api": { "put": "/api/assets/fixed-assets/:id" },
+      "fields": [
+        { "name": "disposal_date", "type": "date", "label_key": "fields.disposal_date.label", "required": true, "default": "today" },
+        { "name": "disposal_amount", "type": "decimal", "label_key": "fields.disposal_amount.label", "min": 0, "default": "0.00" }
+      ],
+      "actions": [
+        { "type": "submit", "label_key": "actions.dispose", "variant": "primary" },
+        { "type": "cancel", "label_key": "actions.cancel" }
+      ]
+    },
+    "assets_reports": {
+      "id": "assets_reports",
+      "path": "/assets/reports",
+      "type": "report",
+      "title_key": "view.asset_reports.title",
+      "parameters": [
+        { "name": "as_of", "type": "date", "label_key": "fields.as_of.label", "required": true, "default": "today" }
+      ],
+      "component": "AssetReportsPanel",
+      "actions": [
+        { "type": "action", "id": "export_csv", "label_key": "actions.export_csv", "icon": "download" }
+      ]
+    },
+    "assets_import": {
+      "id": "assets_import",
+      "path": "/assets/import",
+      "type": "custom",
+      "title_key": "view.asset_import.title",
+      "component": "AssetImportPanel"
+    }
+  }
+}

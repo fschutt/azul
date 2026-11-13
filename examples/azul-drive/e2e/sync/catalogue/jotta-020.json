@@ -1,0 +1,53 @@
+[
+  {
+    "name": "modification times arrive as written (1970, 2003 with nanoseconds, 2038, 2100); a touch alone sends no content",
+    "description": "JOTTA-020 (Jottacloud): photos from 2003 came down dated 1927 (wrong timestamp conversion). Rule P12 (times from 1970 to 2100 round-trip; time is a hint, never the decision). sync-chaos port-mtime-roundtrip.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "epoch.txt", "text": "one second after the epoch", "mtime": 1000000000 },
+      { "op": "drive_write", "device": "a", "path": "photo-2003.jpg", "text": "an old photo", "mtime": 1049760000123456789 },
+      { "op": "drive_write", "device": "a", "path": "y2038.txt", "text": "past 32-bit time", "mtime": 2147483648000000000 },
+      { "op": "drive_write", "device": "a", "path": "far.txt", "text": "the year 2100", "mtime": 4102444800000000000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "mtime", "device": "b", "path": "epoch.txt", "ns": 1000000000 },
+      { "op": "drive_check", "check": "mtime", "device": "b", "path": "photo-2003.jpg", "ns": 1049760000123456789 },
+      { "op": "drive_check", "check": "mtime", "device": "b", "path": "y2038.txt", "ns": 2147483648000000000 },
+      { "op": "drive_check", "check": "mtime", "device": "b", "path": "far.txt", "ns": 4102444800000000000 },
+      { "op": "drive_utime", "device": "a", "path": "photo-2003.jpg", "mtime": 1049760001000000000 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_check", "check": "remote_puts", "device": "a", "max": 4 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a download interrupted before its rename leaves the old version whole; the next pass brings the new one",
+    "description": "JOTTA-020 (Jottacloud): the old app left an older version on disk when a download was interrupted. Rule A5 (atomic download: temp file in the target's folder, renamed only when complete) and E8.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "doc.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "doc.txt", "text": "v2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "crash_at": "before-rename", "expect": "crash" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "doc.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "doc.txt", "text": "v2" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "doc.txt", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

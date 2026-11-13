@@ -1,0 +1,62 @@
+[
+  {
+    "name": "the synced folder is gone when AzDrive starts: the pairing changes nothing anywhere and says root-missing",
+    "description": "ICEDRIVE-019 (Icedrive): pairs whose local folder did not exist at launch (an unplugged or mapped drive) did not pause. Rules D3 and D1: a pass whose root is missing changes nothing anywhere and lists root-missing; the drive keeps every file, no tombstone is written, the other device keeps everything. sync-chaos delete-root-deleted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "vm/disk.img", "text": "the only copy of a big file" },
+      { "op": "drive_write", "device": "a", "path": "vm/notes.txt", "text": "notes" },
+      { "op": "drive_write", "device": "a", "path": "vm/keys.txt", "text": "keys" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_remove_root", "device": "a" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "root-missing" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "root-missing", "when": "last" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 3 },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.deleted", "len": 0 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 3 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the root's disk is unmounted and its mount point holds an empty folder with two stale files: nothing is deleted anywhere",
+    "description": "ICEDRIVE-019 (Icedrive), the catalogue's repro: the root present but empty (an unmounted mount point). Rules D3 and D1: a folder without the pairing's root marker is not the paired folder (root-replaced); with 10 of 12 files 'gone' the breaker alone would not hold, the marker does. No tombstone, no upload of the stale copies, the other device untouched. sync-chaos delete-root-unmounted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 12, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_replace_root", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "docs/d000/f000000.txt", "text": "stale shadow copy" },
+      { "op": "drive_write", "device": "a", "path": "docs/d000/f000001.txt", "text": "stale shadow copy 2" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "root-replaced" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "docs/*", "count": 12 },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "docs/d000/f000000.txt", "text": "doc 0" },
+      { "op": "drive_index", "remote": "r" },
+      { "op": "assert_response", "path": "result.deleted", "len": 0 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

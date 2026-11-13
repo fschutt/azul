@@ -1,0 +1,83 @@
+[
+  {
+    "name": "a file deleted while it is read for upload is not committed and never comes back; the next file in the queue goes up",
+    "description": "JOTTA-015 (Jottacloud): a file deleted during upload was re-downloaded, one deleted before its upload hung the whole queue. Rule A6 (a file deleted while read is not committed) and E6 (per file, never a global stall). sync-chaos res-changed-while-uploading.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "gone.txt", "fill": "C", "size": 300000 },
+      { "op": "drive_write", "device": "a", "path": "next.txt", "text": "next in the queue" },
+      { "op": "drive_sync", "device": "a", "pause_at": "mid-read" },
+      { "op": "drive_rm", "device": "a", "path": "gone.txt" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "gone.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "gone.txt", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "gone.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "next.txt", "text": "next in the queue" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "next.txt", "text": "next in the queue" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file deleted after the scan and before its upload starts: skipped, the rest of the pass goes on",
+    "description": "JOTTA-015 (Jottacloud): 'a file deleted before its upload started hung the whole upload queue'. Rules A6 and E6.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "early.txt", "text": "deleted before upload" },
+      { "op": "drive_write", "device": "a", "path": "stays.txt", "text": "stays" },
+      { "op": "drive_sync", "device": "a", "pause_at": "before-upload" },
+      { "op": "drive_rm", "device": "a", "path": "early.txt" },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "early.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "stays.txt", "text": "stays" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "early.txt", "absent": true },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "edits made on one device at a time never make a conflict",
+    "description": "JOTTA-015 (Jottacloud): 'false positive conflict' versions on plain single-device edits (3.0.4, 3.1.65). Rule C3 (repeated edits from one device never produce a conflict).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "plan.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "plan.txt", "text": "v2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "plan.txt", "text": "v3" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "b", "path": "plan.txt", "text": "v4 from b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "plan.txt", "text": "v4 from b" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "plan.txt", "count": 0 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "plan.txt", "count": 0 },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "conflict-held", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "conflict-held", "absent": true },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

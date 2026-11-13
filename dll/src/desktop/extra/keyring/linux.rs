@@ -3,7 +3,8 @@
 //! Uses the NON-variadic `secret_password_{storev,lookupv,clearv}_sync` forms
 //! (stable Rust can't call C-variadic fn-pointers) with a one-attribute `"key"`
 //! GHashTable: the secret is the stored password, the request `key` is the
-//! lookup attribute. Mirrors apple.rs (spawn thread -> push_keyring_result).
+//! lookup attribute; the namespace's service is the schema name (libsecret
+//! matches items by it), so two namespaces never see each other's items.
 //! If libsecret / a Secret Service isn't present, every op -> Unavailable.
 //! `require_biometry` has no libsecret equivalent (the secret-service has no
 //! per-item biometric gate) — stored normally, the flag ignored.
@@ -15,8 +16,8 @@ use std::{
 };
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
-use azul_layout::managers::keyring::push_keyring_result;
 
+use super::Collection;
 use crate::{
     desktop::shell2::{
         common::{dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait},
@@ -24,8 +25,6 @@ use crate::{
     },
     load_symbol,
 };
-
-const SERVICE: &str = "com.azul.keyring";
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -73,9 +72,29 @@ type LookupvFn = unsafe extern "C" fn(
 type ClearvFn =
     unsafe extern "C" fn(*const SecretSchema, *mut c_void, *mut c_void, *mut *mut GError) -> c_int;
 
+type ForAliasFn = unsafe extern "C" fn(
+    *mut c_void,
+    *const c_char,
+    c_uint,
+    *mut c_void,
+    *mut *mut GError,
+) -> *mut c_void;
+type IsLockedFn = unsafe extern "C" fn(*mut c_void) -> c_int;
+type UnrefFn = unsafe extern "C" fn(*mut c_void);
+
+/// What it takes to ask the default collection whether it is locked, without unlocking it: loaded
+/// as OPTIONAL symbols (`secret_collection_get_locked` and the alias lookup are libsecret 0.18 and
+/// later; an older one keeps working, only without the look).
+struct LockProbe {
+    for_alias: ForAliasFn,
+    is_locked: IsLockedFn,
+    unref: UnrefFn,
+}
+
 struct SecretLib {
     _lib: Library,
     _glib: Library,
+    probe: Option<LockProbe>,
     storev: StorevFn,
     lookupv: LookupvFn,
     clearv: ClearvFn,
@@ -94,7 +113,26 @@ impl SecretLib {
     fn load() -> Result<Self, DlError> {
         let lib = load_first_available::<Library>(&["libsecret-1.so.0", "libsecret-1.so"])?;
         let glib = load_first_available::<Library>(&["libglib-2.0.so.0", "libglib-2.0.so"])?;
+        // SAFETY: the types are libsecret's and GObject's own; `g_object_unref` is found through
+        // libsecret's handle, which searches the libraries it depends on.
+        let probe = unsafe {
+            match (
+                lib.get_symbol::<ForAliasFn>("secret_collection_for_alias_sync")
+                    .ok(),
+                lib.get_symbol::<IsLockedFn>("secret_collection_get_locked")
+                    .ok(),
+                lib.get_symbol::<UnrefFn>("g_object_unref").ok(),
+            ) {
+                (Some(for_alias), Some(is_locked), Some(unref)) => Some(LockProbe {
+                    for_alias,
+                    is_locked,
+                    unref,
+                }),
+                _ => None,
+            }
+        };
         Ok(Self {
+            probe,
             storev: load_symbol!(lib, StorevFn, "secret_password_storev_sync"),
             lookupv: load_symbol!(lib, LookupvFn, "secret_password_lookupv_sync"),
             clearv: load_symbol!(lib, ClearvFn, "secret_password_clearv_sync"),
@@ -110,6 +148,51 @@ impl SecretLib {
         })
     }
 
+    /// Whether the default collection exists and is locked, asked without unlocking anything:
+    /// `secret_collection_for_alias_sync` with no flags loads no items and shows no prompt.
+    /// [`Collection::Unknown`] when libsecret lacks the calls or refuses this one.
+    fn default_collection(&self) -> Collection {
+        let Some(probe) = &self.probe else {
+            return Collection::Unknown;
+        };
+        let mut err: *mut GError = ptr::null_mut();
+        // SAFETY: libsecret's own call with the types it declares: the default service (NULL), the
+        // collection `default`, SECRET_COLLECTION_NONE, no cancellable, an out-pointer for the error.
+        let collection = unsafe {
+            (probe.for_alias)(
+                ptr::null_mut(),
+                b"default\0".as_ptr() as *const c_char,
+                0,
+                ptr::null_mut(),
+                &mut err,
+            )
+        };
+        if !err.is_null() {
+            // SAFETY: the error the call just made, freed once here.
+            let why = unsafe { gerror_text_and_free(self, err) };
+            crate::plog_warn!(
+                "[keyring] could not tell whether the default collection is locked ({}); the op \
+                 goes on",
+                why
+            );
+            return Collection::Unknown;
+        }
+        if collection.is_null() {
+            return Collection::Missing;
+        }
+        // SAFETY: the collection the call returned, asked once and released once.
+        let locked = unsafe {
+            let locked = (probe.is_locked)(collection) != 0;
+            (probe.unref)(collection);
+            locked
+        };
+        if locked {
+            Collection::Locked
+        } else {
+            Collection::Unlocked
+        }
+    }
+
     /// Build a 1-entry GHashTable `{"key": <key>}`. Caller unrefs it.
     unsafe fn attrs(&self, key_c: &CStr) -> *mut c_void {
         let ht = (self.ht_new)(self.str_hash, self.str_equal);
@@ -122,9 +205,10 @@ impl SecretLib {
     }
 }
 
-fn schema() -> SecretSchema {
+/// The schema of `service`'s items; it points into `service`, which must outlive it.
+fn schema(service: &CStr) -> SecretSchema {
     let mut s: SecretSchema = unsafe { std::mem::zeroed() };
-    s.name = b"com.azul.keyring\0".as_ptr() as *const c_char;
+    s.name = service.as_ptr();
     s.flags = 0; // SECRET_SCHEMA_NONE
     s.attributes[0] = SecretSchemaAttribute {
         name: b"key\0".as_ptr() as *const c_char,
@@ -157,41 +241,63 @@ fn lib() -> Option<&'static SecretLib> {
 /// it. It used to be freed unread at all three call sites, making a locked
 /// keyring indistinguishable from a missing daemon.
 unsafe fn warn_gerror_and_free(lib: &SecretLib, op: &str, err: *mut GError) {
-    let msg = if (*err).message.is_null() {
-        "<no message>".into()
-    } else {
-        CStr::from_ptr((*err).message)
-            .to_string_lossy()
-            .into_owned()
-    };
+    // SAFETY: `err` is a GError libsecret made; its domain and code are read before it is freed.
+    let (domain, code) = unsafe { ((*err).domain, (*err).code) };
+    // SAFETY: the same error, freed once, here.
+    let msg = unsafe { gerror_text_and_free(lib, err) };
     crate::plog_warn!(
         "[keyring] {} failed: {} (domain={}, code={}) — reporting Unavailable",
         op,
         msg,
-        (*err).domain,
-        (*err).code
+        domain,
+        code
     );
-    (lib.g_error_free)(err);
 }
 
-pub fn request(req: &KeyringRequest) {
-    let req = req.clone();
-    std::thread::spawn(move || {
-        push_keyring_result(handle(&req));
-    });
+/// The GError's message, and the error freed.
+unsafe fn gerror_text_and_free(lib: &SecretLib, err: *mut GError) -> String {
+    // SAFETY: `err` is a GError libsecret made, with a NUL-terminated message or none; freed once.
+    unsafe {
+        let msg = if (*err).message.is_null() {
+            String::from("<no message>")
+        } else {
+            CStr::from_ptr((*err).message)
+                .to_string_lossy()
+                .into_owned()
+        };
+        (lib.g_error_free)(err);
+        msg
+    }
 }
 
-fn handle(req: &KeyringRequest) -> KeyringResult {
+/// One op on the items of `service`, on the calling thread. A `quiet` op shows no prompt: it asks
+/// libsecret whether the default collection is locked first, and answers `Denied` instead of
+/// letting the unlock dialog come ([`quiet_verdict`]).
+pub(super) fn handle(service: &str, req: &KeyringRequest, quiet: bool) -> KeyringResult {
     let lib = match lib() {
         Some(l) => l,
         None => return KeyringResult::Unavailable, // no libsecret / Secret Service
     };
-    let sch = schema();
+    let Ok(service_c) = CString::new(service) else {
+        return KeyringResult::Error;
+    };
+    if quiet {
+        if let Some(answer) = super::quiet_verdict(lib.default_collection(), req) {
+            return answer;
+        }
+    }
+    let sch = schema(&service_c);
     match req {
         KeyringRequest::Store { key, secret, .. } => {
-            let key_c = CString::new(key.as_str()).unwrap_or_default();
-            let label = CString::new(format!("{SERVICE}:{}", key.as_str())).unwrap_or_default();
-            let pw = CString::new(secret.as_str()).unwrap_or_default();
+            // A NUL ends a C string: `answer_with` refuses one first; this is the last line of
+            // that, so a secret is never stored as "".
+            let (Ok(key_c), Ok(label), Ok(pw)) = (
+                CString::new(key.as_str()),
+                CString::new(format!("{service}:{}", key.as_str())),
+                CString::new(secret.as_str()),
+            ) else {
+                return KeyringResult::Error;
+            };
             unsafe {
                 let ht = lib.attrs(&key_c);
                 let mut err: *mut GError = ptr::null_mut();
@@ -217,7 +323,9 @@ fn handle(req: &KeyringRequest) -> KeyringResult {
             }
         }
         KeyringRequest::Get { key } => {
-            let key_c = CString::new(key.as_str()).unwrap_or_default();
+            let Ok(key_c) = CString::new(key.as_str()) else {
+                return KeyringResult::Error;
+            };
             unsafe {
                 let ht = lib.attrs(&key_c);
                 let mut err: *mut GError = ptr::null_mut();
@@ -236,7 +344,9 @@ fn handle(req: &KeyringRequest) -> KeyringResult {
             }
         }
         KeyringRequest::Delete { key } => {
-            let key_c = CString::new(key.as_str()).unwrap_or_default();
+            let Ok(key_c) = CString::new(key.as_str()) else {
+                return KeyringResult::Error;
+            };
             unsafe {
                 let ht = lib.attrs(&key_c);
                 let mut err: *mut GError = ptr::null_mut();

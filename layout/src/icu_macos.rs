@@ -36,24 +36,24 @@ pub struct IcuLocalizer {
 }
 
 impl IcuLocalizer {
-    #[must_use] 
+    #[must_use]
     pub fn new(locale_str: &str) -> Self {
         Self {
             locale_string: AzString::from(locale_str),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_system_language(system_language: &AzString) -> Self {
         Self::new(system_language.as_str())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_locale(&self) -> AzString {
         self.locale_string.clone()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_language(&self) -> AzString {
         let lang = self
             .locale_string

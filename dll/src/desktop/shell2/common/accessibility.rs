@@ -103,8 +103,42 @@ const ACTIVE: u8 = 2;
 #[cfg(feature = "a11y")]
 #[derive(Debug, Default)]
 pub struct A11yTreeFeed {
-    tree: Mutex<Option<accesskit::TreeUpdate>>,
+    tree: Mutex<Option<CompleteTree>>,
     phase: std::sync::atomic::AtomicU8,
+}
+
+/// The complete tree an adapter holds once it took every update: the nodes by id, the tree's
+/// info and the focus.
+///
+/// Kept as a map, not as one big `TreeUpdate`: the layout side publishes a PATCH per frame (only
+/// what changed, nothing when nothing did), and merging a patch into a list cost a scan of the
+/// whole tree per node plus a reachability walk over all of it - per frame, even with no screen
+/// reader running. A patch now costs what it carries and what it removes; the whole tree is
+/// assembled only when an adapter needs one.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone)]
+struct CompleteTree {
+    tree: accesskit::Tree,
+    tree_id: accesskit::TreeId,
+    focus: accesskit::NodeId,
+    nodes: std::collections::HashMap<accesskit::NodeId, accesskit::Node>,
+}
+
+#[cfg(feature = "a11y")]
+impl CompleteTree {
+    /// The whole tree as one full update (node order does not matter to accesskit).
+    fn to_update(&self) -> accesskit::TreeUpdate {
+        accesskit::TreeUpdate {
+            nodes: self
+                .nodes
+                .iter()
+                .map(|(id, node)| (*id, node.clone()))
+                .collect(),
+            tree: Some(self.tree.clone()),
+            focus: self.focus,
+            tree_id: self.tree_id,
+        }
+    }
 }
 
 #[cfg(feature = "a11y")]
@@ -116,7 +150,11 @@ impl A11yTreeFeed {
 
     /// For `ActivationHandler::request_initial_tree`: the complete tree, once one was built.
     pub fn initial_tree(&self) -> Option<accesskit::TreeUpdate> {
-        let tree = self.tree.try_lock().ok().and_then(|tree| tree.clone());
+        let tree = self
+            .tree
+            .try_lock()
+            .ok()
+            .and_then(|tree| tree.as_ref().map(CompleteTree::to_update));
         self.set_phase(if tree.is_some() { ACTIVE } else { AWAITING_TREE });
         tree
     }
@@ -136,7 +174,7 @@ impl A11yTreeFeed {
             };
             merge_into(&mut tree, &update);
             if update.tree.is_none() && self.phase() == AWAITING_TREE {
-                tree.clone()
+                tree.as_ref().map(CompleteTree::to_update)
             } else {
                 None
             }
@@ -156,6 +194,16 @@ impl A11yTreeFeed {
         }
     }
 
+    /// The adapter did NOT take the update [`Self::next_update`] handed out (its lock was busy, or
+    /// it panicked): it holds an older tree than the feed. With full trees every frame the next one
+    /// healed that; with patches the next patch would be applied to a tree that misses this one -
+    /// so the next update it gets is the complete tree.
+    pub fn missed(&self) {
+        if self.phase() == ACTIVE {
+            self.set_phase(AWAITING_TREE);
+        }
+    }
+
     fn phase(&self) -> u8 {
         self.phase.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -166,39 +214,53 @@ impl A11yTreeFeed {
 }
 
 /// Applies `update` to the complete tree the way `accesskit_consumer` does: a tree replaces it,
-/// nodes overwrite by id, and nodes no longer reachable from the root are dropped.
+/// nodes overwrite by id, and the children an updated node no longer lists - unless another updated
+/// node lists them - leave with their subtrees. The cost is the update's and the removed nodes',
+/// never the whole tree's.
 #[cfg(feature = "a11y")]
-fn merge_into(tree: &mut Option<accesskit::TreeUpdate>, update: &accesskit::TreeUpdate) {
-    if update.tree.is_some() {
-        *tree = Some(update.clone());
+fn merge_into(tree: &mut Option<CompleteTree>, update: &accesskit::TreeUpdate) {
+    if let Some(info) = &update.tree {
+        *tree = Some(CompleteTree {
+            tree: info.clone(),
+            tree_id: update.tree_id,
+            focus: update.focus,
+            nodes: update
+                .nodes
+                .iter()
+                .map(|(id, node)| (*id, node.clone()))
+                .collect(),
+        });
         return;
     }
     let Some(full) = tree.as_mut() else {
         return;
     };
+    let listed: std::collections::HashSet<accesskit::NodeId> = update
+        .nodes
+        .iter()
+        .flat_map(|(_, node)| node.children().iter().copied())
+        .collect();
+    // The children the updated nodes drop, read from their OLD versions.
+    let mut dropped: Vec<accesskit::NodeId> = update
+        .nodes
+        .iter()
+        .filter_map(|(id, _)| full.nodes.get(id))
+        .flat_map(|old| old.children().iter().copied())
+        .filter(|child| !listed.contains(child))
+        .collect();
     for (id, node) in &update.nodes {
-        match full.nodes.iter_mut().find(|(existing, _)| existing == id) {
-            Some(slot) => slot.1 = node.clone(),
-            None => full.nodes.push((*id, node.clone())),
+        full.nodes.insert(*id, node.clone());
+    }
+    let root = full.tree.root;
+    while let Some(id) = dropped.pop() {
+        if id == root || listed.contains(&id) {
+            continue;
+        }
+        if let Some(node) = full.nodes.remove(&id) {
+            dropped.extend(node.children().iter().copied());
         }
     }
     full.focus = update.focus;
-    let Some(root) = full.tree.as_ref().map(|t| t.root) else {
-        return;
-    };
-    let children: std::collections::HashMap<accesskit::NodeId, Vec<accesskit::NodeId>> = full
-        .nodes
-        .iter()
-        .map(|(id, node)| (*id, node.children().to_vec()))
-        .collect();
-    let mut reachable = std::collections::HashSet::new();
-    let mut stack = vec![root];
-    while let Some(id) = stack.pop() {
-        if reachable.insert(id) {
-            stack.extend(children.get(&id).into_iter().flatten().copied());
-        }
-    }
-    full.nodes.retain(|(id, _)| reachable.contains(id));
 }
 
 #[cfg(test)]
@@ -308,6 +370,62 @@ mod tests {
                 .next_update(incremental(vec![(NodeId(3), node(&[]))], 3))
                 .expect("an active adapter takes increments");
             assert!(next.tree.is_none());
+        }
+
+        /// A patch that drops a child drops its whole subtree from the complete tree, and keeps a
+        /// child another updated node now lists (a move).
+        #[test]
+        fn a_patch_removes_a_dropped_subtree_and_keeps_a_moved_child() {
+            let feed = A11yTreeFeed::new();
+            // 0 > [1 > [3 > [4]], 2]
+            feed.next_update(TreeUpdate {
+                nodes: vec![
+                    (NodeId(0), node(&[1, 2])),
+                    (NodeId(1), node(&[3])),
+                    (NodeId(2), node(&[])),
+                    (NodeId(3), node(&[4])),
+                    (NodeId(4), node(&[])),
+                ],
+                tree: Some(Tree::new(NodeId(0))),
+                tree_id: TreeId::ROOT,
+                focus: NodeId(0),
+            });
+            // 1 leaves the root (and 3 > 4 with it), but 4 moves under 2.
+            feed.next_update(incremental(
+                vec![(NodeId(0), node(&[2])), (NodeId(2), node(&[4]))],
+                2,
+            ));
+            let tree = feed.initial_tree().expect("the complete tree");
+            assert_eq!(ids(&tree), vec![0, 2, 4]);
+            assert_eq!(tree.focus, NodeId(2));
+        }
+
+        /// An adapter that did not take an update (busy lock, a caught panic) holds an older tree:
+        /// the next update it gets is the complete tree, not a patch against what it missed.
+        #[test]
+        fn an_adapter_that_missed_an_update_gets_the_complete_tree_next() {
+            let feed = A11yTreeFeed::new();
+            feed.next_update(full(&[1, 2]));
+            assert!(feed.initial_tree().is_some(), "activation hands over the tree");
+            let missed = feed
+                .next_update(incremental(vec![(NodeId(0), node(&[1]))], 1))
+                .expect("an active adapter is handed the patch");
+            assert!(missed.tree.is_none());
+            feed.missed();
+
+            let next = feed
+                .next_update(incremental(vec![(NodeId(1), node(&[]))], 1))
+                .expect("the adapter still needs updates");
+            assert!(
+                next.tree.is_some(),
+                "after a missed patch the adapter must get the complete tree"
+            );
+            assert_eq!(ids(&next), vec![0, 1]);
+            feed.delivered(true);
+            let after = feed
+                .next_update(incremental(vec![(NodeId(1), node(&[]))], 1))
+                .expect("active again");
+            assert!(after.tree.is_none(), "back to patches once it holds the tree");
         }
     }
 

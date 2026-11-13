@@ -1,0 +1,44 @@
+# The fuzz targets of what azcloud-kit reads from a token server and from a synced folder's other
+# devices (ARCH28 RF50 / AR5b-5): the sign-up a token server seals to a paid checkout's claim key,
+# and the sync index every device of a folder writes. `panic = "abort"` is the shipped profile, so
+# every panic these find is an abort of the app.
+#
+# cargo-fuzz project of its own (its own workspace, like azul-storage/fuzz): `cargo install
+# cargo-fuzz`, then from this folder
+#
+#     cargo +nightly fuzz build                   # what CI does; it never runs them
+#     cargo +nightly fuzz run sync_index          # an hour on a quiet machine
+#
+# The same calls run in the unit tests on a few hundred fixed inputs and on valid samples with a
+# byte changed (`src/tests/fuzz_entry.rs`), so a target here is a few lines: take the bytes, call
+# the reader.
+[package]
+name = "azcloud-kit-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+azcloud-kit = { path = ".." }
+
+# Not a member of azul's workspace: it needs nightly and libfuzzer, and keeps both out of the
+# lockfile of the apps.
+[workspace]
+
+[[bin]]
+name = "sealed_signup"
+path = "fuzz_targets/sealed_signup.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_index"
+path = "fuzz_targets/sync_index.rs"
+test = false
+doc = false
+bench = false

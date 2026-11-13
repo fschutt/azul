@@ -36,6 +36,7 @@ use std::collections::BTreeSet;
 use anyhow::Result;
 
 use super::{
+    options::cs_option,
     super::{
         config::CodegenConfig,
         generator::CodeBuilder,
@@ -139,7 +140,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
 /// are passed/returned as wrapper classes (consumed on by-value
 /// transfer), while methods-only value types (`ColorU`, `NodeId`, …)
 /// cross as their raw `Az*` structs, exactly like in C.
-fn is_owning_wrapper(type_name: &str, ir: &CodegenIR) -> bool {
+pub(super) fn is_owning_wrapper(type_name: &str, ir: &CodegenIR) -> bool {
     has_wrapper_class(type_name, ir) && has_delete_function(type_name, ir)
 }
 
@@ -386,6 +387,9 @@ pub fn generate_wrappers(
     builder.line("}");
     builder.blank();
 
+    emit_field_runtime(builder, ir);
+    super::options::emit_option_bridge(builder, ir);
+
     // `App.run(window)` blocks inside the native event loop for the app's
     // lifetime, which `Dispose(false)` has to know about (see
     // `__AzAppLoopState`). Which methods those are comes from the shared
@@ -539,7 +543,7 @@ fn should_emit_union_hierarchy(e: &EnumDef, config: &CodegenConfig) -> bool {
 /// Phase I.1.5 (C#): Vec-shape detector. Same as Haskell H.3 / Java
 /// I.1.2 / Kotlin I.1.3.
 fn detect_vec_elem_type_cs(s: &StructDef) -> Option<String> {
-    if s.fields.len() != 4 {
+    if !crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str())) {
         return None;
     }
     if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {
@@ -571,7 +575,34 @@ fn emit_wrapper_storage(
 ) {
     // Storage, disposal flag and (owning types only) the borrowed flag
     // set by `__Borrow` for engine-owned bytes.
-    builder.line(&format!("private {} _inner;", ffi_name));
+    //
+    // An owning class can also be a VIEW of a field of its parent
+    // (`opts.WindowState` is the `window_state` bytes inside `opts`, so
+    // `opts.WindowState.Title = "x"` reaches `opts`). `_inner` is then a
+    // ref-returning property: every member reads and writes through it
+    // unchanged, and a view's `_inner` is the parent's field.
+    if has_delete {
+        builder.line(&format!("private {} __store;", ffi_name));
+        builder.line(&format!("private __AzRef<{}> __view;", ffi_name));
+        builder.line(
+            "/// <summary>The FFI value: this object's own storage, or the parent's field when \
+             this object is a view.</summary>",
+        );
+        builder.line(&format!("private ref {} _inner", ffi_name));
+        builder.line("{");
+        builder.indent();
+        builder.line("get");
+        builder.line("{");
+        builder.indent();
+        builder.line("if (__view != null) return ref __view();");
+        builder.line("return ref __store;");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+    } else {
+        builder.line(&format!("private {} _inner;", ffi_name));
+    }
     builder.line("private bool _disposed;");
     if has_delete {
         builder.line("private bool _borrowed;");
@@ -612,8 +643,10 @@ fn emit_wrapper_storage(
     builder.blank();
     builder.line("/// <summary>Wrap an existing raw FFI struct (takes ownership).</summary>");
     builder.line(&format!(
-        "internal {}({} inner) {{ _inner = inner; }}",
-        class_name, ffi_name
+        "internal {}({} inner) {{ {} = inner; }}",
+        class_name,
+        ffi_name,
+        if has_delete { "__store" } else { "_inner" }
     ));
     builder.blank();
 }
@@ -786,7 +819,11 @@ fn emit_wrapper_class(
             continue;
         }
         emit_wrapper_method(builder, &class_name, func, ir, event_loop_methods);
+        emit_typed_data_callback_overload(builder, &class_name, func, ir);
     }
+
+    // The struct's fields as properties (`opts.WindowState.Title = "x"`).
+    emit_field_properties(builder, s, &class_name, ir, config);
 
     // Phase I.2 (C#): override Equals(object) + GetHashCode() routed
     // through the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash`
@@ -927,6 +964,7 @@ fn emit_enum_wrapper_class(
             continue;
         }
         emit_wrapper_method(builder, &class_name, func, ir, event_loop_methods);
+        emit_typed_data_callback_overload(builder, &class_name, func, ir);
     }
 
     emit_cs_equals_hashcode_if_supported(builder, &e.name, &e.traits, &class_name, ir);
@@ -1410,11 +1448,733 @@ fn emit_dispose_methods(
     builder.dedent();
     builder.line("}");
     builder.blank();
+
+    if !has_delete {
+        return;
+    }
+    let ffi = ffi_type_name(raw_type_name);
+
+    // View: an object whose bytes are a field of another object (the
+    // getter of a heap-owning field property). Reads and writes go to the
+    // parent; like a borrow it never frees anything.
+    builder.line(
+        "/// <summary>Internal: a view of bytes another object owns (a field of a parent \
+         wrapper). Reads and writes reach the parent; Dispose() never frees them.</summary>",
+    );
+    builder.line(&format!(
+        "internal static {} __View(__AzRef<{}> slot)",
+        class_name, ffi
+    ));
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!("var __w = new {}(default({}));", class_name, ffi));
+    builder.line("__w.__view = slot;");
+    builder.line("__w._borrowed = true;");
+    builder.line("global::System.GC.SuppressFinalize(__w);");
+    builder.line("return __w;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    // Take: the value to MOVE into a field. An owned wrapper is consumed
+    // (its finalizer disarmed); a borrowed one (a view, a callback
+    // argument) still belongs to someone else and is deep-copied instead.
+    builder.line(
+        "/// <summary>Internal: the value to move into a field setter. An owned object is \
+         consumed; a borrowed one (a view, a callback argument) is deep-copied.</summary>",
+    );
+    builder.line(&format!("internal {} __Take()", ffi));
+    builder.line("{");
+    builder.indent();
+    builder.line(
+        "if (_disposed) throw new ObjectDisposedException(nameof(_inner), \"wrapper already \
+         disposed or consumed; its native data is no longer owned by this object\");",
+    );
+    match format_clone_call_cs(raw_type_name, ir) {
+        Some(clone) => builder.line(&format!(
+            "if (_borrowed) return __AzDerive.Call<{ffi}, {ffi}>(_inner, {clone});"
+        )),
+        None => builder.line(&format!(
+            "if (_borrowed) throw new global::System.InvalidOperationException(\"{} has no \
+             deep copy: a borrowed value cannot be moved into a field\");",
+            class_name
+        )),
+    }
+    builder.line("var __v = _inner;");
+    builder.line("__Consume();");
+    builder.line("return __v;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+// ============================================================================
+// Field properties
+// ============================================================================
+
+/// The runtime the field properties share: the ref-returning delegate a
+/// view reaches its parent's field through, and the string conversions.
+fn emit_field_runtime(builder: &mut CodeBuilder, ir: &CodegenIR) {
+    builder.line(
+        "/// <summary>Internal: a reference to a field inside another object (what a field \
+         view reads and writes through).</summary>",
+    );
+    builder.line("internal delegate ref T __AzRef<T>();");
+    builder.blank();
+
+    let Some(string_ty) = ir
+        .structs
+        .iter()
+        .find(|s| matches!(s.category, TypeCategory::String))
+        .map(|s| ffi_type_name(&s.name))
+    else {
+        return;
+    };
+    let m = "global::System.Runtime.InteropServices.Marshal";
+    builder.line(
+        "/// <summary>Internal: native string conversions for the string-typed field \
+         properties.</summary>",
+    );
+    builder.line("internal static class __AzField");
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!(
+        "/// <summary>Decode the UTF-8 bytes of a {} without consuming it.</summary>",
+        string_ty
+    ));
+    builder.line(&format!("internal static string ReadString({} s)", string_ty));
+    builder.line("{");
+    builder.indent();
+    builder.line("var ptr = s.vec.ptr;");
+    builder.line("var len = (long)s.vec.len.ToUInt64();");
+    builder.line("if (ptr == global::System.IntPtr.Zero || len <= 0) return \"\";");
+    builder.line("var bytes = new byte[len];");
+    builder.line(&format!("{m}.Copy(ptr, bytes, 0, (int)len);"));
+    builder.line("return global::System.Text.Encoding.UTF8.GetString(bytes);");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+    builder.line(&format!(
+        "/// <summary>A fresh {} holding a copy of `v` (owned by the caller).</summary>",
+        string_ty
+    ));
+    builder.line(&format!("internal static {} MakeString(string v)", string_ty));
+    builder.line("{");
+    builder.indent();
+    builder.line("var bytes = global::System.Text.Encoding.UTF8.GetBytes(v ?? \"\");");
+    builder.line(&format!(
+        "var buf = {m}.AllocHGlobal(global::System.Math.Max(bytes.Length, 1));"
+    ));
+    builder.line("try");
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!("{m}.Copy(bytes, 0, buf, bytes.Length);"));
+    builder.line(&format!(
+        "return NativeMethods.{}_fromUtf8(buf, (UIntPtr)bytes.Length);",
+        string_ty
+    ));
+    builder.dedent();
+    builder.line("}");
+    builder.line(&format!("finally {{ {m}.FreeHGlobal(buf); }}"));
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// How one field of a wrapped struct is read and written.
+enum CsFieldShape {
+    /// A C primitive: read and written in place.
+    Prim { ty: String },
+    /// The string type: read as a C# `string` (the field is only read),
+    /// written as a fresh native string after the old one is released.
+    Str { delete: String },
+    /// A heap-owning class: read as a live view of the field, written by
+    /// moving the argument in (`__Take`) after the old value is released.
+    Wrapper { class: String, delete: String },
+    /// Any other value type, as its raw `Az*` struct (or C enum). With a
+    /// `_delete` the getter deep-copies (no `_clone`: no getter) and the
+    /// setter releases the old value first.
+    Value {
+        ty: String,
+        delete: Option<String>,
+        clone: Option<String>,
+    },
+    /// An Option, read and written as its C# nullable (`options`). With a
+    /// `_delete` the getter converts a deep copy (no `_clone`: no getter)
+    /// and the setter releases the old value first.
+    Opt {
+        opt: super::options::CsOption,
+        delete: Option<String>,
+        clone: Option<String>,
+    },
+}
+
+/// Does `t` carry a callback, a callback wrapper or the type-erased
+/// handle (directly, or in a variant of a union / option)? Such fields are
+/// wired up by the callback plumbing, never assigned as plain values.
+pub(crate) fn field_type_carries_callback(t: &str, ir: &CodegenIR) -> bool {
+    use super::super::{managed_host_invoker::is_callback_wrapper, managed_lang_helpers::is_refany_type};
+    let direct = |t: &str| {
+        let t = t.trim();
+        is_callback_wrapper(ir, t)
+            || is_refany_type(t, ir)
+            || ir.callback_typedefs.iter().any(|c| c.name.trim() == t)
+    };
+    let t = t.trim();
+    if direct(t) {
+        return true;
+    }
+    if let Some(e) = ir.find_enum(t) {
+        return e.variants.iter().any(|v| match &v.kind {
+            EnumVariantKind::Unit => false,
+            EnumVariantKind::Tuple(types) => types.iter().any(|(ty, _)| direct(ty.as_str())),
+            EnumVariantKind::Struct(fields) => fields.iter().any(|f| direct(f.type_name.as_str())),
+        });
+    }
+    if let Some(ta) = ir.find_type_alias(t) {
+        if let Some(MonomorphizedKind::TaggedUnion { variants, .. }) =
+            ta.monomorphized_def.as_ref().map(|m| &m.kind)
+        {
+            return variants
+                .iter()
+                .any(|v| v.payload_type.as_deref().is_some_and(|p| direct(p)));
+        }
+    }
+    false
+}
+
+/// A C scalar the struct mirror stores as a C# primitive.
+fn is_cs_scalar(t: &str) -> bool {
+    matches!(
+        t,
+        "u8" | "u16"
+            | "u32"
+            | "u64"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "usize"
+            | "isize"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "c_char"
+            | "c_uchar"
+            | "c_int"
+            | "c_uint"
+            | "char"
+    )
+}
+
+fn cs_field_shape(
+    f: &super::super::ir::FieldDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<CsFieldShape> {
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = f.type_name.trim();
+    if t.is_empty() || t.contains(['<', '[', '*', '&']) || matches!(t, "c_void" | "void" | "()") {
+        return None;
+    }
+    if is_cs_scalar(t) {
+        return Some(CsFieldShape::Prim {
+            ty: ref_kind_field_type(t, &FieldRefKind::Owned, ir),
+        });
+    }
+    if !config.should_include_type(t) || field_type_carries_callback(t, ir) {
+        return None;
+    }
+    let delete = has_delete_function(t, ir).then(|| format!("NativeMethods.{}_delete", ffi_type_name(t)));
+    if let Some(opt) = cs_option(t, ir) {
+        return Some(CsFieldShape::Opt {
+            opt,
+            delete,
+            clone: format_clone_call_cs(t, ir),
+        });
+    }
+    if ir
+        .find_struct(t)
+        .is_some_and(|s| matches!(s.category, TypeCategory::String))
+    {
+        return delete.map(|delete| CsFieldShape::Str { delete });
+    }
+    if let Some(delete) = delete.clone() {
+        if is_owning_wrapper(t, ir)
+            && ir.find_struct(t).is_some_and(|s| should_emit_wrapper(s, ir, config))
+        {
+            return Some(CsFieldShape::Wrapper {
+                class: sanitize_class_name(t),
+                delete,
+            });
+        }
+    }
+    let ty = ref_kind_field_type(t, &FieldRefKind::Owned, ir);
+    if ty == "IntPtr" {
+        // A recursive or unknown type the mirror only holds as a pointer.
+        return None;
+    }
+    Some(CsFieldShape::Value {
+        ty,
+        delete,
+        clone: format_clone_call_cs(t, ir),
+    })
+}
+
+/// Every member name the wrapper class of `s` declares besides its field
+/// properties: a field property never shadows one (the method wins).
+fn class_member_names(s: &StructDef, class_name: &str, ir: &CodegenIR) -> BTreeSet<String> {
+    let mut taken: BTreeSet<String> = [
+        "Raw",
+        "Dispose",
+        "Clone",
+        "Equals",
+        "GetHashCode",
+        "ToString",
+        "CompareTo",
+        "GetEnumerator",
+        "GetType",
+        "MemberwiseClone",
+        "Finalize",
+        "ReferenceEquals",
+        "Create",
+        "__Consume",
+        "__Borrow",
+        "__View",
+        "__Take",
+    ]
+    .iter()
+    .map(|n| n.to_string())
+    .collect();
+    taken.insert(class_name.to_string());
+    for func in ir.functions_for_class(&s.name) {
+        taken.insert(idiomatic_method_name(&func.method_name));
+        if let Some((smart, _)) = smart_callback_setter_info(func) {
+            taken.insert(super::snake_to_pascal(&smart));
+        }
+    }
+    taken
+}
+
+/// Properties for the public fields of a wrapped struct, so a class's
+/// fields are as reachable as a struct's:
+///
+/// - a scalar reads and writes in place; a string reads as a C# `string`
+///   (the field is not consumed) and writes a fresh native string after
+///   releasing the old one;
+/// - a heap-owning class field reads as a live VIEW of the field, so
+///   nested writes (`opts.WindowState.Title = "x"`) reach the parent;
+///   assigning releases the old value and consumes the new object (a
+///   borrowed one is deep-copied);
+/// - a value-type field reads as a copy (C# rejects `x.Size.dpi = 2` at
+///   compile time, so a nested write is never silently lost: modify the
+///   copy and assign it back).
+///
+/// An api.json method of the same name wins: the property is then emitted
+/// as `Get<Field>()` / `Set<Field>(value)` methods where those are free.
+fn emit_field_properties(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class_name: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    // A Vec / the string type: their fields are the buffer itself.
+    // Callback wrappers and RefAny: plumbing, not data.
+    if matches!(
+        s.category,
+        TypeCategory::Vec | TypeCategory::String | TypeCategory::RefAny
+    ) || detect_vec_elem_type_cs(s).is_some()
+        || s.callback_wrapper_info.is_some()
+    {
+        return;
+    }
+    let mut taken = class_member_names(s, class_name, ir);
+    let guard = "if (_disposed) throw new ObjectDisposedException(nameof(_inner));";
+
+    for f in &s.fields {
+        let Some(shape) = cs_field_shape(f, ir, config) else {
+            continue;
+        };
+        let mut prop = snake_to_pascal(&f.name);
+        if prop.starts_with(|c: char| c.is_ascii_digit()) {
+            prop = format!("Item{}", prop);
+        }
+        let fid = format!("_inner.{}", sanitize_identifier(&f.name));
+
+        // Bodies, one string per line; each leading '>' is one extra
+        // indent level.
+        let (ty, getter, setter, what): (String, Option<Vec<String>>, Vec<String>, String) =
+            match &shape {
+                CsFieldShape::Prim { ty } => (
+                    ty.clone(),
+                    Some(vec![format!("return {fid};")]),
+                    vec![format!("{fid} = value;")],
+                    format!("The `{}` field.", f.name),
+                ),
+                CsFieldShape::Str { delete } => (
+                    "string".to_string(),
+                    Some(vec![format!("return __AzField.ReadString({fid});")]),
+                    vec![
+                        "var __nv = __AzField.MakeString(value);".to_string(),
+                        format!("__AzDerive.Consume({fid}, {delete});"),
+                        format!("{fid} = __nv;"),
+                    ],
+                    format!(
+                        "The `{}` field. Reading copies the text out; assigning releases the old \
+                         string.",
+                        f.name
+                    ),
+                ),
+                CsFieldShape::Wrapper { class, delete } => (
+                    class.clone(),
+                    Some(vec![
+                        // Qualified: inside a class with a `Dom()` method a
+                        // bare `Dom` names the method (CS0119).
+                        format!("return global::Azul.{class}.__View(() =>"),
+                        "{".to_string(),
+                        format!(">{guard}"),
+                        format!(">return ref {fid};"),
+                        "});".to_string(),
+                    ]),
+                    vec![
+                        "var __nv = value.__Take();".to_string(),
+                        format!("__AzDerive.Consume({fid}, {delete});"),
+                        format!("{fid} = __nv;"),
+                    ],
+                    format!(
+                        "The `{}` field as a live view: writes through it change this object \
+                         (valid while this object lives; Clone() it for an independent copy). \
+                         Assigning releases the old value and consumes the new one (a borrowed \
+                         one is deep-copied).",
+                        f.name
+                    ),
+                ),
+                CsFieldShape::Value { ty, delete, clone } => {
+                    let getter = match (delete, clone) {
+                        (None, _) => Some(vec![format!("return {fid};")]),
+                        (Some(_), Some(c)) => {
+                            Some(vec![format!("return __AzDerive.Call<{ty}, {ty}>({fid}, {c});")])
+                        }
+                        // Heap-owning without a deep copy: a shallow copy
+                        // would be freed twice.
+                        (Some(_), None) => None,
+                    };
+                    let mut setter = Vec::new();
+                    if let Some(d) = delete {
+                        setter.push(format!("__AzDerive.Consume({fid}, {d});"));
+                    }
+                    setter.push(format!("{fid} = value;"));
+                    let what = if delete.is_some() {
+                        format!(
+                            "A deep copy of the `{}` field; assigning releases the old value and \
+                             moves the new one in.",
+                            f.name
+                        )
+                    } else {
+                        format!(
+                            "A copy of the `{}` field (a value type: modify the copy and assign it \
+                             back, `var v = x.{prop}; ...; x.{prop} = v;`).",
+                            f.name
+                        )
+                    };
+                    (ty.clone(), getter, setter, what)
+                }
+                CsFieldShape::Opt { opt, delete, clone } => {
+                    let ffi = ffi_type_name(f.type_name.trim());
+                    let getter = match (delete, clone) {
+                        (None, _) => Some(vec![format!("return {};", opt.take(&fid))]),
+                        (Some(_), Some(c)) => Some(vec![format!(
+                            "return {};",
+                            opt.take(&format!("__AzDerive.Call<{ffi}, {ffi}>({fid}, {c})"))
+                        )]),
+                        (Some(_), None) => None,
+                    };
+                    let mut setter = vec![format!("var __nv = {};", opt.into_raw("value"))];
+                    if let Some(d) = delete {
+                        setter.push(format!("__AzDerive.Consume({fid}, {d});"));
+                    }
+                    setter.push(format!("{fid} = __nv;"));
+                    let what = format!(
+                        "The `{}` field as a nullable (null is None): reading copies it out, \
+                         assigning releases the old value.",
+                        f.name
+                    );
+                    (opt.native(), getter, setter, what)
+                }
+            };
+
+        let emit_body = |b: &mut CodeBuilder, lines: &[String]| {
+            b.line(guard);
+            for l in lines {
+                let depth = l.chars().take_while(|c| *c == '>').count();
+                for _ in 0..depth {
+                    b.indent();
+                }
+                b.line(&l[depth..]);
+                for _ in 0..depth {
+                    b.dedent();
+                }
+            }
+        };
+        let emit_doc = |b: &mut CodeBuilder| {
+            b.line(&format!("/// <summary>{}</summary>", xml_escape(&what)));
+            if let Some(d) = &f.doc {
+                b.line(&format!("/// <remarks>{}</remarks>", xml_escape(d)));
+            }
+        };
+
+        if !taken.contains(&prop) {
+            taken.insert(prop.clone());
+            emit_doc(builder);
+            builder.line(&format!("public {} {}", ty, prop));
+            builder.line("{");
+            builder.indent();
+            if let Some(g) = &getter {
+                builder.line("get");
+                builder.line("{");
+                builder.indent();
+                emit_body(builder, g);
+                builder.dedent();
+                builder.line("}");
+            }
+            builder.line("set");
+            builder.line("{");
+            builder.indent();
+            emit_body(builder, &setter);
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            continue;
+        }
+
+        // The name belongs to a method: plain accessor methods instead.
+        let get_name = format!("Get{}", prop);
+        if let Some(g) = &getter {
+            if !taken.contains(&get_name) {
+                taken.insert(get_name.clone());
+                emit_doc(builder);
+                builder.line(&format!("public {} {}()", ty, get_name));
+                builder.line("{");
+                builder.indent();
+                emit_body(builder, g);
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
+        }
+        let set_name = format!("Set{}", prop);
+        if !taken.contains(&set_name) {
+            taken.insert(set_name.clone());
+            emit_doc(builder);
+            builder.line(&format!("public void {}({} value)", set_name, ty));
+            builder.line("{");
+            builder.indent();
+            emit_body(builder, &setter);
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
 }
 
 // ============================================================================
 // Method emission
 // ============================================================================
+
+/// The api.json arguments a wrapper method declares as C# parameters: the
+/// implicit self of an instance / clone method is dropped (it is `this`).
+///
+/// `pub(crate)` so the PowerShell cmdlets, which forward to these methods,
+/// declare exactly the same parameters.
+pub(crate) fn cs_user_args(func: &FunctionDef) -> Vec<&FunctionArg> {
+    // The first parameter of an instance/clone/deepcopy method is the
+    // implicit self pointer. `func.args[0]` is the self regardless of
+    // its declared name in api.json (which can be the lowercased class,
+    // `self`, or — in the trait-impl case — synonyms like `instance`).
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
+    if takes_self {
+        func.args.iter().skip(1).collect()
+    } else {
+        let class_lower = func.class_name.to_lowercase();
+        func.args
+            .iter()
+            .filter(|a| a.name != class_lower && a.name != "self")
+            .collect()
+    }
+}
+
+/// The C# parameter type a wrapper method declares for `a`:
+/// 1. an owned string → `string` (converted to a native string inside);
+/// 2. an owned arg of an owning wrapper class → that class (consumed by
+///    the call);
+/// 3. any other owned arg → its FFI type; a reference → `IntPtr`.
+///
+/// `pub(crate)` for the PowerShell cmdlets (see [`cs_user_args`]).
+pub(crate) fn cs_param_type(a: &FunctionArg, ir: &CodegenIR) -> String {
+    let owned = matches!(a.ref_kind, ArgRefKind::Owned);
+    // "Is this the API's string type?" is a CATEGORY question.
+    let is_string = ir
+        .find_struct(a.type_name.trim())
+        .is_some_and(|s| matches!(s.category, TypeCategory::String));
+    if owned && is_string {
+        "string".to_string()
+    } else if let Some(opt) = owned.then(|| cs_option(&a.type_name, ir)).flatten() {
+        // `null` is None; see `options`.
+        opt.native()
+    } else if owned && is_owning_wrapper(a.type_name.trim(), ir) {
+        // C# wrapper class name strips the `Az` prefix.
+        a.type_name.trim().to_string()
+    } else if owned {
+        map_type_to_csharp(&a.type_name, ir)
+    } else {
+        "IntPtr".to_string()
+    }
+}
+
+/// A typed overload for every method that takes a `RefAny` data argument
+/// followed by a callback wrapper (`FileDialog.OpenDirectory(title,
+/// default_path, data, on_result)`): the data is any object `T` and the
+/// callback the typed delegate of its kind, both wrapped and registered
+/// inside, the same way the smart `On<Event><T>` builders do it. Those
+/// builders cover the `with_on_*` setters, so those are skipped here.
+fn emit_typed_data_callback_overload(
+    builder: &mut CodeBuilder,
+    class_name: &str,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+) {
+    if func.kind.is_trait_function() || smart_callback_setter_info(func).is_some() {
+        return;
+    }
+    let user_args = cs_user_args(func);
+    let is_refany = |a: &FunctionArg| {
+        matches!(a.ref_kind, ArgRefKind::Owned)
+            && ir
+                .find_struct(a.type_name.trim())
+                .is_some_and(|s| matches!(s.category, TypeCategory::RefAny))
+    };
+    let wrapper_of = |a: &FunctionArg| {
+        a.callback_info
+            .as_ref()
+            .filter(|c| matches!(a.ref_kind, ArgRefKind::Owned) && c.callback_wrapper_name == a.type_name.trim())
+            .map(|c| c.callback_wrapper_name.clone())
+    };
+    let Some(data_at) = (0..user_args.len().saturating_sub(1))
+        .find(|&i| is_refany(user_args[i]) && wrapper_of(user_args[i + 1]).is_some())
+    else {
+        return;
+    };
+    let wrapper = wrapper_of(user_args[data_at + 1]).unwrap_or_default();
+    let Some(typed) = typed_delegate_info_for_kind(&wrapper, ir) else {
+        return;
+    };
+    let mut params = Vec::new();
+    let mut call = Vec::new();
+    for (j, a) in user_args.iter().enumerate() {
+        let name = sanitize_identifier(&a.name);
+        if j == data_at {
+            params.push(format!("T {}", name));
+            call.push(format!("new RefAny(HostInvoker.RefanyCreate({}))", name));
+        } else if j == data_at + 1 {
+            params.push(format!("HostInvoker.{} {}", typed.delegate_name(), name));
+            call.push(format!(
+                "new {}(HostInvoker.Register{}<T>({}))",
+                sanitize_class_name(&wrapper),
+                wrapper,
+                name
+            ));
+        } else {
+            params.push(format!("{} {}", cs_param_type(a, ir), name));
+            call.push(name);
+        }
+    }
+    let is_static = matches!(
+        func.kind,
+        FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default
+    );
+    let ret = cs_displayed_return(class_name, func, ir);
+    let method = idiomatic_method_name(&func.method_name);
+    builder.line(&format!(
+        "/// <summary>Typed {}: `{}` is handed back to the callback as `T`; RefAny wrapping \
+         and callback registration happen inside.</summary>",
+        method,
+        sanitize_identifier(&user_args[data_at].name)
+    ));
+    builder.line(&format!(
+        "public {}{} {}<T>({}) where T : class",
+        if is_static { "static " } else { "" },
+        ret,
+        method,
+        params.join(", ")
+    ));
+    builder.line("{");
+    builder.indent();
+    let invoke = format!("{}({})", method, call.join(", "));
+    if ret == "void" {
+        builder.line(&format!("{};", invoke));
+    } else {
+        builder.line(&format!("return {};", invoke));
+    }
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// The return type a wrapper method declares: the class itself, an owning
+/// wrapper class, an Option's nullable, a Result's Ok type, or the FFI type.
+fn cs_displayed_return(class_name: &str, func: &FunctionDef, ir: &CodegenIR) -> String {
+    let return_cs = func
+        .return_type
+        .as_ref()
+        .map(|r| map_type_to_csharp(r, ir))
+        .unwrap_or_else(|| "void".to_string());
+    let returns_self = func
+        .return_type
+        .as_deref()
+        .is_some_and(|r| r.trim() == func.class_name);
+    if returns_self {
+        return class_name.to_string();
+    }
+    let idiom = classify_return(func, ir);
+    if matches!(idiom, ReturnIdiom::Plain) {
+        if let Some(r) = func
+            .return_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|r| is_owning_wrapper(r, ir))
+        {
+            return r.to_string();
+        }
+    }
+    match &idiom {
+        ReturnIdiom::Plain => return_cs,
+        ReturnIdiom::Option {
+            payload_ty,
+            ref_kind,
+        } => {
+            let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
+            let display = payload_display_cs(&raw, ir);
+            // Value-type payloads (primitives + structs) become
+            // `Nullable<T>`; wrapper-class payloads (`Dom?`) and `string?`
+            // use the same spelling as a nullable-reference annotation.
+            format!("{}?", display)
+        }
+        ReturnIdiom::Result {
+            payload_ty,
+            ref_kind,
+        } => payload_display_cs(&ref_kind_field_type(payload_ty, ref_kind, ir), ir),
+    }
+}
 
 fn emit_wrapper_method(
     builder: &mut CodeBuilder,
@@ -1446,15 +2206,7 @@ fn emit_wrapper_method(
         func.kind,
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     );
-    let user_args: Vec<_> = if takes_self {
-        func.args.iter().skip(1).collect()
-    } else {
-        let class_lower = func.class_name.to_lowercase();
-        func.args
-            .iter()
-            .filter(|a| a.name != class_lower && a.name != "self")
-            .collect()
-    };
+    let user_args: Vec<&FunctionArg> = cs_user_args(func);
 
     // Auto-conversion rules (mirrors Java/Kotlin; pure type-driven, no
     // method-name allowlist):
@@ -1492,22 +2244,7 @@ fn emit_wrapper_method(
     // Build argument signature.
     let arg_sig: Vec<String> = user_args
         .iter()
-        .map(|a| {
-            let cs_type = if is_az_string_owned_arg(a) {
-                "string".to_string()
-            } else if is_wrapper_class_owned_arg(a) {
-                // C# wrapper class name strips the `Az` prefix.
-                a.type_name.trim().to_string()
-            } else {
-                match a.ref_kind {
-                    ArgRefKind::Owned => map_type_to_csharp(&a.type_name, ir),
-                    ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
-                        "IntPtr".to_string()
-                    }
-                }
-            };
-            format!("{} {}", cs_type, sanitize_identifier(&a.name))
-        })
+        .map(|a| format!("{} {}", cs_param_type(a, ir), sanitize_identifier(&a.name)))
         .collect();
 
     // Determine how the C ABI receives the implicit self:
@@ -1547,9 +2284,16 @@ fn emit_wrapper_method(
     let mut pre_call_lines: Vec<String> = Vec::new();
     for a in &user_args {
         let raw_name = sanitize_identifier(&a.name);
+        let owned_option = matches!(a.ref_kind, ArgRefKind::Owned)
+            .then(|| cs_option(&a.type_name, ir))
+            .flatten();
         if is_raw_callback_arg(a) {
             pre_call_lines.push(format!("HostInvoker.__Pin({});", raw_name));
             call_args.push(raw_name);
+        } else if let Some(opt) = owned_option {
+            let local = format!("__{}_opt", raw_name.trim_start_matches('@'));
+            pre_call_lines.push(format!("var {} = {};", local, opt.into_raw(&raw_name)));
+            call_args.push(local);
         } else if is_az_string_owned_arg(a) {
             // C# keyword-escapes with `@` prefix; strip it so local var
             // names like `__@class_bytes` (invalid) become
@@ -1587,13 +2331,12 @@ fn emit_wrapper_method(
             ));
             call_args.push(az_name);
         } else if is_wrapper_class_owned_arg(a) {
-            // Every wrapper class exposes `public Az<T> Raw => _inner;`
-            // — reach in directly. No struct-to-pointer marshal needed
-            // because C# struct-field-assignment is a byte copy.
-            call_args.push(format!("{}.Raw", raw_name));
-            // C ABI takes by-value; the caller's wrapper is now
-            // ownership-transferred. Mark consumed.
-            consume_after_call.push(raw_name.clone());
+            // The C ABI takes the value and frees it. `__Take()` moves an
+            // owned wrapper in (and disarms its finalizer); a borrowed one
+            // - a callback argument the engine frees after the callback,
+            // like a resume callback's `result` handed to `Downcast` - is
+            // deep-copied first, so it is never freed twice.
+            call_args.push(format!("{}.__Take()", raw_name));
         } else {
             call_args.push(raw_name);
         }
@@ -1672,38 +2415,7 @@ fn emit_wrapper_method(
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
 
-    let displayed_return = if returns_self {
-        class_name.to_string()
-    } else if let Some(ref wrapper) = returns_wrapper_other {
-        wrapper.clone()
-    } else {
-        match &idiom {
-            ReturnIdiom::Plain => return_cs.clone(),
-            ReturnIdiom::Option {
-                payload_ty,
-                ref_kind,
-            } => {
-                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                let display = payload_display_cs(&raw, ir);
-                // Value-type payloads (primitives + structs) become
-                // `Nullable<T>`; wrapper-class payloads (`Dom?`) use the
-                // same `T?` spelling as a nullable-reference annotation.
-                // `string` is already a reference type.
-                if display == "string" {
-                    "string".to_string()
-                } else {
-                    format!("{}?", display)
-                }
-            }
-            ReturnIdiom::Result {
-                payload_ty,
-                ref_kind,
-            } => {
-                let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
-                payload_display_cs(&raw, ir)
-            }
-        }
-    };
+    let displayed_return = cs_displayed_return(class_name, func, ir);
 
     builder.line(&format!(
         "{} {} {}({})",
@@ -2037,7 +2749,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
 
 /// Pick a safe C# class name. We use the IR type name verbatim (no `Az`
 /// prefix) because the wrapper lives inside `namespace Azul`.
-fn sanitize_class_name(raw: &str) -> String {
+pub(super) fn sanitize_class_name(raw: &str) -> String {
     sanitize_identifier(raw)
 }
 
@@ -2070,4 +2782,354 @@ fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::super::super::ir::{FieldDef, FunctionArg};
+    use super::*;
+
+    fn field(name: &str, ty: &str, rk: FieldRefKind) -> FieldDef {
+        FieldDef {
+            name: name.into(),
+            type_name: ty.into(),
+            doc: None,
+            is_public: true,
+            ref_kind: rk,
+        }
+    }
+
+    fn strukt(name: &str, category: TypeCategory, fields: Vec<FieldDef>) -> StructDef {
+        StructDef {
+            name: name.into(),
+            doc: vec![],
+            fields,
+            external_path: None,
+            module: "test".into(),
+            derives: vec![],
+            has_explicit_derive: false,
+            custom_impls: vec![],
+            is_boxed: false,
+            repr: Some("C".into()),
+            is_send_safe: true,
+            generic_params: vec![],
+            traits: Default::default(),
+            category,
+            dependencies: vec![],
+            sort_order: 0,
+            needs_forward_decl: false,
+            callback_wrapper_info: None,
+        }
+    }
+
+    fn arg(name: &str, ty: &str, rk: ArgRefKind) -> FunctionArg {
+        FunctionArg {
+            name: name.into(),
+            type_name: ty.into(),
+            ref_kind: rk,
+            doc: None,
+            callback_info: None,
+        }
+    }
+
+    pub(crate) fn func(
+        class: &str,
+        method: &str,
+        kind: FunctionKind,
+        args: Vec<FunctionArg>,
+        ret: Option<&str>,
+    ) -> FunctionDef {
+        FunctionDef {
+            c_name: format!("Az{}_{}", class, method),
+            class_name: class.into(),
+            method_name: method.into(),
+            kind,
+            args,
+            return_type: ret.map(str::to_string),
+            fn_body: Some("body".into()),
+            doc: vec![],
+            is_const: false,
+            is_unsafe: false,
+        }
+    }
+
+    /// `_delete` + `_clone` for a heap-owning class. Their receiver is
+    /// named `instance`, as in api.json (not the class' receiver name).
+    fn owning(ir: &mut CodegenIR, class: &str) {
+        let recv = "instance";
+        ir.functions.push(func(
+            class,
+            "delete",
+            FunctionKind::Delete,
+            vec![arg(recv, class, ArgRefKind::RefMut)],
+            None,
+        ));
+        ir.functions.push(func(
+            class,
+            "clone",
+            FunctionKind::DeepCopy,
+            vec![arg(recv, class, ArgRefKind::Ref)],
+            Some(class),
+        ));
+    }
+
+    /// The field-access fixture the C#, PowerShell and Go tests of this wave
+    /// share: the window-options chain (WindowCreateOptions.window_state ->
+    /// FullWindowState.title / .size -> WindowSize.dimensions),
+    /// CheckBoxState.checked, TextInputState.text (next to a `get_text`
+    /// method) and a Label whose `text` field collides with a method of the
+    /// same name.
+    pub(crate) fn field_fixture_ir() -> CodegenIR {
+        let mut ir = CodegenIR::new();
+        let vec_fields = |elem: &str, dtor: &str| {
+            vec![
+                field("ptr", elem, FieldRefKind::Ptr),
+                field("len", "usize", FieldRefKind::Owned),
+                field("cap", "usize", FieldRefKind::Owned),
+                field("destructor", dtor, FieldRefKind::Owned),
+            ]
+        };
+        ir.structs.push(strukt("U8Vec", TypeCategory::Vec, vec_fields("u8", "U8VecDestructor")));
+        ir.structs.push(strukt("U32Vec", TypeCategory::Vec, vec_fields("u32", "U32VecDestructor")));
+        ir.structs.push(strukt(
+            "String",
+            TypeCategory::String,
+            vec![field("vec", "U8Vec", FieldRefKind::Owned)],
+        ));
+        ir.structs.push(strukt(
+            "LogicalSize",
+            TypeCategory::default(),
+            vec![
+                field("width", "f32", FieldRefKind::Owned),
+                field("height", "f32", FieldRefKind::Owned),
+            ],
+        ));
+        ir.structs.push(strukt(
+            "WindowSize",
+            TypeCategory::default(),
+            vec![
+                field("dimensions", "LogicalSize", FieldRefKind::Owned),
+                field("dpi", "u32", FieldRefKind::Owned),
+            ],
+        ));
+        ir.structs.push(strukt(
+            "FullWindowState",
+            TypeCategory::default(),
+            vec![
+                field("title", "String", FieldRefKind::Owned),
+                field("size", "WindowSize", FieldRefKind::Owned),
+                field("window_focused", "bool", FieldRefKind::Owned),
+            ],
+        ));
+        ir.structs.push(strukt(
+            "WindowCreateOptions",
+            TypeCategory::default(),
+            vec![
+                field("window_state", "FullWindowState", FieldRefKind::Owned),
+                field("size_to_content", "bool", FieldRefKind::Owned),
+            ],
+        ));
+        ir.structs.push(strukt(
+            "CheckBoxState",
+            TypeCategory::default(),
+            vec![field("checked", "bool", FieldRefKind::Owned)],
+        ));
+        ir.structs.push(strukt(
+            "TextInputState",
+            TypeCategory::default(),
+            vec![field("text", "U32Vec", FieldRefKind::Owned)],
+        ));
+        ir.structs.push(strukt(
+            "Label",
+            TypeCategory::default(),
+            vec![field("text", "String", FieldRefKind::Owned)],
+        ));
+        ir.structs.push(strukt("App", TypeCategory::default(), vec![]));
+        for class in [
+            "U8Vec",
+            "U32Vec",
+            "String",
+            "FullWindowState",
+            "WindowCreateOptions",
+            "TextInputState",
+            "Label",
+            "App",
+        ] {
+            owning(&mut ir, class);
+        }
+        ir.functions.push(func(
+            "CheckBoxState",
+            "create",
+            FunctionKind::Constructor,
+            vec![arg("checked", "bool", ArgRefKind::Owned)],
+            Some("CheckBoxState"),
+        ));
+        ir.functions.push(func(
+            "TextInputState",
+            "get_text",
+            FunctionKind::Method,
+            vec![arg("text_input_state", "TextInputState", ArgRefKind::Ref)],
+            Some("U32Vec"),
+        ));
+        ir.functions.push(func(
+            "Label",
+            "text",
+            FunctionKind::Method,
+            vec![arg("label", "Label", ArgRefKind::Ref)],
+            Some("String"),
+        ));
+        ir.functions.push(func(
+            "WindowCreateOptions",
+            "create",
+            FunctionKind::Constructor,
+            vec![arg("title", "String", ArgRefKind::Owned)],
+            Some("WindowCreateOptions"),
+        ));
+        ir.functions.push(func(
+            "WindowCreateOptions",
+            "default",
+            FunctionKind::Default,
+            vec![],
+            Some("WindowCreateOptions"),
+        ));
+        ir.functions.push(func(
+            "App",
+            "run",
+            FunctionKind::Method,
+            vec![
+                arg("app", "App", ArgRefKind::RefMut),
+                arg("root_window", "WindowCreateOptions", ArgRefKind::Owned),
+                arg("label", "String", ArgRefKind::Owned),
+                arg("size", "WindowSize", ArgRefKind::Owned),
+            ],
+            None,
+        ));
+        ir
+    }
+
+    fn gen() -> String {
+        let ir = field_fixture_ir();
+        let mut b = CodeBuilder::new("    ");
+        generate_wrappers(&mut b, &ir, &CodegenConfig::c_header()).expect("wrappers");
+        b.finish()
+    }
+
+    /// The text of `class Name` up to the next top-level class.
+    fn class_body(out: &str, name: &str) -> String {
+        let head = format!("public sealed class {} ", name);
+        let head_nl = format!("public sealed class {}\n", name);
+        let start = out
+            .find(&head)
+            .or_else(|| out.find(&head_nl))
+            .unwrap_or_else(|| panic!("no class {name}:\n{out}"));
+        let rest = &out[start + head.len()..];
+        let end = rest.find("\npublic sealed class ").unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    fn before(hay: &str, a: &str, b: &str) -> bool {
+        match (hay.find(a), hay.find(b)) {
+            (Some(x), Some(y)) => x < y,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn a_string_field_is_read_without_consuming_it_and_written_after_freeing_the_old_string() {
+        let out = gen();
+        let c = class_body(&out, "FullWindowState");
+        assert!(c.contains("public string Title\n"), "{c}");
+        assert!(c.contains("return __AzField.ReadString(_inner.title);"), "{c}");
+        assert!(c.contains("var __nv = __AzField.MakeString(value);"), "{c}");
+        assert!(
+            before(
+                &c,
+                "__AzDerive.Consume(_inner.title, NativeMethods.AzString_delete);",
+                "_inner.title = __nv;"
+            ),
+            "the old title must be released before the new one is stored:\n{c}"
+        );
+        assert!(out.contains("internal static class __AzField"), "{out}");
+    }
+
+    #[test]
+    fn a_heap_owning_field_is_a_live_view_and_its_setter_deletes_the_old_value_then_consumes_the_new()
+    {
+        let out = gen();
+        let c = class_body(&out, "WindowCreateOptions");
+        assert!(c.contains("public FullWindowState WindowState\n"), "{c}");
+        assert!(c.contains("return global::Azul.FullWindowState.__View(() =>"), "{c}");
+        assert!(c.contains("return ref _inner.window_state;"), "{c}");
+        assert!(c.contains("var __nv = value.__Take();"), "{c}");
+        assert!(
+            before(
+                &c,
+                "__AzDerive.Consume(_inner.window_state, NativeMethods.AzFullWindowState_delete);",
+                "_inner.window_state = __nv;"
+            ),
+            "{c}"
+        );
+    }
+
+    #[test]
+    fn an_owning_class_can_be_a_view_into_its_parent_and_moves_out_through_take() {
+        let out = gen();
+        let c = class_body(&out, "FullWindowState");
+        assert!(c.contains("private ref AzFullWindowState _inner"), "{c}");
+        assert!(c.contains("if (__view != null) return ref __view();"), "{c}");
+        assert!(
+            c.contains("internal static FullWindowState __View(__AzRef<AzFullWindowState> slot)"),
+            "{c}"
+        );
+        assert!(c.contains("internal AzFullWindowState __Take()"), "{c}");
+        // A borrowed value (a view, a callback argument) is deep-copied,
+        // an owned one is moved and its finalizer disarmed.
+        assert!(
+            c.contains(
+                "if (_borrowed) return __AzDerive.Call<AzFullWindowState, \
+                 AzFullWindowState>(_inner, NativeMethods.AzFullWindowState_clone);"
+            ),
+            "{c}"
+        );
+        assert!(out.contains("internal delegate ref T __AzRef<T>();"), "{out}");
+    }
+
+    #[test]
+    fn a_bool_field_is_a_read_write_property() {
+        let out = gen();
+        let c = class_body(&out, "CheckBoxState");
+        assert!(c.contains("public bool Checked\n"), "{c}");
+        assert!(c.contains("return _inner.@checked;"), "{c}");
+        assert!(c.contains("_inner.@checked = value;"), "{c}");
+    }
+
+    #[test]
+    fn a_pod_struct_field_is_a_copy_that_is_assigned_back_whole() {
+        let out = gen();
+        let c = class_body(&out, "FullWindowState");
+        assert!(c.contains("public AzWindowSize Size\n"), "{c}");
+        assert!(c.contains("return _inner.size;"), "{c}");
+        assert!(c.contains("_inner.size = value;"), "{c}");
+        assert!(!c.contains("Consume(_inner.size"), "a POD field owns nothing:\n{c}");
+    }
+
+    #[test]
+    fn a_method_of_the_same_name_wins_but_the_field_stays_writable() {
+        let out = gen();
+        let label = class_body(&out, "Label");
+        assert!(label.contains("public String Text()"), "{label}");
+        assert!(!label.contains("public string Text\n"), "{label}");
+        assert!(label.contains("public void SetText(string value)"), "{label}");
+        // `get_text` does not collide with the `Text` property.
+        let tis = class_body(&out, "TextInputState");
+        assert!(tis.contains("public U32Vec GetText()"), "{tis}");
+        assert!(tis.contains("public U32Vec Text\n"), "{tis}");
+    }
+
+    #[test]
+    fn vec_and_string_classes_expose_no_field_properties() {
+        let out = gen();
+        assert!(!class_body(&out, "U8Vec").contains("public UIntPtr Len"), "{out}");
+        assert!(!class_body(&out, "String").contains("public AzU8Vec Vec"), "{out}");
+    }
 }
