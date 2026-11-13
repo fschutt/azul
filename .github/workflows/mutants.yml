@@ -1,0 +1,60 @@
+# The patch mutants of this repository (ARCH31-1; azul-apps notes/audits/closeout-2026-11/arch29/ARCH29.md 9.10.3).
+#
+# A commit that closes a MAJOR or BLOCKER row of the register adds mutants/<row id>.patch: the few lines that turn the fix's
+# guard OFF, with the tests that must notice it (its killers) in the header. This workflow replays them (scripts/mutants.py):
+# every killer must be RED with the patch applied and GREEN without it, the tree is put back and proved so, and every patch
+# of mutants/ must still apply to HEAD (a refactor that moves a patch's lines fails here, and its author rewrites the patch).
+# A patch that SURVIVES (a killer stays green with it) means its row is NOT closed.
+#
+# On demand only, like rust.yml and supply-chain.yml:
+#   gh workflow run mutants.yml --ref <branch> -f mutants=all
+#   gh workflow run mutants.yml --ref <branch> -f mutants=<base>..<head>     (the patches added or changed in that range)
+# A file of its own for the reason supply-chain.yml is one: rust.yml is 74% of GitHub's 512,000-byte limit.
+# On the Mac the same replay is ONE patch inside ONE build-lock hold: cg python3 scripts/mutants.py --patch mutants/<id>.patch
+
+name: Mutants
+
+on:
+  workflow_dispatch:
+    inputs:
+      mutants:
+        description: "`all`, or `<base>..<head>`: the patches of mutants/ added or changed in that range (every patch is checked to still apply to HEAD either way)"
+        required: true
+        default: all
+
+permissions:
+  contents: read
+
+# a second start of the same selection on the same ref cancels the first: only the newest one counts
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.mutants }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: "1"
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  mutants:
+    name: Patch mutants (killers red with the patch, green without)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # a range names commits: the whole history
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+      # the replay's own tests first (a fake cargo, no build): a replay that cannot tell a kill from a survivor must not be the
+      # one to report; they end with "every patch of mutants/ still applies to HEAD"
+      - name: the replay's own tests
+        run: python3 -m unittest scripts/test_mutants.py
+      # the input goes through the environment (never into the script text); the script checks its shape. The apply check of
+      # EVERY patch comes first (a patch that stopped applying is a finding), then the replays of the selection.
+      - name: patch mutants
+        env:
+          MUTANTS: ${{ inputs.mutants }}
+        run: python3 scripts/mutants.py --ci "$MUTANTS"
