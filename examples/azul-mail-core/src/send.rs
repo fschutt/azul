@@ -2221,15 +2221,6 @@ mod tests {
         }
     }
 
-    fn accepted(address: &str) -> RecipientOutcome {
-        RecipientOutcome {
-            address: address.to_string(),
-            status: RecipientStatus::Accepted {
-                server: "mx.test".to_string(),
-            },
-        }
-    }
-
     fn reply(code: u16, text: &str) -> Reply {
         let enhanced = text
             .split_whitespace()
@@ -4857,6 +4848,72 @@ mod tests {
             remove(&dir, &entry.id).unwrap();
             assert_eq!(held_keys(&dir).len(), 2, "{what}: the state was the fault");
         }
+    }
+
+    /// The hold is written BEFORE anything leaves the Outbox (the order is every step a crash cell): a hold that
+    /// cannot be written - here a file is where the folder of the holding area should be - removes nothing; the row,
+    /// its file and the Outbox stay, and the same Delete goes through once the fault is gone.
+    #[test]
+    fn x_delta_apps5_2_a_hold_that_cannot_be_written_removes_nothing_from_the_outbox() {
+        let dir = TempDir::new("send-remove-unwritable");
+        let entry = failed(&dir);
+        let blocker = dir.0.join(ACCOUNT).join(store::REMOVED_PREFIX);
+        std::fs::write(&blocker, b"a file where the holding area should be").unwrap();
+        let refused = remove(&dir, &entry.id).unwrap_err();
+        assert_ne!(refused.kind(), std::io::ErrorKind::WouldBlock, "{refused}");
+        assert_eq!(
+            outbox_entries(&dir.folder(), ACCOUNT).len(),
+            1,
+            "the row stays: {refused}"
+        );
+        assert!(eml_of(&dir, &entry).exists(), "and its file");
+        std::fs::remove_file(&blocker).unwrap();
+        remove(&dir, &entry.id).unwrap();
+        assert_eq!(held_keys(&dir).len(), 2);
+        assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty());
+    }
+
+    /// The kill between the hold's two writes (the cell of the order: the text first, the entry second): the copy of
+    /// the text is held, the entry's copy cannot be written (a folder is where its file should be) - the process
+    /// stops there: the row and its file are still in the Outbox, the text's copy is a harmless duplicate, and the
+    /// Delete made again at the same moment goes through and holds both.
+    #[test]
+    fn x_delta_apps5_2_a_stop_between_the_two_copies_leaves_the_row_and_its_file_and_a_retry_goes_through(
+    ) {
+        let dir = TempDir::new("send-remove-between");
+        let entry = failed(&dir);
+        let place = format!(
+            "removed/outbox/{}",
+            azul_storage::time::amz_date(u64::try_from(OCT_1 + 1000).unwrap())
+        );
+        let obstacle = dir
+            .0
+            .join(ACCOUNT)
+            .join(&place)
+            .join(format!("{}.json", entry.id));
+        std::fs::create_dir_all(&obstacle).unwrap();
+        let refused = remove(&dir, &entry.id).unwrap_err();
+        assert_ne!(refused.kind(), std::io::ErrorKind::WouldBlock, "{refused}");
+        assert_eq!(
+            outbox_entries(&dir.folder(), ACCOUNT).len(),
+            1,
+            "the row stays: {refused}"
+        );
+        assert!(eml_of(&dir, &entry).exists(), "and its file");
+        let eml = format!("{place}/{}.eml", entry.id);
+        assert!(
+            held_keys(&dir).contains(&eml),
+            "the text's copy was written first: {:?}",
+            held_keys(&dir)
+        );
+        std::fs::remove_dir_all(&obstacle).unwrap();
+        remove(&dir, &entry.id).unwrap();
+        assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty());
+        let held = held_keys(&dir);
+        assert!(
+            held.contains(&eml) && held.contains(&format!("{place}/{}.json", entry.id)),
+            "{held:?}"
+        );
     }
 
     // ==== X-DELTA-APPS3-7 and X-APPS2-1: a file that cannot be read is not the defaults ====

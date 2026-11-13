@@ -2679,6 +2679,15 @@ mod tests {
     /// stops (it never waits) and is made again over the rows the Outbox still lists, as the window's next
     /// click would. The counts add up; the last pass says what is still being sent.
     fn delete_all_when_free(root: &crate::store::DriveFolder, id: &str) -> OutboxRemoval {
+        delete_all_when_free_at(root, id, crate::now_unix())
+    }
+
+    /// [`delete_all_when_free`] at the clock `now`.
+    fn delete_all_when_free_at(
+        root: &crate::store::DriveFolder,
+        id: &str,
+        now: i64,
+    ) -> OutboxRemoval {
         let mut total = OutboxRemoval::default();
         let started = std::time::Instant::now();
         loop {
@@ -2690,7 +2699,7 @@ mod tests {
                 .map(|(row, entry)| (row.path.clone(), entry.clone()))
                 .collect();
             let all: Vec<u32> = index.iter().map(|row| row.uid).collect();
-            let done = remove_from_outbox(root, id, &index, &waiting, &all, crate::now_unix());
+            let done = remove_from_outbox(root, id, &index, &waiting, &all, now);
             total.removed += done.removed;
             total.waiting = done.waiting;
             total.problems.extend(done.problems);
@@ -2797,6 +2806,75 @@ mod tests {
             held.iter().all(|key| key.starts_with("removed/outbox/")),
             "{held:?}"
         );
+    }
+
+    /// X-DELTA-APPS5-2 through the window's own function: the clock is passed in, and on a clock the account's record of
+    /// the time refuses (a year back) Delete removes nothing - the row stays with its file - and says why as the
+    /// problem of the row, the words of the notice the user reads; on a right clock the same Delete goes through.
+    #[test]
+    fn x_delta_apps5_2_delete_in_the_outbox_on_a_wrong_clock_is_a_problem_of_the_row_and_removes_nothing(
+    ) {
+        use crate::{
+            send::{self, OutboxState},
+            testutil::{MailFolder, TempDir},
+        };
+        const SEP_30: i64 = 1_790_757_720;
+        let dir = TempDir::new("outbox-delete-clock");
+        let root = dir.folder();
+        let id = "ada@example.org";
+        let account = crate::store::MailStore::new(crate::account::account_dir(&root, id));
+        // The account's last Send/Receive: the `synced_at` of its Inbox's state.
+        let mut state = crate::store::FolderState::create("INBOX", "Inbox", 1);
+        state.synced_at = crate::message::rfc3339_utc(SEP_30);
+        account
+            .put(
+                &crate::store::state_key("inbox"),
+                state.to_json().as_bytes(),
+            )
+            .unwrap();
+        let outbox = crate::store::MailStore::new(send::outbox_dir(&root, id));
+        let failed = send::OutboxEntry {
+            format: String::from(send::OUTBOX_FORMAT),
+            version: 1,
+            id: String::from("a-failed"),
+            message_id: String::from("a-failed@example.org"),
+            from: String::from("ada@example.org"),
+            subject: String::from("a-failed"),
+            created: SEP_30,
+            attempts: 1,
+            last_attempt: 0,
+            next_attempt: 0,
+            state: OutboxState::Failed,
+            recipients: Vec::new(),
+        };
+        outbox
+            .put(
+                "a-failed.json",
+                serde_json::to_string(&failed).unwrap().as_bytes(),
+            )
+            .unwrap();
+        outbox
+            .put("a-failed.eml", b"Subject: x\r\n\r\nbody")
+            .unwrap();
+        // A clock a year back: refused, the row and its file stay, the problem is the refusal's words.
+        let done = delete_all_when_free_at(&root, id, SEP_30 - 365 * 86_400);
+        assert_eq!((done.removed, done.waiting, done.busy), (0, 0, false));
+        assert_eq!(done.problems.len(), 1, "{done:?}");
+        assert!(
+            done.problems[0].contains("more than a day before the last Send/Receive")
+                && done.problems[0].ends_with(": nothing is removed from the Outbox"),
+            "{done:?}"
+        );
+        assert_eq!(send::outbox_entries(&root, id).len(), 1, "the row stays");
+        assert!(
+            account.keys(crate::store::REMOVED_PREFIX).is_empty(),
+            "nothing is held"
+        );
+        // The right clock: the same Delete goes through.
+        let done = delete_all_when_free_at(&root, id, SEP_30 + 3600);
+        assert_eq!((done.removed, done.problems.len()), (1, 0), "{done:?}");
+        assert!(send::outbox_entries(&root, id).is_empty());
+        assert_eq!(account.keys(crate::store::REMOVED_PREFIX).len(), 2);
     }
 
     /// X-DELTA-APPS4-6, RED on the code before: Delete took the Outbox's lock with `lock()` inside
