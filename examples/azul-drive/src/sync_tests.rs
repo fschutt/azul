@@ -1200,6 +1200,41 @@ fn send_them_again_releases_the_kept_files_for_the_next_pass() {
     assert!(index.kept.is_empty(), "{:?}", index.kept);
 }
 
+/// X-DELTA-SYNC7-8: the sync view is built again on every refresh of the page, and the visibility of "Send
+/// them again" asked `kept_keys` - which loads and parses the pairing's whole base (every file it knows: tens of
+/// megabytes on a big drive) for each pairing, on the UI thread, to learn whether the set is empty. The button
+/// is offered from the problem list the last pass left, a bounded file the view loads anyway; the base is read
+/// by the click alone. The base here is a FOLDER named like the base file: any read of it fails - the old code
+/// found no kept keys in it and hid the button, though the list names a kept file.
+#[test]
+fn x_delta_sync7_8_the_button_is_offered_from_the_problem_list_and_the_base_is_not_opened() {
+    use azcloud_kit::sync::{
+        problems::{Code, Problem, ProblemList},
+        session::INDEX_FILE,
+    };
+    let state = TempDir::new("azdrive-kept-offered");
+    fs::create_dir_all(state.path().join(INDEX_FILE)).unwrap();
+    assert!(!crate::sync_view::kept_listed(state.path()), "no list: no button");
+
+    let mut list = ProblemList::default();
+    list.publish(
+        vec![Problem::new(Code::DeletedElsewhereKept, "report.pdf", "kept here")],
+        true,
+        1,
+    );
+    list.save(state.path()).unwrap();
+    assert!(
+        crate::sync_view::kept_listed(state.path()),
+        "the list names a kept file: the button is offered, whatever the base is"
+    );
+    // The click's own read of the base still fails here, as it did: it is not the view's business.
+    assert!(azcloud_kit::sync::session::kept_files(state.path()).is_err());
+
+    // A list the last pass left empty offers nothing.
+    ProblemList::default().save(state.path()).unwrap();
+    assert!(!crate::sync_view::kept_listed(state.path()));
+}
+
 /// The sync trash's rows: each file by its key, the day it was deleted and the day the trash
 /// lets it go, in the window's language.
 #[test]

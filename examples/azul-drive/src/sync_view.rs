@@ -1681,6 +1681,10 @@ const PROBLEMS_SHOWN: usize = 20;
 /// (`deleted-elsewhere-kept`): what "Send them again" sends - every one of them, read from the pairing's
 /// base. The problem list shows at most a thousand rows per kind, and a click that took its keys from
 /// there left the rest on this device with no action to send them (X-DELTA-SYNC4-31).
+///
+/// Read only where the keys are needed - the click's job (`sync_jobs`), once per click: the base is a file of
+/// every file the pairing knows, parsed whole. Whether to OFFER the button is [`kept_offered`], which never
+/// opens it.
 pub(crate) fn kept_keys(s: &DriveState, setup: &SyncSetup) -> Vec<String> {
     let Some(root) = sync_jobs::state_root(s) else {
         return Vec::new();
@@ -1688,6 +1692,31 @@ pub(crate) fn kept_keys(s: &DriveState, setup: &SyncSetup) -> Vec<String> {
     // collapse-ok: a base that cannot be read offers no "Send them again"; the next pass says what is
     // wrong, and nothing is sent or dropped on this answer.
     azcloud_kit::sync::session::kept_files(&setup.state_dir(&root)).unwrap_or_default()
+}
+
+/// Whether "Send them again" is offered for the pairing: its last pass listed a file the drive deleted before this
+/// pairing knew it and that is kept here (`deleted-elsewhere-kept`). Read from the pairing's problem list - a
+/// bounded file (at most a thousand rows per kind, the true count in its "more" row), loaded for this very view
+/// anyway - and never from the base: the view is built again on every refresh of the page, and the base is a file
+/// of every file the pairing knows (some hundred thousand on a big drive: tens of megabytes of JSON parsed on the
+/// UI thread, per pairing, per build; X-DELTA-SYNC7-8). The list is as old as the last pass: the button shows or
+/// hides a pass late, and the click reads the base itself ([`kept_keys`]).
+pub(crate) fn kept_offered(s: &DriveState, setup: &SyncSetup) -> bool {
+    sync_jobs::state_root(s).is_some_and(|root| kept_listed(&setup.state_dir(&root)))
+}
+
+/// [`kept_offered`] for the pairing whose states are kept in `state_dir`: its problem list names a file the drive
+/// deleted before the pairing knew it and that is kept here.
+pub(crate) fn kept_listed(state_dir: &std::path::Path) -> bool {
+    // collapse-ok: a list that cannot be read offers nothing here; the next pass says what is wrong, and the
+    // click reads the base on its own.
+    azcloud_kit::sync::problems::ProblemList::load(state_dir)
+        .map(|list| {
+            list.problems
+                .iter()
+                .any(|p| p.code == azcloud_kit::sync::problems::Code::DeletedElsewhereKept)
+        })
+        .unwrap_or(false)
 }
 
 /// The pairing's problem list as its last pass left it (azcloud-kit's `sync::problems`): every
@@ -1882,7 +1911,7 @@ pub(crate) fn options_section(s: &DriveState, app: &RefAny) -> Dom {
                 .with_child(action("azdrive-sync-menu-stop", SyncAction::Stop)),
         );
         // Files the drive deleted before this pairing knew them wait here for the user's word.
-        if !kept_keys(s, setup).is_empty() {
+        if kept_offered(s, setup) {
             row.add_child(
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: row;")
