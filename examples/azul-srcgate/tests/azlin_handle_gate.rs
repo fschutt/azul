@@ -196,6 +196,14 @@ const ALLOWED: &[Allow] = &[
          (X-DELTA-STRUCT4-1)",
     ),
     Allow::exactly(
+        "examples/azul-drive/src/e2e/",
+        GATE_MADE,
+        2,
+        "the E2E commands' encrypted remotes (registered only when AZ_E2E or AZ_DEBUG is set): each device of a scenario \
+         wraps the fake bucket of its remote - no Azlin account of the kit, no session - in the gate under the remote's \
+         own name, the way two computers would; counted, so a new one there is seen",
+    ),
+    Allow::exactly(
         "examples/azcloud-kit/src/lib.rs",
         OPENED,
         1,

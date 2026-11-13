@@ -134,6 +134,8 @@ pub use bucket::Bucket;
 pub use bundle::{ClaimTicket, DriveBundle, PeriodTokens};
 pub use cash::{ActivationCode, CashError, ClaimCode};
 pub use claim::{ClaimError, ClaimKey};
+#[cfg(feature = "encryption")]
+pub use drive::ProviderOf;
 pub use drive::{
     azlin_target, open_azlin, AzlinAccount, AzlinOpen, AzlinTarget, GateParts, OpenedAzlin,
 };
