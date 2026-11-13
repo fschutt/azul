@@ -319,6 +319,50 @@ fn x_delta_azdrive_keys_32_the_device_key_is_an_entry_of_the_drive_and_goes_with
         .is_some());
 }
 
+/// X-DELTA-SYNC4-25: the legacy folder an older program handed copies out of (no record of what it wrote) is a store of
+/// the removal: with no file in it, it goes; with a file in it - maybe what the user changed, which nothing synced - it
+/// is made private and stays, said (`UsersWork`), and the removal is still complete.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync4_25_a_legacy_copies_folder_goes_when_it_holds_no_file_and_stays_when_it_holds_one() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::footprint::LegacyCopiesFootprint;
+
+    let dir = TempDir::new("footprint-legacy-copies");
+    let empty = dir.path().join("picked").join("d_1");
+    std::fs::create_dir_all(empty.join("folder-only")).unwrap();
+    let held = dir.path().join("picked").join("d_2");
+    std::fs::create_dir_all(held.join("docs")).unwrap();
+    std::fs::write(held.join("docs").join("a.txt"), b"what the user saved here").unwrap();
+    std::fs::set_permissions(&held, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let store = LegacyCopiesFootprint::new(
+        "picked copies",
+        vec![empty.clone(), held.clone(), dir.path().join("picked").join("d_3")],
+    );
+    assert_eq!(store.residue(DRIVE).unwrap().len(), 2, "d_3 is not there");
+    let done = store.forget(DRIVE, None).unwrap();
+    assert!(!empty.exists(), "a folder with no file goes");
+    assert_eq!(
+        std::fs::read(held.join("docs").join("a.txt")).unwrap(),
+        b"what the user saved here",
+        "the user's copy is where it was"
+    );
+    assert_eq!(
+        std::fs::metadata(&held).unwrap().permissions().mode() & 0o777,
+        0o700,
+        "closed to other users"
+    );
+    assert_eq!(
+        done.kept,
+        vec![crate::footprint::Kept {
+            what: held.display().to_string(),
+            because: KeptBecause::UsersWork
+        }]
+    );
+    assert_eq!(done.removed.len(), 2, "the empty one and the one that was not there: {done:?}");
+}
+
 /// X-DELTA-AZDRIVE-KEYS-32 (c): the decrypted copies of a drive's files handed to apps lived in one
 /// scratch purpose for every drive and a removal could not tell them: they waited for the sweep of
 /// a day. A purpose of the drive's own is a store of the removal: the copies the program made go,

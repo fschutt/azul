@@ -725,6 +725,63 @@ impl Footprint for ScratchFootprint {
     }
 }
 
+/// A store of the copies an older program handed out of a drive's files, in folders that kept no record of what
+/// was written there ([`crate::scratch::remove_legacy_copies_at`], X-DELTA-SYNC4-25): a folder with no file in it
+/// goes; one that holds files - maybe what the user changed in them, which nothing synced - is made private and
+/// STAYS, and the report says so ([`KeptBecause::UsersWork`]). It goes without a proof: the copies are the user's,
+/// never key material.
+pub struct LegacyCopiesFootprint {
+    store: &'static str,
+    folders: Vec<PathBuf>,
+}
+
+impl LegacyCopiesFootprint {
+    /// The store `store` over the folders `folders`.
+    #[must_use]
+    pub fn new(store: &'static str, folders: Vec<PathBuf>) -> LegacyCopiesFootprint {
+        LegacyCopiesFootprint { store, folders }
+    }
+}
+
+impl Footprint for LegacyCopiesFootprint {
+    fn store(&self) -> &'static str {
+        self.store
+    }
+
+    fn residue(&self, _drive: &str) -> Result<Vec<String>, FootprintError> {
+        Ok(self
+            .folders
+            .iter()
+            .filter(|folder| std::fs::symlink_metadata(folder).is_ok())
+            .map(|folder| folder.display().to_string())
+            .collect())
+    }
+
+    fn forget(
+        &self,
+        _drive: &str,
+        _proof: Option<&RemovalProof>,
+    ) -> Result<Forgotten, FootprintError> {
+        use crate::scratch::{remove_legacy_copies_at, LegacyCopies};
+        let mut done = Forgotten::default();
+        for folder in &self.folders {
+            let what = folder.display().to_string();
+            match remove_legacy_copies_at(folder) {
+                LegacyCopies::Absent | LegacyCopies::Removed => done.removed.push(what),
+                LegacyCopies::Kept { files } if files > 0 => done.kept.push(Kept {
+                    what,
+                    because: KeptBecause::UsersWork,
+                }),
+                // A folder with no file that could not be removed: the store has tried everything.
+                LegacyCopies::Kept { .. } => {
+                    return Err(FootprintError::new(format!("{what}: could not be removed")))
+                }
+            }
+        }
+        Ok(done)
+    }
+}
+
 /// The drives file as a store: the drive's entry in it. The listing of a removal - last.
 pub struct DrivesListing {
     file: PathBuf,

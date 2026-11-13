@@ -25,8 +25,8 @@ use std::path::{Path, PathBuf};
 use azcloud_kit::{sync::session::SyncSetup, Outbox, PeriodTokenStore};
 use azul_storage::{
     footprint::{
-        forget_drive, DrivesListing, Footprint, ForgetReport, KeyringFootprint, Paths,
-        RemovalProof, ScratchFootprint,
+        forget_drive, DrivesListing, Footprint, ForgetReport, KeyringFootprint, LegacyCopiesFootprint,
+        Paths, RemovalProof, ScratchFootprint,
     },
     keyring::KeyringStore,
     meta::MetaIndexProvider,
@@ -115,6 +115,11 @@ pub(crate) struct Computer {
     pub scratch_root: Option<PathBuf>,
 }
 
+/// The name of the store of the copies an older AzDrive handed out of `<cache>/picked/<drive>` (writable, with no record
+/// of what was written there): a folder with no file goes, one with files stays, closed to other users, and the report
+/// says so ([`LegacyCopiesFootprint`], X-DELTA-SYNC4-25). Recognised by this name where the removal builds its stores.
+pub(crate) const LEGACY_PICKED: &str = "picked copies of an older AzDrive";
+
 /// One store of a drive's files and folders on this computer.
 #[derive(Clone)]
 pub(crate) struct Spot {
@@ -190,9 +195,6 @@ impl Places {
         if let Some(cache) = &computer.cache_dir {
             copies.push(crate::find::drive_index_dir(cache, drive));
             copies.push(crate::find::drive_listing_file(cache, drive));
-            if plain {
-                copies.push(crate::picker::picked_dir(cache, drive));
-            }
             copies.extend(crate::trash::marks_file(cache, drive));
         }
         // The rescue copy's state names every key of the drive's copy: it goes with the drive
@@ -207,6 +209,15 @@ impl Places {
         }
         copies.push(computer.picked_scratch.kept(drive));
         spots.push(Spot::free("copies and indexes", copies));
+        // What a picker fetched under an AzDrive that kept it in the cache folder, where the app was handed the
+        // copy writable: the user may have changed it, and nothing wrote down what was written - a folder with
+        // no file goes, one with files stays (X-DELTA-SYNC4-25).
+        if let (true, Some(cache)) = (plain, &computer.cache_dir) {
+            spots.push(Spot::free(
+                LEGACY_PICKED,
+                vec![crate::picker::picked_dir(cache, drive)],
+            ));
+        }
 
         if azul_storage::key::safe_file_name(drive).is_some() {
             spots.push(Spot::free(
@@ -266,6 +277,10 @@ pub(crate) fn forget(
     }
     for spot in &places.spots {
         let paths = spot.paths.clone();
+        if spot.store == LEGACY_PICKED {
+            stores.push(Box::new(LegacyCopiesFootprint::new(spot.store, paths)));
+            continue;
+        }
         let store = Paths::new(spot.store, move |_| paths.clone());
         stores.push(Box::new(if spot.only_with_proof {
             store.only_with_proof()
@@ -462,10 +477,9 @@ mod tests {
             crate::find::drive_listing_file(cache, drive),
             format!("{drive}\tthe names of its files"),
         );
-        put(
-            crate::picker::picked_dir(cache, drive).join("copy.txt"),
-            format!("{drive} picked"),
-        );
+        // The legacy folder of an older AzDrive: only folders here (a folder with no file goes; one with a file is
+        // kept on purpose, see the test of X-DELTA-SYNC4-25).
+        std::fs::create_dir_all(crate::picker::picked_dir(cache, drive).join("empty")).unwrap();
         put(
             computer.picked_scratch.kept(drive).join("copy.txt"),
             format!("{drive} picked, no cache folder"),
@@ -886,6 +900,39 @@ mod tests {
             .all(|name| !name.contains(DRIVE)));
         let drives = DrivesFile::load(sandbox.computer.drives_file.as_ref().unwrap()).unwrap();
         assert!(drives.get(DRIVE).is_none());
+    }
+
+    /// X-DELTA-SYNC4-25: the copies a picker fetched under an older AzDrive that kept them in the cache folder
+    /// (`<cache>/picked/<drive>`, handed to the app writable) go with the drive only when the folder holds no file;
+    /// one that holds files stays, and the report says so - the removal is complete all the same, and the drive's
+    /// entry is off the list. RED on the old code: the folder went whole, with what the user had saved in it.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_sync4_25_a_picked_copy_of_an_older_azdrive_stays_with_the_removal() {
+        let sandbox = sandbox();
+        leave_traces(&sandbox, DRIVE);
+        let cache = sandbox.computer.cache_dir.clone().unwrap();
+        let copy = crate::picker::picked_dir(&cache, DRIVE).join("report.docx");
+        durable::replace(&copy, b"the user edited this copy", Mode::Private).unwrap();
+        let proof = a_proof_for(DRIVE);
+        let keyring: &dyn KeyringStore = &sandbox.keyring;
+        let report = forget(DRIVE, &sandbox.places(DRIVE), Some(keyring), Some(&proof));
+        assert!(report.complete(), "{report:?}");
+        assert_eq!(
+            std::fs::read(&copy).unwrap(),
+            b"the user edited this copy",
+            "the user's copy stays"
+        );
+        let folder = crate::picker::picked_dir(&cache, DRIVE).display().to_string();
+        assert!(
+            report.kept().iter().any(|kept| kept.what == folder
+                && kept.because == azul_storage::footprint::KeptBecause::UsersWork),
+            "and it is said: {:?}",
+            report.kept()
+        );
+        assert!(!report.keys_kept(), "a user's folder is no keys kept: {report:?}");
+        let drives = DrivesFile::load(sandbox.computer.drives_file.as_ref().unwrap()).unwrap();
+        assert!(drives.get(DRIVE).is_none(), "the drive is off the list all the same");
     }
 
     /// LANE-AZ-2: a drive that is on a computer with no keyring (nothing of its keys) and no
