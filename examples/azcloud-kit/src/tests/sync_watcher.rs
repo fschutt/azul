@@ -91,15 +91,63 @@ fn a_file_written_in_the_folder_wakes_the_watcher_within_seconds() {
     }
 }
 
+/// Writes a new file into `folder` of `root` every 100 ms until the watcher says a change in that folder
+/// (one write is heard as several wakes, and the stream of FSEvents answers later than the write): the
+/// folder keys it said on the way. The marker of an event the test itself caused - the test waits for
+/// that, never for a sleep or a silence. Fails after thirty seconds of nothing.
+fn heard_after_writing_into(watcher: &Watcher, root: &Path, folder: &str) -> BTreeSet<String> {
+    let dir = root.join(folder);
+    std::fs::create_dir_all(&dir).unwrap();
+    let give_up = Instant::now() + Duration::from_secs(30);
+    let mut keys = BTreeSet::new();
+    let mut n = 0;
+    loop {
+        std::fs::write(dir.join(format!("f{n}")), b"x").unwrap();
+        n += 1;
+        if let Some(Wake::Changed(heard)) =
+            watcher.wait(Duration::from_millis(100), Duration::from_millis(100))
+        {
+            keys.extend(heard);
+        }
+        if keys.contains(folder) {
+            return keys;
+        }
+        assert!(
+            Instant::now() < give_up,
+            "the watcher heard no write into {folder:?} in 30 s: {keys:?}"
+        );
+    }
+}
+
+/// X-EDGE-A-1. The test slept 300 ms after it started the watcher, wrote the bookkeeping file and asserted
+/// that three seconds brought no `Changed` - and failed now and then on macOS: FSEvents reports, after a
+/// stream starts, what happened just before it (the folder the test made, `.azlin/sync` in it), so a late
+/// event of the setup could be the `Changed` that was heard, and no sleep says when the setup's events are
+/// over. Now the test waits for events it causes itself: a write into a folder the watcher is known to
+/// report (a marker) proves the stream is live; the bookkeeping file is written after it; a second marker
+/// is written after that and waited for - events come in the order they were made, so every wake that came
+/// before the second marker's is what the bookkeeping write (and the setup before the stream) made. The
+/// folder keys of those wakes are the markers' and the root's own, never one of the bookkeeping folder:
+/// no pass was woken for it, whatever else the stream reported late. RED when the watcher names the
+/// bookkeeping folder (`folder_key` without its `.azlin` rule).
 #[test]
 fn a_change_in_the_bookkeeping_folder_alone_wakes_no_pass() {
     let root = TempDir::new("watcher");
     std::fs::create_dir_all(root.path().join(".azlin/sync")).unwrap();
     let watcher = Watcher::start(root.path()).unwrap();
-    std::thread::sleep(Duration::from_millis(300));
+    // The stream is live once it reports a write we made.
+    heard_after_writing_into(&watcher, root.path(), "before");
     std::fs::write(root.path().join(".azlin/sync/root-id"), b"{}").unwrap();
-    let wake = watcher.wait(Duration::from_secs(3), Duration::from_millis(200));
-    assert!(!matches!(wake, Some(Wake::Changed(_))), "{wake:?}");
+    let keys = heard_after_writing_into(&watcher, root.path(), "after");
+    let named_by_the_test: BTreeSet<String> = ["", "before", "after"]
+        .iter()
+        .map(|k| (*k).to_string())
+        .collect();
+    let stray: Vec<&String> = keys.difference(&named_by_the_test).collect();
+    assert!(
+        stray.is_empty(),
+        "a change in the bookkeeping folder woke a pass for {stray:?}: {keys:?}"
+    );
 }
 
 /// AZ-W10: inotify has a limit of watches per user; a folder it could not watch woke nothing and
