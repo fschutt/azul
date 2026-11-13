@@ -1955,8 +1955,9 @@ fn x_delta_apps4_1_the_record_of_another_process_is_left_for_its_grace_and_settl
         let kind = rig.kind;
         let base = (rig.open)();
         lay_out(&*base);
-        // Cut after the first write of the new content beside the destination.
-        let dying = Dying::new(base.clone(), 1);
+        // Cut after the first FILE of the new content is beside the destination (write 1 only made its
+        // folder, and a folder on disk is no key of the listing: the stray would not show).
+        let dying = Dying::new(base.clone(), 2);
         let dav = dav_keeping(dying, rig.records.clone());
         let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"")

@@ -2007,15 +2007,26 @@ mod tests {
         run(&f);
         let subjects: Vec<String> = index(&f.store, "inbox").into_iter().map(|e| e.subject).collect();
         assert_eq!(subjects, ["Kept"]);
-        // Shown on this computer first, then marked: it leaves the local copy.
+        // Shown on this computer first, then marked: its line STAYS, flagged, and the window shows none that is
+        // flagged (X-DELTA-APPS4-4: the message is still in the drive, so it is neither held nor counted as
+        // removed - it left the local copy and was held for 90 days before).
         f.bucket.inner.delete(&deleted).unwrap();
         run(&f);
         assert_eq!(index(&f.store, "inbox").len(), 2);
         f.bucket.inner.put(&deleted, &[]).unwrap();
         let report = run(&f);
-        assert_eq!(report.removed(), 1);
-        let left: Vec<String> = index(&f.store, "inbox").into_iter().map(|e| e.remote).collect();
-        assert_eq!(left, [kept]);
+        assert_eq!(report.removed(), 0);
+        let lines: Vec<(String, bool)> = index(&f.store, "inbox")
+            .into_iter()
+            .map(|e| (e.remote, e.flags.iter().any(|flag| flag == HIDDEN_FLAG)))
+            .collect();
+        assert_eq!(lines, [(kept, false), (marked.clone(), true)]);
+        assert_eq!(
+            crate::read_index(&f.store, "inbox").len(),
+            1,
+            "the window shows only the line that is not marked"
+        );
+        assert!(held_keys(&f).is_empty(), "nothing is held");
         assert!(!missing(&f.bucket, &marked), "hidden here, still in the drive");
     }
 
@@ -3729,6 +3740,13 @@ mod tests {
         let fetched = downloads(&f);
         moved_on_the_drive(&f, &one, "Work/Plans");
         moved_on_the_drive(&f, &two, "Work/Plans");
+        // An object store keeps no empty folder, so nothing is listed under the old name any more (a folder
+        // on disk would keep it listed, empty).
+        assert!(f
+            .bucket
+            .inner
+            .remove_empty_folder(&azlin::folder_prefix("Work/Projects"))
+            .unwrap());
         let report = run(&f);
         assert_eq!(
             (report.removed(), report.fetched()),
