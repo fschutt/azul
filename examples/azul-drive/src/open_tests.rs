@@ -393,7 +393,8 @@ struct Opened {
     slot: Slot,
     fake: Arc<FakeS3>,
     drive: Arc<dyn Drive>,
-    machine: Machine,
+    /// The folder of the computer the drive was opened on: it lives as long as the opened drive.
+    _machine: Machine,
 }
 
 /// A slot of the drive `DRIVE`, opened through the function the window calls, over `fake` and a keyring of the
@@ -407,7 +408,7 @@ fn open(fake: &Arc<FakeS3>) -> Opened {
         slot,
         fake: fake.clone(),
         drive,
-        machine,
+        _machine: machine,
     }
 }
 

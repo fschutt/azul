@@ -310,7 +310,6 @@ fn x_delta_azdrive_keys_4_a_drive_that_is_not_encrypted_takes_no_notice() {
         config::{DriveId, EncryptionRecord, SlotId},
         keyring::MemoryKeyring,
         meta::MemoryBucket,
-        Drive,
     };
 
     let bucket = Arc::new(MemoryBucket::new());
