@@ -581,7 +581,16 @@ pub struct MetaStore<B: Bucket, S: Sealer> {
     state: RepoState,
     /// The highest manifest revision this device has seen.
     seen_revision: u64,
+    /// The objects a publish of THIS store left in the bucket that no manifest named when it ended - the log
+    /// entry and the pack (with its index) of an attempt whose swap was refused or got no answer
+    /// ([`MetaStore::note_leftovers`]): [`MetaStore::clear_leftovers`] removes them once they are old and still
+    /// named by nothing (X-DELTA-SYNC7-4). Not kept across a restart: the orphan sweep finds them then.
+    leftovers: Vec<String>,
 }
+
+/// The most keys of leftovers a store remembers: a drive that refuses for months does not grow the list without
+/// end; what falls out of it is the orphan sweep's.
+const LEFTOVERS_KEPT: usize = 4096;
 
 impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     fn new(bucket: B, sealer: S, device: &str) -> Self {
@@ -594,6 +603,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             synced: None,
             state: RepoState::default(),
             seen_revision: 0,
+            leftovers: Vec::new(),
         }
     }
 
@@ -997,6 +1007,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             .as_ref()
             .ok_or(MetaError::NoRepository)?;
         let known = synced.version.clone();
+        let base = synced.manifest.clone();
         let log_key = keys::log(entry.seq, &attempt_id());
         let sealed_entry = self.seal(&log_key, entry)?;
         match self.bucket.create(&log_key, &sealed_entry) {
@@ -1005,8 +1016,11 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
             Ok(_) | Err(MetaError::Conflict { .. }) => {}
             Err(e) => return Err(e),
         }
+        // What earlier tries of this store left behind goes now, when it is old by the bucket's own dates: the
+        // entry just written says what time the bucket has (X-DELTA-SYNC7-4).
+        self.clear_leftovers(&log_key);
 
-        let mut next = synced.manifest.clone();
+        let mut next = base;
         next.head_seq = entry.seq;
         next.revision += 1;
         next.log.push(LogRef {
@@ -1038,22 +1052,31 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     |manifest: &Manifest| manifest.log.iter().any(|r| r.key == log_key);
                 match self.swap_landed(names_entry)? {
                     Some(true) => Ok(true),
-                    // A lost race: nothing names the entry, and nobody else writes its key.
+                    // A lost race: nothing names the entry, and nobody else writes its key. The
+                    // pack of this attempt stays - the next attempt builds another - and is written
+                    // down for the clearing of leftovers.
                     Some(false) if matches!(lost, MetaError::Conflict { .. }) => {
                         let _ = self.bucket.remove(&log_key);
+                        self.note_leftovers(None, entry.pack.as_ref());
                         Ok(false)
                     }
                     // A race (409) may be this swap itself, still under way: the entry stays
                     // (one nothing names is only space; a named one removed would break the
                     // repository) and the publish is tried again.
-                    Some(false) => Ok(false),
+                    Some(false) => {
+                        self.note_leftovers(Some(&log_key), entry.pack.as_ref());
+                        Ok(false)
+                    }
                     // The bucket cannot be read: the swap may have landed (its repeat met its
                     // own version) or lost. The conflict is no answer to hand on - a caller
                     // that took it for "refused for good" would delete the data object the
                     // manifest may now name (AZ-M1). The entry stays too.
-                    None => Err(MetaError::OutcomeUnknown {
-                        key: keys::MANIFEST.to_string(),
-                    }),
+                    None => {
+                        self.note_leftovers(Some(&log_key), entry.pack.as_ref());
+                        Err(MetaError::OutcomeUnknown {
+                            key: keys::MANIFEST.to_string(),
+                        })
+                    }
                 }
             }
             Err(e) => {
@@ -1071,10 +1094,83 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     // space: the orphan sweep collects it after the grace. Only a 412 (above) is
                     // final - a conditional write that met a newer version can never land.
                     // ARCH30-5: Refused is minted for a leaf's first and only attempt (A3).
-                    _ => Err(e),
+                    //
+                    // What it leaves is written down, and this store removes it itself once it is old
+                    // and nothing names it ([`MetaStore::clear_leftovers`]): a drive that refuses
+                    // every swap is tried again by every pass, and each try's entry, pack and index
+                    // spend the allowance a frozen drive keeps for its owner's next commit
+                    // (X-DELTA-SYNC7-4) - a sweep cannot free them, it is a swap itself.
+                    _ => {
+                        self.note_leftovers(Some(&log_key), entry.pack.as_ref());
+                        Err(e)
+                    }
                 }
             }
         }
+    }
+
+    /// Writes down the objects a publish left in the bucket that no manifest named when it ended: the log
+    /// entry (when it stays) and the pack and index of the attempt ([`MetaStore::clear_leftovers`]).
+    fn note_leftovers(&mut self, entry: Option<&str>, pack: Option<&PackRef>) {
+        self.leftovers.extend(entry.map(str::to_string));
+        if let Some(pack) = pack {
+            self.leftovers.push(keys::pack(&pack.name));
+            self.leftovers.push(keys::idx(&pack.name));
+        }
+        if self.leftovers.len() > LEFTOVERS_KEPT {
+            let extra = self.leftovers.len() - LEFTOVERS_KEPT;
+            self.leftovers.drain(..extra);
+        }
+    }
+
+    /// Removes the objects earlier publishes of this store left behind ([`MetaStore::note_leftovers`]) that are
+    /// old and that no manifest names - for the sweep's own reason, by its own rule, and without the swap the
+    /// sweep needs: a drive that refuses commits refuses that swap too, and a delete is what such a drive still
+    /// takes. "Old" is by the BUCKET's dates alone, against the date of `written`, the entry this call just
+    /// created (a device's clock that runs ahead cannot make a fresh object old), and as old as an orphan is
+    /// before the sweep deletes it ([`Maintenance::orphan_age`] to retire it and [`Maintenance::grace`]
+    /// before it goes). The age is what makes it safe: a swap the transport sent again may land at the node
+    /// long after the repeat was refused (X-DELTA-SYNC6-2), and the manifest it makes names the entry and
+    /// the pack; two days later it cannot. A key a manifest names now is not ours any more and goes off the
+    /// list unharmed; so is a key the bucket does not hold; a key whose age or presence the bucket cannot
+    /// tell, or whose delete it refuses, stays on the list - and a bucket that dates nothing clears nothing.
+    fn clear_leftovers(&mut self, written: &str) {
+        if self.leftovers.is_empty() {
+            return;
+        }
+        let Some(bucket_now) = self.bucket.modified_of(written).ok().flatten() else {
+            return;
+        };
+        let Some(synced) = self.synced.as_ref() else {
+            return;
+        };
+        let mut named = live_keys(&synced.manifest);
+        named.extend(synced.manifest.retired.iter().map(|r| r.key.clone()));
+        let rules = Maintenance::default();
+        let min_age = rules.orphan_age.saturating_add(rules.grace);
+        let mut kept = Vec::new();
+        for key in std::mem::take(&mut self.leftovers) {
+            if named.contains(&key) {
+                continue;
+            }
+            match self.bucket.exists(&key) {
+                Ok(false) => continue,
+                Ok(true) => {}
+                Err(_) => {
+                    kept.push(key);
+                    continue;
+                }
+            }
+            let old = matches!(
+                self.bucket.modified_of(&key),
+                Ok(Some(at)) if at.saturating_add(min_age) <= bucket_now
+            );
+            if old && self.bucket.remove(&key).is_ok() {
+                continue;
+            }
+            kept.push(key);
+        }
+        self.leftovers = kept;
     }
 
     /// Whether the manifest in the bucket now is one this device's swap made (`mine` says so);
