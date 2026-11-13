@@ -141,7 +141,8 @@ fn a_pass_names_the_files_it_cannot_take_and_why() {
     let secret = folder.path().join("secret.txt");
     fs::write(&secret, b"secret").unwrap();
     fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
-    // Root reads whatever the permissions say.
+    // Root reads whatever the permissions say (and that run fails
+    // `x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds`).
     let unreadable = fs::read(&secret).is_err();
     let session = session_over(bucket.clone(), &folder, &state);
     let passed = session.pass(&AtomicBool::new(false), &mut |_| {});

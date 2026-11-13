@@ -179,7 +179,8 @@ fn a_folder_that_cannot_be_read_is_said_so_and_changes_nothing() {
     b.sync(&store);
     fs::set_permissions(a.path(), fs::Permissions::from_mode(0o000)).unwrap();
     if fs::read_dir(a.path()).is_ok() {
-        // Root reads every folder: nothing to play here.
+        // Root reads every folder: nothing to play here - and the run is told so, not green
+        // (`x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds` fails it).
         fs::set_permissions(a.path(), fs::Permissions::from_mode(0o755)).unwrap();
         return;
     }
@@ -1737,7 +1738,9 @@ fn a_same_size_temp_that_cannot_be_read_holds_the_delete_like_a_save_in_progress
     fs::rename(a.path().join("Report.docx"), a.path().join("~WRL0002.tmp")).unwrap();
     let held = a.path().join("~WRL0002.tmp");
     fs::set_permissions(&held, fs::Permissions::from_mode(0o000)).unwrap();
-    // A user who reads a file of mode 000 (root) cannot play this.
+    // A user who reads a file of mode 000 (root) cannot play this: that run fails
+    // `x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds`, so this return is never
+    // a quiet pass (X-DELTA-INTEGRITY3-19).
     if fs::read(&held).is_ok() {
         fs::set_permissions(&held, fs::Permissions::from_mode(0o644)).unwrap();
         return;
@@ -1753,6 +1756,57 @@ fn a_same_size_temp_that_cannot_be_read_holds_the_delete_like_a_save_in_progress
     b.sync(&store);
     assert_eq!(b.read("Report.docx").as_deref(), Some(&b"draft"[..]));
     assert!(trashed(b.path()).is_empty());
+}
+
+/// Whether this process is refused a file of `mode` (made in a folder of its own): `false` for root,
+/// and on a mount that ignores permission bits - the two ways a mode of 000 binds nobody.
+#[cfg(unix)]
+fn a_mode_binds(mode: u32) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new("azcloud-mode-binds");
+    let file = dir.path().join("f");
+    fs::write(&file, b"x").unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
+    let refused = fs::read(&file).is_err();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+    refused
+}
+
+/// Fails the run, saying why, unless a file of `mode` is refused to this process.
+#[cfg(unix)]
+fn demand_that_a_mode_binds(mode: u32) {
+    assert!(
+        a_mode_binds(mode),
+        "this process reads a file of mode {mode:o} (it runs as root, or on a mount that ignores \
+         permission bits), so the tests that make a file or a folder it cannot read - \
+         a_folder_that_cannot_be_read_is_said_so_and_changes_nothing, \
+         a_same_size_temp_that_cannot_be_read_holds_the_delete_like_a_save_in_progress, the \
+         locked folder of sync_session and the unreadable temp of sync_relook, sync_chaos - return \
+         early and assert nothing here: this run cannot say they pass. Run the suite as an \
+         ordinary user (X-DELTA-INTEGRITY3-19)"
+    );
+}
+
+/// X-DELTA-INTEGRITY3-19. The unreadable-file cases of this crate (the temp that holds a delete, a
+/// folder that cannot be listed, the folder a mass-delete answer cannot look into) return early where
+/// the process reads a mode of 000 anyway - root, a CI container, a mount that ignores modes - and
+/// report green on exactly the runner that cannot play them, so the rule they guard (an unreadable
+/// same-size temp holds the delete, X-DELTA-EDGE-5) stood guarded by nothing. This is where that run
+/// fails: it asks the question those cases ask, once, and says which cases it takes the place of.
+#[cfg(unix)]
+#[test]
+fn x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds() {
+    demand_that_a_mode_binds(0o000);
+}
+
+/// The control of the test above, at the same size (a file, one read): a process that reads the file
+/// - root's case, made here with a mode that lets the owner read it - fails the run with the words
+/// of the loud test, so the loud test is red under root and not only green without it.
+#[cfg(unix)]
+#[test]
+#[should_panic(expected = "this process reads a file of mode 600")]
+fn x_delta_integrity3_19_a_process_that_reads_through_the_mode_fails_the_run() {
+    demand_that_a_mode_binds(0o600);
 }
 
 /// X-DELTA-EDGE-5 (E1d, T2, the second case). The base holds v1, the user saved v2 (not synced yet)
