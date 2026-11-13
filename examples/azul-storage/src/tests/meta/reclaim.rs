@@ -3158,3 +3158,115 @@ fn x_delta_sync2_2_a_round_whose_old_candidates_are_not_the_ones_the_round_befor
     // Nothing was deleted by any of this: the evidence is a few rounds, not the seven the switch to deleting waits for.
     assert!(lab.data_objects().len() >= 2);
 }
+
+/// X-DELTA-SYNC9-9. The cell the digest comparison exists for: a version ages out of the window BETWEEN two rounds.
+/// b.txt's first version was released 120 days ago (a candidate of both rounds); a.txt's was released 89 days ago,
+/// which the first round still counts inside its window (restorable) and a round two days later does not. The second
+/// round's candidates are then more than the first one named - and it is clean all the same, because only what the
+/// first round could already see (what was released before ITS window began) is compared, and records a later window
+/// start. RED on the mutants that compare more: the round's own window (`digest_before(analysis.window_start)`) or no
+/// window at all (`digest_before(u64::MAX)`) make every second round of a used drive unclean - a stall of the streak
+/// toward the switch, never a delete, which no test saw until now.
+#[test]
+fn x_delta_sync9_9_a_version_that_ages_out_between_two_rounds_does_not_make_the_second_one_unclean()
+{
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 130 * DAY, |drive| drive);
+    lab.drive.put("b.txt", b"b, version one").unwrap();
+    lab.drive.put("a.txt", b"a, version one").unwrap();
+    lab.at(now - 120 * DAY);
+    lab.drive.put("b.txt", b"b, version two").unwrap();
+    lab.at(now - 89 * DAY);
+    lab.drive.put("a.txt", b"a, version two").unwrap();
+    let provider = provider_with(90, ServerClock::Unchecked);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let dbucket = DriveBucket::new(Arc::clone(&bucket));
+
+    let first = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    assert_eq!(
+        first.candidates,
+        1,
+        "only b's first version is released past the window now: {}",
+        first.line()
+    );
+    // Two days on: a's first version is past the window too.
+    crate::time::step_clock(2 * DAY as i64);
+    let second = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+    crate::time::step_clock(0);
+    assert_eq!(
+        second.candidates,
+        2,
+        "a version aged out between the rounds: {}",
+        second.line()
+    );
+    let (ledger, _) = Ledger::read(&dbucket, &lab.key).unwrap();
+    assert_eq!(ledger.rounds.len(), 2);
+    let (one, two) = (&ledger.rounds[0], &ledger.rounds[1]);
+    assert!(one.clean && one.window_start > 0, "{one:?}");
+    assert!(
+        two.clean && two.unclean.is_empty(),
+        "what aged out is not part of what the round before could see: {two:?}"
+    );
+    assert!(
+        (one.window_start + 2 * DAY..=one.window_start + 2 * DAY + 60).contains(&two.window_start),
+        "and it records its own window, two days on: {} then {}",
+        one.window_start,
+        two.window_start
+    );
+    assert_eq!(second.evidence.expect("the evidence").clean_rounds, 2);
+}
+
+/// X-DELTA-SYNC9-9, the other cells of the comparison: a predecessor that was not clean, one a build with another
+/// analysis made, one that judged no window or one with no digest are no span to compare with - the round counts on its
+/// own checks - even when their digest says something else. RED on a comparison that drops one of the four conditions:
+/// the planted disagreement then ends the streak.
+#[test]
+fn x_delta_sync9_9_a_round_before_that_is_no_span_to_compare_with_leaves_the_round_counted() {
+    use crate::meta::shadow::{Round, ANALYSIS_RULES};
+
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 130 * DAY, |drive| drive);
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(now - 120 * DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    let provider = provider_with(90, ServerClock::Unchecked);
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    let dbucket = DriveBucket::new(Arc::clone(&bucket));
+
+    let plants: [(&str, fn(&mut Round)); 4] = [
+        ("not clean", |round| {
+            round.clean = false;
+            round.unclean = String::from("planted");
+        }),
+        ("another analysis", |round| round.rules = ANALYSIS_RULES - 1),
+        ("no window", |round| round.window_start = 0),
+        ("no digest", |round| round.digest = String::new()),
+    ];
+    let mut failures = Vec::new();
+    for (what, plant) in plants {
+        provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+        let (mut ledger, version) = Ledger::read(&dbucket, &lab.key).unwrap();
+        let last = ledger.rounds.last_mut().expect("a round");
+        // Every plant disagrees with the history about the candidates, so a comparison would end the streak.
+        if what != "no digest" {
+            last.digest = String::from("the digest of some other candidates");
+        }
+        plant(last);
+        assert!(ledger
+            .write(&dbucket, &lab.key, version.as_deref())
+            .unwrap());
+        let report = provider.reclaim(Arc::clone(&bucket), &lab.key).unwrap();
+        assert!(report.evidence.is_some());
+        let (ledger, _) = Ledger::read(&dbucket, &lab.key).unwrap();
+        let round = ledger.rounds.last().expect("written down");
+        if !(round.clean && round.unclean.is_empty()) {
+            failures.push(format!(
+                "a round before that is {what} was compared: {round:?}"
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "a round before that is no span to compare with leaves the round counted: {failures:#?}"
+    );
+}

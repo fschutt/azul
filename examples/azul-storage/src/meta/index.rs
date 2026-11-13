@@ -969,11 +969,15 @@ impl MetaIndexProvider {
     /// an object a later commit names again a candidate, and the purge deletes candidates). A device
     /// that has no copy of the drive knows no floor: the purge is run by the one that re-encrypted.
     ///
+    /// Not public (X-DELTA-SYNC8-2): the door is `IndexProvider::purge_confirmed`, which takes the confirmation
+    /// a state's `erase_licence` gives - the pass over, no file left that could not be read - and which a text
+    /// gate reads (`confirm_purge_gate`); a public `purge` was a second door past both.
+    ///
     /// # Errors
     ///
     /// The drive's error; [`DriveError::Protocol`] for a bucket that serves an older index than this
     /// device's copy has seen.
-    pub fn purge(
+    pub(crate) fn purge(
         &self,
         drive: &str,
         bucket: Arc<dyn Drive>,

@@ -1923,7 +1923,7 @@ mod tests {
         fn pass(&self, state: &mut azul_storage::rotation::ReencryptState) -> Result<bool> {
             self.log.borrow_mut().push(format!(
                 "pass, confirmed: {}",
-                state.purge_confirmation().is_some()
+                state.purge_answered_at().is_some()
             ));
             state.failed = self.damaged;
             state.packs_done = self.over;
@@ -1970,12 +1970,12 @@ mod tests {
             "confirm, pass, erase"
         );
         assert!(done && matches!(erased, Some(Ok(_))));
-        assert_eq!(state.purge_confirmation().map(|c| c.at), Some(1_000));
+        assert_eq!(state.purge_answered_at(), Some(1_000));
 
         // No words: no confirmation, no erase.
         let (log, state, _, erased) = run(false, true, 0);
         assert_eq!(log, ["pass, confirmed: false"]);
-        assert!(erased.is_none() && state.purge_confirmation().is_none());
+        assert!(erased.is_none() && state.purge_answered_at().is_none());
 
         // A pass that was stopped erases nothing.
         let (log, _, done, erased) = run(true, false, 0);

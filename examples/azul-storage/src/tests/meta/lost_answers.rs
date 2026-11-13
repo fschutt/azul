@@ -1817,22 +1817,71 @@ mod encrypted {
         EncryptedDrive<Arc<QueuedBehind>>,
     ) {
         let meta = Arc::new(LateSwap::new(data.clone()).held());
+        let (bucket, drive) = laptop_over(&meta, data, key);
+        (meta, bucket, drive)
+    }
+
+    /// A laptop whose manifest swaps go through `meta`, over the data bucket `QueuedBehind`.
+    fn laptop_over(
+        meta: &Arc<LateSwap>,
+        data: &MemoryBucket,
+        key: &DriveKey,
+    ) -> (Arc<QueuedBehind>, EncryptedDrive<Arc<QueuedBehind>>) {
         let options = RepoOptions {
             cache_dir: None,
             lazy: false,
             ..RepoOptions::default()
         };
         let repo =
-            MetaRepo::create_with(Arc::clone(&meta), key.clone(), "laptop", "Laptop", &options)
+            MetaRepo::create_with(Arc::clone(meta), key.clone(), "laptop", "Laptop", &options)
                 .unwrap();
         let index: Arc<dyn NameIndex> = Arc::new(MetaIndex::new(repo).with_poll_every(0));
         let bucket = Arc::new(QueuedBehind {
             inner: data.clone(),
-            meta: Arc::clone(&meta),
+            meta: Arc::clone(meta),
             deleted: Mutex::new(Vec::new()),
         });
         let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index);
-        (meta, bucket, drive)
+        (bucket, drive)
+    }
+
+    /// X-DELTA-SYNC8-1, the composed test of the rule the docs of `NameIndex::apply` and `Refusal::of_object` state:
+    /// a `Conflict` is no word that nothing was sent. The first swap of a create-only write answers 409 and lands
+    /// right after the read that looks for it; the retry polls, finds the manifest it made, and its own check of the
+    /// expectation (the path must be absent) fails: `Conflict` - for a change this very call has landed. The write
+    /// reads the index fresh before it takes the object back, finds the path naming it, and keeps it: the file is
+    /// written, no delete was sent, every device reads it. RED on a compensation that takes a `Conflict` at its
+    /// word (the mutant that skips the fresh read in `Staged::failed`): the object goes and every read says "its
+    /// object is missing".
+    #[test]
+    fn x_delta_sync8_1_a_conflict_after_a_409_whose_swap_landed_during_the_retry_keeps_the_object_the_manifest_names(
+    ) {
+        let key = DriveKey::generate().unwrap();
+        let data = MemoryBucket::new();
+        let meta = Arc::new(LateSwap::new(data.clone()));
+        let (bucket, drive) = laptop_over(&meta, &data, &key);
+        meta.answer_next(keys::MANIFEST, Answer::Raced);
+        let put = drive.put_if("report.txt", REPORT, &Precondition::Absent);
+        assert!(
+            !meta.on_its_way(),
+            "the first swap landed after the read that looked for it"
+        );
+        assert_eq!(
+            bucket.deleted(),
+            Vec::<String>::new(),
+            "the retry's Conflict is for a change this call landed: the object the manifest names stays"
+        );
+        assert!(
+            put.is_ok(),
+            "the write is told what is true, that it landed: {put:?}"
+        );
+        assert_eq!(
+            phone(&data, &key)
+                .get("report.txt")
+                .expect("the manifest names the file and its object is there"),
+            REPORT
+        );
+        assert_eq!(drive.get("report.txt").unwrap(), REPORT);
     }
 
     /// The first request of a write whose answer was lost reached the node, the transport sent it again

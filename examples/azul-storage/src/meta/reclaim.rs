@@ -88,9 +88,14 @@ impl Refusal {
     /// The ONE rule of what a compensation may take for "the change did not happen" (X-DELTA-SYNC7-1):
     ///
     /// - a [`DriveError::Conflict`]: [`NameIndex::apply`](crate::encrypted::NameIndex::apply) answers it
-    ///   only when an expectation of the change did not hold against the state the index holds, and
-    ///   nothing was sent for the change; an index never answers it for a conditional write that was
-    ///   sent and lost (that is an unknown outcome, `Transport` or `Protocol`);
+    ///   when an expectation of the change did not hold against the state the index holds. That is NOT
+    ///   "nothing was sent": an index that tries again (`MetaIndex` after a 409, whose swap may be under way
+    ///   still) answers it for a change an earlier attempt may have landed. A conditional write that was
+    ///   sent and lost is an unknown outcome (`Transport` or `Protocol`). The rule is safe because of what
+    ///   the callers do first - `Staged::failed` and `commit_pack` read the index FRESH and mint the refusal
+    ///   only when the entry the path has now does not name the object (a landed change is named) - and
+    ///   because a `Conflict` after a retry means the manifest has moved since the attempt before, whose
+    ///   expectations held, so a swap still queued with the old version can never land (X-DELTA-SYNC8-1);
     /// - [`Certainty::NotAttempted`]: the call was refused before a byte went out.
     ///
     /// Not a refusal of POLICY - [`DriveError::Denied`], a node's `QuotaExceeded`, `ReadOnlyMoving`,

@@ -1048,7 +1048,7 @@ fn x_delta_sync6_3_erase_old_versions_needs_the_confirmation_and_the_end_of_the_
         *provider.asked.lock().unwrap(),
         vec![(
             String::from("d_1"),
-            state.purge_confirmation().expect("confirmed").at
+            state.purge_answered_at().expect("confirmed")
         )]
     );
 

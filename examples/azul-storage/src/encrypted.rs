@@ -244,11 +244,23 @@ pub trait NameIndex: Send + Sync {
 
     /// Applies `changes` all together or not at all, in their order (a batch may remove a
     /// path and put another, as a rename does): [`DriveError::Conflict`] naming the path whose
-    /// expectation did not hold, and nothing changed. `Conflict` is the index's own check of the
-    /// expectations against the state it holds and nothing else: a conditional write that was sent
-    /// to a bucket and lost its race, or whose answer was lost, is an unknown outcome (`Transport`,
-    /// `Protocol`) - the caller takes a `Conflict` for "nothing was sent" and takes the new data
-    /// object back out of the bucket (X-DELTA-SYNC7-1). Returns what the change released
+    /// expectation did not hold, and nothing changed by this attempt. `Conflict` is the index's own
+    /// check of the expectations against the state it holds, and it does NOT say that nothing was
+    /// sent: an index that tries again (`MetaIndex`: a manifest swap that answered 409 may be the swap
+    /// itself, still under way, and the next attempt checks the expectations again against the
+    /// manifest it polls) answers `Conflict` for a change an earlier attempt of the same call may have
+    /// landed. A conditional write that was sent to a bucket and lost its race, or whose answer was
+    /// lost, is an unknown outcome (`Transport`, `Protocol`).
+    ///
+    /// What makes a `Conflict` safe for the caller to act on - to take the new data object back out
+    /// of the bucket (X-DELTA-SYNC7-1) - is what the caller does with it, not the error: it reads the
+    /// index FRESH first (`Staged::failed`, `commit_pack`) and takes the object back only when the entry
+    /// the path has now does not name it (a change that landed is named), and a `Conflict` after a
+    /// retry means the manifest has moved since the attempt before, where the expectations held - so
+    /// a swap still queued with the old version can never land (X-DELTA-SYNC8-1). The one cell that
+    /// leaves: the change landed and another device replaced the path before the retry polled; the
+    /// object the landed change names in the history is then taken back (X-DELTA-SYNC10-2: it needs
+    /// the first-and-only attempt typed, ARCH30-5). Returns what the change released
     /// ([`Released`]): the objects no state of the drive names any more, for the drive to delete
     /// from the bucket now; an index that keeps history returns those its history still names
     /// instead, and the drive deletes nothing of them.
@@ -331,10 +343,10 @@ pub trait IndexProvider: Send + Sync {
 
     /// Erases the old versions of the drive `drive` that the user confirmed (X-DELTA-SYNC6-3): after
     /// a key change and a re-encryption the objects the old key still opens are the drive's history,
-    /// and only the confirmation a re-encryption pass recorded
-    /// ([`crate::rotation::ReencryptState::purge_confirmation`]) erases them. The provider that keeps
-    /// the history runs the purge ([`crate::meta::MetaIndexProvider::purge`]); by default there is
-    /// none, and the answer is `Unsupported` - nothing was erased.
+    /// and only the confirmation a re-encryption pass recorded and its licence gave
+    /// ([`crate::rotation::ReencryptState::erase_licence`]) erases them. The provider that keeps
+    /// the history runs the purge (its own `purge`, which is not public: this method is the door); by
+    /// default there is none, and the answer is `Unsupported` - nothing was erased.
     ///
     /// # Errors
     ///

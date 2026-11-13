@@ -10,8 +10,10 @@
 //! without one; this gate keeps the list of deleters what it is:
 //!
 //! - `raw-data-delete`: a function that deletes by an object's bucket key (a `.delete(`,
-//!   `.delete_many(` or `.remove(` in a function that names `bucket_key` or `bucket_object`) is one of
-//!   the four of `meta/reclaim.rs`; a fifth, anywhere, is a deleter nobody asked.
+//!   `.delete_many(` or `.remove(` in a function that names `bucket_key` or `bucket_object`, the prefix of
+//!   a data key or a `"data/.."` string, or a local or `for` variable carried from one of them: a tuple's
+//!   names and a loop's variable included) is one of the four of `meta/reclaim.rs`; a fifth, anywhere, is a
+//!   deleter nobody asked.
 //! - `unasked-delete-call`: a call of `delete_reclaimable(` or `remove_reclaimable(` whose arguments
 //!   do not carry the `gate` its function was given.
 //! - `deleter-without-a-gate`: a function that calls one of them and neither takes a `Gate` nor gets
@@ -178,58 +180,149 @@ fn method_call_args(t: &[Located], name: &str) -> Vec<(usize, usize)> {
     found
 }
 
-/// The names a function binds from the maker of an object's key - `let key = id.bucket_key();`,
-/// `let key: String = pack.object.bucket_object().bucket_key();` - whose initializer, up to its `;`, names
-/// `bucket_key` or `bucket_object`. A delete of such a local is a delete by the object's key, whatever its
-/// arguments spell (X-DELTA-SYNC4-6: `let key = pack.id.bucket_key(); self.inner.delete(&key)?` was not
-/// found, its arguments name a local). A binding's name is the first one of its pattern (a tuple binds none).
-fn key_locals(body: &[Located]) -> Vec<String> {
+/// Whether the tokens name the key of a data object: its maker (`bucket_key`, `bucket_object`), the prefix of
+/// its keys (`DATA_PREFIX`, also as the inline argument `{DATA_PREFIX}` of a format string) or a string that begins as one
+/// (`"data/{x}"`: a key built by hand, which no maker made and which deletes the same object).
+fn names_a_data_key(t: &[Located]) -> bool {
+    t.iter().any(|x| {
+        x.tok.is_ident("bucket_key")
+            || x.tok.is_ident("bucket_object")
+            || x.tok.is_ident("DATA_PREFIX")
+            || matches!(&x.tok, Tok::Str(text) if text.starts_with("data/") || text.contains("{DATA_PREFIX"))
+    })
+}
+
+/// The names a pattern binds - every lower-case identifier in `t` up to a `:` or the end (a tuple's, a
+/// struct's and an enum's inner names; a constructor or a type starts with a capital and binds none).
+fn bound_names(t: &[Located]) -> Vec<String> {
+    let mut depth = 0i32;
+    let mut out = Vec::new();
+    for x in t {
+        match &x.tok {
+            Tok::Punct('(' | '[' | '{') => depth += 1,
+            Tok::Punct(')' | ']' | '}') => depth -= 1,
+            Tok::Punct(':') if depth <= 0 => break,
+            tok => {
+                if let Some(name) = tok.ident() {
+                    if !matches!(name, "mut" | "ref" | "box" | "_")
+                        && name
+                            .chars()
+                            .next()
+                            .is_some_and(|c| c.is_lowercase() || c == '_')
+                    {
+                        out.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The bindings of a function body that carry a value from one expression to names: `let <pattern> = <expr>;`
+/// and `for <pattern> in <expr> {`, each as the names its pattern binds and the tokens of its expression.
+fn bindings(body: &[Located]) -> Vec<(Vec<String>, &[Located])> {
     let mut found = Vec::new();
-    let mut i = 0;
-    while i < body.len() {
-        if !body[i].tok.is_ident("let") {
-            i += 1;
+    for (i, x) in body.iter().enumerate() {
+        let is_let = x.tok.is_ident("let");
+        let is_for = x.tok.is_ident("for");
+        if !is_let && !is_for {
             continue;
         }
-        let name = body[i + 1..]
-            .iter()
-            .map_while(|x| x.tok.ident())
-            .find(|name| !matches!(*name, "mut" | "ref"));
-        // The initializer: after the `=` of the binding, up to the `;` that ends it.
+        // The pattern runs to the `=` of a `let` (a type after a `:` is not a pattern) or the `in` of a `for`
+        // that sits at the depth the pattern began at; `for` of `impl X for Y {` or of a bound meets a `{`, a `;`
+        // or a closing bracket first and is none.
+        let mut depth = 0i32;
         let mut j = i + 1;
-        while j < body.len() && !body[j].tok.is_punct('=') && !body[j].tok.is_punct(';') {
+        let mut ended = None;
+        while j < body.len() {
+            match &body[j].tok {
+                Tok::Punct('(' | '[') => depth += 1,
+                Tok::Punct(')' | ']') => {
+                    depth -= 1;
+                    if depth < 0 {
+                        break;
+                    }
+                }
+                Tok::Punct('{') if depth == 0 && is_for => break,
+                Tok::Punct(';') if depth == 0 => break,
+                Tok::Punct('=') if depth == 0 && is_let => {
+                    ended = Some(j);
+                    break;
+                }
+                tok if depth == 0 && is_for && tok.is_ident("in") => {
+                    ended = Some(j);
+                    break;
+                }
+                _ => {}
+            }
             j += 1;
         }
-        if j >= body.len() || !body[j].tok.is_punct('=') {
-            i = j.max(i + 1);
+        let Some(end) = ended else {
             continue;
-        }
+        };
+        let names = bound_names(&body[i + 1..end]);
+        // The expression: after the `=` up to the `;` that ends it, after the `in` up to the `{` of the body.
         let mut depth = 0i32;
-        let mut keyed = false;
-        let mut k = j + 1;
+        let mut k = end + 1;
         while k < body.len() {
             match &body[k].tok {
-                Tok::Punct('(' | '[' | '{') => depth += 1,
-                Tok::Punct(')' | ']' | '}') => depth -= 1,
+                Tok::Punct('(' | '[') => depth += 1,
+                Tok::Punct(')' | ']') => depth -= 1,
+                Tok::Punct('{') if depth == 0 && is_for => break,
+                Tok::Punct('{') => depth += 1,
+                Tok::Punct('}') => depth -= 1,
                 Tok::Punct(';') if depth <= 0 => break,
-                tok if tok.is_ident("bucket_key") || tok.is_ident("bucket_object") => keyed = true,
                 _ => {}
             }
             k += 1;
         }
-        if let (true, Some(name)) = (keyed, name) {
-            found.push(name.to_string());
-        }
-        i = k.max(i + 1);
+        found.push((names, &body[end + 1..k.min(body.len())]));
     }
     found
 }
 
+/// The names a function binds from the key of a data object - `let key = id.bucket_key();`,
+/// `let key: String = pack.object.bucket_object().bucket_key();`, `let (key, n) = (id.bucket_key(), 0);` (a
+/// tuple binds each of its names), `let key = format!("data/{x}");` - and the names it carries them on to: a local
+/// bound from another (`let name = key.clone();`) and the variable of a `for` over such a local or over an iterator
+/// that names the maker (`for key in ids.iter().map(ObjectId::bucket_key)`, `for key in &keys`)
+/// (X-DELTA-SYNC9-10; X-DELTA-SYNC4-6 had the plain `let`). A delete of such a name is a delete by the object's
+/// key, whatever its arguments spell.
+fn key_locals(body: &[Located]) -> Vec<String> {
+    let bindings = bindings(body);
+    let mut found: Vec<String> = Vec::new();
+    loop {
+        let before = found.len();
+        for (names, expr) in &bindings {
+            let carried = names_a_data_key(expr) || found.iter().any(|local| names_in(expr, local));
+            if carried {
+                for name in names {
+                    if !found.contains(name) {
+                        found.push(name.clone());
+                    }
+                }
+            }
+        }
+        if found.len() == before {
+            return found;
+        }
+    }
+}
+
+/// Whether the tokens name the local `name` (an identifier; a field or a method of that spelling after a `.` is
+/// another thing).
+fn names_in(t: &[Located], name: &str) -> bool {
+    t.iter().enumerate().any(|(i, x)| {
+        x.tok.is_ident(name) && !i.checked_sub(1).is_some_and(|b| t[b].tok.is_punct('.'))
+    })
+}
+
 /// The lines of the `fn` of each function that deletes a data object by its bucket key: a `.delete(` or
-/// `.remove(` whose arguments name `bucket_key` or `bucket_object` or a local the function bound from them
-/// ([`key_locals`]), or a `.delete_many(` in a function that names `bucket_key` (the keys are made before
-/// the batch is built). A `.remove(` on a map of this process (`known.remove(&id)`) names no key of the
-/// bucket and is no deleter.
+/// `.remove(` whose arguments name the key of a data object ([`names_a_data_key`]: `bucket_key`, `bucket_object`,
+/// `DATA_PREFIX`, a `"data/.."` string) or a local the function bound from one ([`key_locals`]), or a
+/// `.delete_many(` in a function that names `bucket_key` (the keys are made before the batch is built). A
+/// `.remove(` on a map of this process (`known.remove(&id)`) names no key of the bucket and is no deleter.
 fn raw_data_deleters(t: &[Located]) -> Vec<usize> {
     functions(t)
         .into_iter()
@@ -239,9 +332,7 @@ fn raw_data_deleters(t: &[Located]) -> Vec<usize> {
             let by_argument = ["delete", "remove"].iter().any(|name| {
                 method_call_args(body, name).into_iter().any(|(at, end)| {
                     let args = &body[at..end];
-                    names(args, "bucket_key")
-                        || names(args, "bucket_object")
-                        || locals.iter().any(|local| names(args, local))
+                    names_a_data_key(args) || locals.iter().any(|local| names_in(args, local))
                 })
             });
             let by_batch =
@@ -365,6 +456,15 @@ fn rules() -> Vec<Rule> {
                 "let keys: Vec<String> = ids.iter().map(ObjectId::bucket_key).collect(); drive.delete_many(&items);",
                 "let key = pack.id.bucket_key(); self.inner.delete(&key)?;",
                 "let key: String = object.bucket_object().bucket_key(); bucket.remove(&key)?;",
+                // X-DELTA-SYNC9-10: the shapes the rule used to read past.
+                "for key in ids.iter().map(ObjectId::bucket_key) { self.inner.delete(&key)?; }",
+                "let keys: Vec<String> = ids.iter().map(ObjectId::bucket_key).collect(); for key in &keys { drive.delete(key)?; }",
+                "let (key, n) = (id.bucket_key(), 0); drive.delete(&key)?;",
+                "bucket.delete(&format!(\"data/{x}\"))?;",
+                "let key = format!(\"data/{x}\"); bucket.remove(&key)?;",
+                "let key = format!(\"{DATA_PREFIX}{x}\"); drive.delete(&key)?;",
+                "let key = id.bucket_key(); let name = key.clone(); drive.delete(&name)?;",
+                "let keys = ids.iter().map(ObjectId::bucket_key).collect::<Vec<_>>(); for (n, key) in keys.iter().enumerate() { drive.delete(key)?; }",
             ],
             &[
                 "let key = id.bucket_key();",
@@ -374,6 +474,11 @@ fn rules() -> Vec<Rule> {
                 "map.remove(&id);",
                 "let key = pack.id.bucket_key(); hot.reads.remove(&pack.id);",
                 "let entry = index.bucket_object(); entries.remove(&path);",
+                "for name in names.iter() { drive.delete(name)?; }",
+                "let (a, b) = (1, 2); map.remove(&a);",
+                "for pack in packs { hot.reads.remove(&pack.id); }",
+                "let key = id.bucket_key(); for entry in entries { drive.delete(&entry)?; }",
+                "bucket.delete(&format!(\"mail/{x}\"))?;",
             ],
         ),
         Rule::new(

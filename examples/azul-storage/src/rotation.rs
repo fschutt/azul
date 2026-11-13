@@ -1135,7 +1135,7 @@ pub struct ReencryptState {
     /// 1970); `None`: they are not, and the drive's history stays restorable until the retention is
     /// over. Re-encrypting every file writes new objects with new keys; the old ones - which the
     /// old drive key still opens - stay in a drive that keeps its history, as the history of the
-    /// files. Only this confirmation erases them ([`ReencryptState::purge_confirmation`]). Not
+    /// files. Only this confirmation erases them (the state's `purge_confirmation`). Not
     /// public (X-DELTA-KEYS4-5): it is set by [`ReencryptState::confirm_purge`] and by reading back a
     /// state an app saved, and read by nothing outside this crate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1162,7 +1162,7 @@ impl ReencryptState {
     /// here, in the state the pass saves, so a restart does not lose the answer.
     ///
     /// This is the one door by which the user's answer becomes a [`crate::meta::reclaim::PurgeConfirmation`]
-    /// ([`ReencryptState::purge_confirmation`]): the app records what the user said, and nothing
+    /// (the state's `purge_confirmation`, which only this crate calls): the app records what the user said, and nothing
     /// in the types can tell that they said it - a number is all it takes. So the callers are a
     /// short list in shipped code, the commands and dialogs of a user's own request, and a text gate
     /// (`azul-srcgate/tests/confirm_purge_gate.rs`) names the modules that may call it, as
@@ -1174,18 +1174,56 @@ impl ReencryptState {
     }
 
     /// The confirmation the user gave, if they gave one - the user's answer and nothing of the pass:
-    /// what erases is [`ReencryptState::erase_licence`], which asks the rest as well.
+    /// what erases is [`ReencryptState::erase_licence`], which asks the rest as well. Not public
+    /// (X-DELTA-SYNC8-2): a witness taken from here skips the conditions of the licence - the pass over, no file
+    /// left that could not be read - and the text gate that watches the consumers reads none of its callers.
     #[must_use]
-    pub fn purge_confirmation(&self) -> Option<crate::meta::reclaim::PurgeConfirmation> {
+    pub(crate) fn purge_confirmation(&self) -> Option<crate::meta::reclaim::PurgeConfirmation> {
         crate::meta::reclaim::PurgeConfirmation::recorded_in(self)
     }
 
-    /// What a purge ([`crate::meta::MetaIndexProvider::purge`]) may be asked on this state's word: the
+    /// When the user confirmed the erase of the old versions, as a number (seconds since 1970, the clock of the
+    /// computer that recorded it): for what is shown and what a test reads. It is no witness: a
+    /// [`crate::meta::reclaim::PurgeConfirmation`] comes from [`ReencryptState::erase_licence`] only.
+    #[must_use]
+    pub fn purge_answered_at(&self) -> Option<u64> {
+        self.purge_confirmed_at
+    }
+
+    /// What a purge (the provider that keeps the history runs it: `IndexProvider::purge_confirmed`) may be asked
+    /// on this state's word: the
     /// confirmation the user gave, once the pass is over AND left no file it could not read. The one
     /// place that says so (X-DELTA-SYNC7-2): the erase of the old versions runs after the pass, and
     /// the older versions of a file whose head could not be read are the only readable copies of it -
     /// the command that asked to erase old versions used to erase them and say "1 damaged ones left
     /// as they were" afterwards. Every doubt is a refusal ([`EraseRefusal`]) and nothing is erased.
+    ///
+    /// The one door: the state's getter of the confirmation and the provider's `purge` are the crate's own
+    /// (X-DELTA-SYNC8-2), so a caller in another crate gets a confirmation here or nowhere:
+    ///
+    /// ```compile_fail,E0624
+    /// // The getter of the bare confirmation is not public: no licence without the conditions.
+    /// fn door(state: &azul_storage::rotation::ReencryptState) {
+    ///     let _ = state.purge_confirmation();
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail,E0624
+    /// // Nor is the provider's purge: it is reached through `purge_confirmed`, on this licence.
+    /// use azul_storage::meta::{MetaIndexProvider, PurgeConfirmation};
+    /// fn door(provider: &MetaIndexProvider, confirmation: &PurgeConfirmation) {
+    ///     let _ = provider.purge("d", todo!(), todo!(), confirmation);
+    /// }
+    /// ```
+    ///
+    /// What compiles - the control: the licence of a state is a confirmation.
+    ///
+    /// ```no_run
+    /// fn licence(state: &azul_storage::rotation::ReencryptState) -> bool {
+    ///     state.erase_licence().is_ok()
+    /// }
+    /// # let _ = licence;
+    /// ```
     ///
     /// # Errors
     ///
@@ -1295,7 +1333,7 @@ pub fn ask_reencrypt<D: Drive>(
 /// bucket opens with the old drive key. On a drive that keeps its history (the repository) the
 /// old objects are the history of the files: they stay, restorable until the retention is over,
 /// and go at once only when the user confirmed it ([`ReencryptState::confirm_purge`]; the caller
-/// then runs [`crate::meta::MetaIndexProvider::purge`] when this returns `Ok(true)` and the state
+/// then runs the provider's purge (`IndexProvider::purge_confirmed`) when this returns `Ok(true)` and the state
 /// gives the licence, [`ReencryptState::erase_licence`]: no file left that could not be read) - they used to
 /// stay for ever, or (the small files' packs) to go without asking. Small files packed together
 /// are written into new packs at the end, every pack holding one of them at once. `save` gets the
