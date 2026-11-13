@@ -1298,6 +1298,7 @@ azdrive-drill-passed = Das ist der Wiederherstellungscode von „{ $name }“.
 azdrive-drill-not-the-code = Das ist nicht der Wiederherstellungscode dieses Laufwerks. Wenn dein Kit verloren ist, erstelle einen neuen Code (im Menü des Laufwerks: Ich wurde gehackt: neue Schlüssel) und drucke sein Kit.
 azdrive-drill-not-a-code = Das ist kein Wiederherstellungscode: 26 Buchstaben und Ziffern in fünf Gruppen.
 azdrive-drill-not-this-drives = Das ist nicht der Wiederherstellungscode dieses Laufwerks.
+azdrive-drill-wrap-of-another-key = Der im Laufwerk gespeicherte Wiederherstellungsschlüssel gehört zu einem anderen Laufwerksschlüssel, als dieser Computer ihn hält, deshalb öffnet dieser Code von hier aus nichts von diesem Laufwerk. Hat ein anderer Computer die Schlüssel des Laufwerks geändert, tritt dem Laufwerk von dort aus erneut bei; sonst erstelle einen neuen Code (im Menü des Laufwerks: Ich wurde gehackt: neue Schlüssel).
 azdrive-drill-not-checked = Der Code konnte nicht geprüft werden
 azdrive-drill-stopped = Keine weiteren Prüfungen des Wiederherstellungscodes: Zwei gedruckte Anteile sind ein zweiter Weg hinein.
 azdrive-method-test = Testen
@@ -1485,7 +1486,7 @@ azdrive-enc-locked = Die Sperrung mit dem Wiederherstellungscode ist{ $until ->
     } ausstehend: Das Laufwerk nimmt keine Schreibvorgänge an, und ein Gerät des Besitzers kann sie noch abbrechen. Dann verliert jedes andere Gerät und jeder Schlüssel das Laufwerk, und dieser Computer behält es.
 azdrive-enc-not-locked = Das Laufwerk wurde nicht gesperrt
 azdrive-enc-checking-title = Der Wiederherstellungscode wird geprüft
-azdrive-enc-checking = Der Wiederherstellungsschlüssel des Laufwerks wird mit dem Code geöffnet (ein paar Sekunden)…
+azdrive-enc-checking = Der Wiederherstellungsschlüssel des Laufwerks wird mit dem Code abgeglichen (ein paar Sekunden)…
 azdrive-enc-lockdown-bad-code = Das ist kein Wiederherstellungscode (26 Buchstaben und Ziffern in fünf Gruppen), oder der Tokenserver des Laufwerks ist nicht bekannt.
 azdrive-enc-locking-title = Das Laufwerk wird gesperrt
 azdrive-enc-locking = Die Sperrung wird mit dem Wiederherstellungscode signiert…

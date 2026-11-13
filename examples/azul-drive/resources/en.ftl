@@ -1300,6 +1300,7 @@ azdrive-drill-passed = That is the recovery code of "{ $name }".
 azdrive-drill-not-the-code = That is not this drive's recovery code. If your kit is lost, make a new code (the drive's menu: I was hacked: new keys) and print its kit.
 azdrive-drill-not-a-code = That is not a recovery code: 26 letters and digits, in five groups.
 azdrive-drill-not-this-drives = That is not this drive's recovery code.
+azdrive-drill-wrap-of-another-key = The recovery key kept in the drive seals another drive key than this computer holds, so this code opens nothing of this drive from here. If another computer changed the drive's keys, join the drive again from it; otherwise make a new code (the drive's menu: I was hacked: new keys).
 azdrive-drill-not-checked = The code could not be checked
 azdrive-drill-stopped = No more checks of the recovery code: two printed shares are a second way in.
 azdrive-method-test = Test
@@ -1487,7 +1488,7 @@ azdrive-enc-locked = The lockdown with the recovery code is pending{ $until ->
     }: the drive takes no writes, and a device of the owner may still cancel it. Then every other device and key loses the drive, and this computer keeps it.
 azdrive-enc-not-locked = The drive was not locked down
 azdrive-enc-checking-title = Checking the recovery code
-azdrive-enc-checking = Opening the drive's recovery key with the code (a few seconds)…
+azdrive-enc-checking = Checking the drive's recovery key against the code (a few seconds)…
 azdrive-enc-lockdown-bad-code = That is not a recovery code (26 letters and digits, in five groups), or the drive's token server is not known.
 azdrive-enc-locking-title = Locking the drive down
 azdrive-enc-locking = Signing the lockdown with the recovery code…

@@ -849,7 +849,7 @@ extern "C" fn on_make(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let known = state_of(&s.settings.recovery.drives, &drive_id)
             .and_then(|state| state.recovery_key.clone());
         let checked = match drill_answer(known.as_deref(), &drive_id, code) {
-            DrillAnswer::Passed => RecoveryCode::parse(code).ok_or_else(String::new),
+            DrillAnswer::Matches(code) => Ok(code),
             DrillAnswer::NotTheCode => Err(t("azdrive-drill-not-this-drives")),
             DrillAnswer::NotACode => Err(t("azdrive-drill-not-a-code")),
             DrillAnswer::AskTheBucket(_) => Err(t("azdrive-contacts-check-code-first")),

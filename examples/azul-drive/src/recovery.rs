@@ -11,8 +11,10 @@
 //! DRILLS (the schedule is `recovery_health`'s): once a minute the recompression's timer looks
 //! whether a drive's drill is due and opens "Do you still have your recovery kit?" - the code
 //! typed from the kit, checked offline against the public recovery key kept for the drive (a
-//! drive set up before asks its bucket's recovery wrap). "Later" moves it a week; closing it
-//! waits for the next start.
+//! drive set up before asks its bucket's recovery wrap with the code). Either way the bucket's
+//! wrap is looked at too, for WHICH drive key it seals: it must be the key this computer holds, or
+//! the paper opens nothing of this drive and the drill does not pass (X-DELTA-KEYS5-1). "Later"
+//! moves it a week; closing it waits for the next start.
 //!
 //! On stdout, for scripts (never a secret): `AZDRIVE_KIT_PRINT <bytes>` (the kit opened for
 //! printing), `AZDRIVE_KIT_SAVED <bytes>` (the save dialog took it), `AZDRIVE_KIT_WRITTEN
@@ -45,7 +47,7 @@ use azul_storage::{
 // pages too); `Paper` and `forget_print_copies` keep their old paths for the recovery's callers.
 pub(crate) use crate::paper::{forget_print_copies, Paper};
 use crate::{
-    encryption::{Dialog, EncryptionJob, Sheet},
+    encryption::{Dialog, EncryptionJob, Sheet, WrapAnswer, WrapLook},
     ids,
     jobs::Job,
     paper::{paper_pdf, print_copy, write_private},
@@ -504,8 +506,12 @@ pub(crate) fn kit_saved(s: &mut DriveState, path: &Path, len: usize, result: Res
 /// What a drill makes of the code typed.
 #[derive(Debug)]
 pub(crate) enum DrillAnswer {
-    /// The drive's code.
-    Passed,
+    /// The code is the one the record keeps the public key of: it is the drive's code AS THIS
+    /// COMPUTER WROTE IT DOWN, and nothing of the bucket was asked - which is no pass. A drill
+    /// passes only after the bucket's recovery wrap was looked at ([`crate::encryption::WrapLook::Key`]):
+    /// a wrap another writer put over the drive's (it seals another drive key, and the paper opens
+    /// nothing of this drive) agrees with the record offline all the same (X-DELTA-KEYS5-1).
+    Matches(RecoveryCode),
     /// A recovery code, but not the drive's.
     NotTheCode,
     /// No recovery code at all (26 letters and digits in five groups).
@@ -535,7 +541,7 @@ pub(crate) fn drill_answer(recovery_key: Option<&str>, drive_id: &str, typed: &s
         return DrillAnswer::AskTheBucket(code);
     };
     if crate::encryption::recovery_key_of(&code, drive_id).public_base64() == known.trim() {
-        DrillAnswer::Passed
+        DrillAnswer::Matches(code)
     } else {
         DrillAnswer::NotTheCode
     }
@@ -719,12 +725,28 @@ extern "C" fn on_drill_check(mut data: RefAny, mut info: CallbackInfo) -> Update
             .and_then(|state| state.recovery_key.clone());
         let answer = drill_answer(known.as_deref(), &drive_id, typed);
         let error = match answer {
-            DrillAnswer::Passed => {
-                drill_passed(info, app, s, &drive_id, None);
+            // The record vouches for the code, and nothing else: the bucket's wrap is asked WHICH key it
+            // seals (no code, no key derivation) before this passes (X-DELTA-KEYS5-1).
+            DrillAnswer::Matches(code) => {
+                crate::encryption::check_code_in_bucket(
+                    info,
+                    app,
+                    s,
+                    &drive_id,
+                    code,
+                    WrapLook::Key,
+                );
                 return;
             }
             DrillAnswer::AskTheBucket(code) => {
-                crate::encryption::check_code_in_bucket(info, app, s, &drive_id, code);
+                crate::encryption::check_code_in_bucket(
+                    info,
+                    app,
+                    s,
+                    &drive_id,
+                    code,
+                    WrapLook::KeyAndCode,
+                );
                 return;
             }
             DrillAnswer::NotTheCode => t("azdrive-drill-not-the-code"),
@@ -737,31 +759,38 @@ extern "C" fn on_drill_check(mut data: RefAny, mut info: CallbackInfo) -> Update
     })
 }
 
-/// The bucket's recovery wrap answered a drill (`Ok(true)`: the code opens it).
+/// The bucket's recovery wrap answered a drill ([`WrapAnswer`]): the one place a drill passes. A wrap that
+/// seals another drive key than this computer holds fails it in red, whatever code was typed
+/// (X-DELTA-KEYS5-1); a wrap that could not be read passes nothing and says so.
 pub(crate) fn bucket_answered(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     drive_id: &str,
     recovery_key: String,
-    result: Result<bool, String>,
+    result: Result<WrapAnswer, String>,
 ) {
     match result {
-        Ok(true) => drill_passed(info, app, s, drive_id, Some(recovery_key)),
-        Ok(false) => {
-            println!("AZDRIVE_DRILL_FAILED {drive_id}");
-            s.popup.close();
-            open_drill(s, drive_id);
-            if let Some(Popup::Encryption(Dialog::Drill { error, .. })) = s.popup.as_mut() {
-                *error = t("azdrive-drill-not-this-drives");
-            }
-        }
+        Ok(WrapAnswer::Holds) => drill_passed(info, app, s, drive_id, Some(recovery_key)),
+        Ok(WrapAnswer::WrongCode) => drill_failed(s, drive_id, "azdrive-drill-not-this-drives"),
+        Ok(WrapAnswer::OtherKey) => drill_failed(s, drive_id, "azdrive-drill-wrap-of-another-key"),
         Err(why) => {
             s.popup.open(Popup::Encryption(Dialog::Message {
                 title: t("azdrive-drill-not-checked"),
                 text: t_label(&why),
             }));
         }
+    }
+}
+
+/// A drill that did not pass: the dialog comes back with `reason` (a message key) in red. Nothing of the
+/// record changes - a failed drill is no new fact about the paper, only about this try.
+fn drill_failed(s: &mut DriveState, drive_id: &str, reason: &str) {
+    println!("AZDRIVE_DRILL_FAILED {drive_id}");
+    s.popup.close();
+    open_drill(s, drive_id);
+    if let Some(Popup::Encryption(Dialog::Drill { error, .. })) = s.popup.as_mut() {
+        *error = t(reason);
     }
 }
 
@@ -1011,7 +1040,15 @@ mod tests {
         let code = RecoveryCode::from_bytes([0x5A; 16]);
         let key = crate::encryption::recovery_key_of(&code, "d_1").public_base64();
         let typed = code.to_text().replace('-', " ").to_lowercase();
-        assert_eq!(drill_answer(Some(&key), "d_1", &typed), DrillAnswer::Passed);
+        // The record's word is no pass: the answer hands the code on, and the bucket's wrap is looked at
+        // before the drill passes (X-DELTA-KEYS5-1).
+        assert!(
+            matches!(
+                drill_answer(Some(&key), "d_1", &typed),
+                DrillAnswer::Matches(ref matched) if matched.to_text().as_str() == code.to_text().as_str()
+            ),
+            "the code typed, parsed"
+        );
         let other = RecoveryCode::from_bytes([0x11; 16]).to_text();
         assert_eq!(
             drill_answer(Some(&key), "d_1", &other),

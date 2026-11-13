@@ -2854,11 +2854,13 @@ pub(crate) enum EncryptionJob {
         path: PathBuf,
         bytes: Zeroizing<Vec<u8>>,
     },
-    /// A drill's code against the bucket's recovery wrap (a drive set up before the drills).
+    /// A drill's look at the bucket's recovery wrap: which drive key it seals, and - for a record that keeps no
+    /// key of the code (a drive set up before the drills) - whether the code opens it ([`WrapLook`]).
     CheckCode {
         drive_id: String,
         auto: Arc<AutoEncrypted>,
         code: RecoveryCode,
+        look: WrapLook,
     },
     /// A task of the trusted contacts (keys in the keyring, a recovery's lockdown).
     Contacts(crate::recovery_contacts::ContactsJob),
@@ -3009,11 +3011,11 @@ pub(crate) enum EncryptionOutcome {
         len: usize,
         result: Result<(), String>,
     },
-    /// Whether a drill's code opens the bucket's recovery wrap; the code's public recovery key.
+    /// What a drill's look at the bucket's recovery wrap found ([`WrapAnswer`]); the code's public recovery key.
     CodeChecked {
         drive_id: String,
         recovery_key: String,
-        result: Result<bool, String>,
+        result: Result<WrapAnswer, String>,
     },
     /// What a task of the trusted contacts found.
     Contacts(crate::recovery_contacts::ContactsDone),
@@ -3273,9 +3275,10 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
             drive_id,
             auto,
             code,
+            look,
         } => {
             let recovery_key = recovery_key_of(&code, &drive_id).public_base64();
-            let result = code_opens_the_wrap(auto.bucket().as_ref(), auto.drive(), &code);
+            let result = check_wrap(auto.bucket().as_ref(), &keyring, auto.drive(), &code, look);
             EncryptionOutcome::CodeChecked {
                 drive_id,
                 recovery_key,
@@ -3360,22 +3363,68 @@ pub(crate) fn run(job: EncryptionJob) -> EncryptionOutcome {
     }
 }
 
-/// Whether `code` opens the recovery wrap in `bucket` (a drill of a drive whose record holds no key to
-/// compare it with: [`crate::recovery::DrillAnswer::AskTheBucket`]): `Ok(false)` for a code the wrap does
-/// not hold - the paper of a code a rotation replaced - and an error for a wrap that cannot be read or
-/// asked. The wrap is what the drive has NOW, whatever the settings say of it.
-fn code_opens_the_wrap(
+/// How far a drill's look at the bucket's recovery wrap goes ([`check_wrap`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WrapLook {
+    /// The record vouches for the code (it keeps the code's public key: [`crate::recovery::DrillAnswer::Matches`]):
+    /// only WHICH drive key the wrap seals is asked, from the file's header - about 400 bytes and no key
+    /// derivation.
+    Key,
+    /// The record keeps no key of the code (a setup from before the drills,
+    /// [`crate::recovery::DrillAnswer::AskTheBucket`]): the code must open the wrap too - one Argon2id
+    /// derivation - and the key it opens must be the one this computer holds.
+    KeyAndCode,
+}
+
+/// What a drill's look at the bucket's recovery wrap found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WrapAnswer {
+    /// The wrap seals the drive key this computer holds (and, when asked, the code opens it): the drill passes.
+    Holds,
+    /// The wrap seals the key this computer holds, and the code does not open it: the paper of a code a
+    /// rotation replaced.
+    WrongCode,
+    /// The wrap seals ANOTHER drive key than this computer holds - a stale computer, a wrap another writer put
+    /// over the drive's: whatever opens it opens nothing of this drive's index. The drill does not pass,
+    /// whatever paper was typed (X-DELTA-KEYS5-1).
+    OtherKey,
+}
+
+/// A drill's look at the recovery wrap in `bucket`, as the worker thread makes it: does the wrap seal the drive
+/// key `keyring` holds - and, for [`WrapLook::KeyAndCode`], does `code` open it. The record of the settings
+/// says what the wrap held when this computer last wrote it down, never what it holds NOW: a wrap put over the
+/// drive's (the NewCode of a stale computer before 3e9c143af, or any writer of the bucket) agreed with the
+/// record, and the paper typed matched it, offline (X-DELTA-KEYS5-1).
+///
+/// The key this computer holds is read first, the wrap ONCE: the key id compared is the id of the very bytes
+/// that are opened, so a wrap another computer replaces between the look and the check cannot split the two.
+/// A keyring that holds no key or cannot be read, a wrap that cannot be read or parsed: an error, nothing
+/// passes - there is nothing to compare, and "unknown" is never "the same".
+fn check_wrap(
     bucket: &dyn Drive,
+    keyring: &dyn KeyringStore,
     drive: &str,
     code: &RecoveryCode,
-) -> Result<bool, String> {
-    load_recovery_wrap(bucket)
-        .map_err(|e| e.to_string())
-        .and_then(|wrap| match wrap.open(drive, code) {
-            Ok(_) => Ok(true),
-            Err(CryptoError::WrongKey) => Ok(false),
+    look: WrapLook,
+) -> Result<WrapAnswer, String> {
+    let held = device::load_drive_key(keyring, drive)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| String::from("azdrive-enc-err-no-key"))?;
+    let wrap = load_recovery_wrap(bucket).map_err(|e| e.to_string())?;
+    // The file's header names the key it seals: the cheap refusal, before any key is derived.
+    if wrap.drive_key_id != held.id() {
+        return Ok(WrapAnswer::OtherKey);
+    }
+    match look {
+        WrapLook::Key => Ok(WrapAnswer::Holds),
+        WrapLook::KeyAndCode => match wrap.open(drive, code) {
+            // The key the code opened - not the header's word for it - is the key this computer holds.
+            Ok(opened) if opened.id() == held.id() => Ok(WrapAnswer::Holds),
+            Ok(_) => Ok(WrapAnswer::OtherKey),
+            Err(CryptoError::WrongKey) => Ok(WrapAnswer::WrongCode),
             Err(e) => Err(e.to_string()),
-        })
+        },
+    }
 }
 
 /// "Add a device" as the job runs it: a join code for another device whose drive key rides along, sealed to
@@ -4709,14 +4758,15 @@ pub(crate) fn on_outcome(
     }
 }
 
-/// A drill's code checked against the bucket's recovery wrap, on a worker thread (a drive set
-/// up before the drills kept no recovery key).
+/// A drill's look at the bucket's recovery wrap, on a worker thread: every drill passes through it
+/// (X-DELTA-KEYS5-1), the record's own word for the code or not ([`WrapLook`]).
 pub(crate) fn check_code_in_bucket(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     drive_id: &str,
     code: RecoveryCode,
+    look: WrapLook,
 ) {
     let Some(auto) = auto_of(s, drive_id) else {
         return;
@@ -4729,6 +4779,7 @@ pub(crate) fn check_code_in_bucket(
         drive_id: drive_id.to_string(),
         auto,
         code,
+        look,
     };
     spawn(info, app, s, Job::Encryption(job));
 }
@@ -8067,6 +8118,56 @@ mod tests {
         }
     }
 
+    /// What a drill did ([`a_drill`]).
+    struct DrillRun {
+        /// What was looked at in the bucket (`None`: the typed text was no code, or not the drive's: nothing).
+        asked: Option<WrapLook>,
+        /// What the look found (`None`: nothing was looked at).
+        answer: Option<Result<WrapAnswer, String>>,
+        /// Whether the drill passed: it set `code_checked` in the record.
+        passed: bool,
+    }
+
+    /// A drill with the paper `typed` as the window runs it, on the production functions and nothing but them:
+    /// the offline answer (`drill_answer`, what `on_drill_check` asks), the worker's look at the bucket's wrap
+    /// (`check_wrap`, what the CheckCode job runs - for the record's code too, X-DELTA-KEYS5-1) and the record's
+    /// part of a pass (`record_drill_passed`, what `drill_passed` writes after `bucket_answered`).
+    fn a_drill(
+        record: &mut crate::recovery_health::RecoveryState,
+        bucket: &dyn Drive,
+        keyring: &dyn KeyringStore,
+        drive: &str,
+        typed: &str,
+    ) -> DrillRun {
+        let (code, look) =
+            match crate::recovery::drill_answer(record.recovery_key.as_deref(), drive, typed) {
+                crate::recovery::DrillAnswer::Matches(code) => (code, WrapLook::Key),
+                crate::recovery::DrillAnswer::AskTheBucket(code) => (code, WrapLook::KeyAndCode),
+                crate::recovery::DrillAnswer::NotTheCode
+                | crate::recovery::DrillAnswer::NotACode => {
+                    return DrillRun {
+                        asked: None,
+                        answer: None,
+                        passed: false,
+                    };
+                }
+            };
+        let answer = check_wrap(bucket, keyring, drive, &code, look);
+        let passed = answer == Ok(WrapAnswer::Holds);
+        if passed {
+            crate::recovery::record_drill_passed(
+                record,
+                1_000,
+                Some(recovery_key_of(&code, drive).public_base64()),
+            );
+        }
+        DrillRun {
+            asked: Some(look),
+            answer: Some(answer),
+            passed,
+        }
+    }
+
     /// What the next start does and finds.
     struct NextStart {
         /// The recovery record as the settings file holds it, after the drill.
@@ -8075,7 +8176,8 @@ mod tests {
         guard: UnfinishedSetup,
         /// Whether the drill of the paper `typed` passed (and so set `code_checked`).
         drill_passed: bool,
-        /// What the drill asked: `Passed` (offline), the bucket's wrap, or neither.
+        /// Whether the record held no key of the code, so the drill had to open the bucket's wrap with it
+        /// ([`WrapLook::KeyAndCode`]).
         asked_the_bucket: bool,
         /// The keyring entries a "Remove drive" right after kept.
         kept: Vec<String>,
@@ -8102,34 +8204,15 @@ mod tests {
         }
         let guard = unfinished_setup(state_of(&states, drive), false);
         let record = state_mut(&mut states, drive);
-        let mut asked_the_bucket = false;
-        let passed = match crate::recovery::drill_answer(
-            record.recovery_key.as_deref(),
+        let run = a_drill(
+            record,
+            killed.bucket.as_ref(),
+            &killed.keyring.inner,
             drive,
             &typed.to_text(),
-        ) {
-            crate::recovery::DrillAnswer::Passed => {
-                crate::recovery::record_drill_passed(record, 1_000, None);
-                true
-            }
-            crate::recovery::DrillAnswer::AskTheBucket(code) => {
-                asked_the_bucket = true;
-                match code_opens_the_wrap(killed.bucket.as_ref(), drive, &code) {
-                    Ok(true) => {
-                        crate::recovery::record_drill_passed(
-                            record,
-                            1_000,
-                            Some(recovery_key_of(&code, drive).public_base64()),
-                        );
-                        true
-                    }
-                    Ok(false) | Err(_) => false,
-                }
-            }
-            crate::recovery::DrillAnswer::NotTheCode | crate::recovery::DrillAnswer::NotACode => {
-                false
-            }
-        };
+        );
+        let asked_the_bucket = run.asked == Some(WrapLook::KeyAndCode);
+        let passed = run.passed;
         let record = record.clone();
         let report = forget_job(
             &killed.keyring.inner,
@@ -8808,6 +8891,349 @@ mod tests {
         assert!(wrap
             .open(drive, &RecoveryCode::parse(&code).expect("a code"))
             .is_ok());
+    }
+
+    // ==== X-DELTA-KEYS5-1: a drill looks at WHICH key the recovery wrap seals ====
+
+    /// The drive of the KEYS5-1 drill tests: made on this computer - its keyring holds the key `held`, the
+    /// bucket's wrap seals it under the code `c3` - and the record as the setup left it: it keeps C3's public
+    /// key, and the code was never checked.
+    struct DrillWorld {
+        drive: &'static str,
+        keyring: Arc<azul_storage::keyring::MemoryKeyring>,
+        bucket: Arc<azul_storage::meta::MemoryBucket>,
+        c3: RecoveryCode,
+        record: crate::recovery_health::RecoveryState,
+    }
+
+    fn drill_world(drive: &'static str) -> DrillWorld {
+        let keyring = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let bucket = Arc::new(azul_storage::meta::MemoryBucket::new());
+        let (held, c3) = device::setup_new_drive(
+            bucket.as_ref(),
+            keyring.as_ref(),
+            drive,
+            cheap_kdf().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            load_recovery_wrap(bucket.as_ref()).unwrap().drive_key_id,
+            held.id(),
+            "premise: the wrap seals the key the keyring holds"
+        );
+        let mut record = crate::recovery_health::RecoveryState::new(drive);
+        record.code_made(100, Some(recovery_key_of(&c3, drive).public_base64()));
+        assert_eq!(record.code_checked, None, "premise: never checked");
+        DrillWorld {
+            drive,
+            keyring,
+            bucket,
+            c3,
+            record,
+        }
+    }
+
+    impl DrillWorld {
+        /// A wrap of ANOTHER drive key under ANOTHER code lands over the drive's: what a stale computer's NewCode
+        /// did before 3e9c143af, and what any writer of the bucket can do at any time. Returns the code that
+        /// opens it.
+        fn another_keys_wrap_lands(&self) -> RecoveryCode {
+            let other_key = azul_storage::crypto::DriveKey::generate().unwrap();
+            let other_code = RecoveryCode::generate().unwrap();
+            let wrap =
+                RecoveryWrap::seal(&other_key, self.drive, &other_code, cheap_kdf().unwrap())
+                    .unwrap();
+            self.bucket
+                .put(
+                    azul_storage::crypto::keys::RECOVERY_KEY_FILE,
+                    &wrap.to_bytes(),
+                )
+                .unwrap();
+            other_code
+        }
+
+        fn wrap_bytes(&self) -> Vec<u8> {
+            self.bucket
+                .get(azul_storage::crypto::keys::RECOVERY_KEY_FILE)
+                .unwrap()
+        }
+    }
+
+    /// X-DELTA-KEYS5-1 (the review's scenario, the offline arm): the record keeps C3's public key, the bucket's
+    /// wrap seals ANOTHER drive key (K1) under ANOTHER code, the keyring holds K2. The typed C3 matched the
+    /// record offline and `drill_passed` followed at once - `code_checked` set, the health green, the removal
+    /// proof's "checked code" true - while the paper opens nothing of this drive. The wrap is looked at now:
+    /// it seals another key, the drill is not passed, `code_checked` stays None, and nothing was written.
+    #[test]
+    fn x_delta_keys5_1_a_wrap_of_another_key_does_not_pass_a_drill_the_record_agrees_with() {
+        let mut w = drill_world("d_k51_offline");
+        let _opens_the_wrap = w.another_keys_wrap_lands();
+        let wrap = w.wrap_bytes();
+        let run = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            w.keyring.as_ref(),
+            w.drive,
+            &w.c3.to_text(),
+        );
+        assert_eq!(
+            run.asked,
+            Some(WrapLook::Key),
+            "the record vouches for the code: only the wrap's key is asked"
+        );
+        assert_eq!(run.answer, Some(Ok(WrapAnswer::OtherKey)));
+        assert!(!run.passed, "the drill does not pass");
+        assert_eq!(w.record.code_checked, None, "and checks nothing");
+        assert_eq!(w.wrap_bytes(), wrap, "nothing was written");
+    }
+
+    /// X-DELTA-KEYS5-1, the control at the same size: the wrap seals the key the keyring holds, so the record's
+    /// word and the bucket's agree and the drill passes - with the key look only, no code opened.
+    #[test]
+    fn x_delta_keys5_1_a_wrap_of_the_held_key_passes_the_drill_the_record_agrees_with() {
+        let mut w = drill_world("d_k51_control");
+        let run = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            w.keyring.as_ref(),
+            w.drive,
+            &w.c3.to_text(),
+        );
+        assert_eq!(run.asked, Some(WrapLook::Key));
+        assert_eq!(run.answer, Some(Ok(WrapAnswer::Holds)));
+        assert!(run.passed);
+        assert_eq!(w.record.code_checked, Some(1_000));
+    }
+
+    /// X-DELTA-KEYS5-1, the online arm (a record that keeps no key of the code): the wrap seals another key and
+    /// the typed paper is the one that opens IT. `code_opens_the_wrap` answered `Ok(true)` for any wrap its code
+    /// opened and dropped the key it opened, so the paper that matches a wrong wrap passed. The key the code
+    /// opens is compared with the one the keyring holds now: it is not, and the drill does not pass.
+    #[test]
+    fn x_delta_keys5_1_the_paper_that_opens_a_wrap_of_another_key_does_not_pass_the_online_drill() {
+        let mut w = drill_world("d_k51_online");
+        w.record.recovery_key = None;
+        let opens_the_wrap = w.another_keys_wrap_lands();
+        let run = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            w.keyring.as_ref(),
+            w.drive,
+            &opens_the_wrap.to_text(),
+        );
+        assert_eq!(
+            run.asked,
+            Some(WrapLook::KeyAndCode),
+            "the record has no key to vouch"
+        );
+        assert_eq!(run.answer, Some(Ok(WrapAnswer::OtherKey)));
+        assert!(!run.passed);
+        assert_eq!(w.record.code_checked, None);
+        assert_eq!(
+            w.record.recovery_key, None,
+            "and the key of that paper is not taken into the record"
+        );
+    }
+
+    /// X-DELTA-KEYS5-1, the online arm's controls: the wrap seals the held key - the code that opens it passes
+    /// (and its key goes into the record, as before), another code is the old answer "not this drive's".
+    #[test]
+    fn x_delta_keys5_1_the_online_drill_passes_the_papers_of_the_held_keys_wrap_and_only_those() {
+        let mut w = drill_world("d_k51_online_ctl");
+        w.record.recovery_key = None;
+        let other = RecoveryCode::generate().unwrap();
+        let run = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            w.keyring.as_ref(),
+            w.drive,
+            &other.to_text(),
+        );
+        assert_eq!(run.answer, Some(Ok(WrapAnswer::WrongCode)));
+        assert!(!run.passed);
+        let run = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            w.keyring.as_ref(),
+            w.drive,
+            &w.c3.to_text(),
+        );
+        assert_eq!(run.answer, Some(Ok(WrapAnswer::Holds)));
+        assert!(run.passed);
+        assert_eq!(
+            w.record.recovery_key.as_deref(),
+            Some(recovery_key_of(&w.c3, w.drive).public_base64().as_str()),
+            "the key the paper was checked against is the record's from now on"
+        );
+    }
+
+    /// X-DELTA-KEYS5-1, a wrap or a keyring that cannot be read: nothing is compared, so nothing passes, and the
+    /// answer is the error's words - never "the same" for "unknown".
+    #[test]
+    fn x_delta_keys5_1_a_wrap_or_a_keyring_that_cannot_be_read_passes_no_drill() {
+        // The bucket does not answer for the wrap (both arms).
+        for forget_the_key in [false, true] {
+            let mut w = drill_world(if forget_the_key {
+                "d_k51_cut_online"
+            } else {
+                "d_k51_cut_offline"
+            });
+            if forget_the_key {
+                w.record.recovery_key = None;
+            }
+            let mut faults = WrapFaults::over(&w.bucket);
+            faults.get_fails = true;
+            let run = a_drill(
+                &mut w.record,
+                &faults,
+                w.keyring.as_ref(),
+                w.drive,
+                &w.c3.to_text(),
+            );
+            let Some(Err(why)) = &run.answer else {
+                panic!("a wrap that cannot be read is an error: {:?}", run.answer);
+            };
+            assert!(why.contains("the connection was cut"), "{why}");
+            assert!(!run.passed);
+            assert_eq!(w.record.code_checked, None);
+        }
+        // The keyring cannot be read.
+        let mut w = drill_world("d_k51_keyring");
+        let run = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            &UnreadableKeyring,
+            w.drive,
+            &w.c3.to_text(),
+        );
+        let Some(Err(why)) = &run.answer else {
+            panic!(
+                "a keyring that cannot be read is an error: {:?}",
+                run.answer
+            );
+        };
+        assert!(why.contains("the keyring went"), "{why}");
+        assert!(!run.passed);
+        // The keyring holds no key of the drive: there is nothing to compare the wrap with.
+        let empty = azul_storage::keyring::MemoryKeyring::new();
+        let run = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            &empty,
+            w.drive,
+            &w.c3.to_text(),
+        );
+        assert_eq!(
+            run.answer,
+            Some(Err(String::from("azdrive-enc-err-no-key"))),
+            "a computer without the key compares nothing"
+        );
+        assert!(!run.passed);
+        assert_eq!(w.record.code_checked, None);
+    }
+
+    /// X-DELTA-KEYS5-1, a wrap another computer replaces between two drills: each drill reads the wrap once and
+    /// compares the id of the bytes it read - the drill before the replacement passes, the one after it does
+    /// not, and neither reads the record's word for what the wrap holds.
+    #[test]
+    fn x_delta_keys5_1_a_wrap_replaced_between_two_drills_is_seen_by_the_second() {
+        let mut w = drill_world("d_k51_replaced");
+        let before = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            w.keyring.as_ref(),
+            w.drive,
+            &w.c3.to_text(),
+        );
+        assert!(before.passed, "the wrap is the held key's");
+        let _ = w.another_keys_wrap_lands();
+        let after = a_drill(
+            &mut w.record,
+            w.bucket.as_ref(),
+            w.keyring.as_ref(),
+            w.drive,
+            &w.c3.to_text(),
+        );
+        assert_eq!(after.answer, Some(Ok(WrapAnswer::OtherKey)));
+        assert!(!after.passed);
+    }
+
+    /// X-DELTA-KEYS5-1 through `run`, the function the worker thread runs: the CheckCode job reads the wrap of
+    /// the job's own bucket and the keyring the run opens, for the offline arm's `Key` look as for the online
+    /// arm's. A job that answered `Holds` for a wrap it did not look at would pass every drill.
+    #[test]
+    fn x_delta_keys5_1_the_check_code_job_looks_at_the_wrap_in_both_arms() {
+        let drive = "x-delta-keys5-1-run";
+        let keyring = azlin_keyring(Asking::User);
+        let bucket = Arc::new(azul_storage::meta::MemoryBucket::new());
+        let (_held, c3) =
+            device::setup_new_drive(bucket.as_ref(), &keyring, drive, cheap_kdf().unwrap())
+                .unwrap();
+        let auto = Arc::new(AutoEncrypted::new(
+            bucket.clone(),
+            drive,
+            Arc::new(azlin_keyring(Asking::User)),
+            Some(Arc::new(MemoryProvider)),
+        ));
+        let look = |look: WrapLook, code: &RecoveryCode| match run(EncryptionJob::CheckCode {
+            drive_id: drive.to_string(),
+            auto: Arc::clone(&auto),
+            code: code.clone(),
+            look,
+        }) {
+            EncryptionOutcome::CodeChecked {
+                recovery_key,
+                result,
+                ..
+            } => (recovery_key, result),
+            _ => panic!("the CheckCode job answers CodeChecked"),
+        };
+        let (key, result) = look(WrapLook::Key, &c3);
+        assert_eq!(result, Ok(WrapAnswer::Holds), "the wrap is the held key's");
+        assert_eq!(key, recovery_key_of(&c3, drive).public_base64());
+        assert_eq!(look(WrapLook::KeyAndCode, &c3).1, Ok(WrapAnswer::Holds));
+        // Another key's wrap lands: neither look passes, whatever code is typed.
+        let other_key = azul_storage::crypto::DriveKey::generate().unwrap();
+        let other_code = RecoveryCode::generate().unwrap();
+        let wrap =
+            RecoveryWrap::seal(&other_key, drive, &other_code, cheap_kdf().unwrap()).unwrap();
+        bucket
+            .put(
+                azul_storage::crypto::keys::RECOVERY_KEY_FILE,
+                &wrap.to_bytes(),
+            )
+            .unwrap();
+        assert_eq!(look(WrapLook::Key, &c3).1, Ok(WrapAnswer::OtherKey));
+        assert_eq!(look(WrapLook::KeyAndCode, &c3).1, Ok(WrapAnswer::OtherKey));
+        assert_eq!(
+            look(WrapLook::KeyAndCode, &other_code).1,
+            Ok(WrapAnswer::OtherKey),
+            "the paper that opens the wrong wrap is no pass either"
+        );
+    }
+
+    /// X-DELTA-KEYS5-1, what the window says when the wrap seals another key: its own sentence in both
+    /// languages - the advice for a computer whose key is the old one, and for the one that is not - and no
+    /// "this is not this drive's recovery code", which would tell a user with the right paper that it is wrong.
+    #[test]
+    fn x_delta_keys5_1_the_red_sentence_is_in_both_languages_and_does_not_blame_the_paper() {
+        crate::l10n::in_english();
+        for (locale, key_words, advice) in [
+            ("en-US", "another drive key", "join the drive again"),
+            ("de-DE", "anderen Laufwerksschlüssel", "tritt dem Laufwerk"),
+        ] {
+            azul_appkit::l10n::set_locale(locale);
+            let said = t("azdrive-drill-wrap-of-another-key");
+            assert_ne!(
+                said, "azdrive-drill-wrap-of-another-key",
+                "{locale}: it has words"
+            );
+            assert!(said.contains(key_words), "{locale}: {said}");
+            assert!(said.contains(advice), "{locale}: {said}");
+            assert_ne!(said, t("azdrive-drill-not-this-drives"), "{locale}");
+            assert_ne!(said, t("azdrive-drill-not-the-code"), "{locale}");
+        }
+        crate::l10n::in_english();
     }
 
     /// X-DELTA-KEYS4-2, what the window says: the two refusals are labels with a sentence of their own in
