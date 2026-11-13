@@ -3946,6 +3946,65 @@ mod tests {
         assert!(held_keys(&f).is_empty(), "{:?}", held_keys(&f));
     }
 
+    // ==== X-DELTA-APPS5-3: the sweep of a Send/Receive is set against the drive, through the sync ====
+
+    /// The review's missing test: `x_delta_apps4_3_the_sweep_waits_for_the_drive_to_agree_that_the_hold_is_old` calls
+    /// `sweep_removed` itself, and the one test that sweeps through `run_at` delivers a mail dated at each sweep's own
+    /// second, so the clock and the drive always agreed - an edit that passed the clock as the drive's reading
+    /// (`Some(options.now)`: the clock agreeing with itself, the hole of X-APPS3-1), or read `Clocks.drive` from the wrong
+    /// listing, kept all 195 tests green, and a clock 30 days ahead swept every hold older than 60 days. Through
+    /// `sync_account`: a hold at SEP_30; the drive's newest mail 30 days later, in a folder that is not the first: a
+    /// Send/Receive on a clock 100 days on KEEPS the hold (the drive has not lived 90 days since it); a mail dated 95
+    /// days on arrives, in the LAST folder of the listing and the newest of the drive (the newest, not the first or
+    /// the last-listed folder's oldest): the next run - the clock 100 days on - deletes it, the drive agreeing.
+    #[test]
+    fn x_delta_apps5_3_the_sweep_of_a_send_receive_is_set_against_the_newest_mail_of_the_drive_not_the_clock(
+    ) {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        // The newest mail of the drive is in the first folder of the listing (Archive), 30 days after the hold.
+        deliver(&f, "Archive", &mail(3, "Three"), SEP_30 + 30 * DAY);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        run_at(&f, SEP_30);
+        let first = holding("inbox", SEP_30);
+        let stays = |f: &Fixture| held_keys(f).iter().any(|key| key.starts_with(&first));
+        assert!(stays(&f), "held at SEP_30: {:?}", held_keys(&f));
+        // This computer says 100 days on; the drive's newest mail says 30: the earlier reading decides.
+        let report = run_at(&f, SEP_30 + 100 * DAY);
+        assert_eq!(report.sweep_failed, None);
+        assert!(
+            stays(&f),
+            "the clock alone does not sweep a hold the drive has not lived 90 days since: {:?}",
+            held_keys(&f)
+        );
+        // A mail dated 95 days on arrives in the last folder of the listing: the drive's newest mail is the
+        // maximum over EVERY folder - and now the drive agrees that the hold is 90 days old.
+        deliver(&f, "Spam", &mail(4, "Four"), SEP_30 + 95 * DAY);
+        let report = run_at(&f, SEP_30 + 100 * DAY);
+        assert_eq!(report.sweep_failed, None);
+        assert!(
+            !stays(&f),
+            "the drive's newest mail, from any folder, lets the sweep delete: {:?}",
+            held_keys(&f)
+        );
+        // And a clock that is behind the drive's newest mail still decides by itself: a second hold, made on a clock
+        // 100 days on, is not swept by a run whose clock is 89 days after it, whatever the drive says.
+        let two = index(&f.store, "inbox")[0].remote.clone();
+        f.bucket.inner.delete(&two).unwrap();
+        run_at(&f, SEP_30 + 100 * DAY);
+        let second = holding("inbox", SEP_30 + 100 * DAY);
+        assert!(held_keys(&f).iter().any(|key| key.starts_with(&second)));
+        deliver(&f, "Spam", &mail(5, "Five"), SEP_30 + 400 * DAY);
+        run_at(&f, SEP_30 + 189 * DAY);
+        assert!(
+            held_keys(&f).iter().any(|key| key.starts_with(&second)),
+            "the clock of this computer says 89 days: {:?}",
+            held_keys(&f)
+        );
+    }
+
     // ==== X-DELTA-APPS5-6: a floor that cannot be read is not "no Send/Receive yet" ====
 
     /// RED on the code before: `Clocks::read` took the listing of `mail/` that FAILED for no folder at all, so the
