@@ -207,7 +207,7 @@ fn writer_options(name: &str) -> Options {
 }
 
 #[test]
-#[ignore = "writes the golden vectors that are missing; run once per new format version"]
+#[ignore = "X-EDGE-C-2: writes the golden vectors that are missing; run once per new format version"]
 fn write_missing_golden_vectors() {
     if std::env::var_os("AZC_WRITE_GOLDEN").is_none() {
         return;

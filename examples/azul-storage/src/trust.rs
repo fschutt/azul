@@ -323,7 +323,7 @@ mod class_tests {
     /// azul-storage --lib -- --ignored release_`) and does not ship while it fails: a build whose
     /// Azlin pool follows the whole public PKI is not the build the service's trust model asks for.
     #[test]
-    #[ignore = "release gate: red until the operator has named the issuing authorities (AZLIN_TLS_ROOTS_PEM)"]
+    #[ignore = "ENT27-M16: release gate: red until the operator has named the issuing authorities (AZLIN_TLS_ROOTS_PEM)"]
     fn release_the_azlin_authorities_are_pinned() {
         assert!(
             AZLIN_TLS_ROOTS_PEM.len() >= 2,

@@ -1615,7 +1615,7 @@ fn pointer_blob(objects: &mut crate::meta::Objects, serial: u64) -> crate::meta:
 /// time of each phase and the sizes; nothing is asserted but that the walk finishes and sees what
 /// was built.
 #[test]
-#[ignore = "E8: the owner's machine; the command is in the doc comment"]
+#[ignore = "X-EDGE-C-2: E8: the owner's machine; the command is in the doc comment"]
 fn e8_history_size_for_reclaim() {
     use std::time::Instant;
 

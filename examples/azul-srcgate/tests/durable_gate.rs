@@ -234,7 +234,7 @@ fn files_are_put_in_place_only_through_the_durable_module_and_the_counted_allowa
 /// Prints every raw write: `cargo test -p azul-srcgate --test durable_gate -- --ignored
 /// --nocapture print_writes`, to write the list above.
 #[test]
-#[ignore = "prints the raw writes; the list above is written from it"]
+#[ignore = "X-EDGE-C-1: prints the raw writes; the list above is written from it"]
 fn print_writes() {
     let hits = azul_srcgate::hits(
         &azul_srcgate::files(&azul_srcgate::workspace(), ROOTS, Orphans::Ignore)

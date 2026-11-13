@@ -151,7 +151,7 @@ fn the_drive_entrys_token_server_address_is_named_only_in_the_listed_files() {
 /// Prints every site: `cargo test -p azul-srcgate --test token_server_gate -- --ignored
 /// --nocapture print_reads`, to write the list above.
 #[test]
-#[ignore = "prints the sites; the list above is written from it"]
+#[ignore = "X-EDGE-C-1: prints the sites; the list above is written from it"]
 fn print_reads() {
     let hits = azul_srcgate::hits(
         &azul_srcgate::files(&azul_srcgate::workspace(), ROOTS, Orphans::Ignore)

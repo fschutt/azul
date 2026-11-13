@@ -814,7 +814,7 @@ fn the_bookkeeping_name_is_spelled_in_names_rs_and_parent_of_is_called_from_the_
 /// Prints every hit: `cargo test -p azul-srcgate --test names_gate -- --ignored --nocapture
 /// print_hits`, to write the list above.
 #[test]
-#[ignore = "prints the hits; the list above is written from it"]
+#[ignore = "X-EDGE-C-1: prints the hits; the list above is written from it"]
 fn print_hits() {
     let hits = azul_srcgate::hits(
         &azul_srcgate::files(&azul_srcgate::workspace(), ROOTS, Orphans::Ignore)

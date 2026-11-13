@@ -24,7 +24,7 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "needs a corpus folder in AZLIN_COMPRESS_CORPUS"]
+#[ignore = "X-EDGE-C-2: needs a corpus folder in AZLIN_COMPRESS_CORPUS"]
 fn every_corpus_file_round_trips() {
     let Some(root) = std::env::var_os("AZLIN_COMPRESS_CORPUS") else {
         return;

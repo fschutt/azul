@@ -140,7 +140,7 @@ fn a_listing_page_of_a_large_folder_stats_at_most_its_own_entries() {
 /// The numbers for the notes (`--ignored --nocapture`): a folder of 10,000 files read the old
 /// way (read_dir and a stat per entry, what every listing page did) and the batched way.
 #[test]
-#[ignore = "a measurement, not a law"]
+#[ignore = "X-EDGE-C-2: a measurement, not a law (run by hand: --ignored --nocapture measure_a_folder_of_10000_files)"]
 fn measure_a_folder_of_10000_files() {
     let tmp = TempDir::new("dir-read-measure");
     folder_of(&tmp, 10_000);

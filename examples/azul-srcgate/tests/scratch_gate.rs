@@ -239,7 +239,7 @@ fn the_temp_folder_is_read_in_scratch_rs_and_the_counted_allowances_only() {
 /// Prints every read: `cargo test -p azul-srcgate --test scratch_gate -- --ignored --nocapture
 /// print_reads`, to write the list above.
 #[test]
-#[ignore = "prints the reads; the list above is written from it"]
+#[ignore = "X-EDGE-C-1: prints the reads; the list above is written from it"]
 fn print_reads() {
     let hits = azul_srcgate::hits(
         &azul_srcgate::files(&azul_srcgate::workspace(), ROOTS, Orphans::Ignore)

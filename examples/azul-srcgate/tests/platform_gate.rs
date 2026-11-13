@@ -341,7 +341,7 @@ fn the_rules_find_what_they_plant_and_leave_the_clean_code_alone() {
 /// Prints every hit: `cargo test -p azul-srcgate --test platform_gate -- --ignored --nocapture
 /// print_hits`, to write the list above.
 #[test]
-#[ignore = "prints the hits; the list above is written from it"]
+#[ignore = "X-EDGE-C-1: prints the hits; the list above is written from it"]
 fn print_hits() {
     let hits = azul_srcgate::hits(
         &azul_srcgate::files(&azul_srcgate::workspace(), ROOTS, Orphans::Ignore)

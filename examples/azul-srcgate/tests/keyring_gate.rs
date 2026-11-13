@@ -198,7 +198,7 @@ fn the_test_switches_are_read_only_in_the_listed_files() {
 /// Prints every read of a switch: `cargo test -p azul-srcgate --test keyring_gate -- --ignored
 /// --nocapture print_reads`, to write the list above.
 #[test]
-#[ignore = "prints the reads; the list above is written from it"]
+#[ignore = "X-EDGE-C-1: prints the reads; the list above is written from it"]
 fn print_reads() {
     let hits = azul_srcgate::hits(
         &azul_srcgate::files(&azul_srcgate::workspace(), ROOTS, Orphans::Ignore)
