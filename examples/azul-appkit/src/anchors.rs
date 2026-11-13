@@ -83,11 +83,14 @@ pub const fn layers_honoured() -> bool {
 /// it - a build under test has appkit's `test-hooks` on, so only an explicit choice reaches the
 /// shipped branch.
 ///
-/// THE one function that chooses (X-DELTA-STRUCT3-11): azcloud-kit's `azlin_target` asks it for
+/// THE one function that chooses (X-DELTA-STRUCT3-11): azcloud-kit's `azlin_target_choice` asks it for
 /// a drive's entry (`open_azlin` builds the account over its answer) and AzMail's account, which has
 /// no entry, asks it for its own rule; `token_server_gate` counts every use, so a third place that
 /// chooses is a finding. Its twin `token_server_for`, which the account's constructor asked
-/// again on its own, is gone.
+/// again on its own, is gone. It stays `pub` because both callers are in other crates (X-DELTA-STRUCT4-5 asked
+/// whether it could be crate-private like the kit's `azlin_target_choice`): the kit's `azlin_target` passes the
+/// build's `layers_honoured()`, AzMail's account passes `true` after its own shipped-build guard, and the gate counts
+/// every call.
 #[must_use]
 pub fn token_server_choice<'a>(
     honour_entry: bool,

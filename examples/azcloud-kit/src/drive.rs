@@ -1070,14 +1070,37 @@ pub struct AzlinTarget {
 /// process of the user can write, and a hostile token server can seed the address of a drive it hands out.
 /// A test build answers the entry's, else `fallback` ([`azul_appkit::anchors::token_server_choice`]). `None` for
 /// every other drive, and for one with no server to name.
+///
+/// The function that takes the build's choice as a `bool` is the kit's own: it was `pub`, and any crate could send a
+/// drive token to the address `drives.json` carries with one literal - `azlin_target_choice(true, &entry, None)`:
+/// the shipped-build rule of REVIEW K20 was one `true` away and no gate saw the call (X-DELTA-STRUCT4-5):
+///
+/// ```compile_fail,E0603
+/// use azcloud_kit::drive::azlin_target_choice;
+/// use azul_storage::config::DriveEntry;
+/// fn aimed_at_the_file(entry: &DriveEntry) {
+///     let _ = azlin_target_choice(true, entry, None);
+/// }
+/// ```
+///
+/// ```no_run
+/// // The control of the one above: the resolver every crate asks, with the server the run resolved.
+/// use azcloud_kit::azlin_target;
+/// use azul_storage::config::DriveEntry;
+/// fn resolved(entry: &DriveEntry) {
+///     let _ = azlin_target(entry, Some("https://token.azlin.io"));
+/// }
+/// ```
 #[must_use]
 pub fn azlin_target(entry: &DriveEntry, fallback: Option<&str>) -> Option<AzlinTarget> {
     azlin_target_choice(azul_appkit::anchors::layers_honoured(), entry, fallback)
 }
 
-/// [`azlin_target`] with the build's choice as an argument (the tests set both).
+/// [`azlin_target`] with the build's choice as an argument: the kit's own tests set both (a build under test has the
+/// anchors' `test-hooks` on, so only an explicit `false` reaches the shipped branch). Crate-private: no other crate
+/// names a bool that says "take the entry's address".
 #[must_use]
-pub fn azlin_target_choice(
+pub(crate) fn azlin_target_choice(
     honour_entry: bool,
     entry: &DriveEntry,
     fallback: Option<&str>,

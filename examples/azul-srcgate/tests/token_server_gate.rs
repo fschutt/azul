@@ -6,10 +6,13 @@
 //! - **`account-url`**: the identifier `account_url`, the address itself. `DriveEntry::azlin()` hands out the
 //!   drive's id and no address any more (it gave it to eight places), so the field and the resolver are all.
 //! - **`token-server-choice`**: every use of the function that turns an entry's address and the run's into one
-//!   server, `anchors::token_server_choice`, and of its twin `token_server_for` (deleted: it was a second way
-//!   in, asked by the account's own constructor). The kit's `azlin_target_choice` asks it once - THE resolver,
-//!   which `open_azlin` calls and whose answer the account takes - and AzMail's account (no entry) asks it
-//!   for its own rule. A third place that chooses is a finding, whatever spelling it uses.
+//!   server, `anchors::token_server_choice`, of its twin `token_server_for` (deleted: it was a second way
+//!   in, asked by the account's own constructor) and of the kit's `azlin_target_choice` - the resolver with the
+//!   build's choice as a `bool`, crate-private since X-DELTA-STRUCT4-5 (it was `pub`: any crate could send a drive
+//!   token to the address `drives.json` carries with one `true`), asked once by `azlin_target`. The kit's
+//!   `azlin_target_choice` asks the anchors once - THE resolver, which `open_azlin` calls and whose answer the
+//!   account takes - and AzMail's account (no entry) asks them for its own rule. A third place that chooses, or
+//!   that asks the kit's resolver with a `bool`, is a finding, whatever spelling it uses.
 //!
 //! A drive token, the period tokens, a recovery key, a voucher and a lockdown go to the token
 //! server a run resolves; `drives.json` and `account.json` are files any process of the user can
@@ -41,13 +44,15 @@ const READ: &str = "account-url";
 /// The rule that counts the choices of the token server.
 const CHOICE: &str = "token-server-choice";
 
-/// Every use of `token_server_choice` and `token_server_for` that is no definition (`fn ..`): a call under any
-/// path, an import under another name, a function value.
+/// Every use of `token_server_choice`, `token_server_for` and `azlin_target_choice` that is no definition (`fn ..`): a
+/// call under any path, an import under another name, a function value.
 fn choices(t: &[Located]) -> Vec<usize> {
     t.iter()
         .enumerate()
         .filter(|(at, x)| {
-            (x.tok.is_ident("token_server_choice") || x.tok.is_ident("token_server_for"))
+            (x.tok.is_ident("token_server_choice")
+                || x.tok.is_ident("token_server_for")
+                || x.tok.is_ident("azlin_target_choice"))
                 && !(*at > 0 && t[*at - 1].tok.is_ident("fn"))
         })
         .map(|(_, x)| x.line)
@@ -86,9 +91,10 @@ const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azcloud-kit/src/drive.rs",
         CHOICE,
-        1,
-        "azlin_target_choice: the one call; `open_azlin` takes the account's server from its answer, and \
-         `AzlinAccount::new` no longer chooses again (X-DELTA-STRUCT3-11)",
+        2,
+        "azlin_target_choice's one call of the anchors, and `azlin_target`'s one call of azlin_target_choice (the \
+         bool is the build's `layers_honoured()`); `open_azlin` takes the account's server from its answer, and \
+         `AzlinAccount::new` no longer chooses again (X-DELTA-STRUCT3-11, X-DELTA-STRUCT4-5)",
     ),
     Allow::exactly(
         "examples/azul-mail-core/src/azlin.rs",
@@ -123,10 +129,16 @@ fn rules() -> Vec<Rule> {
                 "let url = anchors::token_server_for(named, run);",
                 "use azul_appkit::anchors::token_server_choice as pick;",
                 "let pick = anchors::token_server_choice;",
+                "let target = azcloud_kit::azlin_target_choice(true, &entry, run);",
+                "let target = azcloud_kit::drive::azlin_target_choice(true, &entry, None);",
+                "use azcloud_kit::drive::azlin_target_choice as aim;",
+                "let aim = azlin_target_choice;",
             ],
             &[
                 "pub fn token_server_choice<'a>(honour: bool, named: &'a str, run: &'a str) -> &'a str {}",
+                "pub(crate) fn azlin_target_choice(honour: bool, entry: &DriveEntry, run: Option<&str>) {}",
                 "let token_server_choices = 1;",
+                "let azlin_target_choices = 1;",
                 "let url = azlin_target(entry, run);",
             ],
         ),
@@ -310,5 +322,81 @@ fn a_third_place_that_chooses_the_token_server_is_caught_whatever_its_spelling()
     // The resolver itself is the listed line; without the others the gate holds.
     std::fs::write(base.join("core/src/account.rs"), "pub fn new() {}\n").unwrap();
     assert_eq!(check(&base, CHOSEN), Ok(1));
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// X-DELTA-STRUCT4-5. The kit's resolver with the build's choice as a `bool`, `azlin_target_choice(true, &entry, ..)`, was
+/// a `pub` function: any crate could send a drive token to the address `drives.json` carries with one literal, and no
+/// gate saw the call (the gate counted `token_server_choice` and `account_url`). It is crate-private now, and every use of
+/// its name is a counted line whatever the spelling - a path call, a path through the module, an import under another name,
+/// a function value: a place in any other crate is a finding with its line, the kit's two lines (the one call of the anchors
+/// and the one call of the resolver) are the listed ones, and a third in the kit's own file is a new site. RED on the old
+/// gate: it found none of them.
+#[test]
+fn x_delta_struct4_5_a_use_of_the_resolver_with_a_bool_is_a_counted_line_whatever_its_spelling() {
+    const RESOLVER: &[Allow] = &[Allow::exactly(
+        "core/src/drive.rs",
+        "token-server-choice",
+        2,
+        "the planted resolver: its call of the anchors and `azlin_target`'s call of it",
+    )];
+    let resolver = [
+        "pub fn azlin_target(entry: &DriveEntry, run: Option<&str>) -> Option<AzlinTarget> {",
+        "    azlin_target_choice(honoured(), entry, run)",
+        "}",
+        "pub(crate) fn azlin_target_choice(honour: bool, entry: &DriveEntry, run: Option<&str>) -> Option<AzlinTarget> {",
+        "    azul_appkit::anchors::token_server_choice(honour, \"\", \"\");",
+        "    None",
+        "}",
+        "",
+    ]
+    .join("\n");
+    let elsewhere = [
+        "pub fn aimed(entry: &DriveEntry) {",
+        "    let _ = azcloud_kit::azlin_target_choice(true, entry, None);",
+        "}",
+        "pub fn through_the_module(entry: &DriveEntry) {",
+        "    let _ = azcloud_kit::drive::azlin_target_choice(true, entry, None);",
+        "}",
+        "use azcloud_kit::drive::azlin_target_choice as aim;",
+        "pub fn value() { let _f = azlin_target_choice; }",
+        "",
+    ]
+    .join("\n");
+    let base = base_with(
+        "bool-resolver",
+        &[
+            ("core/src/lib.rs", "mod drive;\nmod elsewhere;\n"),
+            ("core/src/drive.rs", resolver.as_str()),
+            ("core/src/elsewhere.rs", elsewhere.as_str()),
+        ],
+    );
+    let wrong = check(&base, RESOLVER).expect_err("four more places name the resolver");
+    let at = |line: usize| {
+        wrong.iter().any(|w| {
+            w.starts_with(&format!("core/src/elsewhere.rs:{line}:"))
+                && w.contains("token-server-choice")
+        })
+    };
+    assert!(at(2), "the call through the crate root: {wrong:?}");
+    assert!(at(5), "a path through the module: {wrong:?}");
+    assert!(at(7), "an import under another name: {wrong:?}");
+    assert!(at(8), "a function value: {wrong:?}");
+    // The resolver's own two lines are the listed ones; without the others the gate holds.
+    std::fs::write(base.join("core/src/elsewhere.rs"), "pub fn clean() {}\n").unwrap();
+    assert_eq!(check(&base, RESOLVER), Ok(2));
+    // A third line in the resolver's file is a new site.
+    std::fs::write(
+        base.join("core/src/drive.rs"),
+        format!("{resolver}pub fn third(entry: &DriveEntry) {{\n    let _ = azlin_target_choice(true, entry, None);\n}}\n"),
+    )
+    .unwrap();
+    let wrong = check(&base, RESOLVER).expect_err("a third place in the kit's file");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 3 x token-server-choice where its allowance says 2")),
+        "{wrong:?}"
+    );
     let _ = std::fs::remove_dir_all(base);
 }
