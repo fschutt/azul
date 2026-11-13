@@ -1578,3 +1578,91 @@ mod first_wrap {
         assert_eq!(bucket.object(RECOVERY_KEY_FILE), before);
     }
 }
+
+// ==== X-KEYS4-2: the wrap of an invite whose member family was not made ====
+
+/// The invite's wrap goes into the bucket BEFORE the token server makes the member family (AzDrive's "Add a device", the
+/// kit's `azcloud invite`), and a family that cannot be made takes the wrap back through `take_back_invite`: the permit of a
+/// member's removal, and the wrap of that one invite - nothing else of the bucket.
+mod take_back {
+    use super::*;
+    use crate::crypto::device::take_back_invite;
+
+    /// The wrap of the invite that was taken back is out of the bucket and nothing else is: the recovery wrap, this
+    /// device's wrap and another invite's wrap stay, the taken invite opens nothing and the other one still opens the key.
+    #[test]
+    fn x_keys4_2_take_back_invite_takes_out_the_wrap_of_that_invite_and_nothing_else() {
+        let bucket = MemBucket::new();
+        let keyring = MemoryKeyring::new();
+        let (drive_key, _) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+        let kept = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
+        let taken = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
+        let before = bucket.keys();
+
+        take_back_invite(&keyring, &bucket, DRIVE, &taken).unwrap();
+
+        let after = bucket.keys();
+        assert_eq!(
+            before.len(),
+            after.len() + 1,
+            "exactly one wrap went: {before:?} -> {after:?}"
+        );
+        assert!(
+            matches!(
+                adopt_invite(&bucket, &MemoryKeyring::new(), DRIVE, &taken, None),
+                Err(DriveError::Denied { .. })
+            ),
+            "the invite that was taken back opens nothing"
+        );
+        assert_eq!(
+            adopt_invite(
+                &bucket,
+                &MemoryKeyring::new(),
+                DRIVE,
+                &kept,
+                Some(&drive_key.id())
+            )
+            .unwrap(),
+            drive_key,
+            "the other invite still opens the key"
+        );
+    }
+
+    /// A computer that holds no key of the drive gets no permit of a member's removal: nothing is deleted - the wrap
+    /// stays in the bucket and opens for nobody, its one-time secret was in the process that sealed it.
+    #[test]
+    fn x_keys4_2_take_back_invite_on_a_computer_without_the_drive_key_deletes_nothing() {
+        let bucket = MemBucket::new();
+        let (drive_key, _) =
+            setup_new_drive(&bucket, &MemoryKeyring::new(), DRIVE, cheap()).unwrap();
+        let invite = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
+        let before = bucket.keys();
+
+        let refused = take_back_invite(&MemoryKeyring::new(), &bucket, DRIVE, &invite);
+
+        assert!(
+            refused.is_err(),
+            "a computer without the key took a wrap out of the bucket"
+        );
+        assert_eq!(bucket.keys(), before, "nothing was deleted");
+    }
+
+    /// A delete that fails leaves the wrap and says why (the caller answers with the token server's own error and
+    /// names this one in its log).
+    #[test]
+    fn x_keys4_2_take_back_invite_that_cannot_delete_leaves_the_wrap_and_says_why() {
+        let bucket = MemBucket::new();
+        let keyring = MemoryKeyring::new();
+        let (drive_key, _) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+        let invite = seal_invite(&bucket, DRIVE, &drive_key).unwrap();
+        let before = bucket.keys();
+
+        let refused = take_back_invite(&keyring, &DeleteRefused::new(&bucket), DRIVE, &invite);
+
+        assert!(
+            matches!(refused, Err(DriveError::Transport(_))),
+            "{refused:?}"
+        );
+        assert_eq!(bucket.keys(), before, "the wrap is still there");
+    }
+}
