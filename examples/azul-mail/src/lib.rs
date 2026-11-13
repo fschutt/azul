@@ -1499,7 +1499,8 @@ fn azlin_restore_now(
     .map_err(azlin_error)
 }
 
-/// One sync of the drive with `session`'s credentials at `now`.
+/// One sync of the drive with `session`'s credentials at `now`: the two things that need the network - the
+/// drive's incoming mail filed, the drive opened - handed to [`sync_drive_over`], which is the sync.
 fn sync_drive(
     job: &SyncInit,
     session: &azlin::AzlinSession,
@@ -1507,24 +1508,51 @@ fn sync_drive(
     now: i64,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
-    // An encrypted drive's incoming mail first: its drops into the folders the sync reads. A drop key
-    // this computer's key does not open (a key change of its own that stopped, a key that is an old
-    // one) is no error of the drive: the mail waits where it is, the sync goes on and says so.
-    let filed = mail_drive::receive_drops(
+    sync_drive_over(
+        job,
         session,
-        job.endpoints.s3_url.as_deref(),
-        Box::new(transport.clone()),
-        &azlin_keyring(Asking::User),
+        transport,
+        now,
+        progress,
+        || {
+            mail_drive::receive_drops(
+                session,
+                job.endpoints.s3_url.as_deref(),
+                Box::new(transport.clone()),
+                &azlin_keyring(Asking::User),
+            )
+        },
+        || {
+            mail_drive::open(
+                session,
+                job.endpoints.s3_url.as_deref(),
+                Box::new(transport.clone()),
+                std::sync::Arc::new(azlin_keyring(Asking::User)),
+            )
+        },
     )
-    .map_err(azlin_sync::drive_error)?;
-    let drive = mail_drive::open(
-        session,
-        job.endpoints.s3_url.as_deref(),
-        Box::new(transport.clone()),
-        std::sync::Arc::new(azlin_keyring(Asking::User)),
-    )
-    .map_err(azlin_sync::drive_error)?;
-    let mut report = sync_opened(job, session, &drive, transport, now, progress)?;
+}
+
+/// The sync of an Azlin account's drive over what files its incoming mail (`receive`) and what opens it
+/// (`open`): the part of [`sync_drive`] that decides, so that a test enters it with a drive of its own - and
+/// with the drops of a drive whose drop key this computer's key does not open (X-DELTA-KEYS5-4: the line that
+/// joins the wait of the drops to the report was entered by no test, and without it the user is never told that
+/// mail waits). An encrypted drive's incoming mail comes first: its drops into the folders the sync reads. A drop
+/// key this computer's key does not open (a key change of its own that stopped, a key that is an old one, a
+/// damaged file) is no error of the drive: the mail waits where it is, the sync goes on and says so
+/// ([`mail_drive::DropsWait`]).
+fn sync_drive_over(
+    job: &SyncInit,
+    session: &azlin::AzlinSession,
+    transport: &dyn azul_storage::Transport,
+    now: i64,
+    progress: &mut dyn FnMut(Progress) -> bool,
+    receive: impl FnOnce() -> Result<mail_drive::Filed, azul_storage::DriveError>,
+    open: impl FnOnce() -> Result<std::sync::Arc<dyn Drive>, azul_storage::DriveError>,
+) -> Result<SyncReport, SyncError> {
+    let filed = receive().map_err(azlin_sync::drive_error)?;
+    let drive = open().map_err(azlin_sync::drive_error)?;
+    let mut report = sync_opened(job, session, drive.as_ref(), transport, now, progress)?;
     report.drops_waiting = filed.waiting;
     Ok(report)
 }

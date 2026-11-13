@@ -19,7 +19,7 @@ use crate::{
     azlin::{self, AzlinSession},
     store::MailStore,
     sync::{SyncError, SyncReport},
-    sync_opened,
+    sync_drive_over, sync_opened,
     testutil::{MailFolder, TempDir},
     SyncInit, ThreadId,
 };
@@ -310,6 +310,152 @@ fn x_delta_apps4_4_mail_another_device_moved_follows_its_object_on_the_drives_th
             store.keys(crate::store::REMOVED_PREFIX).is_empty(),
             "{kind}: nothing is held: {:?}",
             store.keys(crate::store::REMOVED_PREFIX)
+        );
+    }
+}
+
+/// X-DELTA-KEYS5-4: the line that tells the user mail waits - `report.drops_waiting = filed.waiting`, the one
+/// place the wait of the drops joins the sync's report - was entered by no test: the sentence test built the
+/// report by hand, `file_drops` was tested on its own, and deleting the line (or assigning `None`) kept every
+/// test green while the user was never told that mail waits. This enters `sync_drive_over`, the function
+/// `sync_drive` is made of, with the production `file_drops` over a drive whose `_drop.key` is sealed under K1
+/// while the keyring holds a newer key (its own key change did not finish): the report says so, in a sentence,
+/// the sync went on, and the drop and its key file are where they were.
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_keys5_4_the_sync_of_the_app_tells_the_user_that_mail_waits_for_a_drop_key_its_key_does_not_open(
+) {
+    use azul_storage::{
+        crypto::{
+            device,
+            drops::{self, DropFolder, DROP_KEY_FILE},
+            keys::RecoveryKdf,
+            DriveKey,
+        },
+        meta::{MemoryBucket, RestoreSource},
+        ops::list_all,
+        DriveError,
+    };
+    let local = TempDir::new("sync-drive-local");
+    let locks = TempDir::new("sync-drive-locks");
+    let (job, session) = job(&local, &locks);
+    // The drive: incoming mail is on (the drop key is sealed under K1) and one message waits as a drop.
+    let keys: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+    let bucket = Arc::new(MemoryBucket::new());
+    let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    let (k1, _code) =
+        device::setup_new_drive(bucket.as_ref(), keys.as_ref(), DRIVE, cheap).unwrap();
+    let permit = device::drop_key_permit(bucket.as_ref(), keys.as_ref(), DRIVE, &k1).unwrap();
+    let public = drops::enable_drop(&permit, bucket.as_ref(), &k1, DRIVE).unwrap();
+    let raw = b"From: ben@example.net\r\nSubject: Lunch\r\n\r\nNoon.\r\n";
+    let drop_key = drops::new_drop_key().unwrap();
+    let sealed = drops::seal_drop(
+        &public,
+        DRIVE,
+        &drop_key,
+        NOW as u64,
+        DropFolder::Inbox,
+        raw,
+    )
+    .unwrap();
+    bucket.put(&drop_key, &sealed).unwrap();
+    // This computer's own key change did not finish: it holds K2 (the newest), with K1 before it.
+    let k2 = DriveKey::generate().unwrap();
+    device::store_drive_key(keys.as_ref(), DRIVE, &k2).unwrap();
+    let (previous, next) = device::rotation_key_entries(DRIVE);
+    let _previous = device::stash(keys.as_ref(), &previous, &k1).unwrap();
+    let _next = device::stash(keys.as_ref(), &next, &k2).unwrap();
+    let drop_key_file = bucket.get(DROP_KEY_FILE).unwrap();
+    let encrypted: Arc<dyn Drive> = crate::mail_drive::wrap_auto(
+        bucket.clone(),
+        DRIVE,
+        keys.clone(),
+        RestoreSource::none("a test has no token server to ask"),
+    );
+    let tokens = Tokens::answering(Vec::new());
+
+    let report = sync_drive_over(
+        &job,
+        &session,
+        &tokens,
+        NOW,
+        &mut |_| true,
+        || {
+            crate::mail_drive::file_drops(bucket.as_ref(), DRIVE, keys.as_ref(), &mut || {
+                Err(DriveError::Unsupported(String::from(
+                    "the drive is not opened for the drops of a round with no drop key",
+                )))
+            })
+        },
+        || Ok(encrypted),
+    )
+    .expect(
+        "the sync goes on: a drop key this computer's key does not open is no error of the drive",
+    );
+    assert_eq!(
+        report.drops_waiting,
+        Some(crate::mail_drive::DropsWait::KeyChangeUnfinished),
+        "the report says that mail waits and why: {report:?}"
+    );
+    crate::l10n::in_english();
+    let said = crate::azlin_sync::drive_sentences(&report);
+    assert!(
+        said.iter().any(
+            |sentence| sentence.starts_with("Incoming mail waits in the drive")
+                && sentence.contains("Finish the key change in AzDrive")
+        ),
+        "{said:?}"
+    );
+    assert_eq!(
+        bucket.get(DROP_KEY_FILE).unwrap(),
+        drop_key_file,
+        "the drop key file is as it was"
+    );
+    assert_eq!(
+        list_all(bucket.as_ref(), ".azlin/drop/").unwrap().len(),
+        1,
+        "the drop waits in the bucket: nothing was deleted"
+    );
+}
+
+/// X-DELTA-KEYS5-4, the control at the same size: a drive whose incoming mail files without a wait says
+/// nothing - the report carries no wait and no sentence - and a wait that `receive` reports is the report's
+/// whatever the drive is (a folder on disk here).
+#[test]
+fn x_delta_keys5_4_the_report_carries_exactly_the_wait_the_drops_reported() {
+    use crate::mail_drive::{DropsWait, Filed};
+    let local = TempDir::new("sync-drive-local");
+    let locks = TempDir::new("sync-drive-locks");
+    let (job, session) = job(&local, &locks);
+    let bucket_dir = TempDir::new("sync-drive-bucket");
+    let drive: Arc<dyn Drive> = Arc::new(LocalDrive::without_manifest(bucket_dir.0.clone()));
+    let tokens = Tokens::answering(Vec::new());
+    for filed in [
+        Filed::nothing(),
+        Filed::waiting(DropsWait::OtherKey),
+        Filed::waiting(DropsWait::KeyChangeUnfinished),
+        Filed::waiting(DropsWait::Damaged),
+    ] {
+        let drive = Arc::clone(&drive);
+        let report = sync_drive_over(
+            &job,
+            &session,
+            &tokens,
+            NOW,
+            &mut |_| true,
+            || Ok(filed),
+            || Ok(drive),
+        )
+        .unwrap();
+        assert_eq!(report.drops_waiting, filed.waiting, "{filed:?}");
+        crate::l10n::in_english();
+        let said = crate::azlin_sync::drive_sentences(&report);
+        assert_eq!(
+            said.iter()
+                .filter(|sentence| sentence.starts_with("Incoming mail"))
+                .count(),
+            usize::from(filed.waiting.is_some()),
+            "{filed:?}: {said:?}"
         );
     }
 }
