@@ -703,7 +703,13 @@ fn x_delta_struct4_6_every_place_that_opens_the_plain_bytes_of_a_drive_is_a_coun
         "pub fn leak(s: &AzlinSession, t: Box<dyn Transport>) {\n    let _ = s.open_bucket(None, t);\n}\n",
     )
     .unwrap();
-    let wrong = check(&base, LISTED_PLAIN).expect_err("a file nobody listed opens one");
+    // (a file no `mod` names is no file of a build: the gate reads the ones the lib declares)
+    std::fs::write(
+        base.join("examples/azul-drive/src/lib.rs"),
+        format!("mod other;\n{drive_lib}"),
+    )
+    .unwrap();
+    let wrong = check(&base, LISTED).expect_err("a file nobody listed opens one");
     assert!(
         wrong
             .iter()
