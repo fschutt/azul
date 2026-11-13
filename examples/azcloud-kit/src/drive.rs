@@ -50,6 +50,8 @@ use azul_storage::{
     AutoEncrypted,
 };
 
+#[cfg(feature = "encryption")]
+use crate::sync::{objects::ObjectCache, retry::RetryingDrive};
 use crate::{
     bundle::DriveBundle,
     failover::{cached_nodes, read_nodes, write_nodes, Failover, Node, TrustedEndpoint},
