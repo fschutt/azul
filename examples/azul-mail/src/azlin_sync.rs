@@ -324,6 +324,8 @@ struct Pass<'a> {
     knowledge: Knowledge,
     /// The restore this pass takes is written into the memory ([`write_restore_taking`]).
     taking_written: bool,
+    /// The readings of the time this pass dates a hold by, and the sweep decides by.
+    clocks: Clocks,
 }
 
 impl<'a> Pass<'a> {
@@ -341,6 +343,7 @@ impl<'a> Pass<'a> {
             ask,
             knowledge,
             taking_written: false,
+            clocks: Clocks::default(),
         }
     }
 
@@ -493,12 +496,113 @@ pub const HOLD_DAYS: u64 = azul_storage::meta::RETENTION.versions_days();
 /// [`HOLD_DAYS`] in seconds.
 const HOLD_SECS: u64 = azul_storage::meta::RETENTION.versions.as_secs();
 
+/// How far behind the newest Send/Receive of this account the clock of this computer may be before
+/// nothing is held ([`Clocks::hold_time`]): a correction, the winter time, a zone changed by hand.
+const CLOCK_BEHIND_SECS: u64 = 24 * 60 * 60;
+
+/// How far ahead of everything this account and the drive remember the clock of this computer may be
+/// before nothing is held: a computer that was away for a year is a computer that was away, and a clock
+/// a year ahead of the newest Send/Receive AND the newest mail of the drive is a clock that is wrong.
+const CLOCK_AHEAD_SECS: u64 = 366 * 24 * 60 * 60;
+
+/// The readings of the time that the clock of this computer is set against when a pull holds mail
+/// ([`hold`]) and when the holding area is swept ([`sweep_removed`]). The clock of a computer is wrong
+/// more often than a delete is meant: a hold dated by a clock that is BEHIND (a reset RTC, a virtual
+/// machine resumed before the time sync: 1970, 2000) was swept at the next Send/Receive with a right
+/// clock, so the held copy lasted ONE sync; one dated by a clock that is ahead was never swept
+/// (X-DELTA-APPS4-3, X-APPS3-1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Clocks {
+    /// The newest `synced_at` of the account's folders as this Send/Receive found them: what this
+    /// computer's own clock said at the last one. `None`: the account never synced.
+    last_sync: Option<u64>,
+    /// The newest `modified` of the mail the drive listed at the start of this Send/Receive: the
+    /// drive's own word that it lived at least until then - a LOWER bound of its time, never a later
+    /// one than it is. `None`: the drive lists no mail.
+    drive: Option<u64>,
+}
+
+impl Clocks {
+    /// The readings of this Send/Receive: the folders' `synced_at` stamps in the local copy and the
+    /// listing of the drive. A state that cannot be READ is an error, never "no sync yet": a floor of
+    /// nothing would date a hold by any clock.
+    fn read(store: &MailStore, remote: &[RemoteFolder]) -> Result<Clocks, SyncError> {
+        let mut last_sync: Option<u64> = None;
+        for key in store.folders() {
+            let Some(state) = read_state(store, &key)? else {
+                continue;
+            };
+            if let Some(at) = parse_iso8601(&state.synced_at) {
+                last_sync = Some(last_sync.map_or(at, |was| was.max(at)));
+            }
+        }
+        let drive = remote
+            .iter()
+            .flat_map(|folder| folder.messages.iter())
+            .filter_map(|object| object.modified)
+            .max();
+        Ok(Clocks { last_sync, drive })
+    }
+
+    /// The moment a hold made now (`now`: seconds since 1970 by the clock of this computer) is dated,
+    /// or why none is made. The stamp is the later of the clock and the newest Send/Receive - a clock
+    /// a few hours behind never dates a hold before the last sync. Nothing is held on a clock that is
+    /// not set, one that is more than [`CLOCK_BEHIND_SECS`] behind the last Send/Receive, or one that is
+    /// more than [`CLOCK_AHEAD_SECS`] ahead of both the last Send/Receive and the newest mail the drive
+    /// lists: the mail stays in its folder and the pull says why.
+    fn hold_time(&self, now: i64) -> Result<u64, SyncError> {
+        let Some(now) = u64::try_from(now).ok().filter(|secs| *secs > 0) else {
+            return Err(SyncError::Storage(String::from(
+                "the clock of this computer is not set: nothing is removed from the folder",
+            )));
+        };
+        let said = |secs: u64| message::rfc3339_utc(i64::try_from(secs).unwrap_or(i64::MAX));
+        if let Some(last) = self.last_sync {
+            if now.saturating_add(CLOCK_BEHIND_SECS) < last {
+                return Err(SyncError::Storage(format!(
+                    "the clock of this computer says {}, more than a day before the last Send/Receive ({}): \
+                     nothing is removed from the folder until the clock is right",
+                    said(now),
+                    said(last)
+                )));
+            }
+        }
+        if let Some(known) = [self.last_sync, self.drive].into_iter().flatten().max() {
+            if now > known.saturating_add(CLOCK_AHEAD_SECS) {
+                return Err(SyncError::Storage(format!(
+                    "the clock of this computer says {}, more than a year after the last Send/Receive and the \
+                     newest mail of the drive ({}): nothing is removed from the folder until the clock is right",
+                    said(now),
+                    said(known)
+                )));
+            }
+        }
+        Ok(now.max(self.last_sync.unwrap_or(0)))
+    }
+
+    /// The `synced_at` a folder records at the end of a Send/Receive made at `now`: the clock of this
+    /// computer when it can date a hold ([`Clocks::hold_time`]: set, and not far off the last
+    /// Send/Receive and the drive), never earlier than the last Send/Receive; otherwise the last
+    /// Send/Receive's own, as it was. A clock that is wrong is never recorded: it would be the floor
+    /// that every later right clock is refused against, or the one that dates a hold years ahead.
+    fn recorded(&self, now: i64) -> i64 {
+        match self.hold_time(now) {
+            Ok(at) => i64::try_from(at).unwrap_or(now),
+            Err(_) => self
+                .last_sync
+                .and_then(|at| i64::try_from(at).ok())
+                .unwrap_or(now),
+        }
+    }
+}
+
 /// Takes `leaving`, the lines of the folder `folder` whose objects the drive no longer has, out of
 /// `index` - and keeps what they were: a pull never destroys a copy, so a delete on another device
 /// or the user's own "Restore the drive as of ..." (one ordinary commit that nobody announces)
 /// costs the mail on this computer nothing for [`HOLD_DAYS`] days (X-DELTA-APPS3-3).
 ///
-/// The order, every step a crash cell: (1) the record `removed/<folder>/<stamp>/index.jsonl` of
+/// The order, every step a crash cell: (0) the clock ([`Clocks::hold_time`]): a clock that cannot date
+/// the hold ends the pull before anything is touched; (1) the record `removed/<folder>/<stamp>/index.jsonl` of
 /// every leaving line, durable BEFORE any file moves - a store that cannot be written (a full
 /// disk) ends the pull here, with nothing moved and nothing of the drive touched; a record of the
 /// same stamp that is there already (a retry in the same second) is merged, its lines kept; (2) each
@@ -511,6 +615,7 @@ fn hold(
     store: &MailStore,
     folder: &str,
     leaving: &[IndexEntry],
+    clocks: &Clocks,
     now: i64,
     index: &mut BTreeMap<u32, IndexEntry>,
     report: &mut FolderReport,
@@ -518,13 +623,10 @@ fn hold(
     if leaving.is_empty() {
         return Ok(());
     }
-    // A holding folder is dated by the clock of this computer; without one it would be dated 1970
-    // and swept at once.
-    let Some(at) = u64::try_from(now).ok().filter(|secs| *secs > 0) else {
-        return Err(SyncError::Storage(String::from(
-            "the clock of this computer is not set: nothing is removed from the folder",
-        )));
-    };
+    // A holding folder is dated by the clock of this computer, set against the last Send/Receive and
+    // the drive ([`Clocks::hold_time`]): a hold on a wrong clock is refused with nothing moved, never
+    // dated 1970 (swept at the next sync with a right clock) or 2036 (kept for ever).
+    let at = clocks.hold_time(now)?;
     let held = store::removed_prefix(folder, &amz_date(at));
     let record_key = format!("{held}/{}", store::INDEX_FILE);
     let mut record: BTreeMap<u32, IndexEntry> = match store.get(&record_key) {
@@ -561,28 +663,38 @@ fn hold(
 
 /// Deletes what the pull took out of the folders [`HOLD_DAYS`] days ago and more: the folders of
 /// `removed/` whose stamp - the moment of the pull, by the clock of this computer - is that old at
-/// `now`. Returns how many it deleted. Never early: a stamp that is no date, one in the future (the
-/// clock was stepped back since) and a key of another shape stay, and so does everything when the
-/// list of `removed/` cannot be read - a list that failed is no list with nothing in it. The only
-/// thing that deletes a copy the drive no longer lists.
+/// the time. The time is the EARLIER of two readings: `now`, the clock of this computer, and `drive`,
+/// the newest `modified` the drive lists ([`Clocks::drive`]: it lived at least until then, so it is a
+/// lower bound) - a clock that jumped ahead (a reset to a future date, a virtual machine's) deletes
+/// nothing a drive that has not lived that long does not agree to (X-APPS3-1, X-DELTA-APPS4-3). A
+/// reading that is missing (no clock set, a drive that lists no mail) deletes nothing. Returns how
+/// many it deleted. Never early: a stamp that is no date, one in the future (the clock was stepped
+/// back since) and a key of another shape stay, and so does everything when the list of `removed/`
+/// cannot be read - a list that failed is no list with nothing in it. The only thing that deletes a
+/// copy the drive no longer lists.
 ///
 /// # Errors
 ///
 /// The list could not be read, or a file could not be deleted: nothing more is deleted.
-pub fn sweep_removed(store: &MailStore, now: i64) -> Result<u64, SyncError> {
-    sweep_removed_with(store, now, &|prefix| store.keys_checked(prefix))
+pub fn sweep_removed(store: &MailStore, now: i64, drive: Option<u64>) -> Result<u64, SyncError> {
+    sweep_removed_with(store, now, drive, &|prefix| store.keys_checked(prefix))
 }
 
 /// [`sweep_removed`] with the listing a test can make fail.
 fn sweep_removed_with(
     store: &MailStore,
     now: i64,
+    drive: Option<u64>,
     list: &dyn Fn(&str) -> std::io::Result<Vec<String>>,
 ) -> Result<u64, SyncError> {
-    // No clock, no expiry.
-    let Some(now) = u64::try_from(now).ok().filter(|secs| *secs > 0) else {
+    // No clock, no expiry; and the drive must agree: the earlier of the two readings decides.
+    let (Some(local), Some(drive)) = (
+        u64::try_from(now).ok().filter(|secs| *secs > 0),
+        drive.filter(|secs| *secs > 0),
+    ) else {
         return Ok(0);
     };
+    let now = local.min(drive);
     let mut folders: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for key in list(store::REMOVED_PREFIX).map_err(io)? {
         let mut parts = key.splitn(4, '/');
@@ -643,6 +755,8 @@ pub fn sync_account(
     // error, never "no restore taken".
     let mut pass = Pass::new(read_restore_epoch(store)?, options.restore.as_ref(), ask);
     let remote = list_mailbox(drive).map_err(drive_error)?;
+    // What the clock of this computer is set against, read before this pass writes a stamp.
+    pass.clocks = Clocks::read(store, &remote)?;
     let paths: Vec<String> = remote.iter().map(|folder| folder.path.clone()).collect();
     let mut boxes = local_folders(&paths);
     // A folder this computer has that the drive no longer lists (emptied or deleted there): an
@@ -698,7 +812,7 @@ pub fn sync_account(
     report.restore_unknown = pass.unknown().map(str::to_string);
     // Housekeeping, after the mail is synced: what was held [`HOLD_DAYS`] days ago goes. A sweep
     // that cannot read its list deletes nothing and never fails the sync; the report says so.
-    report.sweep_failed = sweep_removed(store, options.now)
+    report.sweep_failed = sweep_removed(store, options.now, pass.clocks.drive)
         .err()
         .map(|e| e.to_string());
     Ok(report)
@@ -894,7 +1008,15 @@ fn sync_folder(
             leaving.push(entry.clone());
         }
         // What the drive no longer lists is held here, never deleted (X-DELTA-APPS3-3).
-        hold(store, key, &leaving, options.now, &mut index, &mut report)?;
+        hold(
+            store,
+            key,
+            &leaving,
+            &pass.clocks,
+            options.now,
+            &mut index,
+            &mut report,
+        )?;
         let known: HashSet<String> = index.values().map(|entry| entry.remote.clone()).collect();
         let mut new: Vec<&ObjectInfo> = listed
             .iter()
@@ -995,7 +1117,7 @@ fn sync_folder(
         }
         write_index(store, key, &index).map_err(io)?;
         state.messages = index.len() as u64;
-        state.synced_at = message::rfc3339_utc(options.now);
+        state.synced_at = message::rfc3339_utc(pass.clocks.recorded(options.now));
         store
             .put(&store::state_key(key), state.to_json().as_bytes())
             .map_err(io)?;
@@ -1504,10 +1626,18 @@ mod tests {
         }
     }
 
-    /// Puts `bytes` into the drive's `folder` as the Worker would; returns its key.
+    /// Puts `bytes` into the drive's `folder` as the Worker would; returns its key. The drive says
+    /// the mail arrived at `stamp` (the file's date): the sweep sets the clock of this computer against
+    /// what the drive says, not against the minute the test ran.
     fn deliver(f: &Fixture, folder: &str, bytes: &[u8], stamp: i64) -> String {
         let key = azlin::message_key(folder, &azlin::object_name(bytes, stamp as u64));
         f.bucket.inner.put(&key, bytes).unwrap();
+        let file = std::fs::File::options()
+            .write(true)
+            .open(f.bucket_dir.0.join(&key))
+            .unwrap();
+        file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(stamp as u64))
+            .unwrap();
         key
     }
 
@@ -2960,7 +3090,10 @@ mod tests {
         // A clock stepped back a year: everything stays.
         run_at(&f, SEP_30 - 365 * DAY);
         assert!(stays(&f, &first) && stays(&f, &second));
-        // The 89th day (and the last second of it): everything stays.
+        // The 89th day (and the last second of it): everything stays. The drive has mail from that
+        // moment (the sweep needs the drive to agree that it is that late, X-DELTA-APPS4-3), so it is
+        // the clock of this computer alone that holds the sweep back here.
+        deliver(&f, "Inbox", &mail(4, "Day 89"), SEP_30 + 90 * DAY - 1);
         run_at(&f, SEP_30 + 90 * DAY - 1);
         assert!(stays(&f, &first) && stays(&f, &second));
         // A folder that is no stamp's, a stamp in the future and a key of another shape stay for ever.
@@ -2972,6 +3105,7 @@ mod tests {
             .unwrap();
         f.store.put("removed/stray.txt", b"stray").unwrap();
         // The 90th day by the first stamp: the first folder goes whole, the second stays.
+        deliver(&f, "Inbox", &mail(5, "Day 90"), SEP_30 + 90 * DAY);
         let report = run_at(&f, SEP_30 + 90 * DAY);
         assert_eq!(report.sweep_failed, None);
         assert!(!stays(&f, &first), "{:?}", held_keys(&f));
@@ -2988,6 +3122,7 @@ mod tests {
             );
         }
         // The second goes thirty days later, by ITS stamp.
+        deliver(&f, "Inbox", &mail(6, "Day 120"), SEP_30 + 120 * DAY);
         run_at(&f, SEP_30 + 120 * DAY);
         assert!(!stays(&f, &second));
         // Nothing is swept by a pull that has no clock.
@@ -3014,11 +3149,167 @@ mod tests {
                 "the list cannot be read",
             ))
         };
-        let failed = sweep_removed_with(&f.store, SEP_30 + 400 * DAY, &failing);
+        let late = SEP_30 + 400 * DAY;
+        let failed = sweep_removed_with(&f.store, late, Some(late as u64), &failing);
         assert!(matches!(failed, Err(SyncError::Storage(_))), "{failed:?}");
         assert_eq!(held_keys(&f), before, "nothing was deleted");
         // The same sweep with a list that works deletes it: the failure was the list's.
-        assert_eq!(sweep_removed(&f.store, SEP_30 + 400 * DAY).unwrap(), 1);
+        assert_eq!(sweep_removed(&f.store, late, Some(late as u64)).unwrap(), 1);
+        assert!(held_keys(&f).is_empty());
+    }
+
+    // ==== X-DELTA-APPS4-3 + X-APPS3-1: the clock of this computer is set against the last sync and the drive ====
+
+    /// RED on the code before: a pull on a clock that was a year back (a reset RTC, a virtual machine
+    /// resumed before the time sync) dated its hold a year back, and the next Send/Receive with a right
+    /// clock swept it - the held copy lasted ONE sync. Now the pull is refused with nothing moved, the
+    /// right clock holds it, dated now, and the files are still there afterwards.
+    #[test]
+    fn x_delta_apps4_3_a_pull_at_a_clock_a_year_back_holds_nothing_and_the_right_clock_finds_the_files(
+    ) {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        let gone = index(&f.store, "inbox").remove(0);
+        f.bucket.inner.delete(&one).unwrap();
+        // The clock of this computer is a year back: refused, with nothing moved.
+        let failed = sync_account(
+            &f.bucket,
+            &f.store,
+            &options_at(SEP_30 - 365 * DAY),
+            &no_restore(),
+            &mut |_| true,
+        );
+        let Err(SyncError::Storage(why)) = &failed else {
+            panic!("a clock a year back holds nothing: {failed:?}");
+        };
+        assert!(
+            why.contains("more than a day before the last Send/Receive"),
+            "{why}"
+        );
+        assert_eq!(held_rows(&f), ["One", "Two"], "the line is where it was");
+        assert_eq!(
+            f.store.get(&gone.path).unwrap(),
+            mail(1, "One"),
+            "and so is its file"
+        );
+        assert!(held_keys(&f).is_empty(), "{:?}", held_keys(&f));
+        // A right clock holds it, dated now - and the sweep of that very run keeps it.
+        let report = run_at(&f, SEP_30 + DAY);
+        assert_eq!(report.removed(), 1);
+        let held = holding("inbox", SEP_30 + DAY);
+        let relative = gone.path.strip_prefix("mail/inbox/").unwrap();
+        assert_eq!(
+            f.store.get(&format!("{held}/{relative}")).unwrap(),
+            mail(1, "One"),
+            "the files are still there"
+        );
+        assert_eq!(held_rows(&f), ["Two"]);
+    }
+
+    /// A clock a few hours behind (a zone changed by hand, the winter time) is no reason to refuse: the
+    /// hold is dated at the last Send/Receive - never before it - and is swept 90 days after that.
+    #[test]
+    fn x_delta_apps4_3_a_clock_a_few_hours_behind_dates_the_hold_at_the_last_sync() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        let report = run_at(&f, SEP_30 - 3 * 3600);
+        assert_eq!(report.removed(), 1);
+        assert!(
+            held_keys(&f)
+                .iter()
+                .all(|key| key.starts_with(&holding("inbox", SEP_30))),
+            "dated at the last Send/Receive, not three hours before it: {:?}",
+            held_keys(&f)
+        );
+        // And the clock behind does not lower what the next Send/Receive is set against.
+        let state = read_state(&f.store, "inbox").unwrap().unwrap();
+        assert_eq!(
+            parse_iso8601(&state.synced_at),
+            Some(SEP_30 as u64),
+            "{}",
+            state.synced_at
+        );
+    }
+
+    /// RED on the code before: a pull on a clock ten years ahead dated its hold 2036, which no sweep of
+    /// the years to come reaches - the held copy was kept for ever. Now it is refused with nothing
+    /// moved, and the clock that is wrong is not recorded as the time of the sync (a right clock
+    /// afterwards would be ten years "behind" it).
+    #[test]
+    fn x_delta_apps4_3_a_pull_at_a_clock_ten_years_ahead_is_refused_and_nothing_moves() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        let failed = sync_account(
+            &f.bucket,
+            &f.store,
+            &options_at(SEP_30 + 10 * 366 * DAY),
+            &no_restore(),
+            &mut |_| true,
+        );
+        let Err(SyncError::Storage(why)) = &failed else {
+            panic!("a clock ten years ahead holds nothing: {failed:?}");
+        };
+        assert!(
+            why.contains("more than a year after the last Send/Receive"),
+            "{why}"
+        );
+        assert_eq!(held_rows(&f), ["One", "Two"], "nothing moved");
+        assert!(held_keys(&f).is_empty(), "{:?}", held_keys(&f));
+        let state = read_state(&f.store, "inbox").unwrap().unwrap();
+        assert_eq!(
+            parse_iso8601(&state.synced_at),
+            Some(SEP_30 as u64),
+            "the wrong clock was not recorded: {}",
+            state.synced_at
+        );
+        // The right clock afterwards is not "behind" anything: it holds.
+        let report = run_at(&f, SEP_30 + DAY);
+        assert_eq!(report.removed(), 1);
+    }
+
+    /// The sweep deletes only when the drive agrees that the hold is old: a clock of this computer
+    /// that jumped ahead (here: ten years) deletes nothing from a drive whose newest mail is from the
+    /// day of the hold, and a drive that lists no mail at all says nothing: nothing is deleted then
+    /// either. The clock that is right and a drive that has lived 90 days deletes it.
+    #[test]
+    fn x_delta_apps4_3_the_sweep_waits_for_the_drive_to_agree_that_the_hold_is_old() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        run_at(&f, SEP_30);
+        let before = held_keys(&f);
+        assert_eq!(before.len(), 2, "the file and the record: {before:?}");
+        let ahead = SEP_30 + 10 * 366 * DAY;
+        let newest = SEP_30 as u64 + 60;
+        assert_eq!(
+            sweep_removed(&f.store, ahead, Some(newest)).unwrap(),
+            0,
+            "the drive has not lived 90 days since the hold"
+        );
+        assert_eq!(
+            sweep_removed(&f.store, ahead, None).unwrap(),
+            0,
+            "no mail, no reading"
+        );
+        assert_eq!(
+            sweep_removed(&f.store, 0, Some(ahead as u64)).unwrap(),
+            0,
+            "no clock"
+        );
+        assert_eq!(held_keys(&f), before, "nothing was deleted");
+        // The drive has lived: its newest mail is 90 days after the hold, the clock agrees.
+        let late = SEP_30 + 90 * DAY;
+        assert_eq!(sweep_removed(&f.store, late, Some(late as u64)).unwrap(), 1);
         assert!(held_keys(&f).is_empty());
     }
 
