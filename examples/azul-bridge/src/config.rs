@@ -8,6 +8,9 @@
 //!   mail account whose keyring names and sending settings the bridge uses, the ports. No secret.
 //! - `spool/`: the outbox the submission port sends from (an AzMail folder of its own).
 //! - `imap-uids/`: the UID map of every mailbox ([`crate::uids`]).
+//! - `dav-swaps/<drive>/`: the record of each replacing WebDAV COPY or MOVE while it runs, for the next
+//!   start to finish or undo when the process was killed inside it ([`crate::dav::SwapRecords`]); empty
+//!   when nothing was cut.
 //! - `index-cache/`: this computer's copy of an encrypted drive's index (azul-mail-core's
 //!   `mail_drive`, as AzMail keeps its own).
 //! - `pim-names.json`: the names calendar and contacts programs gave events and cards whose files

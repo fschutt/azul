@@ -53,7 +53,7 @@ use crate::{
     autostart,
     auth::{self, Credentials, FailureGate},
     config::{self, BridgeConfig},
-    dav::{self, Dav},
+    dav::{self, Dav, SwapRecords},
     imap::{self, Imap},
     limits::Limits,
     memory::MemoryDrive,
@@ -626,24 +626,30 @@ fn serve(
     }
     // The Azlin drive's id (`None`: a development drive of this computer) and where its restore
     // announcement comes from: the device account's last refresh, asked at every poll of the
-    // drive index (X-DELTA-AZDRIVE-SYNC-3).
-    let (drive, uids, drive_id, restore): (
+    // drive index (X-DELTA-AZDRIVE-SYNC-3). The records of a replacing COPY or MOVE (WebDAV) go in the
+    // state folder beside the UID maps - never into the drive, which refuses its own bookkeeping's
+    // names (X-DELTA-APPS4-1) - one folder for each drive.
+    let (drive, uids, swaps, drive_id, restore): (
         Arc<dyn Drive>,
         UidMaps,
+        SwapRecords,
         Option<String>,
         Option<azul_storage::meta::RestoreSource>,
     ) = if options.memory {
         (
             Arc::new(MemoryDrive::new()) as Arc<dyn Drive>,
             UidMaps::in_memory(),
+            SwapRecords::of_drive(state, None),
             None,
             None,
         )
     } else if let Some(folder) = &options.folder {
         std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+        let whole = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
         (
             Arc::new(LocalDrive::without_manifest(folder.clone())) as Arc<dyn Drive>,
             UidMaps::in_folder(state.join(UIDS_DIR)),
+            SwapRecords::of_drive(state, Some(&format!("folder:{}", whole.display()))),
             None,
             None,
         )
@@ -664,6 +670,7 @@ fn serve(
         (
             drive as Arc<dyn Drive>,
             UidMaps::in_folder(state.join(UIDS_DIR)),
+            SwapRecords::of_drive(state, Some(&format!("azlin:{id}"))),
             Some(id),
             Some(azul_storage::meta::RestoreSource::new(move || {
                 announcer.restore_notice()
@@ -775,7 +782,7 @@ fn serve(
         limits.clone(),
         pim_port,
     ));
-    let dav = Arc::new(Dav::new(drive, credentials, gate, limits, dav_port));
+    let dav = Arc::new(Dav::new(drive, credentials, gate, limits, dav_port, swaps));
     let mut threads = Vec::new();
     threads.push(std::thread::spawn(move || imap::serve(imap, imap_listener)));
     threads.push(std::thread::spawn(move || smtp::serve(smtp, smtp_listener)));

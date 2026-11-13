@@ -5,7 +5,7 @@ use std::{
     io::{Read, Write},
     net::TcpStream,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
     time::Duration,
@@ -36,6 +36,7 @@ fn dav_on(drive: Arc<MemoryDrive>, port: u16) -> Dav {
         Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
         Limits::default(),
         port,
+        SwapRecords::in_memory(),
     )
 }
 
@@ -523,6 +524,7 @@ fn a_put_over_the_limit_is_refused_and_the_connection_closed() {
         Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
         limits,
         0,
+        SwapRecords::in_memory(),
     ));
     let mut wire = Wire::connect(dav);
     let request = format!(
@@ -630,6 +632,7 @@ fn a_put_streams_its_body_into_the_drive_and_never_holds_it_whole() {
         Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
         Limits::default(),
         0,
+        SwapRecords::in_memory(),
     ));
     let mut wire = Wire::connect(dav);
     let body = vec![b'x'; 200 * 1024];
@@ -670,6 +673,7 @@ fn a_chunked_put_over_the_limit_is_refused_while_it_streams_and_nothing_is_kept(
         Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
         limits,
         0,
+        SwapRecords::in_memory(),
     ));
     let mut wire = Wire::connect(dav);
     let request = format!(
@@ -712,6 +716,7 @@ fn webdav_over_an_encrypted_drive_keeps_no_name_or_byte_in_the_bucket_in_the_cle
         Arc::new(FailureGate::new(100, Duration::from_secs(60), Duration::ZERO)),
         Limits::default(),
         0,
+        SwapRecords::in_memory(),
     );
     let expect = |response: Response, status: Status| -> Response {
         assert_eq!(response.status, status, "{}", text(&response));
@@ -754,6 +759,12 @@ fn webdav_over_an_encrypted_drive_keeps_no_name_or_byte_in_the_bucket_in_the_cle
 // ==== X-DELTA-SYNC4-17: COPY and MOVE replace a destination only after the new content is whole ====
 
 fn dav_over(drive: Arc<dyn Drive>) -> Dav {
+    dav_keeping(drive, SwapRecords::in_memory())
+}
+
+/// A server whose swaps are recorded in `records`: a new one over a clone of the same records is the
+/// NEXT process of a bridge that was killed (the records are the one thing that outlives it).
+fn dav_keeping(drive: Arc<dyn Drive>, records: SwapRecords) -> Dav {
     Dav::new(
         drive,
         Credentials::new(USER, PASSWORD),
@@ -764,6 +775,7 @@ fn dav_over(drive: Arc<dyn Drive>) -> Dav {
         )),
         Limits::default(),
         0,
+        records,
     )
 }
 
@@ -1197,7 +1209,8 @@ fn x_delta_apps3_14_a_kill_inside_a_swap_is_finished_or_undone_by_the_next_start
     for (method, kills) in [("COPY", 3_usize), ("MOVE", 4)] {
         for die_at in 1..=kills {
             let drive = Killing::new(die_at);
-            let dav = dav_over(drive.clone());
+            let records = SwapRecords::in_memory();
+            let dav = dav_keeping(drive.clone(), records.clone());
             let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 dav.respond(&head(method, "/src/", &dest("/dest/")), b"")
             }));
@@ -1206,17 +1219,21 @@ fn x_delta_apps3_14_a_kill_inside_a_swap_is_finished_or_undone_by_the_next_start
                 "{method}: the process died before step {die_at}"
             );
             drop(dav);
-            // The next process: a new server over the same drive; its first request settles it.
+            // The next process: a new server over the same drive and the same records; its first
+            // request settles it.
             drive.die_at.store(usize::MAX, Ordering::SeqCst);
-            let next = dav_over(drive.clone());
+            let next = dav_keeping(drive.clone(), records.clone());
             let answer = next.respond(&head("OPTIONS", "/", &[]), b"");
             assert_eq!(answer.status, Status::OK, "{method} {die_at}");
             let keys = drive.inner.keys();
             let at = format!("{method}, before step {die_at}: {keys:?}");
             assert!(
-                keys.iter()
-                    .all(|key| !key.contains(".azul-") && !key.contains("dav-swaps")),
-                "nothing under a staging name, no intent: {at}"
+                keys.iter().all(|key| !key.contains(".azul-")),
+                "nothing under a staging name: {at}"
+            );
+            assert!(
+                records.stamps().unwrap().is_empty(),
+                "no intent is left: {at}"
             );
             // Which side of the swap the kill left it on: the first steps are undone, the rest
             // finished.
@@ -1246,18 +1263,23 @@ fn x_delta_apps3_14_a_kill_inside_a_swap_is_finished_or_undone_by_the_next_start
                 );
             }
             // Settled once: the next request finds nothing to do.
-            assert_eq!(next.recover_swaps(u64::MAX / 2).unwrap(), 0, "{at}");
+            assert_eq!(
+                next.recover_swaps(u64::MAX / 2).unwrap(),
+                Recovery::default(),
+                "{at}"
+            );
         }
     }
 }
 
 /// A record another process wrote may be a swap that is running: it is left alone for ten
 /// minutes, and settled after them; a record this process is running is never touched; a record
-/// that cannot be read stays.
+/// that cannot be read stays; a name that is no stamp of this bridge's is not read at all.
 #[test]
 fn x_delta_apps3_14_a_record_of_another_process_waits_for_its_grace_and_a_running_swap_is_left_alone(
 ) {
     let drive = Killing::new(usize::MAX);
+    let records = SwapRecords::in_memory();
     // A copy of src/ made beside dest/, as a swap that is cut after its first step leaves it.
     drive
         .inner
@@ -1272,50 +1294,116 @@ fn x_delta_apps3_14_a_record_of_another_process_waits_for_its_grace_and_a_runnin
         destination_is_folder: true,
         moving: false,
     };
-    drive
-        .inner
-        .put(
-            ".azlin/dav-swaps/1000-4242-0.json",
-            &serde_json::to_vec(&intent).unwrap(),
-        )
+    records
+        .put("1000-4242-0", &serde_json::to_vec(&intent).unwrap())
         .unwrap();
-    drive
-        .inner
-        .put(".azlin/dav-swaps/damaged.json", b"{ not an intent")
-        .unwrap();
-    let dav = dav_over(drive.clone());
-    // Five minutes after it was written, by another process (4242 is not this one): left alone.
-    assert_eq!(dav.recover_swaps(1000 + 300).unwrap(), 0);
+    records.put("1000-4242-1", b"{ not an intent").unwrap();
+    records.put("no-stamp", b"whatever").unwrap();
+    let dav = dav_keeping(drive.clone(), records.clone());
+    // Five minutes after it was written, by another process (4242 is not this one): left alone, and
+    // the look says when the grace is over.
+    assert_eq!(
+        dav.recover_swaps(1000 + 300).unwrap(),
+        Recovery {
+            settled: 0,
+            wait_until: Some(1000 + SWAP_GRACE_SECS)
+        }
+    );
     assert!(drive.inner.get("dest.azul-new-1000-4242-0/one.txt").is_ok());
     // Past the grace: the stray copy goes, the destination was never touched.
-    assert_eq!(dav.recover_swaps(1000 + 601).unwrap(), 1);
+    assert_eq!(
+        dav.recover_swaps(1000 + 601).unwrap(),
+        Recovery {
+            settled: 1,
+            wait_until: None
+        }
+    );
     assert!(
         drive.inner.keys().iter().all(|key| !key.contains(".azul-")),
         "{:?}",
         drive.inner.keys()
     );
     assert_eq!(drive.inner.get("dest/keep.txt").unwrap(), b"old");
-    // The record that is no intent stays for a person to look at.
-    assert!(drive.inner.get(".azlin/dav-swaps/damaged.json").is_ok());
+    // The record that is no intent stays for a person to look at, and so does a name that is no stamp.
+    assert_eq!(
+        records.stamps().unwrap(),
+        vec![String::from("1000-4242-1"), String::from("no-stamp")]
+    );
     // This process's own running swap is not recovered under it.
     let stamp = format!("1-{}-0", std::process::id());
     dav.running().insert(stamp.clone());
-    drive
-        .inner
-        .put(
-            &format!(".azlin/dav-swaps/{stamp}.json"),
-            &serde_json::to_vec(&intent).unwrap(),
-        )
+    records
+        .put(&stamp, &serde_json::to_vec(&intent).unwrap())
         .unwrap();
     drive
         .inner
         .put("dest.azul-new-1000-4242-0/one.txt", b"one")
         .unwrap();
-    assert_eq!(dav.recover_swaps(u64::MAX / 2).unwrap(), 0);
+    assert_eq!(
+        dav.recover_swaps(u64::MAX / 2).unwrap().settled,
+        0,
+        "the running swap's record is left alone"
+    );
     assert!(
         drive.inner.get("dest.azul-new-1000-4242-0/one.txt").is_ok(),
         "left alone"
     );
+    assert!(records.get(&stamp).unwrap().is_some());
+}
+
+/// A record of another process that waited for its grace is looked at AGAIN once the grace is over - by
+/// a later request of the same process, not only by the next start (a bridge that a login item starts
+/// again a second after a crash found the record minutes young and left its stray for ever).
+#[test]
+fn x_delta_apps4_1_a_record_left_for_its_grace_is_settled_by_a_later_request() {
+    let drive = Killing::new(usize::MAX);
+    let records = SwapRecords::in_memory();
+    drive
+        .inner
+        .put("dest.azul-new-1000-4242-0/one.txt", b"one")
+        .unwrap();
+    let intent = SwapIntent {
+        key: String::from("src"),
+        target: String::from("dest"),
+        beside: String::from("dest.azul-new-1000-4242-0"),
+        aside: String::from("dest.azul-old-1000-4242-0"),
+        folder: true,
+        destination_is_folder: true,
+        moving: false,
+    };
+    records
+        .put("1000-4242-0", &serde_json::to_vec(&intent).unwrap())
+        .unwrap();
+    let now = Arc::new(AtomicU64::new(1000 + 5));
+    let mut dav = dav_keeping(drive.clone(), records.clone());
+    let clock = now.clone();
+    dav.clock = Some(Box::new(move || clock.load(Ordering::SeqCst)));
+    let options = || dav.respond(&head("OPTIONS", "/", &[]), b"").status;
+    // The first request, seconds after the record was made: left alone.
+    assert_eq!(options(), Status::OK);
+    assert!(drive.inner.get("dest.azul-new-1000-4242-0/one.txt").is_ok());
+    // One second before the grace is over: not looked at, nothing changes.
+    now.store(1000 + SWAP_GRACE_SECS - 1, Ordering::SeqCst);
+    assert_eq!(options(), Status::OK);
+    assert!(drive.inner.get("dest.azul-new-1000-4242-0/one.txt").is_ok());
+    // The grace is over: the next request settles it, once.
+    now.store(1000 + SWAP_GRACE_SECS, Ordering::SeqCst);
+    assert_eq!(options(), Status::OK);
+    assert!(
+        drive.inner.keys().iter().all(|key| !key.contains(".azul-")),
+        "{:?}",
+        drive.inner.keys()
+    );
+    assert!(records.stamps().unwrap().is_empty());
+    assert_eq!(drive.inner.get("dest/keep.txt").unwrap(), b"old");
+    // Nothing waits any more: a later request does not look again (a record put now stays until the
+    // next start - there is none that could be running but this process's own).
+    records
+        .put("1000-4242-9", &serde_json::to_vec(&intent).unwrap())
+        .unwrap();
+    now.store(1000 + 10 * SWAP_GRACE_SECS, Ordering::SeqCst);
+    assert_eq!(options(), Status::OK);
+    assert_eq!(records.stamps().unwrap(), vec![String::from("1000-4242-9")]);
 }
 
 /// A [`Flaky`] drive that, while `refuse` is set, refuses to delete what a swap staged (`*.azul-*`):
@@ -1389,7 +1477,8 @@ fn x_delta_apps3_14_a_cleanup_the_drive_refuses_keeps_the_intent_for_the_next_st
     // A folder COPY whose second file cannot be copied, on a drive that refuses the cleanup too.
     let flaky = Flaky::new(1, &[]);
     let drive = Stubborn::new(flaky.clone());
-    let dav = dav_over(drive.clone());
+    let records = SwapRecords::in_memory();
+    let dav = dav_keeping(drive.clone(), records.clone());
     let answer = dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"");
     assert_eq!(answer.status, Status::BAD_GATEWAY, "{}", text(&answer));
     let keys = flaky.inner.keys();
@@ -1398,29 +1487,673 @@ fn x_delta_apps3_14_a_cleanup_the_drive_refuses_keeps_the_intent_for_the_next_st
         "the partial copy is left: {keys:?}"
     );
     assert_eq!(
-        keys.iter()
-            .filter(|key| key.starts_with(".azlin/dav-swaps/"))
-            .count(),
+        records.stamps().unwrap().len(),
         1,
         "and so is the intent that names it: {keys:?}"
     );
     assert_eq!(flaky.inner.get("dest/keep.txt").unwrap(), b"old");
     // The drive answers again: the first request of the next process settles it.
     drive.refuse.store(false, Ordering::SeqCst);
-    let next = dav_over(drive.clone());
+    let next = dav_keeping(drive.clone(), records.clone());
     assert_eq!(
         next.respond(&head("OPTIONS", "/", &[]), b"").status,
         Status::OK
     );
     let keys = flaky.inner.keys();
     assert!(
-        keys.iter()
-            .all(|key| !key.contains(".azul-") && !key.contains("dav-swaps")),
-        "nothing under a staging name, no intent: {keys:?}"
+        keys.iter().all(|key| !key.contains(".azul-")),
+        "nothing under a staging name: {keys:?}"
     );
+    assert!(records.stamps().unwrap().is_empty(), "no intent");
     assert_eq!(flaky.inner.get("dest/keep.txt").unwrap(), b"old");
     assert_eq!(flaky.inner.get("src/one.txt").unwrap(), b"one");
     assert_eq!(flaky.inner.get("src/two.txt").unwrap(), b"two");
+}
+
+// ==== X-DELTA-APPS4-1: the swap on the drives the bridge really serves ====
+//
+// Every swap test above runs on a `MemoryDrive`, which accepts every name. The intent record went to
+// `.azlin/dav-swaps/`, a name the encrypted drive's index and a folder served by `--folder` both refuse
+// as the drive's own bookkeeping, so on every real drive a replacing COPY or MOVE answered 409 and no
+// swap was ever recorded, let alone settled. These run the same requests over a folder on disk
+// (`serve --folder`: `LocalDrive`) and over the encrypted drive the bridge opens for an Azlin account
+// (over a bucket in memory), with the records in a folder as `serve` keeps them.
+
+/// A drive of a kind the bridge serves, as a test can make it without a server, and the records of
+/// its swaps. Dropping it removes what it made.
+struct Rig {
+    /// Which kind, for the message of a failure.
+    kind: &'static str,
+    /// A new handle on the same storage: what a process that starts again opens.
+    open: Box<dyn Fn() -> Arc<dyn Drive>>,
+    /// The records, a folder below a state folder: the same value is the same records.
+    records: SwapRecords,
+    _keep: Vec<Box<dyn std::any::Any>>,
+}
+
+impl Rig {
+    /// `serve --folder DIR`: a folder on disk.
+    fn folder() -> Rig {
+        let dir = azul_storage::testing::TempDir::new("bridge-dav-swap-folder");
+        let root = dir.0.join("shared");
+        std::fs::create_dir_all(&root).unwrap();
+        let records = SwapRecords::of_drive(&dir.0.join("state"), Some("folder:shared"));
+        Rig {
+            kind: "a served folder",
+            open: Box::new(move || {
+                Arc::new(azul_storage::LocalDrive::without_manifest(root.clone())) as Arc<dyn Drive>
+            }),
+            records,
+            _keep: vec![Box::new(dir)],
+        }
+    }
+
+    /// An Azlin account's drive: encrypted, opened as `serve` opens it, over a bucket in memory; the
+    /// index is the bucket's, so a handle opened again sees what the one before committed.
+    #[cfg(feature = "encryption")]
+    fn encrypted() -> Rig {
+        use azmail_core::mail_drive;
+        use azul_storage::{
+            crypto::{device, keys::RecoveryKdf},
+            keyring::{KeyringStore, MemoryKeyring},
+            meta::MemoryBucket,
+        };
+        let keyring: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), "d_swap", cheap).unwrap();
+        let state = azul_storage::testing::TempDir::new("bridge-dav-swap-encrypted");
+        let records = SwapRecords::of_drive(&state.0, Some("azlin:d_swap"));
+        Rig {
+            kind: "the encrypted Azlin drive",
+            open: Box::new(move || -> Arc<dyn Drive> {
+                mail_drive::wrap_auto(
+                    bucket.clone(),
+                    "d_swap",
+                    keyring.clone(),
+                    azul_storage::meta::RestoreSource::none("a test has no token server to ask"),
+                )
+            }),
+            records,
+            _keep: vec![Box::new(state)],
+        }
+    }
+}
+
+/// The drives of a swap test: every kind the bridge serves.
+fn rigs() -> Vec<fn() -> Rig> {
+    let folder: fn() -> Rig = Rig::folder;
+    #[cfg(feature = "encryption")]
+    let makers = vec![folder, Rig::encrypted as fn() -> Rig];
+    #[cfg(not(feature = "encryption"))]
+    let makers = vec![folder];
+    makers
+}
+
+/// `src/` of two files, `dest/` of one, `docs/` of one and `top.txt`: what the swaps move around.
+fn lay_out(drive: &dyn Drive) {
+    for (key, bytes) in [
+        ("src/one.txt", &b"one"[..]),
+        ("src/two.txt", b"two"),
+        ("dest/keep.txt", b"old"),
+        ("docs/a.txt", b"hello"),
+        ("top.txt", b"top"),
+    ] {
+        drive.put(key, bytes).unwrap();
+    }
+}
+
+/// Every file of the drive with its bytes, by key (a folder's marker is no file).
+fn files_of(drive: &dyn Drive) -> std::collections::BTreeMap<String, Vec<u8>> {
+    azul_storage::ops::list_all(drive, "")
+        .unwrap()
+        .into_iter()
+        .filter(|object| !object.key.ends_with('/'))
+        .map(|object| {
+            let bytes = drive.get(&object.key).unwrap();
+            (object.key, bytes)
+        })
+        .collect()
+}
+
+/// Every key the listing of the drive shows, folders' markers included.
+fn keys_of(drive: &dyn Drive) -> Vec<String> {
+    azul_storage::ops::list_all(drive, "")
+        .unwrap()
+        .into_iter()
+        .map(|object| object.key)
+        .collect()
+}
+
+/// A drive that DIES - the process is gone: a panic nothing catches but the test - once `die_after` of
+/// the writes a request makes (`put`, `copy`, `create_folder`, `rename`, `delete`, `delete_folder`)
+/// are made: 0 is before the first, `n` right after the n-th one. The drive below is a real one and
+/// every call goes to it as it is (what the swap does there, its own `rename` and `copy` included).
+/// `hook` runs before each write: a request that comes while the swap is in the middle.
+struct Dying {
+    inner: Arc<dyn Drive>,
+    done: AtomicUsize,
+    die_after: usize,
+    hook: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+impl Dying {
+    fn new(inner: Arc<dyn Drive>, die_after: usize) -> Arc<Dying> {
+        Arc::new(Dying {
+            inner,
+            done: AtomicUsize::new(0),
+            die_after,
+            hook: std::sync::Mutex::new(None),
+        })
+    }
+
+    /// How many writes were made.
+    fn writes(&self) -> usize {
+        self.done.load(Ordering::SeqCst)
+    }
+
+    fn write<T>(
+        &self,
+        what: &str,
+        call: impl FnOnce() -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
+        // Taken out of the lock before it runs: a look that goes wrong and writes calls this again.
+        let hook = self.hook.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+        if self.die_after == 0 && self.writes() == 0 {
+            panic!("the process died before its first write ({what})");
+        }
+        let result = call();
+        let made = self.done.fetch_add(1, Ordering::SeqCst) + 1;
+        if made == self.die_after {
+            panic!("the process died after write {made} ({what})");
+        }
+        result
+    }
+}
+
+impl azul_storage::DriveDelegate for Dying {
+    fn below(&self) -> &dyn Drive {
+        &*self.inner
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.write(&format!("put {key}"), || self.inner.put(key, bytes))
+    }
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.write(&format!("copy {from} {to}"), || self.inner.copy(from, to))
+    }
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.write(&format!("create_folder {prefix}"), || {
+            self.inner.create_folder(prefix)
+        })
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.write(&format!("rename {from} {to}"), || {
+            self.inner.rename(from, to)
+        })
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.write(&format!("delete {key}"), || self.inner.delete(key))
+    }
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.write(&format!("delete_folder {prefix}"), || {
+            self.inner.delete_folder(prefix)
+        })
+    }
+}
+
+azul_storage::delegate_drive!(Dying);
+
+/// RED on the code before: the record went to `.azlin/dav-swaps/`, a name both drives refuse, so the
+/// first replacing COPY of every real drive answered 409 and nothing was replaced. Folder over folder
+/// (by COPY and by MOVE), a file over a folder and a folder over a file all answer 204, put the new
+/// content in place whole, keep the source of a COPY, and leave neither a staging name nor a record.
+#[test]
+fn x_delta_apps4_1_a_replacing_copy_or_move_works_on_the_drives_the_bridge_serves_and_leaves_no_record(
+) {
+    for rig in rigs().into_iter().map(|make| make()) {
+        let drive = (rig.open)();
+        lay_out(&*drive);
+        let dav = dav_keeping(drive.clone(), rig.records.clone());
+        let kind = rig.kind;
+        let settled = |what: &str| {
+            let keys = keys_of(&*drive);
+            assert!(
+                keys.iter().all(|key| !key.contains(".azul-")),
+                "{kind}, {what}: a staging name is left: {keys:?}"
+            );
+            assert!(
+                rig.records.stamps().unwrap().is_empty(),
+                "{kind}, {what}: a record is left"
+            );
+        };
+        // Folder over folder: COPY.
+        let answer = dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"");
+        assert_eq!(
+            answer.status,
+            Status::NO_CONTENT,
+            "{kind}: {}",
+            text(&answer)
+        );
+        let files = files_of(&*drive);
+        assert_eq!(
+            files.get("dest/one.txt").map(Vec::as_slice),
+            Some(&b"one"[..]),
+            "{kind}: {files:?}"
+        );
+        assert_eq!(
+            files.get("dest/two.txt").map(Vec::as_slice),
+            Some(&b"two"[..]),
+            "{kind}"
+        );
+        assert!(
+            !files.contains_key("dest/keep.txt"),
+            "{kind}: the old content is replaced: {files:?}"
+        );
+        assert!(
+            files.contains_key("src/one.txt"),
+            "{kind}: a COPY keeps the source: {files:?}"
+        );
+        settled("COPY folder over folder");
+        // Folder over folder: MOVE.
+        let answer = dav.respond(&head("MOVE", "/docs/", &dest("/src/")), b"");
+        assert_eq!(
+            answer.status,
+            Status::NO_CONTENT,
+            "{kind}: {}",
+            text(&answer)
+        );
+        let files = files_of(&*drive);
+        assert_eq!(
+            files.get("src/a.txt").map(Vec::as_slice),
+            Some(&b"hello"[..]),
+            "{kind}: {files:?}"
+        );
+        assert!(!files.contains_key("src/one.txt"), "{kind}: {files:?}");
+        assert!(
+            !files.keys().any(|key| key.starts_with("docs/")),
+            "{kind}: the source went: {files:?}"
+        );
+        settled("MOVE folder over folder");
+        // A file over a folder.
+        let answer = dav.respond(&head("COPY", "/top.txt", &dest("/dest")), b"");
+        assert_eq!(
+            answer.status,
+            Status::NO_CONTENT,
+            "{kind}: {}",
+            text(&answer)
+        );
+        let files = files_of(&*drive);
+        assert_eq!(
+            files.get("dest").map(Vec::as_slice),
+            Some(&b"top"[..]),
+            "{kind}: {files:?}"
+        );
+        assert!(
+            !files.keys().any(|key| key.starts_with("dest/")),
+            "{kind}: {files:?}"
+        );
+        settled("COPY file over folder");
+        // A folder over a file.
+        let answer = dav.respond(&head("COPY", "/src/", &dest("/dest")), b"");
+        assert_eq!(
+            answer.status,
+            Status::NO_CONTENT,
+            "{kind}: {}",
+            text(&answer)
+        );
+        let files = files_of(&*drive);
+        assert_eq!(
+            files.get("dest/a.txt").map(Vec::as_slice),
+            Some(&b"hello"[..]),
+            "{kind}: {files:?}"
+        );
+        assert!(
+            !files.contains_key("dest"),
+            "{kind}: the file is replaced by the folder: {files:?}"
+        );
+        settled("COPY folder over file");
+        // And a folder over a folder by MOVE once more, now with the one the COPY made as the source.
+        let answer = dav.respond(&head("MOVE", "/dest/", &dest("/src/")), b"");
+        assert_eq!(
+            answer.status,
+            Status::NO_CONTENT,
+            "{kind}: {}",
+            text(&answer)
+        );
+        settled("MOVE again");
+    }
+}
+
+/// What a kill inside a replacing COPY or MOVE leaves, stopped after EACH write the request makes
+/// (`swap_in`'s table: the record, the new content beside, the old one aside, the new one in place, the
+/// old one deleted, the record removed), on the drives the bridge serves, and what the NEXT process -
+/// a new server over a handle opened again on the same storage and the same records - makes of it at
+/// its first request: the destination is whole (the old content or the new, never both and never
+/// neither), the source of a COPY is untouched and a MOVE's is either where it was (undone) or gone
+/// with its content at the destination (finished), nothing is under a staging name, no record is left,
+/// and the flip from undone to finished is where the table says: once the old one stepped aside.
+#[test]
+fn x_delta_apps4_1_a_kill_after_each_step_of_a_swap_is_settled_by_the_next_dav_on_the_real_drives()
+{
+    for make in rigs() {
+        for method in ["COPY", "MOVE"] {
+            // The writes of a swap that is not killed, by a run of its own.
+            let total = {
+                let rig = make();
+                let base = (rig.open)();
+                lay_out(&*base);
+                let drive = Dying::new(base.clone(), usize::MAX);
+                let dav = dav_keeping(drive.clone(), rig.records.clone());
+                let answer = dav.respond(&head(method, "/src/", &dest("/dest/")), b"");
+                assert_eq!(
+                    answer.status,
+                    Status::NO_CONTENT,
+                    "{}: {method}: {}",
+                    rig.kind,
+                    text(&answer)
+                );
+                drive.writes()
+            };
+            assert!(total >= 4, "a swap writes at least four times: {total}");
+            for die_after in 0..=total {
+                let rig = make();
+                let kind = rig.kind;
+                let at = format!("{kind}: {method} killed after write {die_after} of {total}");
+                let base = (rig.open)();
+                lay_out(&*base);
+                let dying = Dying::new(base.clone(), die_after);
+                let dav = dav_keeping(dying.clone(), rig.records.clone());
+                let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    dav.respond(&head(method, "/src/", &dest("/dest/")), b"")
+                }));
+                assert!(died.is_err(), "the process died: {at}");
+                drop(dav);
+                // The record is there for the next start from the moment the first write is made.
+                assert_eq!(
+                    rig.records.stamps().unwrap().len(),
+                    1,
+                    "the record outlives the process: {at}"
+                );
+                // The next process: its first request settles it.
+                let reopened = (rig.open)();
+                let next = dav_keeping(reopened.clone(), rig.records.clone());
+                let answer = next.respond(&head("OPTIONS", "/", &[]), b"");
+                assert_eq!(answer.status, Status::OK, "{at}");
+                let files = files_of(&*reopened);
+                let keys = keys_of(&*reopened);
+                let at = format!("{at}: {files:?}");
+                assert!(
+                    keys.iter().all(|key| !key.contains(".azul-")),
+                    "a staging name is left: {at}"
+                );
+                assert!(
+                    rig.records.stamps().unwrap().is_empty(),
+                    "a record is left: {at}"
+                );
+                let new_dest = files.get("dest/one.txt").map(Vec::as_slice) == Some(&b"one"[..])
+                    && files.get("dest/two.txt").map(Vec::as_slice) == Some(&b"two"[..]);
+                let old_dest = files.get("dest/keep.txt").map(Vec::as_slice) == Some(&b"old"[..]);
+                assert!(
+                    new_dest != old_dest,
+                    "the destination is whole, old or new: {at}"
+                );
+                assert_eq!(
+                    files.keys().filter(|key| key.starts_with("dest/")).count(),
+                    if new_dest { 2 } else { 1 },
+                    "nothing else is in it: {at}"
+                );
+                let source_whole = files.get("src/one.txt").map(Vec::as_slice) == Some(&b"one"[..])
+                    && files.get("src/two.txt").map(Vec::as_slice) == Some(&b"two"[..]);
+                if method == "COPY" || !new_dest {
+                    assert!(source_whole, "the source is where it was: {at}");
+                } else {
+                    assert!(
+                        !files.keys().any(|key| key.starts_with("src/")),
+                        "a finished MOVE took the source: {at}"
+                    );
+                }
+                assert_eq!(
+                    files.get("top.txt").map(Vec::as_slice),
+                    Some(&b"top"[..]),
+                    "{at}"
+                );
+                assert_eq!(
+                    files.get("docs/a.txt").map(Vec::as_slice),
+                    Some(&b"hello"[..]),
+                    "{at}"
+                );
+                // Undone before the old one stepped aside, finished from then on: the old one steps
+                // aside by the third write from the end (aside, into place, deleted).
+                assert_eq!(
+                    new_dest,
+                    die_after + 2 >= total,
+                    "the flip is where the table says: {at}"
+                );
+                // Settled once: the next request finds nothing to do.
+                assert_eq!(
+                    next.recover_swaps(u64::MAX / 2).unwrap(),
+                    Recovery::default(),
+                    "{at}"
+                );
+            }
+        }
+    }
+}
+
+/// A kill leaves the record of ANOTHER process (here: the same record under a stamp of process 4242,
+/// as a bridge that a login item started a second after a crash finds the one before it): it is left
+/// alone while it is younger than the grace - the stray beside the destination stays - and the first
+/// request after the grace settles it, on the drives the bridge serves.
+#[test]
+fn x_delta_apps4_1_the_record_of_another_process_is_left_for_its_grace_and_settled_after_it_on_the_real_drives(
+) {
+    for make in rigs() {
+        let rig = make();
+        let kind = rig.kind;
+        let base = (rig.open)();
+        lay_out(&*base);
+        // Cut after the first write of the new content beside the destination.
+        let dying = Dying::new(base.clone(), 1);
+        let dav = dav_keeping(dying, rig.records.clone());
+        let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            dav.respond(&head("COPY", "/src/", &dest("/dest/")), b"")
+        }));
+        assert!(died.is_err(), "{kind}");
+        drop(dav);
+        let stamps = rig.records.stamps().unwrap();
+        assert_eq!(stamps.len(), 1, "{kind}");
+        let bytes = rig.records.get(&stamps[0]).unwrap().unwrap();
+        let written_at: u64 = stamps[0].split('-').next().unwrap().parse().unwrap();
+        rig.records.remove(&stamps[0]).unwrap();
+        let foreign = format!("{written_at}-4242-0");
+        rig.records.put(&foreign, &bytes).unwrap();
+        // The next process, five minutes after the record was written.
+        let now = Arc::new(AtomicU64::new(written_at + 300));
+        let mut next = dav_keeping((rig.open)(), rig.records.clone());
+        let clock = now.clone();
+        next.clock = Some(Box::new(move || clock.load(Ordering::SeqCst)));
+        let options = || next.respond(&head("OPTIONS", "/", &[]), b"").status;
+        assert_eq!(options(), Status::OK, "{kind}");
+        let after_first = keys_of(&*base);
+        assert!(
+            after_first.iter().any(|key| key.contains(".azul-new-")),
+            "{kind}: the stray is left alone while the record is young: {after_first:?}"
+        );
+        assert_eq!(
+            rig.records.stamps().unwrap(),
+            vec![foreign.clone()],
+            "{kind}"
+        );
+        // The grace is over: the next request settles it.
+        now.store(written_at + SWAP_GRACE_SECS, Ordering::SeqCst);
+        assert_eq!(options(), Status::OK, "{kind}");
+        let keys = keys_of(&*base);
+        assert!(
+            keys.iter().all(|key| !key.contains(".azul-")),
+            "{kind}: {keys:?}"
+        );
+        assert!(rig.records.stamps().unwrap().is_empty(), "{kind}");
+        let files = files_of(&*base);
+        assert_eq!(
+            files.get("dest/keep.txt").map(Vec::as_slice),
+            Some(&b"old"[..]),
+            "{kind}: {files:?}"
+        );
+        assert!(files.contains_key("src/one.txt"), "{kind}: {files:?}");
+    }
+}
+
+/// A look at the records that comes while a swap is in the middle (a second connection's request, or the
+/// first request of a process that serves a swap at once) leaves that swap's record alone, after each of
+/// its writes: the stamp is running before its record is written.
+#[test]
+fn x_delta_apps4_1_a_look_at_the_records_during_a_swap_leaves_the_running_swap_alone() {
+    for make in rigs() {
+        let rig = make();
+        let kind = rig.kind;
+        let base = (rig.open)();
+        lay_out(&*base);
+        let dying = Dying::new(base.clone(), usize::MAX);
+        let dav = Arc::new(dav_keeping(dying.clone(), rig.records.clone()));
+        let looks = Arc::new(AtomicUsize::new(0));
+        {
+            let (dav, looks, records) = (dav.clone(), looks.clone(), rig.records.clone());
+            *dying.hook.lock().unwrap() = Some(Arc::new(move || {
+                // Far in the future: every grace is over, only the running swap protects its record.
+                let found = dav.recover_swaps(u64::MAX / 2).unwrap();
+                assert_eq!(
+                    found,
+                    Recovery::default(),
+                    "{kind}: a running swap was settled under it"
+                );
+                assert_eq!(
+                    records.stamps().unwrap().len(),
+                    1,
+                    "{kind}: its record is there"
+                );
+                looks.fetch_add(1, Ordering::SeqCst);
+            }));
+        }
+        let answer = dav.respond(&head("MOVE", "/src/", &dest("/dest/")), b"");
+        assert_eq!(
+            answer.status,
+            Status::NO_CONTENT,
+            "{kind}: {}",
+            text(&answer)
+        );
+        assert!(
+            looks.load(Ordering::SeqCst) >= 4,
+            "{kind}: the look was made at each write"
+        );
+        assert!(
+            rig.records.stamps().unwrap().is_empty(),
+            "{kind}: and the record went when the swap did"
+        );
+    }
+}
+
+/// A record that cannot be written is a swap that does not start: the answer says so (a 5xx, not a
+/// 2xx and not the drive's 409), nothing of the drive is touched, and nothing is left. Here the folder
+/// of the records cannot be made (a file is where the state folder should be).
+#[test]
+fn x_delta_apps4_1_a_record_that_cannot_be_written_starts_no_swap_on_the_real_drives() {
+    for make in rigs() {
+        let rig = make();
+        let kind = rig.kind;
+        let base = (rig.open)();
+        lay_out(&*base);
+        let blocker = azul_storage::testing::TempDir::new("bridge-dav-swap-blocked");
+        let file = blocker.0.join("state");
+        std::fs::write(&file, b"a file where the state folder should be").unwrap();
+        let blocked = SwapRecords::of_drive(&file, Some("azlin:d_blocked"));
+        let dav = dav_keeping(base.clone(), blocked.clone());
+        let before = files_of(&*base);
+        for (method, source) in [("COPY", "/src/"), ("MOVE", "/src/")] {
+            let answer = dav.respond(&head(method, source, &dest("/dest/")), b"");
+            assert_eq!(
+                answer.status,
+                Status::BAD_GATEWAY,
+                "{kind}: {method}: {}",
+                text(&answer)
+            );
+            assert!(
+                text(&answer).contains("nothing was changed"),
+                "{kind}: {method}: {}",
+                text(&answer)
+            );
+            assert_eq!(
+                files_of(&*base),
+                before,
+                "{kind}: {method} touched the drive"
+            );
+            assert!(
+                keys_of(&*base).iter().all(|key| !key.contains(".azul-")),
+                "{kind}: {method}: a staging name"
+            );
+        }
+        assert!(
+            dav.running().is_empty(),
+            "{kind}: the swap is not left running"
+        );
+    }
+}
+
+/// `serve` keeps the records of each drive in a folder of the state folder, beside the UID maps - one
+/// folder for each drive, so a record is never settled on another drive than the one it was made on -
+/// and in memory for a drive that is gone with the process (`--memory`).
+#[test]
+fn x_delta_apps4_1_the_records_of_a_served_drive_are_files_in_the_state_folder_one_folder_for_each_drive(
+) {
+    let state = azul_storage::testing::TempDir::new("bridge-dav-swap-state");
+    let documents = SwapRecords::of_drive(&state.0, Some("folder:/home/ada/Documents"));
+    let account = SwapRecords::of_drive(&state.0, Some("azlin:d_1"));
+    documents.put("1000-4242-0", b"{}").unwrap();
+    assert_eq!(
+        documents.stamps().unwrap(),
+        vec![String::from("1000-4242-0")]
+    );
+    assert!(
+        account.stamps().unwrap().is_empty(),
+        "another drive's records are not this drive's"
+    );
+    // A file below `<state>/dav-swaps/<drive>/`, and nothing else in the state folder.
+    let folders: Vec<_> = std::fs::read_dir(state.0.join(SWAPS_DIR))
+        .unwrap()
+        .flatten()
+        .collect();
+    assert_eq!(
+        folders.len(),
+        1,
+        "one folder for the one drive that has a record"
+    );
+    assert!(folders[0].path().join("1000-4242-0.json").is_file());
+    // A process that starts again finds it.
+    let again = SwapRecords::of_drive(&state.0, Some("folder:/home/ada/Documents"));
+    assert_eq!(
+        again.get("1000-4242-0").unwrap().as_deref(),
+        Some(&b"{}"[..])
+    );
+    again.remove("1000-4242-0").unwrap();
+    assert!(documents.stamps().unwrap().is_empty());
+    // A record that is gone is removed without a word.
+    again.remove("1000-4242-0").unwrap();
+    // What a write stages beside a record is no record.
+    std::fs::write(
+        folders[0]
+            .path()
+            .join(".1000-4242-1.json.azul-storage-1-0.tmp"),
+        b"half",
+    )
+    .unwrap();
+    assert!(documents.stamps().unwrap().is_empty());
+    // `--memory`: nothing is written anywhere.
+    let memory = SwapRecords::of_drive(&state.0, None);
+    memory.put("1000-4242-2", b"{}").unwrap();
+    assert_eq!(memory.stamps().unwrap(), vec![String::from("1000-4242-2")]);
+    assert!(documents.stamps().unwrap().is_empty());
 }
 
 /// RED on the code before: PUT and DELETE ignored `If-Match`, so a save another client made after

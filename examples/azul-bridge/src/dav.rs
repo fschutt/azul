@@ -20,9 +20,10 @@
 //!   [`crate::pim`]).
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -46,12 +47,9 @@ use crate::{
 
 /// The folder the Azlin sync keeps its bookkeeping in: hidden.
 pub const HIDDEN: &str = ".azlin";
-/// Where a replacing COPY or MOVE writes down what it is about to do ([`Dav::swap_in`]): one
-/// `<stamp>.json` each in the sync's hidden folder, written before the first step and removed
-/// after the last. A process that dies inside a swap leaves its record, and the first request of
-/// the next one finishes or undoes it ([`Dav::recover_swaps`]) by the names the record holds, never
-/// by a pattern (X-DELTA-APPS3-14).
-const SWAPS: &str = ".azlin/dav-swaps";
+/// The folder of the swaps' records ([`SwapRecords`]) in the bridge's state folder, the place of the UID
+/// maps ([`crate::uids::UIDS_DIR`]): one folder for each drive the bridge serves.
+pub const SWAPS_DIR: &str = "dav-swaps";
 /// A record of another process is left alone for this long: it may be a swap that is running.
 const SWAP_GRACE_SECS: u64 = 600;
 /// A lock lasts at most this long without a refresh.
@@ -114,14 +112,168 @@ pub struct Dav {
     digest: DigestAuth,
     /// CalDAV and CardDAV instead of the drive's files ([`Dav::for_pim`]).
     pim: Option<Pim>,
-    /// The stamps of the swaps this process is running now ([`SWAPS`]): recovery leaves them alone.
+    /// Where a replacing COPY or MOVE writes down what it is about to do ([`SwapRecords`]).
+    records: SwapRecords,
+    /// The stamps of the swaps this process is running now: recovery leaves their records alone.
     swaps: Mutex<HashSet<String>>,
-    /// Whether the swaps an earlier process left have been looked at ([`Dav::recover_swaps_once`]).
-    swaps_recovered: AtomicBool,
+    /// The second (seconds since 1970) from which the next look at the records of earlier processes is
+    /// due ([`Dav::recover_swaps_once`]): 0 before the first request, never (`u64::MAX`) once nothing is
+    /// left to wait for.
+    next_look: AtomicU64,
+    /// A test's clock for the grace of a record of another process.
+    #[cfg(test)]
+    clock: Option<Box<dyn Fn() -> u64 + Send + Sync>>,
+}
+
+/// Where the records of the replacing COPYs and MOVEs are kept ([`Dav::swap_in`]): one `<stamp>.json`
+/// each, written before the first step and removed after the last. A process that dies inside a swap
+/// leaves its record, and the first request of the next one finishes or undoes the swap
+/// ([`Dav::recover_swaps`]) by the names the record holds, never by a pattern (X-DELTA-APPS3-14).
+///
+/// A folder of the bridge's STATE (`<state>/dav-swaps/<drive>/`, the place of the UID maps), or memory
+/// for a drive that is gone with the process (`--memory`, a test). Never the drive itself: the
+/// encrypted drive's index and a folder served by `--folder` both refuse a name of the drive's own
+/// bookkeeping (`.azlin/`), so a record put there ended every replacing COPY and MOVE with a 409 and
+/// settled none (X-DELTA-APPS4-1); and a record in the drive is seen by the bridge of every other
+/// computer of the user, whose process id and clock say nothing about the swap. Clones share the
+/// records: the "next process" of a test is a new [`Dav`] over a clone.
+#[derive(Debug, Clone)]
+pub struct SwapRecords {
+    place: RecordPlace,
+}
+
+#[derive(Debug, Clone)]
+enum RecordPlace {
+    Folder(PathBuf),
+    Memory(Arc<Mutex<BTreeMap<String, Vec<u8>>>>),
+}
+
+impl SwapRecords {
+    /// Records kept as files in `folder` (made when the first one is written).
+    #[must_use]
+    pub fn in_folder(folder: PathBuf) -> SwapRecords {
+        SwapRecords {
+            place: RecordPlace::Folder(folder),
+        }
+    }
+
+    /// Records kept in memory only.
+    #[must_use]
+    pub fn in_memory() -> SwapRecords {
+        SwapRecords {
+            place: RecordPlace::Memory(Arc::new(Mutex::new(BTreeMap::new()))),
+        }
+    }
+
+    /// The records of the drive `label` the bridge serves, below the state folder `state`: one folder
+    /// for each drive (`folder:<path>` for `--folder`, `azlin:<id>` for an account's drive), so that
+    /// a record is never settled on another drive than the one it was made on; `None` for a drive
+    /// that is gone with the process: memory.
+    #[must_use]
+    pub fn of_drive(state: &std::path::Path, label: Option<&str>) -> SwapRecords {
+        match label {
+            None => SwapRecords::in_memory(),
+            Some(label) => {
+                let hash = azul_storage::sigv4::sha256_hex(label.as_bytes());
+                SwapRecords::in_folder(state.join(SWAPS_DIR).join(&hash[..32]))
+            }
+        }
+    }
+
+    fn file_of(folder: &std::path::Path, stamp: &str) -> PathBuf {
+        folder.join(format!("{stamp}.json"))
+    }
+
+    fn memory(
+        map: &Mutex<BTreeMap<String, Vec<u8>>>,
+    ) -> std::sync::MutexGuard<'_, BTreeMap<String, Vec<u8>>> {
+        map.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Writes the record of the swap `stamp`; on disk it is whole and synced when this returns
+    /// ([`azul_storage::durable::replace`]), private to this user (it names the user's files).
+    fn put(&self, stamp: &str, bytes: &[u8]) -> std::io::Result<()> {
+        match &self.place {
+            RecordPlace::Folder(folder) => azul_storage::durable::replace(
+                &SwapRecords::file_of(folder, stamp),
+                bytes,
+                azul_storage::durable::Mode::Private,
+            ),
+            RecordPlace::Memory(map) => {
+                SwapRecords::memory(map).insert(stamp.to_string(), bytes.to_vec());
+                Ok(())
+            }
+        }
+    }
+
+    /// The stamps of the records there are, in order. A folder that is not there holds none; one that
+    /// cannot be read is an error, never "none".
+    fn stamps(&self) -> std::io::Result<Vec<String>> {
+        match &self.place {
+            RecordPlace::Folder(folder) => {
+                let entries = match std::fs::read_dir(folder) {
+                    Ok(entries) => entries,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+                    Err(e) => return Err(e),
+                };
+                let mut stamps = Vec::new();
+                for entry in entries {
+                    let name = entry?.file_name();
+                    // What `replace` stages beside a record is no record.
+                    if let Some(stamp) = name.to_str().and_then(|name| name.strip_suffix(".json")) {
+                        stamps.push(stamp.to_string());
+                    }
+                }
+                stamps.sort();
+                Ok(stamps)
+            }
+            RecordPlace::Memory(map) => Ok(SwapRecords::memory(map).keys().cloned().collect()),
+        }
+    }
+
+    /// The record `stamp`: `None` when it is gone (another look settled it).
+    fn get(&self, stamp: &str) -> std::io::Result<Option<Vec<u8>>> {
+        match &self.place {
+            RecordPlace::Folder(folder) => match std::fs::read(SwapRecords::file_of(folder, stamp))
+            {
+                Ok(bytes) => Ok(Some(bytes)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e),
+            },
+            RecordPlace::Memory(map) => Ok(SwapRecords::memory(map).get(stamp).cloned()),
+        }
+    }
+
+    /// Removes the record `stamp` (one that is gone already is removed).
+    fn remove(&self, stamp: &str) -> std::io::Result<()> {
+        match &self.place {
+            RecordPlace::Folder(folder) => {
+                match std::fs::remove_file(SwapRecords::file_of(folder, stamp)) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                    _ => Ok(()),
+                }
+            }
+            RecordPlace::Memory(map) => {
+                SwapRecords::memory(map).remove(stamp);
+                Ok(())
+            }
+        }
+    }
+}
+
+/// What one look at the records of interrupted swaps found ([`Dav::recover_swaps`]).
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Recovery {
+    /// The swaps it finished or undid.
+    settled: usize,
+    /// The second (seconds since 1970) at which the first record of another process that it had to
+    /// leave alone is past its grace: the next look is due then. `None`: nothing waits.
+    wait_until: Option<u64>,
 }
 
 /// What a replacing COPY or MOVE is about to do, written down before the first step
-/// ([`SWAPS`]).
+/// ([`SwapRecords`]).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct SwapIntent {
     /// The source.
@@ -431,6 +583,8 @@ fn timeout_of(head: &Head) -> u64 {
 }
 
 impl Dav {
+    /// The server over `drive`; `records` is where a replacing COPY or MOVE writes down its steps
+    /// ([`SwapRecords`]: the bridge's state folder for a drive that outlives the process).
     #[must_use]
     pub fn new(
         drive: Arc<dyn Drive>,
@@ -438,6 +592,7 @@ impl Dav {
         gate: Arc<FailureGate>,
         limits: Limits,
         port: u16,
+        records: SwapRecords,
     ) -> Dav {
         Dav {
             drive,
@@ -448,18 +603,38 @@ impl Dav {
             locks: Mutex::new(Vec::new()),
             digest: DigestAuth::new("Azlin Bridge"),
             pim: None,
+            records,
             swaps: Mutex::new(HashSet::new()),
-            swaps_recovered: AtomicBool::new(false),
+            next_look: AtomicU64::new(0),
+            #[cfg(test)]
+            clock: None,
         }
     }
 
     /// CalDAV and CardDAV ([`crate::pim`]) behind the same doors as the drive's WebDAV: the
-    /// host, no browser, the sign-in, the limits - on a port of their own.
+    /// host, no browser, the sign-in, the limits - on a port of their own. (They never swap: their
+    /// calendar folder is the PIM's own.)
     #[must_use]
     pub fn for_pim(pim: Pim, credentials: Credentials, gate: Arc<FailureGate>, limits: Limits, port: u16) -> Dav {
-        let mut dav = Dav::new(pim.contacts_drive(), credentials, gate, limits, port);
+        let mut dav = Dav::new(
+            pim.contacts_drive(),
+            credentials,
+            gate,
+            limits,
+            port,
+            SwapRecords::in_memory(),
+        );
         dav.pim = Some(pim);
         dav
+    }
+
+    /// Seconds since 1970 (a test steps it).
+    fn now(&self) -> u64 {
+        #[cfg(test)]
+        if let Some(clock) = &self.clock {
+            return clock();
+        }
+        azul_storage::time::now_unix()
     }
 
     fn locks(&self) -> std::sync::MutexGuard<'_, Vec<Lock>> {
@@ -1300,15 +1475,22 @@ impl Dav {
     /// destination under its name.
     ///
     /// A KILL inside the swap is the other crash row: the process is gone and nothing puts back.
-    /// So the swap writes its intent first ([`SWAPS`]: the source, the destination and the two
-    /// staging names) and removes it when the swap is settled, and the next process finishes or
-    /// undoes what it finds ([`Dav::recover_swaps`], by those names and only when the destination
-    /// is where the table below expects it). The table, by what a kill leaves: after the new content
-    /// beside it (for a MOVE: the source under that name) - the destination is untouched, the
-    /// recovery undoes: a copy beside it is deleted, a moved source goes back; after it stepped
-    /// aside - the old content is whole under the aside name and the new beside it, the recovery
-    /// finishes: the new content into place, the old deleted; after the rename - both exist, the
-    /// recovery deletes the old one.
+    /// So the swap writes its intent first ([`SwapRecords`]: the source, the destination and the
+    /// two staging names - in the bridge's state folder, where the encrypted drive and a served
+    /// folder would refuse a record, X-DELTA-APPS4-1) and removes it when the swap is settled, and
+    /// the next process finishes or undoes what it finds ([`Dav::recover_swaps`], by those names and
+    /// only when the destination is where the table below expects it). The table, by what a kill
+    /// leaves, step by step (the tests stop the flow after each write, on the drives the bridge
+    /// serves: `x_delta_apps4_1_*`):
+    ///
+    /// | killed after | the drive | the next start |
+    /// |---|---|---|
+    /// | (before the record is whole) | as it was | nothing to settle; the client's request failed |
+    /// | the record | as it was | nothing of the swap is under a staging name: the record goes |
+    /// | the new content beside the destination (a MOVE: the source under that name) | the destination untouched | a copy beside it is deleted, a moved source goes back |
+    /// | the destination stepped aside | the old content whole under the aside name, the new beside | finishes: the new content into place, the old deleted |
+    /// | the new content in place | both exist | the old one is deleted |
+    /// | the old one deleted | the swap is done | the record goes |
     fn swap_in(
         &self,
         key: &str,
@@ -1328,20 +1510,25 @@ impl Dav {
             destination_is_folder,
             moving,
         };
-        // 0. The intent, durable before anything moves: a drive that cannot take it is a swap
-        //    that does not start, with nothing touched.
-        let record = format!("{SWAPS}/{stamp}.json");
+        // 0. The intent, durable before anything moves: a record that cannot be written is a swap
+        //    that does not start, with nothing touched. The stamp is running BEFORE its record is
+        //    there, so that a look at the records that comes between the two never finds a record
+        //    nobody owns.
         let text = serde_json::to_vec(&intent).map_err(|e| DriveError::Io(e.to_string()))?;
-        self.drive.put(&record, &text)?;
         self.running().insert(stamp.clone());
+        if let Err(e) = self.records.put(&stamp, &text) {
+            self.running().remove(&stamp);
+            return Err(DriveError::Io(format!(
+                "the replacement of {target} was not started, nothing was changed: its record could not be written ({e})"
+            )));
+        }
         let (result, clean) = self.swap_steps(&intent, depth_zero);
         self.running().remove(&stamp);
         // The intent goes only when nothing this swap made is left behind: a stray keeps it, for
         // the next start to settle.
         if clean {
-            // ARCH30-4: Why::Superseded (the swap is settled).
-            if let Err(e) = self.drive.delete(&record) {
-                eprintln!("[azul-bridge] the record of a finished swap could not be removed ({record}): {e}");
+            if let Err(e) = self.records.remove(&stamp) {
+                eprintln!("[azul-bridge] the record of a finished swap could not be removed ({stamp}): {e}");
             }
         }
         result
@@ -1437,77 +1624,109 @@ impl Dav {
         (Ok(()), true)
     }
 
-    /// Looks, once, at the swaps an earlier process left ([`SWAPS`]) before the first request is
-    /// answered; a look that fails is made again by the next request.
+    /// Looks at the swaps an earlier process left ([`SwapRecords`]) before the first request is
+    /// answered, and again when a record it had to leave alone is past its grace; a look that fails
+    /// is made again by the next request.
     fn recover_swaps_once(&self) {
-        if self.swaps_recovered.swap(true, Ordering::SeqCst) {
+        let now = self.now();
+        let due = self.next_look.load(Ordering::SeqCst);
+        // The request that takes the look over from `due` makes it; one that comes meanwhile goes on.
+        if now < due
+            || self
+                .next_look
+                .compare_exchange(due, u64::MAX, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
             return;
         }
-        match self.recover_swaps(azul_storage::time::now_unix()) {
-            Ok(0) => {}
-            Ok(settled) => eprintln!("[azul-bridge] {settled} interrupted copy or move settled"),
+        match self.recover_swaps(now) {
+            Ok(found) => {
+                if found.settled > 0 {
+                    eprintln!(
+                        "[azul-bridge] {} interrupted copy or move settled",
+                        found.settled
+                    );
+                }
+                if let Some(at) = found.wait_until {
+                    self.next_look.store(at, Ordering::SeqCst);
+                }
+            }
             Err(e) => {
                 eprintln!(
                     "[azul-bridge] the interrupted copies and moves could not be looked at: {e}"
                 );
-                self.swaps_recovered.store(false, Ordering::SeqCst);
+                self.next_look.store(0, Ordering::SeqCst);
             }
         }
     }
 
-    /// Finishes or undoes the swaps recorded in [`SWAPS`] that are not running now; how many it
-    /// settled. A record of this process that is not running was cut by a panic; one of another
-    /// process is left alone for [`SWAP_GRACE_SECS`] (`now`: seconds since 1970) - it may be a swap
-    /// that is running. A record that cannot be read stays, and so does one whose names are not
-    /// where the table of [`Dav::swap_in`] expects them: nothing is guessed.
-    fn recover_swaps(&self, now: u64) -> Result<usize, DriveError> {
-        let prefix = format!("{SWAPS}/");
-        let records = match ops::list_all(&*self.drive, &prefix) {
-            Ok(records) => records,
-            Err(DriveError::NotFound { .. }) => return Ok(0),
-            Err(e) => return Err(e),
-        };
-        let mut settled = 0;
-        for record in records {
-            let Some(stamp) = record
-                .key
-                .strip_prefix(&prefix)
-                .and_then(|name| name.strip_suffix(".json"))
-            else {
-                continue;
-            };
-            if self.running().contains(stamp) {
+    /// Finishes or undoes the swaps recorded in [`SwapRecords`] that are not running now. A record of
+    /// this process that is not running was cut by a panic; one of another process is left alone for
+    /// [`SWAP_GRACE_SECS`] (`now`: seconds since 1970) - it may be a swap that is running - and the
+    /// look says when that is over ([`Recovery::wait_until`]). A record that cannot be read stays, and
+    /// so does one whose names are not where the table of [`Dav::swap_in`] expects them: nothing is
+    /// guessed.
+    ///
+    /// # Errors
+    ///
+    /// The records cannot be listed or read, or the drive refuses a step: the look is made again.
+    fn recover_swaps(&self, now: u64) -> Result<Recovery, DriveError> {
+        let stamps = self.records.stamps().map_err(|e| {
+            DriveError::Io(format!(
+                "the records of the interrupted swaps cannot be listed: {e}"
+            ))
+        })?;
+        let mut found = Recovery::default();
+        for stamp in stamps {
+            if self.running().contains(&stamp) {
                 continue;
             }
             // `<seconds>-<process>-<counter>` ([`unique_stamp`]).
             let mut parts = stamp.split('-');
             let at = parts.next().and_then(|secs| secs.parse::<u64>().ok());
             let process = parts.next().and_then(|pid| pid.parse::<u32>().ok());
-            if process != Some(std::process::id())
-                && at.is_none_or(|at| now < at.saturating_add(SWAP_GRACE_SECS))
-            {
-                continue;
-            }
-            let intent = match self.drive.get(&record.key) {
-                Ok(bytes) => {
-                    match serde_json::from_slice::<SwapIntent>(&bytes) {
-                        Ok(intent) => intent,
-                        Err(e) => {
-                            eprintln!("[azul-bridge] the record {} of an interrupted swap is damaged: {e}", record.key);
-                            continue;
-                        }
+            if process != Some(std::process::id()) {
+                match at {
+                    // A name this bridge did not make: not its to settle.
+                    None => continue,
+                    Some(at) if now < at.saturating_add(SWAP_GRACE_SECS) => {
+                        let until = at.saturating_add(SWAP_GRACE_SECS);
+                        found.wait_until =
+                            Some(found.wait_until.map_or(until, |was| was.min(until)));
+                        continue;
                     }
+                    Some(_) => {}
                 }
-                Err(DriveError::NotFound { .. }) => continue,
-                Err(e) => return Err(e),
+            }
+            let bytes = match self.records.get(&stamp) {
+                Ok(Some(bytes)) => bytes,
+                // Settled by another look since the list.
+                Ok(None) => continue,
+                Err(e) => {
+                    return Err(DriveError::Io(format!(
+                        "the record {stamp} of an interrupted swap cannot be read: {e}"
+                    )))
+                }
+            };
+            let intent = match serde_json::from_slice::<SwapIntent>(&bytes) {
+                Ok(intent) => intent,
+                Err(e) => {
+                    eprintln!(
+                        "[azul-bridge] the record {stamp} of an interrupted swap is damaged: {e}"
+                    );
+                    continue;
+                }
             };
             if self.settle_swap(&intent)? {
-                // ARCH30-4: Why::Superseded (the swap is settled).
-                self.drive.delete(&record.key)?;
-                settled += 1;
+                self.records.remove(&stamp).map_err(|e| {
+                    DriveError::Io(format!(
+                        "the record {stamp} of a settled swap could not be removed: {e}"
+                    ))
+                })?;
+                found.settled += 1;
             }
         }
-        Ok(settled)
+        Ok(found)
     }
 
     /// Settles one interrupted swap by what is where (the table of [`Dav::swap_in`]); `false`
