@@ -1879,6 +1879,17 @@ pub fn claimed(
     shared.set(PENDING_KEY, &text)
 }
 
+/// A stop the token server's restore lifts that holds the months of a paid grant back for now - a
+/// payment taken back, a mandate stopped for it -: why, in words, and the days the drive's looks go on
+/// asking about them ([`VaultGrant::revive_due`]). What [`Finished::Stopped`] says, and what
+/// [`Finished::LocalOnly`] carries when the entry goes with the grant's second copy at the same time
+/// (X-DELTA-MONEY7-6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stop {
+    pub why: String,
+    pub days: u32,
+}
+
 /// What became of a claimed checkout's period tokens ([`finish`]).
 #[derive(Debug)]
 pub enum Finished {
@@ -1921,11 +1932,14 @@ pub enum Finished {
     },
     /// Off the list after [`GRANT_WAIT_SECS`] without a vault of the drive: the grant is in two
     /// copies on this computer (`why` the drive has none). The app tells its user to keep a copy
-    /// of its data: the months are on this computer only.
+    /// of its data: the months are on this computer only. `stopped`: a stop the restore lifts holds
+    /// its months back as well - the app says that too, once, with this call: this is the one that
+    /// lets the entry go, so [`Finished::Stopped`] is never made for it (X-DELTA-MONEY7-6).
     LocalOnly {
         drive_id: String,
         count: usize,
         why: String,
+        stopped: Option<Stop>,
     },
     /// Its grant is done as the variant inside says (issued, granted, kept on this computer
     /// only), but the record of its payment names no receipt yet ([`PendingCheckout::receipt_due`]):
@@ -2204,20 +2218,28 @@ pub fn finish(
             }
         }
     };
+    // The months are on hold, not lost: said once, by the call that lets the entry go - whichever it
+    // is (X-DELTA-MONEY7-6: a grant that gets no vault is let go as `LocalOnly`, which carries it).
+    let stop = may_be_lifted.then(|| Stop {
+        why: why.clone(),
+        days: u32::try_from(REVIVE_FOR_SECS / 86_400).unwrap_or(u32::MAX),
+    });
     let finished = match second_copy {
         Some(no_vault) => Finished::LocalOnly {
             drive_id,
             count,
             why: no_vault,
+            stopped: stop,
         },
         None if count > 0 => Finished::Issued { drive_id, count },
-        // the months are on hold, not lost: said once, by the call that lets the entry go
-        None if may_be_lifted => Finished::Stopped {
-            drive_id,
-            why,
-            days: u32::try_from(REVIVE_FOR_SECS / 86_400).unwrap_or(u32::MAX),
+        None => match stop {
+            Some(Stop { why, days }) => Finished::Stopped {
+                drive_id,
+                why,
+                days,
+            },
+            None => Finished::Granted { drive_id, why },
         },
-        None => Finished::Granted { drive_id, why },
     };
     // The record of its payment names no receipt yet (the answer that brought the drive had
     // none, or the record could not be kept): ask once more now - the token server books the

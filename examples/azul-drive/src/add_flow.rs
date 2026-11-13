@@ -2202,6 +2202,20 @@ pub(crate) fn taken_back(s: &mut DriveState, checkout_id: &str, why: &str, days:
     );
 }
 
+/// The buyer is told, once, that the months of the checkout `checkout_id` stopped coming - the token
+/// server holds them back for a stop its restore lifts, a payment taken back or a mandate stopped -
+/// and that AzDrive keeps what the checkout paid for with the drive and asks about the months a week
+/// apart for `days` days. One sentence for both calls that let the entry go ([`Finished::Stopped`],
+/// [`Finished::LocalOnly`]).
+fn months_stopped(s: &mut DriveState, checkout_id: &str, why: &str, days: u32) {
+    s.warn(
+        Phrase::new("azdrive-add-months-stopped")
+            .arg("checkout", checkout_id)
+            .arg("why", why)
+            .arg("days", days),
+    );
+}
+
 /// A claimed checkout finished: off the keyring's list, its period tokens kept - or what kept it
 /// there (a failed issue is tried again by the claims and at the next start, quietly).
 pub(crate) fn checkout_finished(
@@ -2270,12 +2284,7 @@ pub(crate) fn checkout_finished(
             days,
         })) => {
             println!("AZDRIVE_PERIOD_STOPPED {checkout_id} {drive_id}");
-            s.warn(
-                Phrase::new("azdrive-add-months-stopped")
-                    .arg("checkout", checkout_id)
-                    .arg("why", why.as_str())
-                    .arg("days", days),
-            );
+            months_stopped(s, checkout_id, &why, days);
         }
         Ok(Some(Finished::Kept(why))) => {
             eprintln!(
@@ -2307,6 +2316,7 @@ pub(crate) fn checkout_finished(
             drive_id,
             count,
             why,
+            stopped,
         })) => {
             println!("AZDRIVE_PERIOD_TOKENS {checkout_id} {drive_id} {count}");
             let name = s.drive_name(&Place::folder(&drive_id, ""));
@@ -2315,6 +2325,12 @@ pub(crate) fn checkout_finished(
                     .arg("drive", name)
                     .arg("why", why.as_str()),
             );
+            // This call lets the entry go, so it says the stop too: the token server stopped issuing
+            // the months, and the drive's looks ask about them again (X-DELTA-MONEY7-6).
+            if let Some(stop) = stopped {
+                println!("AZDRIVE_PERIOD_STOPPED {checkout_id} {drive_id}");
+                months_stopped(s, checkout_id, &stop.why, stop.days);
+            }
             crate::periods::look_after_claim(s, &drive_id);
         }
         Err(why) => s.error(

@@ -1891,3 +1891,114 @@ fn x_delta_money7_8_a_step_of_the_clock_between_two_finish_rounds_does_not_take_
         .grant("ck_1")
         .is_some_and(|g| g.revive_pending(NOW + 91 * 86_400)));
 }
+
+// ==== X-DELTA-MONEY7-6: a stop at the claim of a drive that gets no vault ====
+
+/// X-DELTA-MONEY7-6: the first month of a paid grant is asked while a stop stands (a mandate a repeat
+/// reversal stopped), and the drive's vault is not open for 30 days: the rounds are quiet, then the
+/// grant's second copy is kept on this computer and the entry goes - as `LocalOnly`, which was matched
+/// before the stop was looked at: the buyer read "kept on this computer only" and never that the token
+/// server stopped issuing the months. Now `LocalOnly` carries the stop - its words and the days the
+/// drive's looks go on asking - so the app says both. A claim whose month was issued carries none.
+#[test]
+fn x_delta_money7_6_a_stop_at_the_claim_of_a_drive_with_no_vault_is_carried_to_the_local_only_word()
+{
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let lifted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let asked = Arc::new(AtomicUsize::new(0));
+    let transport = Shared(refusing_until_lifted("mandate_stopped", &lifted, &asked));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let local_only = store.on_this_device("d_1").unwrap();
+    // a round a day for the 30 days the grant waits for the drive's vault: quiet
+    let (mut ck, mut owed) = (ck, owed);
+    for day in 0..30_u64 {
+        match pending::finish(
+            &server,
+            &shared,
+            &store,
+            &local_only,
+            &ck,
+            &owed,
+            NOW + day * 86_400,
+        ) {
+            Finished::Waits { count: 0, .. } => {}
+            other => panic!("day {day}: {other:?}"),
+        }
+        ck = pending::list(&shared).unwrap().remove(0);
+        owed = ck.period.clone().expect("still claimed");
+    }
+    // the 31st round: 30 days have been seen pass, the second copy is kept, the entry goes
+    match pending::finish(
+        &server,
+        &shared,
+        &store,
+        &local_only,
+        &ck,
+        &owed,
+        NOW + 30 * 86_400,
+    ) {
+        Finished::LocalOnly {
+            drive_id,
+            count: 0,
+            why,
+            stopped: Some(stop),
+        } => {
+            assert_eq!(drive_id, "d_1");
+            assert!(why.contains("no key"), "why the drive has no vault: {why}");
+            assert!(
+                stop.why.contains("mandate was stopped"),
+                "the stop's own words: {}",
+                stop.why
+            );
+            assert_eq!(stop.days, 90, "the days the drive's looks go on asking");
+        }
+        other => panic!("the stop was not carried to the local-only word: {other:?}"),
+    }
+    assert!(pending::list(&shared).unwrap().is_empty());
+    assert!(
+        local_only
+            .state()
+            .unwrap()
+            .grant("ck_1")
+            .is_some_and(|g| g.is_ended() && g.revivable),
+        "the grant stays in the vaults with its end: the restore still reaches the months"
+    );
+}
+
+/// X-DELTA-MONEY7-6, the control: a grant whose month was issued at the claim and whose drive got no
+/// vault for 30 days is `LocalOnly` with no stop to carry - the word is the old one.
+#[test]
+fn x_delta_money7_6_a_grant_with_no_stop_is_local_only_as_before() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let transport = Shared(issuing_server(keys(), N1, D1, "100GB/2026"));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let local_only = store.on_this_device("d_1").unwrap();
+    let (mut ck, mut owed) = (ck, owed);
+    let mut last = None;
+    for day in 0..=30_u64 {
+        let finished = pending::finish(
+            &server,
+            &shared,
+            &store,
+            &local_only,
+            &ck,
+            &owed,
+            NOW + day * 86_400,
+        );
+        if let Some(entry) = pending::list(&shared).unwrap().into_iter().next() {
+            owed = entry.period.clone().expect("still claimed");
+            ck = entry;
+        }
+        last = Some(finished);
+    }
+    match last {
+        Some(Finished::LocalOnly { stopped: None, .. }) => {}
+        other => panic!("{other:?}"),
+    }
+}
