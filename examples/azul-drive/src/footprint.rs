@@ -120,6 +120,15 @@ pub(crate) struct Computer {
 /// says so ([`LegacyCopiesFootprint`], X-DELTA-SYNC4-25). Recognised by this name where the removal builds its stores.
 pub(crate) const LEGACY_PICKED: &str = "picked copies of an older AzDrive";
 
+/// The name of the store of the copies an older AzDrive handed out of a pairing's `<state>/open`: the same rule as
+/// [`LEGACY_PICKED`] (X-DELTA-SYNC9-1: the state folder was removed whole and took them with it).
+pub(crate) const LEGACY_OPENED: &str = "opened copies of an older AzDrive";
+
+/// The name of the store of the pairings' state folders: everything in them goes except the `open` folder an older
+/// AzDrive left copies in, which [`LEGACY_OPENED`] deals with first. Recognised by this name where the removal builds
+/// its stores.
+pub(crate) const SYNC_STATE: &str = "sync state";
+
 /// One store of a drive's files and folders on this computer.
 #[derive(Clone)]
 pub(crate) struct Spot {
@@ -246,7 +255,15 @@ impl Places {
                     dirs.push(dir);
                 }
             }
-            spots.push(Spot::free("sync state", dirs));
+            // The copies an older AzDrive handed out of the pairing's `open` folder come first: a folder with
+            // no file goes, one with files stays - and then the state folder goes without it.
+            spots.push(Spot::free(
+                LEGACY_OPENED,
+                dirs.iter()
+                    .map(|dir| dir.join(azul_storage::scratch::LEGACY_STATE_OPEN))
+                    .collect(),
+            ));
+            spots.push(Spot::free(SYNC_STATE, dirs));
         }
         Places {
             drives_file: computer.drives_file.clone(),
@@ -277,11 +294,16 @@ pub(crate) fn forget(
     }
     for spot in &places.spots {
         let paths = spot.paths.clone();
-        if spot.store == LEGACY_PICKED {
+        if spot.store == LEGACY_PICKED || spot.store == LEGACY_OPENED {
             stores.push(Box::new(LegacyCopiesFootprint::new(spot.store, paths)));
             continue;
         }
         let store = Paths::new(spot.store, move |_| paths.clone());
+        let store = if spot.store == SYNC_STATE {
+            store.keeping(azul_storage::scratch::LEGACY_STATE_OPEN)
+        } else {
+            store
+        };
         stores.push(Box::new(if spot.only_with_proof {
             store.only_with_proof()
         } else {
@@ -933,6 +955,59 @@ mod tests {
         assert!(!report.keys_kept(), "a user's folder is no keys kept: {report:?}");
         let drives = DrivesFile::load(sandbox.computer.drives_file.as_ref().unwrap()).unwrap();
         assert!(drives.get(DRIVE).is_none(), "the drive is off the list all the same");
+    }
+
+    /// X-DELTA-SYNC9-1. The fourth site of the rule of X-DELTA-SYNC4-25: the copies an older AzDrive handed out of a cloud-only file
+    /// of a pairing lie in `<state>/open`, INSIDE the pairing's state folder, and "Remove drive" removed the state folder whole - the
+    /// copy the user edited and saved in another program went with it, and the report did not name it. The `open` folder with a file in
+    /// it stays with the removal and the report says so; the rest of the state folder goes, and so does an `open` folder with no file.
+    /// RED on the old removal: the file is gone and nothing is kept.
+    #[test]
+    fn x_delta_sync9_1_a_copy_in_the_pairings_open_folder_stays_with_the_removal_and_the_report_names_it(
+    ) {
+        let sandbox = sandbox();
+        leave_traces(&sandbox, DRIVE);
+        let state = pairing(DRIVE).state_dir(sandbox.computer.sync_root.as_ref().unwrap());
+        let copy = state.join("open").join("docs").join("report.docx");
+        durable::replace(&copy, b"the user edited this copy", Mode::Private).unwrap();
+        // The state of a pairing the settings forgot: an `open` folder with no file goes with the rest of it.
+        let forgotten = SyncSetup::new(DRIVE, "Old/", Path::new("/tmp/a-drive-synced-before"))
+            .state_dir(sandbox.computer.sync_root.as_ref().unwrap());
+        std::fs::create_dir_all(forgotten.join("open").join("folder-only")).unwrap();
+
+        let proof = a_proof_for(DRIVE);
+        let keyring: &dyn KeyringStore = &sandbox.keyring;
+        let report = forget(DRIVE, &sandbox.places(DRIVE), Some(keyring), Some(&proof));
+        assert!(report.complete(), "{report:?}");
+        assert_eq!(
+            std::fs::read(&copy).unwrap(),
+            b"the user edited this copy",
+            "the user's copy stays"
+        );
+        assert!(
+            !state.join("state").exists(),
+            "the rest of the state folder went"
+        );
+        assert!(
+            !forgotten.exists(),
+            "an open folder with no file goes with its state folder"
+        );
+        let folder = state.join("open").display().to_string();
+        assert!(
+            report.kept().iter().any(|kept| kept.what == folder
+                && kept.because == azul_storage::footprint::KeptBecause::UsersWork),
+            "and it is said: {:?}",
+            report.kept()
+        );
+        assert!(
+            !report.keys_kept(),
+            "a user's folder is no keys kept: {report:?}"
+        );
+        let drives = DrivesFile::load(sandbox.computer.drives_file.as_ref().unwrap()).unwrap();
+        assert!(
+            drives.get(DRIVE).is_none(),
+            "the drive is off the list all the same"
+        );
     }
 
     /// LANE-AZ-2: a drive that is on a computer with no keyring (nothing of its keys) and no

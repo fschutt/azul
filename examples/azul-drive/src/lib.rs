@@ -166,6 +166,9 @@ mod actions;
 mod transfer_actions;
 #[cfg(test)]
 mod delete_tests;
+/// The copies of an older AzDrive that stay on the computer, and what the start says about them (X-DELTA-SYNC9-11).
+#[cfg(test)]
+mod legacy_copies_tests;
 /// The file operations on the drives the app really opens (`Slot::open`), not on bare folders.
 #[cfg(test)]
 mod files_tests;
@@ -2564,24 +2567,80 @@ pub(crate) fn set_window_title(info: &mut CallbackInfo, s: &DriveState) {
     }
 }
 
-/// How many files of the folders an older AzDrive handed copies out of stay on this computer: the shared
-/// temp folder's `AzDrive-open` (`temp`, dealt with at the start) and the `open` folder of each sync pairing's
-/// state, which the kit's open no longer removes whole (X-DELTA-SYNC4-25).
-fn legacy_copies_kept(s: &DriveState, temp: &scratch::LegacyCopies) -> usize {
-    let mut files = match temp {
-        scratch::LegacyCopies::Kept { files } => *files,
-        _ => 0,
+/// The file in the cache folder that says what the start told about the copies of an older AzDrive that stay
+/// ([`tell_kept_copies`]).
+const LEGACY_COPIES_TOLD: &str = "legacy-copies-told";
+
+/// A folder an older AzDrive handed decrypted copies of files out of that stays on this computer, and how many files
+/// are in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct KeptCopies {
+    folder: PathBuf,
+    files: usize,
+}
+
+/// The folders of the copies an older AzDrive handed out that stay on this computer: the shared temp folder's
+/// `AzDrive-open` (`temp`, dealt with at the start) and the `open` folder of each sync pairing's state, which the kit's
+/// open no longer removes whole (X-DELTA-SYNC4-25). Each with the files that are in it.
+fn legacy_copies_kept(s: &DriveState, temp: &scratch::LegacyCopies) -> Vec<KeptCopies> {
+    let state_dirs: Vec<PathBuf> = match sync_jobs::state_root(s) {
+        Some(root) => s
+            .settings
+            .synced
+            .iter()
+            .map(|setup| setup.state_dir(&root))
+            .collect(),
+        None => Vec::new(),
     };
-    if let Some(root) = sync_jobs::state_root(s) {
-        for setup in &s.settings.synced {
-            if let scratch::LegacyCopies::Kept { files: more } =
-                scratch::remove_legacy_copies_at(&setup.state_dir(&root).join("open"))
-            {
-                files += more;
+    kept_copies_in(&scratch::legacy_open_folder(), temp, &state_dirs)
+}
+
+/// [`legacy_copies_kept`] over what it reads: `temp_folder` was dealt with as `temp` says, and the `open` folder of every
+/// one of `state_dirs` is dealt with now (a folder with no file goes, one with files stays: [`scratch::remove_legacy_copies_at`]).
+fn kept_copies_in(
+    temp_folder: &Path,
+    temp: &scratch::LegacyCopies,
+    state_dirs: &[PathBuf],
+) -> Vec<KeptCopies> {
+    let mut kept = Vec::new();
+    if let scratch::LegacyCopies::Kept { files } = temp {
+        if *files > 0 {
+            kept.push(KeptCopies {
+                folder: temp_folder.to_path_buf(),
+                files: *files,
+            });
+        }
+    }
+    for dir in state_dirs {
+        let folder = dir.join(scratch::LEGACY_STATE_OPEN);
+        if let scratch::LegacyCopies::Kept { files } = scratch::remove_legacy_copies_at(&folder) {
+            if files > 0 {
+                kept.push(KeptCopies { folder, files });
             }
         }
     }
-    files
+    kept
+}
+
+/// Whether the start says it: the notice is made for what is kept NOW and said once per change - not at every start for
+/// as long as the folders stay (X-DELTA-SYNC9-11). What was told last is kept in `record` (a file of the cache folder: each
+/// folder and how many files are in it): the same list is not told again, a folder that is gone or a count that changed
+/// is a new notice, and an empty list clears the record. A record that cannot be read is none: the notice is told.
+fn tell_kept_copies(record: Option<&Path>, kept: &[KeptCopies]) -> bool {
+    let now: String = kept
+        .iter()
+        .map(|copies| format!("{}\t{}\n", copies.folder.display(), copies.files))
+        .collect();
+    if let Some(record) = record {
+        // collapse-ok: a record that cannot be read is no record, and the notice is told again; one that cannot
+        // be written is told again at the next start - a notice too many, never one too few.
+        let told = std::fs::read_to_string(record).ok();
+        if told.as_deref() == Some(now.as_str()) {
+            return false;
+        }
+        let _ = azul_storage::durable::replace_cache(record, now.as_bytes());
+    }
+    !kept.is_empty()
 }
 
 /// [`set_window_title`]'s text: `Home/Documents - AzDrive`.
@@ -4499,10 +4558,26 @@ pub fn start() {
         state.settings_found = Some(state.settings.clone());
     }
     refresh_disks(&mut state);
-    // What an older AzDrive handed out and that stays, said once per start in one sentence (X-DELTA-SYNC4-25).
+    // What an older AzDrive handed out and that stays, said in one sentence that names the folders - once per change,
+    // not at every start (X-DELTA-SYNC4-25, X-DELTA-SYNC9-11).
     let kept_copies = legacy_copies_kept(&state, &legacy_copies);
-    if kept_copies > 0 {
-        state.warn(azul_appkit::l10n::Phrase::new("azdrive-legacy-copies-kept").arg("files", kept_copies));
+    let told = state
+        .cache_dir
+        .as_ref()
+        .map(|dir| dir.join(LEGACY_COPIES_TOLD));
+    if tell_kept_copies(told.as_deref(), &kept_copies) {
+        let folders: Vec<String> = kept_copies
+            .iter()
+            .map(|copies| copies.folder.display().to_string())
+            .collect();
+        state.warn(
+            azul_appkit::l10n::Phrase::new("azdrive-legacy-copies-kept")
+                .arg(
+                    "files",
+                    kept_copies.iter().map(|copies| copies.files).sum::<usize>(),
+                )
+                .arg("folders", folders.join(", ")),
+        );
     }
 
     // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.

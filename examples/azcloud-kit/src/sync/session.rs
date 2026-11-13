@@ -867,6 +867,10 @@ pub struct SyncSession {
     clock_offset: f64,
     /// How long an edit of the base waits for a running pass ([`SyncSession::with_edit_wait`]).
     edit_wait: Duration,
+    /// Whether this session has dealt with the folder an older version left decrypted copies in (`<state>/open`):
+    /// the look at it is made once per session, not at every open (X-DELTA-SYNC9-11).
+    #[cfg(feature = "encryption")]
+    legacy_open_dealt: std::sync::atomic::AtomicBool,
 }
 
 impl SyncSession {
@@ -918,6 +922,8 @@ impl SyncSession {
             points: None,
             clock_offset: 0.0,
             edit_wait: EDIT_LOCK_WAIT,
+            #[cfg(feature = "encryption")]
+            legacy_open_dealt: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -2240,7 +2246,14 @@ impl SyncSession {
         // holds no file goes; one that holds files may hold what the user changed in them and never synced,
         // and stays, closed to other users (X-DELTA-SYNC4-25: it was removed whole); AzDrive says so at
         // its start.
-        let _ = azul_storage::scratch::remove_legacy_copies_at(&self.dir.join("open"));
+        if !self
+            .legacy_open_dealt
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            let _ = azul_storage::scratch::remove_legacy_copies_at(
+                &self.dir.join(azul_storage::scratch::LEGACY_STATE_OPEN),
+            );
+        }
         // The copy's own name is the key's last name (the folders of the key add nothing: the
         // copy's folder is one per drive, file and version), a name the policy admitted above.
         let name = admitted

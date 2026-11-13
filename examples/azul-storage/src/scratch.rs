@@ -124,6 +124,18 @@ pub enum LegacyCopies {
     Kept { files: usize },
 }
 
+/// The folder of the decrypted copies an older program left in a sync pairing's state folder: `<state>/open`. The one
+/// folder of a pairing's state that holds the user's own files and not the program's bookkeeping (a copy an app was
+/// handed writable, maybe edited and saved): [`remove_legacy_copies_at`] deals with it - the kit's open, AzDrive's start
+/// - and "Remove drive" keeps it when it holds a file (X-DELTA-SYNC9-1). The one spelling of its name.
+pub const LEGACY_STATE_OPEN: &str = "open";
+
+/// The shared temp folder's `AzDrive-open`, where [`remove_legacy_open_copies`] looks: for a notice that names it.
+#[must_use]
+pub fn legacy_open_folder() -> PathBuf {
+    shared_temp().join(LEGACY_OPEN)
+}
+
 /// Deals with `AzDrive-open` in the system's shared temp folder: where an AzDrive before scratch put the
 /// decrypted copy of every file it opened (`AzDrive-open/<drive>/<name>`, folders 0755 and files 0644 -
 /// readable by every user of the computer), and where nothing ever removed them (AZ-W4). Only a folder this

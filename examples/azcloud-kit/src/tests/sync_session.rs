@@ -957,6 +957,43 @@ mod encrypted_copies {
         );
     }
 
+    /// X-DELTA-SYNC9-11. The look at the old `open` folder (the copies an older AzDrive left in the state folder) is made
+    /// once per session, not at every open: it walked the folder - up to 4,096 looks - and closed it again at every Open of a
+    /// file of the pairing, for as long as the folder exists. Here a folder an older AzDrive "left" appears after the first open,
+    /// readable by everybody as it was; the second open of the same session does not touch it. RED when every open looks: the
+    /// second open closes it.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_sync9_11_the_old_open_folder_is_looked_at_once_per_session_not_at_every_open() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let opened = Opened::new("legacy-once", "notes/diary.txt", b"the diary of a person");
+        let state = opened._dirs[2].path().to_path_buf();
+        opened.session.open("notes/diary.txt").unwrap();
+        std::fs::create_dir_all(state.join("open")).unwrap();
+        std::fs::write(
+            state.join("open/left-over.txt"),
+            b"plaintext an earlier version left",
+        )
+        .unwrap();
+        std::fs::set_permissions(state.join("open"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        opened.session.open("notes/diary.txt").unwrap();
+        assert_eq!(
+            std::fs::metadata(state.join("open"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755,
+            "the second open of the session did not look at the folder again"
+        );
+        assert!(
+            state.join("open/left-over.txt").exists(),
+            "and nothing was removed"
+        );
+    }
+
     /// An encrypted drive holding `Documents/<key>`, paired as the drive `drive_id`: a session over
     /// it whose copies go to that drive's own scratch of open copies (emptied again when this
     /// drops, so a run leaves nothing behind and the next finds nothing).

@@ -319,6 +319,75 @@ fn x_delta_azdrive_keys_32_the_device_key_is_an_entry_of_the_drive_and_goes_with
         .is_some());
 }
 
+/// X-DELTA-SYNC9-1: a store that keeps a child takes the rest of every folder and leaves the folder while the child
+/// stays - the pairing's state folder goes with everything it holds except the `open` folder an older AzDrive handed copies
+/// out of, which another store deals with. A folder with nothing to keep goes whole, a folder that is not there is no
+/// error, and the report does not say a folder was removed that is still there. RED on the old store: no way to keep a child
+/// existed, and the state folder went whole with the user's copies in it.
+#[test]
+fn x_delta_sync9_1_a_store_that_keeps_a_child_takes_the_rest_of_the_folder_and_leaves_the_folder_while_the_child_stays(
+) {
+    let dir = TempDir::new("footprint-keeping");
+    let state = dir.path().join("state");
+    std::fs::create_dir_all(state.join("open").join("docs")).unwrap();
+    std::fs::write(
+        state.join("open").join("docs").join("a.txt"),
+        b"the user's copy",
+    )
+    .unwrap();
+    std::fs::create_dir_all(state.join("base")).unwrap();
+    std::fs::write(state.join("base").join("index.json"), b"{}").unwrap();
+    std::fs::write(state.join("lock"), b"").unwrap();
+    let whole = dir.path().join("whole");
+    std::fs::create_dir_all(&whole).unwrap();
+    std::fs::write(whole.join("index.json"), b"{}").unwrap();
+    let absent = dir.path().join("absent");
+    let paths = vec![state.clone(), whole.clone(), absent.clone()];
+    let store = Paths::new("sync state", move |_| paths.clone()).keeping("open");
+
+    let done = store.forget(DRIVE, None).unwrap();
+    assert_eq!(
+        std::fs::read(state.join("open").join("docs").join("a.txt")).unwrap(),
+        b"the user's copy",
+        "the kept child is where it was, with all it holds"
+    );
+    assert!(
+        !state.join("base").exists() && !state.join("lock").exists(),
+        "everything else in the folder went"
+    );
+    assert!(
+        state.exists(),
+        "the folder stays while it holds what it keeps"
+    );
+    assert!(
+        !whole.exists(),
+        "a state folder with nothing to keep goes whole"
+    );
+    assert!(
+        !done.removed.contains(&state.display().to_string()),
+        "a folder that is still there is not said to be removed: {done:?}"
+    );
+    assert!(
+        done.removed.contains(&whole.display().to_string())
+            && done.removed.contains(&absent.display().to_string()),
+        "{done:?}"
+    );
+    assert!(
+        done.kept.is_empty(),
+        "the store of the kept child says what became of it: {done:?}"
+    );
+    assert_eq!(store.residue(DRIVE).unwrap(), [state.display().to_string()]);
+
+    // Once the child is gone (the user deleted the copies) a later removal takes the folder too.
+    std::fs::remove_dir_all(state.join("open")).unwrap();
+    let again = store.forget(DRIVE, None).unwrap();
+    assert!(!state.exists(), "{again:?}");
+    assert!(
+        again.removed.contains(&state.display().to_string()),
+        "{again:?}"
+    );
+}
+
 /// X-DELTA-SYNC4-25: the legacy folder an older program handed copies out of (no record of what it wrote) is a store of
 /// the removal: with no file in it, it goes; with a file in it - maybe what the user changed, which nothing synced - it
 /// is made private and stays, said (`UsersWork`), and the removal is still complete.

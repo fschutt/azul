@@ -699,8 +699,8 @@ azdrive-sync-problems = { $count ->
     }
 azdrive-sync-problems-more = and { $count } more
 azdrive-legacy-copies-kept = { $files ->
-        [one] A copy of a file that an older AzDrive opened stays in a folder of this computer, closed to other users, because it may hold changes you made that nothing synced; delete the folder "AzDrive-open" in the temporary folder when you do not need it.
-       *[other] { $files } copies of files that an older AzDrive opened stay in folders of this computer, closed to other users, because they may hold changes you made that nothing synced; delete the folder "AzDrive-open" in the temporary folder when you do not need them.
+        [one] An unencrypted copy of a file that an older AzDrive opened stays on this computer, because it may hold changes you made that nothing synced: { $folders }. Delete the folder when you do not need the copy.
+       *[other] { $files } unencrypted copies of files that an older AzDrive opened stay on this computer, because they may hold changes you made that nothing synced: { $folders }. Delete the folders when you do not need the copies.
     }
 azdrive-sync-send-kept = Send them again
 azdrive-sync-sent-again = { $count ->
