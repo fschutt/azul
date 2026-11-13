@@ -158,7 +158,10 @@ fn e2e_m1_a_view_that_cannot_land_is_refused_by_name() {
             "`row_html` is empty",
         ),
         (
-            broken(&|v| v.row_html = TextLines::Single("<div>".to_string())),
+            // An XML syntax error: an attribute value without its quotes.
+            broken(&|v| {
+                v.row_html = TextLines::Single("<div class=row>Row {n}</div>".to_string());
+            }),
             "`row_html` is not valid markup",
         ),
     ] {
@@ -169,6 +172,15 @@ fn e2e_m1_a_view_that_cannot_land_is_refused_by_name() {
             "wanted {want:?}, got: {error}"
         );
     }
+    // An element the row leaves open is no syntax error: the strict loader
+    // matches end tags within their scope (`parse_xml_string`), so the
+    // `</body>` around the row closes it - in this check as in the
+    // renderer's `row_content`, which wraps each row the same way. Such a
+    // row lands, as the empty element it is.
+    let mut open_div = view("#list");
+    open_div.row_html = TextLines::Single("<div>".to_string());
+    apply_views(&mut document(), std::slice::from_ref(&open_div))
+        .expect("a row whose element the wrapper closes lands");
 }
 
 /// The second view is the one that is refused, and the message numbers it.
