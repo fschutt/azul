@@ -509,27 +509,15 @@ pub const HOLD_DAYS: u64 = azul_storage::meta::RETENTION.versions_days();
 /// [`HOLD_DAYS`] in seconds.
 const HOLD_SECS: u64 = azul_storage::meta::RETENTION.versions.as_secs();
 
-/// The readings of this Send/Receive that the clock of this computer is set against when a pull holds mail
-/// ([`hold`]) and when the holding area is swept ([`sweep_removed`]): the folders' `synced_at` stamps in the
-/// local copy and the newest `modified` of the drive's listing - the ONE rule is [`store::Clocks`], the same
-/// that dates the hold of Delete in the Outbox (X-DELTA-APPS5-2). A state that cannot be READ is an error,
-/// never "no sync yet": a floor of nothing would date a hold by any clock.
-fn read_clocks(store: &MailStore, remote: &[RemoteFolder]) -> Result<Clocks, SyncError> {
-    let mut last_sync: Option<u64> = None;
-    for key in store.folders() {
-        let Some(state) = read_state(store, &key)? else {
-            continue;
-        };
-        if let Some(at) = parse_iso8601(&state.synced_at) {
-            last_sync = Some(last_sync.map_or(at, |was| was.max(at)));
-        }
-    }
-    let drive = remote
+/// The newest `modified` of the mail the drive listed: the drive's own word that it lived at least until then, a
+/// LOWER bound of its time (it never says a later time than it is) - the reading of the drive in the clock the
+/// pull dates a hold by ([`store::Clocks`]) and the sweep is set against. `None`: the drive lists no mail.
+fn drive_reading(remote: &[RemoteFolder]) -> Option<u64> {
+    remote
         .iter()
         .flat_map(|folder| folder.messages.iter())
         .filter_map(|object| object.modified)
-        .max();
-    Ok(Clocks::new(last_sync, drive))
+        .max()
 }
 
 /// Takes `leaving`, the lines of the folder `folder` whose objects the drive no longer has, out of
@@ -909,7 +897,9 @@ pub fn sync_account(
     let mut pass = Pass::new(read_restore_epoch(store)?, options.restore.as_ref(), ask);
     let remote = list_mailbox(drive).map_err(drive_error)?;
     // What the clock of this computer is set against, read before this pass writes a stamp.
-    pass.set_clocks(read_clocks(store, &remote)?, options.now);
+    // The floor is read strictly: one that cannot be read refuses every hold of this Send/Receive and sweeps nothing,
+    // and the Send/Receive goes on (X-DELTA-APPS5-6; a damaged state is made again by the folder's own write).
+    pass.set_clocks(Clocks::of(store, drive_reading(&remote)), options.now);
     let paths: Vec<String> = remote.iter().map(|folder| folder.path.clone()).collect();
     let mut boxes = local_folders(&paths);
     // A folder this computer has that the drive no longer lists (emptied or deleted there): an
@@ -972,7 +962,7 @@ pub fn sync_account(
     }
     // Housekeeping, after the mail is synced: what was held [`HOLD_DAYS`] days ago goes. A sweep
     // that cannot read its list deletes nothing and never fails the sync; the report says so.
-    report.sweep_failed = sweep_removed(store, options.now, pass.clocks.drive())
+    report.sweep_failed = sweep_removed(store, options.now, pass.clocks.sweep_reading())
         .err()
         .map(|e| e.to_string());
     Ok(report)
@@ -3954,6 +3944,162 @@ mod tests {
         deliver(&f, "Inbox", &mail(4, "Four"), SEP_30 + 190 * DAY);
         run_at(&f, SEP_30 + 190 * DAY);
         assert!(held_keys(&f).is_empty(), "{:?}", held_keys(&f));
+    }
+
+    // ==== X-DELTA-APPS5-6: a floor that cannot be read is not "no Send/Receive yet" ====
+
+    /// RED on the code before: `Clocks::read` took the listing of `mail/` that FAILED for no folder at all, so the
+    /// floor was "never synced" - and on a clock that was behind (the case the rule exists for) the pull dated its
+    /// hold by the wrong clock, which the next right-clock sweep deleted. Now the floor is an unreadable one: no hold
+    /// is dated (the line stays, the window says why), the Receive goes on, and the sweep is skipped - the old hold
+    /// is still there afterwards, and the next Send/Receive that can read the floor sweeps it.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_apps5_6_a_listing_of_mail_that_fails_dates_no_hold_and_sweeps_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        // The drive has lived 100 days since the old hold (the sweep needs it to agree).
+        deliver(&f, "Spam", &mail(3, "Three"), SEP_30 + 100 * DAY);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        run_at(&f, SEP_30);
+        let first = holding("inbox", SEP_30);
+        assert!(held_keys(&f).iter().any(|key| key.starts_with(&first)));
+        // `mail/` cannot be listed for a moment (a scanner holding the folder, a permission); what is in it can be
+        // read and written.
+        f.bucket.inner.delete(&two).unwrap();
+        let mail_folder = f.store.folder().path().join(store::MAIL_PREFIX);
+        std::fs::set_permissions(&mail_folder, std::fs::Permissions::from_mode(0o111)).unwrap();
+        let premise = std::fs::read_dir(&mail_folder).is_err();
+        let behind = sync_account(
+            &f.bucket,
+            &f.store,
+            &options_at(SEP_30 - 365 * DAY),
+            &no_restore(),
+            &mut |_| true,
+        );
+        let late = sync_account(
+            &f.bucket,
+            &f.store,
+            &options_at(SEP_30 + 100 * DAY),
+            &no_restore(),
+            &mut |_| true,
+        );
+        std::fs::set_permissions(&mail_folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            premise,
+            "the premise of the test: `mail/` cannot be listed (running as root?)"
+        );
+        // A clock a year back dates no hold: the line stays, the Receive goes on and says why.
+        let behind = behind.expect("a floor that cannot be read is no failed Receive");
+        assert_eq!(
+            (behind.removed(), behind.kept_undated()),
+            (0, 1),
+            "{behind:?}"
+        );
+        let why = behind.hold_refused.clone().expect("the report says why");
+        assert!(
+            why.starts_with("the time of the last Send/Receive cannot be read ("),
+            "{why}"
+        );
+        assert_eq!(held_rows(&f), ["Two"], "the line is where it was");
+        assert!(
+            !held_keys(&f)
+                .iter()
+                .any(|key| key.starts_with("removed/inbox/2025")),
+            "no hold was dated by the wrong clock: {:?}",
+            held_keys(&f)
+        );
+        // On a clock that would sweep the old hold, with the drive agreeing: nothing is swept while the floor cannot
+        // be read (and nothing is held either).
+        let late = late.expect("no failed Receive");
+        assert_eq!((late.removed(), late.kept_undated()), (0, 1), "{late:?}");
+        assert!(
+            held_keys(&f).iter().any(|key| key.starts_with(&first)),
+            "nothing was swept: {:?}",
+            held_keys(&f)
+        );
+        // The listing works again: the sweep that was skipped runs, and the line that waited is held.
+        let report = run_at(&f, SEP_30 + 100 * DAY);
+        assert_eq!(
+            (report.removed(), report.kept_undated(), report.sweep_failed),
+            (1, 0, None)
+        );
+        assert!(
+            !held_keys(&f).iter().any(|key| key.starts_with(&first)),
+            "swept: {:?}",
+            held_keys(&f)
+        );
+    }
+
+    /// RED on the code before: a state file that was there and no state this AzMail reads was "no reading", so
+    /// with every state damaged the floor was "never synced" and a clock a year back dated the hold. Now the floor
+    /// is unreadable: the hold is refused with the file named, nothing is swept, and the Receive makes the states
+    /// again (the record of the time went with them: the next one is as a first Send/Receive, which holds on a right
+    /// clock).
+    #[test]
+    fn x_delta_apps5_6_states_that_are_damaged_date_no_hold_sweep_nothing_and_are_made_again() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        deliver(&f, "Spam", &mail(3, "Three"), SEP_30 + 100 * DAY);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        run_at(&f, SEP_30);
+        let first = holding("inbox", SEP_30);
+        let before = held_keys(&f);
+        assert!(before.iter().any(|key| key.starts_with(&first)));
+        // Every folder's state is damaged (a disk that lost its way, a program that wrote over them).
+        let folders = f.store.folders();
+        assert!(folders.len() >= 2, "{folders:?}");
+        for key in &folders {
+            f.store
+                .put(&store::state_key(key), b"{ this is not a state")
+                .unwrap();
+        }
+        f.bucket.inner.delete(&two).unwrap();
+        for now in [SEP_30 - 365 * DAY, SEP_30 + 100 * DAY] {
+            let report = run_at(&f, now);
+            assert_eq!(
+                (report.removed(), report.kept_undated()),
+                (0, 1),
+                "{now}: {report:?}"
+            );
+            assert!(
+                report
+                    .hold_refused
+                    .as_deref()
+                    .is_some_and(|why| why.contains("is no state this AzMail reads")),
+                "{now}: {report:?}"
+            );
+            assert_eq!(held_keys(&f), before, "{now}: nothing was held or swept");
+            assert_eq!(held_rows(&f), ["Two"], "{now}");
+            // The Receive wrote the states again, with no stamp: the record of the time was lost with them.
+            for key in &folders {
+                let state = read_state(&f.store, key).unwrap().unwrap();
+                assert_eq!(state.synced_at, "", "{now}: {key}");
+            }
+            // Damaged again for the next clock.
+            for key in &folders {
+                f.store
+                    .put(&store::state_key(key), b"{ this is not a state")
+                    .unwrap();
+            }
+        }
+        // States that read again (a first Send/Receive as far as the clock goes): a right clock holds the line.
+        run_at(&f, SEP_30 + 100 * DAY);
+        let report = run_at(&f, SEP_30 + 100 * DAY);
+        assert_eq!(
+            (report.removed(), report.kept_undated(), report.sweep_failed),
+            (1, 0, None)
+        );
+        assert!(
+            !held_keys(&f).iter().any(|key| key.starts_with(&first)),
+            "and the old hold is swept now: {:?}",
+            held_keys(&f)
+        );
     }
 
     // ==== X-DELTA-APPS4-4 + X-DELTA-APPS4-5: what is still in the drive is not "removed", and the window says where ====

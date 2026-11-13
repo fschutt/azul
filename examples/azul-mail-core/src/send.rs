@@ -2083,13 +2083,7 @@ pub fn remove_failed_entry(
     // and its sweep deletes them: the time they are dated by is the account's record of it. No drive is
     // at hand here (a click of the window): the newest Send/Receive is the one reading.
     let held = MailStore::new(sent_store_root(root, account_id));
-    let last_sync = held.last_sync().map_err(|e| {
-        std::io::Error::new(
-            e.kind(),
-            format!("the time of the last Send/Receive cannot be read ({e}): nothing is removed from the Outbox"),
-        )
-    })?;
-    let at = store::Clocks::new(last_sync, None)
+    let at = store::Clocks::of(&held, None)
         .hold_time(now)
         .map_err(|why| {
             std::io::Error::other(format!("{why}: nothing is removed from the Outbox"))

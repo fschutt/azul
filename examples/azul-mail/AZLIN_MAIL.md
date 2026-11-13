@@ -136,7 +136,10 @@ Send/Receive on a device:
    newest mail the drive lists by more than a year, holds nothing - the lines stay in their folder,
    the Send/Receive goes on (new mail comes, the later folders are synced, the sweep runs) and the
    window says why; a clock that was refused is not recorded as the time of the sync; one that
-   is a few hours behind dates the hold at the last Send/Receive. The sweep deletes a hold only
+   is a few hours behind dates the hold at the last Send/Receive. The same when the account's record of
+   the last Send/Receive cannot be read (the listing of `mail/` fails, a folder's `state.json` is damaged):
+   no hold is dated, nothing is swept and nothing is recorded that time - the Send/Receive goes on and
+   makes a damaged state again. The sweep deletes a hold only
    when BOTH the clock of this computer and the drive agree that it is 90 days old (the drive's
    reading is the newest `modified` it lists: it lived at least until then, so it never says a
    later time than it is): a clock that jumped ahead deletes nothing that a drive which has not
