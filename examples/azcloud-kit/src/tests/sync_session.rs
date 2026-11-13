@@ -877,7 +877,7 @@ mod encrypted_copies {
     /// earlier version left in the state folder is removed. RED not run: the old path is under
     /// the state folder.
     #[test]
-    fn x_ar5a_1_an_opened_copy_is_private_scratch_and_the_old_open_folder_is_gone() {
+    fn x_ar5a_1_an_opened_copy_is_private_scratch_and_the_old_open_folder_stays_when_it_holds_a_file() {
         let bucket = FakeS3::new();
         let plain: Arc<dyn Drive> = s3_drive(&bucket);
         let cache_dir = TempDir::new("azcloud-objects-x1");
@@ -902,6 +902,9 @@ mod encrypted_copies {
             objects.clone(),
         );
         session.pass(&AtomicBool::new(false), &mut |_| {}).unwrap();
+        // What an earlier version left in the state folder: a copy it handed out writable, and maybe what the user
+        // changed in it. Nothing wrote down what was written there, so it stays (X-DELTA-SYNC4-25: it was removed
+        // whole), closed to other users; the folder of an earlier version that holds no file is another test's.
         std::fs::create_dir_all(state.path().join("open")).unwrap();
         std::fs::write(
             state.path().join("open/left-over.txt"),
@@ -919,21 +922,39 @@ mod encrypted_copies {
             Some("diary.txt"),
             "under the file's own name: {path:?}"
         );
-        assert!(
-            !state.path().join("open").exists(),
-            "the plaintext an earlier version left is gone"
+        assert_eq!(
+            std::fs::read(state.path().join("open/left-over.txt")).unwrap(),
+            b"plaintext an earlier version left",
+            "the copy an earlier version left stays where it was: it may hold what the user changed"
         );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o177, 0, "read-only, for this user only: {mode:o}");
+            let legacy = std::fs::metadata(state.path().join("open")).unwrap().permissions().mode();
+            assert_eq!(legacy & 0o777, 0o700, "and closed to other users: {legacy:o}");
         }
         // The same version again is the same copy.
         assert_eq!(session.open("notes/diary.txt").unwrap(), path);
         // A name the policy refuses is no path, whatever the drive says.
         let refused = session.open("../escape.txt").unwrap_err().to_string();
         assert!(refused.contains("cannot be"), "{refused}");
+    }
+
+    /// X-DELTA-SYNC4-25: the `open` folder an earlier version left in the pairing's state folder goes when it holds no
+    /// file at all (only folders: nothing the user could have saved) - the test above has the folder that holds one,
+    /// which stays. RED on the old code: the folder went whatever it held (that is the other test's red).
+    #[test]
+    fn x_delta_sync4_25_the_old_open_folder_goes_when_it_holds_no_file() {
+        let opened = Opened::new("legacy-empty", "notes/diary.txt", b"the diary of a person");
+        let state = opened._dirs[2].path().to_path_buf();
+        std::fs::create_dir_all(state.join("open").join("folder-only")).unwrap();
+        opened.session.open("notes/diary.txt").unwrap();
+        assert!(
+            !state.join("open").exists(),
+            "a folder with no file in it goes"
+        );
     }
 
     /// An encrypted drive holding `Documents/<key>`, paired as the drive `drive_id`: a session over
