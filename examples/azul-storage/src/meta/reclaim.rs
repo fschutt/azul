@@ -457,6 +457,12 @@ pub enum Hold {
     /// This device's clock and the bucket's disagree: the round's own time, and the age of every
     /// commit it judged, are not believed.
     ClockDiffers,
+    /// The drive's kill switch is set ([`keys::RECLAIM_HOLD`](super::keys::RECLAIM_HOLD)): nothing it keeps is
+    /// deleted while it is.
+    KillSwitch,
+    /// Whether the drive's kill switch is set could not be read: a deleter that cannot read it does not
+    /// delete.
+    SwitchNotRead,
 }
 
 impl fmt::Display for Hold {
@@ -491,6 +497,10 @@ impl fmt::Display for Hold {
             }
             Hold::ClockDiffers => {
                 f.write_str("this device's clock and the storage's disagree about the time of day")
+            }
+            Hold::KillSwitch => f.write_str("the drive's kill switch for the deleting is set"),
+            Hold::SwitchNotRead => {
+                f.write_str("the drive's kill switch for the deleting could not be read")
             }
         }
     }
@@ -593,6 +603,48 @@ pub struct Standing {
 /// standing to ask with - the upkeep then reports and deletes nothing.
 pub const STANDING_FRESH_SECS: u64 = 2 * super::shadow::EVERY_SECS;
 
+/// What the drive's kill switch says ([`keys::RECLAIM_HOLD`](super::keys::RECLAIM_HOLD)): an object that is
+/// there or not. Read by every deleter right before it asks the one gate - the reclaimer's round, each batch of
+/// its delete run, the pack upkeep - and never remembered: a hold takes effect at the next delete, not at the
+/// next round (X-DELTA-AZDRIVE-SYNC-6). What cannot be read is its own answer, and the gate holds on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Switch {
+    /// No hold: the object is not there.
+    Clear,
+    /// The hold is there.
+    Held,
+    /// The bucket could not say whether it is there.
+    Unread,
+}
+
+impl Switch {
+    /// The switch as a look for the object said: `Some(true)` it is there, `Some(false)` it is not, `None` the
+    /// look failed. The one place that reads a look.
+    fn of_presence(there: Option<bool>) -> Switch {
+        match there {
+            Some(false) => Switch::Clear,
+            Some(true) => Switch::Held,
+            None => Switch::Unread,
+        }
+    }
+
+    /// The switch of the drive in `drive` (one HEAD).
+    #[must_use]
+    pub fn read_drive<D: Drive + ?Sized>(drive: &D) -> Switch {
+        Switch::of_presence(match drive.head(super::keys::RECLAIM_HOLD) {
+            Ok(_) => Some(true),
+            Err(DriveError::NotFound { .. }) => Some(false),
+            Err(_) => None,
+        })
+    }
+
+    /// The switch of the repository in `bucket`.
+    #[must_use]
+    pub fn read_bucket<B: Bucket + ?Sized>(bucket: &B) -> Switch {
+        Switch::of_presence(bucket.exists(super::keys::RECLAIM_HOLD).ok())
+    }
+}
+
 /// What the index of a drive keeps, as far as a deleter's question goes.
 #[derive(Clone, Copy, Debug)]
 pub enum History<'a> {
@@ -604,6 +656,8 @@ pub enum History<'a> {
     Kept {
         mode: ReclaimMode,
         standing: Option<&'a Standing>,
+        /// The drive's kill switch as the deleter read it just now ([`Switch`]).
+        switch: Switch,
     },
 }
 
@@ -674,14 +728,24 @@ impl DeleteLicence {
 ///
 /// What holds the delete back.
 pub(crate) fn ask_retired_delete(history: History<'_>, now: u64) -> Gate {
-    let (mode, standing) = match history {
+    let (mode, standing, switch) = match history {
         History::None => return Ok(DeleteLicence::of_an_index_without_history()),
-        History::Kept { mode, standing } => (mode, standing),
+        History::Kept {
+            mode,
+            standing,
+            switch,
+        } => (mode, standing, switch),
     };
     match mode {
         ReclaimMode::Off => return Err(Hold::Off),
         ReclaimMode::Shadow => return Err(Hold::Configured),
         ReclaimMode::Delete => {}
+    }
+    // The kill switch outranks every piece of evidence: a hold, or a switch nobody could read, is no delete.
+    match switch {
+        Switch::Clear => {}
+        Switch::Held => return Err(Hold::KillSwitch),
+        Switch::Unread => return Err(Hold::SwitchNotRead),
     }
     let Some(standing) = standing else {
         return Err(Hold::NotJudged);
@@ -852,6 +916,9 @@ pub enum NotYet {
     /// A purge's confirmation is dated after this device's clock by more than [`SKEW_SECS`]: what it
     /// covers cannot be told (a clock that was set back since), and nothing is erased on a guess.
     Confirmation { at: u64, now: u64 },
+    /// The drive's kill switch was set, or could not be read, before a batch of the delete run
+    /// ([`Switch`]): the run stops there and deletes no more.
+    Switch(Switch),
 }
 
 impl fmt::Display for NotYet {
@@ -890,6 +957,8 @@ impl fmt::Display for NotYet {
                 "the confirmation is dated {at}, after this device's clock ({now}): what it covers \
                  cannot be told, nothing is erased"
             ),
+            NotYet::Switch(Switch::Held) => fmt::Display::fmt(&Hold::KillSwitch, f),
+            NotYet::Switch(_) => fmt::Display::fmt(&Hold::SwitchNotRead, f),
         }
     }
 }
@@ -2074,6 +2143,15 @@ fn delete_under<B: Bucket, S: Sealer>(
     let ids: Vec<ObjectId> = analysis.candidates.keys().copied().collect();
     let mut revision = analysis.revision;
     for batch in ids.chunks(options.caps.batch.max(1)) {
+        // The kill switch is looked at before every batch: a hold set while the run works stops it at the
+        // next one, and a switch that cannot be read stops it too (X-DELTA-AZDRIVE-SYNC-6).
+        match Switch::read_bucket(repo.store().bucket()) {
+            Switch::Clear => {}
+            other => {
+                report.stopped = Some(NotYet::Switch(other));
+                return Ok(());
+            }
+        }
         repo.store_mut().renew_lease(guard, LEASE_SECS)?;
         // The fence: the manifest is still the revision the reads were made at.
         revision = match repo.store_mut().stamp(guard, revision, None) {

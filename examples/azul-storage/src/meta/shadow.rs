@@ -84,6 +84,19 @@ pub struct Round {
     pub unclean: String,
 }
 
+/// The record of a hold on the deleting: the sealed content of the object [`keys::RECLAIM_HOLD`]. Its PRESENCE is the
+/// switch; this says who set it and why, for whoever looks (the content is never read to decide).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteHold {
+    /// When it was set, by the clock of the device that set it (seconds since 1970).
+    pub at: u64,
+    /// The device that set it.
+    pub by: String,
+    /// Why, in the words of whoever set it.
+    #[serde(default)]
+    pub why: String,
+}
+
 /// The shadow rounds of a drive, oldest first.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ledger {

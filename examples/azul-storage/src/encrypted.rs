@@ -70,7 +70,7 @@ use crate::{
     keyring::KeyringStore,
     limits::named,
     meta::reclaim::{
-        ask_retired_delete, delete_released, drop_new_object_after, Gate, History, LiveObjects,
+        ask_retired_delete, delete_released, drop_new_object_after, Gate, History, LiveObjects, Switch,
         PurgeConfirmation, ReclaimMode, ReclaimReport, Released, Standing, DEFAULT_MODE,
     },
     ops::check_folder,
@@ -2064,6 +2064,8 @@ impl<D: Drive> EncryptedDrive<D> {
             History::Kept {
                 mode: self.reclaim,
                 standing: standing.as_ref(),
+                // Read now, not remembered: a hold takes effect at this delete (X-DELTA-AZDRIVE-SYNC-6).
+                switch: Switch::read_drive(&self.inner),
             },
             now,
         )

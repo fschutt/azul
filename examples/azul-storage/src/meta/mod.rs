@@ -136,7 +136,7 @@ pub use pack::{PackIndex, PackWriter, SealedPack};
 #[cfg(feature = "encryption")]
 pub use reclaim::{
     go, gone_objects, Caps, Deleted, Go, GoEvidence, Hold, LiveObjects, NotYet, PurgeConfirmation,
-    ReclaimMode, ReclaimOptions, ReclaimReport, Reclaimable, Released, ServerClock, Standing,
+    ReclaimMode, ReclaimOptions, ReclaimReport, Reclaimable, Released, ServerClock, Standing, Switch,
     STANDING_FRESH_SECS,
 };
 pub use repo::{CommitOutcome, MetaRepo, RepoOptions, RestoreSource};
@@ -168,6 +168,10 @@ pub mod keys {
     /// What the reclaimer's shadow rounds recorded ([`super::shadow`]): one sealed object, replaced
     /// by a compare-and-swap.
     pub const SHADOW: &str = ".azlin/meta/shadow";
+    /// The kill switch of the deleting: while an object is here, nothing of what the drive's history may
+    /// still name is deleted, by the reclaimer or by the pack upkeep (X-DELTA-AZDRIVE-SYNC-6); a deleter
+    /// that cannot tell whether it is here does not delete either ([`super::reclaim::Switch`]).
+    pub const RECLAIM_HOLD: &str = ".azlin/meta/reclaim-hold";
 
     /// The log entry `seq` of one publish attempt (16 hex digits sort as numbers).
     #[must_use]

@@ -39,10 +39,10 @@ use super::{
     },
     retention::RETENTION,
     seal::{KeyWindow, Sealer},
-    shadow::{Footing, Ledger, Round, ANALYSIS_RULES, UNVERIFIED},
+    shadow::{DeleteHold, Footing, Ledger, Round, ANALYSIS_RULES, UNVERIFIED},
     shard::{self, SHARD_PREFIX},
     tree::{apply, entry_at, folder_at, Change},
-    wal::{reseal, Maintained, Maintenance, MetaStore, Packs, Publish, RefUpdate},
+    wal::{reseal, seal_json, Maintained, Maintenance, MetaStore, Packs, Publish, RefUpdate},
     MetaError,
 };
 use crate::{
@@ -53,7 +53,7 @@ use crate::{
         analyse, ask_retired_delete, manifest_pack_bytes, pack_bytes_of, purge_options, reclaim,
         reclaim_judged, stamp_agrees, Analysis, Caps, DeleteLicence, GoEvidence, History, Hold,
         LiveObjects, NotYet, PurgeConfirmation, ReclaimMode, ReclaimOptions, ReclaimReport,
-        Released, ServerClock, Standing,
+        Released, ServerClock, Standing, Switch,
     },
     Drive, DriveError, ListRequest, DEFAULT_PAGE_SIZE,
 };
@@ -1219,6 +1219,8 @@ impl MetaIndexProvider {
                         History::Kept {
                             mode,
                             standing: Some(&standing),
+                            // Read when the run asks, after the minutes the analysis took.
+                            switch: Switch::read_drive(bucket.as_ref()),
                         },
                         now,
                     );
@@ -1264,6 +1266,7 @@ impl MetaIndexProvider {
                         History::Kept {
                             mode,
                             standing: Some(&standing),
+                            switch: Switch::read_drive(bucket.as_ref()),
                         },
                         now,
                     ) {
@@ -1536,6 +1539,48 @@ fn unclean_why(rederived: Option<bool>, window: Option<bool>) -> String {
         (Some(true), None) => {
             String::from("what the restore dialog still offers could not be derived again")
         }
+    }
+}
+
+impl MetaIndexProvider {
+    /// Sets the KILL SWITCH of the drive in `bucket` (X-DELTA-AZDRIVE-SYNC-6): while the hold is there, nothing
+    /// the drive's history may still name is deleted - not by the reclaimer's run, which looks before every
+    /// batch, and not by the pack upkeep of any device, which looks before every delete. The hold is an
+    /// object of the drive (sealed with its key: who set it and why), so it reaches every device that opens
+    /// the drive and survives a restart; a deleter that cannot read it does not delete. Setting it twice is
+    /// setting it.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's.
+    pub fn hold_deleting(
+        &self,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        why: &str,
+    ) -> Result<(), DriveError> {
+        let record = DeleteHold {
+            at: crate::time::now_unix(),
+            by: self.device_id(),
+            why: why.to_string(),
+        };
+        let sealed = seal_json(drive_key, keys::RECLAIM_HOLD, &record).map_err(to_drive)?;
+        match DriveBucket::new(bucket).create(keys::RECLAIM_HOLD, &sealed) {
+            Ok(_) | Err(MetaError::Conflict { .. }) => Ok(()),
+            Err(e) => Err(to_drive(e)),
+        }
+    }
+
+    /// Takes the kill switch of the drive in `bucket` away: deleting is as the drive's mode and evidence
+    /// say again. Releasing a hold that is not there is releasing it.
+    ///
+    /// # Errors
+    ///
+    /// The bucket's.
+    pub fn release_deleting_hold(&self, bucket: Arc<dyn Drive>) -> Result<(), DriveError> {
+        DriveBucket::new(bucket)
+            .remove(keys::RECLAIM_HOLD)
+            .map_err(to_drive)
     }
 }
 

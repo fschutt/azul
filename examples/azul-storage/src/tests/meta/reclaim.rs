@@ -1859,7 +1859,14 @@ fn x_delta_sync2_2_the_one_gate_answers_every_deleter_from_the_standing_and_the_
         Standing { at, evidence }
     };
     let ask = |mode: ReclaimMode, standing: Option<&Standing>, now: u64| {
-        ask_retired_delete(History::Kept { mode, standing }, now)
+        ask_retired_delete(
+            History::Kept {
+                mode,
+                standing,
+                switch: crate::meta::Switch::Clear,
+            },
+            now,
+        )
     };
     let full = standing(&|_| {});
     // An index that keeps no history: nothing is retired, the head's word is all there is.
@@ -2686,3 +2693,114 @@ fn x_delta_sync6_1_a_confirmation_dated_after_this_devices_clock_erases_nothing(
     );
     assert_eq!(lab.data_objects().len(), 2, "nothing was erased");
 }
+
+
+// ==== X-DELTA-AZDRIVE-SYNC-6: the kill switch of the deleting ====
+
+/// THE gate: a hold on the deleting, or a switch nobody could read, is no delete - whatever evidence stands
+/// behind it - and a drive that is not configured to delete says what it said before. RED on the old code: there
+/// was no switch; a drive with the evidence deleted whatever the owner wanted (the only switch was the mode the
+/// drive was configured with, which the app sets at its own start).
+#[test]
+fn x_delta_azdrive_sync_6_the_one_gate_holds_on_a_kill_switch_that_is_set_and_on_one_that_cannot_be_read() {
+    use crate::meta::reclaim::{ask_retired_delete, History};
+    use crate::meta::Switch;
+
+    let at = T0;
+    let full = (proven())(at).expect("a standing");
+    let ask = |mode: ReclaimMode, switch: Switch| {
+        ask_retired_delete(
+            History::Kept {
+                mode,
+                standing: Some(&full),
+                switch,
+            },
+            at,
+        )
+    };
+    assert!(ask(ReclaimMode::Delete, Switch::Clear).is_ok(), "clear: the evidence decides");
+    assert_eq!(
+        ask(ReclaimMode::Delete, Switch::Held).unwrap_err(),
+        Hold::KillSwitch,
+        "a hold outranks the evidence"
+    );
+    assert_eq!(
+        ask(ReclaimMode::Delete, Switch::Unread).unwrap_err(),
+        Hold::SwitchNotRead,
+        "a deleter that cannot read the switch does not delete"
+    );
+    // A drive that deletes nothing says what it said.
+    assert_eq!(ask(ReclaimMode::Shadow, Switch::Held).unwrap_err(), Hold::Configured);
+    assert_eq!(ask(ReclaimMode::Off, Switch::Unread).unwrap_err(), Hold::Off);
+    // What a look at the object says: not there, there, could not be asked.
+    let lab = Lab::new();
+    assert_eq!(Switch::read_drive(&lab.bucket), Switch::Clear);
+    assert_eq!(Switch::read_bucket(&lab.bucket), Switch::Clear);
+    lab.bucket.put(keys::RECLAIM_HOLD, b"held").unwrap();
+    assert_eq!(Switch::read_drive(&lab.bucket), Switch::Held);
+    assert_eq!(Switch::read_bucket(&lab.bucket), Switch::Held);
+    assert!(!Hold::KillSwitch.to_string().is_empty() && !Hold::SwitchNotRead.to_string().is_empty());
+}
+
+/// The reclaimer's own delete run looks at the switch before every batch: a hold set before the run stops it
+/// before anything is deleted (the run was handed a licence of the test's own: the switch is not the licence's
+/// business), and the hold's release lets the same run delete. The hold is set the way an operator sets it,
+/// through the provider.
+#[test]
+fn x_delta_azdrive_sync_6_the_reclaimers_run_stops_before_a_batch_while_the_kill_switch_is_set() {
+    use crate::meta::{NotYet, Switch};
+
+    let lab = Lab::new();
+    lab.drive.put("a.txt", b"version one").unwrap();
+    lab.at(T0 + DAY);
+    lab.drive.put("a.txt", b"version two").unwrap();
+    lab.at(T0 + 100 * DAY);
+    let operator = MetaIndexProvider::new(IndexProfile::in_memory("Operator"));
+    let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
+    operator
+        .hold_deleting(Arc::clone(&bucket), &lab.key, "a defect was found in the reclaimer")
+        .unwrap();
+    assert_eq!(Switch::read_drive(bucket.as_ref()), Switch::Held);
+    operator
+        .hold_deleting(Arc::clone(&bucket), &lab.key, "set twice")
+        .expect("setting it twice is setting it");
+
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    assert_eq!(report.stopped, Some(NotYet::Switch(Switch::Held)), "{}", report.line());
+    assert_eq!(report.deleted, 0);
+    assert_eq!(lab.data_objects().len(), 2, "nothing was deleted");
+
+    operator.release_deleting_hold(Arc::clone(&bucket)).unwrap();
+    operator
+        .release_deleting_hold(Arc::clone(&bucket))
+        .expect("releasing it twice is releasing it");
+    let report = run(&mut lab.maintainer(), &options(ReclaimMode::Delete)).unwrap();
+    assert_eq!((report.deleted, report.failed), (1, 0), "{}", report.line());
+    assert_eq!(lab.data_objects().len(), 1);
+    assert_eq!(lab.drive.get("a.txt").unwrap(), b"version two");
+}
+
+/// The pack upkeep - the other deleter of what the history may still name - reads the switch at every delete:
+/// the same drive with the same evidence (a standing in which nothing is lacking) keeps its due pack while the
+/// hold is there and deletes it once it is released. RED on the old code: the pack goes with the hold set.
+#[test]
+fn x_delta_azdrive_sync_6_the_pack_upkeep_keeps_a_due_pack_while_the_kill_switch_is_set() {
+    let (lab, pack) = lab_with_a_retired_pack(0);
+    let far = T0 + 200 * DAY;
+    lab.bucket.put(keys::RECLAIM_HOLD, b"held").unwrap();
+    assert_eq!(
+        lab.drive.collect_retired(far).unwrap(),
+        0,
+        "the pack is due, the evidence is complete, and the kill switch is set: it stays"
+    );
+    assert!(lab.data_objects().contains(&pack));
+    assert_eq!(lab.drive.retired_packs().len(), 1, "and it stays retired");
+    lab.bucket.delete(keys::RECLAIM_HOLD).unwrap();
+    assert_eq!(
+        lab.drive.collect_retired(far).unwrap(),
+        1,
+        "the hold is released: the same drive, the same pack, and it goes"
+    );
+    assert!(!lab.data_objects().contains(&pack));
+}
+
