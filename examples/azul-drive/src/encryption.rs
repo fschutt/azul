@@ -3437,10 +3437,48 @@ fn invite_job(
     Ok(Zeroizing::new(code.encode()))
 }
 
+/// What the window says of a new code that was not made because the drive's recovery wrap seals another
+/// key than the one this computer holds: its keys were changed on another computer, and the wrap was left
+/// as it is (X-DELTA-KEYS4-2).
+pub(crate) const NEW_CODE_OLD_KEY: &str = "azdrive-enc-new-code-old-key";
+
+/// What the window says of a new code that was not made because the drive's recovery wrap changed while
+/// the code was being made: nothing was replaced, and the next open of the drive makes the code again.
+pub(crate) const NEW_CODE_WRAP_MOVED: &str = "azdrive-enc-new-code-wrap-moved";
+
+/// The words of a refusal of the new code's job: a label of the window for the two refusals of the wrap's
+/// own look and put (a wrap of another key, a wrap that moved), the error's text for the rest.
+fn new_code_refused(error: azul_storage::DriveError) -> String {
+    match error {
+        azul_storage::DriveError::KeyRefused { .. } => String::from(NEW_CODE_OLD_KEY),
+        azul_storage::DriveError::Conflict { .. } => String::from(NEW_CODE_WRAP_MOVED),
+        other => other.to_string(),
+    }
+}
+
+/// Whether the failure of a setup job (`why`) is one of the two refusals of [`new_code_refused`]: the
+/// window says them in a sentence of their own (the drive is not "not encrypted yet": its wrap is as it was).
+pub(crate) fn new_code_was_left_unmade(why: &str) -> bool {
+    why == NEW_CODE_OLD_KEY || why == NEW_CODE_WRAP_MOVED
+}
+
 /// A new recovery code for a drive whose setup never passed its sheet, as the job runs it: the key from
-/// the keyring (or this device's wrap), the key permit's NewCode cell, the record's forgetting on disk
-/// ([`Before`]), then the new code's wrap in the old one's place. `kdf` is the cost of the code's key
-/// derivation, a parameter so that a test pays a small one.
+/// the keyring (or this device's wrap), the key permit's NewCode cell, a look at the wrap that is to be
+/// replaced, the record's forgetting on disk ([`Before`]), then the new code's wrap in the old one's place.
+/// `kdf` is the cost of the code's key derivation, a parameter so that a test pays a small one.
+///
+/// The wrap in the bucket is looked at BEFORE the record forgets anything: a computer whose key another
+/// computer's key change replaced (its key is the old one, the wrap seals the new one) would put a wrap of
+/// its old key over the drive's, and the paper of the new key's code would open nothing (X-DELTA-KEYS4-2).
+/// What is written is conditional on the version looked at. The crash table (each row is a stop after the
+/// step, the next start finds):
+///
+/// | after | the bucket | the record | the next open |
+/// |---|---|---|---|
+/// | the look | unchanged | unchanged | NewCode again |
+/// | the record's forgetting | unchanged | forgot the old code's key and registration | NewCode again (the drill asks the bucket) |
+/// | the put | the new code's wrap, its code in no one's hands | forgot | NewCode again: the sheet was never passed |
+/// | a put that lost its race | the other computer's wrap, byte for byte | forgot | NewCode again, the look refuses a wrap of another key |
 fn new_code_job(
     auto: &AutoEncrypted,
     keyring: &dyn KeyringStore,
@@ -3460,6 +3498,10 @@ fn new_code_job(
     // and this code would open nothing once it is done (KEYS-7).
     let permit =
         device::wraps_permit(Op::NewCode, keyring, auto.drive()).map_err(|e| e.to_string())?;
+    // The wrap that is to go: it must seal this computer's key (else it is not ours to replace), and
+    // the put is made only while it is still this version.
+    let seen = device::look_at_first_wrap(bucket.as_ref(), &stashed, auto.drive())
+        .map_err(new_code_refused)?;
     // The record forgets the old code's witness before its wrap goes (X-DELTA-KEYS3-1).
     if let Some(before) = before {
         before()?;
@@ -3472,9 +3514,9 @@ fn new_code_job(
         bucket.as_ref(),
         &stashed,
         &wrap,
-        device::Publish::FirstReplace,
+        device::Publish::Replacing(&seen),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(new_code_refused)?;
     Ok(code.to_text())
 }
 
@@ -4296,6 +4338,12 @@ pub(crate) fn on_outcome(
                     println!("AZDRIVE_ENCRYPTED_ELSEWHERE {drive_id}");
                     let name = drive_name(s, &drive_id);
                     s.info(Phrase::new(ENCRYPTED_ELSEWHERE).arg("name", name));
+                } else if new_code_was_left_unmade(&why) {
+                    // One sentence, no "the drive is not encrypted yet": the drive IS encrypted and its
+                    // recovery wrap is as it was (X-DELTA-KEYS4-2).
+                    println!("AZDRIVE_NEW_CODE_NOT_MADE {drive_id}: {why}");
+                    let name = drive_name(s, &drive_id);
+                    s.warn(Phrase::new(&why).arg("name", name));
                 } else {
                     let shows_as_dialog = set_up_failure_shows_as_dialog(&why, s.popup.as_ref());
                     let why = t_label(&why);
@@ -7428,22 +7476,18 @@ mod tests {
         let joining = device::recover_permit(b.as_ref(), drive).unwrap();
         device::enroll(&joining, bucket.as_ref(), b.as_ref(), drive, &old_key).unwrap();
         let record = checked_and_registered(drive, &old_code);
-        // A's rotation, as far as the recovery wrap and the member wraps go: a new key, its wrap
-        // under a new code in the old one's place.
+        // A's rotation, as far as the recovery wrap goes: a new key, its wrap under a new code in the old
+        // one's place (written as a rotation writes it - over whatever is there; a new code's job could not
+        // put a wrap of another key over this one any more, X-DELTA-KEYS4-2).
         let new_key = DriveKey::generate().unwrap();
         let new_code = RecoveryCode::generate().unwrap();
         let wrap = RecoveryWrap::seal(&new_key, drive, &new_code, kdf).unwrap();
-        let entry = device::planned_key_entry(drive);
-        let stashed = device::stash(&a, &entry, &new_key).unwrap();
-        let replacing = device::wraps_permit(Op::NewCode, &a, drive).unwrap();
-        device::publish_recovery_wrap(
-            &replacing,
-            bucket.as_ref(),
-            &stashed,
-            &wrap,
-            device::Publish::FirstReplace,
-        )
-        .unwrap();
+        bucket
+            .put(
+                azul_storage::crypto::keys::RECOVERY_KEY_FILE,
+                &wrap.to_bytes(),
+            )
+            .unwrap();
         let auto = wrap_with(
             b,
             Some(Arc::new(MemoryProvider)),
@@ -8447,6 +8491,366 @@ mod tests {
             wrap,
             "the recovery wrap is as the stopped rotation left it"
         );
+    }
+
+    // ==== X-DELTA-KEYS4-2: a new code never replaces a wrap it did not look at ====
+
+    /// A bucket over a memory bucket that meets a new code's wrap as it is not: a head or a read of the first
+    /// recovery wrap that fails, or another device's wrap that lands just before the first conditional put
+    /// of it (a rotation that commits between the look and the put).
+    struct WrapFaults {
+        inner: Arc<azul_storage::meta::MemoryBucket>,
+        head_fails: bool,
+        get_fails: bool,
+        /// Written over the wrap just before the first conditional put of it goes in.
+        lands_first: Mutex<Option<Vec<u8>>>,
+        /// The writes of the wrap (plain or conditional) the inner bucket took.
+        wrap_writes: std::sync::atomic::AtomicUsize,
+    }
+
+    impl WrapFaults {
+        fn over(inner: &Arc<azul_storage::meta::MemoryBucket>) -> WrapFaults {
+            WrapFaults {
+                inner: Arc::clone(inner),
+                head_fails: false,
+                get_fails: false,
+                lands_first: Mutex::new(None),
+                wrap_writes: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn cut() -> azul_storage::DriveError {
+            azul_storage::DriveError::Transport(String::from("the connection was cut"))
+        }
+    }
+
+    impl Drive for WrapFaults {
+        fn list(
+            &self,
+            request: &azul_storage::ListRequest,
+        ) -> Result<azul_storage::ListPage, azul_storage::DriveError> {
+            self.inner.list(request)
+        }
+        fn get(&self, key: &str) -> Result<Vec<u8>, azul_storage::DriveError> {
+            if self.get_fails && key == azul_storage::crypto::keys::RECOVERY_KEY_FILE {
+                return Err(WrapFaults::cut());
+            }
+            self.inner.get(key)
+        }
+        fn get_range(
+            &self,
+            key: &str,
+            range: azul_storage::ByteRange,
+        ) -> Result<Vec<u8>, azul_storage::DriveError> {
+            self.inner.get_range(key, range)
+        }
+        fn put(&self, key: &str, bytes: &[u8]) -> Result<(), azul_storage::DriveError> {
+            if key == azul_storage::crypto::keys::RECOVERY_KEY_FILE {
+                self.wrap_writes.fetch_add(1, Ordering::SeqCst);
+            }
+            self.inner.put(key, bytes)
+        }
+        fn delete(&self, key: &str) -> Result<(), azul_storage::DriveError> {
+            self.inner.delete(key)
+        }
+        fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, azul_storage::DriveError> {
+            if self.head_fails && key == azul_storage::crypto::keys::RECOVERY_KEY_FILE {
+                return Err(WrapFaults::cut());
+            }
+            self.inner.head(key)
+        }
+        fn put_if(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            condition: &azul_storage::Precondition,
+        ) -> Result<Option<String>, azul_storage::DriveError> {
+            if key == azul_storage::crypto::keys::RECOVERY_KEY_FILE {
+                if let Some(other) = self.lands_first.lock().unwrap().take() {
+                    self.inner.put(key, &other)?;
+                }
+                self.wrap_writes.fetch_add(1, Ordering::SeqCst);
+            }
+            self.inner.put_if(key, bytes, condition)
+        }
+    }
+
+    /// A [`Before`] that notes it ran and what the bucket's wrap was when it did.
+    fn noting_before(
+        bucket: &Arc<azul_storage::meta::MemoryBucket>,
+    ) -> (Before, Arc<Mutex<Option<Vec<u8>>>>) {
+        let seen = Arc::new(Mutex::new(None));
+        let bucket = Arc::clone(bucket);
+        let note = Arc::clone(&seen);
+        let before: Before = Box::new(move || {
+            *note.lock().unwrap() = Some(
+                bucket
+                    .get(azul_storage::crypto::keys::RECOVERY_KEY_FILE)
+                    .map_err(|e| e.to_string())?,
+            );
+            Ok(())
+        });
+        (before, seen)
+    }
+
+    /// A drive made on this computer (its keyring holds its key; the sheet is owed), the code of its first
+    /// paper and its bucket.
+    fn a_drive_made_here(
+        drive: &str,
+    ) -> (
+        Arc<dyn KeyringStore>,
+        Arc<azul_storage::meta::MemoryBucket>,
+        RecoveryCode,
+    ) {
+        let keyring: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let bucket = Arc::new(azul_storage::meta::MemoryBucket::new());
+        let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        let (_key, code) =
+            device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), drive, kdf).unwrap();
+        (keyring, bucket, code)
+    }
+
+    /// X-DELTA-KEYS4-2 (cell a): computer B made the drive and closed its sheet unread; computer A rotated the
+    /// drive; B still holds the key from before, inside the credential window of its token, and opens the
+    /// drive's folder. The NewCode job used to put a wrap of B's OLD key over `.azlin/keys/recovery.key`, which
+    /// sealed the new key under A's new code: A's paper opened nothing and A's next drill was red. The wrap is
+    /// looked at first now: it seals another key, the job is refused in the window's own words, the file is
+    /// byte for byte what it was, the record forgot nothing, and A's code still opens it.
+    #[test]
+    fn x_delta_keys4_2_a_stale_device_that_makes_a_new_code_leaves_the_recovery_wrap_byte_identical(
+    ) {
+        let drive = "d_k42_stale";
+        let b: Arc<dyn KeyringStore> = Arc::new(azul_storage::keyring::MemoryKeyring::new());
+        let (new_code, auto, _new_key, bucket, _record) = rotated_elsewhere(drive, Arc::clone(&b));
+        let file = azul_storage::crypto::keys::RECOVERY_KEY_FILE;
+        let wrap = bucket.get(file).unwrap();
+        let (before, ran) = noting_before(&bucket);
+        let made = new_code_job(&auto, b.as_ref(), &cheap_kdf, Some(before));
+        assert_eq!(
+            made.as_ref().err().map(String::as_str),
+            Some(NEW_CODE_OLD_KEY),
+            "{made:?}"
+        );
+        assert!(new_code_was_left_unmade(NEW_CODE_OLD_KEY));
+        assert_eq!(
+            bucket.get(file).unwrap(),
+            wrap,
+            "the recovery wrap is byte for byte what A's rotation made it"
+        );
+        assert!(
+            ran.lock().unwrap().is_none(),
+            "the record forgot nothing: the job stopped before its first step"
+        );
+        assert!(
+            load_recovery_wrap(bucket.as_ref())
+                .unwrap()
+                .open(drive, &new_code)
+                .is_ok(),
+            "A's paper still opens the drive's wrap"
+        );
+    }
+
+    /// X-DELTA-KEYS4-2 (cell b, the control): the computer that holds the drive's key makes its new code as
+    /// before - the record forgets while the old wrap is still in the bucket (X-DELTA-KEYS3-1's order stays),
+    /// then the wrap is replaced: the old paper opens nothing, the new code opens the wrap.
+    #[test]
+    fn x_delta_keys4_2_a_current_device_replaces_the_wrap_after_the_record_forgot_and_only_the_new_code_opens_it(
+    ) {
+        let drive = "d_k42_current";
+        let (keyring, bucket, old_code) = a_drive_made_here(drive);
+        let file = azul_storage::crypto::keys::RECOVERY_KEY_FILE;
+        let old_wrap = bucket.get(file).unwrap();
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let (before, ran) = noting_before(&bucket);
+        let code = new_code_job(&auto, keyring.as_ref(), &cheap_kdf, Some(before)).expect("a code");
+        assert_eq!(
+            ran.lock().unwrap().as_ref(),
+            Some(&old_wrap),
+            "the record's forgetting ran while the old wrap was in the bucket"
+        );
+        assert_ne!(bucket.get(file).unwrap(), old_wrap, "the wrap was replaced");
+        let wrap = load_recovery_wrap(bucket.as_ref()).unwrap();
+        let new_code = RecoveryCode::parse(&code).expect("the code's text");
+        assert!(wrap.open(drive, &new_code).is_ok(), "the new code opens it");
+        assert!(
+            matches!(wrap.open(drive, &old_code), Err(CryptoError::WrongKey)),
+            "the old paper opens nothing any more"
+        );
+    }
+
+    /// X-DELTA-KEYS4-2 (cell c): the wrap cannot be read - the head or the read fails - so what it seals is not
+    /// known: the job is refused in the bucket's own words, nothing is written and the record forgot nothing
+    /// (a wrap that cannot be read is Unknown and refuses).
+    #[test]
+    fn x_delta_keys4_2_a_wrap_that_cannot_be_read_is_not_replaced() {
+        for (head_fails, get_fails, drive) in
+            [(true, false, "d_k42_head"), (false, true, "d_k42_get")]
+        {
+            let (keyring, bucket, _old_code) = a_drive_made_here(drive);
+            let file = azul_storage::crypto::keys::RECOVERY_KEY_FILE;
+            let old_wrap = bucket.get(file).unwrap();
+            let mut faults = WrapFaults::over(&bucket);
+            faults.head_fails = head_fails;
+            faults.get_fails = get_fails;
+            let faults = Arc::new(faults);
+            let auto = wrap_with(
+                Arc::clone(&keyring),
+                Some(Arc::new(MemoryProvider)),
+                drive,
+                Arc::clone(&faults) as Arc<dyn Drive>,
+                EncryptionRecord::default(),
+                "slot-1",
+                &crate::KeyRecords::default(),
+            );
+            let (before, ran) = noting_before(&bucket);
+            let made = new_code_job(&auto, keyring.as_ref(), &cheap_kdf, Some(before));
+            let why = made.as_ref().err().cloned().expect("a refusal");
+            assert!(why.contains("the connection was cut"), "{drive}: {why}");
+            assert!(
+                !new_code_was_left_unmade(&why),
+                "{drive}: the bucket's own words"
+            );
+            assert_eq!(
+                bucket.get(file).unwrap(),
+                old_wrap,
+                "{drive}: nothing was written"
+            );
+            assert_eq!(faults.wrap_writes.load(Ordering::SeqCst), 0, "{drive}");
+            assert!(
+                ran.lock().unwrap().is_none(),
+                "{drive}: the record forgot nothing"
+            );
+        }
+    }
+
+    /// X-DELTA-KEYS4-2 (cell d): a rotation commits between the look and the put - another device's wrap lands
+    /// then - so the put, which is made only while the wrap is the version looked at, is refused: the other
+    /// device's wrap is byte for byte what it wrote, the user is told to open the drive again, and the next
+    /// open's look finds a wrap of another key and refuses without writing.
+    #[test]
+    fn x_delta_keys4_2_a_wrap_that_moves_between_the_look_and_the_put_is_not_written_over() {
+        use azul_storage::crypto::DriveKey;
+        let drive = "d_k42_moved";
+        let (keyring, bucket, _old_code) = a_drive_made_here(drive);
+        let file = azul_storage::crypto::keys::RECOVERY_KEY_FILE;
+        // The other device's rotation: a new key under a new code.
+        let k2 = DriveKey::generate().unwrap();
+        let c2 = RecoveryCode::generate().unwrap();
+        let other = RecoveryWrap::seal(&k2, drive, &c2, cheap_kdf().unwrap())
+            .unwrap()
+            .to_bytes();
+        let faults = WrapFaults::over(&bucket);
+        *faults.lands_first.lock().unwrap() = Some(other.clone());
+        let faults = Arc::new(faults);
+        let auto = wrap_with(
+            Arc::clone(&keyring),
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            Arc::clone(&faults) as Arc<dyn Drive>,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        let (before, ran) = noting_before(&bucket);
+        let made = new_code_job(&auto, keyring.as_ref(), &cheap_kdf, Some(before));
+        assert_eq!(
+            made.as_ref().err().map(String::as_str),
+            Some(NEW_CODE_WRAP_MOVED),
+            "{made:?}"
+        );
+        assert!(new_code_was_left_unmade(NEW_CODE_WRAP_MOVED));
+        assert_eq!(
+            bucket.get(file).unwrap(),
+            other,
+            "the other device's wrap is what the bucket holds, byte for byte"
+        );
+        assert!(
+            ran.lock().unwrap().is_some(),
+            "the look had passed: the record forgot (a drill asks the bucket: one drill, never a false yes)"
+        );
+        // The next open: the wrap seals another key now, so the look refuses and writes nothing.
+        let again = new_code_job(&auto, keyring.as_ref(), &cheap_kdf, None);
+        assert_eq!(
+            again.as_ref().err().map(String::as_str),
+            Some(NEW_CODE_OLD_KEY),
+            "{again:?}"
+        );
+        assert_eq!(bucket.get(file).unwrap(), other);
+    }
+
+    /// X-DELTA-KEYS4-2, the row after the record's forgetting of the crash table: the process dies right after
+    /// the record forgot (the settings are on disk) and before the put. The bucket's wrap is the old one's, and
+    /// the next start - the same job again - makes its code.
+    #[test]
+    fn x_delta_keys4_2_a_kill_after_the_records_forgetting_and_before_the_put_leaves_the_old_wrap_and_the_next_start_makes_the_code(
+    ) {
+        let drive = "d_k42_kill";
+        let (keyring, bucket, old_code) = a_drive_made_here(drive);
+        let file = azul_storage::crypto::keys::RECOVERY_KEY_FILE;
+        let old_wrap = bucket.get(file).unwrap();
+        let dead = Arc::new(AtomicBool::new(false));
+        let dies: Arc<dyn Drive> = Arc::new(DiesBucket {
+            inner: Arc::clone(&bucket),
+            dead: Arc::clone(&dead),
+            last_put: None,
+            last_delete: None,
+        });
+        let auto = wrap_with(
+            Arc::clone(&keyring),
+            Some(Arc::new(MemoryProvider)),
+            drive,
+            dies,
+            EncryptionRecord::default(),
+            "slot-1",
+            &crate::KeyRecords::default(),
+        );
+        let dying = Arc::clone(&dead);
+        let before: Before = Box::new(move || {
+            // the settings write is done; the process dies right after it
+            dying.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+        let made = new_code_job(&auto, keyring.as_ref(), &cheap_kdf, Some(before));
+        assert!(made.is_err(), "the put never reached the bucket: {made:?}");
+        assert_eq!(bucket.get(file).unwrap(), old_wrap, "the old wrap stays");
+        let wrap = load_recovery_wrap(bucket.as_ref()).unwrap();
+        assert!(
+            wrap.open(drive, &old_code).is_ok(),
+            "the old paper still opens it"
+        );
+        // The next start: a living process over the same bucket.
+        let auto = drive_over(drive, Arc::clone(&keyring), Arc::clone(&bucket));
+        let code: Zeroizing<String> =
+            new_code_job(&auto, keyring.as_ref(), &cheap_kdf, None).expect("the next start's code");
+        let wrap = load_recovery_wrap(bucket.as_ref()).unwrap();
+        assert!(wrap
+            .open(drive, &RecoveryCode::parse(&code).expect("a code"))
+            .is_ok());
+    }
+
+    /// X-DELTA-KEYS4-2, what the window says: the two refusals are labels with a sentence of their own in
+    /// both languages, naming the drive - not the "the drive was made, but it is not encrypted yet" of a
+    /// failed setup.
+    #[test]
+    fn x_delta_keys4_2_the_two_refusals_have_a_sentence_of_their_own_in_both_languages() {
+        crate::l10n::in_english();
+        for label in [NEW_CODE_OLD_KEY, NEW_CODE_WRAP_MOVED] {
+            assert!(new_code_was_left_unmade(label));
+            for (locale, name) in [("en-US", "Photos"), ("de-DE", "Fotos")] {
+                azul_appkit::l10n::set_locale(locale);
+                let said = t_args(label, &[("name", Arg::from(name))]);
+                assert!(said.contains(name), "{locale} {label}: {said}");
+                assert_ne!(said, label, "{locale}: the label has its words");
+                assert!(
+                    !said.contains("not encrypted yet")
+                        && !said.contains("noch nicht verschlüsselt"),
+                    "{locale} {label}: the drive IS encrypted: {said}"
+                );
+            }
+        }
+        crate::l10n::in_english();
+        assert!(!new_code_was_left_unmade(ENCRYPTED_ELSEWHERE));
+        assert!(!new_code_was_left_unmade("azdrive-enc-err-no-key"));
     }
 
     /// The Invite job (Add a device): the key permit is asked BEFORE the token server makes the member family of

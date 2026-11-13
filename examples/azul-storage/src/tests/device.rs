@@ -1058,8 +1058,8 @@ fn x_delta_keys3_3_a_setup_run_again_over_the_planted_copy_replaces_no_recovery_
 #[test]
 fn x_delta_keys3_6_a_permit_of_another_operation_writes_no_wrap_and_no_invite_and_opens_no_key() {
     use crate::crypto::device::{
-        add_code_permit, drive_key_entry, held, publish_recovery_wrap, recover_permit,
-        restore_permit, unlock_for_restore, Publish,
+        add_code_permit, drive_key_entry, held, look_at_first_wrap, publish_recovery_wrap,
+        recover_permit, restore_permit, unlock_for_restore, Publish,
     };
     use crate::crypto::keys::RecoveryWrap;
     let bucket = MemBucket::with_conditional_writes();
@@ -1101,6 +1101,28 @@ fn x_delta_keys3_6_a_permit_of_another_operation_writes_no_wrap_and_no_invite_an
         publish_recovery_wrap(&new_code, &bucket, &stashed, &wrap, Publish::Extra("x")),
         "publish: a new code's permit for a further code's wrap",
     );
+    // A new code's wrap goes in the place of the wrap it LOOKED at, and no other way (X-DELTA-KEYS4-2): the
+    // unconditional replace is the setup's and the rotation's.
+    denied(
+        publish_recovery_wrap(&new_code, &bucket, &stashed, &wrap, Publish::FirstReplace),
+        "publish: a new code's permit for the unconditional replace",
+    );
+    let seen = look_at_first_wrap(&bucket, &stashed, DRIVE).unwrap();
+    denied(
+        publish_recovery_wrap(&wrong, &bucket, &stashed, &wrap, Publish::Replacing(&seen)),
+        "publish: another operation's permit for the replace of a new code",
+    );
+    let asked_for_an_invite = wraps_permit(Op::Invite, &keyring, DRIVE).unwrap();
+    denied(
+        publish_recovery_wrap(
+            &asked_for_an_invite,
+            &bucket,
+            &stashed,
+            &wrap,
+            Publish::Replacing(&seen),
+        ),
+        "publish: an invite's permit for the replace of a new code",
+    );
     denied(
         device_enroll(&new_code, &bucket, &keyring, &key),
         "enroll under a new code's permit",
@@ -1131,7 +1153,14 @@ fn x_delta_keys3_6_a_permit_of_another_operation_writes_no_wrap_and_no_invite_an
     )
     .unwrap();
     seal_invite_with(&invite_permit, &bucket, &key).unwrap();
-    publish_recovery_wrap(&new_code, &bucket, &stashed, &wrap, Publish::FirstReplace).unwrap();
+    publish_recovery_wrap(
+        &new_code,
+        &bucket,
+        &stashed,
+        &wrap,
+        Publish::Replacing(&seen),
+    )
+    .unwrap();
     let adding = add_code_permit(&bucket, &keyring, DRIVE).unwrap();
     publish_recovery_wrap(
         &adding,
@@ -1258,4 +1287,294 @@ fn x_keystate_1_a_drive_key_entry_that_cannot_be_read_is_not_replaced_by_a_setup
     assert!(load_key_at(&keyring, &planned_key_entry(DRIVE))
         .unwrap()
         .is_none());
+}
+
+// ==== X-DELTA-KEYS4-2: the first recovery wrap that a new code replaces ====
+
+/// A new code's wrap goes in the place of the wrap the device LOOKED at (`look_at_first_wrap`): it must seal the
+/// key the device holds, and the put is made only while the file is still that version. A stale device (its key is
+/// the one another device's rotation replaced) never gets a look it can publish with, and a rotation that lands
+/// between the look and the put is not written over.
+mod first_wrap {
+    use super::*;
+    use crate::crypto::{
+        device::{held, look_at_first_wrap, publish_recovery_wrap, stash, Publish},
+        keys::RecoveryWrap,
+        CryptoError,
+    };
+
+    fn code_wrap(key: &DriveKey, code: &RecoveryCode) -> RecoveryWrap {
+        RecoveryWrap::seal(key, DRIVE, code, cheap()).unwrap()
+    }
+
+    /// A drive made by this device (key K1, paper P1), whose recovery wrap another device's rotation replaced
+    /// by one that seals K2 under P2 (written behind this device's back). Returns the bucket, this device's
+    /// keyring (still K1), K1 and the bytes of the other device's wrap.
+    fn rotated_elsewhere() -> (MemBucket, MemoryKeyring, DriveKey, Vec<u8>) {
+        let bucket = MemBucket::with_conditional_writes();
+        let keyring = MemoryKeyring::new();
+        let (k1, _p1) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+        let k2 = DriveKey::generate().unwrap();
+        let other = code_wrap(&k2, &RecoveryCode::generate().unwrap()).to_bytes();
+        bucket.set(RECOVERY_KEY_FILE, other.clone());
+        (bucket, keyring, k1, other)
+    }
+
+    fn denied_or<T: std::fmt::Debug>(result: Result<T, DriveError>) -> DriveError {
+        result.expect_err("a refusal")
+    }
+
+    /// (a) A device whose key was replaced gets no look to publish with: `KeyRefused`, the file is byte for byte
+    /// what it was, and nothing was written at all.
+    #[test]
+    fn x_delta_keys4_2_a_wrap_of_another_key_is_refused_and_nothing_is_written() {
+        let (bucket, keyring, _k1, other) = rotated_elsewhere();
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let puts_before = (bucket.puts(), bucket.conditional_puts().len());
+        match denied_or(look_at_first_wrap(&bucket, &stashed, DRIVE)) {
+            DriveError::KeyRefused { drive, reason } => {
+                assert_eq!(drive, DRIVE);
+                assert_eq!(reason, crate::crypto::device::FIRST_WRAP_OF_ANOTHER_KEY);
+            }
+            other => panic!("not KeyRefused: {other:?}"),
+        }
+        assert_eq!(bucket.object(RECOVERY_KEY_FILE), Some(other));
+        assert_eq!(
+            (bucket.puts(), bucket.conditional_puts().len()),
+            puts_before
+        );
+    }
+
+    /// (b) The device that holds the drive's key replaces its wrap - conditionally, on the version it saw -
+    /// and only the new code opens the wrap afterwards.
+    #[test]
+    fn x_delta_keys4_2_the_replace_is_conditional_on_the_version_looked_at_and_only_the_new_code_opens_it(
+    ) {
+        let bucket = MemBucket::with_conditional_writes();
+        let keyring = MemoryKeyring::new();
+        let (key, old_code) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+        let tag = bucket.head(RECOVERY_KEY_FILE).unwrap().etag.expect("a tag");
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let permit = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+        let seen = look_at_first_wrap(&bucket, &stashed, DRIVE).unwrap();
+        let new_code = RecoveryCode::generate().unwrap();
+        let wrap = code_wrap(&key, &new_code);
+        publish_recovery_wrap(&permit, &bucket, &stashed, &wrap, Publish::Replacing(&seen))
+            .unwrap();
+        assert_eq!(
+            bucket.conditional_puts().last(),
+            Some(&(RECOVERY_KEY_FILE.to_string(), Precondition::Matches(tag))),
+            "the put is conditional on the version the look saw"
+        );
+        let now = crate::crypto::keys::load_recovery_wrap(&bucket).unwrap();
+        assert!(now.open(DRIVE, &new_code).is_ok());
+        assert!(matches!(
+            now.open(DRIVE, &old_code),
+            Err(CryptoError::WrongKey)
+        ));
+    }
+
+    /// (d) A rotation lands between the look and the put: the put is refused (`Conflict`), the other device's
+    /// wrap is what the bucket holds, byte for byte.
+    #[test]
+    fn x_delta_keys4_2_a_wrap_that_moved_after_the_look_is_not_replaced() {
+        let bucket = MemBucket::with_conditional_writes();
+        let keyring = MemoryKeyring::new();
+        let (key, _old) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let permit = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+        let seen = look_at_first_wrap(&bucket, &stashed, DRIVE).unwrap();
+        // the other device's rotation
+        let k2 = DriveKey::generate().unwrap();
+        let other = code_wrap(&k2, &RecoveryCode::generate().unwrap()).to_bytes();
+        bucket.set(RECOVERY_KEY_FILE, other.clone());
+        let wrap = code_wrap(&key, &RecoveryCode::generate().unwrap());
+        let refused = denied_or(publish_recovery_wrap(
+            &permit,
+            &bucket,
+            &stashed,
+            &wrap,
+            Publish::Replacing(&seen),
+        ));
+        assert!(
+            matches!(refused, DriveError::Conflict { .. }),
+            "{refused:?}"
+        );
+        assert_eq!(bucket.object(RECOVERY_KEY_FILE), Some(other));
+    }
+
+    /// (c) A wrap that cannot be read (the read fails, the file is junk) is not known: nothing is written.
+    #[test]
+    fn x_delta_keys4_2_a_wrap_that_cannot_be_read_or_parsed_refuses_and_writes_nothing() {
+        let inner = Arc::new(MemBucket::with_conditional_writes());
+        let keyring = MemoryKeyring::new();
+        setup_new_drive(inner.as_ref(), &keyring, DRIVE, cheap()).unwrap();
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let writes = (inner.puts(), inner.conditional_puts().len());
+        let faulty = Faulty::new(inner.clone() as Arc<dyn Drive>);
+        faulty.fail_read(RECOVERY_KEY_FILE, 1);
+        let refused = denied_or(look_at_first_wrap(&faulty, &stashed, DRIVE));
+        assert!(matches!(refused, DriveError::Transport(_)), "{refused:?}");
+        // Junk where the wrap was: damaged, not "another key's" and not "none".
+        inner.set(RECOVERY_KEY_FILE, b"not a wrap".to_vec());
+        let refused = denied_or(look_at_first_wrap(inner.as_ref(), &stashed, DRIVE));
+        assert!(matches!(refused, DriveError::Corrupt { .. }), "{refused:?}");
+        assert_eq!(
+            inner.object(RECOVERY_KEY_FILE),
+            Some(b"not a wrap".to_vec())
+        );
+        assert_eq!(
+            (inner.puts(), inner.conditional_puts().len()),
+            writes,
+            "a look writes nothing"
+        );
+    }
+
+    /// A bucket with no wrap at all: the new code's wrap is created with `If-None-Match: *` - and not over a
+    /// wrap that appeared after the look.
+    #[test]
+    fn x_delta_keys4_2_no_wrap_is_created_conditionally_and_never_over_one_that_appeared() {
+        let bucket = MemBucket::with_conditional_writes();
+        let keyring = MemoryKeyring::new();
+        let (key, _old) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+        bucket.delete(RECOVERY_KEY_FILE).unwrap();
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let permit = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+        let seen = look_at_first_wrap(&bucket, &stashed, DRIVE).unwrap();
+        let wrap = code_wrap(&key, &RecoveryCode::generate().unwrap());
+        publish_recovery_wrap(&permit, &bucket, &stashed, &wrap, Publish::Replacing(&seen))
+            .unwrap();
+        assert_eq!(
+            bucket.conditional_puts().last(),
+            Some(&(RECOVERY_KEY_FILE.to_string(), Precondition::Absent))
+        );
+        // The same look, and another device creates its wrap first: not overwritten.
+        bucket.delete(RECOVERY_KEY_FILE).unwrap();
+        let seen = look_at_first_wrap(&bucket, &stashed, DRIVE).unwrap();
+        let k2 = DriveKey::generate().unwrap();
+        let other = code_wrap(&k2, &RecoveryCode::generate().unwrap()).to_bytes();
+        bucket.set(RECOVERY_KEY_FILE, other.clone());
+        let refused = denied_or(publish_recovery_wrap(
+            &permit,
+            &bucket,
+            &stashed,
+            &wrap,
+            Publish::Replacing(&seen),
+        ));
+        assert!(
+            matches!(refused, DriveError::Conflict { .. }),
+            "{refused:?}"
+        );
+        assert_eq!(bucket.object(RECOVERY_KEY_FILE), Some(other));
+    }
+
+    /// A conditional write sent again after it landed is refused as a conflict: the file holding the very
+    /// bytes put is the write that landed (Ok); a lost answer (`Transport`) stays what it is, an unknown
+    /// outcome - never taken for a refusal.
+    #[test]
+    fn x_delta_keys4_2_a_conflict_after_the_write_landed_is_found_out_by_the_bytes() {
+        let inner = Arc::new(MemBucket::with_conditional_writes());
+        let keyring = MemoryKeyring::new();
+        let (key, _old) = setup_new_drive(inner.as_ref(), &keyring, DRIVE, cheap()).unwrap();
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let permit = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+        let faulty = Faulty::new(inner.clone() as Arc<dyn Drive>);
+
+        let seen = look_at_first_wrap(&faulty, &stashed, DRIVE).unwrap();
+        let landed = code_wrap(&key, &RecoveryCode::generate().unwrap());
+        faulty.fail_write(RECOVERY_KEY_FILE, Fail::AnswerConflict, 1);
+        publish_recovery_wrap(
+            &permit,
+            &faulty,
+            &stashed,
+            &landed,
+            Publish::Replacing(&seen),
+        )
+        .expect("the bytes are there: the write landed");
+        assert_eq!(inner.object(RECOVERY_KEY_FILE), Some(landed.to_bytes()));
+
+        // A conflict whose bytes are NOT ours is a conflict (another device's wrap is what is there).
+        let seen = look_at_first_wrap(&faulty, &stashed, DRIVE).unwrap();
+        let lost = code_wrap(&key, &RecoveryCode::generate().unwrap());
+        let k2 = DriveKey::generate().unwrap();
+        let other = code_wrap(&k2, &RecoveryCode::generate().unwrap()).to_bytes();
+        inner.set(RECOVERY_KEY_FILE, other.clone());
+        let refused = denied_or(publish_recovery_wrap(
+            &permit,
+            &faulty,
+            &stashed,
+            &lost,
+            Publish::Replacing(&seen),
+        ));
+        assert!(
+            matches!(refused, DriveError::Conflict { .. }),
+            "{refused:?}"
+        );
+        assert_eq!(inner.object(RECOVERY_KEY_FILE), Some(other));
+
+        // An answer that was lost is an unknown outcome and says so.
+        inner.set(RECOVERY_KEY_FILE, landed.to_bytes());
+        let seen = look_at_first_wrap(&faulty, &stashed, DRIVE).unwrap();
+        faulty.fail_write(RECOVERY_KEY_FILE, Fail::AnswerLost, 1);
+        let unknown = denied_or(publish_recovery_wrap(
+            &permit,
+            &faulty,
+            &stashed,
+            &lost,
+            Publish::Replacing(&seen),
+        ));
+        assert!(matches!(unknown, DriveError::Transport(_)), "{unknown:?}");
+    }
+
+    /// A bucket that cannot write conditionally (a folder) still refuses a wrap of another key, and writes the
+    /// new code's wrap plainly after the key was checked.
+    #[test]
+    fn x_delta_keys4_2_a_bucket_without_conditional_writes_still_refuses_a_wrap_of_another_key() {
+        let bucket = MemBucket::new();
+        let keyring = MemoryKeyring::new();
+        let (key, _old) = setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let permit = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+        let seen = look_at_first_wrap(&bucket, &stashed, DRIVE).unwrap();
+        let wrap = code_wrap(&key, &RecoveryCode::generate().unwrap());
+        publish_recovery_wrap(&permit, &bucket, &stashed, &wrap, Publish::Replacing(&seen))
+            .unwrap();
+        assert_eq!(bucket.object(RECOVERY_KEY_FILE), Some(wrap.to_bytes()));
+        // another device's wrap now: the look refuses
+        let k2 = DriveKey::generate().unwrap();
+        let other = code_wrap(&k2, &RecoveryCode::generate().unwrap()).to_bytes();
+        bucket.set(RECOVERY_KEY_FILE, other.clone());
+        let refused = denied_or(look_at_first_wrap(&bucket, &stashed, DRIVE));
+        assert!(
+            matches!(refused, DriveError::KeyRefused { .. }),
+            "{refused:?}"
+        );
+        assert_eq!(bucket.object(RECOVERY_KEY_FILE), Some(other));
+    }
+
+    /// A look made for one key is no licence for the wrap of another: `Replacing` checks the key it was
+    /// looked at for against the key the wrap seals, and writes nothing when they differ.
+    #[test]
+    fn x_delta_keys4_2_a_look_made_for_another_key_is_no_licence() {
+        let bucket = MemBucket::with_conditional_writes();
+        let keyring = MemoryKeyring::new();
+        setup_new_drive(&bucket, &keyring, DRIVE, cheap()).unwrap();
+        let (_, stashed) = held(&keyring, &drive_key_entry(DRIVE)).unwrap().unwrap();
+        let permit = wraps_permit(Op::NewCode, &keyring, DRIVE).unwrap();
+        let seen = look_at_first_wrap(&bucket, &stashed, DRIVE).unwrap();
+        let before = bucket.object(RECOVERY_KEY_FILE);
+        // the keyring holds ANOTHER key under the planned entry (K3), and the wrap seals it
+        let k3 = DriveKey::generate().unwrap();
+        let stashed_k3 = stash(&keyring, &planned_key_entry(DRIVE), &k3).unwrap();
+        let wrap = code_wrap(&k3, &RecoveryCode::generate().unwrap());
+        let refused = denied_or(publish_recovery_wrap(
+            &permit,
+            &bucket,
+            &stashed_k3,
+            &wrap,
+            Publish::Replacing(&seen),
+        ));
+        assert!(matches!(refused, DriveError::Io(_)), "{refused:?}");
+        assert_eq!(bucket.object(RECOVERY_KEY_FILE), before);
+    }
 }

@@ -195,10 +195,119 @@ pub enum Publish<'f> {
     /// drive up first wins ([`DriveError::Conflict`]).
     FirstNew,
     /// The first recovery wrap again: the earlier try of this device's setup (its code was
-    /// never shown), a rotation's new one, a new code's.
+    /// never shown) or a rotation's new one - both look at the wrap themselves, and a rotation
+    /// replaces whatever is there on purpose. A new code's is [`Publish::Replacing`].
     FirstReplace,
+    /// The first recovery wrap, replaced by a NEW CODE's ([`Op::NewCode`]): the file as the device
+    /// looked at it before ([`look_at_first_wrap`]: it seals the key this device holds), and only
+    /// while it still is that version - a wrap another device wrote since (a rotation that landed
+    /// between the look and the put) is never written over (X-DELTA-KEYS4-2).
+    Replacing(&'f FirstWrapSeen),
     /// A further recovery code's file ([`add_recovery_code`]), which must be new.
     Extra(&'f str),
+}
+
+/// What [`look_at_first_wrap`] saw of the file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WrapVersion {
+    /// There was no recovery wrap: the put creates one (`If-None-Match: *`).
+    Absent,
+    /// The wrap, at this entity tag: the put replaces exactly this version (`If-Match`).
+    Tag(String),
+    /// The wrap, on a drive that shows no tags: the put is a plain one (the key was checked).
+    Untagged,
+}
+
+/// The drive's first recovery wrap as a device that is about to replace it with a new code's looked
+/// at it ([`look_at_first_wrap`], the only maker): the wrap seals the key this device holds - or there
+/// is none - and the version it was read at. [`Publish::Replacing`] takes it, so a new code's wrap
+/// cannot be put without the look, nor over a wrap another device wrote after it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct FirstWrapSeen {
+    /// The key the wrap was looked at for.
+    key_id: KeyId,
+    version: WrapVersion,
+}
+
+/// What the refusal of a wrap that seals another key says (the `reason` of the
+/// [`DriveError::KeyRefused`]).
+pub const FIRST_WRAP_OF_ANOTHER_KEY: &str =
+    "the drive's recovery wrap seals another drive key than the one this device holds: nothing was \
+     written, and the recovery code on paper stays what it is";
+
+/// Looks at the drive's first recovery wrap before a new code's replaces it: the wrap must seal the key
+/// the keyring holds (`stashed`) - a device whose key another device's rotation replaced would
+/// otherwise put a wrap of its old key over the drive's new one, and the code of the paper that opens
+/// the new key would open nothing - or there is no wrap at all. The version is read BEFORE the bytes: a
+/// replace made with that version fails when anything changed in between, never the other way round.
+///
+/// # Errors
+///
+/// [`DriveError::KeyRefused`] for a wrap of another key; the bucket's own error for a wrap that
+/// cannot be read or parsed (what is there is not known: nothing is written); [`DriveError::Conflict`]
+/// for a wrap that went between the two reads.
+pub fn look_at_first_wrap(
+    bucket: &dyn Drive,
+    stashed: &Stashed,
+    drive: &str,
+) -> Result<FirstWrapSeen, DriveError> {
+    let version = match bucket.head(RECOVERY_KEY_FILE) {
+        Ok(info) => match info.etag {
+            Some(tag) => WrapVersion::Tag(tag),
+            None => WrapVersion::Untagged,
+        },
+        Err(DriveError::NotFound { .. }) => WrapVersion::Absent,
+        Err(e) => return Err(e),
+    };
+    if version != WrapVersion::Absent {
+        let wrap = match load_recovery_wrap(bucket) {
+            Ok(wrap) => wrap,
+            Err(DriveError::NotFound { .. }) => {
+                return Err(DriveError::Conflict {
+                    key: String::from(RECOVERY_KEY_FILE),
+                })
+            }
+            Err(e) => return Err(e),
+        };
+        if wrap.drive_key_id != stashed.key_id {
+            return Err(DriveError::KeyRefused {
+                drive: drive.to_string(),
+                reason: String::from(FIRST_WRAP_OF_ANOTHER_KEY),
+            });
+        }
+    }
+    Ok(FirstWrapSeen {
+        key_id: stashed.key_id,
+        version,
+    })
+}
+
+/// Puts a new code's wrap in the place of the one [`look_at_first_wrap`] saw: only while the file is
+/// still that version. A conditional write sent again after it was done is refused as a conflict, so a
+/// refusal is answered by the file's own bytes: the very bytes put are the write that landed.
+fn replace_what_was_seen(
+    bucket: &dyn Drive,
+    wrap: &RecoveryWrap,
+    seen: &FirstWrapSeen,
+) -> Result<(), DriveError> {
+    let bytes = wrap.to_bytes();
+    let condition = match &seen.version {
+        WrapVersion::Absent => Precondition::Absent,
+        WrapVersion::Tag(tag) => Precondition::Matches(tag.clone()),
+        WrapVersion::Untagged => return store_recovery_wrap(bucket, wrap),
+    };
+    match bucket.put_if(RECOVERY_KEY_FILE, &bytes, &condition) {
+        Ok(_) => Ok(()),
+        Err(DriveError::Unsupported(_)) => store_recovery_wrap(bucket, wrap),
+        Err(refused @ DriveError::Conflict { .. }) => {
+            match crate::limits::named::KEY_FILE.read_from(bucket, RECOVERY_KEY_FILE) {
+                Ok(now) if now == bytes => Ok(()),
+                _ => Err(refused),
+            }
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Puts a recovery wrap into the bucket, for a drive key the keyring holds (`stashed`): the wrap
@@ -221,7 +330,8 @@ pub enum Publish<'f> {
 /// # Errors
 ///
 /// A wrap of another key than the stashed one (`Io`: nothing was written), the bucket's refusal,
-/// [`DriveError::Conflict`] for a wrap that had to be new and is not.
+/// [`DriveError::Conflict`] for a wrap that had to be new and is not, or (a new code's) that is not
+/// the version the device looked at.
 pub fn publish_recovery_wrap(
     permit: &keystate::Permit,
     bucket: &dyn Drive,
@@ -230,10 +340,12 @@ pub fn publish_recovery_wrap(
     how: Publish<'_>,
 ) -> Result<(), DriveError> {
     // The permit of the flow that writes the wrap, for the kind of wrap it writes: a setup makes the first one,
-    // a setup that goes on, a new code and a rotation replace it, a further code is a kit's (AddCode).
+    // a setup that goes on and a rotation replace it, a new code replaces the one it looked at, a further code
+    // is a kit's (AddCode).
     permit.allows_one_op_of(match how {
         Publish::FirstNew => &[Op::Setup],
-        Publish::FirstReplace => &[Op::Setup, Op::NewCode, Op::Rotate],
+        Publish::FirstReplace => &[Op::Setup, Op::Rotate],
+        Publish::Replacing(_) => &[Op::NewCode],
         Publish::Extra(_) => &[Op::AddCode],
     })?;
     if wrap.drive_key_id != stashed.key_id {
@@ -245,6 +357,17 @@ pub fn publish_recovery_wrap(
     match how {
         Publish::FirstNew => put_new(bucket, RECOVERY_KEY_FILE, &wrap.to_bytes()),
         Publish::FirstReplace => store_recovery_wrap(bucket, wrap),
+        Publish::Replacing(seen) => {
+            // The look was made for the key this wrap seals, and no other.
+            if seen.key_id != stashed.key_id {
+                return Err(DriveError::Io(format!(
+                    "the recovery wrap was looked at for the drive key {}, and the key the keyring \
+                     holds is {}",
+                    seen.key_id, stashed.key_id
+                )));
+            }
+            replace_what_was_seen(bucket, wrap, seen)
+        }
         Publish::Extra(file) => put_new(bucket, file, &wrap.to_bytes()),
     }
 }

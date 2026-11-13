@@ -416,8 +416,11 @@ fn x_delta_integrity3_4_a_recovery_is_permitted_on_exactly_four_why_fact_pairs_o
 /// down - X-DELTA-INTEGRITY3-2; here is each entry's):
 /// - Active x RemoveCode takes a further code's wrap out of the bucket;
 /// - Active x NewCode replaces the first code's wrap under the drive key the keyring holds.
-/// Neither writes a keyring entry or reads a bucket fact: the state Active - observed from the keyring's
-/// entries, which ARE asked - is all they rest on, and `device::wraps_permit` asks the keyring alone.
+/// Neither writes a keyring entry or rests on a bucket fact the JUDGE asks: the state Active - observed from the
+/// keyring's entries, which ARE asked - is all the cells rest on, and `device::wraps_permit` asks the keyring
+/// alone. (The NewCode flow looks at the wrap in the bucket before it replaces it - it must seal the key this
+/// device holds, and the put is conditional on the version looked at: `device::look_at_first_wrap`,
+/// X-DELTA-KEYS4-2 - outside the judge, where `Publish::Replacing` is the only way a new code's wrap is put.)
 /// `Invite` and `RemoveMember` are `permit_plain` in Active too and are not in `KEY_CHANGING`: they replace
 /// no recovery wrap and erase none of the user's ways back in when every device is lost, which is what the
 /// list is about - an invite adds a one-time member wrap for the device the user is adding, a member's
