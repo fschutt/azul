@@ -850,6 +850,28 @@ mod view_handlers {
         }
     }
 
+    /// `tabletPoint:` - see `MacOSWindow::handle_tablet_point`.
+    pub(super) fn tablet_point(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let result = macos_window.handle_tablet_point(event);
+            route_result(macos_window, result);
+            macos_window.sync_window_state();
+        }
+    }
+
+    /// `tabletProximity:` - see `MacOSWindow::handle_tablet_proximity`.
+    pub(super) fn tablet_proximity(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let result = macos_window.handle_tablet_proximity(event);
+            route_result(macos_window, result);
+            macos_window.sync_window_state();
+        }
+    }
+
     pub(super) fn scroll_wheel(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
         crate::log_debug!(
@@ -1433,6 +1455,20 @@ define_class!(
         #[unsafe(method(pressureChangeWithEvent:))]
         fn pressure_change_with_event(&self, event: &NSEvent) {
             view_handlers::pressure_change(self.ivars().window_ptr.get(), event);
+        }
+
+        // A pen's samples that come as no mouse event (pressure, tilt or
+        // rotation changing while it holds still) and its proximity (in and
+        // out of the tablet's range): see `handle_tablet_point` /
+        // `handle_tablet_proximity`.
+        #[unsafe(method(tabletPoint:))]
+        fn tablet_point(&self, event: &NSEvent) {
+            view_handlers::tablet_point(self.ivars().window_ptr.get(), event);
+        }
+
+        #[unsafe(method(tabletProximity:))]
+        fn tablet_proximity(&self, event: &NSEvent) {
+            view_handlers::tablet_proximity(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B14: standard Edit-menu selectors. The native Edit menu's
@@ -2704,6 +2740,20 @@ define_class!(
         #[unsafe(method(pressureChangeWithEvent:))]
         fn pressure_change_with_event(&self, event: &NSEvent) {
             view_handlers::pressure_change(self.ivars().window_ptr.get(), event);
+        }
+
+        // A pen's samples that come as no mouse event (pressure, tilt or
+        // rotation changing while it holds still) and its proximity (in and
+        // out of the tablet's range): see `handle_tablet_point` /
+        // `handle_tablet_proximity`.
+        #[unsafe(method(tabletPoint:))]
+        fn tablet_point(&self, event: &NSEvent) {
+            view_handlers::tablet_point(self.ivars().window_ptr.get(), event);
+        }
+
+        #[unsafe(method(tabletProximity:))]
+        fn tablet_proximity(&self, event: &NSEvent) {
+            view_handlers::tablet_proximity(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B14: standard Edit-menu selectors. The native Edit menu's

@@ -345,31 +345,151 @@ impl MacOSWindow {
     /// the cursor + mouse events already drive the pointer. Mirrors the iOS /
     /// Android pen feed.
     fn feed_tablet_pen(&mut self, event: &NSEvent, position: LogicalPosition, in_contact: bool) {
-        use objc2_app_kit::{NSEventSubtype, NSPointingDeviceType};
-        if unsafe { event.subtype() } != NSEventSubtype::TabletPoint {
+        use objc2_app_kit::NSEventSubtype;
+        let subtype = unsafe { event.subtype() };
+        if subtype == NSEventSubtype::TabletProximity {
+            // A mouse event that carries the pen's proximity instead of a
+            // sample (AppKit sends both forms): the same as `tabletProximity:`.
+            self.note_tablet_proximity(event);
             return;
         }
+        if subtype != NSEventSubtype::TabletPoint {
+            return;
+        }
+        self.feed_tablet_point(event, position, in_contact);
+    }
+
+    /// The pen sample of a tablet-point event (a mouse event of subtype
+    /// `TabletPoint`, or an `NSEventTypeTabletPoint` of its own): pressure,
+    /// tilt, tangential pressure, rotation and the barrel buttons.
+    ///
+    /// Only what a POINT event carries is read here. Which tool it is (pen
+    /// or eraser) is a property of the PROXIMITY event (`pointingDeviceType`
+    /// is valid on proximity events only), so it is taken from the pen state
+    /// [`Self::note_tablet_proximity`] recorded.
+    fn feed_tablet_point(&mut self, event: &NSEvent, position: LogicalPosition, in_contact: bool) {
+        use azul_layout::managers::gesture::TabletToolKind;
+        use objc2_app_kit::NSEventButtonMask;
         let pressure = unsafe { event.pressure() };
         let tilt = unsafe { event.tilt() }; // NSPoint components in -1.0..=1.0
-        let is_eraser = unsafe { event.pointingDeviceType() } == NSPointingDeviceType::Eraser;
         let tangential = unsafe { event.tangentialPressure() };
         let rotation_deg = unsafe { event.rotation() };
         let device_id = unsafe { event.pointingDeviceID() } as u64;
-        if let Some(lw) = self.common.layout_window.as_mut() {
-            lw.gesture_drag_manager.update_pen_state_full(
-                position,
-                pressure,
-                // NSEvent tilt is a -1..1 fraction; approximate to degrees (±90°).
-                (tilt.x as f32 * 90.0, tilt.y as f32 * 90.0),
-                in_contact,
-                is_eraser,
-                false, // barrel button not reported on the mouse-event path
-                device_id,
-                tangential,
-                rotation_deg * core::f32::consts::PI / 180.0,
-                0,
-            );
+        // The pen's side switches (the lower and upper rocker of a Wacom
+        // grip pen) - unless a driver mapped them to mouse buttons, in which
+        // case they arrive as right / middle presses instead.
+        let buttons = unsafe { event.buttonMask() };
+        let barrel = buttons.contains(NSEventButtonMask::PenLowerSide)
+            || buttons.contains(NSEventButtonMask::PenUpperSide);
+        let Some(lw) = self.common.layout_window.as_mut() else {
+            return;
+        };
+        let manager = &mut lw.gesture_drag_manager;
+        let tool = manager.get_pen_state().map(|p| (p.tool_kind, p.tool_id));
+        let is_eraser = tool.is_some_and(|(kind, _)| kind == TabletToolKind::Eraser);
+        manager.update_pen_state_full(
+            position,
+            pressure,
+            // NSEvent tilt is a -1..1 fraction; approximate to degrees (±90°).
+            (tilt.x as f32 * 90.0, tilt.y as f32 * 90.0),
+            in_contact,
+            is_eraser,
+            barrel,
+            device_id,
+            tangential,
+            rotation_deg * core::f32::consts::PI / 180.0,
+            tool.map_or(0, |(_, id)| id),
+        );
+    }
+
+    /// A pen came into the tablet's range or left it (`tabletProximity:`, or
+    /// a mouse event of subtype `TabletProximity`).
+    ///
+    /// Entering starts the pen state - `PenEnter`, the tool's kind (pen,
+    /// eraser, puck) and identity for every sample after it; leaving clears
+    /// it - `PenLeave`, which never fired on macOS. The pointer source says
+    /// a pen drives the cursor while it is in range.
+    fn note_tablet_proximity(&mut self, event: &NSEvent) {
+        use azul_core::events::PointerSource;
+        use azul_layout::managers::gesture::TabletToolKind;
+        use objc2_app_kit::NSPointingDeviceType;
+        let entering = unsafe { event.isEnteringProximity() };
+        if !entering {
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.gesture_drag_manager.clear_pen_state();
+            }
+            self.common.mouse_state_mut().pointer_source = PointerSource::Mouse;
+            return;
         }
+        let device_type = unsafe { event.pointingDeviceType() };
+        let kind = if device_type == NSPointingDeviceType::Pen {
+            TabletToolKind::Stylus
+        } else if device_type == NSPointingDeviceType::Eraser {
+            TabletToolKind::Eraser
+        } else if device_type == NSPointingDeviceType::Cursor {
+            // A puck: a mouse-shaped tool on the tablet.
+            TabletToolKind::Mouse
+        } else {
+            TabletToolKind::Unknown
+        };
+        let device_id = unsafe { event.pointingDeviceID() } as u64;
+        // The tool's own identity (Wacom's serial number of THIS pen),
+        // truncated as on the other platforms: Wintab's tool ids are 32-bit.
+        let tool_id = unsafe { event.uniqueID() } as u32;
+        let position = self
+            .common
+            .current_window_state()
+            .mouse_state
+            .cursor_position
+            .get_position()
+            .unwrap_or(LogicalPosition { x: 0.0, y: 0.0 });
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            let manager = &mut lw.gesture_drag_manager;
+            manager.update_pen_state_full(
+                position,
+                0.0,
+                (0.0, 0.0),
+                false,
+                kind == TabletToolKind::Eraser,
+                false,
+                device_id,
+                0.0,
+                0.0,
+                tool_id,
+            );
+            manager.set_pen_tool_kind(kind);
+        }
+        self.common.mouse_state_mut().pointer_source = match kind {
+            TabletToolKind::Eraser => PointerSource::Eraser,
+            TabletToolKind::Mouse => PointerSource::Mouse,
+            _ => PointerSource::Pen,
+        };
+    }
+
+    /// `tabletProximity:` - a pen entered or left the tablet's range.
+    pub fn handle_tablet_proximity(&mut self, event: &NSEvent) -> EventProcessResult {
+        self.snapshot_window_state_baseline("macos.handle_tablet_proximity");
+        self.note_tablet_proximity(event);
+        let result = self.process_window_events(0);
+        self.convert_result_with_fanout(result)
+    }
+
+    /// `tabletPoint:` - a pen sample that comes as no mouse event: what
+    /// AppKit sends when only the pressure, tilt or rotation changed (the pen
+    /// held still), so a brush that thickens with the pressure did not until
+    /// the pen moved. The position and the contact are the pointer's own
+    /// (the tip is the left button).
+    pub fn handle_tablet_point(&mut self, event: &NSEvent) -> EventProcessResult {
+        use objc2_app_kit::NSEventButtonMask;
+        let location = unsafe { event.locationInWindow() };
+        let window_height = self.common.current_window_state().size.dimensions.height;
+        let position = macos_to_azul_coords(location, window_height);
+        self.snapshot_window_state_baseline("macos.handle_tablet_point");
+        let in_contact = self.common.current_window_state().mouse_state.left_down
+            || unsafe { event.buttonMask() }.contains(NSEventButtonMask::PenTip);
+        self.feed_tablet_point(event, position, in_contact);
+        let result = self.process_window_events(0);
+        self.convert_result_with_fanout(result)
     }
 
     /// Process a mouse move event.
