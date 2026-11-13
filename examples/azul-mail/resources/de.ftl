@@ -242,7 +242,8 @@ azmail-restore-unknown = { $count ->
    *[other] Das Azlin-Laufwerk listet { $count } Nachrichten, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleiben hier bis zum nächsten Senden/Empfangen.
  }
 azmail-drops-wait-other-key = Eingehende E-Mails warten im Laufwerk: Der Mailschlüssel des Laufwerks gehört zu einem anderen Laufwerksschlüssel, als dieser Computer ihn hat. Sie werden einsortiert, sobald dieser Computer den aktuellen Schlüssel des Laufwerks hat.
-azmail-drops-wait-damaged = Eingehende E-Mails warten im Laufwerk: Die Datei des Mailschlüssels ist beschädigt, deshalb wurde nichts davon geöffnet. Es wurde nichts gelöscht.
+azmail-drops-wait-key-change = Eingehende E-Mails warten im Laufwerk: Der eigene Schlüsselwechsel dieses Computers (Ich wurde gehackt: neue Schlüssel, in AzDrive) ist nicht abgeschlossen, deshalb ist der Mailschlüssel des Laufwerks noch der vor dem Wechsel. Schließe den Schlüsselwechsel in AzDrive ab, dann werden die E-Mails einsortiert. Es wurde nichts gelöscht.
+azmail-drops-wait-damaged = Eingehende E-Mails können nicht einsortiert werden: Die Datei des Mailschlüssels des Laufwerks ist beschädigt und lässt sich nicht öffnen - und auch keine an diesen Schlüssel gesendete E-Mail, bis die Datei ersetzt wird. AzMail und AzDrive können sie noch nicht ersetzen. Es wurde nichts gelöscht.
 azmail-send-receive-error = Fehler beim Senden/Empfangen: { $why }
 azmail-send-receive-stopped = Senden/Empfangen angehalten. Was bis dahin ankam, bleibt erhalten.
 azmail-outbox-empty-no-account = Im Postausgang wartet nichts. Um E-Mails zu empfangen, füge ein Konto hinzu: Datei > Informationen > Konto hinzufügen.

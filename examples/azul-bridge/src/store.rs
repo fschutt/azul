@@ -1026,12 +1026,13 @@ mod tests {
     #[cfg(feature = "encryption")]
     #[test]
     fn x_delta_keys4_1_a_wait_of_the_drops_is_said_once_while_it_lasts() {
-        use azmail_core::mail_drive::DropsWait::{Damaged, OtherKey};
+        use azmail_core::mail_drive::DropsWait::{Damaged, KeyChangeUnfinished, OtherKey};
         let mut last = None;
         let said: Vec<_> = [
             None,
             Some(OtherKey),
             Some(OtherKey),
+            Some(KeyChangeUnfinished),
             Some(Damaged),
             None,
             Some(OtherKey),
@@ -1045,6 +1046,7 @@ mod tests {
                 None,
                 Some(OtherKey),
                 None,
+                Some(KeyChangeUnfinished),
                 Some(Damaged),
                 None,
                 Some(OtherKey)

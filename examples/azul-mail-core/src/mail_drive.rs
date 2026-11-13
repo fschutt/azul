@@ -33,7 +33,7 @@ use azul_storage::{
         drops::{self, Dropped},
     },
     encrypted::{open_encrypted, AutoEncrypted, IndexProvider},
-    Precondition,
+    rotation, Precondition,
 };
 use azul_storage::{keyring::KeyringStore, meta::RestoreSource, Drive, DriveError, Transport};
 
@@ -182,15 +182,24 @@ pub fn wrap_auto(
 /// Why the drops of a drive were not opened in a round although the drive has a drop key file: the
 /// file is no drop key this computer's drive key opens. The mail waits in the bucket - nothing is
 /// deleted - and is opened once the file is a key this computer's drive key opens (after a key
-/// change that stopped is finished, through the previous drop keys). The sync goes on: it is no
-/// error of the drive (X-DELTA-KEYS4-1).
+/// change that stopped is finished, through the previous drop keys), or, for a damaged file, never by
+/// anything this build has. The sync goes on: it is no error of the drive (X-DELTA-KEYS4-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropsWait {
-    /// The file is sealed under ANOTHER drive key than the one this computer holds: a key change of
-    /// the drive stopped on this computer between its new key and the new drop key (the drop key is
-    /// replaced in the last steps), or this computer's key is an old one.
+    /// The file is sealed under ANOTHER drive key than the one this computer holds, and no key change
+    /// of this computer's own is unfinished: this computer's key is an old one - another computer changed
+    /// the drive's keys - and the mail is filed once this computer has the current key.
     OtherKey,
-    /// The file names this computer's key and does not open with it: damaged.
+    /// The file is sealed under another drive key than the one this computer holds, and a key change of THIS
+    /// computer is not finished (`rotation::unfinished`): it holds the newest key, and the new drop key is
+    /// made in the change's last steps - the file is still the one before it. The way out is to finish the
+    /// change in AzDrive, not another key (X-DELTA-KEYS5-3).
+    KeyChangeUnfinished,
+    /// The file names this computer's key and does not open with it: damaged. Nothing will open it - not
+    /// now and not in a later round - and the Worker goes on sealing new mail to the public half it was
+    /// given: that mail is unreadable until the file is replaced, which `enable_drop` (and so `azcloud
+    /// mail-drop`), `disable_drop` and a key change all refuse to do for a file nobody can read
+    /// (X-DELTA-KEYS5-3; the deliberate repair is registered as X-DELTA-KEYSTATE6-1).
     Damaged,
 }
 
@@ -202,9 +211,15 @@ impl std::fmt::Display for DropsWait {
                 "incoming mail waits on the drive: its drop key is sealed under another drive key \
                  than this computer holds, so it is filed once this computer has the current key"
             }
+            DropsWait::KeyChangeUnfinished => {
+                "incoming mail waits on the drive: this computer's own key change is not finished, so \
+                 the drive's drop key is still the one before it - finish the key change in AzDrive \
+                 (I was hacked: new keys) and the mail is filed; nothing was deleted"
+            }
             DropsWait::Damaged => {
-                "incoming mail waits on the drive: its drop key file is damaged, so nothing of it \
-                 was opened and nothing was deleted"
+                "incoming mail cannot be filed: the drive's drop key file is damaged, so it cannot be \
+                 opened, and neither can any mail sent to that key until the file is replaced - this \
+                 build cannot replace it; nothing was deleted"
             }
         })
     }
@@ -261,7 +276,17 @@ pub fn file_drops(
     let secret = match drops::load_drop_key(bucket, &drive_key, drive_id) {
         Ok(Some(secret)) => secret,
         Ok(None) => return Ok(Filed::nothing()),
-        Err(DriveError::KeyRefused { .. }) => return Ok(Filed::waiting(DropsWait::OtherKey)),
+        // A file sealed under another drive key: a key change of this computer's own that is not finished
+        // (it holds the NEWEST key, the file is the one before it) is told from an old key here - the way out
+        // is not the same (X-DELTA-KEYS5-3). A keyring that cannot say is the keyring's error, as above.
+        Err(DriveError::KeyRefused { .. }) => {
+            let wait = if rotation::unfinished(keyring, drive_id)? {
+                DropsWait::KeyChangeUnfinished
+            } else {
+                DropsWait::OtherKey
+            };
+            return Ok(Filed::waiting(wait));
+        }
         Err(DriveError::Corrupt { .. }) => return Ok(Filed::waiting(DropsWait::Damaged)),
         Err(e) => return Err(e),
     };
@@ -692,13 +717,15 @@ mod tests {
     }
 
     /// X-DELTA-KEYS4-1: the device that holds the NEWEST key while its own "I was hacked" is stopped between its
-    /// Members step and the new drop key (the keyring's drive key is K2, `_drop.key` is still sealed under K1)
-    /// meets a drop key file its key does not open. Since 6011d4f59 that was `Err(KeyRefused)` out of
-    /// `file_drops`, and AzMail's whole Send/Receive ended on it before the drive was opened - on a device whose
-    /// key was NOT replaced - with a sentence that said it was. Now no drop is opened that round, the answer
-    /// says why, the drive is not even opened, the drops and the file stay as they are, and the writers of the
-    /// drop key still refuse. After the rotation's last step (the previous drop key, the new `_drop.key`) the
-    /// mail waiting in the bucket is filed through the previous drop keys.
+    /// Members step and the new drop key (the keyring's drive key is K2, `drive-key-previous` K1, `drive-key-next`
+    /// K2, `_drop.key` is still sealed under K1) meets a drop key file its key does not open. Since 6011d4f59 that
+    /// was `Err(KeyRefused)` out of `file_drops`, and AzMail's whole Send/Receive ended on it before the drive was
+    /// opened - on a device whose key was NOT replaced - with a sentence that said it was. Now no drop is opened
+    /// that round, the drive is not even opened, the drops and the file stay as they are, and the writers of the
+    /// drop key still refuse. The answer says it is THIS computer's own key change that is not finished
+    /// ([`super::DropsWait::KeyChangeUnfinished`]: the way out is AzDrive's "I was hacked" again, not another key -
+    /// X-DELTA-KEYS5-3). After the rotation's last step (the previous drop key, the new `_drop.key`) the mail
+    /// waiting in the bucket is filed through the previous drop keys.
     #[cfg(feature = "encryption")]
     #[test]
     fn x_delta_keys4_1_a_drop_key_of_the_key_before_stops_nothing_and_the_mail_is_filed_after_the_rotation_ends(
@@ -716,9 +743,17 @@ mod tests {
         super::set_index_cache_root(None);
         let drive_id = "d_k41_window";
         let (bucket, keyring, k1, raw) = a_drive_with_one_waiting_drop(drive_id);
-        // The device's own key change: the drive key is K2 now; the key change has not replaced the drop key yet.
+        // The device's own key change: the drive key is K2 now, with K1 as the key before and K2 as the new one
+        // (R1, R2, R9: the entries a rotation keeps until its last step); it has not replaced the drop key yet.
         let k2 = DriveKey::generate().unwrap();
         device::store_drive_key(keyring.as_ref(), drive_id, &k2).unwrap();
+        let (previous_entry, next_entry) = device::rotation_key_entries(drive_id);
+        let _previous = device::stash(keyring.as_ref(), &previous_entry, &k1).unwrap();
+        let _next = device::stash(keyring.as_ref(), &next_entry, &k2).unwrap();
+        assert!(
+            azul_storage::rotation::unfinished(keyring.as_ref(), drive_id).unwrap(),
+            "premise: this computer's own key change is not finished"
+        );
         let drop_key_file = bucket.get(DROP_KEY_FILE).unwrap();
         let opened = std::cell::Cell::new(0u32);
         let filed = super::file_drops(bucket.as_ref(), drive_id, keyring.as_ref(), &mut || {
@@ -729,7 +764,7 @@ mod tests {
         });
         assert_eq!(
             filed.expect("no error of the drive: the sync goes on"),
-            super::Filed::waiting(super::DropsWait::OtherKey)
+            super::Filed::waiting(super::DropsWait::KeyChangeUnfinished)
         );
         assert_eq!(
             opened.get(),
@@ -754,11 +789,12 @@ mod tests {
                 .is_ok(),
             "the sync goes on: the drive opens with the key this computer holds"
         );
-        // The writers keep the typed refusal.
+        // The writers keep their refusal: turning incoming mail on or off is refused while the key change is not
+        // over (and for a file of another key).
         assert!(
             matches!(
                 device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), drive_id, &k2),
-                Err(DriveError::KeyRefused { .. })
+                Err(DriveError::Denied { .. } | DriveError::KeyRefused { .. })
             ),
             "turning incoming mail on or off is still refused"
         );
@@ -766,7 +802,7 @@ mod tests {
         let auto = super::wrap_auto(bucket.clone(), drive_id, keyring.clone(), no_restore());
         assert_eq!(
             super::receive_drops_into(&auto, keyring.as_ref()).unwrap(),
-            super::Filed::waiting(super::DropsWait::OtherKey)
+            super::Filed::waiting(super::DropsWait::KeyChangeUnfinished)
         );
         // The rotation's last step: the drop key before it is kept under K2 and the new one replaces the file.
         drops::rotate_drop_key(bucket.as_ref(), &k1, &k2, drive_id)
@@ -787,6 +823,247 @@ mod tests {
                 .unwrap()
                 .is_empty(),
             "the drop is gone"
+        );
+    }
+
+    /// X-DELTA-KEYS5-3 (A): the other half of the sentence. A computer whose key is an OLD one - another computer
+    /// changed the drive's keys, and its drop key is sealed under the new key - waits for the current key, and the
+    /// answer says so ([`super::DropsWait::OtherKey`]); the computer of the test above, whose OWN key change is
+    /// not finished, is told to finish it. One sentence for both told the newest computer that it lacked the key.
+    /// The mail is not filed, nothing is deleted, the drive is not opened, and the file is as it was.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys5_3_a_computer_with_an_old_key_waits_for_the_current_one_and_says_so() {
+        use azul_storage::{
+            crypto::{
+                device,
+                drops::{self, DROP_KEY_FILE},
+                DriveKey,
+            },
+            ops::list_all,
+            DriveError,
+        };
+        let _turn = provider_turn();
+        super::set_index_cache_root(None);
+        let drive_id = "d_k53_old_key";
+        let (bucket, keyring, k1, _raw) = a_drive_with_one_waiting_drop(drive_id);
+        // Another computer changed the drive's keys: the drop key is K2's now. This computer still holds K1.
+        let k2 = DriveKey::generate().unwrap();
+        drops::rotate_drop_key(bucket.as_ref(), &k1, &k2, drive_id)
+            .unwrap()
+            .expect("incoming mail was on");
+        let drop_key_file = bucket.get(DROP_KEY_FILE).unwrap();
+        assert!(
+            !azul_storage::rotation::unfinished(keyring.as_ref(), drive_id).unwrap(),
+            "premise: no key change of this computer is unfinished"
+        );
+        let opened = std::cell::Cell::new(0u32);
+        let filed = super::file_drops(bucket.as_ref(), drive_id, keyring.as_ref(), &mut || {
+            opened.set(opened.get() + 1);
+            Err(DriveError::Unsupported(String::from(
+                "the drive is not opened this round",
+            )))
+        })
+        .expect("no error of the drive: the sync goes on");
+        assert_eq!(filed, super::Filed::waiting(super::DropsWait::OtherKey));
+        assert_eq!(filed.delivered, 0, "nothing was filed");
+        assert_eq!(opened.get(), 0, "the drive is not opened for it");
+        assert_eq!(
+            bucket.get(DROP_KEY_FILE).unwrap(),
+            drop_key_file,
+            "the file is as it was"
+        );
+        assert_eq!(
+            list_all(bucket.as_ref(), ".azlin/drop/").unwrap().len(),
+            1,
+            "the drop waits: nothing was deleted"
+        );
+        assert!(
+            matches!(
+                device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), drive_id, &k1),
+                Err(DriveError::KeyRefused { .. })
+            ),
+            "turning incoming mail on or off is refused for a file of another key"
+        );
+    }
+
+    /// X-DELTA-KEYS5-3, a keyring that cannot say: whether this computer's own key change is unfinished is asked of the
+    /// keyring AFTER the drop key file was found to be another key's. A keyring that breaks right there is unknown,
+    /// and unknown is neither "old key" nor "unfinished": the answer is the keyring's error - the sync stops on it as
+    /// it does when the first read of the keyring fails - and nothing is said of a wait, deleted or filed.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys5_3_a_keyring_that_cannot_say_whether_the_key_change_is_unfinished_is_an_error_and_no_wait(
+    ) {
+        use azul_storage::{
+            crypto::{
+                device,
+                drops::{self, DROP_KEY_FILE},
+                DriveKey,
+            },
+            keyring::{KeyringError, KeyringStore},
+            ops::list_all,
+            DriveError,
+        };
+        use std::sync::atomic::{AtomicBool, Ordering};
+        /// A keyring that answers like the one it holds until the flag is set.
+        struct Breaks {
+            inner: Arc<MemoryKeyring>,
+            broken: Arc<AtomicBool>,
+        }
+        impl Breaks {
+            fn failing(&self) -> Result<(), KeyringError> {
+                if self.broken.load(Ordering::SeqCst) {
+                    return Err(KeyringError::Failed(String::from("the keychain is locked")));
+                }
+                Ok(())
+            }
+        }
+        impl KeyringStore for Breaks {
+            fn get(&self, key: &str) -> Result<Option<String>, KeyringError> {
+                self.failing()?;
+                KeyringStore::get(self.inner.as_ref(), key)
+            }
+            fn set(&self, key: &str, secret: &str) -> Result<(), KeyringError> {
+                self.failing()?;
+                KeyringStore::set(self.inner.as_ref(), key, secret)
+            }
+            fn delete(&self, key: &str) -> Result<(), KeyringError> {
+                self.failing()?;
+                KeyringStore::delete(self.inner.as_ref(), key)
+            }
+        }
+        /// A bucket whose read of the drop key file breaks the keyring: the moment between the two reads.
+        struct BreaksTheKeyringAtTheDropKey {
+            inner: Arc<azul_storage::meta::MemoryBucket>,
+            broken: Arc<AtomicBool>,
+        }
+        impl Drive for BreaksTheKeyringAtTheDropKey {
+            fn list(
+                &self,
+                request: &azul_storage::ListRequest,
+            ) -> Result<azul_storage::ListPage, DriveError> {
+                self.inner.list(request)
+            }
+            fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+                if key == DROP_KEY_FILE {
+                    self.broken.store(true, Ordering::SeqCst);
+                }
+                self.inner.get(key)
+            }
+            fn get_range(
+                &self,
+                key: &str,
+                range: azul_storage::ByteRange,
+            ) -> Result<Vec<u8>, DriveError> {
+                self.inner.get_range(key, range)
+            }
+            fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+                self.inner.put(key, bytes)
+            }
+            fn delete(&self, key: &str) -> Result<(), DriveError> {
+                self.inner.delete(key)
+            }
+            fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+                self.inner.head(key)
+            }
+        }
+        let _turn = provider_turn();
+        super::set_index_cache_root(None);
+        let drive_id = "d_k53_keyring";
+        let (bucket, keyring, k1, _raw) = a_drive_with_one_waiting_drop(drive_id);
+        // Another computer changed the drive's keys: the drop key is K2's now, and this computer holds K1.
+        let k2 = DriveKey::generate().unwrap();
+        drops::rotate_drop_key(bucket.as_ref(), &k1, &k2, drive_id)
+            .unwrap()
+            .expect("incoming mail was on");
+        let drop_key_file = bucket.get(DROP_KEY_FILE).unwrap();
+        let broken = Arc::new(AtomicBool::new(false));
+        let breaks = Breaks {
+            inner: Arc::clone(&keyring),
+            broken: Arc::clone(&broken),
+        };
+        let watching = BreaksTheKeyringAtTheDropKey {
+            inner: Arc::clone(&bucket),
+            broken: Arc::clone(&broken),
+        };
+        // The keyring breaks when the drop key file is read: the question "is a key change of this computer's own
+        // unfinished" meets a keyring that cannot answer.
+        let filed = super::file_drops(&watching, drive_id, &breaks, &mut || {
+            Err(DriveError::Unsupported(String::from("not opened")))
+        });
+        assert!(
+            broken.load(Ordering::SeqCst),
+            "premise: the keyring broke when the drop key was read"
+        );
+        assert!(
+            matches!(
+                filed,
+                Err(DriveError::Io(_) | DriveError::Denied { .. } | DriveError::Unsupported(_))
+            ),
+            "the keyring's error, not a wait: {filed:?}"
+        );
+        assert!(device::load_drive_key(keyring.as_ref(), drive_id)
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            bucket.get(DROP_KEY_FILE).unwrap(),
+            drop_key_file,
+            "the file is as it was"
+        );
+        assert_eq!(
+            list_all(bucket.as_ref(), ".azlin/drop/").unwrap().len(),
+            1,
+            "the drop waits: nothing was deleted or filed"
+        );
+        // And with a keyring that stays whole the same drive says the wait - the control at the same size.
+        broken.store(false, Ordering::SeqCst);
+        let whole = Breaks {
+            inner: Arc::clone(&keyring),
+            broken: Arc::new(AtomicBool::new(false)),
+        };
+        let filed = super::file_drops(bucket.as_ref(), drive_id, &whole, &mut || {
+            Err(DriveError::Unsupported(String::from("not opened")))
+        })
+        .expect("no error of the drive");
+        assert_eq!(filed, super::Filed::waiting(super::DropsWait::OtherKey));
+    }
+
+    /// X-DELTA-KEYS5-3: the three waits are three sentences - each says what to do, in the words of the log line
+    /// the bridge prints - and the damaged one says it will not be opened and that mail sent to its key is
+    /// unreadable until the file is replaced, which nothing here can do (a wait with no end is no "waits").
+    #[test]
+    fn x_delta_keys5_3_each_wait_has_its_own_sentence_and_the_damaged_one_is_no_wait() {
+        let other = super::DropsWait::OtherKey.to_string();
+        let unfinished = super::DropsWait::KeyChangeUnfinished.to_string();
+        let damaged = super::DropsWait::Damaged.to_string();
+        assert!(
+            other.contains("another drive key")
+                && other.contains("once this computer has the current key")
+        );
+        assert!(
+            unfinished.contains("own key change is not finished") && unfinished.contains("AzDrive"),
+            "{unfinished}"
+        );
+        assert!(
+            !unfinished.contains("another drive key"),
+            "the newest computer is not told it lacks the key: {unfinished}"
+        );
+        assert!(
+            damaged.contains("damaged")
+                && damaged.contains("cannot be opened")
+                && damaged.contains("until the file is replaced")
+                && damaged.contains("cannot replace it")
+                && damaged.contains("nothing was deleted"),
+            "{damaged}"
+        );
+        assert!(
+            !damaged.contains("waits"),
+            "a file nothing will open does not wait: {damaged}"
+        );
+        assert!(
+            other != unfinished && unfinished != damaged && other != damaged,
+            "three different sentences"
         );
     }
 

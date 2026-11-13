@@ -1780,6 +1780,9 @@ pub fn drive_sentences(report: &SyncReport) -> Vec<String> {
         Some(crate::mail_drive::DropsWait::OtherKey) => {
             sentences.push(azul_appkit::l10n::t("azmail-drops-wait-other-key"));
         }
+        Some(crate::mail_drive::DropsWait::KeyChangeUnfinished) => {
+            sentences.push(azul_appkit::l10n::t("azmail-drops-wait-key-change"));
+        }
         Some(crate::mail_drive::DropsWait::Damaged) => {
             sentences.push(azul_appkit::l10n::t("azmail-drops-wait-damaged"));
         }
@@ -3158,9 +3161,11 @@ mod tests {
     }
 
     /// X-DELTA-KEYS4-1: incoming mail that waits in the drive because this computer's key does not open the
-    /// drive's drop key (a key change of its own that stopped, a damaged file) is ONE sentence of the sync's
-    /// report - in both languages, and nothing else is said where there is nothing to say. The sync itself went
-    /// on: no error of the drive (`mail_drive::file_drops`).
+    /// drive's drop key (a key change of its own that stopped, a key that is an old one, a damaged file) is ONE
+    /// sentence of the sync's report - in both languages, and nothing else is said where there is nothing to say.
+    /// The sync itself went on: no error of the drive (`mail_drive::file_drops`). X-DELTA-KEYS5-3: three states,
+    /// three sentences - the computer whose OWN key change is not finished is told to finish it, not that it lacks
+    /// the key, and a damaged file is no "waits": it will not be opened, and nothing here can replace it.
     #[test]
     fn x_delta_keys4_1_mail_waiting_for_its_drop_key_is_one_sentence_of_the_report_in_both_languages(
     ) {
@@ -3170,13 +3175,28 @@ mod tests {
             drive_sentences(&SyncReport::default()).is_empty(),
             "nothing waits, nothing is said"
         );
-        for (wait, english, german) in [
+        for (wait, en_start, english, de_start, german) in [
             (
                 DropsWait::OtherKey,
+                "Incoming mail waits in the drive",
                 "another drive key",
+                "Eingehende E-Mails warten im Laufwerk",
                 "anderen Laufwerksschlüssel",
             ),
-            (DropsWait::Damaged, "is damaged", "ist beschädigt"),
+            (
+                DropsWait::KeyChangeUnfinished,
+                "Incoming mail waits in the drive",
+                "Finish the key change in AzDrive",
+                "Eingehende E-Mails warten im Laufwerk",
+                "Schließe den Schlüsselwechsel in AzDrive ab",
+            ),
+            (
+                DropsWait::Damaged,
+                "Incoming mail cannot be filed",
+                "cannot replace it yet",
+                "Eingehende E-Mails können nicht einsortiert werden",
+                "können sie noch nicht ersetzen",
+            ),
         ] {
             let report = SyncReport {
                 drops_waiting: Some(wait),
@@ -3186,19 +3206,35 @@ mod tests {
             let said = drive_sentences(&report);
             assert_eq!(said.len(), 1, "one sentence: {said:?}");
             assert!(
-                said[0].starts_with("Incoming mail waits in the drive")
-                    && said[0].contains(english),
-                "{said:?}"
+                said[0].starts_with(en_start) && said[0].contains(english),
+                "{wait:?}: {said:?}"
             );
             azul_appkit::l10n::set_locale("de-DE");
             let said = drive_sentences(&report);
             assert_eq!(said.len(), 1, "one sentence: {said:?}");
             assert!(
-                said[0].starts_with("Eingehende E-Mails warten im Laufwerk")
-                    && said[0].contains(german),
-                "{said:?}"
+                said[0].starts_with(de_start) && said[0].contains(german),
+                "{wait:?}: {said:?}"
             );
         }
+        // The newest computer is not told it lacks the key, and a damaged file is no wait.
+        crate::l10n::in_english();
+        let unfinished = drive_sentences(&SyncReport {
+            drops_waiting: Some(DropsWait::KeyChangeUnfinished),
+            ..SyncReport::default()
+        });
+        assert!(
+            !unfinished[0].contains("another drive key"),
+            "{unfinished:?}"
+        );
+        let damaged = drive_sentences(&SyncReport {
+            drops_waiting: Some(DropsWait::Damaged),
+            ..SyncReport::default()
+        });
+        assert!(
+            damaged[0].contains("damaged") && !damaged[0].contains("waits"),
+            "{damaged:?}"
+        );
         crate::l10n::in_english();
     }
 
