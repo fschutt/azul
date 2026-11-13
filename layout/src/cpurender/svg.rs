@@ -1095,9 +1095,13 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
     let tag = node.node_type.as_str().to_lowercase();
     match tag.as_str() {
         "path" => {
+            // A subpath without a closepath stays open: its stroke has caps
+            // at both ends and no segment back to its start (a road, a
+            // contour line). The fill closes it anyway.
             let d = node.attributes.get_key("d")?;
-            let mp = azul_core::path_parser::parse_svg_path_d(d.as_str()).ok()?;
-            Some(svg_multi_polygon_to_path_storage(&mp))
+            let (mp, closed) =
+                azul_core::path_parser::parse_svg_path_d_subpaths(d.as_str()).ok()?;
+            Some(svg_subpaths_to_path_storage(&mp, &closed))
         }
         "circle" => {
             let cx = attr_f64(node, "cx");
@@ -1229,6 +1233,27 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
         &|p| (f64::from(p.x), f64::from(p.y)),
         RingEnd::ClosePolygon,
     );
+    path.finish()
+}
+
+/// [`svg_multi_polygon_to_path_storage`] for a `<path>`'s subpaths: ring
+/// `i` closed when `closed[i]` (it ended in a closepath), left open
+/// otherwise.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn svg_subpaths_to_path_storage(
+    mp: &azul_core::svg::SvgMultiPolygon,
+    closed: &[bool],
+) -> PathStorage {
+    use crate::geometry_guard::{add_svg_rings_each, BoundedPath, ClampBox, RingEnd, COORD_LIMIT};
+
+    let mut path = BoundedPath::new(ClampBox::around_origin(COORD_LIMIT));
+    add_svg_rings_each(&mut path, mp, &|p| (f64::from(p.x), f64::from(p.y)), &|i| {
+        if closed.get(i).copied().unwrap_or(false) {
+            RingEnd::ClosePolygon
+        } else {
+            RingEnd::Open
+        }
+    });
     path.finish()
 }
 
@@ -2011,8 +2036,13 @@ mod autotest_generated {
         let p = build_agg_path(&el("path", &[("d", "M 0 0 L 10 10")])).expect("valid d");
         assert!(p.total_vertices() >= 2, "move_to + line_to at minimum");
         assert!(
+            !agg_rust::basics::is_end_poly(p.last_command()),
+            "a subpath without Z is left open"
+        );
+        let p = build_agg_path(&el("path", &[("d", "M 0 0 L 10 10 L 0 10 Z")])).expect("valid d");
+        assert!(
             agg_rust::basics::is_end_poly(p.last_command()),
-            "every ring is terminated by close_polygon()"
+            "a subpath with Z is terminated by close_polygon()"
         );
     }
 
@@ -2716,6 +2746,79 @@ mod autotest_generated {
             !is_all_white(&p),
             "a stroked line across the middle must paint something"
         );
+    }
+
+    /// A `<path>` subpath without `Z` is stroked open: nothing joins its
+    /// last point to its first (a road drawn as `M..L..L` got a straight line
+    /// back across the map). With `Z` the closing segment is there, and the
+    /// fill closes both.
+    #[test]
+    fn render_svg_group_open_path_stroke_has_no_closing_segment() {
+        // Two sides of a square, 4..28; the closing segment would be the
+        // diagonal from (28, 28) back to (4, 4), through (16, 16).
+        let stroked = |d: &str| {
+            let svg = el_with(
+                "svg",
+                &[],
+                vec![el(
+                    "path",
+                    &[
+                        ("d", d),
+                        ("fill", "none"),
+                        ("stroke", "black"),
+                        ("stroke-width", "3"),
+                    ],
+                )],
+            );
+            let mut p = pixmap(32, 32);
+            p.fill(255, 255, 255, 255);
+            render_svg_group(&svg, &mut p, &TransAffine::new());
+            p
+        };
+        let open = stroked("M4 4 L28 4 L28 28");
+        assert_eq!(
+            px(&open, 16, 4),
+            [0, 0, 0, 255],
+            "the first side is stroked"
+        );
+        assert_eq!(
+            px(&open, 28, 16),
+            [0, 0, 0, 255],
+            "the second side is stroked"
+        );
+        assert_eq!(
+            px(&open, 16, 16),
+            [255, 255, 255, 255],
+            "no closing diagonal"
+        );
+        let closed = stroked("M4 4 L28 4 L28 28 Z");
+        assert_eq!(
+            px(&closed, 16, 16),
+            [0, 0, 0, 255],
+            "Z strokes the diagonal"
+        );
+        // An open subpath followed by a closed one: each keeps its own end.
+        let both = stroked("M4 4 L28 4 L28 28 M4 20 L12 20 L4 28 Z");
+        assert_eq!(
+            px(&both, 16, 16),
+            [255, 255, 255, 255],
+            "the first stays open"
+        );
+        // (4, 24) lies on the second one's closing segment only.
+        assert_eq!(px(&both, 4, 24), [0, 0, 0, 255], "the second is closed");
+        assert_eq!(px(&open, 4, 24), [255, 255, 255, 255]);
+
+        // The fill closes an open subpath all the same.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el("path", &[("d", "M4 4 L28 4 L28 28"), ("fill", "black")])],
+        );
+        let mut p = pixmap(32, 32);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        assert_eq!(px(&p, 24, 8), [0, 0, 0, 255], "inside the implied triangle");
+        assert_eq!(px(&p, 8, 24), [255, 255, 255, 255], "outside it");
     }
 
     #[test]

@@ -320,13 +320,25 @@ pub(crate) fn add_svg_rings(
     map: &dyn Fn(azul_css::props::basic::SvgPoint) -> Point,
     end: RingEnd,
 ) {
+    add_svg_rings_each(out, path, map, &|_| end);
+}
+
+/// [`add_svg_rings`] with each ring ended its own way: `end(i)` for
+/// `path.rings[i]` (an SVG `<path>` whose subpaths are closed or left open
+/// one by one).
+pub(crate) fn add_svg_rings_each(
+    out: &mut BoundedPath,
+    path: &azul_core::svg::SvgMultiPolygon,
+    map: &dyn Fn(azul_css::props::basic::SvgPoint) -> Point,
+    end: &dyn Fn(usize) -> RingEnd,
+) {
     use azul_core::svg::SvgPathElement;
 
     let finite = |p: azul_css::props::basic::SvgPoint| {
         let (x, y) = map(p);
         x.is_finite() && y.is_finite()
     };
-    for ring in path.rings.as_ref() {
+    for (index, ring) in path.rings.as_ref().iter().enumerate() {
         let items = ring.items.as_ref();
         let ring_is_finite = items.iter().all(|item| match item {
             SvgPathElement::Line(l) => finite(l.start) && finite(l.end),
@@ -357,7 +369,7 @@ pub(crate) fn add_svg_rings(
                 }
             }
         }
-        match end {
+        match end(index) {
             RingEnd::Open => {}
             RingEnd::Filled => out.close_exactly(),
             RingEnd::ClosePolygon => out.close_polygon(),
