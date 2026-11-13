@@ -1149,3 +1149,313 @@ fn x_edge_a_3_a_device_that_lags_a_rotation_keeps_the_pack_it_could_not_name_and
     );
     nothing_taken_or_changed(&w.mem, &done, "the upkeep with the new key (shadow mode)");
 }
+
+// ==== X-DELTA-KEYS5-2: an `AutoEncrypted` that kept a drive past a key change finished in another process ====
+
+/// The provider the apps' `AutoEncrypted` opens a drive with, counting what it opens: the index of a drive
+/// (`open_index`, and its window twin). Everything else is the real provider's.
+struct Counting {
+    inner: Arc<MetaIndexProvider>,
+    opens: std::sync::atomic::AtomicUsize,
+}
+
+impl Counting {
+    fn opens(&self) -> usize {
+        self.opens.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl IndexProvider for Counting {
+    fn open_index(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        self.opens.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner.open_index(drive, bucket, drive_key)
+    }
+
+    fn open_index_in_window(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        previous: &DriveKey,
+    ) -> Result<Arc<dyn NameIndex>, DriveError> {
+        self.opens.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.inner
+            .open_index_in_window(drive, bucket, drive_key, previous)
+    }
+
+    fn rekey(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        old: &DriveKey,
+        new: &DriveKey,
+    ) -> Result<(), DriveError> {
+        self.inner.rekey(drive, bucket, old, new)
+    }
+
+    fn packing(&self, drive: &str) -> Option<PackOptions> {
+        self.inner.packing(drive)
+    }
+
+    fn reclaim_mode(&self, drive: &str) -> crate::meta::reclaim::ReclaimMode {
+        self.inner.reclaim_mode(drive)
+    }
+
+    fn reclaim_standing(&self, drive: &str) -> Option<crate::encrypted::ReclaimStanding> {
+        self.inner.reclaim_standing(drive)
+    }
+
+    fn purge_confirmed(
+        &self,
+        drive: &str,
+        bucket: Arc<dyn Drive>,
+        drive_key: &DriveKey,
+        confirmation: &crate::meta::reclaim::PurgeConfirmation,
+    ) -> Result<crate::meta::reclaim::ReclaimReport, DriveError> {
+        self.inner
+            .purge_confirmed(drive, bucket, drive_key, confirmation)
+    }
+}
+
+/// A NORMAL drive (no rotation window) as the bridge holds it: one `AutoEncrypted`, built once over the
+/// keyring that AzDrive in another process shares, opened by its first call and kept.
+struct NormalWorld {
+    mem: Arc<MemoryBucket>,
+    plain: Arc<dyn Drive>,
+    keyring: Arc<MemoryKeyring>,
+    provider: Arc<MetaIndexProvider>,
+    counting: Arc<Counting>,
+    auto: crate::encrypted::AutoEncrypted,
+}
+
+fn normal_world() -> NormalWorld {
+    use crate::keyring::KeyringStore;
+    let mem = Arc::new(MemoryBucket::new());
+    let keyring = Arc::new(MemoryKeyring::new());
+    setup_new_drive(mem.as_ref(), keyring.as_ref(), DRIVE, cheap()).unwrap();
+    let plain: Arc<dyn Drive> = mem.clone();
+    let provider = Arc::new(MetaIndexProvider::new(IndexProfile::in_memory("Laptop")));
+    let drive = open_encrypted(plain.clone(), keyring.as_ref(), DRIVE, provider.as_ref()).unwrap();
+    drive.put("notes/plan.txt", b"the plan").unwrap();
+    drop(drive);
+    let counting = Arc::new(Counting {
+        inner: provider.clone(),
+        opens: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let auto = crate::encrypted::AutoEncrypted::new(
+        plain.clone(),
+        DRIVE,
+        keyring.clone() as Arc<dyn KeyringStore>,
+        Some(counting.clone() as Arc<dyn IndexProvider>),
+    )
+    .encrypted_only();
+    NormalWorld {
+        mem,
+        plain,
+        keyring,
+        provider,
+        counting,
+        auto,
+    }
+}
+
+impl NormalWorld {
+    /// AzDrive's "I was hacked: new keys" in another process with the same keychain: the production
+    /// rotation, through the one keyring this world's `AutoEncrypted` reads too.
+    fn rotated_through_the_same_keychain(&self) {
+        rotate(
+            self.plain.clone(),
+            self.keyring.as_ref(),
+            DRIVE,
+            self.provider.as_ref(),
+            cheap(),
+        )
+        .expect("the rotation of the other process runs to its end");
+    }
+
+    /// Another device, with a keyring of its own (it holds the key from before), rotates the drive: this
+    /// computer's keychain still holds the old key.
+    fn rotated_by_another_device(&self) {
+        let k1 = load_drive_key(self.keyring.as_ref(), DRIVE)
+            .unwrap()
+            .expect("this computer's key");
+        let other = MemoryKeyring::new();
+        enroll(self.mem.as_ref(), &other, DRIVE, &k1).unwrap();
+        rotate(
+            self.plain.clone(),
+            &other,
+            DRIVE,
+            self.provider.as_ref(),
+            cheap(),
+        )
+        .expect("the rotation of the other device runs to its end");
+    }
+}
+
+/// X-DELTA-KEYS5-2: `AutoEncrypted` kept the PRE-rotation drive too. 67f861145 drops the cached drive for the
+/// read-only window after a refused change; a NORMAL drive opened with K1 stayed K1's for the life of the
+/// process, so after AzDrive's rotation (R4 seals the index under K2, R9 puts K2 into the shared keychain)
+/// every call answered "join it with a code" until the daemon restarted, while the keychain held the new key.
+/// The call that was answered `KeyRefused` is made once more when the keyring's key is no longer the one the
+/// drive was opened with: a write and a fresh read land, the drive is kept again, and one more open was made.
+#[test]
+fn x_delta_keys5_2_an_auto_encrypted_heals_after_a_rotation_finished_through_another_keyring_handle(
+) {
+    let w = normal_world();
+    // The bridge's first call opens the drive with K1 and keeps it.
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    assert_eq!(w.counting.opens(), 1, "premise: opened once, kept");
+    // What the kept drive is: a K1 drive. After the rotation it answers the key to ask for.
+    let kept = open_encrypted(
+        w.plain.clone(),
+        w.keyring.as_ref(),
+        DRIVE,
+        w.provider.as_ref(),
+    )
+    .unwrap();
+    w.rotated_through_the_same_keychain();
+    let told = kept
+        .put("notes/stale.txt", b"a write of a K1 drive")
+        .map(|_| ());
+    assert!(
+        asks_for_the_key(&told),
+        "premise: a drive kept past the rotation is refused: {told:?}"
+    );
+    // The same AutoEncrypted, never told to reopen:
+    w.auto.put("notes/new.txt", b"after the rotation").expect(
+        "the call that was refused is made again through a drive opened with the keychain's key",
+    );
+    let fresh = ListRequest {
+        refresh: true,
+        ..ListRequest::recursive("")
+    };
+    let listed = w.auto.list(&fresh).expect("a fresh read lands");
+    assert!(
+        listed.objects.iter().any(|o| o.key == "notes/new.txt"),
+        "{:?}",
+        listed.objects.iter().map(|o| &o.key).collect::<Vec<_>>()
+    );
+    assert_eq!(w.auto.get("notes/new.txt").unwrap(), b"after the rotation");
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    assert_eq!(
+        w.counting.opens(),
+        2,
+        "one open more, and the drive is kept again after it (the later calls open nothing)"
+    );
+}
+
+/// X-DELTA-KEYS5-2, the control: a refusal whose key IS the one the keyring holds is true - another device
+/// rotated, this computer's keychain still holds K1 (the refusal sends it to join again) - and stays a refusal:
+/// nothing is reopened for it, however often it comes.
+#[test]
+fn x_delta_keys5_2_a_refusal_whose_key_is_the_keyrings_stays_a_refusal_and_reopens_nothing() {
+    let w = normal_world();
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    w.rotated_by_another_device();
+    for round in 0..2 {
+        let put = w.auto.put("notes/late.txt", b"x").map(|_| ());
+        assert!(
+            asks_for_the_key(&put),
+            "round {round}: the refusal stands: {put:?}"
+        );
+    }
+    assert_eq!(
+        w.counting.opens(),
+        1,
+        "the keyring still holds the key the drive was opened with: nothing was reopened"
+    );
+}
+
+/// X-DELTA-KEYS5-2: only a typed `KeyRefused` is looked at. An error that is none - here a key that is no name
+/// (`InvalidKey`), answered before the index is asked - reopens nothing, though the keyring holds another key
+/// than the drive was opened with; the next call that is refused heals it.
+#[test]
+fn x_delta_keys5_2_an_error_that_is_no_key_refusal_reopens_nothing() {
+    let w = normal_world();
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    w.rotated_through_the_same_keychain();
+    let bad = w.auto.put("../escape.txt", b"x").map(|_| ());
+    assert!(
+        bad.is_err() && !matches!(bad, Err(DriveError::KeyRefused { .. })),
+        "an error that is no key refusal: {bad:?}"
+    );
+    assert_eq!(
+        w.counting.opens(),
+        1,
+        "not reopened for an error that is no KeyRefused"
+    );
+    w.auto.put("notes/new.txt", b"x").unwrap();
+    assert_eq!(w.counting.opens(), 2);
+}
+
+/// X-DELTA-KEYS5-2: never a loop. The keychain holds a key that opens nothing (an unrelated one, K3): the call
+/// is refused, the drive is dropped, the open that follows is refused too - the refusal is the answer after ONE
+/// more open, not another call and not another open.
+#[test]
+fn x_delta_keys5_2_a_refusal_that_survives_the_reopen_is_the_answer_after_one_more_open() {
+    let w = normal_world();
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    w.rotated_by_another_device();
+    let k3 = DriveKey::generate().unwrap();
+    crate::crypto::device::store_drive_key(w.keyring.as_ref(), DRIVE, &k3).unwrap();
+    let put = w.auto.put("notes/late.txt", b"x").map(|_| ());
+    assert!(
+        matches!(put, Err(DriveError::KeyRefused { .. })),
+        "the refusal is the answer: {put:?}"
+    );
+    assert_eq!(
+        w.counting.opens(),
+        2,
+        "the open of the first call, and ONE more for the call that was refused"
+    );
+}
+
+/// X-DELTA-KEYS5-2, a batch: the items that were refused - before anything was done - are asked once more
+/// through the fresh drive, and the batch lands.
+#[test]
+fn x_delta_keys5_2_a_batch_refused_by_a_replaced_drive_is_asked_once_more() {
+    let w = normal_world();
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    w.rotated_through_the_same_keychain();
+    let answers = w.auto.put_many(&[
+        crate::BatchPut::new("notes/b1.txt", b"one"),
+        crate::BatchPut::new("notes/b2.txt", b"two"),
+    ]);
+    assert_eq!(answers.len(), 2);
+    assert!(answers.iter().all(Result::is_ok), "{answers:?}");
+    assert_eq!(w.auto.get("notes/b1.txt").unwrap(), b"one");
+    assert_eq!(w.auto.get("notes/b2.txt").unwrap(), b"two");
+    assert_eq!(w.counting.opens(), 2);
+}
+
+/// X-DELTA-KEYS5-2, a call that cannot be made again: an upload reads its body once, so a refusal of the
+/// replaced drive is the answer - but the drive is dropped, and the next call (the caller's retry, with a body
+/// of its own) lands through a fresh one.
+#[test]
+fn x_delta_keys5_2_a_stream_is_not_made_again_but_the_replaced_drive_is_dropped() {
+    let w = normal_world();
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    w.rotated_through_the_same_keychain();
+    let mut body = std::io::Cursor::new(b"streamed once".to_vec());
+    let refused = w.auto.put_from("notes/s.txt", &mut body);
+    assert!(
+        matches!(refused, Err(DriveError::KeyRefused { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(
+        w.counting.opens(),
+        1,
+        "the stream was read: the call is not made again, nothing was opened for it"
+    );
+    let mut body = std::io::Cursor::new(b"streamed again".to_vec());
+    w.auto
+        .put_from("notes/s.txt", &mut body)
+        .expect("the retry lands through a drive opened with the keychain's key");
+    assert_eq!(w.auto.get("notes/s.txt").unwrap(), b"streamed again");
+    assert_eq!(w.counting.opens(), 2);
+}

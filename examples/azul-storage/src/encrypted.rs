@@ -893,8 +893,10 @@ impl AutoEncrypted {
     /// first call, then asks the state ([`EncState::admits`]) - an encrypted drive takes
     /// everything, a drive that is not takes no write and no delete ever, and reads only where
     /// the app reads a drive that is not encrypted ([`Self::encrypted_only`]). Every method of
-    /// the [`Drive`] impl below begins here, so a method added later has to pick its `Op`.
-    fn gate(&self, op: Op) -> Result<Arc<dyn Drive>, DriveError> {
+    /// the [`Drive`] impl below begins here, so a method added later has to pick its `Op`. What it hands
+    /// out - the drive and the state it was decided with ([`Gated`]) - makes the call, and makes it once
+    /// more when the drive was replaced by a key change finished in another process.
+    fn gate(&self, op: Op) -> Result<Gated<'_>, DriveError> {
         // The drive and the state of ONE decision: a call is judged by the state the drive it
         // is handed was decided with, whatever a reopening on another thread does meanwhile
         // (the state was read in a second step once, and a write could meet the bare bucket of
@@ -917,7 +919,12 @@ impl AutoEncrypted {
             }
         }
         if state.admits(op, self.plain_reads) {
-            return Ok(drive);
+            return Ok(Gated {
+                auto: self,
+                op,
+                drive,
+                state,
+            });
         }
         // No wildcard arm: a fifth state is a compile error here (the gate in azul-srcgate's
         // `enc_state_gate` reads for it).
@@ -1056,15 +1063,152 @@ impl AutoEncrypted {
     }
 }
 
+/// What [`AutoEncrypted::gate`] lets a call through to: the drive the call goes to, and the state that drive
+/// was decided with. A call made through it is made ONCE more through a fresh drive when its answer is the typed
+/// [`DriveError::KeyRefused`] of a drive this object kept past a key change that finished in another process
+/// ([`Gated::replaced`]): a rotation of AzDrive, with the same keychain, seals the index under the new key and
+/// puts the new key into the keyring, while this object's cached drive still has the old one - and every call
+/// answered "join it with a code" until the process restarted. The bridge builds one `AutoEncrypted` and never
+/// reopens it (X-DELTA-KEYS5-2, the twin of the read-only window's X-DELTA-KEYS4-3).
+///
+/// The call runs at most twice - never in a loop, never for an error that is not a typed `KeyRefused`, and not
+/// a second time when the keyring still holds the key the drive was opened with (the refusal is then true:
+/// nothing was replaced, and nothing is reopened for it). The second call's answer is the answer, whatever it is.
+struct Gated<'a> {
+    auto: &'a AutoEncrypted,
+    op: Op,
+    drive: Arc<dyn Drive>,
+    state: EncState,
+}
+
+impl Gated<'_> {
+    /// A call that can be made again.
+    fn call<T>(&self, call: impl Fn(&dyn Drive) -> Result<T, DriveError>) -> Result<T, DriveError> {
+        let answer = call(self.drive.as_ref());
+        if matches!(answer, Err(DriveError::KeyRefused { .. })) && self.replaced() {
+            let fresh = self.auto.gate(self.op)?;
+            return call(fresh.drive.as_ref());
+        }
+        answer
+    }
+
+    /// A call that cannot be made again - it reads a body that is gone, or spends a witness: a replaced
+    /// drive is dropped after its refusal (the next call opens a fresh one) and the refusal stays the answer.
+    fn once<T>(
+        &self,
+        call: impl FnOnce(&dyn Drive) -> Result<T, DriveError>,
+    ) -> Result<T, DriveError> {
+        let answer = call(self.drive.as_ref());
+        if matches!(answer, Err(DriveError::KeyRefused { .. })) {
+            self.replaced();
+        }
+        answer
+    }
+
+    /// A batch of items that can be asked again: the items answered `KeyRefused` - they were refused before
+    /// anything was done - are asked once more through a fresh drive when the cached one was replaced; the
+    /// answers of the others stand, and those items are never asked again.
+    fn items<I: Copy, T>(
+        &self,
+        items: &[I],
+        call: impl Fn(&dyn Drive, &[I]) -> Vec<Result<T, DriveError>>,
+    ) -> Vec<Result<T, DriveError>> {
+        let mut answers = call(self.drive.as_ref(), items);
+        let refused: Vec<usize> = answers
+            .iter()
+            .enumerate()
+            .filter(|(_, answer)| matches!(answer, Err(DriveError::KeyRefused { .. })))
+            .map(|(at, _)| at)
+            .collect();
+        if refused.is_empty() || !self.replaced() {
+            return answers;
+        }
+        let again: Vec<I> = refused
+            .iter()
+            .filter_map(|at| items.get(*at).copied())
+            .collect();
+        let second = match self.auto.gate(self.op) {
+            Ok(fresh) => call(fresh.drive.as_ref(), &again),
+            Err(e) => again.iter().map(|_| Err(e.clone())).collect(),
+        };
+        for (at, answer) in refused.into_iter().zip(second) {
+            if let Some(slot) = answers.get_mut(at) {
+                *slot = answer;
+            }
+        }
+        answers
+    }
+
+    /// A batch that cannot be asked again (streams, a witness): a replaced drive is dropped after a refusal
+    /// of any item and the answers stay as they are.
+    fn once_items<T>(
+        &self,
+        call: impl FnOnce(&dyn Drive) -> Vec<Result<T, DriveError>>,
+    ) -> Vec<Result<T, DriveError>> {
+        let answers = call(self.drive.as_ref());
+        if answers
+            .iter()
+            .any(|answer| matches!(answer, Err(DriveError::KeyRefused { .. })))
+        {
+            self.replaced();
+        }
+        answers
+    }
+
+    /// A call of this drive was answered `KeyRefused`: whether the drive was opened with another key than the
+    /// keyring holds now - a key change finished elsewhere, with the same keychain - and so is dropped (the next
+    /// call opens it again, keeping the key id the drives file recorded: a key that is no successor of it is
+    /// still refused). One keyring read, on this failure path only. `false` - the refusal stands, and the drive
+    /// stays - for a drive that was not opened with a key, for the same key (the refusal is true: a key change of
+    /// this computer that is not finished, a keychain put back from a backup), and for a keyring that holds no
+    /// key or cannot be read: nothing says the drive was replaced, and nothing is reopened on a failed read.
+    fn replaced(&self) -> bool {
+        let opened_with = match self.state {
+            EncState::Encrypted {
+                key_id: Some(id), ..
+            } => id,
+            EncState::Encrypted { key_id: None, .. }
+            | EncState::Undecided
+            | EncState::SetupPending
+            | EncState::Unencrypted(_) => return false,
+        };
+        let auto = self.auto;
+        let held = match auto.asked(|| device::load_drive_key(auto.keyring.as_ref(), &auto.drive)) {
+            Ok(Some(key)) => key.id(),
+            Ok(None) | Err(_) => return false,
+        };
+        if held == opened_with {
+            return false;
+        }
+        // Under the hold every decision is made under, and only if it is still THIS drive: another thread may
+        // have opened a fresh one meanwhile, and that one is not dropped.
+        let mut opened = auto.opened.lock();
+        if opened
+            .as_ref()
+            .is_some_and(|cached| Arc::ptr_eq(cached, &self.drive))
+        {
+            *opened = None;
+            *lock(&auto.state) = EncState::Undecided;
+            *lock(&auto.window) = Window::No;
+        }
+        true
+    }
+}
+
 impl Drive for AutoEncrypted {
+    // Every method begins at the gate - which drive the call is let through to ([`AutoEncrypted::gate`]) - and
+    // a call that can be made again is made again once when a drive this object kept was replaced by a key
+    // change that finished in another process ([`Gated`], X-DELTA-KEYS5-2); one that cannot (a body that is
+    // gone, a spent witness) drops the replaced drive and keeps its answer.
     fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
-        self.gate(Op::Read)?.list(request)
+        self.gate(Op::Read)?.call(|drive| drive.list(request))
     }
     fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
-        self.gate(Op::Read)?.get(key)
+        self.gate(Op::Read)?.call(|drive| drive.get(key))
     }
     fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
-        self.gate(Op::Read)?.get_range(key, range)
+        self.gate(Op::Read)?
+            .call(|drive| drive.get_range(key, range))
     }
     fn get_range_if(
         &self,
@@ -1072,22 +1216,25 @@ impl Drive for AutoEncrypted {
         range: ByteRange,
         condition: &Precondition,
     ) -> Result<Vec<u8>, DriveError> {
-        self.gate(Op::Read)?.get_range_if(key, range, condition)
+        self.gate(Op::Read)?
+            .call(|drive| drive.get_range_if(key, range, condition))
     }
     fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
-        self.gate(Op::Read)?.get_limited(key, limit)
+        self.gate(Op::Read)?
+            .call(|drive| drive.get_limited(key, limit))
     }
     fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
-        self.gate(Op::Write)?.put(key, bytes)
+        self.gate(Op::Write)?.call(|drive| drive.put(key, bytes))
     }
     fn delete(&self, key: &str) -> Result<(), DriveError> {
-        self.gate(Op::Delete)?.delete(key)
+        self.gate(Op::Delete)?.call(|drive| drive.delete(key))
     }
     fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
-        self.gate(Op::Read)?.head(key)
+        self.gate(Op::Read)?.call(|drive| drive.head(key))
     }
     fn put_from(&self, key: &str, body: &mut dyn Read) -> Result<u64, DriveError> {
-        self.gate(Op::Write)?.put_from(key, body)
+        self.gate(Op::Write)?
+            .once(|drive| drive.put_from(key, body))
     }
     // A file's upload resumes, plain (the bucket's parts) or encrypted (its copy's parts).
     fn put_file(
@@ -1096,7 +1243,8 @@ impl Drive for AutoEncrypted {
         path: &std::path::Path,
         ctl: &dyn Ctl,
     ) -> Result<u64, DriveError> {
-        self.gate(Op::Write)?.put_file(key, path, ctl)
+        self.gate(Op::Write)?
+            .call(|drive| drive.put_file(key, path, ctl))
     }
     fn put_file_checked(
         &self,
@@ -1106,7 +1254,7 @@ impl Drive for AutoEncrypted {
         ctl: &dyn Ctl,
     ) -> Result<crate::checked::CheckedUpload, DriveError> {
         self.gate(Op::Write)?
-            .put_file_checked(key, path, check, ctl)
+            .call(|drive| drive.put_file_checked(key, path, check, ctl))
     }
     fn put_if(
         &self,
@@ -1114,7 +1262,8 @@ impl Drive for AutoEncrypted {
         bytes: &[u8],
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
-        self.gate(Op::Write)?.put_if(key, bytes, condition)
+        self.gate(Op::Write)?
+            .call(|drive| drive.put_if(key, bytes, condition))
     }
     // Whether the drive writes conditionally is asked of the drive the gate hands out (the bucket
     // plain, the encrypted drive over it otherwise): both do. A drive the gate refuses cannot be
@@ -1122,7 +1271,7 @@ impl Drive for AutoEncrypted {
     fn conditional_writes(&self) -> bool {
         // collapse-ok: the write that follows asks the same gate and says why it is closed
         self.gate(Op::Write)
-            .is_ok_and(|drive| drive.conditional_writes())
+            .is_ok_and(|gated| gated.drive.conditional_writes())
     }
     fn put_file_if(
         &self,
@@ -1131,25 +1280,30 @@ impl Drive for AutoEncrypted {
         condition: &Precondition,
         ctl: &dyn Ctl,
     ) -> Result<Option<String>, DriveError> {
-        self.gate(Op::Write)?.put_file_if(key, path, condition, ctl)
+        self.gate(Op::Write)?
+            .call(|drive| drive.put_file_if(key, path, condition, ctl))
     }
     fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.gate(Op::Write)?.copy(from, to)
+        self.gate(Op::Write)?.call(|drive| drive.copy(from, to))
     }
     fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.gate(Op::Write)?.create_folder(prefix)
+        self.gate(Op::Write)?
+            .call(|drive| drive.create_folder(prefix))
     }
     fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
-        self.gate(Op::Write)?.rename(from, to)
+        self.gate(Op::Write)?.call(|drive| drive.rename(from, to))
     }
     fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
-        self.gate(Op::Delete)?.delete_folder(prefix)
+        self.gate(Op::Delete)?
+            .call(|drive| drive.delete_folder(prefix))
     }
     // The reasons to delete go through the same gate as the deletes (ARCH30-1): a drive that is
     // locked or undecidable answers before the reason is looked at, and the drive the gate hands out
-    // checks the reason against the key and then deletes with its own delete.
+    // checks the reason against the key and then deletes with its own delete. A reason is spent by
+    // the call: it is not made again.
     fn delete_for(&self, key: &str, why: crate::erase::Why<'_>) -> Result<(), DriveError> {
-        self.gate(Op::Delete)?.delete_for(key, why)
+        self.gate(Op::Delete)?
+            .once(|drive| drive.delete_for(key, why))
     }
     fn delete_many_for(
         &self,
@@ -1157,7 +1311,7 @@ impl Drive for AutoEncrypted {
         why: crate::erase::Why<'_>,
     ) -> Vec<Result<(), DriveError>> {
         match self.gate(Op::Delete) {
-            Ok(drive) => drive.delete_many_for(items, why),
+            Ok(gated) => gated.once_items(|drive| drive.delete_many_for(items, why)),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
@@ -1166,10 +1320,12 @@ impl Drive for AutoEncrypted {
         prefix: &str,
         why: crate::erase::Why<'_>,
     ) -> Result<(), DriveError> {
-        self.gate(Op::Delete)?.delete_folder_for(prefix, why)
+        self.gate(Op::Delete)?
+            .once(|drive| drive.delete_folder_for(prefix, why))
     }
     fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
-        self.gate(Op::Delete)?.remove_empty_folder(prefix)
+        self.gate(Op::Delete)?
+            .call(|drive| drive.remove_empty_folder(prefix))
     }
     // inherits: site - the place of an encrypted drive is its own key space (a logical key is no
     // key of the bucket below), so the drive answers as the very object it is, and asking opens
@@ -1177,7 +1333,7 @@ impl Drive for AutoEncrypted {
     // inherits: local_path, resume_folder - what an Azlin drive keeps is not a file of this disk,
     // and an upload's resume state is the drive below's business (put_file asks it)
     fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
-        self.gate(Op::Read)?.metadata(key)
+        self.gate(Op::Read)?.call(|drive| drive.metadata(key))
     }
     fn put_from_if(
         &self,
@@ -1185,23 +1341,24 @@ impl Drive for AutoEncrypted {
         body: &mut dyn Read,
         condition: &Precondition,
     ) -> Result<Option<String>, DriveError> {
-        self.gate(Op::Write)?.put_from_if(key, body, condition)
+        self.gate(Op::Write)?
+            .once(|drive| drive.put_from_if(key, body, condition))
     }
     fn put_many(&self, items: &[BatchPut<'_>]) -> Vec<Result<Option<String>, DriveError>> {
         match self.gate(Op::Write) {
-            Ok(drive) => drive.put_many(items),
+            Ok(gated) => gated.items(items, |drive, items| drive.put_many(items)),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
     fn delete_many(&self, items: &[BatchDelete<'_>]) -> Vec<Result<(), DriveError>> {
         match self.gate(Op::Delete) {
-            Ok(drive) => drive.delete_many(items),
+            Ok(gated) => gated.items(items, |drive, items| drive.delete_many(items)),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
     fn move_many(&self, items: &[BatchMove<'_>]) -> Vec<Result<(), DriveError>> {
         match self.gate(Op::Write) {
-            Ok(drive) => drive.move_many(items),
+            Ok(gated) => gated.items(items, |drive, items| drive.move_many(items)),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
@@ -1210,7 +1367,7 @@ impl Drive for AutoEncrypted {
         items: &mut [BatchStream<'_>],
     ) -> Vec<Result<Option<String>, DriveError>> {
         match self.gate(Op::Write) {
-            Ok(drive) => drive.put_from_many(items),
+            Ok(gated) => gated.once_items(|drive| drive.put_from_many(items)),
             Err(e) => items.iter().map(|_| Err(e.clone())).collect(),
         }
     }
