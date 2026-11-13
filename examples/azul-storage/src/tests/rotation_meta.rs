@@ -630,6 +630,196 @@ fn x_delta_keys3_8_a_device_whose_own_rotation_stopped_after_the_switch_opens_it
     assert_eq!(drive.get("notes/plan.txt").unwrap(), b"the plan");
 }
 
+/// A drive whose own rotation stopped after the switch (the window of X-DELTA-KEYS3-8), as the bridge holds it: one
+/// `AutoEncrypted` built once, over a keyring that another handle - AzDrive in another process - shares.
+struct WindowWorld {
+    mem: Arc<MemoryBucket>,
+    plain: Arc<dyn Drive>,
+    keyring: Arc<MemoryKeyring>,
+    provider: Arc<MetaIndexProvider>,
+    auto: crate::encrypted::AutoEncrypted,
+}
+
+fn window_world() -> WindowWorld {
+    use crate::keyring::KeyringStore;
+    let mem = Arc::new(MemoryBucket::new());
+    let keyring = Arc::new(MemoryKeyring::new());
+    setup_new_drive(mem.as_ref(), keyring.as_ref(), DRIVE, cheap()).unwrap();
+    let faulty = Arc::new(Faulty::new(mem.clone()));
+    let plain: Arc<dyn Drive> = faulty.clone();
+    let provider = Arc::new(MetaIndexProvider::new(IndexProfile::in_memory("Laptop")));
+    let drive = open_encrypted(plain.clone(), keyring.as_ref(), DRIVE, provider.as_ref()).unwrap();
+    drive.put("notes/plan.txt", b"the plan").unwrap();
+    drop(drive);
+    // the rotation stops with the index sealed under K2 (the chain step refused)
+    faulty.fail_write(CHAIN_KEY_FILE, Fail::Refused, 1);
+    assert!(rotate(
+        plain.clone(),
+        keyring.as_ref(),
+        DRIVE,
+        provider.as_ref(),
+        cheap()
+    )
+    .is_err());
+    let auto = crate::encrypted::AutoEncrypted::new(
+        plain.clone(),
+        DRIVE,
+        keyring.clone() as Arc<dyn KeyringStore>,
+        Some(provider.clone() as Arc<dyn IndexProvider>),
+    )
+    .encrypted_only();
+    WindowWorld {
+        mem,
+        plain,
+        keyring,
+        provider,
+        auto,
+    }
+}
+
+/// X-DELTA-KEYS4-3: a drive opened in the read-only window stayed that drive for the life of the process - the
+/// bridge builds its `AutoEncrypted` once and never reopens it - so a rotation finished meanwhile in AzDrive left
+/// every IMAP / WebDAV write refused with "finish it" until the daemon restarted. The first refusal of a change
+/// drops the window drive: the rotation is finished through ANOTHER handle of the keyring (the production
+/// `rotate`), and the next write lands.
+#[test]
+fn x_delta_keys4_3_a_window_drive_that_refused_a_write_is_dropped_and_the_next_write_lands_once_the_rotation_is_over(
+) {
+    let w = window_world();
+    // The window: reads work, a change is refused with the sentence of the state.
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    let refused = w.auto.put("notes/new.txt", b"in the window").unwrap_err();
+    let DriveError::Denied { message } = &refused else {
+        panic!("a change in the window is refused: {refused:?}");
+    };
+    assert!(
+        message.contains("not finished") && message.contains("I was hacked"),
+        "{message}"
+    );
+
+    // AzDrive finishes the rotation (another process, the same keychain).
+    rotate(
+        w.plain.clone(),
+        w.keyring.as_ref(),
+        DRIVE,
+        w.provider.as_ref(),
+        cheap(),
+    )
+    .expect("the rotation resumes and ends");
+
+    // The same `AutoEncrypted`, never told to reopen: the next write lands.
+    w.auto
+        .put("notes/new.txt", b"after the rotation")
+        .expect("the window drive was dropped: the drive opens as every drive does");
+    assert_eq!(w.auto.get("notes/new.txt").unwrap(), b"after the rotation");
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+}
+
+/// X-DELTA-KEYS4-3: a window drive that has not refused anything yet is the window still when the rotation ended
+/// behind its back: its first change is refused ONCE (that refusal is what drops it) and the next lands. Nothing
+/// is read for a call that was not refused: the note is a flag in memory.
+#[test]
+fn x_delta_keys4_3_the_first_change_after_a_rotation_that_ended_behind_a_window_reads_is_refused_once_and_the_next_lands(
+) {
+    let w = window_world();
+    assert_eq!(w.auto.get("notes/plan.txt").unwrap(), b"the plan");
+    rotate(
+        w.plain.clone(),
+        w.keyring.as_ref(),
+        DRIVE,
+        w.provider.as_ref(),
+        cheap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        w.auto.put("notes/one.txt", b"1"),
+        Err(DriveError::Denied { .. })
+    ));
+    w.auto
+        .put("notes/two.txt", b"2")
+        .expect("dropped by that refusal");
+    assert_eq!(w.auto.get("notes/two.txt").unwrap(), b"2");
+}
+
+/// X-DELTA-KEYS4-3: a rotation that is still not finished keeps refusing with the same sentence - every refusal
+/// reopens the window, which refuses again - and reads go on.
+#[test]
+fn x_delta_keys4_3_a_rotation_that_is_not_finished_keeps_refusing_with_the_same_sentence() {
+    let w = window_world();
+    let words = |result: Result<(), DriveError>| match result {
+        Err(DriveError::Denied { message }) => message,
+        other => panic!("a change in the window is refused: {other:?}"),
+    };
+    let names = |w: &WindowWorld| -> Vec<String> {
+        let mut names: Vec<String> = w.mem.objects().into_iter().map(|(name, _)| name).collect();
+        names.sort();
+        names
+    };
+    let objects = names(&w);
+    let first = words(w.auto.put("notes/a.txt", b"a"));
+    let second = words(w.auto.put("notes/b.txt", b"b"));
+    let third = words(w.auto.delete("notes/plan.txt"));
+    assert_eq!(first, second);
+    assert_eq!(second, third);
+    assert_eq!(
+        w.auto.get("notes/plan.txt").unwrap(),
+        b"the plan",
+        "and the files read"
+    );
+    assert_eq!(
+        names(&w),
+        objects,
+        "no object was left behind by a refused change"
+    );
+}
+
+/// X-DELTA-KEYS4-3: no extra bucket reads once the drive is writable - the cost of a write through the
+/// `AutoEncrypted` is the cost of the same write on the drive opened directly, however many calls came before.
+#[test]
+fn x_delta_keys4_3_once_the_drive_is_writable_a_call_costs_no_more_than_the_drive_opened_directly()
+{
+    let w = window_world();
+    let _ = w.auto.put("notes/refused.txt", b"x");
+    rotate(
+        w.plain.clone(),
+        w.keyring.as_ref(),
+        DRIVE,
+        w.provider.as_ref(),
+        cheap(),
+    )
+    .unwrap();
+    w.auto
+        .put("notes/first.txt", b"1")
+        .expect("dropped and reopened");
+    w.auto.put("notes/warm.txt", b"2").unwrap();
+    let cost = |write: &dyn Fn()| {
+        let before = w.mem.counts();
+        write();
+        let after = w.mem.counts();
+        (
+            after.reads - before.reads,
+            after.heads - before.heads,
+            after.lists - before.lists,
+            after.conditional_reads - before.conditional_reads,
+        )
+    };
+    let through_auto = cost(&|| w.auto.put("notes/third.txt", b"3").unwrap());
+    // The same write on a drive opened directly (no window left, nothing to drop).
+    let direct = open_encrypted(
+        w.plain.clone(),
+        w.keyring.as_ref(),
+        DRIVE,
+        w.provider.as_ref(),
+    )
+    .unwrap();
+    direct.put("notes/warm-too.txt", b"2").unwrap();
+    let through_direct = cost(&|| direct.put("notes/fourth.txt", b"4").unwrap());
+    assert_eq!(
+        through_auto, through_direct,
+        "(reads, heads, lists, conditional reads) of one write: the AutoEncrypted adds none"
+    );
+}
+
 /// X-DELTA-KEYS3-8: the window is the key THIS device made for its own rotation and nothing else. A device
 /// that holds only the old key after another device's rotation (no `drive-key-next`) is refused as before,
 /// and so is one whose `drive-key-next` is a key the index is not sealed under: the first error stands.

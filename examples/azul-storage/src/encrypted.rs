@@ -515,6 +515,18 @@ pub fn open_encrypted(
     drive: &str,
     provider: &dyn IndexProvider,
 ) -> Result<EncryptedDrive<Arc<dyn Drive>>, DriveError> {
+    open_noting_the_window(bucket, keyring, drive, provider).map(|(opened, _in_the_window)| opened)
+}
+
+/// [`open_encrypted`], and whether the drive it opened is the rotation's read-only window
+/// ([`own_rotation_window`]): [`AutoEncrypted`] keeps the drive it opens and must know that this one is
+/// no drive to keep once the rotation is over (X-DELTA-KEYS4-3).
+fn open_noting_the_window(
+    bucket: Arc<dyn Drive>,
+    keyring: &dyn KeyringStore,
+    drive: &str,
+    provider: &dyn IndexProvider,
+) -> Result<(EncryptedDrive<Arc<dyn Drive>>, bool), DriveError> {
     let Some(drive_key) = device::unlock(bucket.as_ref(), keyring, drive)? else {
         return Err(DriveError::Locked {
             drive: drive.to_string(),
@@ -550,6 +562,7 @@ pub fn open_encrypted(
     };
     // The keys from before the drive's rotations, for the file keys they wrapped.
     let opened = opened.with_key_chain(drive)?;
+    let in_the_window = window_of.is_some();
     // The key before the new one wrapped every file key the re-wrap has not reached, and the chain holds it
     // only from the rotation's chain step on.
     let opened = match window_of {
@@ -562,10 +575,11 @@ pub fn open_encrypted(
         Some(standing) => opened.with_reclaim_standing(standing),
         None => opened,
     };
-    Ok(match provider.packing(drive) {
+    let opened = match provider.packing(drive) {
         Some(options) => opened.with_packing(options),
         None => opened,
-    })
+    };
+    Ok((opened, in_the_window))
 }
 
 /// An Azlin drive's bucket, for an app that opens drives on its UI thread and calls them on
@@ -613,6 +627,8 @@ pub struct AutoEncrypted {
     /// first call decides while it holds `opened`, and deciding reads the bucket. A plain mutex
     /// held for a copy, never across a request.
     state: Mutex<EncState>,
+    /// Whether `opened` is the rotation's window ([`Window`]); set and cleared with it, under `opened`.
+    window: Mutex<Window>,
     /// What this device wrote down of the drive (the drives file): whether it found it
     /// encrypted, and the id of its key then.
     record: Mutex<Recorded>,
@@ -635,6 +651,22 @@ pub struct AutoEncrypted {
 
 /// What [`AutoEncrypted::on_encrypted`] is told the drive key's id with.
 pub type TellKeyId = Arc<dyn Fn(&KeyId) + Send + Sync>;
+
+/// Whether the drive an [`AutoEncrypted`] holds is the rotation's read-only window ([`own_rotation_window`]), and
+/// whether a change was asked of it: the window refuses every change, with a sentence that sends the user to
+/// finish a key change - and the rotation may have been finished meanwhile, by AzDrive in another process. An
+/// `AutoEncrypted` that kept the window for the life of its process (the bridge builds one and never reopens it)
+/// refused every IMAP, WebDAV, CalDAV and CardDAV write until the daemon restarted (X-DELTA-KEYS4-3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Window {
+    /// The drive is no window, or none is open.
+    No,
+    /// The drive is the rotation's window: it reads, and refuses every change.
+    Open,
+    /// A change was asked of the window and refused: the next call opens the drive again - the window once
+    /// more, with the same refusal, while the rotation is not over; the drive itself once it is.
+    Asked,
+}
 
 /// What a device wrote down of a drive's encryption ([`AutoEncrypted::with_record`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -685,6 +717,7 @@ impl AutoEncrypted {
             provider,
             opened: NetworkLock::new(None),
             state: Mutex::new(EncState::Undecided),
+            window: Mutex::new(Window::No),
             record: Mutex::new(Recorded::default()),
             on_encrypted: None,
             denied: Mutex::new(None),
@@ -797,6 +830,7 @@ impl AutoEncrypted {
         let mut opened = self.opened.lock();
         *opened = None;
         *lock(&self.state) = EncState::Undecided;
+        *lock(&self.window) = Window::No;
         *lock(&self.denied) = None;
         if new_key {
             let mut record = lock(&self.record);
@@ -866,6 +900,15 @@ impl AutoEncrypted {
         // (the state was read in a second step once, and a write could meet the bare bucket of
         // the old decision with the "encrypted" of the new one: X-DELTA-AZDRIVE-KEYS-18).
         let (drive, state) = self.resolved()?;
+        // A change asked of the rotation's window is refused by it, whatever the change: the next call opens
+        // the drive again, and the rotation that call finds over (finished in another process) gives a drive
+        // that takes it (X-DELTA-KEYS4-3). Reads leave the window as it is.
+        if op != Op::Read {
+            let mut window = lock(&self.window);
+            if *window == Window::Open {
+                *window = Window::Asked;
+            }
+        }
         #[cfg(test)]
         {
             let hook = lock(&self.after_resolved).clone();
@@ -945,7 +988,13 @@ impl AutoEncrypted {
     /// together, never the drive of one decision and the state of another.
     fn resolved(&self) -> Result<(Arc<dyn Drive>, EncState), DriveError> {
         let mut opened = self.opened.lock();
-        if let Some(drive) = opened.as_ref() {
+        // The window a change was asked of is dropped: the lines below open the drive as the keyring says now.
+        let stale = *lock(&self.window) == Window::Asked;
+        if stale {
+            *opened = None;
+            *lock(&self.window) = Window::No;
+            *lock(&self.state) = EncState::Undecided;
+        } else if let Some(drive) = opened.as_ref() {
             return Ok((Arc::clone(drive), *lock(&self.state)));
         }
         // The device's own words first. A keyring that cannot be read (a declined prompt, no
@@ -962,6 +1011,7 @@ impl AutoEncrypted {
             || self.asked(|| device::setup_pending(self.keyring.as_ref(), &self.drive)),
         )?;
         let mut key_id = None;
+        let mut in_the_window = false;
         let drive: Arc<dyn Drive> = if facts.encrypted() {
             let Some(provider) = &self.provider else {
                 return Err(DriveError::Unsupported(String::from(
@@ -969,7 +1019,7 @@ impl AutoEncrypted {
                      open encrypted drives with",
                 )));
             };
-            let encrypted = open_encrypted(
+            let (encrypted, window) = open_noting_the_window(
                 Arc::clone(&self.bucket),
                 self.keyring.as_ref(),
                 &self.drive,
@@ -977,6 +1027,7 @@ impl AutoEncrypted {
             )?;
             self.recorded().check_key(&self.drive, &encrypted)?;
             key_id = Some(encrypted.drive_key_id());
+            in_the_window = window;
             Arc::new(encrypted)
         } else {
             Arc::clone(&self.bucket)
@@ -984,6 +1035,11 @@ impl AutoEncrypted {
         let state = facts.state(key_id);
         *opened = Some(Arc::clone(&drive));
         *lock(&self.state) = state;
+        *lock(&self.window) = if in_the_window {
+            Window::Open
+        } else {
+            Window::No
+        };
         // Without the lock: the app's note of it must not hold the next call up.
         drop(opened);
         if let Some(id) = key_id {
