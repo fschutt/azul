@@ -9883,7 +9883,7 @@ mod tests {
     /// the family any more, so only a kill in that instant leaves it: a family nobody holds the code of and the
     /// wrap of its invite. The token server keeps it until a lockdown or a removal of the device. Its idle expiry
     /// (90 days) applies only to a drive that is neither paid nor in its read-only grace: a PAID drive's family
-    /// - the product's normal state - does not expire while the drive is paid plus its grace, so an unseen one
+    /// (the product's normal state) does not expire while the drive is paid plus its grace, so an unseen one
     /// shows on the device list and counts toward the device limit until then (X-DELTA-KEYS5-5). Closing it
     /// needs the server to expire a family that was never used (a join deadline when the member is added), or
     /// to list it as invited and not joined. Pinned as it is, so that the day the server does, this test says
