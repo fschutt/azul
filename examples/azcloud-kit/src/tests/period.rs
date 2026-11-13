@@ -3709,3 +3709,220 @@ fn x_delta_money7_8_a_step_back_of_the_clock_counts_nothing_and_a_step_forward_a
     assert_eq!(seen(&grant), 16 * DAY, "a step forward counts a week");
     assert!(grant.revive_pending(NOW + 400 * DAY));
 }
+
+// ==== X-DELTA-MONEY7-7: the journal's one failure path, and the sends that counted nothing ====
+
+/// X-DELTA-MONEY7-7 (a): the vault cannot take the journal (a locked seal key, a full disk, a lock that
+/// cannot be taken - here the folder its changes are made under is a file). `issue_next` answers
+/// `Config` and sends NOTHING - a send that cannot be recorded is not made, else a cut would lose the
+/// month it may have counted -; nothing is marked and nothing is counted: the request is as the
+/// look before left it; and when the vault is back the very request goes again. The lane's report
+/// said "not tested": this is the proof.
+#[test]
+fn x_delta_money7_7_a_vault_that_cannot_take_the_journal_sends_nothing_and_marks_nothing() {
+    let dir = TempDir::new("azcloud-period");
+    let store = store_in(&dir);
+    let tokens = store.on_this_device("d_1").unwrap();
+    tokens
+        .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let listed = keys();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        Ok(json(
+            400,
+            r#"{"error": "bad_request", "message": "checkout_id required"}"#,
+        ))
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let state_of = |tokens: &DriveTokens| {
+        let state = tokens.state().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1);
+        (
+            open[0].id(),
+            open[0].refusals(),
+            open[0].sends(),
+            open[0].may_have_been_counted(),
+        )
+    };
+    // look 1: the request is kept and sent; the token server cannot take it - an outcome on record
+    assert!(issue_next(&server, &tokens, "ck_1", NOW + DAY).is_err());
+    let before = state_of(&tokens);
+    assert_eq!((before.1, before.2, before.3), (1, 1, false));
+    assert_eq!(issue_posts(&fake).len(), 1);
+
+    // the vault cannot be written any more: its folder of locks is a file now
+    let locks = store.dir().join("locks");
+    std::fs::remove_dir_all(&locks).unwrap();
+    std::fs::write(&locks, b"not a folder").unwrap();
+    match issue_next(&server, &tokens, "ck_1", NOW + 2 * DAY) {
+        Err(TokenError::Config(why)) => assert!(why.contains("could not be kept"), "{why}"),
+        other => panic!("a send that cannot be recorded went out or was not refused: {other:?}"),
+    }
+    assert_eq!(issue_posts(&fake).len(), 1, "nothing was sent");
+    assert_eq!(state_of(&tokens), before, "nothing marked, nothing counted");
+
+    // the vault is back: the very request goes again, journaled as before
+    std::fs::remove_file(&locks).unwrap();
+    assert!(issue_next(&server, &tokens, "ck_1", NOW + 3 * DAY).is_err());
+    let after = state_of(&tokens);
+    assert_eq!(after.0, before.0, "the same request");
+    assert_eq!((after.1, after.2, after.3), (2, 2, false));
+    assert_eq!(issue_posts(&fake).len(), 2);
+}
+
+/// X-DELTA-MONEY7-7 (b): a send that certainly counted nothing - the rate limit answers `429` with
+/// `"spent": false` - has its outcome on record, so the next look does not take it for a send that was
+/// cut and does not mark the request as one the token server may have counted. The old journal knew
+/// only refusals and lost answers: the request was marked at the next look, and when the token server
+/// then refused it three times as `bad_request` it was parked - kept for ever, replayed once per look,
+/// keeping the drive's unpaid reminders away - instead of given up. On the old code the assertion after
+/// look 2 fails.
+#[test]
+fn x_delta_money7_7_a_rate_limited_send_leaves_a_request_that_is_not_marked_unanswered() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let listed = keys();
+    // phase 0: the rate limit (`spent: false`) answers every try of one look; phase 1: a body the
+    // token server cannot read
+    let phase = Arc::new(AtomicUsize::new(0));
+    let phased = phase.clone();
+    let fake = Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        Ok(if phased.load(Ordering::SeqCst) == 0 {
+            json(
+                429,
+                r#"{"error": "rate_limited", "message": "too many requests", "spent": false}"#,
+            )
+        } else {
+            json(
+                400,
+                r#"{"error": "bad_request", "message": "checkout_id required"}"#,
+            )
+        })
+    });
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport)
+        .unwrap()
+        .with_retry_pause(Duration::ZERO);
+    // look 1: rate limited - the token server did nothing
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW + DAY),
+        Err(TokenError::Busy { .. })
+    ));
+    let first = {
+        let state = tokens.state().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1, "the request is kept");
+        assert_eq!(
+            (
+                open[0].sends(),
+                open[0].not_sent(),
+                open[0].may_have_been_counted()
+            ),
+            (1, 1, false),
+            "the send that counted nothing has its outcome on record"
+        );
+        open[0].id()
+    };
+    // look 2 and 3: the rate limit is over; the token server cannot read the body
+    phase.store(1, Ordering::SeqCst);
+    let _ = issue_next(&server, &tokens, "ck_1", NOW + 2 * DAY);
+    {
+        let state = tokens.state().unwrap();
+        let open = state.open_issues("ck_1");
+        assert!(
+            !open[0].may_have_been_counted(),
+            "not marked: the first send counted nothing, the token server said so"
+        );
+    }
+    for look in 3..=4 {
+        let _ = issue_next(&server, &tokens, "ck_1", NOW + look * DAY);
+    }
+    let state = tokens.state().unwrap();
+    assert!(
+        state.done.contains(&first),
+        "refused three times as a request it cannot take: given up, a new one is blinded"
+    );
+}
+
+/// X-DELTA-MONEY7-7 (b), the other send that counted nothing: the request cannot be built (the grant
+/// holds no issue key) - `Config`, nothing reaches the token server. Each try is begun and ended with
+/// its outcome on record, and the request is never marked as one the token server may have counted.
+#[test]
+fn x_delta_money7_7_a_request_that_cannot_be_built_is_never_marked_unanswered() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = store_in(&dir).on_this_device("d_1").unwrap();
+    tokens
+        .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ""))
+        .unwrap();
+    let transport = Shared(issuing_server(keys(), N1, D1, "100GB/2026"));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    for look in 1..=3_u64 {
+        assert!(matches!(
+            issue_next(&server, &tokens, "ck_1", NOW + look * DAY),
+            Err(TokenError::Config(_))
+        ));
+        let state = tokens.state().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1, "look {look}");
+        assert_eq!(
+            (
+                open[0].sends(),
+                open[0].not_sent(),
+                open[0].may_have_been_counted()
+            ),
+            (look as u32, look as u32, false),
+            "look {look}: every begun send has its outcome, none is marked"
+        );
+    }
+}
+
+/// X-DELTA-MONEY7-7, rule 15 (formats are additive): the note is in a request's JSON only when a send
+/// counted nothing, a request from before it reads as none, and two copies join as the larger count -
+/// a vault that lags is healed with it.
+#[test]
+fn x_delta_money7_7_the_note_is_additive_and_joins_as_a_max() {
+    let key = crate::period::IssuerKey {
+        tier: String::from("100GB"),
+        year: 2026,
+        key_id: String::from("100GB/2026"),
+        public_key_pem: pem(N1),
+    };
+    let fresh = crate::period::IssueRequest::new(&key, "ck_1", 1).unwrap();
+    let text = serde_json::to_string(&fresh).unwrap();
+    assert!(!text.contains("not_sent"), "{text}");
+    let older: crate::period::IssueRequest = serde_json::from_str(&text).unwrap();
+    assert_eq!(older.not_sent(), 0);
+    // an older READER - a build whose request has no `not_sent` - reads the new JSON and ignores it
+    #[derive(serde::Deserialize)]
+    struct Older {
+        checkout_id: String,
+        sends: u32,
+    }
+    let marked = text.replacen(r#""sends":1"#, r#""sends":3,"not_sent":2"#, 1);
+    let read: Older = serde_json::from_str(&marked).unwrap();
+    assert_eq!((read.checkout_id.as_str(), read.sends), ("ck_1", 3));
+    let more: crate::period::IssueRequest =
+        serde_json::from_str(&text.replacen(r#""sends":1"#, r#""sends":3,"not_sent":2"#, 1))
+            .unwrap();
+    assert_eq!((more.sends(), more.not_sent()), (3, 2));
+    for (first, second) in [(&fresh, &more), (&more, &fresh), (&older, &more)] {
+        let mut a = VaultState {
+            issues: vec![first.clone()],
+            ..VaultState::default()
+        };
+        a.join(&VaultState {
+            issues: vec![second.clone()],
+            ..VaultState::default()
+        });
+        assert_eq!(a.issues.len(), 1);
+        assert_eq!((a.issues[0].sends(), a.issues[0].not_sent()), (3, 2));
+    }
+}

@@ -401,7 +401,8 @@ pub struct IssueRequest {
     /// How many sends of THIS request were begun, as the largest count any vault holds: recorded in
     /// the vaults BEFORE each send goes out ([`begin_send`]) - a request kept for its first send
     /// counts that send. Every begun send ends with an outcome that is recorded too: a refusal
-    /// counted in [`IssueRequest::refusals`], the mark of a lost answer
+    /// counted in [`IssueRequest::refusals`], a note that it counted nothing
+    /// ([`IssueRequest::not_sent`]), the mark of a lost answer
     /// ([`IssueRequest::unanswered`]), or the tokens (the request is done). A send whose outcome was
     /// never recorded - the process died after the POST, or the write of the mark failed - shows as
     /// more sends begun than refusals counted, with no mark: the token server may have counted it,
@@ -409,6 +410,17 @@ pub struct IssueRequest {
     /// request an older build kept, judged by the older rule (no refusal counted at all).
     #[serde(default, skip_serializing_if = "is_zero_count")]
     sends: u32,
+    /// How many of the begun sends are known to have counted NOTHING at the token server - the request
+    /// could not be built, or the server answered that it did nothing (its rate limit,
+    /// `"spent": false`): an outcome on record that is neither a refusal of the request
+    /// ([`IssueRequest::refusals`]) nor a lost answer ([`IssueRequest::unanswered`]). Without it such
+    /// a send shows as one that was cut, and the next look marks the request as one the server may
+    /// have counted (X-DELTA-MONEY7-7). The 503 words of the contract (`unavailable`, `try_again`,
+    /// `issuer_key_missing`) are not recorded here: the contract says nothing was counted, but a server
+    /// whose database answered with an error cannot prove its commit did not happen - the doubt stays.
+    /// Joined as the larger count in every vault.
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    not_sent: u32,
 }
 
 fn is_zero_count(n: &u32) -> bool {
@@ -431,6 +443,7 @@ impl fmt::Debug for IssueRequest {
             .field("messages", &self.blindings.len())
             .field("refusals", &self.refusals)
             .field("sends", &self.sends)
+            .field("not_sent", &self.not_sent)
             .finish_non_exhaustive()
     }
 }
@@ -462,6 +475,7 @@ impl IssueRequest {
             unanswered: false,
             // kept in the vaults before its first send: that send is begun with the keep
             sends: 1,
+            not_sent: 0,
         })
     }
 
@@ -471,22 +485,41 @@ impl IssueRequest {
     #[must_use]
     fn with_send_begun(&self) -> IssueRequest {
         let mut begun = self.clone();
-        begun.sends = self.sends.max(self.refusals_total()).saturating_add(1);
+        begun.sends = self.sends.max(self.accounted()).saturating_add(1);
         begun
     }
 
     /// Whether a send of this request was begun and no outcome of it is on record - more sends
-    /// were begun than refusals counted - and none is marked as lost ([`IssueRequest::unanswered`]
-    /// says so for every send at once): the look that kept it was cut, or the write of the mark
-    /// failed. A request an older build kept has no journal: it is judged by the older rule, no
-    /// refusal counted at all.
+    /// were begun than refusals counted or sends known to have counted nothing - and none is marked
+    /// as lost ([`IssueRequest::unanswered`] says so for every send at once): the look that kept it
+    /// was cut, or the write of the mark failed. A request an older build kept has no journal: it is
+    /// judged by the older rule, no refusal counted at all.
     #[must_use]
     fn has_send_without_outcome(&self) -> bool {
         if self.sends == 0 {
             self.refusals.is_empty()
         } else {
-            self.sends > self.refusals_total()
+            self.sends > self.accounted()
         }
+    }
+
+    /// How many sends have an outcome on record: refused as a request the server cannot take
+    /// ([`IssueRequest::refusals_total`]) or known to have counted nothing
+    /// ([`IssueRequest::not_sent`]).
+    #[must_use]
+    fn accounted(&self) -> u32 {
+        self.refusals_total().saturating_add(self.not_sent)
+    }
+
+    /// This request with the send that went out last recorded as one that counted nothing - when it
+    /// is one whose outcome was missing (a request an older build kept has no journal to record in).
+    #[must_use]
+    fn with_send_not_sent(&self) -> IssueRequest {
+        let mut recorded = self.clone();
+        if recorded.sends > recorded.accounted() {
+            recorded.not_sent = recorded.not_sent.saturating_add(1);
+        }
+        recorded
     }
 
     /// How often the token server refused it as one it cannot take, with any word: each answered
@@ -503,6 +536,13 @@ impl IssueRequest {
     #[must_use]
     pub(crate) fn sends(&self) -> u32 {
         self.sends
+    }
+
+    /// The sends known to have counted nothing, as the vaults hold the count: what a test reads.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn not_sent(&self) -> u32 {
+        self.not_sent
     }
 
     /// This request, marked: a send of it ended without an answer.
@@ -554,6 +594,7 @@ impl IssueRequest {
         }
         self.unanswered |= other.unanswered;
         self.sends = self.sends.max(other.sends);
+        self.not_sent = self.not_sent.max(other.not_sent);
     }
 
     #[must_use]
@@ -851,18 +892,37 @@ pub(crate) fn send_may_have_been_counted(e: &TokenError) -> bool {
 
 /// The send of `request` ended with `e` and no answer: when it may have been counted, the request
 /// says so in every vault before the error goes on - a later `bad_request` is then no proof it
-/// was never counted (X-DELTA-MONEY5-8). The error is the caller's, whatever happens here.
+/// was never counted (X-DELTA-MONEY5-8) - and when it certainly counted nothing (the request was not
+/// built, a busy server says it did nothing) that is the send's outcome, on record
+/// ([`record_not_sent`], X-DELTA-MONEY7-7). The error is the caller's, whatever happens here.
 fn lost_answer(tokens: &DriveTokens, request: &IssueRequest, e: TokenError) -> TokenError {
-    if send_may_have_been_counted(&e) && !request.may_have_been_counted() {
-        // collapse-ok: the mark that cannot be written now is written by the next look that finds
-        // the request open with no outcome recorded ([`unaccounted_for`]); the error is what the
-        // caller needs
-        let _ = tokens.join(&VaultState {
-            issues: vec![request.with_unanswered_send()],
-            ..VaultState::default()
-        });
+    if send_may_have_been_counted(&e) {
+        if !request.may_have_been_counted() {
+            // collapse-ok: the mark that cannot be written now is written by the next look that
+            // finds the request open with no outcome recorded ([`unaccounted_for`]); the error is
+            // what the caller needs
+            let _ = tokens.join(&VaultState {
+                issues: vec![request.with_unanswered_send()],
+                ..VaultState::default()
+            });
+        }
+    } else if !request.may_have_been_counted() {
+        record_not_sent(tokens, request);
     }
     e
+}
+
+/// The send of `request` that just ended counted nothing at the token server: its outcome is on record
+/// in every vault, so the next look does not take it for a send that was cut and does not mark the
+/// request as one the server may have counted - a request refused for good three times as
+/// `bad_request` after such a send is then given up, not kept for ever (X-DELTA-MONEY7-7).
+fn record_not_sent(tokens: &DriveTokens, request: &IssueRequest) {
+    // collapse-ok: a note that is not written leaves the send without an outcome, which the next
+    // look marks - the doubt the note removes, never a month lost
+    let _ = tokens.join(&VaultState {
+        issues: vec![request.with_send_not_sent()],
+        ..VaultState::default()
+    });
 }
 
 /// A request found open at the start of a look with a send that has no outcome recorded - more

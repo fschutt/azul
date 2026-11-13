@@ -1191,6 +1191,7 @@ azdrive-recovery-used = The recovery code of "{ $drive }" was used to lock it do
     } ({ $at }) that device takes the drive and every other device loses it. If that was not you, cancel it in AzDrive now.
 azdrive-lockdown-pending = A lockdown with the recovery code is pending until { $until }: then every other device loses this drive. If that was not you, cancel it now with your recovery code.
 azdrive-lockdown-cancel = Cancel lockdown
+azdrive-period-not-bought = The next month of "{ $drive }" could not be bought { $tries } times in a row: { $why }. AzDrive tries again every hour.
 azdrive-lockdown-cancelled = The lockdown with the recovery code was cancelled. If you did not start it, someone has your recovery code: make a new one (the drive's menu: I was hacked: new keys).
 
 ## Use with other programs

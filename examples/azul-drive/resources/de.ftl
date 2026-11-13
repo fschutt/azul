@@ -1189,6 +1189,7 @@ azdrive-recovery-used = Der Wiederherstellungscode von „{ $drive }“ wurde be
     } ({ $at }) übernimmt dieses Gerät das Laufwerk, und jedes andere Gerät verliert es. Wenn du das nicht warst, brich es jetzt in AzDrive ab.
 azdrive-lockdown-pending = Eine Sperrung mit dem Wiederherstellungscode steht bis { $until } an: Dann verliert jedes andere Gerät dieses Laufwerk. Wenn du das nicht warst, brich sie jetzt mit deinem Wiederherstellungscode ab.
 azdrive-lockdown-cancel = Sperrung abbrechen
+azdrive-period-not-bought = Der nächste Monat von „{ $drive }“ konnte { $tries } Mal hintereinander nicht gekauft werden: { $why }. AzDrive versucht es jede Stunde wieder.
 azdrive-lockdown-cancelled = Die Sperrung mit dem Wiederherstellungscode wurde abgebrochen. Wenn du sie nicht gestartet hast, hat jemand deinen Wiederherstellungscode: Erstelle einen neuen (im Menü des Laufwerks: Ich wurde gehackt: neue Schlüssel).
 
 ## Use with other programs

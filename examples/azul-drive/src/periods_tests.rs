@@ -8,8 +8,8 @@ use azul_appkit::l10n::Arg;
 use azul_storage::time::iso8601;
 
 use crate::periods::{
-    azlin_drive, check_every, new_device_text, new_devices, recovery_text, Schedule, DAY_SECS,
-    RETRY_SECS,
+    azlin_drive, check_every, new_device_text, new_devices, not_bought_text, recovery_text,
+    Schedule, DAY_SECS, KEPT_SAYS_AFTER, RETRY_SECS,
 };
 
 const NOW: u64 = 1_791_450_000;
@@ -303,4 +303,51 @@ fn a_background_job_reads_the_sealed_period_vault_through_its_own_keyring() {
     let job = store_through(&store, &shared());
     assert!(job.is_sealed(), "a job reads a plain store");
     assert_eq!(job.tokens("d_1").unwrap(), vec![token]);
+}
+
+/// X-DELTA-MONEY7-7: a look that fails again and again - a vault that cannot take the request a month
+/// is asked with (a locked seal key, a full disk), a token server nobody reaches - was tried every hour
+/// and told on stderr only: the buyer's window showed nothing. Now the sixth look in a row that could
+/// not buy the month is said to the buyer, once for as long as it lasts; another drive counts on its
+/// own; a look that went well ends the streak, so the next failures count from one again.
+#[test]
+fn x_delta_money7_7_a_look_that_keeps_failing_is_said_once_with_the_sixth_try_in_a_row() {
+    let mut schedule = Schedule::new(DAY_SECS);
+    let kept = Redeemed::Kept(String::from(
+        "the issue request could not be kept: the disk is full",
+    ));
+    assert_eq!(KEPT_SAYS_AFTER, 6);
+    let mut at = NOW;
+    let mut look = |schedule: &mut Schedule, drive: &str, what: &Redeemed| {
+        at += RETRY_SECS;
+        schedule.looked(drive, what, at)
+    };
+    for tries in 1..KEPT_SAYS_AFTER {
+        assert!(!look(&mut schedule, "d_1", &kept), "try {tries}");
+    }
+    assert!(look(&mut schedule, "d_1", &kept), "the sixth in a row");
+    assert!(
+        !look(&mut schedule, "d_1", &kept),
+        "once for as long as it lasts"
+    );
+    assert!(
+        !look(&mut schedule, "d_2", &kept),
+        "another drive counts on its own"
+    );
+    // a look that went well ends the streak
+    assert!(!look(&mut schedule, "d_1", &Redeemed::Nothing));
+    for tries in 1..KEPT_SAYS_AFTER {
+        assert!(!look(&mut schedule, "d_1", &kept), "again: try {tries}");
+    }
+    assert!(
+        look(&mut schedule, "d_1", &kept),
+        "a new streak says it again"
+    );
+    // the words: the drive, the tries and why, in English and in German
+    let said = not_bought_text("Work", "the disk is full");
+    assert_eq!(said.key, "azdrive-period-not-bought");
+    assert_eq!(said.get("drive"), Some(&Arg::from("Work")));
+    assert_eq!(said.get("tries"), Some(&Arg::Int(6)));
+    assert_eq!(said.get("why"), Some(&Arg::from("the disk is full")));
+    assert!(crate::l10n::EN.contains("azdrive-period-not-bought = The next month of"));
 }

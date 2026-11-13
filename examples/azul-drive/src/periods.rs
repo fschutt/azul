@@ -39,6 +39,11 @@ pub(crate) const DAY_SECS: u64 = 86_400;
 pub(crate) const RETRY_SECS: u64 = 3_600;
 /// The longest the timer sleeps between two glances at the schedule.
 const TICK_SECS: u64 = 600;
+/// How many looks of one drive in a row that could not buy its month ([`Redeemed::Kept`]) are said to
+/// the buyer: the look is tried again an hour after a failure, so six are six hours - more than a
+/// commute without a connection, within the day a locked seal key or a full disk, which keep every try
+/// from sending anything, can be put right (X-DELTA-MONEY7-7). Nothing but this tells the buyer.
+pub(crate) const KEPT_SAYS_AFTER: u32 = 6;
 
 /// The interval of the daily look: `AZDRIVE_PERIOD_CHECK_SECS` when it is a positive number of
 /// seconds, else a day.
@@ -56,6 +61,8 @@ pub(crate) fn check_every(value: Option<&str>) -> u64 {
 pub(crate) struct Schedule {
     every: u64,
     next: HashMap<String, u64>,
+    /// How many looks of each drive in a row could not buy its month ([`Redeemed::Kept`]).
+    kept: HashMap<String, u32>,
     /// A look runs (one job at a time from the timer).
     pub running: bool,
 }
@@ -84,6 +91,7 @@ impl Schedule {
         Schedule {
             every: every.max(1),
             next: HashMap::new(),
+            kept: HashMap::new(),
             running: false,
         }
     }
@@ -104,8 +112,10 @@ impl Schedule {
 
     /// What the look at `drive_id` at `now` found: when to look again - a day later, an hour
     /// after a failure, or when the period becomes due ([`REDEEM_AHEAD_SECS`] before its end)
-    /// if that comes sooner.
-    pub(crate) fn looked(&mut self, drive_id: &str, redeemed: &Redeemed, now: u64) {
+    /// if that comes sooner. Whether the buyer is told now that it keeps failing: the
+    /// [`KEPT_SAYS_AFTER`]th look in a row that could not buy the month, once for as long as it lasts -
+    /// a look that went well ends the streak.
+    pub(crate) fn looked(&mut self, drive_id: &str, redeemed: &Redeemed, now: u64) -> bool {
         let daily = now.saturating_add(self.every);
         let next = match redeemed {
             Redeemed::Kept(_) => now.saturating_add(RETRY_SECS.min(self.every)),
@@ -124,6 +134,17 @@ impl Schedule {
             } => daily,
         };
         self.next.insert(drive_id.to_string(), next);
+        match redeemed {
+            Redeemed::Kept(_) => {
+                let tries = self.kept.entry(drive_id.to_string()).or_insert(0);
+                *tries = tries.saturating_add(1);
+                *tries == KEPT_SAYS_AFTER
+            }
+            _ => {
+                self.kept.remove(drive_id);
+                false
+            }
+        }
     }
 
     /// The drive `drive_id` was just paid for (claimed): its first look waits `delay` seconds
@@ -278,7 +299,7 @@ pub(crate) fn periods_redeemed(
     s.redemptions.running = false;
     let now = now_secs();
     for (drive_id, mut look) in results {
-        s.redemptions.looked(&drive_id, &look.redeemed, now);
+        let says_kept = s.redemptions.looked(&drive_id, &look.redeemed, now);
         // a month bought: read-only credentials are refreshed before the next write
         if let Some(changed) = look.grant_changed.take() {
             if let Some(azlin) = azlin_drives(s).get(&drive_id) {
@@ -320,6 +341,17 @@ pub(crate) fn periods_redeemed(
             }
             Redeemed::Kept(why) => {
                 eprintln!("[azdrive] the period of {drive_id} waits for the next try: {why}");
+                // the same look failed again and again: the buyer is told, once - a locked seal key or
+                // a full disk keeps the month from being asked for, and stderr tells nobody
+                // (X-DELTA-MONEY7-7)
+                if says_kept {
+                    let said = not_bought_text(&s.drive_name(&Place::folder(&drive_id, "")), &why);
+                    let body = translate_text(info, &said.into());
+                    info.post_notification(
+                        Notification::create(format!("azdrive-period-kept-{drive_id}"), "AzDrive")
+                            .with_body(body),
+                    );
+                }
             }
             Redeemed::Banned => {
                 println!("AZDRIVE_PERIOD_BANNED {drive_id}");
@@ -373,6 +405,16 @@ pub(crate) fn new_device_text(drive: &str, member: &str) -> Phrase {
     Phrase::new("azdrive-new-device")
         .arg("drive", drive)
         .arg("member", member)
+}
+
+/// The notice that the next month of `drive` could not be bought [`KEPT_SAYS_AFTER`] looks in a row,
+/// and why (X-DELTA-MONEY7-7).
+#[must_use]
+pub(crate) fn not_bought_text(drive: &str, why: &str) -> Phrase {
+    Phrase::new("azdrive-period-not-bought")
+        .arg("drive", drive)
+        .arg("tries", KEPT_SAYS_AFTER)
+        .arg("why", why)
 }
 
 /// The notice of a use of `drive`'s recovery code: the lockdown takes the drive at `until`
