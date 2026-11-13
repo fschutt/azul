@@ -606,6 +606,65 @@ fn new_password(secrets: &dyn KeyringStore) -> Result<(), String> {
     Ok(())
 }
 
+/// What the bridge serves: an Azlin drive - its account's bytes, a `PlainBucket` (no drive: nothing reads or writes a
+/// file through it) over which no gate has been made yet - or a drive of this computer. The two were one `Arc<dyn Drive>`
+/// in a tuple beside an `Option` id and an `Option` restore source, and the arm `_ => (drive, None)` of the match that made
+/// the gate returned the bare account drive for any pair that was not `(Some, Some)` (X-DELTA-STRUCT4-6): an Azlin drive
+/// without its restore source would have been served in the clear. An `Azlin` has only one way on - the encryption's gate
+/// (or, in a build without it, the mail's drive that refuses every call) - and a `Local` is no Azlin drive.
+enum Backing {
+    /// An Azlin drive: the account's bucket, its id (the keyring's and the swap records' key) and where its restore
+    /// announcement comes from.
+    Azlin {
+        bucket: azmail_core::azlin::PlainBucket,
+        id: String,
+        restore: azul_storage::meta::RestoreSource,
+    },
+    /// A folder on this computer, or the demo's memory: no Azlin drive, no encryption.
+    Local(Arc<dyn Drive>),
+}
+
+/// The drive the bridge serves for `backing`, and the hook that files the drops an Azlin drive's mail Worker left (none for a
+/// drive of this computer). An `Azlin` has ONE way on: the encryption's gate (the mail's `wrap_auto`) - or, in a build without
+/// the encryption, the mail's drive that refuses every call, because the bare account drive would serve the mail and the
+/// WebDAV files in the clear (X-DELTA-AZDRIVE-KEYS-23). There is no arm that hands the account's bytes out as they are
+/// (X-DELTA-STRUCT4-6).
+fn served_drive(
+    backing: Backing,
+    secrets: &Arc<dyn KeyringStore>,
+) -> (Arc<dyn Drive>, Option<crate::store::Incoming>) {
+    #[cfg(feature = "encryption")]
+    {
+        match backing {
+            Backing::Azlin {
+                bucket,
+                id,
+                restore,
+            } => {
+                let auto =
+                    azmail_core::mail_drive::wrap_auto(bucket, &id, secrets.clone(), restore);
+                let incoming = crate::store::drops_incoming(Arc::clone(&auto), secrets.clone());
+                (auto as Arc<dyn Drive>, Some(incoming))
+            }
+            Backing::Local(drive) => (drive, None),
+        }
+    }
+    #[cfg(not(feature = "encryption"))]
+    {
+        match backing {
+            Backing::Azlin {
+                bucket,
+                id,
+                restore,
+            } => (
+                azmail_core::mail_drive::wrap(bucket, &id, secrets.clone(), restore),
+                None,
+            ),
+            Backing::Local(drive) => (drive, None),
+        }
+    }
+}
+
 fn serve(
     options: &Options,
     state: &Path,
@@ -624,34 +683,23 @@ fn serve(
     if let Some(secs) = options.idle_poll {
         limits.idle_poll = Duration::from_secs(secs);
     }
-    // The Azlin drive's id (`None`: a development drive of this computer) and where its restore
-    // announcement comes from: the device account's last refresh, asked at every poll of the
-    // drive index (X-DELTA-AZDRIVE-SYNC-3). The records of a replacing COPY or MOVE (WebDAV) go in the
-    // state folder beside the UID maps - never into the drive, which refuses its own bookkeeping's
-    // names (X-DELTA-APPS4-1) - one folder for each drive.
-    let (drive, uids, swaps, drive_id, restore): (
-        Arc<dyn Drive>,
-        UidMaps,
-        SwapRecords,
-        Option<String>,
-        Option<azul_storage::meta::RestoreSource>,
-    ) = if options.memory {
+    // The Azlin drive (its id and where its restore announcement comes from: the device account's last refresh, asked at
+    // every poll of the drive index, X-DELTA-AZDRIVE-SYNC-3) or a drive of this computer. The records of a replacing COPY
+    // or MOVE (WebDAV) go in the state folder beside the UID maps - never into the drive, which refuses its own
+    // bookkeeping's names (X-DELTA-APPS4-1) - one folder for each drive.
+    let (backing, uids, swaps): (Backing, UidMaps, SwapRecords) = if options.memory {
         (
-            Arc::new(MemoryDrive::new()) as Arc<dyn Drive>,
+            Backing::Local(Arc::new(MemoryDrive::new())),
             UidMaps::in_memory(),
             SwapRecords::of_drive(state, None),
-            None,
-            None,
         )
     } else if let Some(folder) = &options.folder {
         std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
         let whole = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
         (
-            Arc::new(LocalDrive::without_manifest(folder.clone())) as Arc<dyn Drive>,
+            Backing::Local(Arc::new(LocalDrive::without_manifest(folder.clone()))),
             UidMaps::in_folder(state.join(UIDS_DIR)),
             SwapRecords::of_drive(state, Some(&format!("folder:{}", whole.display()))),
-            None,
-            None,
         )
     } else {
         let (token_url, s3_url) = endpoints(options);
@@ -665,51 +713,37 @@ fn serve(
         };
         let id = drive.drive_id();
         say(&format!("AZUL_BRIDGE_DRIVE {id}"));
-        let drive = Arc::new(drive);
-        let announcer = Arc::clone(&drive);
+        let bucket = Arc::new(drive);
+        let announcer = Arc::clone(&bucket);
+        let swaps = SwapRecords::of_drive(state, Some(&format!("azlin:{id}")));
         (
-            drive as Arc<dyn Drive>,
+            Backing::Azlin {
+                bucket: azmail_core::azlin::PlainBucket::from(bucket),
+                id,
+                restore: azul_storage::meta::RestoreSource::new(move || announcer.restore_notice()),
+            },
             UidMaps::in_folder(state.join(UIDS_DIR)),
-            SwapRecords::of_drive(state, Some(&format!("azlin:{id}"))),
-            Some(id),
-            Some(azul_storage::meta::RestoreSource::new(move || {
-                announcer.restore_notice()
-            })),
+            swaps,
         )
     };
     // An Azlin drive goes through the encryption, as AzMail's does (azul-mail-core's mail_drive:
     // AutoEncrypted with the drive index, its copy in the state folder; the drive key from the
     // bridge's keyring; a drive that is not encrypted is neither read nor written), and the drops
     // the mail Worker leaves are filed before a folder is listed. IMAP, SMTP, WebDAV, CalDAV and
-    // CardDAV all use this drive.
+    // CardDAV all use this drive. The settings of its index are the process's and are made before
+    // the gate is (`served_drive`: no arm of it returns the account's bytes - an `Azlin` is wrapped
+    // or refused, whatever else it holds: X-DELTA-STRUCT4-6).
     #[cfg(feature = "encryption")]
-    let (drive, incoming) = match (&drive_id, restore) {
-        (Some(id), Some(restore)) => {
-            azmail_core::mail_drive::set_device_name("Azlin Bridge");
-            azmail_core::mail_drive::set_index_cache_root(Some(state.join(config::INDEX_CACHE_DIR)));
-            // The poison pill of the analysis of a file and of the decode of a stored transform:
-            // the bridge serves the JPEGs, PDFs and archives any member of the drive wrote over
-            // WebDAV, and a crafted stream that ended it three times is stored as it is from then
-            // on (X-DELTA-AZDRIVE-KEYS-44; AzDrive names its folder the same way).
-            azul_storage::crypto::codec::set_analysis_marker_dir(Some(state.join("analysis")));
-            let auto = azmail_core::mail_drive::wrap_auto(drive, id, secrets.clone(), restore);
-            let incoming = crate::store::drops_incoming(Arc::clone(&auto), secrets.clone());
-            (auto as Arc<dyn Drive>, Some(incoming))
-        }
-        _ => (drive, None),
-    };
-    // A build without the encryption opens an Azlin drive through no call (the mail's drive refuses
-    // every one): the bare account drive would serve the mail and the WebDAV files in the clear
-    // (X-DELTA-AZDRIVE-KEYS-23).
-    #[cfg(not(feature = "encryption"))]
-    let (drive, incoming): (Arc<dyn Drive>, Option<crate::store::Incoming>) =
-        match (&drive_id, restore) {
-            (Some(id), Some(restore)) => (
-                azmail_core::mail_drive::wrap(drive, id, secrets.clone(), restore),
-                None,
-            ),
-            _ => (drive, None),
-        };
+    if matches!(backing, Backing::Azlin { .. }) {
+        azmail_core::mail_drive::set_device_name("Azlin Bridge");
+        azmail_core::mail_drive::set_index_cache_root(Some(state.join(config::INDEX_CACHE_DIR)));
+        // The poison pill of the analysis of a file and of the decode of a stored transform:
+        // the bridge serves the JPEGs, PDFs and archives any member of the drive wrote over
+        // WebDAV, and a crafted stream that ended it three times is stored as it is from then
+        // on (X-DELTA-AZDRIVE-KEYS-44; AzDrive names its folder the same way).
+        azul_storage::crypto::codec::set_analysis_marker_dir(Some(state.join("analysis")));
+    }
+    let (drive, incoming) = served_drive(backing, &secrets);
     let mut mail_store = DriveMailStore::new(drive.clone());
     if let Some(incoming) = incoming {
         mail_store = mail_store.with_incoming(incoming);
@@ -831,6 +865,77 @@ mod tests {
             "a value is missing"
         );
         assert_eq!(parse_args(&args("signup")).unwrap().recovery_out, None);
+    }
+
+    /// X-DELTA-STRUCT4-6. The bridge serves an Azlin drive through the encryption's gate and no other way (`served_drive`, the
+    /// step of `serve` that makes the drive): a backing over a bucket nobody encrypted takes no write and the bucket is as it was;
+    /// one set up under its key serves its files as objects of AZL1 and none of them in the clear, and gets the hook that files
+    /// the drops; a folder of this computer is served as it is, with no hook.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_struct4_6_an_azlin_backing_is_served_through_the_gate_and_never_as_the_plain_bucket()
+    {
+        use azmail_core::azlin::PlainBucket;
+        use azul_storage::{
+            crypto::{device, keys::RecoveryKdf},
+            keyring::MemoryKeyring,
+            meta::{MemoryBucket, RestoreSource},
+            DriveError,
+        };
+
+        let secrets: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+        let none = || RestoreSource::none("a test has no token server to ask");
+        // A drive nobody encrypted: nothing is read or written through the gate, and nothing reached the bucket.
+        let plain = Arc::new(MemoryBucket::new());
+        let (drive, incoming) = served_drive(
+            Backing::Azlin {
+                bucket: PlainBucket::from(plain.clone()),
+                id: String::from("d_new"),
+                restore: none(),
+            },
+            &secrets,
+        );
+        assert!(incoming.is_some(), "the drops of an Azlin drive are filed");
+        assert!(
+            matches!(
+                drive.put("mail/Inbox/1.eml", b"hello plain text"),
+                Err(DriveError::Denied { .. })
+            ),
+            "a drive that is not encrypted takes no write"
+        );
+        assert!(plain.objects().is_empty(), "nothing reached the bucket");
+        // A drive set up under its key: its files are objects of AZL1, none holds the mail in the clear.
+        let sealed = Arc::new(MemoryBucket::new());
+        device::setup_new_drive(
+            sealed.as_ref(),
+            secrets.as_ref(),
+            "d_enc",
+            RecoveryKdf::with_cost(64, 1, 1).unwrap(),
+        )
+        .unwrap();
+        let (drive, incoming) = served_drive(
+            Backing::Azlin {
+                bucket: PlainBucket::from(sealed.clone()),
+                id: String::from("d_enc"),
+                restore: none(),
+            },
+            &secrets,
+        );
+        assert!(incoming.is_some());
+        drive.put("mail/Inbox/1.eml", b"hello plain text").unwrap();
+        assert_eq!(drive.get("mail/Inbox/1.eml").unwrap(), b"hello plain text");
+        for (name, bytes) in sealed.objects() {
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains("hello plain text"),
+                "{name} holds the mail in the clear"
+            );
+        }
+        // A folder of this computer is served as it is.
+        let folder = Arc::new(MemoryBucket::new());
+        let (drive, incoming) = served_drive(Backing::Local(folder.clone()), &secrets);
+        assert!(incoming.is_none(), "no drops in a folder");
+        drive.put("a.txt", b"as it is").unwrap();
+        assert_eq!(folder.get("a.txt").unwrap(), b"as it is");
     }
 
     #[test]

@@ -2247,7 +2247,7 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
                     // code nobody saw. The marker says so at the next start (`pending_code`).
                     let made = (|| -> Result<String, String> {
                         let bucket = session
-                            .open_drive(None, Box::new(transport.clone()))
+                            .open_bucket(None, Box::new(transport.clone()))
                             .map_err(|e| e.to_string())?;
                         let kdf = azul_storage::crypto::keys::RecoveryKdf::fresh()
                             .map_err(|e| e.to_string())?;

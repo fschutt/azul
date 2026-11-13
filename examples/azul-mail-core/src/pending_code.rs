@@ -22,7 +22,10 @@ use azul_storage::durable::{self, Mode};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "encryption")]
-use azul_storage::{crypto::keys::RecoveryKdf, keyring::KeyringStore, Drive};
+use azul_storage::{crypto::keys::RecoveryKdf, keyring::KeyringStore};
+
+#[cfg(feature = "encryption")]
+use crate::azlin::PlainBucket;
 
 /// The marker's file in AzMail's data folder.
 pub const FILE: &str = "pending-recovery-code.json";
@@ -61,9 +64,9 @@ pub fn note(root: &Path, drive_id: &str) -> Result<(), String> {
         .map_err(|e| format!("{}: {e}", path_of(root).display()))
 }
 
-/// Encrypts the new drive `drive_id` as it is made - the recovery wrap into `bucket`, the drive key and
-/// this computer's member key into `keyring` - and hands back the recovery code, for the page to show
-/// once. Recorded first, published after (X-DELTA-KEYS2-4): the marker ([`note`]) is written before
+/// Encrypts the new drive `drive_id` as it is made - the recovery wrap into `bucket` (the session's bytes, plain:
+/// [`PlainBucket`], what the setup of a drive's key files works on and a mail folder never does, X-DELTA-STRUCT4-6), the drive
+/// key and this computer's member key into `keyring` - and hands back the recovery code, for the page to show once. Recorded first, published after (X-DELTA-KEYS2-4): the marker ([`note`]) is written before
 /// anything of the setup reaches the bucket or the keyring, so that a stop between the wrap and the
 /// page is found by the next start; a marker that cannot be written is the reason to publish nothing.
 /// A setup that fails takes the marker away again (the page reports it as "not encrypted"); one that
@@ -77,7 +80,7 @@ pub fn note(root: &Path, drive_id: &str) -> Result<(), String> {
 #[cfg(feature = "encryption")]
 pub fn encrypt_new_drive(
     root: &Path,
-    bucket: &dyn Drive,
+    bucket: &PlainBucket,
     keyring: &dyn KeyringStore,
     drive_id: &str,
     kdf: RecoveryKdf,
@@ -88,7 +91,12 @@ pub fn encrypt_new_drive(
              could not be kept ({why}), so nothing was published"
         )
     })?;
-    match azul_storage::crypto::device::setup_new_drive(bucket, keyring, drive_id, kdf) {
+    match azul_storage::crypto::device::setup_new_drive(
+        bucket.bytes().as_ref(),
+        keyring,
+        drive_id,
+        kdf,
+    ) {
         Ok((_, code)) => Ok(code.to_text().to_string()),
         Err(e) => {
             // The page reports a setup that failed as "not encrypted": the drive is one the user was

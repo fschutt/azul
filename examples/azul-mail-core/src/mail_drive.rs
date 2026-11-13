@@ -37,7 +37,7 @@ use azul_storage::{
 };
 use azul_storage::{keyring::KeyringStore, meta::RestoreSource, Drive, DriveError, Transport};
 
-use crate::azlin::AzlinSession;
+use crate::azlin::{AzlinSession, PlainBucket};
 
 /// Where the drive index keeps this computer's copies of encrypted drives
 /// ([`set_index_cache_root`]; `None`: in memory, read anew on every start).
@@ -98,9 +98,11 @@ pub fn set_index_cache_root(root: Option<PathBuf>) {
 /// mail opens one that is ([`AutoEncrypted::encrypted_only`]) and reads or writes nothing of one
 /// that is not (a new drive, an older one, a bucket that hides its key files, which cannot be
 /// told apart) - it is encrypted in AzDrive first. `restore` is where the drive's restore
-/// announcement comes from ([`crate::azlin::AzlinSession::restore_source`]).
+/// announcement comes from ([`crate::azlin::AzlinSession::restore_source`]). `bucket` is the
+/// session's ([`PlainBucket`], what [`AzlinSession::open_bucket`] gives) or a drive's bytes in the
+/// plain: an `Arc` of the bridge's account drive, of a test's folder (X-DELTA-STRUCT4-6).
 pub fn wrap(
-    bucket: Arc<dyn Drive>,
+    bucket: impl Into<PlainBucket>,
     drive_id: &str,
     keyring: Arc<dyn KeyringStore>,
     restore: RestoreSource,
@@ -111,7 +113,8 @@ pub fn wrap(
     }
     #[cfg(not(feature = "encryption"))]
     {
-        let _ = (bucket, drive_id, keyring, restore);
+        let _: PlainBucket = bucket.into();
+        let _ = (drive_id, keyring, restore);
         Arc::new(NoEncryption)
     }
 }
@@ -160,13 +163,19 @@ impl Drive for NoEncryption {
 #[cfg(feature = "encryption")]
 #[must_use]
 pub fn wrap_auto(
-    bucket: Arc<dyn Drive>,
+    bucket: impl Into<PlainBucket>,
     drive_id: &str,
     keyring: Arc<dyn KeyringStore>,
     restore: RestoreSource,
 ) -> Arc<AutoEncrypted> {
     Arc::new(
-        AutoEncrypted::new(bucket, drive_id, keyring, index_provider(restore)).encrypted_only(),
+        AutoEncrypted::new(
+            bucket.into().into_bytes(),
+            drive_id,
+            keyring,
+            index_provider(restore),
+        )
+        .encrypted_only(),
     )
 }
 
@@ -309,7 +318,9 @@ pub fn receive_drops(
         if device::load_drive_key(keyring, &session.drive_id)?.is_none() {
             return Ok(Filed::nothing());
         }
-        let bucket: Arc<dyn Drive> = Arc::new(session.open_drive(endpoint_override, transport)?);
+        let bucket = session
+            .open_bucket(endpoint_override, transport)?
+            .into_bytes();
         file_drops(bucket.as_ref(), &session.drive_id, keyring, &mut || {
             Ok(Arc::new(open_encrypted(
                 Arc::clone(&bucket),
@@ -347,9 +358,9 @@ pub fn open(
     transport: Box<dyn Transport>,
     keyring: Arc<dyn KeyringStore>,
 ) -> Result<Arc<dyn Drive>, DriveError> {
-    let bucket = session.open_drive(endpoint_override, transport)?;
+    let bucket = session.open_bucket(endpoint_override, transport)?;
     Ok(wrap(
-        Arc::new(bucket),
+        bucket,
         &session.drive_id,
         keyring,
         session.restore_source(),

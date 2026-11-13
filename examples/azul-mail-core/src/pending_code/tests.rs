@@ -95,7 +95,7 @@ fn x_delta_keys2_4_a_marker_that_cannot_be_written_says_so() {
 
 #[cfg(feature = "encryption")]
 mod setup {
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use azul_storage::{
         keyring::MemoryKeyring, meta::MemoryBucket, Drive, DriveError, Precondition,
@@ -173,9 +173,16 @@ mod setup {
     #[test]
     fn x_delta_keys2_4_the_marker_is_on_the_disk_before_the_first_write_of_the_setup() {
         let dir = TempDir::new("encrypt-order");
-        let bucket = Watching::over(dir.path());
+        let bucket = Arc::new(Watching::over(dir.path()));
         let keyring = MemoryKeyring::new();
-        let code = encrypt_new_drive(dir.path(), &bucket, &keyring, "d_made", kdf()).unwrap();
+        let code = encrypt_new_drive(
+            dir.path(),
+            &PlainBucket::from(Arc::clone(&bucket)),
+            &keyring,
+            "d_made",
+            kdf(),
+        )
+        .unwrap();
         assert!(!code.is_empty(), "the code for the page");
         let seen = bucket.marker_at_each_write.lock().unwrap().clone();
         assert!(!seen.is_empty(), "the setup wrote into the bucket");
@@ -203,10 +210,16 @@ mod setup {
         let dir = TempDir::new("encrypt-blocked");
         let blocked = dir.path().join("blocked");
         std::fs::write(&blocked, b"a file").unwrap();
-        let bucket = Watching::over(&blocked);
+        let bucket = Arc::new(Watching::over(&blocked));
         let keyring = MemoryKeyring::new();
-        let error = encrypt_new_drive(&blocked.join("inner"), &bucket, &keyring, "d_made", kdf())
-            .unwrap_err();
+        let error = encrypt_new_drive(
+            &blocked.join("inner"),
+            &PlainBucket::from(Arc::clone(&bucket)),
+            &keyring,
+            "d_made",
+            kdf(),
+        )
+        .unwrap_err();
         assert!(error.contains("nothing was published"), "{error}");
         assert!(
             bucket.marker_at_each_write.lock().unwrap().is_empty(),
@@ -224,10 +237,17 @@ mod setup {
     #[test]
     fn x_delta_keys2_4_a_setup_that_fails_takes_its_marker_back() {
         let dir = TempDir::new("encrypt-failed");
-        let mut bucket = Watching::over(dir.path());
-        bucket.refuses = true;
+        let mut watching = Watching::over(dir.path());
+        watching.refuses = true;
         let keyring = MemoryKeyring::new();
-        let error = encrypt_new_drive(dir.path(), &bucket, &keyring, "d_made", kdf()).unwrap_err();
+        let error = encrypt_new_drive(
+            dir.path(),
+            &PlainBucket::from(Arc::new(watching)),
+            &keyring,
+            "d_made",
+            kdf(),
+        )
+        .unwrap_err();
         assert!(error.contains("not encrypted"), "{error}");
         assert_eq!(read(dir.path()), Ok(None), "the note went with the failure");
     }

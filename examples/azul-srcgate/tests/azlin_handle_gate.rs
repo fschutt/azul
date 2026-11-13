@@ -33,6 +33,13 @@
 //!   places that could still name them). AzMail's and the bridge's own gate over a bucket they build from a session
 //!   is the other counted line (`mail_drive::wrap_auto`); a third place is a finding.
 //!
+//! - **`azlin-plain-bucket-opened`**: every use of `open_bucket` but its definition (`AzlinSession::open_bucket` of
+//!   azul-mail-core): where AzMail's and the bridge's code opens the plain BYTES of an Azlin drive from a session. It is
+//!   a `PlainBucket`, which is no drive: it is wrapped by `mail_drive::wrap` (the encryption's gate) or handed to
+//!   `pending_code::encrypt_new_drive`, and nothing reads or writes a file through it - but what it was, `open_drive`,
+//!   returned the `S3Drive` itself, and a new function that did `bucket.put(key, mail)` compiled and passed every gate
+//!   (X-DELTA-STRUCT4-6). Each file that opens one is a counted line.
+//!
 //! The kit's own files are listed one by one with their counts: `drive.rs` names the bytes and makes them, the
 //! crate's `lib.rs` re-exports the opener. Comments, strings and test items are not read (a file only a test
 //! build compiles is none of the gate's); the counts are exact and only go down.
@@ -50,18 +57,29 @@ const BYTE_STORE: &str = "azlin-byte-store-named";
 const OPENED: &str = "azlin-opened";
 const MADE: &str = "azlin-byte-store-made";
 const GATE_MADE: &str = "azlin-gate-made";
+const PLAIN_OPENED: &str = "azlin-plain-bucket-opened";
+
+/// Every use of the name `name` that is not a definition (`fn name`): whatever spelling reaches the function - a bare
+/// call, a path call, a method call, an import under another name and a function value.
+fn uses_of(t: &[Located], name: &str) -> Vec<usize> {
+    t.iter()
+        .enumerate()
+        .filter(|(at, x)| x.tok.is_ident(name) && !(*at > 0 && t[*at - 1].tok.is_ident("fn")))
+        .map(|(_, x)| x.line)
+        .collect()
+}
 
 /// Every use of `open_azlin` that is not its definition (`fn open_azlin`): whatever spelling reaches the
 /// function - a bare call, a path call (`azcloud_kit::open_azlin(`, `azcloud_kit::drive::open_azlin(`), an
 /// import under another name and a function value.
 fn opened(t: &[Located]) -> Vec<usize> {
-    t.iter()
-        .enumerate()
-        .filter(|(at, x)| {
-            x.tok.is_ident("open_azlin") && !(*at > 0 && t[*at - 1].tok.is_ident("fn"))
-        })
-        .map(|(_, x)| x.line)
-        .collect()
+    uses_of(t, "open_azlin")
+}
+
+/// Every use of `open_bucket` that is not its definition: where the plain bytes of an Azlin drive are opened from a
+/// session (a method call, a path call, a function value).
+fn bucket_opened(t: &[Located]) -> Vec<usize> {
+    uses_of(t, "open_bucket")
 }
 
 /// Every use of the path `AzlinDrive::over` (a call or a function value).
@@ -133,6 +151,22 @@ fn rules() -> Vec<Rule> {
                 "let x = Slot::open_azlin_drive(1);",
                 "let t = tool.open_azlin_x(1);",
                 "let open_azlins = 1;",
+            ],
+        ),
+        Rule::new(
+            PLAIN_OPENED,
+            bucket_opened,
+            &[
+                "let bucket = session.open_bucket(None, Box::new(transport.clone()))?;",
+                "let bucket = azmail_core::azlin::AzlinSession::open_bucket(&session, None, transport)?;",
+                "let open = AzlinSession::open_bucket;",
+                "let bucket = account.session().open_bucket(endpoint, transport).map_err(|e| e.to_string())?;",
+            ],
+            &[
+                "pub fn open_bucket(&self, endpoint: Option<&str>) -> Result<PlainBucket, DriveError> {}",
+                "let bucket = session.open_drive();",
+                "let t = reopen_bucket(1);",
+                "let open_buckets = 1;",
             ],
         ),
         Rule::new(
@@ -215,14 +249,30 @@ const ALLOWED: &[Allow] = &[
         1,
         "Slot::open_azlin_in: the one opener of an Azlin drive in the apps; it gives the opener the parts of the gate \
          (`encryption::gate_parts`: no bytes, no id) and the opener makes the gate (AzMail and the bridge open their \
-         own drives through `mail_drive::wrap`, over a plain S3 bucket they build from a session)",
+         own drives through `mail_drive::wrap`, over a `PlainBucket` they build from a session: no drive, counted by \
+         `azlin-plain-bucket-opened`)",
     ),
     Allow::exactly(
         "examples/azul-mail-core/src/mail_drive.rs",
         GATE_MADE,
         1,
-        "`mail_drive::wrap`: AzMail's and the bridge's own gate over a bucket they build from a session - an \
-         encrypted-only gate, no Azlin account of the kit (the bytes they are handed: X-DELTA-STRUCT4-6)",
+        "`mail_drive::wrap_auto`: AzMail's and the bridge's own gate over a bucket they build from a session - an \
+         encrypted-only gate, no Azlin account of the kit (the bytes they are handed are a `PlainBucket`, which is no \
+         drive: X-DELTA-STRUCT4-6)",
+    ),
+    Allow::exactly(
+        "examples/azul-mail-core/src/mail_drive.rs",
+        PLAIN_OPENED,
+        2,
+        "`receive_drops` (the drive's key and drop files, read in the plain bucket and filed into the encrypted drive) and \
+         `open` (the bucket goes under the encryption's gate in the same statement)",
+    ),
+    Allow::exactly(
+        "examples/azul-mail/src/lib.rs",
+        PLAIN_OPENED,
+        1,
+        "the job that makes a new drive: the plain bucket goes to `pending_code::encrypt_new_drive`, which writes the \
+         recovery wrap and the key files into it (no mail, no file of the drive) - the one place of the app that holds one",
     ),
 ];
 
@@ -297,6 +347,46 @@ const LISTED: &[Allow] = &[
         OPENED,
         1,
         "the planted opener",
+    ),
+];
+
+/// [`LISTED`] and the one plain bucket a planted job may open.
+const LISTED_PLAIN: &[Allow] = &[
+    Allow::exactly(
+        "examples/azcloud-kit/src/drive.rs",
+        GATE_MADE,
+        1,
+        "the planted kit's one gate",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/drive.rs",
+        BYTE_STORE,
+        4,
+        "the planted kit's drive.rs: the struct, its impl and the two places that put it over an account",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/drive.rs",
+        MADE,
+        2,
+        "the planted kit's two places that make the bytes",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/lib.rs",
+        OPENED,
+        1,
+        "the planted kit's re-export",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/lib.rs",
+        OPENED,
+        1,
+        "the planted opener",
+    ),
+    Allow::exactly(
+        "examples/azul-drive/src/jobs.rs",
+        PLAIN_OPENED,
+        1,
+        "the planted job's one plain bucket",
     ),
 ];
 
@@ -528,6 +618,97 @@ fn x_delta_struct4_1_every_place_that_makes_the_encryptions_gate_is_a_counted_li
         wrong
             .iter()
             .any(|w| w.contains("holds 2 x azlin-gate-made where its allowance says 1")),
+        "{wrong:?}"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// X-DELTA-STRUCT4-6. AzMail and the bridge open the plain bytes of an Azlin drive from a session by `open_bucket` (it was
+/// `open_drive`, which returned the drive itself): every use of the name is a counted line - a method call, a path call, a
+/// function value - so a new function that opens one is a finding with its line, whatever the spelling; a listed file's
+/// count is exact (one more is a new site), and a definition of a function of that name is no use. RED on the old gate: it
+/// read none of them.
+#[test]
+fn x_delta_struct4_6_every_place_that_opens_the_plain_bytes_of_a_drive_is_a_counted_line() {
+    let jobs = [
+        "pub fn leak(session: &AzlinSession, transport: Box<dyn Transport>) {",
+        "    let bucket = session.open_bucket(None, transport).unwrap();",
+        "}",
+        "pub fn path(session: &AzlinSession, transport: Box<dyn Transport>) {",
+        "    let _ = AzlinSession::open_bucket(session, None, transport);",
+        "}",
+        "pub fn value() { let _open = AzlinSession::open_bucket; }",
+        "impl Other { pub fn open_bucket(&self) {} }",
+        "",
+    ]
+    .join("\n");
+    let drive_lib = "mod jobs;\npub fn open(slot: &mut Slot) {\n    let _ = azcloud_kit::open_azlin(&slot.entry, open, gate);\n}\n";
+    let base = base_with(
+        "plain-bucket",
+        &[
+            ("examples/azcloud-kit/src/lib.rs", KIT_LIB),
+            ("examples/azcloud-kit/src/drive.rs", KIT_DRIVE),
+            ("examples/azul-drive/src/lib.rs", drive_lib),
+            ("examples/azul-drive/src/jobs.rs", jobs.as_str()),
+        ],
+    );
+    // None of them is listed: each is a finding with its line, whatever the spelling.
+    let wrong =
+        check(&base, LISTED).expect_err("three places open the plain bytes and none is listed");
+    let at = |line: usize| {
+        wrong.iter().any(|w| {
+            w.starts_with(&format!("examples/azul-drive/src/jobs.rs:{line}:"))
+                && w.contains(PLAIN_OPENED)
+        })
+    };
+    assert!(at(2), "the method call: {wrong:?}");
+    assert!(at(5), "the path call: {wrong:?}");
+    assert!(at(7), "the function value: {wrong:?}");
+    assert!(!at(8), "a definition is no use: {wrong:?}");
+    // The count of a listed file is exact: three where the list says one.
+    let wrong = check(&base, LISTED_PLAIN).expect_err("three where the list says one");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 3 x azlin-plain-bucket-opened where its allowance says 1")),
+        "the count is exact: {wrong:?}"
+    );
+    // One call in the listed file holds; a second one is a new site.
+    std::fs::write(
+        base.join("examples/azul-drive/src/jobs.rs"),
+        "pub fn one(s: &AzlinSession, t: Box<dyn Transport>) {\n    let _ = s.open_bucket(None, t);\n}\n",
+    )
+    .unwrap();
+    assert_eq!(check(&base, LISTED_PLAIN), Ok(10));
+    std::fs::write(
+        base.join("examples/azul-drive/src/jobs.rs"),
+        "pub fn two(s: &AzlinSession, t: Box<dyn Transport>, u: Box<dyn Transport>) {\n    let _ = s.open_bucket(None, t);\n    let _ = s.open_bucket(None, u);\n}\n",
+    )
+    .unwrap();
+    let wrong = check(&base, LISTED_PLAIN).expect_err("a second plain bucket in the listed file");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 2 x azlin-plain-bucket-opened where its allowance says 1")),
+        "{wrong:?}"
+    );
+    // The same call in a file nobody listed is a finding.
+    std::fs::write(
+        base.join("examples/azul-drive/src/jobs.rs"),
+        "pub fn clean() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        base.join("examples/azul-drive/src/other.rs"),
+        "pub fn leak(s: &AzlinSession, t: Box<dyn Transport>) {\n    let _ = s.open_bucket(None, t);\n}\n",
+    )
+    .unwrap();
+    let wrong = check(&base, LISTED_PLAIN).expect_err("a file nobody listed opens one");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.starts_with("examples/azul-drive/src/other.rs:2:")
+                && w.contains(PLAIN_OPENED)),
         "{wrong:?}"
     );
     let _ = std::fs::remove_dir_all(base);

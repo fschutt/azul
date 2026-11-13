@@ -16,7 +16,10 @@
 //!
 //! No azul types here: tested without a window. Nothing here prints or `Debug`s a secret.
 
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use azcloud_kit::{
     bundle::DriveBundle,
@@ -407,12 +410,19 @@ impl AzlinSession {
         }
     }
 
-    /// The drive these credentials open, its requests sent through `transport`. Sends nothing.
-    pub fn open_drive(
+    /// The bucket these credentials open, its requests sent through `transport`: the drive's BYTES as they are, a
+    /// [`PlainBucket`] - no file of the drive is read or written through it, it goes under the encryption's gate
+    /// ([`crate::mail_drive::wrap`]). Sends nothing. It was `open_drive`, which returned the `S3Drive` itself: a drive
+    /// that a new function of AzMail or the bridge could `put` a mail into, in the clear (X-DELTA-STRUCT4-6).
+    ///
+    /// # Errors
+    ///
+    /// [`DriveError::Denied`] when the session holds no credentials yet; the bucket's own errors otherwise.
+    pub fn open_bucket(
         &self,
         endpoint_override: Option<&str>,
         transport: Box<dyn Transport>,
-    ) -> Result<S3Drive, DriveError> {
+    ) -> Result<PlainBucket, DriveError> {
         if !self.has_credentials() {
             return Err(DriveError::Denied {
                 message: String::from(
@@ -420,13 +430,112 @@ impl AzlinSession {
                 ),
             });
         }
-        S3Drive::new(
+        let bucket = S3Drive::new(
             self.s3_config(endpoint_override),
             self.credentials(),
             transport,
-        )
+        )?;
+        Ok(PlainBucket::from(Arc::new(bucket)))
     }
 }
+
+/// The bytes of an Azlin drive's bucket, plain - what [`AzlinSession::open_bucket`] gives. It is NO [`Drive`]: nothing of
+/// the drive is read or written through it, so a mail folder or a WebDAV file of an encrypted drive cannot reach the bucket in
+/// the clear by a call that forgot the gate (X-DELTA-STRUCT4-6: `open_drive` returned the `S3Drive` itself, and a new
+/// function of AzMail or the bridge that did `bucket.put(key, mail)` compiled, passed every gate - none read
+/// `open_drive(` - and sent the mail to the storage in the clear, the shape X-DELTA-STRUCT3-10 closed for AzDrive).
+///
+/// There are two things to do with it. It goes under the encryption's gate ([`crate::mail_drive::wrap`] and
+/// `wrap_auto`, which take it - and a drive or an `Arc` of one, which is the same bytes under another name: the tests'
+/// buckets, the bridge's account drive), and it is handed to the functions of this crate that work on the bucket's own key
+/// and drop files (`pending_code::encrypt_new_drive`, [`crate::mail_drive::receive_drops`]): they read the bytes through a
+/// door that only this crate has. What does not compile - a `put` through it, a take as a drive, the bytes taken out - and the
+/// control of it are the doc tests of `PlainBucketUses` below.
+pub struct PlainBucket {
+    bytes: Arc<dyn Drive>,
+}
+
+impl PlainBucket {
+    /// The bucket's bytes, for the functions of this crate that work on the bucket's own files (a drive's key files, its
+    /// incoming mail's drops): no other crate can call it.
+    #[cfg(feature = "encryption")]
+    pub(crate) fn bytes(&self) -> &Arc<dyn Drive> {
+        &self.bytes
+    }
+
+    /// The bucket's bytes, given up: for the gate this crate puts over them.
+    #[cfg(feature = "encryption")]
+    pub(crate) fn into_bytes(self) -> Arc<dyn Drive> {
+        self.bytes
+    }
+}
+
+impl std::fmt::Debug for PlainBucket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PlainBucket").finish_non_exhaustive()
+    }
+}
+
+/// A drive's bytes as a plain bucket: it is wrapped and nothing else (the bridge's account drive, a test's folder, an
+/// `Arc<dyn Drive>` as well: an `Arc` of a drive is a drive, and the box holds that one).
+impl<D: Drive + ?Sized + 'static> From<Arc<D>> for PlainBucket {
+    fn from(bytes: Arc<D>) -> PlainBucket {
+        PlainBucket {
+            bytes: Arc::new(bytes),
+        }
+    }
+}
+
+/// What does not compile with a [`PlainBucket`], and the control of it. They are doc tests of this item and only of it: the
+/// door that takes the bytes out of the bucket is the encryption's (`bytes` and `into_bytes` are there with that feature
+/// only), and without it the third example would fail for another reason, which proves nothing.
+///
+/// ```compile_fail,E0599
+/// // No file is written through it ...
+/// use azmail_core::azlin::AzlinSession;
+/// use azul_storage::{Drive, Transport};
+/// fn plain(session: &AzlinSession, transport: Box<dyn Transport>) {
+///     if let Ok(bucket) = session.open_bucket(None, transport) {
+///         let _ = bucket.put("mail/Inbox/1.eml", b"Subject: x\r\n\r\nhello");
+///     }
+/// }
+/// ```
+///
+/// ```compile_fail,E0277
+/// // ... nor is it a drive that anything else may take ...
+/// use azmail_core::azlin::PlainBucket;
+/// use azul_storage::Drive;
+/// fn takes_a_drive(_drive: &dyn Drive) {}
+/// fn plain(bucket: &PlainBucket) {
+///     takes_a_drive(bucket);
+/// }
+/// ```
+///
+/// ```compile_fail,E0624
+/// // ... and its bytes cannot be taken out of it by a caller of another crate.
+/// use azmail_core::azlin::PlainBucket;
+/// fn bytes(bucket: &PlainBucket) {
+///     let _ = bucket.bytes();
+/// }
+/// ```
+///
+/// ```no_run
+/// // The control of the three above, with the same imports: the bucket goes under the gate, and the drive that makes is a
+/// // drive anything may take.
+/// use std::sync::Arc;
+/// use azmail_core::{azlin::{AzlinSession, PlainBucket}, mail_drive::wrap};
+/// use azul_storage::{keyring::KeyringStore, Drive, Transport};
+/// fn takes_a_drive(_drive: &dyn Drive) {}
+/// fn encrypted(session: &AzlinSession, transport: Box<dyn Transport>, keyring: Arc<dyn KeyringStore>) {
+///     if let Ok(bucket) = session.open_bucket(None, transport) {
+///         let bucket: PlainBucket = bucket;
+///         let drive = wrap(bucket, &session.drive_id, keyring, session.restore_source());
+///         takes_a_drive(drive.as_ref());
+///     }
+/// }
+/// ```
+#[cfg(all(doctest, feature = "encryption"))]
+struct PlainBucketUses;
 
 // ==== The account service: the token server ====
 
@@ -698,7 +807,35 @@ impl Endpoints {
     /// shared config's `endpoints` section (the file's text, if there is a file), then the
     /// environment (`env` reads a variable), then the switches - a later source wins where it
     /// says something. A SHIPPED build: the live token server and the drive's own S3 endpoint,
-    /// whatever the file, the environment and the switches say ([`Endpoints::resolve_with`]).
+    /// whatever the file, the environment and the switches say (`Endpoints::resolve_with`).
+    ///
+    /// The functions that take the build's choice as a `bool` - `resolve_with` and `token_url_for_with` - are this crate's
+    /// own: they were `pub`, and any crate could aim a drive token at the address a file carries with one literal -
+    /// `Endpoints::resolve_with(true, ..)`: the shipped-build rule of REVIEW K20 was one `true` away and no gate saw the
+    /// call (X-DELTA-STRUCT4-5, the twin of the kit's `azlin_target_choice`):
+    ///
+    /// ```compile_fail,E0624
+    /// use azmail_core::azlin::Endpoints;
+    /// fn aimed_at_the_file(config: &str, env: &dyn Fn(&str) -> Option<String>) {
+    ///     let _ = Endpoints::resolve_with(true, Some(config), env, &Endpoints::default());
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail,E0624
+    /// use azmail_core::azlin::Endpoints;
+    /// fn aimed_at_the_account(run: &Endpoints) {
+    ///     let _ = run.token_url_for_with(true, "https://account.example");
+    /// }
+    /// ```
+    ///
+    /// ```no_run
+    /// // The control of the two above: the functions every crate asks, which take the build's own choice.
+    /// use azmail_core::azlin::Endpoints;
+    /// fn resolved(config: &str, env: &dyn Fn(&str) -> Option<String>, run: &Endpoints) {
+    ///     let _ = Endpoints::resolve(Some(config), env, &Endpoints::default());
+    ///     let _ = run.token_url_for("https://account.example");
+    /// }
+    /// ```
     pub fn resolve(
         config_json: Option<&str>,
         env: &dyn Fn(&str) -> Option<String>,
@@ -712,7 +849,7 @@ impl Endpoints {
         )
     }
 
-    /// [`Endpoints::resolve`] with the build's choice as an argument (the tests set both):
+    /// [`Endpoints::resolve`] with the build's choice as an argument (the tests set both; crate-private: X-DELTA-STRUCT4-5):
     /// `honour_layers` is whether this build may take an address a CREDENTIAL travels to from its
     /// layers (the file, the environment, the switches). A shipped build may not (REVIEW K20, P7,
     /// X-DELTA-AZDRIVE-KEYS-9): the drive token and the period tokens go wherever the token
@@ -720,7 +857,7 @@ impl Endpoints {
     /// process can set. It gets the live token server ([`azul_appkit::anchors::TOKEN_SERVER`])
     /// and no S3 override - SigV4-signed traffic goes to the endpoint the drive's own bundle
     /// names.
-    pub fn resolve_with(
+    pub(crate) fn resolve_with(
         honour_layers: bool,
         config_json: Option<&str>,
         env: &dyn Fn(&str) -> Option<String>,
@@ -761,12 +898,13 @@ impl Endpoints {
         self.token_url_for_with(azul_appkit::anchors::layers_honoured(), named)
     }
 
-    /// [`Endpoints::token_url_for`] with the build's choice as an argument (the tests set both).
+    /// [`Endpoints::token_url_for`] with the build's choice as an argument (the tests set both; crate-private:
+    /// X-DELTA-STRUCT4-5).
     /// The choice of a test build is the one every Azlin drive's is - `anchors::token_server_choice`, the
     /// function the kit's `azlin_target` asks for a drive's entry (ARCH29 C6d: AzMail kept a second
     /// copy of "the account's own, else the run's"); what stays here is AzMail's own rule for a shipped
     /// build: the live server as a constant, whatever the run's endpoints hold.
-    pub fn token_url_for_with(&self, honour_layers: bool, named: &str) -> Option<String> {
+    pub(crate) fn token_url_for_with(&self, honour_layers: bool, named: &str) -> Option<String> {
         if !honour_layers {
             return Endpoints::pinned().token_url;
         }
