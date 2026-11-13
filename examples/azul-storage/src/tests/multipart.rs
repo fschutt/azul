@@ -8,8 +8,8 @@
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Barrier,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc, Barrier, Mutex,
     },
     time::Duration,
 };
@@ -19,9 +19,12 @@ use super::{
     TempDir,
 };
 use crate::{
+    meta::Certainty,
     multipart::STALE_AFTER_SECS,
     s3::{PARALLEL_PARTS, PART_SIZE},
-    Credentials, Drive, DriveError, Precondition, S3Config, S3Drive,
+    transport::CallLimits,
+    Credentials, Drive, DriveError, HttpCall, HttpReply, Method, Precondition, S3Config, S3Drive,
+    Transport,
 };
 
 /// 2026-10-10T00:00:00Z.
@@ -696,4 +699,132 @@ fn x_delta_sync2_9_an_abort_the_service_refused_after_a_lost_race_is_not_forgott
     assert_eq!(later.abort_stale_uploads(), 1, "{:?}", s3.log());
     assert!(s3.uploads().is_empty(), "{:?}", s3.log());
     assert!(state_files(&resume).is_empty());
+}
+
+// ==== X-EDGE-A-2 (E9b, T14): a part whose body stops without an error ====
+
+/// A drive's transport in virtual time for a part that stalls: the first `answered` parts reach the bucket;
+/// every part after them goes out and its body stops - no error, no answer - until the budget of its call is
+/// spent, and then the client gives up as azul's `HttpClient` does ("timed out", the call's own
+/// `send_body`). The wait is not slept: each stalled call's budget is recorded, so the test reads the time
+/// the client was given and runs in milliseconds. (The enforcement of that budget is the HTTP client's,
+/// `azul_transport.rs` `with_send_timeout`; what this crate decides is the budget a part's call carries and
+/// what it does with the answer.)
+struct Stalling {
+    bucket: Arc<FakeBucket>,
+    answered: usize,
+    arrived: AtomicUsize,
+    /// Each stalled call: the bytes of its body and the time its client waited for it.
+    stalled: Mutex<Vec<(usize, Duration)>>,
+}
+
+impl Transport for Stalling {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        let is_part = call.method == Method::Put && call.url.contains("partNumber=");
+        if is_part && self.arrived.fetch_add(1, Ordering::SeqCst) >= self.answered {
+            let budget = call.budget();
+            let waited = budget
+                .send_body
+                .map_or(budget.overall, |send| send.min(budget.overall));
+            self.stalled.lock().unwrap().push((call.body.len(), waited));
+            return Err(format!(
+                "timed out after {} s: the body stopped going out",
+                waited.as_secs()
+            ));
+        }
+        self.bucket.answer(call)
+    }
+}
+
+struct StallingHandle(Arc<Stalling>);
+
+impl Transport for StallingHandle {
+    fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+        self.0.send(call)
+    }
+}
+
+/// X-EDGE-A-2 (T14). A part whose body stops going out without an error is given up when the budget of its
+/// call is spent - an upload's: its base and the time its bytes take at the least rate, so a part is not
+/// given the flat minute of a document - and the error is the transport's, which a pass retries inside its
+/// budget; the upload stays, and the restart sends only the parts the service does not have. The first
+/// four parts are answered, the next ones stall; every stalled call waited exactly
+/// `CallLimits::upload().budget(<its body>).send_body`. RED when a part's call carries another limit (a
+/// document's flat minute): the clients would wait 60 s for a part whose budget is 30 s and the bytes.
+#[test]
+fn a_part_stalled_without_error_is_abandoned_at_its_budget_and_resumed() {
+    const ANSWERED: usize = 4;
+    let tmp = TempDir::new("multipart-stall");
+    let resume = tmp.path().join("resume");
+    let (path, bytes) = file_with(&tmp, "big.bin", 10, 9);
+    let s3 = FakeBucket::new();
+    let stalling = Arc::new(Stalling {
+        bucket: s3.clone(),
+        answered: ANSWERED,
+        arrived: AtomicUsize::new(0),
+        stalled: Mutex::new(Vec::new()),
+    });
+    let stalled_drive = S3Drive::new(
+        S3Config {
+            endpoint: String::from("http://127.0.0.1:9000"),
+            region: String::from("us-east-1"),
+            bucket: BUCKET.to_string(),
+            path_style: true,
+        },
+        Credentials::new("AKIDTEST", "test-secret"),
+        Box::new(StallingHandle(stalling.clone())),
+    )
+    .unwrap()
+    .with_clock(|| NOW)
+    .with_part_size(PART)
+    .with_resume_dir(&resume);
+    let error = stalled_drive
+        .put_file("big.bin", &path, &no_progress)
+        .unwrap_err();
+    // Given up at the budget of an upload with that body: no sooner, no later.
+    let stalled = stalling.stalled.lock().unwrap().clone();
+    assert!(!stalled.is_empty(), "no part stalled");
+    for (len, waited) in &stalled {
+        let allowed = CallLimits::upload()
+            .budget(*len as u64)
+            .send_body
+            .expect("an upload's call has a time of its own for its body");
+        assert_eq!(
+            *waited, allowed,
+            "a part of {len} bytes was given {waited:?}; the budget of an upload of that size is {allowed:?}"
+        );
+    }
+    assert!(
+        stalled.iter().any(|(len, _)| *len == PART),
+        "a whole part stalled: {stalled:?}"
+    );
+    // A network fault: the pass retries it inside its budget. Whether the part landed is not known - never a
+    // refusal, which a caller may take for proof that nothing was written.
+    assert!(
+        matches!(&error, DriveError::Transport(message) if message.contains("timed out")),
+        "{error:?}"
+    );
+    assert_eq!(error.certainty(), Certainty::Unknown, "{error:?}");
+    // What reached the service stays, and the upload is remembered, not aborted.
+    assert_eq!(s3.count("PUT part"), ANSWERED, "{:?}", s3.log());
+    assert_eq!(state_files(&resume).len(), 1, "the upload is remembered");
+    assert_eq!(s3.uploads().len(), 1, "and not aborted: it resumes");
+    // The restart, over a drive that answers: only the parts the service does not have go up.
+    s3.clear_log();
+    let sent = drive_on(&s3, Some(&resume), NOW + 60)
+        .put_file("big.bin", &path, &no_progress)
+        .unwrap();
+    assert_eq!(sent, bytes.len() as u64);
+    assert_eq!(s3.object("big.bin").unwrap(), bytes, "the bytes are whole");
+    assert_eq!(s3.count("POST start"), 0, "the same upload: {:?}", s3.log());
+    assert_eq!(
+        s3.count("PUT part"),
+        11 - ANSWERED,
+        "only the missing parts: {:?}",
+        s3.log()
+    );
+    assert!(
+        state_files(&resume).is_empty(),
+        "a finished upload leaves no state"
+    );
 }
