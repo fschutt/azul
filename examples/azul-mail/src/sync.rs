@@ -132,6 +132,11 @@ pub struct FolderReport {
     /// could not be asked whether the drive was restored ([`SyncReport::restore_unknown`]). They
     /// are neither removed nor put back; the next Send/Receive decides. Never counted in `removed`.
     pub kept_unasked: u64,
+    /// An Azlin account's: messages the drive no longer lists, left where they are in the folder because the
+    /// clock of this computer could not date a hold ([`SyncReport::hold_refused`]). Nothing was moved,
+    /// held or deleted, and the rest of the Send/Receive went on; a later Send/Receive that can date the hold
+    /// takes them out. Never counted in `removed` (X-DELTA-APPS5-1).
+    pub kept_undated: u64,
 }
 
 /// The whole sync's outcome.
@@ -150,6 +155,10 @@ pub struct SyncReport {
     /// An Azlin account's: why the holding area could not be swept this time (the text of the
     /// error); nothing was deleted then. `None`: it was swept, or there was nothing to sweep.
     pub sweep_failed: Option<String>,
+    /// An Azlin account's: why no hold was dated this time (the clock of this computer is not set, or far off the
+    /// last Send/Receive and the drive), when some folder had mail the drive no longer lists
+    /// ([`FolderReport::kept_undated`]). `None`: it was not needed, or the clock dated the hold.
+    pub hold_refused: Option<String>,
 }
 
 impl SyncReport {
@@ -175,6 +184,10 @@ impl SyncReport {
 
     pub fn kept_unasked(&self) -> u64 {
         self.folders.iter().map(|f| f.kept_unasked).sum()
+    }
+
+    pub fn kept_undated(&self) -> u64 {
+        self.folders.iter().map(|f| f.kept_undated).sum()
     }
 
     pub fn header_only_after_restore(&self) -> u64 {

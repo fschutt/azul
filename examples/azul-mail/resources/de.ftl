@@ -236,6 +236,10 @@ azmail-removed-held = { $count ->
     [one] 1 Nachricht aus { $folder } wurde aus dem Laufwerk entfernt; sie bleibt { $days } Tage auf diesem Computer, in { $where }.
    *[other] { $count } Nachrichten aus { $folder } wurden aus dem Laufwerk entfernt; sie bleiben { $days } Tage auf diesem Computer, in { $where }.
  }
+azmail-hold-refused = { $count ->
+    [one] Das Azlin-Laufwerk listet 1 Nachricht, die du hast, nicht mehr, und sie blieb in ihrem Ordner, weil { $why }: Ein späteres Senden/Empfangen, das sie datieren kann, nimmt sie aus dem Ordner, und sie bleibt { $days } Tage auf diesem Computer.
+   *[other] Das Azlin-Laufwerk listet { $count } Nachrichten, die du hast, nicht mehr, und sie blieben in ihren Ordnern, weil { $why }: Ein späteres Senden/Empfangen, das sie datieren kann, nimmt sie aus den Ordnern, und sie bleiben { $days } Tage auf diesem Computer.
+ }
 azmail-removed-sweep-failed = Die aus dem Laufwerk entfernten Nachrichten ließen sich nicht aufräumen ({ $why }): Sie bleiben auf diesem Computer.
 azmail-restore-unknown = { $count ->
     [one] Das Azlin-Laufwerk listet 1 Nachricht, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleibt hier bis zum nächsten Senden/Empfangen.

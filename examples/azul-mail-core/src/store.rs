@@ -230,18 +230,14 @@ impl Clocks {
 
     /// The `synced_at` a folder records at the end of a Send/Receive made at `now`: the clock of this
     /// computer when it can date a hold ([`Clocks::hold_time`]: set, and not far off the last Send/Receive
-    /// and the drive), never earlier than the last Send/Receive; otherwise the last Send/Receive's own, as it
-    /// was. A clock that is wrong is never recorded: it would be the floor that every later right clock is
-    /// refused against, or the one that dates a hold years ahead.
+    /// and the drive), never earlier than the last Send/Receive; otherwise NONE - a clock that was refused is
+    /// not recorded, whatever else is known: it would be the floor that every later right clock is refused
+    /// against, or the one that dates a hold years ahead (X-DELTA-APPS5-1: the first Send/Receive of a copy
+    /// recorded the clock it had just refused, `now`, when there was no earlier one). The caller keeps what
+    /// the folder's own file said.
     #[must_use]
-    pub fn recorded(&self, now: i64) -> i64 {
-        match self.hold_time(now) {
-            Ok(at) => i64::try_from(at.secs()).unwrap_or(now),
-            Err(_) => self
-                .last_sync
-                .and_then(|at| i64::try_from(at).ok())
-                .unwrap_or(now),
-        }
+    pub fn recorded(&self, now: i64) -> Option<u64> {
+        self.hold_time(now).ok().map(HoldAt::secs)
     }
 }
 

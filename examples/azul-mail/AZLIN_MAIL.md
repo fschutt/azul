@@ -130,9 +130,12 @@ Send/Receive on a device:
    it into the folder; a window action that puts a whole pull back (it re-imports the lines of a
    `removed/<folder>/<stamp>/index.jsonl`, whose `remote` names the objects they had) is not built
    yet.
-   The stamp is the clock of this computer, set against what else is known of the time: a pull on a
-   clock that is behind the last Send/Receive by more than a day, or ahead of the last Send/Receive
-   and of the newest mail the drive lists by more than a year, moves nothing and says so; one that
+   The stamp is the clock of this computer, set against what else is known of the time (the one
+   rule, `store::Clocks::hold_time`, that Delete in the Outbox follows too): a pull on a clock that
+   is behind the last Send/Receive by more than a day, or ahead of the last Send/Receive and of the
+   newest mail the drive lists by more than a year, holds nothing - the lines stay in their folder,
+   the Send/Receive goes on (new mail comes, the later folders are synced, the sweep runs) and the
+   window says why; a clock that was refused is not recorded as the time of the sync; one that
    is a few hours behind dates the hold at the last Send/Receive. The sweep deletes a hold only
    when BOTH the clock of this computer and the drive agree that it is 90 days old (the drive's
    reading is the newest `modified` it lists: it lived at least until then, so it never says a
