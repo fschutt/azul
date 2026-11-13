@@ -7,7 +7,7 @@ use agg_rust::{
     trans_affine::TransAffine,
 };
 use azul_core::resources::ImageRef;
-use azul_css::props::basic::color::ColorU;
+use azul_css::props::{basic::color::ColorU, style::effects::StyleMixBlendMode};
 
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
@@ -718,128 +718,230 @@ fn render_svg_group_inner(
 
         let tag = child_node.node_type.as_str().to_lowercase();
 
-        match tag.as_str() {
-            "g" | "svg" => {
-                render_svg_group_inner(
-                    child_node,
-                    pixmap,
-                    &group_transform,
-                    &group_style,
-                    group_color.as_deref(),
-                    paint,
-                    text,
-                );
+        // A group or an element that blends (`mix-blend-mode`), or a group
+        // at an `opacity` below 1, is drawn on its own - onto transparent
+        // pixels - and then put onto what is below it as one picture
+        // (Compositing and Blending s3.2: such an element is a group that
+        // composites as a whole).
+        let blend = svg_mix_blend_mode(child_node);
+        let group_opacity = match tag.as_str() {
+            "g" | "svg" | "use" => svg_opacity(child_node),
+            // A shape's `opacity` multiplies its fill and stroke (below).
+            _ => 1.0,
+        };
+        if blend != StyleMixBlendMode::Normal || group_opacity < 1.0 {
+            if group_opacity <= 0.0 {
+                continue;
             }
-            "text" => {
-                draw_text_element(
-                    child_node,
-                    pixmap,
-                    &group_transform,
-                    &group_style,
-                    group_color.as_deref(),
-                    paint,
-                    text,
-                );
-            }
-            // A stylesheet is no picture: its `@font-face`s were read when
-            // the document's text painter was made.
-            "style" => {}
-            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
-                let Some(path_storage) = build_agg_path(child_node) else {
-                    continue;
-                };
+            let Some(mut layer) = AzulPixmap::new(pixmap.width, pixmap.height) else {
+                continue;
+            };
+            layer.fill(0, 0, 0, 0);
+            render_svg_child(
+                child_node,
+                &tag,
+                &mut layer,
+                &group_transform,
+                &group_style,
+                group_color.as_deref(),
+                paint,
+                text,
+            );
+            super::blend::blend_premultiplied(
+                pixmap.data_mut(),
+                layer.data(),
+                group_opacity as f32,
+                blend,
+            );
+            continue;
+        }
+        render_svg_child(
+            child_node,
+            &tag,
+            pixmap,
+            &group_transform,
+            &group_style,
+            group_color.as_deref(),
+            paint,
+            text,
+        );
+    }
+}
 
-                // Flatten bezier curves into line segments for the rasterizer
-                let mut curved = agg_rust::conv_curve::ConvCurve::new(path_storage);
+/// `opacity` of an element, 0..1 (1 when absent or unreadable).
+#[cfg(all(feature = "std", feature = "xml"))]
+fn svg_opacity(node: &azul_core::xml::XmlNode) -> f64 {
+    presentation_property(node, "opacity")
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|o| o.is_finite())
+        .map_or(1.0, |o| o.clamp(0.0, 1.0))
+}
 
-                // Per-element transform
-                let elem_transform =
-                    child_node
-                        .attributes
-                        .get_key("transform")
-                        .map_or(group_transform, |t| {
-                            let mut tf = parse_svg_transform(t.as_str());
-                            tf.multiply(&group_transform);
-                            tf
-                        });
+/// `mix-blend-mode` of an element (a property, so `style="..."` or the
+/// attribute); `normal` when absent or unknown.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn svg_mix_blend_mode(node: &azul_core::xml::XmlNode) -> StyleMixBlendMode {
+    presentation_property(node, "mix-blend-mode")
+        .and_then(|v| azul_css::props::style::effects::parsers::parse_style_mix_blend_mode(&v).ok())
+        .unwrap_or_default()
+}
 
-                let elem_color =
-                    presentation_property(child_node, "color").or_else(|| group_color.clone());
+/// One child element of a group, drawn into `pixmap` under the group's
+/// transform, style and colour.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::too_many_arguments)]
+fn render_svg_child(
+    child_node: &azul_core::xml::XmlNode,
+    tag: &str,
+    pixmap: &mut AzulPixmap,
+    group_transform: &TransAffine,
+    group_style: &SvgInheritedStyle,
+    group_color: Option<&str>,
+    paint: &SvgPaintContext,
+    text: &mut SvgText,
+) {
+    match tag {
+        "g" | "svg" => {
+            render_svg_group_inner(
+                child_node,
+                pixmap,
+                group_transform,
+                group_style,
+                group_color,
+                paint,
+                text,
+            );
+        }
+        "text" => {
+            draw_text_element(
+                child_node,
+                pixmap,
+                group_transform,
+                group_style,
+                group_color,
+                paint,
+                text,
+            );
+        }
+        // A stylesheet is no picture: its `@font-face`s were read when
+        // the document's text painter was made.
+        "style" => {}
+        "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline" => {
+            draw_svg_shape(
+                child_node,
+                pixmap,
+                group_transform,
+                group_style,
+                group_color,
+                paint,
+            );
+        }
+        _ => {
+            // Recurse into unknown containers (defs, symbol, etc.)
+            render_svg_group_inner(
+                child_node,
+                pixmap,
+                group_transform,
+                group_style,
+                group_color,
+                paint,
+                text,
+            );
+        }
+    }
+}
 
-                // Fill: element overrides group
-                let fill_attr =
-                    presentation_property(child_node, "fill").or_else(|| group_style.fill.clone());
-                let fill_color = match fill_attr.as_deref() {
-                    Some("none") => None,
-                    Some(c) => paint.resolve(c, elem_color.as_deref()),
-                    None => Some(paint.remap(SVG_BLACK)), // SVG default
-                };
+/// A basic shape (`path`, `circle`, `rect`, `ellipse`, `line`, `polygon`,
+/// `polyline`): its fill, then its stroke.
+#[cfg(all(feature = "std", feature = "xml"))]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // alpha clamped to 0..=255
+fn draw_svg_shape(
+    child_node: &azul_core::xml::XmlNode,
+    pixmap: &mut AzulPixmap,
+    group_transform: &TransAffine,
+    group_style: &SvgInheritedStyle,
+    group_color: Option<&str>,
+    paint: &SvgPaintContext,
+) {
+    let group_transform = *group_transform;
+    let group_color = group_color.map(str::to_string);
+    let Some(path_storage) = build_agg_path(child_node) else {
+        return;
+    };
 
-                let fill_opacity = presentation_property(child_node, "fill-opacity")
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .unwrap_or(1.0);
+    // Flatten bezier curves into line segments for the rasterizer
+    let mut curved = agg_rust::conv_curve::ConvCurve::new(path_storage);
 
-                let opacity = presentation_property(child_node, "opacity")
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .unwrap_or(1.0);
+    // Per-element transform
+    let elem_transform = child_node
+        .attributes
+        .get_key("transform")
+        .map_or(group_transform, |t| {
+            let mut tf = parse_svg_transform(t.as_str());
+            tf.multiply(&group_transform);
+            tf
+        });
 
-                if let Some(mut color) = fill_color {
-                    color.a = (f64::from(color.a) * fill_opacity * opacity).min(255.0) as u8;
+    let elem_color = presentation_property(child_node, "color").or_else(|| group_color.clone());
 
-                    let fill_rule_str = presentation_property(child_node, "fill-rule");
-                    let rule = match fill_rule_str.as_deref() {
-                        Some("evenodd") => FillingRule::EvenOdd,
-                        _ => FillingRule::NonZero,
-                    };
+    // Fill: element overrides group
+    let fill_attr = presentation_property(child_node, "fill").or_else(|| group_style.fill.clone());
+    let fill_color = match fill_attr.as_deref() {
+        Some("none") => None,
+        Some(c) => paint.resolve(c, elem_color.as_deref()),
+        None => Some(paint.remap(SVG_BLACK)), // SVG default
+    };
 
-                    let mut transformed = ConvTransform::new(&mut curved, elem_transform);
-                    agg_fill_path(pixmap, &mut transformed, &color, rule);
-                }
+    let fill_opacity = presentation_property(child_node, "fill-opacity")
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
 
-                // Stroke: element overrides group
-                let stroke_attr = presentation_property(child_node, "stroke")
-                    .or_else(|| group_style.stroke.clone());
-                let stroke_color = match stroke_attr.as_deref() {
-                    Some("none") | None => None,
-                    Some(c) => paint.resolve(c, elem_color.as_deref()),
-                };
+    let opacity = presentation_property(child_node, "opacity")
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
 
-                if let Some(mut color) = stroke_color {
-                    let stroke_opacity = presentation_property(child_node, "stroke-opacity")
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .unwrap_or(1.0);
-                    color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
+    if let Some(mut color) = fill_color {
+        color.a = (f64::from(color.a) * fill_opacity * opacity).min(255.0) as u8;
 
-                    // The stroke in user space (dashed, then outlined),
-                    // then the element's transform.
-                    let stroke = SvgStrokeStyle::of(child_node, &group_style);
-                    if stroke.dashes.is_empty() {
-                        let mut conv_stroke = ConvStroke::new(&mut curved);
-                        stroke.configure(&mut conv_stroke);
-                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
-                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
-                    } else {
-                        let mut dashed = agg_rust::conv_dash::ConvDash::new(&mut curved);
-                        stroke.dash(&mut dashed);
-                        let mut conv_stroke = ConvStroke::new(&mut dashed);
-                        stroke.configure(&mut conv_stroke);
-                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
-                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
-                    }
-                }
-            }
-            _ => {
-                // Recurse into unknown containers (defs, symbol, etc.)
-                render_svg_group_inner(
-                    child_node,
-                    pixmap,
-                    &group_transform,
-                    &group_style,
-                    group_color.as_deref(),
-                    paint,
-                    text,
-                );
-            }
+        let fill_rule_str = presentation_property(child_node, "fill-rule");
+        let rule = match fill_rule_str.as_deref() {
+            Some("evenodd") => FillingRule::EvenOdd,
+            _ => FillingRule::NonZero,
+        };
+
+        let mut transformed = ConvTransform::new(&mut curved, elem_transform);
+        agg_fill_path(pixmap, &mut transformed, &color, rule);
+    }
+
+    // Stroke: element overrides group
+    let stroke_attr =
+        presentation_property(child_node, "stroke").or_else(|| group_style.stroke.clone());
+    let stroke_color = match stroke_attr.as_deref() {
+        Some("none") | None => None,
+        Some(c) => paint.resolve(c, elem_color.as_deref()),
+    };
+
+    if let Some(mut color) = stroke_color {
+        let stroke_opacity = presentation_property(child_node, "stroke-opacity")
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(1.0);
+        color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
+
+        // The stroke in user space (dashed, then outlined),
+        // then the element's transform.
+        let stroke = SvgStrokeStyle::of(child_node, &group_style);
+        if stroke.dashes.is_empty() {
+            let mut conv_stroke = ConvStroke::new(&mut curved);
+            stroke.configure(&mut conv_stroke);
+            let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+            agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+        } else {
+            let mut dashed = agg_rust::conv_dash::ConvDash::new(&mut curved);
+            stroke.dash(&mut dashed);
+            let mut conv_stroke = ConvStroke::new(&mut dashed);
+            stroke.configure(&mut conv_stroke);
+            let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+            agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
         }
     }
 }
@@ -2746,6 +2848,83 @@ mod autotest_generated {
             !is_all_white(&p),
             "a stroked line across the middle must paint something"
         );
+    }
+
+    /// `mix-blend-mode` on a group (attribute or `style`) puts the group
+    /// onto what the document drew below it with that blend: yellow over cyan
+    /// multiplies to green. `opacity` on a group fades the group as one
+    /// picture: two overlapping squares at 50 % do not darken where they
+    /// overlap.
+    #[test]
+    fn render_svg_group_mix_blend_mode_and_group_opacity() {
+        let square = |x: &str, fill: &str| {
+            el(
+                "rect",
+                &[
+                    ("x", x),
+                    ("y", "0"),
+                    ("width", "16"),
+                    ("height", "32"),
+                    ("fill", fill),
+                ],
+            )
+        };
+        for blend in [
+            vec![("mix-blend-mode", "multiply")],
+            vec![("style", "mix-blend-mode: multiply")],
+        ] {
+            let svg = el_with(
+                "svg",
+                &[],
+                vec![
+                    square("0", "#00ffff"),
+                    el_with("g", &blend, vec![square("8", "#ffff00")]),
+                ],
+            );
+            let mut p = pixmap(32, 32);
+            p.fill(255, 255, 255, 255);
+            render_svg_group(&svg, &mut p, &TransAffine::new());
+            assert_eq!(px(&p, 4, 16), [0, 255, 255, 255], "{blend:?}: cyan alone");
+            assert_eq!(px(&p, 12, 16), [0, 255, 0, 255], "{blend:?}: cyan x yellow");
+            assert_eq!(
+                px(&p, 20, 16),
+                [255, 255, 0, 255],
+                "{blend:?}: yellow x white"
+            );
+            assert_eq!(px(&p, 28, 16), [255, 255, 255, 255], "{blend:?}: nothing");
+        }
+        // Without the blend the yellow covers the cyan.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![
+                square("0", "#00ffff"),
+                el_with("g", &[], vec![square("8", "#ffff00")]),
+            ],
+        );
+        let mut p = pixmap(32, 32);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        assert_eq!(px(&p, 12, 16), [255, 255, 0, 255]);
+
+        // Group opacity: black squares at 0..16 and 8..24 in a group at 0.5
+        // are one grey where they overlap and where they do not.
+        let svg = el_with(
+            "svg",
+            &[],
+            vec![el_with(
+                "g",
+                &[("opacity", "0.5")],
+                vec![square("0", "black"), square("8", "black")],
+            )],
+        );
+        let mut p = pixmap(32, 32);
+        p.fill(255, 255, 255, 255);
+        render_svg_group(&svg, &mut p, &TransAffine::new());
+        let alone = px(&p, 4, 16);
+        assert!((126..=129).contains(&alone[0]), "{alone:?}");
+        assert_eq!(px(&p, 12, 16), alone, "the overlap is no darker");
+        assert_eq!(px(&p, 28, 16), [255, 255, 255, 255]);
     }
 
     /// A `<path>` subpath without `Z` is stroked open: nothing joins its
