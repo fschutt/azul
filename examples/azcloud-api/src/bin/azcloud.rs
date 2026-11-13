@@ -68,7 +68,8 @@ commands:
   reencrypt [--erase-old-versions --yes]
                                  after rotate: every file into a new object (recommended);
                                  with --erase-old-versions --yes the old versions - the objects the
-                                 old key still opens - are erased for good once it is done
+                                 old key still opens - are erased for good once it is done, and
+                                 never while a file could not be read (it has no --dry-run)
   packs [--grace-days D]         the packs small files share: uploads a crash left half done
                                  cleared up, packs under half live repacked, retired packs
                                  deleted D days after they were retired (default 30)
@@ -1310,15 +1311,93 @@ fn cmd_reencrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> 
     let device = account.state().device(args.value("--device-name"))?;
     let provider = index_provider(account.state(), &device.name, announced_restore(account.record().restore.clone()));
     let keyring = account.state().secrets();
-    let mut state =
-        azul_storage::rotation::ReencryptState::new(azul_storage::time::now_unix());
-    if erase {
-        // The confirmation first, as the pass's docs describe: what the pass replaces after the
-        // click is what the erase is for, and the erase takes only what was confirmed.
-        state.confirm_purge(azul_storage::time::now_unix());
+    let on_the_account = OnTheAccount {
+        account: &account,
+        keyring: &keyring,
+        provider: provider.as_ref(),
+    };
+    let (state, done, erased) =
+        reencrypt_sequence(&on_the_account, erase, azul_storage::time::now_unix())?;
+    Ok(reencrypt_output(&account.record().id, done, &state, erased))
+}
+
+/// What the order of `azcloud reencrypt` needs of an account: the pass, and the erase after it.
+#[cfg(feature = "encryption")]
+trait Reencrypting {
+    /// "Re-encrypt everything" into `state`; whether every file is done.
+    fn pass(&self, state: &mut azul_storage::rotation::ReencryptState) -> Result<bool>;
+    /// The erase of the old versions on `state`'s word: the report, or the sentence of the refusal.
+    fn erase(
+        &self,
+        state: &azul_storage::rotation::ReencryptState,
+    ) -> std::result::Result<azul_storage::meta::reclaim::ReclaimReport, String>;
+}
+
+/// The drive of the command: its account, this device's keyring, the drive index.
+#[cfg(feature = "encryption")]
+struct OnTheAccount<'a, K: azul_storage::keyring::KeyringStore> {
+    account: &'a Account,
+    keyring: &'a K,
+    provider: &'a dyn azcloud_kit::encryption::IndexProvider,
+}
+
+#[cfg(feature = "encryption")]
+impl<K: azul_storage::keyring::KeyringStore> Reencrypting for OnTheAccount<'_, K> {
+    fn pass(&self, state: &mut azul_storage::rotation::ReencryptState) -> Result<bool> {
+        Ok(self
+            .account
+            .reencrypt(self.keyring, self.provider, state, &mut |_| Ok(()), &|| {
+                false
+            })?)
     }
-    let done = account.reencrypt(&keyring, provider.as_ref(), &mut state, &mut |_| Ok(()), &|| false)?;
-    let id = account.record().id.clone();
+
+    fn erase(
+        &self,
+        state: &azul_storage::rotation::ReencryptState,
+    ) -> std::result::Result<azul_storage::meta::reclaim::ReclaimReport, String> {
+        self.account
+            .erase_old_versions(self.keyring, self.provider, state)
+            .map_err(|refused| refused.to_string())
+    }
+}
+
+/// The order of `azcloud reencrypt` (X-DELTA-SYNC7-5): the confirmation is recorded FIRST when the user
+/// asked for the erase - what the pass replaces after the click is what the erase is for, and the erase
+/// takes only what was confirmed - then the pass; the erase is asked only when the pass is over (a stopped
+/// pass erases nothing), and the kit's one licence ([`ReencryptState::erase_licence`]: the confirmation, the
+/// end of the pass, no file left that could not be read) decides whether anything is erased: what it
+/// refuses is the answer, said after the pass's own line (X-DELTA-SYNC7-2). The state, whether the pass is
+/// over, and what became of the erase when it was asked.
+#[cfg(feature = "encryption")]
+fn reencrypt_sequence(
+    run: &dyn Reencrypting,
+    erase: bool,
+    now: u64,
+) -> Result<(
+    azul_storage::rotation::ReencryptState,
+    bool,
+    Option<std::result::Result<azul_storage::meta::reclaim::ReclaimReport, String>>,
+)> {
+    let mut state = azul_storage::rotation::ReencryptState::new(now);
+    if erase {
+        state.confirm_purge(now);
+    }
+    let done = run.pass(&mut state)?;
+    let erased = (erase && done).then(|| run.erase(&state));
+    Ok((state, done, erased))
+}
+
+/// What `azcloud reencrypt` prints, in the order it happened (X-DELTA-SYNC7-2): the pass's own line
+/// first - the files in new objects and how many it could not read - and only then what became of the
+/// erase of the old versions. An erase that was refused is no success: `"ok": false`, exit code 1, and
+/// the sentence says nothing was erased.
+#[cfg(feature = "encryption")]
+fn reencrypt_output(
+    id: &str,
+    done: bool,
+    state: &azul_storage::rotation::ReencryptState,
+    erased: Option<std::result::Result<azul_storage::meta::reclaim::ReclaimReport, String>>,
+) -> Output {
     let mut value = json!({"ok": done, "drive": id, "reencrypted": state.done, "failed": state.failed});
     let mut text = format!(
         "drive {id}: {} files in new objects{}\n",
@@ -1329,17 +1408,24 @@ fn cmd_reencrypt(settings: &Settings, net: &Net, args: &Args) -> Result<Output> 
             String::new()
         }
     );
-    if erase && done {
-        let report = account.erase_old_versions(&keyring, provider.as_ref(), &state)?;
-        value["erased"] = json!({
-            "objects": report.deleted,
-            "bytes": report.deleted_bytes,
-            "failed": report.failed,
-            "stopped": report.stopped.as_ref().map(|why| format!("{why:?}")),
-        });
-        text.push_str(&format!("{}\n", report.line()));
+    match erased {
+        None => {}
+        Some(Ok(report)) => {
+            value["erased"] = json!({
+                "objects": report.deleted,
+                "bytes": report.deleted_bytes,
+                "failed": report.failed,
+                "stopped": report.stopped.as_ref().map(|why| format!("{why:?}")),
+            });
+            text.push_str(&format!("{}\n", report.line()));
+        }
+        Some(Err(refused)) => {
+            value["ok"] = json!(false);
+            value["erased"] = json!({"refused": refused});
+            text.push_str(&format!("{refused}\n"));
+        }
     }
-    Ok((value, text))
+    (value, text)
 }
 
 /// The upkeep of an encrypted drive's packs of small files: what an idle AzDrive does every six
@@ -1451,6 +1537,24 @@ fn cmd_mail_drop(settings: &Settings, net: &Net, args: &Args) -> Result<Output> 
     Ok((value, text))
 }
 
+/// The commands that read `--dry-run`: they say what they would do and change nothing.
+const DRY_RUN_COMMANDS: &[&str] = &["gc"];
+
+/// `--dry-run` is a switch of the whole command line ([`SWITCHES`]), and one command reads it: a command
+/// that is not in [`DRY_RUN_COMMANDS`] would take the flag and do its whole work for real - `azcloud
+/// reencrypt --erase-old-versions --yes --dry-run` erased the old versions (X-DELTA-SYNC7-3). Every
+/// other command refuses it, before anything is read or written, and says that it has no preview.
+fn refuse_dry_run_where_it_is_not_read(command: &str, args: &Args) -> Result<()> {
+    if args.on("--dry-run") && !DRY_RUN_COMMANDS.contains(&command) {
+        bail!(
+            "azcloud {command}: has no --dry-run - it would do its work for real, and nothing was \
+             done. Only {} takes --dry-run",
+            DRY_RUN_COMMANDS.join(", ")
+        );
+    }
+    Ok(())
+}
+
 fn run(args: &Args, net: &Net) -> Result<Output> {
     let settings = Settings::from_process(&args.flags(), &os_dirs());
     let command = args
@@ -1458,6 +1562,7 @@ fn run(args: &Args, net: &Net) -> Result<Output> {
         .first()
         .map(String::as_str)
         .unwrap_or("help");
+    refuse_dry_run_where_it_is_not_read(command, args)?;
     match command {
         "config" => cmd_config(&settings),
         "signup" => cmd_signup(&settings, net, args),
@@ -1664,6 +1769,241 @@ mod tests {
         let refused = erase_old_versions_asked(&alone).unwrap_err().to_string();
         assert!(refused.contains("for good") && refused.contains("--yes"), "{refused}");
         assert!(USAGE.contains("--erase-old-versions"), "the usage offers it");
+    }
+
+
+    /// X-DELTA-SYNC7-3: `--dry-run` is a switch of the whole command line and only `gc` reads it. Every
+    /// other command refuses it with a sentence - before anything is read - instead of doing its work for
+    /// real: `reencrypt --erase-old-versions --yes --dry-run` erased the old versions. The commands of the
+    /// usage are sorted below into the ones that change something and the ones that only read; a command
+    /// the usage gains must be put into one of them, so none is forgotten.
+    #[test]
+    fn x_delta_sync7_3_dry_run_is_refused_by_every_command_that_does_not_read_it() {
+        let changes = [
+            "signup",
+            "invite",
+            "join",
+            "encrypt",
+            "unlock",
+            "recover",
+            "mail-drop",
+            "rotate",
+            "reencrypt",
+            "packs",
+            "up",
+            "rm",
+            "lockdown",
+            "lockdown-cancel",
+            "restore",
+            "refresh",
+        ];
+        let reads = [
+            "config",
+            "status",
+            "encryption",
+            "info",
+            "transport",
+            "down",
+            "ls",
+            "restore-status",
+            "git-remote",
+            "help",
+            "sync",
+            "share",
+        ];
+        // The commands of the usage: the first word of each line of its list of commands.
+        let list = USAGE
+            .split("commands:\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\nflags ").next())
+            .expect("the usage lists the commands");
+        let mut in_usage: Vec<&str> = list
+            .lines()
+            .filter(|line| line.starts_with("  ") && !line.starts_with("   "))
+            .filter_map(|line| line.split_whitespace().next())
+            .map(|word| word.trim_end_matches(','))
+            .filter(|word| word.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
+            .collect();
+        in_usage.push("share");
+        for command in &in_usage {
+            assert!(
+                changes.contains(command)
+                    || reads.contains(command)
+                    || DRY_RUN_COMMANDS.contains(command),
+                "the usage lists \"{command}\": say whether it changes something or only reads"
+            );
+        }
+        for command in changes.iter().chain(&reads) {
+            let args = Args::parse(&argv(&format!("{command} --dry-run"))).unwrap();
+            let refused = refuse_dry_run_where_it_is_not_read(command, &args)
+                .expect_err(command)
+                .to_string();
+            assert!(
+                refused.contains("no --dry-run") && refused.contains("gc"),
+                "{refused}"
+            );
+            let plain = Args::parse(&argv(command)).unwrap();
+            assert!(
+                refuse_dry_run_where_it_is_not_read(command, &plain).is_ok(),
+                "{command}"
+            );
+        }
+        // The one command that reads it takes it.
+        let gc = Args::parse(&argv("gc --azlin --dry-run")).unwrap();
+        assert!(refuse_dry_run_where_it_is_not_read("gc", &gc).is_ok());
+        // The line of the finding, word for word.
+        let erase = Args::parse(&argv("reencrypt --erase-old-versions --yes --dry-run")).unwrap();
+        assert!(refuse_dry_run_where_it_is_not_read("reencrypt", &erase).is_err());
+    }
+
+    /// X-DELTA-SYNC7-2: what `azcloud reencrypt` prints, in the order it happened. The pass's own line comes
+    /// first and says how many files could not be read; the sentence that nothing was erased comes after it;
+    /// and a refused erase is a failed command (`ok: false`), not a success a script could take for erased
+    /// old versions. The erase's own rules are the kit's (`erase_old_versions` refuses on `failed > 0`).
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_sync7_2_reencrypt_says_the_damaged_files_first_and_then_that_nothing_was_erased() {
+        use azul_storage::{
+            meta::reclaim::{ReclaimMode, ReclaimReport},
+            rotation::ReencryptState,
+        };
+
+        let mut state = ReencryptState::new(0);
+        state.done = 4;
+        state.failed = 1;
+        let refused = String::from(
+            "nothing was erased from drive d_1: 1 file could not be read in the re-encryption; its \
+             older versions may be the only readable copies and are kept",
+        );
+        let (value, text) = reencrypt_output("d_1", true, &state, Some(Err(refused.clone())));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert!(
+            lines[0].contains("4 files in new objects")
+                && lines[0].contains("1 damaged ones left as they were"),
+            "the damaged count comes first: {text}"
+        );
+        assert_eq!(lines[1], refused, "then what became of the erase: {text}");
+        assert_eq!(
+            value["ok"],
+            json!(false),
+            "a refused erase fails the command"
+        );
+        assert_eq!(value["erased"]["refused"], json!(refused));
+        assert_eq!(value["failed"], json!(1));
+
+        // An erase that ran is the report's line, and the command went well.
+        state.failed = 0;
+        let report = ReclaimReport::none(ReclaimMode::Delete);
+        let (value, text) = reencrypt_output("d_1", true, &state, Some(Ok(report.clone())));
+        assert_eq!(value["ok"], json!(true));
+        assert_eq!(value["erased"]["objects"], json!(report.deleted));
+        assert!(
+            text.lines().nth(1) == Some(report.line().as_str()),
+            "{text}"
+        );
+        // No erase asked: the pass's line alone.
+        let (value, text) = reencrypt_output("d_1", true, &state, None);
+        assert_eq!(text.lines().count(), 1, "{text}");
+        assert!(value.get("erased").is_none());
+    }
+
+    /// A run of `azcloud reencrypt` that writes down what it was asked and in what order.
+    #[cfg(feature = "encryption")]
+    struct Recording {
+        log: std::cell::RefCell<Vec<String>>,
+        /// Whether the pass ends (false: it was stopped).
+        over: bool,
+        /// How many files the pass could not read.
+        damaged: u64,
+    }
+
+    #[cfg(feature = "encryption")]
+    impl Reencrypting for Recording {
+        fn pass(&self, state: &mut azul_storage::rotation::ReencryptState) -> Result<bool> {
+            self.log.borrow_mut().push(format!(
+                "pass, confirmed: {}",
+                state.purge_confirmation().is_some()
+            ));
+            state.failed = self.damaged;
+            state.packs_done = self.over;
+            Ok(self.over)
+        }
+
+        fn erase(
+            &self,
+            state: &azul_storage::rotation::ReencryptState,
+        ) -> std::result::Result<azul_storage::meta::reclaim::ReclaimReport, String> {
+            self.log.borrow_mut().push(String::from("erase"));
+            match state.erase_licence() {
+                Ok(_) => Ok(azul_storage::meta::reclaim::ReclaimReport::none(
+                    azul_storage::meta::reclaim::ReclaimMode::Delete,
+                )),
+                Err(why) => Err(format!("nothing was erased: {why}")),
+            }
+        }
+    }
+
+    /// X-DELTA-SYNC7-5: the ORDER of `azcloud reencrypt`, entered through the function the command calls. The
+    /// confirmation is recorded before the pass when the user asked for the erase, and only then; the erase is
+    /// asked after the pass and only when the pass is over; a pass that left damaged files is answered by the
+    /// licence's refusal, which the command prints after its own line. RED on a command that erased before the
+    /// pass, or after a stopped one, or confirmed afterwards: the log differs.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_sync7_5_reencrypt_records_the_confirmation_first_and_erases_only_after_a_finished_pass(
+    ) {
+        let run = |erase: bool, over: bool, damaged: u64| {
+            let recording = Recording {
+                log: std::cell::RefCell::new(Vec::new()),
+                over,
+                damaged,
+            };
+            let (state, done, erased) = reencrypt_sequence(&recording, erase, 1_000).unwrap();
+            (recording.log.into_inner(), state, done, erased)
+        };
+
+        let (log, state, done, erased) = run(true, true, 0);
+        assert_eq!(
+            log,
+            ["pass, confirmed: true", "erase"],
+            "confirm, pass, erase"
+        );
+        assert!(done && matches!(erased, Some(Ok(_))));
+        assert_eq!(state.purge_confirmation().map(|c| c.at), Some(1_000));
+
+        // No words: no confirmation, no erase.
+        let (log, state, _, erased) = run(false, true, 0);
+        assert_eq!(log, ["pass, confirmed: false"]);
+        assert!(erased.is_none() && state.purge_confirmation().is_none());
+
+        // A pass that was stopped erases nothing.
+        let (log, _, done, erased) = run(true, false, 0);
+        assert_eq!(
+            log,
+            ["pass, confirmed: true"],
+            "the erase was not asked of a stopped pass"
+        );
+        assert!(!done && erased.is_none());
+
+        // A pass that left damaged files: the erase is asked, the licence refuses, and the sentence says so.
+        let (log, state, _, erased) = run(true, true, 2);
+        assert_eq!(log, ["pass, confirmed: true", "erase"]);
+        let Some(Err(refused)) = erased.clone() else {
+            panic!("the erase must be refused after damage: {erased:?}");
+        };
+        assert!(
+            refused.starts_with("nothing was erased") && refused.contains("2 files"),
+            "{refused}"
+        );
+        let (value, text) = reencrypt_output("d_1", true, &state, Some(Err(refused)));
+        assert_eq!(value["ok"], json!(false));
+        assert!(
+            text.lines()
+                .next()
+                .is_some_and(|l| l.contains("2 damaged ones left as they were")),
+            "{text}"
+        );
     }
 
     #[test]

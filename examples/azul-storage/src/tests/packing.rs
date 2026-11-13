@@ -1473,3 +1473,63 @@ fn x_delta_sync4_2_a_conflict_whose_read_back_fails_keeps_the_pack_and_is_not_a_
         "nothing is left in flight"
     );
 }
+
+/// An index in memory that tells a lie about the BLAKE3 of every packed file: the record in the pack does
+/// not check out against it, as a record damaged inside an object that still authenticates does not.
+struct LiesAboutPackedFiles(MemoryIndex);
+
+impl NameIndex for LiesAboutPackedFiles {
+    fn live_objects(
+        &self,
+        _now: u64,
+    ) -> Result<Option<crate::meta::reclaim::LiveObjects>, DriveError> {
+        Ok(None)
+    }
+    fn get(&self, path: &str) -> Result<Option<IndexEntry>, DriveError> {
+        self.0.get(path)
+    }
+    fn list(&self, request: &ListRequest) -> Result<IndexPage, DriveError> {
+        let mut page = self.0.list(request)?;
+        for (_, entry) in &mut page.entries {
+            if let Some(object) = entry.object.as_mut().filter(|o| o.packed.is_some()) {
+                object.blake3[0] ^= 0xff;
+            }
+        }
+        Ok(page)
+    }
+    fn apply(&self, changes: Vec<IndexChange>) -> Result<Released, DriveError> {
+        self.0.apply(changes)
+    }
+}
+
+/// X-DELTA-SYNC7-2, the damage a pass cannot see in its own loop: a packed member whose record does not
+/// check out is reported by `reencrypt_packs` (`files_damaged`) and `reencrypt_pass` dropped the report -
+/// the state said "0 failed" and the pass was over. It counts them in `failed` now, so the licence to erase
+/// the old versions is refused for them too. RED on the old code: `failed` is 0 and the licence is given.
+#[test]
+fn x_delta_sync7_2_a_damaged_packed_member_is_counted_and_gives_no_licence_to_erase() {
+    use super::asked::reencrypt_pass_of_parts;
+    use crate::rotation::{EraseRefusal, ReencryptState};
+
+    let key = DriveKey::generate().unwrap();
+    let bucket = Arc::new(MemBucket::new());
+    let index = Arc::new(LiesAboutPackedFiles(MemoryIndex::new()));
+    let drive = EncryptedDrive::new(Arc::clone(&bucket), key.clone(), index)
+        .with_packing(PackOptions::default());
+    put_all(&drive, &small_files(4, 600));
+    let mut state = ReencryptState::new(u64::MAX);
+    state.confirm_purge(now_unix());
+    assert!(
+        reencrypt_pass_of_parts(&key, &drive, &mut state, &mut |_| Ok(()), &|| false).unwrap(),
+        "the pass is over"
+    );
+    assert_eq!(
+        state.failed, 4,
+        "each member that did not check out is counted: {state:?}"
+    );
+    assert!(state.packs_done);
+    assert_eq!(
+        state.erase_licence().err(),
+        Some(EraseRefusal::Damaged { files: 4 })
+    );
+}

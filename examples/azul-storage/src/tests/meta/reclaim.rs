@@ -2487,6 +2487,96 @@ fn x_delta_sync6_1_a_purge_confirmed_before_the_re_encryption_erases_the_objects
     assert_eq!(lab.drive.get("b.txt").unwrap(), b"b, edited after the pass");
 }
 
+/// X-DELTA-SYNC7-2: a pass that left a file whose head it could not read is no licence to erase. The
+/// older versions of that file are the only readable copies of it: the confirmed purge ran after such a
+/// pass (`state.packs_done` was all the erase asked) and erased exactly them, and the command said "1
+/// damaged ones left as they were" afterwards. RED on the old code: the state of a pass with a damaged
+/// head gave the confirmation (`erase_licence` did not exist; `purge_confirmation()` answered `Some`
+/// and the kit erased on it), and a damaged member of a pack was not even counted.
+#[test]
+fn x_delta_sync7_2_a_pass_that_left_a_damaged_head_gives_no_licence_to_erase() {
+    use crate::{
+        rotation::{EraseRefusal, ReencryptState},
+        tests::asked::reencrypt_pass_of_parts,
+    };
+
+    let now = crate::time::now_unix();
+    let lab = Lab::starting_at(now - 30 * DAY, |drive| drive);
+    lab.bucket.set_server_clock(crate::time::now_unix);
+    lab.drive.put("a.txt", b"a, version one").unwrap();
+    let a_one = lab.object_of("a.txt");
+    lab.at(now - 20 * DAY);
+    lab.drive.put("a.txt", b"a, version two").unwrap();
+    let a_two = lab.object_of("a.txt");
+    lab.drive.put("b.txt", b"b, the only version").unwrap();
+    // The head of a.txt rots in the bucket: the pass cannot read it.
+    let sound = lab.bucket.get(&a_two).unwrap();
+    lab.bucket.put(&a_two, b"rotten").unwrap();
+
+    let mut state = ReencryptState::new(now + 10);
+    state.confirm_purge(now - 10 * DAY);
+    lab.at(now - 10 * DAY + 3_600);
+    assert!(
+        reencrypt_pass_of_parts(&lab.key, &lab.drive, &mut state, &mut |_| Ok(()), &|| false)
+            .unwrap(),
+        "the pass is over: it counts the file it could not read and goes on"
+    );
+    assert_eq!((state.done, state.failed), (1, 1), "{state:?}");
+    assert!(state.packs_done);
+    assert!(state.purge_confirmation().is_some(), "they did confirm it");
+    let refused = state
+        .erase_licence()
+        .err()
+        .expect("no licence after damage");
+    assert_eq!(refused, EraseRefusal::Damaged { files: 1 });
+    assert!(
+        refused.to_string().contains("could not be read")
+            && refused.to_string().contains("only readable copies"),
+        "{refused}"
+    );
+    // Nothing could have been erased: the older version of the damaged file is in the bucket, and the
+    // window of the restore dialog still names it - it restores.
+    assert!(
+        lab.data_objects().contains(&a_one),
+        "{:?}",
+        lab.data_objects()
+    );
+    let mut repo = lab.maintainer();
+    repo.pull().unwrap();
+    repo.fetch_all().unwrap();
+    let offered =
+        crate::meta::reclaim::restorable(repo.objects(), &repo.head().unwrap(), now).unwrap();
+    assert!(
+        offered.keys().any(|id| id.bucket_key() == a_one),
+        "the older version of the damaged file is still offered by a restore"
+    );
+
+    // The control: the rot is repaired, the pass finds nothing it cannot read - and the licence is given.
+    lab.bucket.put(&a_two, &sound).unwrap();
+    let mut again = ReencryptState::new(now + 10);
+    again.confirm_purge(now - 10 * DAY);
+    assert!(
+        reencrypt_pass_of_parts(&lab.key, &lab.drive, &mut again, &mut |_| Ok(()), &|| false)
+            .unwrap()
+    );
+    assert_eq!((again.done, again.failed), (2, 0), "{again:?}");
+    assert_eq!(
+        again.erase_licence().map(|c| c.at).ok(),
+        Some(now - 10 * DAY),
+        "an undamaged pass erases on the confirmation as before"
+    );
+    // And the other two refusals the licence has always carried.
+    let mut unconfirmed = ReencryptState::new(now);
+    unconfirmed.packs_done = true;
+    assert_eq!(
+        unconfirmed.erase_licence().err(),
+        Some(EraseRefusal::NotConfirmed)
+    );
+    let mut early = ReencryptState::new(now);
+    early.confirm_purge(now);
+    assert_eq!(early.erase_licence().err(), Some(EraseRefusal::NotOver));
+}
+
 /// X-DELTA-SYNC6-3: what the account and the command line call is the provider's trait method, not
 /// the concrete provider's `purge`: through `&dyn IndexProvider` the same confirmed purge erases the
 /// same objects, and the confirmation is the one a pass recorded. RED on the old code: the trait had

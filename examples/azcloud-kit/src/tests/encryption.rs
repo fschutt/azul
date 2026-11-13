@@ -922,6 +922,71 @@ fn x_delta_sync6_3_erase_old_versions_needs_the_confirmation_and_the_end_of_the_
     );
 }
 
+/// X-DELTA-SYNC7-2: the account's erase of the old versions is refused after a pass that left a file it could
+/// not read, and the provider is never asked: the older versions of that file are the only readable copies,
+/// and the command that asked to erase old versions used to erase them and say "1 damaged ones left as they
+/// were" afterwards. RED on the old code: `erase_old_versions` asked the provider (`asked` has the drive).
+/// The control: once the file reads again and a new pass leaves nothing, the erase runs as before.
+#[test]
+fn x_delta_sync7_2_erase_old_versions_is_refused_after_a_pass_that_left_a_file_it_could_not_read() {
+    let s3 = FakeS3::new();
+    let transports = cloud(&s3);
+    let dir = TempDir::new("azcloud-enc-erase-damaged");
+    let mut a = signed_up(&transports, &dir);
+    let keys = MemoryKeyring::new();
+    a.setup_encryption(&keys, cheap()).unwrap();
+    let provider = Erasing {
+        index: Arc::new(MemoryIndex::new()),
+        asked: Mutex::new(Vec::new()),
+    };
+    let drive = a.open_encrypted(&keys, &provider).unwrap();
+    drive.put("notes/plan.txt", b"the plan").unwrap();
+    drive.put("notes/ok.txt", b"a good file").unwrap();
+    a.rotate_drive_key(&keys, &provider, cheap()).unwrap();
+    let drive = a.open_encrypted(&keys, &provider).unwrap();
+    let plan = drive
+        .entry("notes/plan.txt")
+        .unwrap()
+        .object_id()
+        .expect("a file of its own")
+        .bucket_key();
+    let sound = s3.read(&plan).expect("the object is in the bucket");
+    s3.write(&plan, b"rotten".to_vec());
+
+    let mut state = azul_storage::rotation::ReencryptState::new(u64::MAX);
+    state.confirm_purge(azul_storage::time::now_unix());
+    assert!(a
+        .reencrypt(&keys, &provider, &mut state, &mut |_| Ok(()), &|| false)
+        .unwrap());
+    assert_eq!((state.done, state.failed), (1, 1), "{state:?}");
+    let refused = a
+        .erase_old_versions(&keys, &provider, &state)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.starts_with("nothing was erased")
+            && refused.contains("1 file could not be read")
+            && refused.contains("only readable copies"),
+        "{refused}"
+    );
+    assert!(
+        provider.asked.lock().unwrap().is_empty(),
+        "the provider was asked to erase after a pass that left a file it could not read: {:?}",
+        provider.asked.lock().unwrap()
+    );
+
+    // The control: the file reads again, a new pass leaves nothing, and the erase runs as it did.
+    s3.write(&plan, sound);
+    let mut again = azul_storage::rotation::ReencryptState::new(u64::MAX);
+    again.confirm_purge(azul_storage::time::now_unix());
+    assert!(a
+        .reencrypt(&keys, &provider, &mut again, &mut |_| Ok(()), &|| false)
+        .unwrap());
+    assert_eq!((again.done, again.failed), (2, 0), "{again:?}");
+    a.erase_old_versions(&keys, &provider, &again).unwrap();
+    assert_eq!(provider.asked.lock().unwrap().len(), 1);
+}
+
 /// K2: whoever can write to the bucket can plant a rotation journal. It must not make "I was
 /// hacked" skip the account's lockdown (the attacker's tokens would stay valid) or fail the
 /// rotation on a key nobody has: the journal of a rotation that stopped on this device is the

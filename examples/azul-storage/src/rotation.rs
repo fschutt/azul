@@ -1121,7 +1121,11 @@ pub struct ReencryptState {
     /// Files written into new objects.
     #[serde(default)]
     pub done: u64,
-    /// Files that could not be read (damaged): left, counted.
+    /// Files that could not be read (damaged): left, counted - the files of their own whose object
+    /// is missing or does not open, and the members of the packs whose record does not check out
+    /// ([`crate::packing::RepackReport::files_damaged`]). A pass that left any is NO licence to erase
+    /// the old versions: those are the only readable copies of exactly these files
+    /// ([`ReencryptState::erase_licence`], X-DELTA-SYNC7-2).
     #[serde(default)]
     pub failed: u64,
     /// Whether the packs of small files were written anew (after the files of their own).
@@ -1169,11 +1173,35 @@ impl ReencryptState {
         self.purge_confirmed_at = Some(at);
     }
 
-    /// The confirmation the user gave, if they gave one: what a purge
-    /// ([`crate::meta::MetaIndexProvider::purge`]) takes once the pass is over.
+    /// The confirmation the user gave, if they gave one - the user's answer and nothing of the pass:
+    /// what erases is [`ReencryptState::erase_licence`], which asks the rest as well.
     #[must_use]
     pub fn purge_confirmation(&self) -> Option<crate::meta::reclaim::PurgeConfirmation> {
         crate::meta::reclaim::PurgeConfirmation::recorded_in(self)
+    }
+
+    /// What a purge ([`crate::meta::MetaIndexProvider::purge`]) may be asked on this state's word: the
+    /// confirmation the user gave, once the pass is over AND left no file it could not read. The one
+    /// place that says so (X-DELTA-SYNC7-2): the erase of the old versions runs after the pass, and
+    /// the older versions of a file whose head could not be read are the only readable copies of it -
+    /// the command that asked to erase old versions used to erase them and say "1 damaged ones left
+    /// as they were" afterwards. Every doubt is a refusal ([`EraseRefusal`]) and nothing is erased.
+    ///
+    /// # Errors
+    ///
+    /// The first thing that is not as it must be: no confirmation, a pass that is not over, damaged
+    /// files left.
+    pub fn erase_licence(&self) -> Result<crate::meta::reclaim::PurgeConfirmation, EraseRefusal> {
+        let Some(confirmation) = self.purge_confirmation() else {
+            return Err(EraseRefusal::NotConfirmed);
+        };
+        if !self.packs_done {
+            return Err(EraseRefusal::NotOver);
+        }
+        if self.failed > 0 {
+            return Err(EraseRefusal::Damaged { files: self.failed });
+        }
+        Ok(confirmation)
     }
 
     #[must_use]
@@ -1192,6 +1220,42 @@ impl ReencryptState {
             )));
         }
         Ok(state)
+    }
+}
+
+/// Why the state of a re-encryption is no licence to erase the old versions
+/// ([`ReencryptState::erase_licence`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EraseRefusal {
+    /// The user did not confirm it ([`ReencryptState::confirm_purge`]).
+    NotConfirmed,
+    /// The pass is not over: what it has not replaced yet is the file itself, and what it replaces
+    /// later would stay.
+    NotOver,
+    /// The pass left files it could not read: their older versions may be the only readable copies.
+    Damaged {
+        /// How many.
+        files: u64,
+    },
+}
+
+impl std::fmt::Display for EraseRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EraseRefusal::NotConfirmed => {
+                f.write_str("the old versions were not confirmed to go")
+            }
+            EraseRefusal::NotOver => f.write_str(
+                "the re-encryption is not over, and what it replaces later would stay",
+            ),
+            EraseRefusal::Damaged { files } => write!(
+                f,
+                "{files} file{} could not be read in the re-encryption; {} older versions may be the \
+                 only readable copies and are kept",
+                if *files == 1 { "" } else { "s" },
+                if *files == 1 { "its" } else { "their" },
+            ),
+        }
     }
 }
 
@@ -1231,7 +1295,8 @@ pub fn ask_reencrypt<D: Drive>(
 /// bucket opens with the old drive key. On a drive that keeps its history (the repository) the
 /// old objects are the history of the files: they stay, restorable until the retention is over,
 /// and go at once only when the user confirmed it ([`ReencryptState::confirm_purge`]; the caller
-/// then runs [`crate::meta::MetaIndexProvider::purge`] when this returns `Ok(true)`) - they used to
+/// then runs [`crate::meta::MetaIndexProvider::purge`] when this returns `Ok(true)` and the state
+/// gives the licence, [`ReencryptState::erase_licence`]: no file left that could not be read) - they used to
 /// stay for ever, or (the small files' packs) to go without asking. Small files packed together
 /// are written into new packs at the end, every pack holding one of them at once. `save` gets the
 /// state after every file (and after the packs, when there were any), `stop` is asked before every
@@ -1273,6 +1338,9 @@ pub fn reencrypt_pass<D: Drive>(
     }
     if !state.packs_done {
         let report = drive.reencrypt_packs(state.before, crate::time::now_unix())?;
+        // A member whose record does not check out is left where it is, like a file of its own whose
+        // object does not open: it is counted, and the old versions stay (X-DELTA-SYNC7-2).
+        state.failed += report.files_damaged as u64;
         state.packs_done = true;
         if report.packs_read > 0 {
             save(state)?;

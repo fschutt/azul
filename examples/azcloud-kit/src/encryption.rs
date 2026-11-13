@@ -430,29 +430,21 @@ impl Account {
     ///
     /// # Errors
     ///
-    /// `state` records no confirmation, or the pass is not over - nothing is erased (what a pass has
-    /// not replaced yet is the file itself, and what it replaces later would stay); no key on this
-    /// device; the provider's refusal (`Unsupported` for an index that keeps no history) or the
-    /// bucket's.
+    /// `state` is no licence ([`ReencryptState::erase_licence`]): it records no confirmation, the
+    /// pass is not over (what a pass has not replaced yet is the file itself, and what it replaces
+    /// later would stay), or the pass left files it could not read (their older versions may be the
+    /// only readable copies, X-DELTA-SYNC7-2) - nothing is erased; no key on this device; the
+    /// provider's refusal (`Unsupported` for an index that keeps no history) or the bucket's.
     pub fn erase_old_versions(
         &self,
         keyring: &dyn KeyringStore,
         provider: &dyn IndexProvider,
         state: &ReencryptState,
     ) -> CloudResult<ReclaimReport> {
-        let Some(confirmation) = state.purge_confirmation() else {
-            fail!(
-                "nothing was erased: the old versions of drive {} were not confirmed to go",
-                self.record().id
-            );
+        let confirmation = match state.erase_licence() {
+            Ok(confirmation) => confirmation,
+            Err(why) => fail!("nothing was erased from drive {}: {why}", self.record().id),
         };
-        if !state.packs_done {
-            fail!(
-                "nothing was erased: the re-encryption of drive {} is not over, and what it \
-                 replaces later would stay",
-                self.record().id
-            );
-        }
         let Some(drive_key) = self.unlock_key(keyring)? else {
             fail!(
                 "nothing was erased: this device has no key for drive {}",
