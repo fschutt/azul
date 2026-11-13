@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::{
     folders::{self, LocalMailbox, ServerMailbox},
     message,
-    store::{self, FolderState, IndexEntry, MailStore},
+    store::{self, Clocks, FolderState, IndexEntry, MailStore},
 };
 
 /// What `SELECT` reports.
@@ -350,6 +350,9 @@ pub fn sync_account(
     let mailboxes = folders::local_mailboxes(&listed);
     let count = mailboxes.len();
     let mut report = SyncReport::default();
+    // What the clock of this computer is set against, read before this Send/Receive writes a stamp (a floor that
+    // cannot be read records nothing: [`Clocks::recorded`]).
+    let clocks = Clocks::of(store, None);
     for (index, mailbox) in mailboxes.iter().enumerate() {
         if !progress(Progress::Folder {
             index,
@@ -358,9 +361,9 @@ pub fn sync_account(
         }) {
             return Err(SyncError::Stopped);
         }
-        report
-            .folders
-            .push(sync_folder(source, store, mailbox, options, progress)?);
+        report.folders.push(sync_folder_with(
+            source, store, mailbox, options, &clocks, progress,
+        )?);
     }
     Ok(report)
 }
@@ -371,6 +374,21 @@ pub fn sync_folder(
     store: &MailStore,
     mailbox: &LocalMailbox,
     options: &SyncOptions,
+    progress: &mut dyn FnMut(Progress) -> bool,
+) -> Result<FolderReport, SyncError> {
+    let clocks = Clocks::of(store, None);
+    sync_folder_with(source, store, mailbox, options, &clocks, progress)
+}
+
+/// [`sync_folder`] with the readings the whole Send/Receive was set against ([`sync_account`] reads them once): the
+/// `synced_at` of the folder is the clock of this computer when `clocks` accept it, else what the folder's file said
+/// (X-DELTA-APPS5-1: the one rule of the Azlin sync, [`Clocks::recorded`], for this writer of the floor too).
+fn sync_folder_with(
+    source: &mut dyn MailSource,
+    store: &MailStore,
+    mailbox: &LocalMailbox,
+    options: &SyncOptions,
+    clocks: &Clocks,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<FolderReport, SyncError> {
     let key = mailbox.key.as_str();
@@ -386,6 +404,11 @@ pub fn sync_folder(
         Err(e) => return Err(storage(e)),
     };
     let plan = plan_folder(old_state.as_ref(), &selected);
+    // What the folder's file said of the last Send/Receive: it stays when this one has no clock to record.
+    let synced_before = old_state
+        .as_ref()
+        .map(|old| old.synced_at.clone())
+        .unwrap_or_default();
     // Mail written here (a sent mail SEND filed, a draft) has a LOCAL UID, not one of the
     // server's numbering: it is carried across a renumbering instead of going to stale/.
     let local: Vec<(IndexEntry, Vec<u8>)> = if plan.renumbered.is_some() {
@@ -511,7 +534,14 @@ pub fn sync_folder(
             done += range.len() as u64;
             since_checkpoint += range.len() as u64;
             if checkpoint_due(since_checkpoint, index.len()) {
-                write_checkpoint(store, key, &index, &mut state, options.now, true)?;
+                write_checkpoint(
+                    store,
+                    key,
+                    &index,
+                    &mut state,
+                    Stamp::of(clocks, options.now, &synced_before),
+                    true,
+                )?;
                 index_dirty = false;
                 since_checkpoint = 0;
             }
@@ -527,7 +557,14 @@ pub fn sync_folder(
     })();
 
     // However the batches ended, what was written is recorded, so the next run picks up here.
-    let recorded = write_checkpoint(store, key, &index, &mut state, options.now, index_dirty);
+    let recorded = write_checkpoint(
+        store,
+        key,
+        &index,
+        &mut state,
+        Stamp::of(clocks, options.now, &synced_before),
+        index_dirty,
+    );
     result?;
     recorded?;
     report.messages = index.len() as u64;
@@ -566,6 +603,19 @@ fn read_index(store: &MailStore, folder: &str) -> Result<BTreeMap<u32, IndexEntr
     }
 }
 
+/// The `synced_at` a checkpoint writes: the clock of this computer when [`Clocks::recorded`] accepts it, else what the
+/// folder's file said before (none for a folder never synced).
+struct Stamp(String);
+
+impl Stamp {
+    fn of(clocks: &Clocks, now: i64, before: &str) -> Stamp {
+        Stamp(match clocks.recorded(now) {
+            Some(at) => message::rfc3339_utc(i64::try_from(at).unwrap_or(i64::MAX)),
+            None => before.to_string(),
+        })
+    }
+}
+
 /// Writes the index (when `with_index`) and then the state: the state never names a UID the
 /// index file does not have.
 fn write_checkpoint(
@@ -573,7 +623,7 @@ fn write_checkpoint(
     folder: &str,
     index: &BTreeMap<u32, IndexEntry>,
     state: &mut FolderState,
-    now: i64,
+    synced_at: Stamp,
     with_index: bool,
 ) -> Result<(), SyncError> {
     if with_index {
@@ -586,7 +636,7 @@ fn write_checkpoint(
             .map_err(storage)?;
     }
     state.messages = index.len() as u64;
-    state.synced_at = message::rfc3339_utc(now);
+    state.synced_at = synced_at.0;
     store
         .put(&store::state_key(folder), state.to_json().as_bytes())
         .map_err(storage)
@@ -761,6 +811,36 @@ mod tests {
 
     fn index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
         index_from_jsonl(&String::from_utf8(store.get(&index_key(folder)).unwrap()).unwrap())
+    }
+
+    const DAY: i64 = 86_400;
+
+    /// X-DELTA-APPS5-1, the other writer of the floor: the IMAP Send/Receive recorded its `synced_at` as the raw clock, so
+    /// a Send/Receive on a clock ten years ahead made every later right clock "a day behind" it - and the floor that
+    /// Delete in the Outbox of an IMAP account is set against was a clock that was wrong. Now it records by the rule of the
+    /// Azlin sync: a clock ten years ahead, one a year back and one that is not set record nothing (the file keeps
+    /// what it said); one a day on is the time.
+    #[test]
+    fn x_delta_apps5_1_an_imap_send_receive_records_no_clock_the_rule_refused() {
+        let dir = TempDir::new("imap-stamp");
+        let store = MailStore::new(dir.folder());
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1]);
+        run(&mut server, &store).unwrap();
+        let stamp = |s: &MailStore| {
+            FolderState::from_json(
+                &String::from_utf8(s.get(&store::state_key("inbox")).unwrap()).unwrap(),
+            )
+            .unwrap()
+            .synced_at
+        };
+        assert_eq!(stamp(&store), "2026-09-30T08:42:00Z");
+        let at = |now: i64| SyncOptions { now, ..options() };
+        for now in [SEP_30 + 10 * 366 * DAY, SEP_30 - 365 * DAY, 0] {
+            sync_account(&mut server, &store, &at(now), &mut |_| true).unwrap();
+            assert_eq!(stamp(&store), "2026-09-30T08:42:00Z", "clock {now}");
+        }
+        sync_account(&mut server, &store, &at(SEP_30 + DAY), &mut |_| true).unwrap();
+        assert_eq!(stamp(&store), message::rfc3339_utc(SEP_30 + DAY));
     }
 
     /// X-DELTA-SYNC4-21. RED on the code before: an index that could not be READ was an empty one,
