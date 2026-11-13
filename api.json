@@ -199898,6 +199898,9 @@
                                 },
                                 "began": {
                                     "type": "bool"
+                                },
+                                "ended": {
+                                    "type": "bool"
                                 }
                             }
                         ],

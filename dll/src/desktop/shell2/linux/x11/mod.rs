@@ -10020,6 +10020,7 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
                         current_distance: PINCH_NOMINAL_DISTANCE * scale,
                         duration_ms: 0,
                         began,
+                        ended: false,
                     }));
             }
             if rotation.abs() > f32::EPSILON {

@@ -3489,6 +3489,7 @@ mod jni_bridge {
                     current_distance,
                     duration_ms: duration_ms as u64,
                     began: began != 0,
+                    ended: false,
                 }),
             );
         });

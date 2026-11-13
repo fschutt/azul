@@ -5247,6 +5247,7 @@ extern "C" fn gesture_pinch_update(
                     current_distance: PINCH_NOMINAL_DISTANCE * scale_f,
                     duration_ms: 0,
                     began,
+                    ended: false,
                 },
             ),
         );

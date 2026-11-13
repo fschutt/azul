@@ -299,6 +299,7 @@ fn emit_pinch(hwnd: isize, scale: f32, began: bool) {
                 current_distance: PINCH_NOMINAL_DISTANCE * scale,
                 duration_ms: 0,
                 began,
+                ended: false,
             }));
     }
     let result = super::PlatformWindow::process_window_events(window, 0);

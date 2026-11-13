@@ -2723,6 +2723,10 @@ pub enum DebugEvent {
         /// pinch of one update.
         #[serde(default)]
         began: Option<bool>,
+        /// Whether this update ends its gesture (`DetectedPinch::ended`: the
+        /// fingers lifted). Omitted: `false`.
+        #[serde(default)]
+        ended: Option<bool>,
     },
     Rotate {
         #[serde(default)]
@@ -21185,6 +21189,7 @@ pub fn process_debug_event(
             current_distance,
             duration_ms,
             began,
+            ended,
         } => {
             use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
             callback_info.inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
@@ -21197,6 +21202,7 @@ pub fn process_debug_event(
                 current_distance: *current_distance,
                 duration_ms: *duration_ms,
                 began: began.unwrap_or(true),
+                ended: ended.unwrap_or(false),
             }));
             // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);

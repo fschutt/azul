@@ -7863,6 +7863,7 @@ mod tests {
                 current_distance: 150.0,
                 duration_ms: 0,
                 began: true,
+                ended: false,
             }));
         window.snapshot_window_state_baseline("headless.test.magnify");
         let _ = window.process_window_events(0);

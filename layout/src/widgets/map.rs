@@ -7411,6 +7411,7 @@ mod autotest_generated {
             current_distance: 100.0 * scale,
             duration_ms: 0,
             began,
+            ended: false,
         }
     }
 

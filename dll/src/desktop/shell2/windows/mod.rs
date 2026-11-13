@@ -5712,6 +5712,7 @@ unsafe extern "system" fn window_proc(
                             current_distance: PINCH_NOMINAL_DISTANCE * scale,
                             duration_ms: 0,
                             began: true,
+                            ended: true,
                         }));
                 }
             }
@@ -6740,6 +6741,7 @@ unsafe extern "system" fn window_proc(
                                 current_distance: PINCH_NOMINAL_DISTANCE * scale,
                                 duration_ms: 0,
                                 began,
+                                ended: false,
                             }));
                     }
                 }
