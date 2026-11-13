@@ -31,12 +31,70 @@ use crate::state::write_atomic;
 use crate::{
     error::{CloudError, CloudResult, Context},
     lock::LockDir,
+    pending::count_step,
     period::{IssueRequest, PeriodToken},
     state::{create_private_dir, write_json},
 };
 
 /// The format of a vault's JSON.
 const VAULT_FORMAT: u32 = 2;
+
+/// How far the 90 days of a revivable end's window have run, counted in the time that passed while the
+/// drive's computers were looking ([`REVIVE_FOR_SECS`], X-DELTA-MONEY7-8) - not by comparing the wall
+/// stamp one computer wrote with the wall clock of another: a computer whose clock was 90 days behind
+/// stamped an end in 2020 and every other computer then found the window over, and a clock set 90
+/// days forward between two rounds ended it at once. Counted as every wait of this crate is
+/// (`crate::pending::count_step`, the one derivation): a step of the clock between two counts adds
+/// at most a week ([`crate::pending::WAIT_STEP_MAX_SECS`]), a step back adds nothing, and what was
+/// seen pass is `counted_at - since` whatever clocks the counts were made on. Every weekly ask counts
+/// it; a read counts it to now without writing. Two computers' counts of one end are joined as the
+/// one that saw more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndWindow {
+    /// The moment the count starts at, in the clock of the computer that counted last (seconds since
+    /// 1970), moved forward by the steps of the clock that did not happen.
+    pub since: u64,
+    /// The moment of that clock the window was last counted to; `0`: not counted yet.
+    pub counted_at: u64,
+}
+
+impl EndWindow {
+    /// The window of an end recorded at `at`: nothing seen yet.
+    fn opened(at: u64) -> EndWindow {
+        EndWindow {
+            since: at,
+            counted_at: at,
+        }
+    }
+
+    /// The window counted to `now` ([`crate::pending::count_step`]). A moment no clock reads is the
+    /// far future, a step back that counts nothing; a start before the epoch is the epoch.
+    fn counted_to(self, now: u64) -> EndWindow {
+        let seconds = |at: u64| i64::try_from(at).unwrap_or(i64::MAX);
+        let (since, counted_at) =
+            count_step(seconds(self.since), seconds(self.counted_at), seconds(now));
+        EndWindow {
+            since: u64::try_from(since).unwrap_or(0),
+            counted_at: u64::try_from(counted_at).unwrap_or(0),
+        }
+    }
+
+    /// The seconds of the window seen pass at `now`: counted to `now`, nothing written. A count
+    /// that is inconsistent (before its own start) has seen no time: that only lengthens the window.
+    fn seen(self, now: u64) -> u64 {
+        now.saturating_sub(self.counted_to(now).since)
+    }
+
+    /// What orders two counts of the same end: the time seen at the count, then when it was made,
+    /// then where it started - total, so two vaults that join each other's agree.
+    fn rank(self) -> (u64, u64, u64) {
+        (
+            self.counted_at.saturating_sub(self.since),
+            self.counted_at,
+            self.since,
+        )
+    }
+}
 
 /// One checkout's period tokens as a grant the drive draws on: the months it pays for, its issue
 /// key (a secret: `Debug` shows none), and where its instalments stand.
@@ -65,11 +123,17 @@ pub struct VaultGrant {
     /// computers' clocks (X-DELTA-MONEY3-1). `0` with an `ended`: an end an older build wrote.
     #[serde(default, skip_serializing_if = "is_zero_count")]
     pub end_epoch: u32,
-    /// When this computer's clock said the end was recorded (seconds since 1970): the days a
-    /// revivable end is asked again for count from here. An end an older build wrote has none and
-    /// is final.
+    /// When this computer's clock said the end was recorded (seconds since 1970): the record of
+    /// it, and the start of the window of an end an older build wrote (which has no
+    /// [`VaultGrant::window`]). An end an older build wrote with none is final. The days a
+    /// revivable end is asked again for are not counted from this stamp - another computer's clock
+    /// wrote it - but in the time seen pass ([`EndWindow`], X-DELTA-MONEY7-8).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<u64>,
+    /// How far the [`REVIVE_FOR_SECS`] of a revivable end have run, counted in the time the drive's
+    /// computers saw pass ([`EndWindow`]); `None` for no end or one an older build wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<EndWindow>,
     /// The end is one a restore lifts ([`azlin_contract::IssueRefusal::is_revivable`]: a payment
     /// taken back, `NotPaid`, or the stop a repeat reversal put on its mandate, `MandateStopped`):
     /// the token server's restore of a wrong reversal approves the checkout again and lifts that
@@ -109,6 +173,7 @@ impl fmt::Debug for VaultGrant {
             .field("next_issue_at", &self.next_issue_at)
             .field("ended", &self.ended)
             .field("end_epoch", &self.end_epoch)
+            .field("window", &self.window)
             .field("revivable", &self.revivable)
             .field("recurring", &self.recurring)
             .field("change_tier", &self.change_tier)
@@ -131,6 +196,7 @@ impl VaultGrant {
             ended: None,
             end_epoch: 0,
             ended_at: None,
+            window: None,
             revivable: false,
             recurring: false,
             change_tier: false,
@@ -149,6 +215,7 @@ impl VaultGrant {
         self.end_epoch = self.end_epoch.saturating_add(1 - self.end_epoch % 2);
         self.ended = Some(why);
         self.ended_at = Some(at);
+        self.window = Some(EndWindow::opened(at));
         self.revivable = revivable;
         if revivable {
             self.next_issue_at = Some(at.saturating_add(REVIVE_EVERY_SECS));
@@ -168,13 +235,15 @@ impl VaultGrant {
         self.end_epoch = (self.end_epoch | 1).saturating_add(1);
         self.ended = None;
         self.ended_at = None;
+        self.window = None;
         self.revivable = false;
         true
     }
 
     /// The grant's end may still be lifted by the token server's restore at `now`: it is a
-    /// revivable end ([`VaultGrant::revivable`]) within [`REVIVE_FOR_SECS`] of when it was
-    /// recorded, and months remain to issue. The weekly gate is not asked here: the grant is
+    /// revivable end ([`VaultGrant::revivable`]) whose window - [`REVIVE_FOR_SECS`], counted in
+    /// the time the drive's computers saw pass, not between two wall stamps ([`EndWindow`]) - is
+    /// not over, and months remain to issue. The weekly gate is not asked here: the grant is
     /// asked again by [`VaultGrant::revive_due`], and kept - its issue key with it, wherever the
     /// copy of it is ([`crate::pending::finish`]) - for as long as this holds.
     #[must_use]
@@ -183,8 +252,20 @@ impl VaultGrant {
             && self.revivable
             && (self.issued < self.months || self.recurring)
             && self
-                .ended_at
-                .is_some_and(|at| now < at.saturating_add(REVIVE_FOR_SECS))
+                .window_now()
+                .is_some_and(|window| window.seen(now) < REVIVE_FOR_SECS)
+    }
+
+    /// The window of this end as it stands: the count the grant holds or - for an end an older
+    /// build wrote, which has only the wall stamp - that stamp as the start of a window that was
+    /// never counted.
+    fn window_now(&self) -> Option<EndWindow> {
+        self.window.or_else(|| {
+            self.ended_at.map(|at| EndWindow {
+                since: at,
+                counted_at: 0,
+            })
+        })
     }
 
     /// A revivable end whose months a look asks for again at `now`: it may still be lifted
@@ -198,6 +279,10 @@ impl VaultGrant {
     /// A revivable end asked again at `now` and refused again: the next ask is a week on.
     pub(crate) fn asked_again(&mut self, now: u64) {
         self.next_issue_at = Some(now.saturating_add(REVIVE_EVERY_SECS));
+        // every ask counts the window to what was seen pass since the last count
+        if let Some(window) = self.window_now() {
+            self.window = Some(window.counted_to(now));
+        }
     }
 
     /// The grant's end is one a restore lifts ([`VaultGrant::revivable`]) and the grant waits for
@@ -262,11 +347,18 @@ impl VaultGrant {
             self.end_epoch = other.end_epoch;
             self.ended.clone_from(&other.ended);
             self.ended_at = other.ended_at;
+            self.window = other.window;
             self.revivable = other.revivable;
         } else if other.end_epoch == self.end_epoch && self.ended.is_none() {
             self.ended.clone_from(&other.ended);
             self.ended_at = other.ended_at;
+            self.window = other.window;
             self.revivable = other.revivable;
+        } else if other.end_epoch == self.end_epoch
+            && other.window.map(EndWindow::rank) > self.window.map(EndWindow::rank)
+        {
+            // the same end, its window counted further on another computer: a count never goes back
+            self.window = other.window;
         }
         self.recurring |= other.recurring;
         self.change_tier |= other.change_tier;

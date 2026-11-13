@@ -1686,7 +1686,9 @@ fn x_delta_money6_1_an_end_no_restore_lifts_takes_the_entry_off_at_once() {
         );
     }
 
-    // a stop that stood for 90 days: the claim finds the end older than its life
+    // a stop that stood for 90 days of looks: the drive's other devices asked it a week apart for the
+    // window's whole life (X-DELTA-MONEY7-8: a window counts in the time seen pass, a single step of the
+    // clock is a week) and the claim finds the end older than its life
     let dir = TempDir::new("azcloud-pending");
     let (shared, _) = shared(&dir);
     let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
@@ -1700,6 +1702,20 @@ fn x_delta_money6_1_an_end_no_restore_lifts_takes_the_entry_off_at_once() {
         pending::finish(&server, &shared, &store, &local_only, &ck, &owed, NOW),
         Finished::Waits { count: 0, .. }
     ));
+    for week in 1..=12_u64 {
+        assert!(
+            matches!(
+                crate::period::issue_next(&server, &local_only, "ck_1", NOW + week * 7 * 86_400),
+                Ok(crate::period::Issued::Ended(_))
+            ),
+            "week {week}"
+        );
+    }
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        13,
+        "the claim's ask, then twelve weekly ones"
+    );
     match pending::finish(
         &server,
         &shared,
@@ -1710,7 +1726,7 @@ fn x_delta_money6_1_an_end_no_restore_lifts_takes_the_entry_off_at_once() {
         NOW + 91 * 86_400,
     ) {
         Finished::Dropped(why) => assert!(why.contains("mandate was stopped"), "{why}"),
-        other => panic!("the end is final after 90 days: {other:?}"),
+        other => panic!("the end is final after 90 days of looks: {other:?}"),
     }
     assert!(pending::list(&shared).unwrap().is_empty());
 }
@@ -1828,4 +1844,50 @@ fn x_delta_money7_2_a_counted_request_survives_the_claims_rounds_and_the_entry_g
     let state = with_key.state().unwrap();
     assert!(state.open_issues("ck_1").is_empty() && state.done.contains(&first));
     assert_eq!(state.tokens.len(), 1);
+}
+
+/// X-DELTA-MONEY7-8, the claim's rounds with a step of the clock: the entry of a stop that stands waits
+/// for the drive's vault; between two rounds the clock steps forward by 91 days. The old wall rule
+/// found the window over, took the entry off - the grant's second copy with it, long before its 30
+/// days were seen - and said the stop was final. A step is a week at most (as the vault's own wait
+/// counts it, AZ-P5): the entry stays.
+#[test]
+fn x_delta_money7_8_a_step_of_the_clock_between_two_finish_rounds_does_not_take_the_entry_off() {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let lifted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let asked = Arc::new(AtomicUsize::new(0));
+    let transport = Shared(refusing_until_lifted("mandate_stopped", &lifted, &asked));
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let local_only = store.on_this_device("d_1").unwrap();
+    assert!(matches!(
+        pending::finish(&server, &shared, &store, &local_only, &ck, &owed, NOW),
+        Finished::Waits { count: 0, .. }
+    ));
+    let (ck, owed) = {
+        let ck = pending::list(&shared).unwrap().remove(0);
+        let owed = ck.period.clone().expect("still claimed");
+        (ck, owed)
+    };
+    match pending::finish(
+        &server,
+        &shared,
+        &store,
+        &local_only,
+        &ck,
+        &owed,
+        NOW + 91 * 86_400,
+    ) {
+        Finished::Waits { count: 0, .. } => {}
+        other => panic!("a step of the clock took the entry off: {other:?}"),
+    }
+    let listed = pending::list(&shared).unwrap();
+    assert_eq!(listed.len(), 1, "the entry stays, issue key and all");
+    assert!(local_only
+        .state()
+        .unwrap()
+        .grant("ck_1")
+        .is_some_and(|g| g.revive_pending(NOW + 91 * 86_400)));
 }

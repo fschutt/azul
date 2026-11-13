@@ -1755,11 +1755,16 @@ fn x_delta_money3_1_any_other_final_refusal_is_never_asked_again() {
     }
 }
 
-/// An end is asked again for 90 days and no longer: 89 days on, the restored checkout is signed;
-/// 91 days on, nothing is asked.
+/// An end is asked again while its window is open. The window is 90 days of the time the devices saw
+/// pass (X-DELTA-MONEY7-8), so ONE look after a step of 89 or of 91 days has seen a week pass and asks:
+/// the restored checkout is signed on both - the old wall rule ended the window at day 90 whatever had
+/// been looked at, which is the defect X-DELTA-MONEY7-8 names. That the window does end after 90 days of
+/// looks is `x_delta_money6_1_a_stop_that_stands_for_ninety_days_ends_the_grant_for_good_with_its_sentence`
+/// (a look a day: thirteen asks, none after day 84) and `x_delta_money7_8_the_window_is_ninety_days_of_looks_...`.
 #[test]
-fn x_delta_money3_1_a_payment_taken_back_is_asked_about_for_ninety_days() {
-    for (day, signed_again) in [(89, true), (91, false)] {
+fn x_delta_money3_1_a_payment_taken_back_is_asked_about_after_a_step_of_either_side_of_ninety_days()
+{
+    for (day, signed_again) in [(89, true), (91, true)] {
         let dir = TempDir::new("azcloud-period");
         let tokens = granted(&dir);
         let mode = Arc::new(AtomicUsize::new(0));
@@ -3442,17 +3447,35 @@ fn x_delta_money7_2_a_look_after_the_window_asks_the_open_request_once_more_and_
     let first = counted_then_reversed(&server, &tokens, &stands, "not_paid");
     assert_eq!(issue_posts(&fake).len(), 2);
 
-    // nobody looked for 100 days (the app was not started): the window of the end (day 2) is over
-    let look = look_at_drive(&server, &shared, &store, &tokens, NOW + 100 * DAY);
+    // a look a day for the window's 90 days (the end is on day 2): the weekly asks - days 9, 16, ..., 86 -
+    // keep the request, the look of day 92 asks it once more and its refusal closes it
+    for day in 3..=91_u64 {
+        let look = look_at_drive(&server, &shared, &store, &tokens, NOW + day * DAY);
+        assert!(
+            !matches!(look.redeemed, Redeemed::Extended { .. }),
+            "day {day}: still reversed: {:?}",
+            look.redeemed
+        );
+        assert!(
+            in_drive
+                .read()
+                .unwrap()
+                .open_issues("ck_1")
+                .iter()
+                .any(|r| r.id() == first),
+            "day {day}: kept for the restore"
+        );
+    }
     assert_eq!(
         issue_posts(&fake).len(),
-        3,
-        "the open request is asked once more"
+        2 + 12,
+        "the weekly asks of the window"
     );
-    assert!(
-        !matches!(look.redeemed, Redeemed::Extended { .. }),
-        "still reversed: {:?}",
-        look.redeemed
+    let _ = look_at_drive(&server, &shared, &store, &tokens, NOW + 92 * DAY);
+    assert_eq!(
+        issue_posts(&fake).len(),
+        2 + 12 + 1,
+        "the open request is asked once more after the window"
     );
     {
         let state = in_drive.read().unwrap();
@@ -3461,6 +3484,228 @@ fn x_delta_money7_2_a_look_after_the_window_asks_the_open_request_once_more_and_
             "closed by its answer after the window"
         );
     }
-    let _ = look_at_drive(&server, &shared, &store, &tokens, NOW + 101 * DAY);
-    assert_eq!(issue_posts(&fake).len(), 3, "and never asked again");
+    let _ = look_at_drive(&server, &shared, &store, &tokens, NOW + 93 * DAY);
+    assert_eq!(
+        issue_posts(&fake).len(),
+        2 + 12 + 1,
+        "and never asked again"
+    );
+}
+
+// ==== X-DELTA-MONEY7-8: the revival window counts in the time that was seen pass ====
+
+/// X-DELTA-MONEY7-8, the finding's scenario: the device that learns a payment was taken back is the one
+/// whose clock is wrong - 90 days behind (a dead CMOS battery, a fresh VM before its time sync), or at
+/// the epoch itself - and stamps the end with it; the stamp joins into the drive's vault and every other
+/// device, whose clock is right, found `now >= ended_at + 90 days` at its next look: the window was
+/// over, nobody asked again and the restore never reached the months. Now the window is counted in the
+/// time seen pass: a stamp that far from the reader's clock is worth a week at most, the look asks and
+/// the month comes. On the old code the look of the right clock returns `Ended` without asking.
+#[test]
+fn x_delta_money7_8_an_end_stamped_by_a_clock_far_behind_does_not_end_the_window_for_the_other_devices(
+) {
+    for (name, stamp) in [
+        ("the epoch", 1_000_000_u64),
+        ("91 days behind", NOW - 91 * DAY),
+    ] {
+        let dir = TempDir::new("azcloud-period");
+        let tokens = granted(&dir);
+        let mode = Arc::new(AtomicUsize::new(0));
+        let (fake, asked) = restoring_server(&mode);
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        // the device whose clock reads `stamp` is the one that learns the reversal
+        assert!(
+            matches!(
+                issue_next(&server, &tokens, "ck_1", stamp),
+                Ok(Issued::Ended(_))
+            ),
+            "{name}"
+        );
+        // the operator restores the checkout; a device with the right clock looks
+        mode.store(1, Ordering::SeqCst);
+        match issue_next(&server, &tokens, "ck_1", NOW) {
+            Ok(Issued::Tokens(issued)) => assert_eq!(issued.len(), 1, "{name}"),
+            other => panic!("{name}: the restore never reached the months: {other:?}"),
+        }
+        assert_eq!(asked.load(Ordering::SeqCst), 2, "{name}");
+        let grant = tokens.state().unwrap().grant("ck_1").unwrap().clone();
+        assert!(
+            grant.ended.is_none() && grant.window.is_none(),
+            "{name}: {grant:?}"
+        );
+    }
+}
+
+/// X-DELTA-MONEY7-8: the window is 90 days of the time the devices saw pass, whichever stamp started
+/// it. An end stamped by a clock 91 days behind, the checkout stays reversed, a device with the right
+/// clock looks every day: its first ask repairs the count (a step of that size is worth a week), and
+/// the asks go on a week apart until 90 days were seen - twelve asks, the last on day 77 - and then
+/// never again.
+#[test]
+fn x_delta_money7_8_the_window_is_ninety_days_of_looks_whichever_stamp_started_it() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let mode = Arc::new(AtomicUsize::new(0));
+    let (fake, asked) = restoring_server(&mode);
+    let transport = Shared(fake);
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW - 91 * DAY),
+        Ok(Issued::Ended(_))
+    ));
+    let mut asked_on = Vec::new();
+    for day in 0..=100_u64 {
+        let before = asked.load(Ordering::SeqCst);
+        assert!(
+            matches!(
+                issue_next(&server, &tokens, "ck_1", NOW + day * DAY),
+                Ok(Issued::Ended(_))
+            ),
+            "day {day}"
+        );
+        if asked.load(Ordering::SeqCst) > before {
+            asked_on.push(day);
+        }
+    }
+    assert_eq!(
+        asked_on,
+        [0, 7, 14, 21, 28, 35, 42, 49, 56, 63, 70, 77],
+        "a week apart for 90 days seen, the first ask worth a week"
+    );
+    let grant = tokens.state().unwrap().grant("ck_1").unwrap().clone();
+    assert!(
+        grant.is_ended() && !grant.revive_pending(NOW + 100 * DAY),
+        "{grant:?}"
+    );
+}
+
+/// X-DELTA-MONEY7-8, the same step forward: a clock set 95 days ahead between two rounds (or a
+/// machine that slept through a quarter) is a step of the clock, not 95 days of looks: it counts a
+/// week, so the look after it still asks, and the restored checkout is signed. The old wall rule ended
+/// the window at once.
+#[test]
+fn x_delta_money7_8_a_step_forward_of_ninety_days_between_two_rounds_does_not_end_the_window_early()
+{
+    for step in [89_u64, 95, 400] {
+        let dir = TempDir::new("azcloud-period");
+        let tokens = granted(&dir);
+        let mode = Arc::new(AtomicUsize::new(0));
+        let (fake, asked) = restoring_server(&mode);
+        let transport = Shared(fake);
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        assert!(
+            matches!(
+                issue_next(&server, &tokens, "ck_1", NOW),
+                Ok(Issued::Ended(_))
+            ),
+            "step {step}"
+        );
+        mode.store(1, Ordering::SeqCst);
+        match issue_next(&server, &tokens, "ck_1", NOW + step * DAY) {
+            Ok(Issued::Tokens(issued)) => assert_eq!(issued.len(), 1, "step {step}"),
+            other => panic!("step {step}: the window ended at once: {other:?}"),
+        }
+        assert_eq!(asked.load(Ordering::SeqCst), 2, "step {step}");
+    }
+}
+
+/// X-DELTA-MONEY7-8, rule 15 (formats are additive): the window is in the grant's JSON only when there
+/// is an end; an end an older build wrote has the wall stamp and no window, reads, and counts from its
+/// stamp as a window that was never counted (a week at most for any step: it only lengthens); two
+/// counts of one end join as the one that saw more, in either order, and a count never goes back; a
+/// revival clears it.
+#[test]
+fn x_delta_money7_8_the_window_is_additive_in_the_vault_and_two_counts_join_as_the_larger() {
+    let base = VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY);
+    assert!(!serde_json::to_string(&base).unwrap().contains("window"));
+    let mut ended = base.clone();
+    ended.end(String::from("its payment was taken back"), true, NOW);
+    let text = serde_json::to_string(&ended).unwrap();
+    assert!(text.contains(r#""window":{"since":"#), "{text}");
+    // an older READER - a build whose grant has no `window` - reads the new JSON and ignores the field
+    #[derive(serde::Deserialize)]
+    struct Older {
+        checkout_id: String,
+        ended: Option<String>,
+        ended_at: Option<u64>,
+    }
+    let read: Older = serde_json::from_str(&text).unwrap();
+    assert_eq!(read.checkout_id, "ck_1");
+    assert!(read.ended.is_some() && read.ended_at == Some(NOW));
+    // an older WRITER's end: the stamp and no window
+    let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    value.as_object_mut().unwrap().remove("window");
+    let older: VaultGrant = serde_json::from_value(value).unwrap();
+    assert!(older.window.is_none() && older.ended_at == Some(NOW));
+    assert!(
+        older.revive_pending(NOW + 89 * DAY),
+        "a step is a week at most"
+    );
+    assert!(
+        !serde_json::to_string(&older).unwrap().contains("window"),
+        "and writes none until counted"
+    );
+    // two computers count the same end: 7 days seen by one, 14 by the other
+    let (mut seven, mut fourteen) = (ended.clone(), ended.clone());
+    seven.asked_again(NOW + 7 * DAY);
+    fourteen.asked_again(NOW + 7 * DAY);
+    fourteen.asked_again(NOW + 14 * DAY);
+    let seen = |grant: &VaultGrant| grant.window.map(|w| w.counted_at - w.since);
+    assert_eq!(seen(&seven), Some(7 * DAY));
+    assert_eq!(seen(&fourteen), Some(14 * DAY));
+    for (kept, other) in [
+        (&seven, &fourteen),
+        (&fourteen, &seven),
+        (&older, &fourteen),
+    ] {
+        let mut joined = VaultState::with_grant(kept.clone());
+        joined.join(&VaultState::with_grant(other.clone()));
+        let grant = joined.grant("ck_1").unwrap();
+        assert_eq!(
+            seen(grant),
+            Some(14 * DAY),
+            "the count that saw more stands"
+        );
+        assert_eq!(
+            grant.ended_at,
+            Some(NOW),
+            "the end's own stamp is not moved"
+        );
+    }
+    // two computers that counted the same week count it once
+    let mut later = ended.clone();
+    later.asked_again(NOW + 7 * DAY + 600);
+    let mut joined = VaultState::with_grant(seven.clone());
+    joined.join(&VaultState::with_grant(later));
+    assert_eq!(
+        seen(joined.grant("ck_1").unwrap()),
+        Some(7 * DAY),
+        "the same week is counted once"
+    );
+    // a revival ends the window with the end
+    let mut revived = fourteen.clone();
+    assert!(revived.revive() && revived.window.is_none());
+}
+
+/// X-DELTA-MONEY7-8, the cell of a clock that steps back and forward between two looks: a step back
+/// counts nothing (what was seen stays), time that passes after it is counted as it passes, and a step
+/// forward - a year here - counts a week.
+#[test]
+fn x_delta_money7_8_a_step_back_of_the_clock_counts_nothing_and_a_step_forward_a_week() {
+    let mut grant = VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY);
+    grant.end(String::from("its payment was taken back"), true, NOW);
+    let seen = |grant: &VaultGrant| grant.window.map(|w| w.counted_at - w.since).unwrap();
+    grant.asked_again(NOW + 7 * DAY);
+    assert_eq!(seen(&grant), 7 * DAY);
+    // the clock stepped back by six days: nothing counted
+    grant.asked_again(NOW + DAY);
+    assert_eq!(seen(&grant), 7 * DAY, "a step back counts nothing");
+    // two days pass on the stepped-back clock: two days counted
+    grant.asked_again(NOW + 3 * DAY);
+    assert_eq!(seen(&grant), 9 * DAY);
+    // a step forward of a year: a week
+    grant.asked_again(NOW + 400 * DAY);
+    assert_eq!(seen(&grant), 16 * DAY, "a step forward counts a week");
+    assert!(grant.revive_pending(NOW + 400 * DAY));
 }

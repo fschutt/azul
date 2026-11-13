@@ -367,7 +367,7 @@ const WAIT_WRITE_EVERY_SECS: i64 = 3_600;
 /// the start along, so `now - since` is the time this computer saw pass, not the time the clock
 /// says.
 /// Not recorded yet (`since` of 0 or less): the wait starts at `now`.
-fn count_step(since: i64, counted_at: i64, now: i64) -> (i64, i64) {
+pub(crate) fn count_step(since: i64, counted_at: i64, now: i64) -> (i64, i64) {
     if since <= 0 || now <= 0 {
         return (now, now);
     }
