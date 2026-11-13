@@ -20908,6 +20908,47 @@
                                     }
                                 ],
                                 "fn_body": "object.keyring_store(key, secret, require_biometry)"
+                            },
+                            "get_scroll_momentum_phase": {
+                                "doc": [
+                                    "Where the delta of the current `Scroll` callback lies in the OS's",
+                                    "momentum after the fingers lifted (macOS `NSEvent.momentumPhase`):",
+                                    "`Began` and `Changed` for the deltas the fingers did not make, `Ended`",
+                                    "when the momentum ran out or a finger stopped it. `None` while the",
+                                    "fingers scroll, for a wheel step and outside a scroll dispatch."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScrollPhase"
+                                },
+                                "fn_body": "object.get_scroll_momentum_phase()"
+                            },
+                            "get_scroll_phase": {
+                                "doc": [
+                                    "Where the delta of the current `Scroll` callback lies in the fingers'",
+                                    "gesture: `Began` as the fingers start to scroll, `Changed` while they",
+                                    "move, `Ended` as they lift (usually a zero delta). `None` for a wheel",
+                                    "step, for a momentum delta (see [`Self::get_scroll_momentum_phase`]),",
+                                    "on a platform that reports no phase, and outside a scroll dispatch.",
+                                    "",
+                                    "What a widget that pans by the deltas starts and settles a pan at,",
+                                    "instead of guessing the end of a gesture from a pause in its deltas.",
+                                    "macOS reports it (`NSEvent.phase`); Wayland reports the end",
+                                    "(`axis_stop`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScrollPhase"
+                                },
+                                "fn_body": "object.get_scroll_phase()"
                             }
                         },
                         "repr": "C"
@@ -39091,6 +39132,29 @@
                             {
                                 "All": {},
                                 "SameType": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollPhase": {
+                        "external": "azul_core::events::ScrollPhase",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Began": {},
+                                "Changed": {},
+                                "Ended": {}
                             }
                         ],
                         "repr": "C"

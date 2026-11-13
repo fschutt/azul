@@ -81,6 +81,26 @@ pub(super) fn macos_to_azul_coords(location: NSPoint, window_height: f32) -> Log
     LogicalPosition::new(location.x as f32, window_height - location.y as f32)
 }
 
+/// An `NSEvent.phase` / `momentumPhase` as the engine's
+/// [`azul_core::events::ScrollPhase`]: `Stationary` is a `Changed` without
+/// motion, `Cancelled` an end; `MayBegin` (fingers resting, nothing scrolled
+/// yet) and no phase are no gesture.
+pub(super) fn scroll_phase_of(
+    phase: objc2_app_kit::NSEventPhase,
+) -> azul_core::events::ScrollPhase {
+    use azul_core::events::ScrollPhase;
+    use objc2_app_kit::NSEventPhase;
+    if phase == NSEventPhase::Began {
+        ScrollPhase::Began
+    } else if phase == NSEventPhase::Changed || phase == NSEventPhase::Stationary {
+        ScrollPhase::Changed
+    } else if phase == NSEventPhase::Ended || phase == NSEventPhase::Cancelled {
+        ScrollPhase::Ended
+    } else {
+        ScrollPhase::None
+    }
+}
+
 /// Result of processing an event - determines whether to redraw, update layout, etc.
 ///
 /// TODO(superplan g6): this macOS-only enum is a (now less) lossy projection of
@@ -517,6 +537,17 @@ impl MacOSWindow {
             azul_core::events::PointerSource::Mouse
         };
 
+        // Where the deltas lie in the fingers' gesture and in the OS momentum
+        // after it (10.7+, like the precise deltas; a wheel has neither).
+        let (ns_phase, ns_momentum_phase) = if has_modern_scroll {
+            unsafe { (event.phase(), event.momentumPhase()) }
+        } else {
+            (
+                objc2_app_kit::NSEventPhase::None,
+                objc2_app_kit::NSEventPhase::None,
+            )
+        };
+
         // Trackpad/precise deltas are already pixels; a ratcheting wheel (and the
         // pre-10.7 fallback) reports LINES and must be scaled to match X11/Win32.
         use crate::desktop::shell2::common::event::discrete_scroll_delta_to_pixels;
@@ -684,6 +715,13 @@ impl MacOSWindow {
                         );
                     }
                 }
+                // The OS's own phases for `CallbackInfo::get_scroll_phase` /
+                // `get_scroll_momentum_phase`: the source above only says
+                // finger, momentum or end - not `Began`, nor which ended.
+                layout_window.scroll_manager.set_pending_wheel_phases(
+                    scroll_phase_of(ns_phase),
+                    scroll_phase_of(ns_momentum_phase),
+                );
             }
 
             // Start the scroll momentum timer if this is the first input

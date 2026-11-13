@@ -7208,6 +7208,41 @@ impl CallbackInfo {
         self.get_scroll_manager().pending_wheel_event
     }
 
+    /// Where the delta of the current `Scroll` callback lies in the fingers'
+    /// gesture: `Began` as the fingers start to scroll, `Changed` while they
+    /// move, `Ended` as they lift (usually a zero delta). `None` for a wheel
+    /// step, for a momentum delta (see [`Self::get_scroll_momentum_phase`]),
+    /// on a platform that reports no phase, and outside a scroll dispatch.
+    ///
+    /// What a widget that pans by the deltas starts and settles a pan at,
+    /// instead of guessing the end of a gesture from a pause in its deltas.
+    /// macOS reports it (`NSEvent.phase`); Wayland reports the end
+    /// (`axis_stop`).
+    #[must_use]
+    pub const fn get_scroll_phase(&self) -> azul_core::events::ScrollPhase {
+        let manager = self.get_scroll_manager();
+        if manager.pending_wheel_event.is_some() {
+            manager.pending_wheel_phase
+        } else {
+            azul_core::events::ScrollPhase::None
+        }
+    }
+
+    /// Where the delta of the current `Scroll` callback lies in the OS's
+    /// momentum after the fingers lifted (macOS `NSEvent.momentumPhase`):
+    /// `Began` and `Changed` for the deltas the fingers did not make, `Ended`
+    /// when the momentum ran out or a finger stopped it. `None` while the
+    /// fingers scroll, for a wheel step and outside a scroll dispatch.
+    #[must_use]
+    pub const fn get_scroll_momentum_phase(&self) -> azul_core::events::ScrollPhase {
+        let manager = self.get_scroll_manager();
+        if manager.pending_wheel_event.is_some() {
+            manager.pending_wheel_momentum_phase
+        } else {
+            azul_core::events::ScrollPhase::None
+        }
+    }
+
     /// The pending wheel / trackpad scroll as the change of a scroll offset
     /// it asks for: `+y` toward the end (down the page), `+x` to the right,
     /// the user's direction preference applied - the way the engine moves a

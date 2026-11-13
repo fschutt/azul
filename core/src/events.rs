@@ -202,6 +202,36 @@ pub enum ScrollDeltaMode {
     Page,
 }
 
+/// Where a wheel or trackpad scroll delta lies in its gesture.
+///
+/// A trackpad scroll is a gesture: the fingers come down, move and lift, and
+/// the OS may then go on with a momentum tail of deltas the fingers did not
+/// make. A wheel step is no gesture at all. An app that pans by the deltas
+/// needs to know which is which: to start a pan at `Began`, to settle it at
+/// `Ended` (instead of a timer guessing when the deltas stopped), and to
+/// take or ignore the momentum.
+///
+/// Read with `CallbackInfo::get_scroll_phase` (the fingers) and
+/// `CallbackInfo::get_scroll_momentum_phase` (the momentum after them), as
+/// macOS reports them (`NSEvent.phase` / `momentumPhase`). Wayland reports
+/// the end of a finger scroll (`axis_stop`), as `Ended`; a platform that
+/// reports no phase (Windows, X11's core wheel, a ratcheting wheel anywhere)
+/// gives `None`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[repr(C)]
+pub enum ScrollPhase {
+    /// Not part of a gesture: a wheel step, or a platform that does not say.
+    #[default]
+    None,
+    /// The first delta of the gesture (macOS `NSEventPhaseBegan`).
+    Began,
+    /// A delta in the middle of the gesture (`Changed`, `Stationary`).
+    Changed,
+    /// The gesture is over (`Ended` or `Cancelled`): the fingers lifted, or
+    /// the momentum ran out or was stopped by a finger. Usually a zero delta.
+    Ended,
+}
+
 /// Scroll direction for conditional event filtering.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]

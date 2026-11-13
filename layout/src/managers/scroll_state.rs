@@ -52,7 +52,7 @@ use std::sync::{Arc, Mutex};
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId, ScrollbarOrientation},
-    events::{EasingFunction, EventData, EventType, SyntheticEvent},
+    events::{EasingFunction, EventData, EventType, ScrollPhase, SyntheticEvent},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     styled_dom::NodeHierarchyItemId,
@@ -128,6 +128,23 @@ pub enum ScrollInputSource {
 }
 
 impl ScrollInputSource {
+    /// The (fingers, momentum) phases this source implies, for
+    /// [`ScrollManager::pending_wheel_phase`]: a finger delta is `Changed`, a
+    /// momentum delta a momentum `Changed`, the end of a touch `Ended`, and
+    /// anything else no gesture. A backend that has the OS's own phases
+    /// (`Began`, and which of the two ended) replaces these.
+    #[must_use]
+    pub const fn scroll_phases(self) -> (ScrollPhase, ScrollPhase) {
+        match self {
+            Self::TrackpadContinuous => (ScrollPhase::Changed, ScrollPhase::None),
+            Self::TrackpadMomentum => (ScrollPhase::None, ScrollPhase::Changed),
+            Self::TrackpadEnd => (ScrollPhase::Ended, ScrollPhase::None),
+            Self::WheelDiscrete | Self::Programmatic | Self::AnimateTo => {
+                (ScrollPhase::None, ScrollPhase::None)
+            }
+        }
+    }
+
     /// Whether this input is the USER moving the view with their own hand.
     ///
     /// The four gesture sources are; the two engine ones are not. A caret
@@ -590,6 +607,14 @@ pub struct ScrollManager {
     /// `Scroll` event is aimed at THAT seat's hovered node. `Default` (0) is
     /// the primary.
     pub pending_wheel_seat: u64,
+    /// Where the pending wheel delta lies in the fingers' gesture, and in the
+    /// OS momentum after it (`CallbackInfo::get_scroll_phase` /
+    /// `get_scroll_momentum_phase`). Meaningful only while
+    /// [`Self::pending_wheel_event`] is set: they are written with it, and a
+    /// pass that clears the delta leaves them stale but unread.
+    pub pending_wheel_phase: ScrollPhase,
+    /// See [`Self::pending_wheel_phase`].
+    pub pending_wheel_momentum_phase: ScrollPhase,
     /// The container input the CURRENT input pass queued, if any.
     ///
     /// The wheel is queued against a scroll container at INGRESS — before any
@@ -996,6 +1021,15 @@ impl ScrollManager {
         self.scroll_input_queue.cancel(&input)
     }
 
+    /// The OS's own phases of the pending wheel delta - where in the fingers'
+    /// gesture it lies, and in the momentum after it - replacing what its
+    /// [`ScrollInputSource`] implied. Call after
+    /// [`Self::record_scroll_from_hit_test`], which records the delta.
+    pub const fn set_pending_wheel_phases(&mut self, phase: ScrollPhase, momentum: ScrollPhase) {
+        self.pending_wheel_phase = phase;
+        self.pending_wheel_momentum_phase = momentum;
+    }
+
     /// Forget which input this pass queued, WITHOUT cancelling it: the pass
     /// is over, so the next one's `preventDefault` must not reach back into
     /// a scroll the user already got.
@@ -1044,6 +1078,9 @@ impl ScrollManager {
             x: delta_x,
             y: delta_y,
         });
+        // The phases as far as the source tells them; a backend that knows
+        // them exactly (macOS) overwrites them with `set_pending_wheel_phases`.
+        (self.pending_wheel_phase, self.pending_wheel_momentum_phase) = source.scroll_phases();
         self.pending_wheel_seat = match input_point_id {
             InputPointId::Seat(id) => *id,
             _ => azul_core::window::PRIMARY_POINTER_SEAT,
@@ -5055,6 +5092,48 @@ mod autotest_generated {
             !m.get_input_queue().has_pending(),
             "nothing queued for physics"
         );
+    }
+
+    /// The pending wheel delta carries its gesture phases: what its source
+    /// implies, until the backend sets the OS's own (macOS `phase` /
+    /// `momentumPhase`, which alone know `Began`).
+    #[test]
+    fn the_pending_wheel_delta_carries_its_gesture_phases() {
+        use azul_core::events::ScrollPhase;
+        let hover = HoverManager::new();
+        let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
+        for (source, phases) in [
+            (ScrollInputSource::WheelDiscrete, (ScrollPhase::None, ScrollPhase::None)),
+            (ScrollInputSource::TrackpadContinuous, (ScrollPhase::Changed, ScrollPhase::None)),
+            (ScrollInputSource::TrackpadMomentum, (ScrollPhase::None, ScrollPhase::Changed)),
+            (ScrollInputSource::TrackpadEnd, (ScrollPhase::Ended, ScrollPhase::None)),
+        ] {
+            let _ = m.record_scroll_from_hit_test_test_shim(
+                0.0,
+                -4.0,
+                source,
+                &hover,
+                &InputPointId::Mouse,
+                at(1),
+            );
+            assert_eq!(
+                (m.pending_wheel_phase, m.pending_wheel_momentum_phase),
+                phases,
+                "{source:?}"
+            );
+        }
+        m.set_pending_wheel_phases(ScrollPhase::Began, ScrollPhase::None);
+        assert_eq!(m.pending_wheel_phase, ScrollPhase::Began);
+        // The next delta starts from its own source again.
+        let _ = m.record_scroll_from_hit_test_test_shim(
+            0.0,
+            -4.0,
+            ScrollInputSource::WheelDiscrete,
+            &hover,
+            &InputPointId::Mouse,
+            at(2),
+        );
+        assert_eq!(m.pending_wheel_phase, ScrollPhase::None);
     }
 
     #[test]
