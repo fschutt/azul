@@ -306,9 +306,9 @@ fn assert_no_write_reaches_the_bucket(opened: &Opened, what: &str) {
 /// X-DELTA-STRUCT3-10. A NEW drive - an empty bucket - taken by the opening takes no plaintext file: the drive that
 /// comes out of `open_azlin_in` is the encryption's gate, a write is refused with the words of a new drive, and the
 /// bucket is as it was. (The opener's gate was a closure the caller supplied, `Arc<dyn Drive>` in and out: one that
-/// dropped the wrap sent every file to the bucket in the clear and passed every gate and test. It returns
-/// `Arc<AutoEncrypted>` now - the compile-fail doctest of `open_azlin` - and this is the behaviour of what it
-/// returns, entered through the function the window calls.)
+/// dropped the wrap sent every file to the bucket in the clear and passed every gate and test. The opener makes the
+/// gate itself now, from parts that carry no bytes and no id - the compile-fail doctests of `open_azlin` - and this is
+/// the behaviour of what it makes, entered through the function the window calls.)
 #[test]
 fn x_delta_struct3_10_a_new_drive_taken_by_the_opening_takes_no_plaintext_file() {
     let fake = FakeS3::with(&[]);

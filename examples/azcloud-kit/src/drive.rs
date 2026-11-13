@@ -2,8 +2,8 @@
 //! keyring entry, the node list, the grant - and the bytes, an azul-storage [`Drive`] over an S3 bucket
 //! whose temporary credentials (12 h) the account refreshes with the drive token before they run out,
 //! and once more when the bucket refuses them (a clock that is off, a revoked key). [`open_azlin`] opens
-//! both: the account is handed out as it is, the bytes only as the drive the app's gate made of them,
-//! so a job that holds the account has nothing to write with. Every refresh spends the drive token and
+//! both: the account is handed out as it is, the bytes only under the encryption's gate that [`open_azlin`]
+//! makes over them itself, so a job that holds the account has nothing to write with. Every refresh spends the drive token and
 //! answers the next one; spending a spent one makes the token server revoke this device.
 //!
 //! So a refresh is one at a time across every process of the user (two AzDrive windows, two
@@ -43,7 +43,12 @@ use azul_storage::{
 };
 
 #[cfg(feature = "encryption")]
-use azul_storage::AutoEncrypted;
+use azul_storage::{
+    encrypted::{IndexProvider, Recorded, TellKeyId},
+    keyring::KeyringStore,
+    meta::{MetaIndexProvider, RestoreSource},
+    AutoEncrypted,
+};
 
 use crate::{
     bundle::DriveBundle,
@@ -82,7 +87,7 @@ struct Current {
 /// refreshed at, the node list its requests fail over to, the grant and the restore announcement the
 /// token server last told - what a lockdown, a count of the stored bytes, a month bought and a sync
 /// session's restore notice are about. It refreshes the credentials of its bucket by itself and hands
-/// them to the bytes ([`AzlinDrive`], the store [`open_azlin`] gates). It has no `put` and no `get`: a
+/// them to the bytes ([`AzlinDrive`], the store [`open_azlin`] puts its gate over). It has no `put` and no `get`: a
 /// job that holds one cannot write into the drive's bucket, which is how a price notice reached an
 /// encrypted drive's bucket in the clear, below the gate (X-DELTA-AZDRIVE-KEYS-4). `Debug` shows no
 /// secret.
@@ -798,7 +803,7 @@ impl AzlinAccount {
 
 /// The bytes of an Azlin drive: its bucket, asked for every request with the credentials the
 /// [`AzlinAccount`] holds now (refreshed when they run out, once more when the bucket refuses them). The
-/// store [`open_azlin`] hands to the app's gate and to nothing else: crate-private, so no job, no window
+/// store [`open_azlin`] puts its own gate over and hands to nothing else: crate-private, so no job, no window
 /// and no other app can name it, and nobody outside this crate can `put` or `get` on the plain store of an
 /// encrypted drive - the price notice that reached a bucket in the clear did so through this handle, below
 /// the gate (X-DELTA-AZDRIVE-KEYS-4). The drive's own vault is the one exception, and it is written by the
@@ -1147,87 +1152,196 @@ pub struct AzlinOpen<'a> {
     pub iroh: Option<(Arc<dyn IrohDialer>, Option<&'a str>)>,
 }
 
-/// Not nameable outside this file: what makes [`EncryptionGate`] sealed.
-mod sealed {
-    pub trait Sealed {}
+// ==== The opening: the account, the bytes, and the gate the kit makes over them (X-DELTA-STRUCT4-1) ====
+
+/// Makes the provider of an encrypted drive's index (the drive's metadata repository in its bucket, and this computer's
+/// copy of it) once the drive's restore announcement is known: [`open_azlin`] hands it the announcement as the
+/// account last heard it from the token server ([`AzlinAccount::restore_notice`]) and the provider is made WITH it - a
+/// provider made without one refused a drive the operator had restored, for good (X-DELTA-AZDRIVE-SYNC-3). The app
+/// says how its devices keep the indexes; where the announcement comes from is the account's.
+#[cfg(feature = "encryption")]
+pub type ProviderOf = Box<dyn FnOnce(RestoreSource) -> Arc<dyn IndexProvider>>;
+
+/// What the encryption's gate over an Azlin drive is made of, apart from the two things only the opener knows: the
+/// bucket's bytes and the drive's id. [`open_azlin`] makes the gate ITSELF from these parts - the retries and the
+/// copies kept on this computer below it, the encryption's gate (azul-storage's `AutoEncrypted`) on top - over THIS
+/// account's bytes, under THIS account's drive id ([`AzlinAccount::drive_id`], the resolver's), with what THIS entry's
+/// record says of the drive. None of the parts carries bytes or an id, so there is no closure to write that could wrap
+/// other bytes, name another drive's id (and so another drive's key) or let the plain bytes leave
+/// (X-DELTA-STRUCT4-1: the gate was a closure the caller supplied; its return type said "an `AutoEncrypted`", and
+/// `AutoEncrypted::new(bytes, "d_other", ..)` is as good an `AutoEncrypted` as any).
+#[cfg(feature = "encryption")]
+pub struct GateParts {
+    /// The keyring the drive's key is kept in: this computer's (the Azlin apps share it).
+    pub keyring: Arc<dyn KeyringStore>,
+    /// The provider of the drive's encrypted index ([`ProviderOf`]).
+    pub provider: ProviderOf,
+    /// Told the id of the drive key whenever the drive opens encrypted, to write down: the drive then opens as an
+    /// encrypted one for good. It must not call the drive.
+    pub on_encrypted: TellKeyId,
+    /// The folder this computer keeps its copies of the drives' indexes in (`<cache>/drive-index`). The drive's AZL1
+    /// objects kept below the gate (a synced encrypted drive's "encrypted local copies") go to a folder of their own
+    /// below it, named by the drive's id ([`objects_dir`]); `None`: none are kept, every object is read from the bucket.
+    pub copies: Option<PathBuf>,
 }
 
-/// The encryption's gate: a drive that takes a write only when its drive is encrypted. Only azul-storage's
-/// `AutoEncrypted` is one (feature `encryption`), and the trait is SEALED: no type of any other crate - and no
-/// `Arc<dyn Drive>` - can be made one, so a function that asks for the gate cannot be handed anything else.
-pub trait EncryptionGate: Drive + sealed::Sealed + 'static {}
+/// Without the encryption there is no gate to make, so there are no parts: the type is empty and [`open_azlin`] cannot
+/// be called. (A build made without the encryption opens no Azlin drive: an Azlin drive is encrypted, always.)
+#[cfg(not(feature = "encryption"))]
+pub enum GateParts {}
 
+/// What [`open_azlin`] hands out: the account (no put, no get), the drive its files are read and written through - the
+/// encryption's gate over the account's own bytes - and the copies kept below the gate. The plain bucket is no field:
+/// nothing but the gate holds it, and the gate holds it privately ([`AutoEncrypted::bucket`] is for the key flows, which
+/// `enc_state_gate` counts). Made by [`open_azlin`] and by no other crate: the struct is `#[non_exhaustive]`, so its
+/// fields are read and never written out.
 #[cfg(feature = "encryption")]
-impl sealed::Sealed for AutoEncrypted {}
+#[non_exhaustive]
+pub struct OpenedAzlin {
+    /// The drive's account: its session, its token server, its lockdown and the stored bytes it counts; no `put`, no `get`.
+    pub account: Arc<AzlinAccount>,
+    /// The drive: [`AutoEncrypted`], which takes a write only when the drive is encrypted, over THIS account's bytes under
+    /// THIS account's drive id.
+    pub gate: Arc<AutoEncrypted>,
+    /// The drive's AZL1 objects kept on this computer below the gate, when [`GateParts::copies`] named a folder.
+    pub objects: Option<Arc<ObjectCache>>,
+}
 
-#[cfg(feature = "encryption")]
-impl EncryptionGate for AutoEncrypted {}
+/// Without the encryption nothing is opened: see [`GateParts`].
+#[cfg(not(feature = "encryption"))]
+pub enum OpenedAzlin {}
 
 /// What [`open_azlin`] refuses to compile, and the control of it. They are doc tests of this item and only of it: the
-/// encryption's own drive (`azul_storage::AutoEncrypted`) exists with the feature `encryption` only, and without it no
-/// type is a gate, so there is nothing to show (and a `compile_fail` example that fails for another reason proves nothing).
+/// encryption's own drive (`azul_storage::AutoEncrypted`) exists with the feature `encryption` only, and without it
+/// there are no parts to make, so there is nothing to show (and a `compile_fail` example that fails for another reason
+/// proves nothing).
 ///
-/// ```compile_fail,E0277
-/// // A gate that gives the bucket's bytes back as they are: no encryption in front of the drive.
+/// ```compile_fail,E0308
+/// // The old call: a closure that makes the gate from the account and the bytes. There is none to write now.
 /// use azcloud_kit::{open_azlin, AzlinOpen};
 /// use azul_storage::config::DriveEntry;
-/// fn plain(entry: &DriveEntry, open: AzlinOpen<'_>) {
+/// fn closure(entry: &DriveEntry, open: AzlinOpen<'_>) {
 ///     let _ = open_azlin(entry, open, |_account, bytes| bytes);
 /// }
 /// ```
 ///
-/// ```compile_fail,E0277
-/// // Nor a drive of any other kind: only the encryption's gate is one.
+/// ```compile_fail,E0560
+/// // Nor a drive id of the caller's: the gate is made under the account's own, the parts have no field for another.
 /// use std::sync::Arc;
-/// use azcloud_kit::{open_azlin, AzlinOpen};
-/// use azul_storage::{config::DriveEntry, meta::MemoryBucket};
-/// fn other(entry: &DriveEntry, open: AzlinOpen<'_>) {
-///     let _ = open_azlin(entry, open, |_account, _bytes| Arc::new(MemoryBucket::new()));
+/// use azcloud_kit::{open_azlin, AzlinOpen, GateParts, ProviderOf};
+/// use azul_storage::{config::DriveEntry, encrypted::TellKeyId, keyring::KeyringStore};
+/// fn another_drive(
+///     entry: &DriveEntry,
+///     open: AzlinOpen<'_>,
+///     keyring: Arc<dyn KeyringStore>,
+///     provider: ProviderOf,
+///     tell: TellKeyId,
+/// ) {
+///     let _ = open_azlin(
+///         entry,
+///         open,
+///         GateParts {
+///             keyring,
+///             provider,
+///             on_encrypted: tell,
+///             copies: None,
+///             drive_id: String::from("d_other"),
+///         },
+///     );
+/// }
+/// ```
+///
+/// ```compile_fail,E0609
+/// // The bucket's plain bytes are no value of the result.
+/// use azcloud_kit::{open_azlin, AzlinOpen, GateParts};
+/// use azul_storage::config::DriveEntry;
+/// fn plain_bytes(entry: &DriveEntry, open: AzlinOpen<'_>, parts: GateParts) {
+///     if let Ok(opened) = open_azlin(entry, open, parts) {
+///         let _plain = opened.bytes;
+///     }
+/// }
+/// ```
+///
+/// ```compile_fail,E0639
+/// // Nor is the result made by hand: a gate of the caller's in the place of the opener's.
+/// use std::sync::Arc;
+/// use azcloud_kit::{AzlinAccount, OpenedAzlin};
+/// use azul_storage::AutoEncrypted;
+/// fn by_hand(account: Arc<AzlinAccount>, gate: Arc<AutoEncrypted>) -> OpenedAzlin {
+///     OpenedAzlin {
+///         account,
+///         gate,
+///         objects: None,
+///     }
 /// }
 /// ```
 ///
 /// ```no_run
-/// // The control of the two above: the same call with a gate that returns the encryption's own drive.
+/// // The control of the four above: the call with the parts, and the three values it gives.
 /// use std::sync::Arc;
-/// use azcloud_kit::{open_azlin, AzlinOpen};
-/// use azul_storage::{config::DriveEntry, keyring::KeyringStore, AutoEncrypted};
-/// fn encrypted(entry: &DriveEntry, open: AzlinOpen<'_>, keyring: Arc<dyn KeyringStore>) {
-///     let _ = open_azlin(entry, open, |_account, bytes| {
-///         Arc::new(AutoEncrypted::new(bytes, "d_1", keyring, None))
-///     });
+/// use azcloud_kit::{open_azlin, AzlinOpen, GateParts, ProviderOf};
+/// use azul_storage::{config::DriveEntry, encrypted::TellKeyId, keyring::KeyringStore};
+/// fn encrypted(
+///     entry: &DriveEntry,
+///     open: AzlinOpen<'_>,
+///     keyring: Arc<dyn KeyringStore>,
+///     provider: ProviderOf,
+///     tell: TellKeyId,
+/// ) {
+///     let parts = GateParts {
+///         keyring,
+///         provider,
+///         on_encrypted: tell,
+///         copies: None,
+///     };
+///     let opened = open_azlin(entry, open, parts);
+///     let _ = opened.map(|opened| (opened.account, opened.gate, opened.objects));
 /// }
 /// ```
 #[cfg(all(doctest, feature = "encryption"))]
 struct OpenAzlinGate;
 
-/// Opens the Azlin drive `entry` and hands out its two halves: the [`AzlinAccount`] and the drive of its
-/// bytes - which comes out of `gate` and never otherwise. `gate` is given the account and the bucket's
-/// bytes (the credentials refreshed by themselves, the requests failing over) and returns the app's
-/// drive: the layers it puts over them - the retries, the copies kept on this computer - are its own, and
-/// the top of them is the encryption's gate, an [`EncryptionGate`] (azul-storage's `AutoEncrypted`): the
-/// return type says so, so a gate that hands the bytes back as they are, or any drive that is not the
-/// encryption's, does not compile (it was a closure that returned an `Arc<dyn Drive>`, and one built without
-/// the encryption's wrap sent every file of the drive to the bucket in the clear and passed every gate and
-/// test: X-DELTA-STRUCT3-10). The bytes are called once, by `gate`, and the bucket's plain store is no value
-/// this function returns: a caller that holds the account has nothing to write with, and the drive it holds
-/// is the gate's (X-DELTA-AZDRIVE-KEYS-4).
+/// Where an encrypted Azlin drive's AZL1 objects are kept on this computer: the drive's own cache folder - named by a
+/// hash of its id - under `copies` (the folder of the copies of the drives' indexes), beside its index copy and its
+/// search index, so they go with the drive; `None` without a folder (none are kept). The one derivation: [`open_azlin`]
+/// asks it with the ACCOUNT's id (AzDrive derived it from the id it held and named the folder itself).
+#[cfg(feature = "encryption")]
+pub(crate) fn objects_dir(copies: Option<&Path>, drive_id: &str) -> Option<PathBuf> {
+    MetaIndexProvider::drive_cache_dir_in(copies, drive_id).map(|dir| dir.join("objects"))
+}
+
+/// Opens the Azlin drive `entry` and hands out its two halves: the [`AzlinAccount`] and the drive of its bytes - which is
+/// the encryption's gate this function makes over them from `parts` ([`GateParts`]) and never otherwise: from below,
+/// the retries (a 5xx, a dropped connection, a 429's `Retry-After`: each index page, pack and blob is retried on
+/// its own), the AZL1 objects kept on this computer ([`GateParts::copies`]; nothing is kept until a sync asks) and the
+/// gate. It is made over THIS account's bytes (the credentials refreshed by themselves, the requests failing over)
+/// under THIS account's drive id (the keys are kept and bound under it in every app), with the record THIS entry
+/// carries (a drive recorded as encrypted is locked without its key, never read as a new one), and its index provider
+/// is made with THIS account's restore announcement. The caller names none of them: it gave a closure that got the
+/// bytes and the account and returned "an `AutoEncrypted`", and a closure that wrapped other bytes, named another
+/// drive's id or let the plain bytes leave type-checked and passed every test (X-DELTA-STRUCT4-1; before it, one that
+/// returned the bytes as they were sent every file of the drive to the bucket in the clear: X-DELTA-STRUCT3-10).
+/// The bucket's plain store is no value this function returns: a caller that holds the account has nothing to write
+/// with, and the drive it holds is the gate (X-DELTA-AZDRIVE-KEYS-4). Encrypted, always: the gate decides the drive
+/// from the bucket and the keyring at its first call (a worker thread, never the caller's), locked without this
+/// computer's key, and refuses a write until the drive is encrypted.
 ///
-/// The examples that show what does not compile - a gate that gives the bytes back, a drive of another kind - are the
-/// doc tests of `OpenAzlinGate` below (they need the encryption's own drive).
+/// The examples that show what does not compile - the old call with a closure, a drive id of the caller's, the plain
+/// bytes as a result - are the doc tests of `OpenAzlinGate` above (they need the encryption's own drive).
 ///
 /// The token server is [`azlin_target`]'s choice and no other function's (X-DELTA-AZDRIVE-KEYS-9).
 ///
 /// # Errors
 ///
-/// An entry that is no Azlin drive (a folder; a bucket of another provider), or names no token server to refresh
-/// its credentials at, and a session of another drive than the entry's: the drives file's `drive_id` and the
-/// keyring's session are compared before the account is made, and nothing is made or sent when they differ
+/// An entry that is no Azlin drive (a folder; a bucket of another provider), or names no token server to refresh its
+/// credentials at, and a session of another drive than the entry's: the drives file's `drive_id` and the keyring's
+/// session are compared before the account is made, and nothing is made or sent when they differ
 /// (X-DELTA-STRUCT4-2).
-pub fn open_azlin<G: EncryptionGate>(
+pub fn open_azlin(
     entry: &DriveEntry,
     open: AzlinOpen<'_>,
-    gate: impl FnOnce(&Arc<AzlinAccount>, Arc<dyn Drive>) -> Arc<G>,
-) -> Result<(Arc<AzlinAccount>, Arc<G>), DriveError> {
+    parts: GateParts,
+) -> Result<OpenedAzlin, DriveError> {
     let target = target_of(entry, open.token_url)?;
     let mut account = AzlinAccount::new(
         entry,
@@ -1245,6 +1359,59 @@ pub fn open_azlin<G: EncryptionGate>(
     }
     let account = Arc::new(account);
     let bytes: Arc<dyn Drive> = Arc::new(AzlinDrive::over(Arc::clone(&account)));
-    let gated = gate(&account, bytes);
-    Ok((account, gated))
+    gate_over(account, bytes, entry, parts)
+}
+
+/// The gate over `bytes`, the bytes of `account`'s bucket: made here and nowhere else.
+#[cfg(feature = "encryption")]
+fn gate_over(
+    account: Arc<AzlinAccount>,
+    bytes: Arc<dyn Drive>,
+    entry: &DriveEntry,
+    parts: GateParts,
+) -> Result<OpenedAzlin, DriveError> {
+    // What the drives file says of THIS drive's encryption: read from the entry the account was made from. A drive
+    // that is no Azlin drive has no record, and `target_of` refused it before the account was made.
+    let record = entry.encryption_record().ok_or_else(|| {
+        DriveError::InvalidConfig(format!(
+            "\"{}\" is not an Azlin drive: it has no record of its encryption",
+            entry.name
+        ))
+    })?;
+    let drive_id = account.drive_id().to_string();
+    let below: Arc<dyn Drive> = Arc::new(RetryingDrive::new(bytes));
+    let (below, objects) = match objects_dir(parts.copies.as_deref(), &drive_id) {
+        Some(dir) => {
+            let objects = Arc::new(ObjectCache::new(below, dir));
+            (objects.clone() as Arc<dyn Drive>, Some(objects))
+        }
+        None => (below, None),
+    };
+    let restore = {
+        let announcer = Arc::clone(&account);
+        RestoreSource::new(move || announcer.restore_notice())
+    };
+    let provider = (parts.provider)(restore);
+    let gate = AutoEncrypted::new(below, &drive_id, parts.keyring, Some(provider))
+        .with_record(Recorded::from_entry(
+            record.encrypted,
+            record.key_id.as_deref(),
+        ))
+        .on_encrypted(parts.on_encrypted);
+    Ok(OpenedAzlin {
+        account,
+        gate: Arc::new(gate),
+        objects,
+    })
+}
+
+/// Without the encryption there are no parts ([`GateParts`] is empty), so this is never reached.
+#[cfg(not(feature = "encryption"))]
+fn gate_over(
+    _account: Arc<AzlinAccount>,
+    _bytes: Arc<dyn Drive>,
+    _entry: &DriveEntry,
+    parts: GateParts,
+) -> Result<OpenedAzlin, DriveError> {
+    match parts {}
 }

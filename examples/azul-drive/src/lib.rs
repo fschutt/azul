@@ -717,12 +717,13 @@ impl Slot {
         }))
     }
 
-    /// The Azlin drive of this slot, opened over `world`: the account and the bytes
-    /// (`azcloud_kit::open_azlin`: the ONE place the drive's token server is resolved), and the layers over
-    /// the bytes from [`encryption::azlin_stack`] - the retries, the encrypted copies kept here and the
-    /// encryption's gate, the only drive `open_azlin` takes from its gate - never the bucket's plain store
-    /// (X-DELTA-AZDRIVE-KEYS-4, -9; ARCH29 C6d; X-DELTA-STRUCT3-10). The slot keeps the account, the gate and
-    /// the copies, and the gate is its drive.
+    /// The Azlin drive of this slot, opened over `world` by `azcloud_kit::open_azlin`: the ONE place the drive's
+    /// token server is resolved, and the one that makes the drive's layers - the retries, the encrypted copies kept
+    /// here and the encryption's gate - over the account's own bytes, under the account's own drive id. This function
+    /// gives it parts that carry neither ([`encryption::gate_parts`]: the keyring, how the index is kept, where the key
+    /// ids are told to) and takes the account, the gate and the copies back: the bucket's plain store never passes
+    /// through anything of this app (X-DELTA-AZDRIVE-KEYS-4, -9; ARCH29 C6d; X-DELTA-STRUCT3-10; X-DELTA-STRUCT4-1).
+    /// The slot keeps the three, and the gate is its drive.
     #[cfg(feature = "encryption")]
     pub(crate) fn open_azlin_in(
         &mut self,
@@ -747,8 +748,7 @@ impl Slot {
         let queue = rotated.clone();
         let id = self.entry.id.clone();
         let entry = &self.entry;
-        let mut objects = None;
-        let (account, auto) = azcloud_kit::open_azlin(
+        let opened = azcloud_kit::open_azlin(
             entry,
             azcloud_kit::AzlinOpen {
                 session,
@@ -769,16 +769,12 @@ impl Slot {
                 nodes_file: Some(&world.nodes_file),
                 iroh: world.iroh,
             },
-            |account, bytes| {
-                let stack = encryption::azlin_stack(world.layers, account, bytes, entry, records);
-                objects = stack.objects;
-                stack.auto
-            },
+            encryption::gate_parts(world.layers, &entry.id, records),
         )?;
-        self.azlin = Some(account);
-        self.objects = objects;
-        self.auto = Some(auto.clone());
-        Ok(auto)
+        self.azlin = Some(opened.account);
+        self.objects = opened.objects;
+        self.auto = Some(opened.gate.clone());
+        Ok(opened.gate)
     }
 
     /// An S3 drive's keys (an Azlin drive's current ones), for a presigned link.

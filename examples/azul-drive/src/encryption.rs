@@ -68,6 +68,8 @@ use azul_appkit::{
     client_health::{client_health, Device},
     l10n::{t, t_args, t_label, t_text, Arg, Phrase, Text},
 };
+#[cfg(test)]
+use azul_storage::config::EncryptionRecord;
 use azul_storage::{
     azul_keyring::azlin_keyring,
     azul_transport::AzulTransport,
@@ -79,8 +81,7 @@ use azul_storage::{
         keystate::{self, Evidence, Op, PaidMonths, Read, TokenFacts, VaultFacts, Verdict},
         random_bytes, CryptoError, KeyId, Zeroizing,
     },
-    config::{DriveEntry, EncryptionRecord},
-    encrypted::{open_encrypted, AutoEncrypted, IndexProvider, Recorded},
+    encrypted::{open_encrypted, AutoEncrypted, IndexProvider, Recorded, TellKeyId},
     packing::{pack_reads, PackUpkeep},
     keyring::KeyringStore,
     scratch::Scratch,
@@ -195,13 +196,6 @@ pub(crate) fn search_index_dir(root: Option<PathBuf>, drive: &str) -> Option<Pat
     crate::footprint::drive_cache_dir(root, drive).map(|dir| dir.join("search"))
 }
 
-/// Where the encrypted drive `drive`'s local copies kept encrypted (its AZL1 objects) are: in
-/// the drive's own cache folder under `root`, beside its drive index and search index
-/// (`<root>/<hash of the drive>/objects`); `None` without a cache folder (none are kept).
-pub(crate) fn objects_dir(root: Option<PathBuf>, drive: &str) -> Option<PathBuf> {
-    crate::footprint::drive_cache_dir(root, drive).map(|dir| dir.join("objects"))
-}
-
 /// What the layers over an Azlin drive's bytes are made of on this computer: the keyring its keys are kept
 /// in and the folder of its index copies and encrypted local copies ([`drive_index_root`]; none: kept in
 /// memory, no copy). A test gives it its own.
@@ -221,67 +215,48 @@ impl Layers {
     }
 }
 
-/// An Azlin drive as the app holds it, made by [`azlin_stack`]: the encryption's gate - the drive every call
-/// goes through - and the encrypted local copies kept below it.
-pub(crate) struct AzlinStack {
-    /// The drive: [`AutoEncrypted`], which takes a write only when the drive is encrypted. The type is the
-    /// guarantee: `open_azlin` takes nothing else from its gate (X-DELTA-STRUCT3-10).
-    pub auto: Arc<AutoEncrypted>,
-    /// The drive's AZL1 objects kept on this computer below the encryption (a synced encrypted drive's
-    /// "encrypted local copies"), when there is a folder for them.
-    pub objects: Option<Arc<azcloud_kit::sync::objects::ObjectCache>>,
-}
-
-/// An Azlin drive's bytes as the drive the app uses, over `layers` (this computer's, [`Layers::here`]; a
-/// test's own): THE ONE composition of the layers above them, and
-/// the only function that makes the gate of `open_azlin` (a closure that returned the bytes, or any
-/// drive built without the encryption's wrap, sent every file to the bucket in the clear and passed every
-/// test: X-DELTA-STRUCT3-10). From below: the retries (a 5xx, a dropped connection, a 429's `Retry-After`:
-/// each index page, pack and blob is retried on its own), the AZL1 objects kept on this computer
-/// ([`Layers::index_root`]; nothing is kept until a sync asks) and the encryption's gate. Encrypted,
-/// always - opened on its first call (a worker thread, never this one: the drive is decided from the
-/// bucket and the keyring AT THAT MOMENT, so a drive another device sets up or rotates between this
-/// opening and that call is met as it is then) with this computer's key, locked without it, and (while it
-/// has no key and no file) set up at once; never a plain drive that takes files, whatever its bucket lists.
-/// `account` is the drive's: its id at the token server (the keys are kept and bound under it in every app:
-/// [`azcloud_kit::AzlinAccount::drive_id`], the one derivation) and its restore announcement (the token server's
-/// word, as the drive's last refresh answered it, never the bucket's: the drive's index copy asks it, so a drive
-/// the operator restored from its off-site copy is read anew once instead of being refused as a rollback for
-/// good). `entry` is the drive's entry: what the drives file says of its encryption - a drive recorded as
-/// encrypted is locked without its key, and every time the drive opens encrypted, the id of its key goes to
-/// `records`, for the UI thread to write into the drives file ([`crate::take_key_records`]).
-pub(crate) fn azlin_stack(
+/// What `azcloud_kit::open_azlin` makes the encryption's gate over an Azlin drive from, on this computer: the keyring the
+/// drive's key is kept in, how this app keeps the drives' indexes (the provider, made with the restore announcement of
+/// the drive's own account), the folder of the copies it keeps, and where the key ids the drive opens with are told to
+/// (`slot`: the slot's own name, the drives file's `id`, which the UI thread writes the key id under
+/// - [`crate::take_key_records`]). THE one composition of what is AzDrive's of the layers; the rest - the retries, the
+/// encrypted copies below the gate, and the gate itself, over THIS account's bytes under THIS account's drive id with
+/// THIS entry's record - is made by the opener, which no caller of it can talk into another drive's id, another drive's
+/// bytes or a record of its own (X-DELTA-STRUCT4-1: the composition was a closure this app wrote, `azlin_stack`, and
+/// the type of its result said "an `AutoEncrypted`", not "this account's bytes under this account's id").
+pub(crate) fn gate_parts(
     layers: Layers,
-    account: &Arc<azcloud_kit::AzlinAccount>,
-    bytes: Arc<dyn Drive>,
-    entry: &DriveEntry,
+    slot: &str,
     records: &crate::KeyRecords,
-) -> AzlinStack {
-    let drive_id = account.drive_id();
-    let announcer = Arc::clone(account);
-    let restore = RestoreSource::new(move || announcer.restore_notice());
-    let below = crate::connection(bytes);
-    let (below, objects) = match objects_dir(layers.index_root.clone(), drive_id) {
-        Some(dir) => {
-            let objects = Arc::new(azcloud_kit::sync::objects::ObjectCache::new(below, dir));
-            (objects.clone() as Arc<dyn Drive>, Some(objects))
-        }
-        None => (below, None),
-    };
-    let auto = wrap_with(
-        layers.keyring,
-        Some(restoring_provider(layers.index_root, restore)),
-        drive_id,
-        below,
-        entry.encryption_record().unwrap_or_default(),
-        &entry.id,
-        records,
-    );
-    AzlinStack { auto, objects }
+) -> azcloud_kit::GateParts {
+    let index_root = layers.index_root.clone();
+    azcloud_kit::GateParts {
+        keyring: layers.keyring,
+        provider: Box::new(move |restore| restoring_provider(index_root, restore)),
+        on_encrypted: key_recorder(slot, records),
+        copies: layers.index_root,
+    }
 }
 
-/// An Azlin drive's bucket as the drive the app uses, over `keyring` and `provider` ([`azlin_stack`] is
-/// the composition production calls): what the glue is tested with.
+/// What a drive does when it opens encrypted: tells the UI thread the id of the key it opened with, to write into the
+/// drives file under the slot's name (`slot`), so the drive opens as an encrypted one for good.
+fn key_recorder(slot: &str, records: &crate::KeyRecords) -> TellKeyId {
+    let queue = records.clone();
+    let slot = slot.to_string();
+    Arc::new(move |key: &KeyId| {
+        if let Ok(mut queue) = queue.lock() {
+            queue.push(crate::KeyRecord {
+                drive_id: slot.clone(),
+                key_id: key.to_hex(),
+            });
+        }
+    })
+}
+
+/// An Azlin drive's bucket as the gate the tests use over a bucket they hold - a `MemoryBucket`, no account - under
+/// `drive_id`, over `keyring` and `provider` (production's is made by `azcloud_kit::open_azlin` from
+/// [`gate_parts`]): what the glue of the encryption flows is tested with.
+#[cfg(test)]
 pub(crate) fn wrap_with(
     keyring: Arc<dyn KeyringStore>,
     provider: Option<Arc<dyn IndexProvider>>,
@@ -291,23 +266,15 @@ pub(crate) fn wrap_with(
     slot: &str,
     records: &crate::KeyRecords,
 ) -> Arc<AutoEncrypted> {
-    let queue = records.clone();
-    let slot = slot.to_string();
     Arc::new(
         AutoEncrypted::new(bucket, drive_id, keyring, provider)
-        .with_record(recorded(&record))
-        .on_encrypted(Arc::new(move |key: &KeyId| {
-            if let Ok(mut queue) = queue.lock() {
-                queue.push(crate::KeyRecord {
-                    drive_id: slot.clone(),
-                    key_id: key.to_hex(),
-                });
-            }
-        })),
+            .with_record(recorded(&record))
+            .on_encrypted(key_recorder(slot, records)),
     )
 }
 
 /// What the drives file says of a drive's encryption, as azul-storage's `AutoEncrypted` takes it.
+#[cfg(test)]
 fn recorded(record: &EncryptionRecord) -> Recorded {
     // A key id that cannot be read is a damaged record, not "no id" (X-DELTA-AZDRIVE-KEYS-21).
     Recorded::from_entry(record.encrypted, record.key_id.as_deref())
@@ -4951,22 +4918,6 @@ mod tests {
         assert_ne!(a, b);
         assert_eq!(a.parent().and_then(std::path::Path::parent), Some(cache.as_path()));
         assert_eq!(search_index_dir(None, "drive-a"), None, "no cache folder, no index");
-    }
-
-    /// An encrypted drive's local copies kept encrypted (its AZL1 objects) live in the drive's
-    /// own cache folder too, beside its drive index - in the run's cache folder.
-    #[test]
-    fn an_encrypted_drives_kept_objects_live_in_the_drives_own_cache_folder() {
-        let cache = PathBuf::from("/run/cache/drive-index");
-        let a = objects_dir(Some(cache.clone()), "drive-a").expect("a folder");
-        assert!(a.starts_with(&cache) && a.ends_with("objects"), "{}", a.display());
-        assert_eq!(
-            a.parent(),
-            search_index_dir(Some(cache), "drive-a")
-                .as_deref()
-                .and_then(std::path::Path::parent)
-        );
-        assert_eq!(objects_dir(None, "drive-a"), None, "no cache folder, nothing kept");
     }
 
     /// This computer's copies of the drives' indexes (and the search indexes beside them) live

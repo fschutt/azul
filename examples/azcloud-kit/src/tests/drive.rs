@@ -759,24 +759,60 @@ fn a_test_build_takes_the_entrys_server_else_the_runs_and_only_an_azlin_drive_ha
     );
 }
 
-/// ARCH29 C6d, X-DELTA-AZDRIVE-KEYS-4 and -9, X-DELTA-STRUCT3-10. `open_azlin` hands out the account and the
-/// drive the gate made, nothing else: the gate is called once and is given the bytes of the bucket; it can
-/// only return the encryption's own drive (`AutoEncrypted`: the compile-fail doctest of `open_azlin`), and a
-/// request of the drive that comes out reaches the bucket with the drive's credentials; the account (a
-/// lockdown, the session, the token server it resolved) is the same drive's and has no put and no get.
+/// The parts a test gives `open_azlin`: `keyring`, a provider of an index in memory made with the restore source the
+/// kit hands it (`asked` counts how often one is made, `restores` keeps what it was handed), and a tell that keeps the
+/// key ids it hears in `told`.
+#[cfg(feature = "encryption")]
+fn gate_parts(
+    keyring: Arc<dyn KeyringStore>,
+    asked: &Arc<AtomicU64>,
+    restores: &Arc<Mutex<Vec<azul_storage::meta::RestoreSource>>>,
+    told: &Arc<Mutex<Vec<azul_storage::crypto::KeyId>>>,
+    copies: Option<std::path::PathBuf>,
+) -> crate::GateParts {
+    use azul_storage::{
+        crypto::KeyId,
+        meta::{IndexProfile, MetaIndexProvider, ReclaimOptions, RestoreSource},
+    };
+    let (asked, restores, told) = (asked.clone(), restores.clone(), told.clone());
+    crate::GateParts {
+        keyring,
+        provider: Box::new(move |restore: RestoreSource| {
+            asked.fetch_add(1, Ordering::SeqCst);
+            restores.lock().unwrap().push(restore.clone());
+            Arc::new(MetaIndexProvider::new(IndexProfile {
+                device_name: String::from("kit-test"),
+                cache_root: None,
+                lazy: false,
+                packing: false,
+                restore,
+                reclaim: ReclaimOptions::shadow(),
+            }))
+        }),
+        on_encrypted: Arc::new(move |key: &KeyId| told.lock().unwrap().push(*key)),
+        copies,
+    }
+}
+
+/// ARCH29 C6d, X-DELTA-AZDRIVE-KEYS-4 and -9, X-DELTA-STRUCT4-1. `open_azlin` hands out the account, the drive and the
+/// copies and nothing else, and the drive is the gate IT made: over this account's bytes (a request of the drive reaches
+/// the bucket with the credentials the account refreshed), under this account's drive id - which is the resolver's, not
+/// the slot's name (the entry's `id` here is another) - with the record this entry carries, and with an index provider
+/// made once, with a restore source that is set. The caller wrote no closure: the parts carry no bytes and no id.
 #[cfg(feature = "encryption")]
 #[test]
-fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
+fn c6d_open_azlin_hands_out_the_account_and_the_gate_it_made_over_the_accounts_own_bytes_and_id() {
     use crate::drive::{open_azlin, AzlinOpen};
-    use azul_storage::AutoEncrypted;
     let dir = TempDir::new("c6d-open-azlin");
     let fake = cloud_lasting();
     let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
     let (shared, _) = keyring_with(&first, &dir);
-    let gates = Arc::new(AtomicU64::new(0));
-    let counted = gates.clone();
-    let (account, drive) = open_azlin(
-        &first.entry_named("Cloud", TOKEN),
+    let (asked, restores, told) = Default::default();
+    // The slot's name is not the drive's id: the gate must be under the id.
+    let mut entry = first.entry_named("Cloud", TOKEN);
+    entry.id = String::from("slot-9");
+    let opened = open_azlin(
+        &entry,
         AzlinOpen {
             session: first.session(),
             token_url: TOKEN,
@@ -786,26 +822,39 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
             nodes_file: None,
             iroh: None,
         },
-        move |account, bytes| {
-            counted.fetch_add(1, Ordering::SeqCst);
-            assert_eq!(
-                account.token_url(),
-                TOKEN,
-                "the resolver's choice is the account's"
-            );
-            Arc::new(AutoEncrypted::new(
-                bytes,
-                "d_1",
-                Arc::new(MemoryKeyring::new()),
-                None,
-            ))
-        },
+        gate_parts(
+            Arc::new(MemoryKeyring::new()),
+            &asked,
+            &restores,
+            &told,
+            Some(dir.path().join("copies")),
+        ),
     )
     .unwrap();
+    let crate::OpenedAzlin {
+        account,
+        gate: drive,
+        objects,
+    } = opened;
     assert_eq!(
-        gates.load(Ordering::SeqCst),
-        1,
-        "the gate is made once, over the bytes"
+        account.token_url(),
+        TOKEN,
+        "the resolver's choice is the account's"
+    );
+    assert_eq!(drive.drive(), "d_1", "the gate is under the drive's id");
+    assert_eq!(drive.drive(), account.drive_id(), "the account's own");
+    assert!(
+        objects.is_some(),
+        "the copies below the gate: a folder was named"
+    );
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "one provider, made once");
+    assert!(
+        restores
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|restore| restore.is_set()),
+        "made with the account's restore source, which is set"
     );
     // Nothing is sent by the opening itself.
     assert!(fake.calls().is_empty(), "{:?}", fake.calls());
@@ -826,7 +875,7 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
         "dt_f.1.bbb"
     );
     assert_eq!(refreshes(&fake), 1, "{:?}", fake.calls());
-    // An entry that is no bucket is no Azlin drive: nothing is opened and the gate is not asked.
+    // An entry that is no bucket is no Azlin drive: nothing is opened and no provider is made.
     let local = azul_storage::config::DriveEntry {
         id: String::from("home"),
         name: String::from("Home"),
@@ -835,8 +884,7 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
         },
     };
     let (shared, _) = keyring_with(&first, &dir);
-    let asked = Arc::new(AtomicU64::new(0));
-    let counted = asked.clone();
+    let (asked, restores, told) = Default::default();
     let refused = open_azlin(
         &local,
         AzlinOpen {
@@ -848,21 +896,135 @@ fn c6d_open_azlin_hands_out_the_account_and_only_the_drive_the_gate_made() {
             nodes_file: None,
             iroh: None,
         },
-        move |_, bytes| {
-            counted.fetch_add(1, Ordering::SeqCst);
-            Arc::new(AutoEncrypted::new(
-                bytes,
-                "home",
-                Arc::new(MemoryKeyring::new()),
-                None,
-            ))
-        },
+        gate_parts(
+            Arc::new(MemoryKeyring::new()),
+            &asked,
+            &restores,
+            &told,
+            None,
+        ),
     );
     assert!(
         refused.is_err(),
         "a folder on disk has no account at a token server"
     );
-    assert_eq!(asked.load(Ordering::SeqCst), 0, "the gate was not asked");
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "no provider was made");
+}
+
+/// X-DELTA-STRUCT4-1. The record the gate is made with is the ENTRY's, read inside the opener: a drive this device
+/// found encrypted (the drives file says so) is locked without its key - it is never read as a new drive that takes
+/// its first file in the clear - and the gate's record is the entry's, key id and all. (Passing the record from outside
+/// was a parameter a caller could drop: `EncryptionRecord::default()` read a drive recorded as encrypted, whose key is
+/// gone and whose bucket hides its key files, as a new one.)
+#[cfg(feature = "encryption")]
+#[test]
+fn x_delta_struct4_1_the_gate_carries_the_entrys_record_a_drive_recorded_as_encrypted_is_locked_without_its_key(
+) {
+    use crate::drive::{open_azlin, AzlinOpen};
+    use azul_storage::{
+        config::{DriveAuth, DriveLocation},
+        encrypted::Recorded,
+    };
+    let dir = TempDir::new("struct4-1-record");
+    let fake = cloud_lasting();
+    let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
+    let key_id = "00112233445566778899aabbccddeeff";
+    let open_with = |encrypted: bool| {
+        let (shared, _) = keyring_with(&first, &dir);
+        let mut entry = first.entry_named("Cloud", TOKEN);
+        if let DriveLocation::S3 {
+            auth:
+                DriveAuth::Azlin {
+                    encrypted: recorded,
+                    key_id: recorded_key,
+                    ..
+                },
+            ..
+        } = &mut entry.location
+        {
+            *recorded = encrypted;
+            *recorded_key = encrypted.then(|| key_id.to_string());
+        }
+        let (asked, restores, told) = Default::default();
+        open_azlin(
+            &entry,
+            AzlinOpen {
+                session: first.session(),
+                token_url: TOKEN,
+                keyring: shared,
+                transports: factory(&fake),
+                on_rotated: Box::new(|_, _| {}),
+                nodes_file: None,
+                iroh: None,
+            },
+            gate_parts(
+                Arc::new(MemoryKeyring::new()),
+                &asked,
+                &restores,
+                &told,
+                None,
+            ),
+        )
+        .unwrap()
+        .gate
+    };
+    // Recorded as encrypted, and no key on this computer: locked.
+    let recorded = open_with(true);
+    assert_eq!(
+        recorded.recorded(),
+        Recorded::from_entry(true, Some(key_id))
+    );
+    match recorded.put("a.txt", b"x") {
+        Err(DriveError::Locked { .. }) => {}
+        other => panic!("a drive recorded as encrypted took a file without its key: {other:?}"),
+    }
+    // Recorded as nothing: a new drive, which takes no plaintext file either, with the words of a new one.
+    let new = open_with(false);
+    assert_eq!(new.recorded(), Recorded::default());
+    match new.put("a.txt", b"x") {
+        Err(DriveError::Denied { message }) => {
+            assert!(message.contains("not encrypted"), "{message}")
+        }
+        other => panic!("a new drive took a plaintext file: {other:?}"),
+    }
+    assert!(
+        fake.calls().iter().all(|c| c.method != Method::Put),
+        "nothing was put into the bucket: {:?}",
+        fake.calls()
+    );
+}
+
+/// An encrypted drive's local copies kept encrypted (its AZL1 objects) live in the drive's own cache folder, beside its
+/// drive index - in the folder of the copies the app names (`GateParts::copies`); the kit derives the folder from the
+/// account's id (it was AzDrive's, from the id it held).
+#[cfg(feature = "encryption")]
+#[test]
+fn an_encrypted_drives_kept_objects_live_in_the_drives_own_cache_folder() {
+    use crate::drive::objects_dir;
+    use azul_storage::meta::MetaIndexProvider;
+
+    let cache = std::path::PathBuf::from("/run/cache/drive-index");
+    let a = objects_dir(Some(&cache), "drive-a").expect("a folder");
+    assert!(
+        a.starts_with(&cache) && a.ends_with("objects"),
+        "{}",
+        a.display()
+    );
+    assert_eq!(
+        a.parent(),
+        MetaIndexProvider::drive_cache_dir_in(Some(&cache), "drive-a").as_deref(),
+        "beside the drive's index copy"
+    );
+    assert_ne!(
+        Some(a),
+        objects_dir(Some(&cache), "drive-b"),
+        "one folder per drive"
+    );
+    assert_eq!(
+        objects_dir(None, "drive-a"),
+        None,
+        "no cache folder, nothing kept"
+    );
 }
 
 /// X-DELTA-STRUCT3-16. The vault of an account is opened under the account's own drive id: a device that
@@ -1025,25 +1187,15 @@ fn x_delta_struct3_8_the_drive_below_the_bytes_refuses_every_request_and_answers
 #[test]
 fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_and_refuses_what_is_no_azlin_drive(
 ) {
-    use crate::drive::{azlin_target, open_azlin, AzlinAccount, AzlinOpen};
-    use azul_storage::{
-        config::{DriveAuth, DriveEntry, DriveLocation},
-        AutoEncrypted,
-    };
+    use crate::drive::{azlin_target, open_azlin, AzlinOpen};
+    use azul_storage::config::{DriveAuth, DriveEntry, DriveLocation};
 
-    fn gate(_: &Arc<AzlinAccount>, bytes: Arc<dyn Drive>) -> Arc<AutoEncrypted> {
-        Arc::new(AutoEncrypted::new(
-            bytes,
-            "d_1",
-            Arc::new(MemoryKeyring::new()),
-            None,
-        ))
-    }
     let dir = TempDir::new("struct3-11");
     let fake = cloud_lasting();
     let first = DriveBundle::parse(&bundle("AKID1", "2026-10-08T21:15:00Z", "dt_f.0.aaa")).unwrap();
     let open = |entry: &DriveEntry, run: &str| {
         let (shared, _) = keyring_with(&first, &dir);
+        let (asked, restores, told) = Default::default();
         open_azlin(
             entry,
             AzlinOpen {
@@ -1055,7 +1207,13 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
                 nodes_file: None,
                 iroh: None,
             },
-            gate,
+            gate_parts(
+                Arc::new(MemoryKeyring::new()),
+                &asked,
+                &restores,
+                &told,
+                None,
+            ),
         )
     };
 
@@ -1064,16 +1222,18 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
         let entry = azlin_entry(named);
         let target =
             azlin_target(&entry, Some(LIVE)).expect("a drive that names a server, or the run's");
-        let (account, _) = open(&entry, LIVE).expect("an Azlin drive opens");
+        let opened = open(&entry, LIVE).expect("an Azlin drive opens");
         assert_eq!(
-            account.token_url(),
+            opened.account.token_url(),
             target.token_url,
             "the account chose its server itself ({named:?})"
         );
-        assert_eq!(account.drive_id(), target.drive_id);
+        assert_eq!(opened.account.drive_id(), target.drive_id);
     }
     // No server named by the entry or the run: no account.
-    let refused = open(&azlin_entry(""), "").expect_err("no token server to name");
+    let refused = open(&azlin_entry(""), "")
+        .err()
+        .expect("no token server to name");
     assert!(
         matches!(&refused, DriveError::InvalidConfig(why) if why.contains("names no token server")),
         "{refused:?}"
@@ -1098,7 +1258,9 @@ fn x_delta_struct3_11_open_azlin_builds_the_account_over_the_resolvers_answer_an
             auth: DriveAuth::Keyring,
         },
     };
-    let refused = open(&other, LIVE).expect_err("a bucket of another provider is no Azlin drive");
+    let refused = open(&other, LIVE)
+        .err()
+        .expect("a bucket of another provider is no Azlin drive");
     assert!(
         matches!(&refused, DriveError::InvalidConfig(why) if why.contains("not an Azlin drive")),
         "{refused:?}"

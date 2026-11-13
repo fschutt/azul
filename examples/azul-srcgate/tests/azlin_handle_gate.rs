@@ -25,6 +25,14 @@
 //!   have handed the bytes of an Azlin drive to every caller below the gate with every gate green
 //!   (X-DELTA-STRUCT3-12).
 //!
+//! - **`azlin-gate-made`**: every use of `AutoEncrypted::new` (a call, a function value, any path before it) and
+//!   every import of `AutoEncrypted` under another name: the places that make the encryption's gate over a bucket.
+//!   An Azlin drive's is made in ONE place, `azcloud_kit::open_azlin`, over the account's own bytes under the
+//!   account's own drive id - the closure it took from its caller could wrap any bytes under any id and type-checked
+//!   (X-DELTA-STRUCT4-1: the type is `GateParts` now, which has no field for either, and this rule counts the
+//!   places that could still name them). AzMail's and the bridge's own gate over a bucket they build from a session
+//!   is the other counted line (`mail_drive::wrap_auto`); a third place is a finding.
+//!
 //! The kit's own files are listed one by one with their counts: `drive.rs` names the bytes and makes them, the
 //! crate's `lib.rs` re-exports the opener. Comments, strings and test items are not read (a file only a test
 //! build compiles is none of the gate's); the counts are exact and only go down.
@@ -41,6 +49,7 @@ const ROOTS: &[Root] = &[Root {
 const BYTE_STORE: &str = "azlin-byte-store-named";
 const OPENED: &str = "azlin-opened";
 const MADE: &str = "azlin-byte-store-made";
+const GATE_MADE: &str = "azlin-gate-made";
 
 /// Every use of `open_azlin` that is not its definition (`fn open_azlin`): whatever spelling reaches the
 /// function - a bare call, a path call (`azcloud_kit::open_azlin(`, `azcloud_kit::drive::open_azlin(`), an
@@ -65,6 +74,25 @@ fn made(t: &[Located]) -> Vec<usize> {
                 && t[*at - 1].tok.is_punct(':')
                 && t[*at - 2].tok.is_punct(':')
                 && t[*at - 3].tok.is_ident("AzlinDrive")
+        })
+        .map(|(_, x)| x.line)
+        .collect()
+}
+
+/// Every use of the path `AutoEncrypted::new` (a call or a function value, whatever the path before it) and every
+/// import of `AutoEncrypted` under another name (`use .. AutoEncrypted as Gate`): where the encryption's gate is made.
+fn gate_made(t: &[Located]) -> Vec<usize> {
+    t.iter()
+        .enumerate()
+        .filter(|(at, x)| {
+            let path_new = x.tok.is_ident("new")
+                && *at >= 3
+                && t[*at - 1].tok.is_punct(':')
+                && t[*at - 2].tok.is_punct(':')
+                && t[*at - 3].tok.is_ident("AutoEncrypted");
+            let renamed = x.tok.is_ident("AutoEncrypted")
+                && t.get(*at + 1).is_some_and(|n| n.tok.is_ident("as"));
+            path_new || renamed
         })
         .map(|(_, x)| x.line)
         .collect()
@@ -108,6 +136,24 @@ fn rules() -> Vec<Rule> {
             ],
         ),
         Rule::new(
+            GATE_MADE,
+            gate_made,
+            &[
+                "let gate = AutoEncrypted::new(bytes, \"d_other\", keyring, None);",
+                "let gate = azul_storage::AutoEncrypted::new(bytes, id, keyring, provider);",
+                "let gate = azul_storage::encrypted::AutoEncrypted::new(bytes, id, keyring, provider);",
+                "let make = AutoEncrypted::new;",
+                "use azul_storage::AutoEncrypted as Gate;",
+            ],
+            &[
+                "let gate: Arc<AutoEncrypted> = opened.gate;",
+                "let t = AutoEncrypted::newer(1);",
+                "let t = Other::new(1);",
+                "let AutoEncrypteds = 1;",
+                "fn new() -> AutoEncrypted {}",
+            ],
+        ),
+        Rule::new(
             MADE,
             made,
             &[
@@ -142,6 +188,14 @@ const ALLOWED: &[Allow] = &[
          below the gate on purpose: its bytes go to `UnlockedDrive` and nothing else)",
     ),
     Allow::exactly(
+        "examples/azcloud-kit/src/drive.rs",
+        GATE_MADE,
+        1,
+        "`gate_over`, called by `open_azlin`: THE one place that makes the encryption's gate over an Azlin drive's \
+         bytes - over the account's own bytes, under the account's own drive id, with the entry's own record \
+         (X-DELTA-STRUCT4-1)",
+    ),
+    Allow::exactly(
         "examples/azcloud-kit/src/lib.rs",
         OPENED,
         1,
@@ -151,9 +205,16 @@ const ALLOWED: &[Allow] = &[
         "examples/azul-drive/src/lib.rs",
         OPENED,
         1,
-        "Slot::open_azlin_in: the one opener of an Azlin drive in the apps; its gate is `encryption::azlin_stack`, \
-         the only function that makes the AutoEncrypted `open_azlin` takes (AzMail and the bridge open their own \
-         drives through `mail_drive::wrap`, over a plain S3 bucket they build from a session)",
+        "Slot::open_azlin_in: the one opener of an Azlin drive in the apps; it gives the opener the parts of the gate \
+         (`encryption::gate_parts`: no bytes, no id) and the opener makes the gate (AzMail and the bridge open their \
+         own drives through `mail_drive::wrap`, over a plain S3 bucket they build from a session)",
+    ),
+    Allow::exactly(
+        "examples/azul-mail-core/src/mail_drive.rs",
+        GATE_MADE,
+        1,
+        "`mail_drive::wrap`: AzMail's and the bridge's own gate over a bucket they build from a session - an \
+         encrypted-only gate, no Azlin account of the kit (the bytes they are handed: X-DELTA-STRUCT4-6)",
     ),
 ];
 
@@ -201,6 +262,12 @@ const SMALL: &[Root] = &[
 const LISTED: &[Allow] = &[
     Allow::exactly(
         "examples/azcloud-kit/src/drive.rs",
+        GATE_MADE,
+        1,
+        "the planted kit's one gate",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/drive.rs",
         BYTE_STORE,
         4,
         "the planted kit's drive.rs: the struct, its impl and the two places that put it over an account",
@@ -232,7 +299,7 @@ fn check(base: &Path, allowed: &'static [Allow]) -> Result<usize, Vec<String>> {
 /// The planted kit: the bytes are defined and made in `drive.rs` (twice: the opener and the vault's handle),
 /// `lib.rs` re-exports the opener.
 const KIT_LIB: &str = "mod drive;\npub use drive::open_azlin;\n";
-const KIT_DRIVE: &str = "pub(crate) struct AzlinDrive {}\nimpl AzlinDrive { fn over() {} }\npub fn open_azlin(entry: &DriveEntry) {\n    let bytes = AzlinDrive::over(account);\n}\npub fn unlocked(account: A) {\n    let bytes = AzlinDrive::over(account);\n}\n";
+const KIT_DRIVE: &str = "pub(crate) struct AzlinDrive {}\nimpl AzlinDrive { fn over() {} }\npub fn open_azlin(entry: &DriveEntry) {\n    let bytes = AzlinDrive::over(account);\n    let gate = AutoEncrypted::new(bytes, &drive_id, keyring, provider);\n}\npub fn unlocked(account: A) {\n    let bytes = AzlinDrive::over(account);\n}\n";
 
 /// A job that names the bytes of an Azlin drive - the shape of the 17 signatures - is a finding with its
 /// line; the kit may name them in the files it lists; a listed opener is counted, a second one in the same file
@@ -288,7 +355,7 @@ fn a_planted_job_that_names_the_bytes_and_a_second_opener_are_caught() {
         "pub fn clean() {}\n",
     )
     .unwrap();
-    assert_eq!(check(&base, LISTED), Ok(8));
+    assert_eq!(check(&base, LISTED), Ok(9));
     // A second opener in the listed file is a new site: the count says so.
     std::fs::write(
         base.join("examples/azul-drive/src/lib.rs"),
@@ -390,6 +457,69 @@ fn x_delta_struct3_12_every_spelling_of_the_opener_and_a_new_kit_function_that_m
         wrong
             .iter()
             .any(|w| w.contains("holds 3 x azlin-byte-store-made where its allowance says 2")),
+        "{wrong:?}"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// X-DELTA-STRUCT4-1. The encryption's gate over an Azlin drive was made by a closure of the app (`azlin_stack`), and the
+/// type of the closure's result said "an `AutoEncrypted`": any other place that wraps bytes in one - under another
+/// drive's id - passed every gate. The places that make the gate are counted lines now, whatever the spelling: a path
+/// call, a path through the module, an import under another name, a function value; the kit's one is the listed line and
+/// a second one in the kit's own file is a new site. RED on the old gate: it read none of them.
+#[test]
+fn x_delta_struct4_1_every_place_that_makes_the_encryptions_gate_is_a_counted_line_whatever_its_spelling(
+) {
+    let jobs = [
+        "pub fn wrap(bytes: Arc<dyn Drive>, keyring: Arc<dyn KeyringStore>) -> Arc<AutoEncrypted> {",
+        "    Arc::new(AutoEncrypted::new(bytes, \"d_other\", keyring, None))",
+        "}",
+        "pub fn path(bytes: Arc<dyn Drive>, keyring: Arc<dyn KeyringStore>) {",
+        "    let _ = azul_storage::encrypted::AutoEncrypted::new(bytes, \"d_other\", keyring, None);",
+        "}",
+        "use azul_storage::AutoEncrypted as Plain;",
+        "pub fn value() { let _make = AutoEncrypted::new; }",
+        "",
+    ]
+    .join("\n");
+    let drive_lib = "mod jobs;\npub fn open(slot: &mut Slot) {\n    let _ = azcloud_kit::open_azlin(&slot.entry, open, gate);\n}\n";
+    let base = base_with(
+        "gate-made",
+        &[
+            ("examples/azcloud-kit/src/lib.rs", KIT_LIB),
+            ("examples/azcloud-kit/src/drive.rs", KIT_DRIVE),
+            ("examples/azul-drive/src/lib.rs", drive_lib),
+            ("examples/azul-drive/src/jobs.rs", jobs.as_str()),
+        ],
+    );
+    let wrong = check(&base, LISTED).expect_err("four more places make the gate");
+    let at = |line: usize| {
+        wrong.iter().any(|w| {
+            w.starts_with(&format!("examples/azul-drive/src/jobs.rs:{line}:"))
+                && w.contains(GATE_MADE)
+        })
+    };
+    assert!(at(2), "the call: {wrong:?}");
+    assert!(at(5), "a path through the module: {wrong:?}");
+    assert!(at(7), "an import under another name: {wrong:?}");
+    assert!(at(8), "a function value: {wrong:?}");
+    // The kit's one gate is the listed line: without the others the gate holds, with a second one in its file it does not.
+    std::fs::write(
+        base.join("examples/azul-drive/src/jobs.rs"),
+        "pub fn clean() {}\n",
+    )
+    .unwrap();
+    assert_eq!(check(&base, LISTED), Ok(9));
+    std::fs::write(
+        base.join("examples/azcloud-kit/src/drive.rs"),
+        format!("{KIT_DRIVE}pub fn second(b: Arc<dyn Drive>) {{\n    let _ = AutoEncrypted::new(b, \"d_other\", keyring, None);\n}}\n"),
+    )
+    .unwrap();
+    let wrong = check(&base, LISTED).expect_err("a second gate in the kit's file");
+    assert!(
+        wrong
+            .iter()
+            .any(|w| w.contains("holds 2 x azlin-gate-made where its allowance says 1")),
         "{wrong:?}"
     );
     let _ = std::fs::remove_dir_all(base);
