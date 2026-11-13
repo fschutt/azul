@@ -279,8 +279,8 @@ impl AzlinAccount {
     /// The drive's id has two sources here: the entry's (`target`, the drives file's `drive_id`: what the
     /// keys, the vault and the grants are kept under) and the session's (the keyring's text: what the
     /// credentials are spent, refreshed and locked down under). The account takes the first as its own and
-    /// spends the second, so a drives file that names the id of ANOTHER drive this computer holds a key for
-    /// - any process of the user can write it - got the other drive's key looked up under this bucket, and for
+    /// spends the second, so a drives file that names the id of ANOTHER drive this computer holds a key for (any
+    /// process of the user can write that file) got the other drive's key looked up under this bucket, and for
     /// a bucket with no index yet its first files sealed under it. The two are compared before anything is
     /// made (X-DELTA-STRUCT4-2).
     ///

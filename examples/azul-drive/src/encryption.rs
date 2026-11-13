@@ -219,8 +219,8 @@ impl Layers {
 /// What `azcloud_kit::open_azlin` makes the encryption's gate over an Azlin drive from, on this computer: the keyring the
 /// drive's key is kept in, how this app keeps the drives' indexes (the provider, made with the restore announcement of
 /// the drive's own account), the folder of the copies it keeps, and where the key ids the drive opens with are told to
-/// (`slot`: the slot's own name, the drives file's `id`, which the UI thread writes the key id under
-/// - [`crate::take_key_records`]). THE one composition of what is AzDrive's of the layers; the rest - the retries, the
+/// (`slot`: the slot's own name, the drives file's `id`, which the UI thread writes the key id under,
+/// [`crate::take_key_records`]). THE one composition of what is AzDrive's of the layers; the rest - the retries, the
 /// encrypted copies below the gate, and the gate itself, over THIS account's bytes under THIS account's drive id with
 /// THIS entry's record - is made by the opener, which no caller of it can talk into another drive's id, another drive's
 /// bytes or a record of its own (X-DELTA-STRUCT4-1: the composition was a closure this app wrote, `azlin_stack`, and
