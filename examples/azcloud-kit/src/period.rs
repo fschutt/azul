@@ -654,7 +654,9 @@ pub fn ended_words(refusal: &IssueRefusal) -> String {
 /// at `server` and kept there: an issue request of the grant kept in a vault - by this device or
 /// another one whose answer was lost, however long ago - is sent again as it is first (the
 /// token server answers it with the same signatures, counted once) - also when the grant has
-/// ended meanwhile, so a month the token server counted is never lost to another device's end;
+/// ended meanwhile, so a month the token server counted is never lost to another device's end
+/// (an end its restore lifts, a payment taken back or a mandate stopped, asks it on the weekly
+/// gate of that end instead, and keeps it through the refusals: `kept_for_the_restore`);
 /// else, when the grant's next month is due at `now`, one token message is blinded for the
 /// tier's issuer key, the request kept in the vaults BEFORE it is sent, and sent. A key that
 /// changed since the keys were read (`key_changed`, the year turned) gets the message blinded
@@ -683,8 +685,16 @@ pub fn issue_next(
     // and whether or not the grant ended. Another device's "every month was issued already" may
     // be the token server's answer to THIS device's counted request, whose own answer was lost:
     // the end is in every vault by then, and only the replay (answered with the same signatures,
-    // counted once) brings that last month back (AZ-P17). The first end stands.
+    // counted once) brings that last month back (AZ-P17). The first end stands. One exception to
+    // "whatever the schedule says": an end the token server's restore lifts (a payment taken back,
+    // a mandate stopped) is asked again once a week, and so is the request of it that waits - not at
+    // every look: the token server answers `not_paid` before it replays, so the replay of a counted
+    // request is refused for as long as the reversal stands, and the request stays kept for the
+    // restore (X-DELTA-MONEY7-2, [`answered`]).
     for kept in state.open_issues(checkout_id) {
+        if grant.waits_for_next_ask(now) {
+            continue;
+        }
         let kept = unaccounted_for(tokens, kept);
         match send_kept(server, tokens, &grant, &kept, now)? {
             Sent::Tokens(tokens) => return Ok(Issued::Tokens(tokens)),
@@ -881,7 +891,9 @@ fn unaccounted_for(tokens: &DriveTokens, kept: &IssueRequest) -> IssueRequest {
 /// a busy server keeps the request for the next try (an error). An answer only a PAID checkout is
 /// given - tokens, `not_due`, `key_changed` - clears an end the grant has (the token server
 /// approved the checkout again: its restore of a wrong reversal): the grant is revived, and the
-/// sentence that said the payment was taken back goes with its end (X-DELTA-MONEY3-1).
+/// sentence that said the payment was taken back goes with its end (X-DELTA-MONEY3-1). A final
+/// refusal marks the request done too - but for one the token server may have counted that a restore
+/// lifts, which stays open ([`kept_for_the_restore`], X-DELTA-MONEY7-2).
 fn answered(
     tokens: &DriveTokens,
     grant: &VaultGrant,
@@ -957,7 +969,18 @@ fn answered(
                 ended.revive();
                 ended.end(why.clone(), false, now);
             }
-            tokens.join(&done(Some(ended))).map_err(not_kept)?;
+            // The request is closed with the answer - unless the token server may have counted it
+            // and the refusal is one its restore lifts: then it stays kept, with its blindings, for
+            // the restore's replay (X-DELTA-MONEY7-2).
+            let change = if kept_for_the_restore(&refusal, request, &ended, now) {
+                VaultState {
+                    grants: vec![ended],
+                    ..VaultState::default()
+                }
+            } else {
+                done(Some(ended))
+            };
+            tokens.join(&change).map_err(not_kept)?;
             Ok(Sent::Ended(why))
         }
         // About the request, not the checkout (a proxy that empties a POST body, a server that
@@ -1022,6 +1045,33 @@ fn answered(
             None,
         )),
     }
+}
+
+/// Whether the request that drew the final refusal `refusal` stays kept - not marked done - with
+/// the grant `ended` as the refusal leaves it, at `now`: the refusal is one the token server's
+/// restore lifts ([`IssueRefusal::is_revivable`]), the token server may have counted the request
+/// ([`IssueRequest::may_have_been_counted`]: an earlier send of it ended without an answer, or
+/// without an outcome on record) and the end's window is still open
+/// ([`VaultGrant::revive_pending`]).
+///
+/// The token server answers `not_paid` BEFORE it looks for an earlier answer to the same request
+/// (the replay), so the refusal says nothing about a request it counted: the signatures are held
+/// under the request's hash, and no other request can fetch them - a fresh request for the month
+/// is `already_issued` once the restore comes. Closing the request on the refusal, as every final
+/// refusal of an uncounted one does, lost the month it counted (X-DELTA-MONEY7-2). The request is
+/// asked again on the weekly gate of the end ([`VaultGrant::waits_for_next_ask`]) and closed by the
+/// answer of the first ask after the window - the signatures, when the restore came, or the
+/// refusal, once more; its blindings are in the vaults until then and nothing else removes them
+/// ([`VaultState::join`] drops a request only when its id is in `done`). A request the token server
+/// cannot have counted - one made and sent once, refused - is closed as before.
+#[must_use]
+fn kept_for_the_restore(
+    refusal: &IssueRefusal,
+    request: &IssueRequest,
+    ended: &VaultGrant,
+    now: u64,
+) -> bool {
+    refusal.is_revivable() && request.may_have_been_counted() && ended.revive_pending(now)
 }
 
 /// A request or tokens the vaults did not keep.
@@ -1205,13 +1255,31 @@ fn holds_months(state: &VaultState) -> bool {
 /// it (X-DELTA-MONEY3-1, X-DELTA-MONEY6-1). Not a month held: the reminders of an unpaid drive go
 /// on until one comes.
 fn asks_again(state: &VaultState, now: u64) -> bool {
-    state.grants.iter().any(|g| g.revive_due(now))
+    state
+        .grants
+        .iter()
+        .any(|g| g.revive_due(now) || waits_for_its_last_ask(state, g, now))
+}
+
+/// Whether the window of `grant`'s revivable end is over and a request of it is still open: the one
+/// the token server may have counted, which a refusal at the weekly asks kept for the restore
+/// ([`kept_for_the_restore`]). The first look after the window asks it once more and its answer
+/// closes it - the signatures, if the restore came after the last ask, or the refusal -, so a request
+/// does not outlive the window for ever (X-DELTA-MONEY7-2).
+fn waits_for_its_last_ask(state: &VaultState, grant: &VaultGrant, now: u64) -> bool {
+    grant.waits_for_restore()
+        && !grant.revive_pending(now)
+        && !state.open_issues(&grant.checkout_id).is_empty()
 }
 
 /// Whether a month can still come from `grant`: it is open, or a request of it waits for its
-/// answer - also when another device ended the grant meanwhile (AZ-P17, see [`issue_next`]).
+/// answer - also when another device ended the grant meanwhile (AZ-P17, see [`issue_next`]). Not
+/// when the end is one a restore lifts: the grant waits for the restore, its open request with it
+/// ([`kept_for_the_restore`]), and no month is on its way before it - a drive's reminders go on
+/// ([`asks_again`] is the weekly look that finds the restore).
 fn brings_months(state: &VaultState, grant: &VaultGrant) -> bool {
-    grant.is_open() || !state.open_issues(&grant.checkout_id).is_empty()
+    grant.is_open()
+        || (!grant.waits_for_restore() && !state.open_issues(&grant.checkout_id).is_empty())
 }
 
 /// The grant a month buys was changed by the token server (a redemption, a voucher): the

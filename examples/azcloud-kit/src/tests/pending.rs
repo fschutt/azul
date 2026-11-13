@@ -16,7 +16,9 @@ use azul_storage::{
 
 use super::{
     bundle, json,
-    period::{issuing_server, keys, pem, signed, D1, ISSUE_KEY, N1, NOW},
+    period::{
+        issuing_server, keys, pem, reversible_server, signed, Counting, D1, ISSUE_KEY, N1, NOW,
+    },
     tokens_in_drive, DownVault, Fake, Shared, TOKEN,
 };
 use crate::{
@@ -1711,4 +1713,119 @@ fn x_delta_money6_1_an_end_no_restore_lifts_takes_the_entry_off_at_once() {
         other => panic!("the end is final after 90 days: {other:?}"),
     }
     assert!(pending::list(&shared).unwrap().is_empty());
+}
+
+// ==== X-DELTA-MONEY7-2: the claim's rounds with a request the token server counted ====
+
+/// X-DELTA-MONEY7-2 through the claim (`finish`): the first month's request is COUNTED at the token
+/// server and its answer is lost; the payment is taken back before the claims' next round. The round
+/// that learns it ends the grant with a revivable end, and the old client closed the request with the
+/// refusal - the month the token server counted was lost at the restore. Now the request stays kept
+/// through the rounds and when the drive's vault arrives; the entry goes on its own terms (the request
+/// does not hold it: it goes when the grant is in two places, and says the stop once); the rounds
+/// send nothing within the week; and the restore's ask brings the month the server counted, once.
+#[test]
+fn x_delta_money7_2_a_counted_request_survives_the_claims_rounds_and_the_entry_goes_on_its_own_terms(
+) {
+    let dir = TempDir::new("azcloud-pending");
+    let (shared, _) = shared(&dir);
+    let (ck, owed) = claimed_on_the_list(&shared, i64::try_from(NOW).unwrap());
+    let stands = Counting::new();
+    let fake = reversible_server(&stands, "not_paid");
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let store = PeriodTokenStore::new(dir.path().join("period-tokens"));
+    let local_only = store.on_this_device("d_1").unwrap();
+    let posts = || {
+        fake.calls()
+            .into_iter()
+            .filter(|c| c.url.ends_with("/v1/tokens/issue"))
+            .collect::<Vec<_>>()
+    };
+
+    // round 1: the request is counted and its answer lost; the drive has no vault yet: the entry stays
+    stands.lose_after_counting.store(true, Ordering::SeqCst);
+    match pending::finish(&server, &shared, &store, &local_only, &ck, &owed, NOW) {
+        Finished::Waits { count: 0, .. } => {}
+        other => panic!("round 1: {other:?}"),
+    }
+    assert_eq!(stands.counted(), 1, "the token server counted the month");
+    let first = {
+        let state = local_only.state().unwrap();
+        let open = state.open_issues("ck_1");
+        assert_eq!(open.len(), 1, "the request is kept");
+        open[0].id()
+    };
+
+    // the payment is taken back; the next round learns it: a revivable end - and the request stays
+    stands.approved.store(false, Ordering::SeqCst);
+    let (ck, owed) = {
+        let ck = pending::list(&shared).unwrap().remove(0);
+        let owed = ck.period.clone().expect("still claimed");
+        (ck, owed)
+    };
+    match pending::finish(&server, &shared, &store, &local_only, &ck, &owed, NOW + 10) {
+        Finished::Waits { count: 0, .. } => {}
+        other => panic!("round 2: {other:?}"),
+    }
+    assert!(
+        local_only
+            .state()
+            .unwrap()
+            .grant("ck_1")
+            .is_some_and(|g| g.is_ended() && g.revivable),
+        "the reversal ended the grant with an end a restore lifts"
+    );
+    assert!(
+        local_only
+            .state()
+            .unwrap()
+            .open_issues("ck_1")
+            .iter()
+            .any(|r| r.id() == first),
+        "the request the token server counted is kept for the restore"
+    );
+    assert_eq!(posts().len(), 2);
+    assert_eq!(pending::list(&shared).unwrap().len(), 1, "the entry stays");
+
+    // the drive's key arrives: the grant is in two places, the entry goes and the stop is said once;
+    // the request is not sent again within the week and does not hold the entry
+    let (with_key, in_drive) = tokens_in_drive(&store);
+    let (ck, owed) = {
+        let ck = pending::list(&shared).unwrap().remove(0);
+        let owed = ck.period.clone().expect("still claimed");
+        (ck, owed)
+    };
+    match pending::finish(&server, &shared, &store, &with_key, &ck, &owed, NOW + 20) {
+        Finished::Stopped { days, .. } => assert_eq!(days, 90),
+        other => panic!("round 3: {other:?}"),
+    }
+    assert!(pending::list(&shared).unwrap().is_empty());
+    assert_eq!(posts().len(), 2, "nothing is sent within the week");
+    assert!(
+        in_drive
+            .read()
+            .unwrap()
+            .open_issues("ck_1")
+            .iter()
+            .any(|r| r.id() == first),
+        "the drive's vault keeps the request for the restore"
+    );
+
+    // the restore; the first ask of the next week brings the month the token server counted
+    stands.approved.store(true, Ordering::SeqCst);
+    match crate::period::issue_next(&server, &with_key, "ck_1", NOW + 10 + 8 * 86_400) {
+        Ok(crate::period::Issued::Tokens(issued)) => assert_eq!(issued.len(), 1),
+        other => panic!("the month the token server counted never came: {other:?}"),
+    }
+    let sent = posts();
+    assert_eq!(sent.len(), 3);
+    assert_eq!(
+        sent[0].body, sent[2].body,
+        "the very request: the same signatures"
+    );
+    assert_eq!(stands.counted(), 1, "exactly one month, counted once");
+    let state = with_key.state().unwrap();
+    assert!(state.open_issues("ck_1").is_empty() && state.done.contains(&first));
+    assert_eq!(state.tokens.len(), 1);
 }

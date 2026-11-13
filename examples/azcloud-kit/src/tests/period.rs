@@ -2875,3 +2875,592 @@ fn x_money5a_4_the_journal_is_additive_and_joins_as_a_max() {
         assert_eq!(a.issues[0].sends(), 3);
     }
 }
+
+// ==== X-DELTA-MONEY7-2: a counted request replayed during a reversal ====
+
+/// The checkout `ck_1` at the token server, as far as the scenario of X-DELTA-MONEY7-2 needs it:
+/// whether it is `approved` (a reversal makes it not), the issue requests it COUNTED - their messages,
+/// the token server keeps its answer by them - and what the next NEW request meets.
+pub(crate) struct Counting {
+    pub(crate) approved: std::sync::atomic::AtomicBool,
+    counted: std::sync::Mutex<Vec<Vec<String>>>,
+    /// The next new request is counted and its answer is lost (the connection resets after the work).
+    pub(crate) lose_after_counting: std::sync::atomic::AtomicBool,
+    /// The next new request never arrives (the connection resets before it): nothing is counted.
+    pub(crate) lose_before_counting: std::sync::atomic::AtomicBool,
+}
+
+impl Counting {
+    /// An approved checkout that counted nothing yet.
+    pub(crate) fn new() -> Arc<Counting> {
+        Arc::new(Counting {
+            approved: std::sync::atomic::AtomicBool::new(true),
+            counted: std::sync::Mutex::new(Vec::new()),
+            lose_after_counting: std::sync::atomic::AtomicBool::new(false),
+            lose_before_counting: std::sync::atomic::AtomicBool::new(false),
+        })
+    }
+
+    /// How many issue requests the token server counted: the months it has issued.
+    pub(crate) fn counted(&self) -> usize {
+        self.counted.lock().unwrap().len()
+    }
+}
+
+/// The token server's answer to the issue request `call` as `blind.rs`'s `issue` gives it, in its
+/// order: `not_paid` while the checkout is not approved - BEFORE it looks for an earlier answer to
+/// the same request -, then the signatures of a request it counted already (however often it is asked:
+/// counted once), then - for a NEW request - `mandate_stopped` when `word` is that and the checkout
+/// is reversed (a stop is checked after the replay), else it counts the request and signs it.
+fn reversible_answer(
+    stands: &Counting,
+    word: &str,
+    call: &azul_storage::HttpCall,
+) -> Result<HttpReply, String> {
+    let messages = blinded_of(call);
+    let reversed = !stands.approved.load(Ordering::SeqCst);
+    if reversed && word == "not_paid" {
+        return Ok(json(
+            409,
+            r#"{"error": "not_paid", "message": "the checkout is not approved"}"#,
+        ));
+    }
+    let known = stands
+        .counted
+        .lock()
+        .unwrap()
+        .iter()
+        .position(|counted| *counted == messages);
+    let at = match known {
+        Some(at) => at,
+        None if reversed => {
+            return Ok(json(
+                409,
+                r#"{"error": "mandate_stopped", "message": "stopped"}"#,
+            ));
+        }
+        None => {
+            if stands.lose_before_counting.swap(false, Ordering::SeqCst) {
+                return Err(String::from("connection reset before the request arrived"));
+            }
+            let at = {
+                let mut counted = stands.counted.lock().unwrap();
+                counted.push(messages);
+                counted.len() - 1
+            };
+            if stands.lose_after_counting.swap(false, Ordering::SeqCst) {
+                return Err(String::from("connection reset by peer"));
+            }
+            at
+        }
+    };
+    // the answer is the request's own: its signatures, and the schedule as it stands with its month
+    let issued = AtomicU64::new(u64::try_from(at).unwrap());
+    Ok(signed(call, N1, D1, "100GB/2026", &issued))
+}
+
+/// A token server that hands out `keys` and answers each issue request by [`reversible_answer`].
+pub(crate) fn reversible_server(stands: &Arc<Counting>, word: &'static str) -> Arc<Fake> {
+    let (listed, stands) = (keys(), stands.clone());
+    Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        reversible_answer(&stands, word, call)
+    })
+}
+
+/// The issue requests a fake token server was sent.
+fn issue_posts(fake: &Arc<Fake>) -> Vec<azul_storage::HttpCall> {
+    fake.calls()
+        .into_iter()
+        .filter(|c| c.url.ends_with("/v1/tokens/issue"))
+        .collect()
+}
+
+/// The request of the month the token server COUNTED whose answer was lost, kept open and marked,
+/// then the payment taken back before the look that would have asked it again: what `issue_next`
+/// finds at the look that learns the reversal. Returns the kept request's id (look 1 at day 1, the
+/// reversal, look 2 at day 2: the grant is ended and the replay was refused).
+fn counted_then_reversed(
+    server: &TokenServer<'_>,
+    tokens: &DriveTokens,
+    stands: &Arc<Counting>,
+    word: &str,
+) -> String {
+    // look 1: a request is kept and sent; the token server counts it (or does not hear it) and the
+    // answer is lost
+    let counted_first = word == "not_paid";
+    if counted_first {
+        stands.lose_after_counting.store(true, Ordering::SeqCst);
+    } else {
+        stands.lose_before_counting.store(true, Ordering::SeqCst);
+    }
+    assert!(
+        matches!(
+            issue_next(server, tokens, "ck_1", NOW + DAY),
+            Err(TokenError::Connect(_))
+        ),
+        "{word}: the answer was lost"
+    );
+    assert_eq!(stands.counted(), usize::from(counted_first), "{word}");
+    let state = tokens.state().unwrap();
+    let open = state.open_issues("ck_1");
+    assert_eq!(open.len(), 1, "{word}: the request is kept");
+    assert!(
+        open[0].may_have_been_counted(),
+        "{word}: a send without an answer says so"
+    );
+    let first = open[0].id();
+    // the payment is taken back, wrongly, before the next look; look 2 replays the request
+    stands.approved.store(false, Ordering::SeqCst);
+    match issue_next(server, tokens, "ck_1", NOW + 2 * DAY) {
+        Ok(Issued::Ended(why)) => assert!(!why.is_empty(), "{word}"),
+        other => panic!("{word}: the reversal did not end the grant: {other:?}"),
+    }
+    first
+}
+
+/// X-DELTA-MONEY7-2, the finding's scenario: the request of month 5 is COUNTED at the token server and
+/// its answer is lost; the payment is taken back before the next look; the look replays the request
+/// first and the token server answers `not_paid` BEFORE it looks for its answer - and the old
+/// client ended the grant (revivable) AND marked the request done: its blindings were gone, and when
+/// the operator restored the reversal the weekly ask brought a NEW request, `already_issued`
+/// at the last - the month the server counted could never be finalized. Now a request the server
+/// may have counted stays kept, in every vault, through a refusal a restore lifts - `not_paid`, and
+/// `mandate_stopped` for a request marked but never counted (a stop is checked after the replay, so a
+/// counted request is never refused it; the client keeps both words' requests all the same) - and is
+/// asked again with the grant's weekly ask, not at every look; the restore's replay brings the SAME
+/// signatures, counted once. On the old code the assertion after look 2 fails: the request is
+/// marked done.
+#[test]
+fn x_delta_money7_2_a_request_replayed_during_a_reversal_stays_kept_and_the_restore_brings_its_month(
+) {
+    use crate::vault::TokenVault;
+    for word in ["not_paid", "mandate_stopped"] {
+        let dir = TempDir::new("azcloud-period");
+        let store = store_in(&dir);
+        let (tokens, in_drive) = super::tokens_in_drive(&store);
+        tokens
+            .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+            .unwrap();
+        let stands = Counting::new();
+        let fake = reversible_server(&stands, word);
+        let transport = Shared(fake.clone());
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+
+        let first = counted_then_reversed(&server, &tokens, &stands, word);
+        let state = tokens.state().unwrap();
+        let grant = state.grant("ck_1").unwrap();
+        assert!(grant.is_ended() && grant.revivable, "{word}: {grant:?}");
+        assert!(
+            !state.done.contains(&first),
+            "{word}: the request the token server may have counted is not marked done"
+        );
+        for (place, held) in [
+            ("this computer's", state.clone()),
+            ("the drive's", in_drive.read().unwrap()),
+        ] {
+            assert!(
+                held.open_issues("ck_1").iter().any(|r| r.id() == first),
+                "{word}: kept for the restore in {place} vault, blindings and all"
+            );
+        }
+        assert_eq!(
+            issue_posts(&fake).len(),
+            2,
+            "{word}: the send and the replay"
+        );
+
+        // the week: the end's looks - and its claim's rounds - send nothing
+        for day in 3..=8 {
+            assert!(
+                matches!(
+                    issue_next(&server, &tokens, "ck_1", NOW + day * DAY),
+                    Ok(Issued::Ended(_))
+                ),
+                "{word}: day {day}"
+            );
+        }
+        assert_eq!(
+            issue_posts(&fake).len(),
+            2,
+            "{word}: an open request of an end that waits for its restore is sent with the weekly \
+             ask, not at every look"
+        );
+
+        // the restore, and the first ask of the next week: the replay brings the month
+        stands.approved.store(true, Ordering::SeqCst);
+        match issue_next(&server, &tokens, "ck_1", NOW + 9 * DAY) {
+            Ok(Issued::Tokens(issued)) => {
+                assert_eq!(issued.len(), 1, "{word}");
+                Issuer::new("100GB", 2026, &pem(N1))
+                    .unwrap()
+                    .verify(&issued[0])
+                    .unwrap();
+            }
+            other => panic!("{word}: the month the token server counted never came: {other:?}"),
+        }
+        let posts = issue_posts(&fake);
+        assert_eq!(posts.len(), 3, "{word}: the replay, once");
+        assert!(
+            posts.iter().all(|post| post.body == posts[0].body),
+            "{word}: the very request every time, so the same signatures"
+        );
+        assert_eq!(
+            stands.counted(),
+            1,
+            "{word}: exactly one month, counted once"
+        );
+        let state = tokens.state().unwrap();
+        let grant = state.grant("ck_1").unwrap();
+        assert!(
+            grant.ended.is_none() && grant.is_open(),
+            "{word}: {grant:?}"
+        );
+        assert_eq!(grant.issued, 1, "{word}");
+        assert_eq!(state.tokens.len(), 1, "{word}: the month's token is kept");
+        assert!(
+            state.open_issues("ck_1").is_empty() && state.done.contains(&first),
+            "{word}: the answer closes the request"
+        );
+    }
+}
+
+/// X-DELTA-MONEY7-2, the control: a request the token server cannot have counted - made and sent once
+/// in the look that learns the reversal - is closed by the refusal as it always was: nothing is kept
+/// for a month nobody holds, so a grant that is reversed and never restored leaves no request behind.
+#[test]
+fn x_delta_money7_2_a_request_that_cannot_have_been_counted_is_closed_by_its_refusal() {
+    for word in ["not_paid", "mandate_stopped"] {
+        let dir = TempDir::new("azcloud-period");
+        let tokens = granted(&dir);
+        let stands = Counting::new();
+        stands.approved.store(false, Ordering::SeqCst);
+        let transport = Shared(reversible_server(&stands, word));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        assert!(
+            matches!(
+                issue_next(&server, &tokens, "ck_1", NOW + DAY),
+                Ok(Issued::Ended(_))
+            ),
+            "{word}"
+        );
+        let state = tokens.state().unwrap();
+        assert!(
+            state.open_issues("ck_1").is_empty() && state.done.len() == 1,
+            "{word}: a request that was sent once and refused is done: {state:?}"
+        );
+    }
+}
+
+/// X-DELTA-MONEY7-2, the crash row: the process died after a request was kept - its send begun in the
+/// journal - and before anything of the send was recorded; the payment was taken back meanwhile. The
+/// look that finds the request marks it (nothing says it was not counted) and sends it into the
+/// reversal: refused, the grant ended, and the request STAYS kept like a counted one. The restore's ask
+/// sends the very request - the token server never had it, so it counts it now, once - and the month
+/// comes with no second request made.
+#[test]
+fn x_delta_money7_2_a_request_cut_before_its_send_is_kept_for_the_restore_like_a_counted_one() {
+    for word in ["not_paid", "mandate_stopped"] {
+        let dir = TempDir::new("azcloud-period");
+        let tokens = granted(&dir);
+        let stands = Counting::new();
+        let fake = reversible_server(&stands, word);
+        let transport = Shared(fake.clone());
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        let key = crate::period::IssuerKey {
+            tier: String::from("100GB"),
+            year: 2026,
+            key_id: String::from("100GB/2026"),
+            public_key_pem: pem(N1),
+        };
+        let cut = crate::period::IssueRequest::new(&key, "ck_1", 1).unwrap();
+        tokens
+            .join(&VaultState {
+                issues: vec![cut.clone()],
+                ..VaultState::default()
+            })
+            .unwrap();
+        // the payment is taken back before the first look after the crash
+        stands.approved.store(false, Ordering::SeqCst);
+        assert!(
+            matches!(
+                issue_next(&server, &tokens, "ck_1", NOW + DAY),
+                Ok(Issued::Ended(_))
+            ),
+            "{word}"
+        );
+        let state = tokens.state().unwrap();
+        assert!(
+            !state.done.contains(&cut.id()),
+            "{word}: kept for the restore, not closed by the refusal"
+        );
+        assert!(
+            state
+                .open_issues("ck_1")
+                .iter()
+                .any(|r| r.id() == cut.id() && r.may_have_been_counted()),
+            "{word}: marked by the look that found it: {state:?}"
+        );
+        assert_eq!(stands.counted(), 0, "{word}: the token server never had it");
+        // the restore, and the weekly ask: the very request goes, and is counted now
+        stands.approved.store(true, Ordering::SeqCst);
+        match issue_next(&server, &tokens, "ck_1", NOW + 9 * DAY) {
+            Ok(Issued::Tokens(issued)) => assert_eq!(issued.len(), 1, "{word}"),
+            other => panic!("{word}: the restore did not bring the month: {other:?}"),
+        }
+        let posts = issue_posts(&fake);
+        assert_eq!(
+            posts.len(),
+            2,
+            "{word}: the refused send and the restore's ask"
+        );
+        assert_eq!(
+            posts[0].body, posts[1].body,
+            "{word}: the very request, no second one was made"
+        );
+        assert_eq!(stands.counted(), 1, "{word}: one month, counted once");
+        let state = tokens.state().unwrap();
+        assert!(
+            state.open_issues("ck_1").is_empty() && state.done.contains(&cut.id()),
+            "{word}: the answer closes the request"
+        );
+    }
+}
+
+/// X-DELTA-MONEY7-2, the bound: a request kept for a restore lives as long as the end's window and
+/// not for ever. A look a day while the reversal stands: the weekly asks replay it (days 9, 16, ...,
+/// 86 after an end on day 2), the first call past the window (day 92) asks it once more - and the
+/// refusal closes it, with the end that is final from then on: nothing is asked afterwards, a restore
+/// at day 95 included.
+#[test]
+fn x_delta_money7_2_a_request_kept_for_a_restore_that_never_comes_is_closed_with_the_window() {
+    use crate::vault::TokenVault;
+    let dir = TempDir::new("azcloud-period");
+    let store = store_in(&dir);
+    let (tokens, in_drive) = super::tokens_in_drive(&store);
+    tokens
+        .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let stands = Counting::new();
+    let fake = reversible_server(&stands, "not_paid");
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let first = counted_then_reversed(&server, &tokens, &stands, "not_paid");
+
+    let mut asked_on = Vec::new();
+    for day in 3..=100_u64 {
+        let before = issue_posts(&fake).len();
+        let answer = issue_next(&server, &tokens, "ck_1", NOW + day * DAY);
+        assert!(
+            matches!(answer, Ok(Issued::Ended(_))),
+            "day {day}: {answer:?}"
+        );
+        if issue_posts(&fake).len() > before {
+            asked_on.push(day);
+        }
+        let open = in_drive
+            .read()
+            .unwrap()
+            .open_issues("ck_1")
+            .iter()
+            .any(|r| r.id() == first);
+        assert_eq!(
+            open,
+            day < 92,
+            "day {day}: kept for the restore until the window is over, closed by the ask after it"
+        );
+    }
+    assert_eq!(
+        asked_on,
+        [9, 16, 23, 30, 37, 44, 51, 58, 65, 72, 79, 86, 92],
+        "a week apart for the window, once more after it, never again"
+    );
+    let state = tokens.state().unwrap();
+    assert!(state.done.contains(&first) && state.open_issues("ck_1").is_empty());
+    assert!(
+        !state.grant("ck_1").unwrap().revive_pending(NOW + 100 * DAY),
+        "the end is final"
+    );
+    // a restore now is too late: nothing is asked
+    stands.approved.store(true, Ordering::SeqCst);
+    let before = issue_posts(&fake).len();
+    assert!(matches!(
+        issue_next(&server, &tokens, "ck_1", NOW + 120 * DAY),
+        Ok(Issued::Ended(_))
+    ));
+    assert_eq!(
+        issue_posts(&fake).len(),
+        before,
+        "never asked after the window"
+    );
+    assert_eq!(stands.counted(), 1);
+}
+
+/// X-DELTA-MONEY7-2: the restore that comes after the last weekly ask of the window and before the
+/// window is over does not lose the month either - the first call past the window asks the open
+/// request once more, and the signatures come: the grant lives again, the request is done.
+#[test]
+fn x_delta_money7_2_the_first_ask_after_the_window_brings_the_month_of_a_late_restore() {
+    let dir = TempDir::new("azcloud-period");
+    let tokens = granted(&dir);
+    let stands = Counting::new();
+    let fake = reversible_server(&stands, "not_paid");
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let first = counted_then_reversed(&server, &tokens, &stands, "not_paid");
+    // the reversal stands through the asks of days 9, ..., 86; the restore comes on day 88
+    for day in 3..=88_u64 {
+        let _ = issue_next(&server, &tokens, "ck_1", NOW + day * DAY);
+    }
+    stands.approved.store(true, Ordering::SeqCst);
+    let before = issue_posts(&fake).len();
+    for day in 89..=91_u64 {
+        assert!(matches!(
+            issue_next(&server, &tokens, "ck_1", NOW + day * DAY),
+            Ok(Issued::Ended(_))
+        ));
+    }
+    assert_eq!(
+        issue_posts(&fake).len(),
+        before,
+        "its week is not up before day 93"
+    );
+    match issue_next(&server, &tokens, "ck_1", NOW + 92 * DAY) {
+        Ok(Issued::Tokens(issued)) => assert_eq!(issued.len(), 1),
+        other => panic!("the month of a restore after the last ask was lost: {other:?}"),
+    }
+    assert_eq!(stands.counted(), 1);
+    let state = tokens.state().unwrap();
+    assert!(state.grant("ck_1").unwrap().ended.is_none());
+    assert!(state.done.contains(&first) && state.open_issues("ck_1").is_empty());
+}
+
+/// The token server of the looks of X-DELTA-MONEY7-2: the drive `d_1` (100 GB) paid until `until`
+/// (30 days more with every redemption), and the issue endpoint of [`reversible_answer`].
+fn looked_at_server(
+    stands: &Arc<Counting>,
+    word: &'static str,
+    until: &Arc<AtomicU64>,
+) -> Arc<Fake> {
+    let (listed, stands, until) = (keys(), stands.clone(), until.clone());
+    Fake::new(move |call, _| {
+        if call.url.ends_with("/v1/tokens/keys") {
+            return Ok(json(200, &listed));
+        }
+        if call.url.ends_with("/v1/tokens/issue") {
+            return reversible_answer(&stands, word, call);
+        }
+        if call.method == Method::Get {
+            let answer = serde_json::json!({
+                "id": "d_1", "tier": "100GB", "period_until": rfc3339(until.load(Ordering::SeqCst)),
+            });
+            return Ok(json(200, &answer.to_string()));
+        }
+        assert_eq!(call.url, format!("{TOKEN}/v1/drives/d_1/redeem"));
+        let later = until.fetch_add(30 * DAY, Ordering::SeqCst) + 30 * DAY;
+        Ok(json(
+            200,
+            &serde_json::json!({"period_until": rfc3339(later)}).to_string(),
+        ))
+    })
+}
+
+/// X-DELTA-MONEY7-2, the drive's looks: a request kept for a restore is no month on its way - the
+/// unpaid drive's reminders go on while it waits - and the look asks nothing within the week; the
+/// look of the week after the restore asks it, the SAME request, and the month is bought (counted
+/// once: the old code asked a NEW request, which the server counted as month 2). A look past the
+/// window with the period still due asks the request once more and closes it.
+#[test]
+fn x_delta_money7_2_the_drives_looks_keep_the_reminders_ask_weekly_and_buy_the_counted_month() {
+    use crate::period::reminder_due;
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    let tokens = store.on_this_device("d_1").unwrap();
+    tokens
+        .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let stands = Counting::new();
+    let until = Arc::new(AtomicU64::new(NOW + 9 * DAY));
+    let fake = looked_at_server(&stands, "not_paid", &until);
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let first = counted_then_reversed(&server, &tokens, &stands, "not_paid");
+    assert_eq!(issue_posts(&fake).len(), 2);
+
+    // a look a day on: the period is due, the end's week is not: nothing is asked
+    let look = look_at_drive(&server, &shared, &store, &tokens, NOW + 3 * DAY);
+    assert_eq!(look.redeemed, Redeemed::Nothing, "{:?}", look.redeemed);
+    assert_eq!(issue_posts(&fake).len(), 2, "within the week");
+    // the request that waits is no month on its way: the drive's reminder is due all the same
+    let status = look.status.expect("the drive's status");
+    let kept = tokens.state().unwrap();
+    assert!(
+        kept.open_issues("ck_1").iter().any(|r| r.id() == first),
+        "the request waits for the restore"
+    );
+    assert!(
+        reminder_due(&status, &kept, NOW + 3 * DAY).is_some(),
+        "an unpaid drive is reminded of its end while its request waits for a restore"
+    );
+
+    // the restore; the look of the next week asks the very request and buys the month
+    stands.approved.store(true, Ordering::SeqCst);
+    let look = look_at_drive(&server, &shared, &store, &tokens, NOW + 9 * DAY);
+    assert!(
+        matches!(look.redeemed, Redeemed::Extended { count: 1, .. }),
+        "{:?}",
+        look.redeemed
+    );
+    let posts = issue_posts(&fake);
+    assert_eq!(posts.len(), 3);
+    assert_eq!(posts[0].body, posts[2].body, "the same request");
+    assert_eq!(stands.counted(), 1, "exactly one month, counted once");
+    assert!(tokens.state().unwrap().open_issues("ck_1").is_empty());
+}
+
+/// X-DELTA-MONEY7-2, the look past the window: the open request of an end nobody restored is found by
+/// the look (the period is due, the drive's reminders went on), asked once more, refused, closed -
+/// and the next look asks nothing.
+#[test]
+fn x_delta_money7_2_a_look_after_the_window_asks_the_open_request_once_more_and_closes_it() {
+    use crate::vault::TokenVault as _;
+    let dir = TempDir::new("azcloud-period");
+    let shared = keyring_with_session(&dir, "dt_f.3.newest");
+    let store = store_in(&dir);
+    let (tokens, in_drive) = super::tokens_in_drive(&store);
+    tokens
+        .keep_grant(VaultGrant::new("ck_1", "100GB", 3, ISSUE_KEY))
+        .unwrap();
+    let stands = Counting::new();
+    let until = Arc::new(AtomicU64::new(NOW + 9 * DAY));
+    let fake = looked_at_server(&stands, "not_paid", &until);
+    let transport = Shared(fake.clone());
+    let server = TokenServer::new(TOKEN, &transport).unwrap();
+    let first = counted_then_reversed(&server, &tokens, &stands, "not_paid");
+    assert_eq!(issue_posts(&fake).len(), 2);
+
+    // nobody looked for 100 days (the app was not started): the window of the end (day 2) is over
+    let look = look_at_drive(&server, &shared, &store, &tokens, NOW + 100 * DAY);
+    assert_eq!(
+        issue_posts(&fake).len(),
+        3,
+        "the open request is asked once more"
+    );
+    assert!(
+        !matches!(look.redeemed, Redeemed::Extended { .. }),
+        "still reversed: {:?}",
+        look.redeemed
+    );
+    {
+        let state = in_drive.read().unwrap();
+        assert!(
+            state.done.contains(&first) && state.open_issues("ck_1").is_empty(),
+            "closed by its answer after the window"
+        );
+    }
+    let _ = look_at_drive(&server, &shared, &store, &tokens, NOW + 101 * DAY);
+    assert_eq!(issue_posts(&fake).len(), 3, "and never asked again");
+}

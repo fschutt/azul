@@ -200,6 +200,25 @@ impl VaultGrant {
         self.next_issue_at = Some(now.saturating_add(REVIVE_EVERY_SECS));
     }
 
+    /// The grant's end is one a restore lifts ([`VaultGrant::revivable`]) and the grant waits for
+    /// that - however old the end is. A request of such a grant that is still open is no month on
+    /// its way (nothing is issued until the restore): it does not keep the drive's reminders away
+    /// ([`crate::period::reminder_due`]) and waits for the weekly ask like the grant itself
+    /// ([`VaultGrant::waits_for_next_ask`], X-DELTA-MONEY7-2).
+    #[must_use]
+    pub(crate) fn waits_for_restore(&self) -> bool {
+        self.ended.is_some() && self.revivable
+    }
+
+    /// The end may still be lifted at `now` ([`VaultGrant::revive_pending`]) and its week is not up
+    /// ([`VaultGrant::revive_due`]): nothing of this grant is sent to the token server now - not a
+    /// new request and not an open one either, which is sent again with the next ask and not at every
+    /// look (X-DELTA-MONEY7-2).
+    #[must_use]
+    pub(crate) fn waits_for_next_ask(&self, now: u64) -> bool {
+        self.revive_pending(now) && !self.revive_due(now)
+    }
+
     /// Months may still come: no final refusal, and a month not issued yet or a next one
     /// scheduled (a monthly plan paid up waits for its next payment).
     #[must_use]
