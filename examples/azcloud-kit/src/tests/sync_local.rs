@@ -746,27 +746,33 @@ fn a_folder_with_more_sibling_folders_than_the_fd_limit_allows_is_scanned_whole(
     };
 
     use crate::sync::{faults, problems::Code};
+    fn here() {}
     const CHILD: &str = "AZCLOUD_KIT_FD_LIMIT_CHILD";
-    const NAME: &str =
-        "a_folder_with_more_sibling_folders_than_the_fd_limit_allows_is_scanned_whole";
     if std::env::var_os(CHILD).is_none() {
-        let path = module_path!().split_once("::").map_or("", |(_, rest)| rest);
+        // `<crate>::<module path>::<this function>::here`: libtest names the test by the middle.
+        let full = std::any::type_name_of_val(&here);
+        let name = full
+            .strip_suffix("::here")
+            .and_then(|test| test.split_once("::"))
+            .map_or(full, |(_krate, test)| test);
         let me = std::env::current_exe().expect("the test binary");
         let out = std::process::Command::new(me)
-            .args([
-                &format!("{path}::{NAME}"),
-                "--exact",
-                "--nocapture",
-                "--test-threads=1",
-            ])
+            .args([name, "--exact", "--nocapture", "--test-threads=1"])
             .env(CHILD, "1")
             .output()
             .expect("the child process starts");
+        let said = String::from_utf8_lossy(&out.stdout);
+        let told = String::from_utf8_lossy(&out.stderr);
         assert!(
             out.status.success(),
-            "the scan under 256 descriptors failed:\n{}\n{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
+            "the scan under 256 descriptors failed:\n{said}\n{told}"
+        );
+        // A binary that finds no test of that name exits 0 as well: the child ran this one test.
+        assert!(
+            said.lines().any(|line| line == "running 1 test")
+                && said.contains("test result: ok. 1 passed; 0 failed"),
+            "the child process ran no test called {name:?} (it must say `running 1 test` and \
+             `1 passed`), so the scan under 256 descriptors was not played:\n{said}\n{told}"
         );
         return;
     }
