@@ -3,6 +3,7 @@
 # killers: azul-storage+encryption:x_delta_struct4_4_the_encryption_gate_lets_no_write_through_without_its_condition
 #   azul-storage+encryption:a_conditional_write_holds_only_while_the_file_is_unchanged
 # replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-DRIVEE-6.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
+# note: the row stays OPEN until a test over an admitted gate kills this patch (the replay says which killers stay green)
 # mutant: auto_encrypted_put_if_calls_put
 # guard: the condition of a conditional write reaches the drive under the gate (`AutoEncrypted::put_if` -> `drive.put_if(key, bytes, condition)`); the DRIVE-E review (DELTA-DRIVEE.md #6) found no test whose assertion is
 #   about the condition at this wrapper: the census row of `AutoEncrypted` proves the refusal of a NEW drive, the other tests that send a conditional write are refusals, and the test that holds the condition runs on `EncryptedDrive`.
