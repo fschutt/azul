@@ -115,9 +115,31 @@ Send/Receive on a device:
    takes nothing out, and a token server that cannot be asked leaves the mail where it is (the
    window says so). What leaves is NOT deleted: its file moves to `removed/<folder>/<stamp>/` of
    the local copy (`<stamp>` is the moment of the pull; `index.jsonl` there holds the folder's
-   lines of it) and stays 90 days, the span the drive keeps its own history; the window says how
-   many messages were removed from the drive. Only a sweep of `removed/` after those 90 days
-   deletes it, and one that cannot read its list deletes nothing.
+   lines of it) and stays 90 days, the span the drive keeps its own history; the window says, for
+   each folder, how many messages were removed from the drive and where they are
+   (`removed/<folder>/`, in the account's folder of AzMail's data, next to `mail/`). Only a sweep
+   of `removed/` after those 90 days deletes it, and one that cannot read its list deletes nothing
+   (and says so in the window).
+   What is still in the drive is not "gone": a name that is missing from one folder's listing and
+   listed in another folder was MOVED there by another device (or its folder was renamed), and its
+   line follows it - with its file and the marks made here, under a UID of the new folder - before
+   any folder is pulled: no hold, no download, no sentence. A message another program marked
+   `\Deleted` and has not expunged is still in the drive too: its line stays (flagged, so the window
+   shows no line that has it) until the mark goes or the message does.
+   To put a held message back by hand, open its file under `removed/` in a mail program and move
+   it into the folder; a window action that puts a whole pull back (it re-imports the lines of a
+   `removed/<folder>/<stamp>/index.jsonl`, whose `remote` names the objects they had) is not built
+   yet.
+   The stamp is the clock of this computer, set against what else is known of the time: a pull on a
+   clock that is behind the last Send/Receive by more than a day, or ahead of the last Send/Receive
+   and of the newest mail the drive lists by more than a year, moves nothing and says so; one that
+   is a few hours behind dates the hold at the last Send/Receive. The sweep deletes a hold only
+   when BOTH the clock of this computer and the drive agree that it is 90 days old (the drive's
+   reading is the newest `modified` it lists: it lived at least until then, so it never says a
+   later time than it is): a clock that jumped ahead deletes nothing that a drive which has not
+   lived that long does not agree to, and an unset clock or a drive that lists no mail deletes
+   nothing. (The drive's `modified` of an encrypted drive is its writers' clock, this computer's
+   included: an independent reading - the token server's `Date` - is the named rest.)
 
 After a pull the local copy equals the bucket as listed (what the bucket no longer lists is held
 under `removed/`, not in the folder); with no new writes, every device's next pull ends in the

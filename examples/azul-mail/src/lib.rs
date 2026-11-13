@@ -805,11 +805,24 @@ impl MailApp {
     }
 }
 
-/// A folder's index, by UID; empty when there is none.
+/// A folder's index, by UID, as the window shows it; empty when there is none. A message another
+/// program marked deleted and has not expunged is not in it while the mark is there
+/// ([`azlin_sync::HIDDEN_FLAG`]: the line stays in the file, so the mark going brings the same line
+/// back).
 pub(crate) fn read_index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
     store
         .get(&store::index_key(folder))
-        .map(|bytes| store::index_from_jsonl(&String::from_utf8_lossy(&bytes)))
+        .map(|bytes| {
+            store::index_from_jsonl(&String::from_utf8_lossy(&bytes))
+                .into_iter()
+                .filter(|entry| {
+                    !entry
+                        .flags
+                        .iter()
+                        .any(|flag| flag == azlin_sync::HIDDEN_FLAG)
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 

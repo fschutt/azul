@@ -727,6 +727,224 @@ fn sweep_removed_with(
     Ok(swept)
 }
 
+/// The flag a line of the index carries while another program has the message marked deleted
+/// (IMAP's `\Deleted`, written by the Azlin Bridge as the marker [`azlin::DELETED`]) and has not
+/// expunged it: the message is still in the drive, so its line stays and nothing is held or counted as
+/// removed; the window shows no line that has it (X-DELTA-APPS4-4). Not an IMAP flag, never sent anywhere.
+pub const HIDDEN_FLAG: &str = "$azlin-marked-deleted";
+
+/// The steps of [`follow_into`] a test stops the process after ([`cut`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Cut {
+    /// The lines are in their new folder's index (and state and marks).
+    Written,
+    /// The files are in their new folder's tree.
+    Moved,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The step after which the process dies on this thread (a test's kill).
+    static CUT_AFTER: std::cell::Cell<Option<Cut>> = const { std::cell::Cell::new(None) };
+}
+
+/// Whether the process dies right after `step`: never, outside a test. The error a real kill never
+/// returns.
+fn cut(step: Cut) -> Result<(), SyncError> {
+    #[cfg(test)]
+    if CUT_AFTER.with(std::cell::Cell::get) == Some(step) {
+        return Err(SyncError::Storage(String::from(
+            "the process stopped here (a test's kill)",
+        )));
+    }
+    let _ = step;
+    Ok(())
+}
+
+/// A message another device MOVED into another folder - and every message of a folder it RENAMED - is
+/// no longer listed in the folder it left and is listed, under the same name (`<stamp>-<hash>.eml`),
+/// in the one it went to: the drive still has it. Pulled as a delete, it was held under `removed/` as
+/// "removed from the drive" and fetched again as new mail: kept twice for 90 days, and the window said
+/// that 300 messages were lost that are in the drive (X-DELTA-APPS4-4). So before any folder is pulled
+/// the line of such a message goes to the folder that lists it now, with its file, under a UID of that
+/// folder and with the marks made here: no hold, no download, no sentence. A message the drive lists
+/// nowhere is not followed (it is gone, and is held); a message listed in two other folders follows
+/// the first of them.
+///
+/// Returns how many lines it moved.
+///
+/// # Errors
+///
+/// An index, a state or a marks file that cannot be read or written ends the call: what moved stays
+/// moved ([`follow_into`] is one table of crash cells), and the next Send/Receive finishes it.
+fn follow_moves(
+    store: &MailStore,
+    boxes: &[LocalMailbox],
+    remote: &[RemoteFolder],
+) -> Result<u64, SyncError> {
+    // Where each message is listed: its id -> the folders that list it, in the order of `boxes`.
+    let mut homes: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (at, mailbox) in boxes.iter().enumerate() {
+        for object in listing_of(remote, mailbox) {
+            if let Some(id) = azlin::message_id(&object.key) {
+                homes.entry(id).or_default().push(at);
+            }
+        }
+    }
+    let mut followed = 0;
+    for (from, mailbox) in boxes.iter().enumerate() {
+        let on_drive: HashSet<&str> = listing_of(remote, mailbox)
+            .iter()
+            .map(|object| object.key.as_str())
+            .collect();
+        let mut index = read_index(store, &mailbox.key)?;
+        // The lines whose objects this folder no longer lists, by the folder that lists the message now.
+        let mut leaving: BTreeMap<usize, Vec<u32>> = BTreeMap::new();
+        for entry in index.values() {
+            if entry.remote.is_empty() || on_drive.contains(entry.remote.as_str()) {
+                continue;
+            }
+            let Some(id) = azlin::message_id(&entry.remote) else {
+                continue;
+            };
+            let elsewhere = homes
+                .get(id)
+                .and_then(|listing| listing.iter().find(|at| **at != from));
+            if let Some(to) = elsewhere {
+                leaving.entry(*to).or_default().push(entry.uid);
+            }
+        }
+        for (to, uids) in leaving {
+            let Some(target) = boxes.get(to) else {
+                continue;
+            };
+            followed += follow_into(
+                store,
+                target,
+                listing_of(remote, target),
+                mailbox,
+                &mut index,
+                &uids,
+            )?;
+        }
+    }
+    Ok(followed)
+}
+
+/// The drive's listing of `mailbox`'s folder: nothing for a folder the drive does not list.
+fn listing_of<'a>(remote: &'a [RemoteFolder], mailbox: &LocalMailbox) -> &'a [ObjectInfo] {
+    remote
+        .iter()
+        .find(|folder| folder.path == mailbox.server_name)
+        .map(|folder| folder.messages.as_slice())
+        .unwrap_or(&[])
+}
+
+/// Moves the lines `uids` of `source_index` (the index of the folder `source`) into the folder
+/// `target`, whose drive listing is `listed` ([`follow_moves`]). The order, every step a crash cell:
+/// (1) the lines in `target`'s index, its state's last UID and the marks made here, durable BEFORE any
+/// file moves; (2) each file into `target`'s tree (one rename that replaces nothing; a line whose file is
+/// not here - a header block only - has nothing to move); (3) the lines out of `source`'s index and
+/// marks. A stop after (1) leaves the line in both folders, a stop after (2) the file in its new place
+/// under a line of the old folder: the next Send/Receive finds the line in `target` already, takes the
+/// old one out and moves the file if it is still where it was - never a second line, never a lost
+/// file, never a download. Returns how many lines it moved.
+fn follow_into(
+    store: &MailStore,
+    target: &LocalMailbox,
+    listed: &[ObjectInfo],
+    source: &LocalMailbox,
+    source_index: &mut BTreeMap<u32, IndexEntry>,
+    uids: &[u32],
+) -> Result<u64, SyncError> {
+    let mut into = read_index(store, &target.key)?;
+    let mut state = read_state(store, &target.key)?.unwrap_or_else(|| {
+        FolderState::create(&target.server_name, &target.display, AZLIN_UIDVALIDITY)
+    });
+    let mut into_marks = read_marks(store, &target.key)?;
+    let into_marks_before = into_marks.clone();
+    let mut from_marks = read_marks(store, &source.key)?;
+    let from_marks_before = from_marks.clone();
+    // (the line's UID in the folder it leaves, the file where it was, the file where it goes).
+    let mut plan: Vec<(u32, String, String)> = Vec::new();
+    for &uid in uids {
+        let Some(line) = source_index.get(&uid) else {
+            continue;
+        };
+        let Some(id) = azlin::message_id(&line.remote) else {
+            continue;
+        };
+        let Some(object) = listed
+            .iter()
+            .find(|object| azlin::message_id(&object.key) == Some(id))
+        else {
+            continue;
+        };
+        // A line of the message is here already (a stop halfway): it is not made twice.
+        let known = into
+            .values()
+            .find(|known| known.remote == object.key)
+            .map(|known| (known.uid, known.path.clone()));
+        let (new_uid, path) = match known {
+            Some(known) => known,
+            None => {
+                let new_uid = next_uid(&into, state.last_uid);
+                let (year, month) = year_month_of(line);
+                let path = store::message_key(&target.key, year, month, new_uid);
+                let mut moved = line.clone();
+                moved.uid = new_uid;
+                moved.path.clone_from(&path);
+                moved.remote.clone_from(&object.key);
+                into.insert(new_uid, moved);
+                state.last_uid = state.last_uid.max(new_uid);
+                (new_uid, path)
+            }
+        };
+        if let Some(on) = from_marks.read.remove(&uid) {
+            into_marks.read.entry(new_uid).or_insert(on);
+        }
+        if let Some(on) = from_marks.flagged.remove(&uid) {
+            into_marks.flagged.entry(new_uid).or_insert(on);
+        }
+        plan.push((uid, line.path.clone(), path));
+    }
+    if plan.is_empty() {
+        return Ok(0);
+    }
+    // (1) The lines are in their new folder before any file goes there.
+    write_index(store, &target.key, &into).map_err(io)?;
+    state.messages = into.len() as u64;
+    store
+        .put(&store::state_key(&target.key), state.to_json().as_bytes())
+        .map_err(io)?;
+    if into_marks != into_marks_before {
+        write_marks(store, &target.key, &into_marks).map_err(io)?;
+    }
+    cut(Cut::Written)?;
+    // (2) The files. A name that is taken is not replaced: a copy is there already.
+    for (_, from, to) in &plan {
+        if store.size_of(to).is_some() {
+            continue;
+        }
+        match store.move_object(from, to) {
+            Ok(()) => {}
+            // Nothing to move: a header block only, or moved by a pass that stopped after this.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io(e)),
+        }
+    }
+    cut(Cut::Moved)?;
+    // (3) The lines leave the folder they were in.
+    for (uid, _, _) in &plan {
+        source_index.remove(uid);
+    }
+    write_index(store, &source.key, source_index).map_err(io)?;
+    if from_marks != from_marks_before {
+        write_marks(store, &source.key, &from_marks).map_err(io)?;
+    }
+    Ok(plan.len() as u64)
+}
+
 // ==== The drive's folders ====
 
 // Listing the drive's mailbox is azul-mail-core's (`azlin.rs`): the Azlin Bridge lists it the
@@ -775,6 +993,9 @@ pub fn sync_account(
             key,
         });
     }
+    // Mail another device moved to another folder, or a folder it renamed, is still in the drive: its
+    // line follows it before any folder is pulled (X-DELTA-APPS4-4).
+    follow_moves(store, &boxes, &remote)?;
     let mut states = list_states(drive).map_err(drive_error)?;
     let count = boxes.len();
     let mut report = SyncReport::default();
@@ -869,7 +1090,6 @@ fn sync_folder(
         .cloned()
         .collect();
     let listed = visible.as_slice();
-    let listed_keys: HashSet<&str> = listed.iter().map(|object| object.key.as_str()).collect();
     let mut index = read_index(store, key)?;
     let mut state = FolderState::create(path, &mailbox.display, AZLIN_UIDVALIDITY);
     state.last_uid = read_state(store, key)?.map_or(0, |old| old.last_uid);
@@ -878,10 +1098,11 @@ fn sync_folder(
     // What this folder does with what the drive no longer lists, decided BEFORE anything is put or
     // removed: when a line of the index names an object the listing lacks, the token server is
     // asked (once per Send/Receive) whether the drive was restored (X-DELTA-APPS3-2).
+    // A message that is in the drive but hidden by another program's mark is not gone: it stays.
     let stance = pass.stance(
         index
             .values()
-            .any(|entry| !entry.remote.is_empty() && !listed_keys.contains(entry.remote.as_str())),
+            .any(|entry| !entry.remote.is_empty() && !on_drive.contains(entry.remote.as_str())),
     );
     let mut report = FolderReport {
         key: key.to_string(),
@@ -966,12 +1187,15 @@ fn sync_folder(
             }
         }
 
-        // 2. Pull: what is gone leaves, what is new comes.
+        // 2. Pull: what is gone leaves, what is new comes. What the drive still has but this window
+        //    hides - a message another program marked deleted and has not expunged - is not gone: its
+        //    line stays, hidden ([`HIDDEN_FLAG`]), and is neither held nor counted as removed
+        //    (X-DELTA-APPS4-4).
         let gone: Vec<u32> = index
             .values()
             .filter(|entry| {
                 !entry.remote.is_empty()
-                    && !listed_keys.contains(entry.remote.as_str())
+                    && !on_drive.contains(entry.remote.as_str())
                     && !pushed.contains(&entry.remote)
             })
             .map(|entry| entry.uid)
@@ -996,13 +1220,10 @@ fn sync_folder(
             let Some(entry) = index.get(&uid) else {
                 continue;
             };
-            // The listing's word is enough for a message another program hid with a mark. For
-            // every other the drive is asked about the object itself: a listing that is short for
-            // any reason must not take out a copy that may exist nowhere else, and a failed look
-            // is an unknown, not an "absent" (the pass ends, nothing more leaves).
-            if !on_drive.contains(entry.remote.as_str())
-                && ops::exists(drive, &entry.remote).map_err(drive_error)?
-            {
+            // The drive is asked about the object itself: a listing that is short for any reason
+            // must not take out a copy that may exist nowhere else, and a failed look is an unknown,
+            // not an "absent" (the pass ends, nothing more leaves).
+            if ops::exists(drive, &entry.remote).map_err(drive_error)? {
                 continue;
             }
             leaving.push(entry.clone());
@@ -1087,10 +1308,11 @@ fn sync_folder(
             let Some(id) = azlin::message_id(&entry.remote) else {
                 continue;
             };
-            let flags = states
-                .get(id)
-                .map(MessageState::imap_flags)
-                .unwrap_or_default();
+            let marked = states.get(id);
+            let mut flags = marked.map(MessageState::imap_flags).unwrap_or_default();
+            if marked.is_some_and(|state| state.deleted) {
+                flags.push(HIDDEN_FLAG.to_string());
+            }
             entry.flags = flags;
             // The first pass after the field existed gives every line it sees in the drive its stamp:
             // one conservative restore pass for the lines from before it, never a second one.
@@ -1494,6 +1716,12 @@ pub fn sending_refused(
     )
 }
 
+/// Where the mail a pull took out of the local folder `key` is held, relative to the account's mail
+/// folder: `removed/<key>/` (one folder for each pull in it, named by the moment of the pull).
+fn held_in(key: &str) -> String {
+    format!("{}/{key}/", store::REMOVED_PREFIX)
+}
+
 /// What the window says after a Send/Receive about mail the drive no longer lists, one sentence
 /// each, none when nothing was kept: a restored drive that lacks mail this computer has (it stays
 /// and goes back into the drive), and mail that stays because the token server could not be asked
@@ -1514,13 +1742,25 @@ pub fn drive_sentences(report: &SyncReport) -> Vec<String> {
             &[("count", Arg::from(report.header_only_after_restore()))],
         ));
     }
-    if report.removed() > 0 {
+    // One sentence for each folder that lost mail, naming the folder and where the held files are
+    // (X-DELTA-APPS4-5): a user told that 8000 messages "were removed from the drive" must be able to
+    // find them.
+    for folder in report.folders.iter().filter(|folder| folder.removed > 0) {
         sentences.push(t_args(
             "azmail-removed-held",
             &[
-                ("count", Arg::from(report.removed())),
+                ("count", Arg::from(folder.removed)),
+                ("folder", Arg::from(folder.display.as_str())),
+                ("where", Arg::from(held_in(&folder.key))),
                 ("days", Arg::from(HOLD_DAYS)),
             ],
+        ));
+    }
+    // The holding area could not be cleaned up this time: nothing was deleted, and it grows until it can.
+    if let Some(why) = &report.sweep_failed {
+        sentences.push(t_args(
+            "azmail-removed-sweep-failed",
+            &[("why", Arg::from(why.as_str()))],
         ));
     }
     if report.kept_unasked() > 0 {
@@ -2875,12 +3115,23 @@ mod tests {
         // go, as it did before.
         let report = sync_asking(&f, &options(), &Asked::none()).unwrap();
         assert_eq!((report.removed(), report.kept_unasked()), (2, 0));
-        // Let go means held 90 days (X-DELTA-APPS3-3), and the window says so.
+        // Let go means held 90 days (X-DELTA-APPS3-3), and the window says so - for each folder, with
+        // where the mail is (X-DELTA-APPS4-5).
         let said = drive_sentences(&report);
-        assert_eq!(said.len(), 1, "{said:?}");
+        assert_eq!(said.len(), 2, "one for each folder: {said:?}");
         assert!(
-            said[0].contains("2 messages were removed from the drive")
-                && said[0].contains("90 days"),
+            said.iter()
+                .all(|sentence| sentence.contains("1 message of ")
+                    && sentence.contains(" was removed from the drive")
+                    && sentence.contains("90 days")),
+            "{said:?}"
+        );
+        assert!(
+            said.iter()
+                .any(|sentence| sentence.contains("in removed/inbox/."))
+                && said
+                    .iter()
+                    .any(|sentence| sentence.contains("in removed/archive/.")),
             "{said:?}"
         );
     }
@@ -3060,10 +3311,17 @@ mod tests {
         crate::l10n::in_english();
         let said = drive_sentences(&report);
         assert_eq!(said.len(), 1, "{said:?}");
+        let display = &report
+            .folders
+            .iter()
+            .find(|f| f.removed > 0)
+            .unwrap()
+            .display;
         assert!(
-            said[0].contains("1 message was removed from the drive")
-                && said[0].contains("stays on this computer for 90 days"),
-            "{said:?}"
+            said[0].contains(&format!(
+                "1 message of {display} was removed from the drive"
+            )) && said[0].contains("stays on this computer for 90 days, in removed/inbox/."),
+            "the sentence names the folder and where the mail is held: {said:?}"
         );
         assert_eq!(HOLD_DAYS, 90, "the drive's own history");
     }
@@ -3311,6 +3569,376 @@ mod tests {
         let late = SEP_30 + 90 * DAY;
         assert_eq!(sweep_removed(&f.store, late, Some(late as u64)).unwrap(), 1);
         assert!(held_keys(&f).is_empty());
+    }
+
+    // ==== X-DELTA-APPS4-4 + X-DELTA-APPS4-5: what is still in the drive is not "removed", and the window says where ====
+
+    /// What another device's MOVE does to the drive: the object is copied to the same name in the new
+    /// folder and the old one is deleted. Returns the new key.
+    fn moved_on_the_drive(f: &Fixture, key: &str, folder: &str) -> String {
+        let name = key.rsplit('/').next().unwrap();
+        let to = azlin::message_key(folder, name);
+        f.bucket.inner.copy(key, &to).unwrap();
+        f.bucket.inner.delete(key).unwrap();
+        to
+    }
+
+    fn downloads(f: &Fixture) -> usize {
+        f.bucket.gets.lock().unwrap().len()
+    }
+
+    /// RED on the code before: every message another device archived was "gone" from the Inbox - held
+    /// under `removed/` for 90 days, counted in "N messages were removed from the drive" - and fetched
+    /// again as new mail in Archive: kept twice, downloaded twice, and the window said mail was lost
+    /// that the drive has. Now the line follows its object before any folder is pulled: the same file
+    /// in the new folder's tree, under that folder's UID, and nothing held, said or downloaded.
+    #[test]
+    fn x_delta_apps4_4_messages_moved_to_another_folder_are_not_held_fetched_again_or_said() {
+        let f = fixture();
+        let keys: Vec<String> = (0..30_u32)
+            .map(|n| {
+                deliver(
+                    &f,
+                    "Inbox",
+                    &mail(n, &format!("Mail {n}")),
+                    SEP_30 + i64::from(n),
+                )
+            })
+            .collect();
+        run(&f);
+        assert_eq!(index(&f.store, "inbox").len(), 30);
+        let fetched = downloads(&f);
+        let archived: Vec<String> = keys
+            .iter()
+            .map(|key| moved_on_the_drive(&f, key, "Archive"))
+            .collect();
+        let report = run(&f);
+        assert_eq!(report.removed(), 0, "moved is not removed");
+        assert_eq!(report.fetched(), 0, "and is not new mail");
+        assert!(
+            drive_sentences(&report).is_empty(),
+            "no sentence: {:?}",
+            drive_sentences(&report)
+        );
+        assert!(
+            held_keys(&f).is_empty(),
+            "nothing is held: {:?}",
+            held_keys(&f)
+        );
+        assert_eq!(downloads(&f), fetched, "nothing is downloaded again");
+        assert!(index(&f.store, "inbox").is_empty());
+        let lines = index(&f.store, "archive");
+        assert_eq!(lines.len(), 30);
+        for line in &lines {
+            assert!(
+                archived.contains(&line.remote),
+                "its line names the object in its new folder: {}",
+                line.remote
+            );
+            assert!(line.path.starts_with("mail/archive/"), "{}", line.path);
+            let n: u32 = line.subject.trim_start_matches("Mail ").parse().unwrap();
+            assert_eq!(
+                f.store.get(&line.path).unwrap(),
+                mail(n, &line.subject),
+                "the file followed its line"
+            );
+        }
+        let mut uids: Vec<u32> = lines.iter().map(|line| line.uid).collect();
+        uids.sort_unstable();
+        assert_eq!(
+            uids,
+            (1..=30).collect::<Vec<u32>>(),
+            "the new folder's own UIDs"
+        );
+        // The next Send/Receive changes nothing.
+        let again = run(&f);
+        assert_eq!((again.removed(), again.fetched()), (0, 0));
+        assert_eq!(index(&f.store, "archive"), lines);
+    }
+
+    /// A folder another device renamed: every line of the old folder follows its object into the new
+    /// one, with the marks made here (a mark waits in `flags.json` under the line's UID, which the
+    /// move changes), and the old folder is gone here as it is in the drive.
+    #[test]
+    fn x_delta_apps4_4_a_folder_renamed_elsewhere_takes_its_lines_and_marks_with_it() {
+        let f = fixture();
+        let one = deliver(&f, "Work/Projects", &mail(1, "Kickoff"), SEP_30);
+        let two = deliver(&f, "Work/Projects", &mail(2, "Plan"), SEP_30 + 60);
+        run(&f);
+        let old = index(&f.store, "Work.Projects");
+        assert_eq!(old.len(), 2);
+        // A mark made here, not pushed yet: the second message was opened.
+        let mut marks = LocalFlags::create();
+        marks.read.insert(old[1].uid, true);
+        write_marks(&f.store, "Work.Projects", &marks).unwrap();
+        let fetched = downloads(&f);
+        moved_on_the_drive(&f, &one, "Work/Plans");
+        moved_on_the_drive(&f, &two, "Work/Plans");
+        let report = run(&f);
+        assert_eq!(
+            (report.removed(), report.fetched()),
+            (0, 0),
+            "renamed is not removed"
+        );
+        assert!(drive_sentences(&report).is_empty());
+        assert!(held_keys(&f).is_empty(), "{:?}", held_keys(&f));
+        assert_eq!(downloads(&f), fetched);
+        assert!(
+            !f.store.folders().contains(&String::from("Work.Projects")),
+            "the old folder is gone here as there: {:?}",
+            f.store.folders()
+        );
+        let lines = index(&f.store, "Work.Plans");
+        let subjects: Vec<&str> = lines.iter().map(|line| line.subject.as_str()).collect();
+        assert_eq!(subjects, ["Kickoff", "Plan"]);
+        for line in &lines {
+            assert!(line.path.starts_with("mail/Work.Plans/"), "{}", line.path);
+            assert!(
+                f.store.size_of(&line.path).is_some(),
+                "the file followed: {}",
+                line.path
+            );
+        }
+        // The mark followed its message: it was "Plan", the mark was pushed as the drive's marker
+        // (the pass reads it back as the flag) and is not kept here any more.
+        let id = azlin::message_id(&lines[1].remote).unwrap().to_string();
+        assert!(
+            f.bucket
+                .inner
+                .head(&azlin::marker_key(&id, azlin::SEEN))
+                .is_ok(),
+            "the mark made on the old folder's line reached the drive for the moved message"
+        );
+        assert_eq!(lines[1].flags, ["\\Seen"]);
+        assert_eq!(
+            read_marks(&f.store, "Work.Projects").unwrap(),
+            LocalFlags::create()
+        );
+        assert!(read_marks(&f.store, "Work.Plans").unwrap().read.is_empty());
+    }
+
+    /// The crash table of the follow, each row by stopping the process after a write: after the lines
+    /// are in their new folder (the files are where they were), and after the files moved (the lines of
+    /// the old folder are still there). The next Send/Receive finishes it - never a second line, a lost
+    /// file, a held copy or a download.
+    #[test]
+    fn x_delta_apps4_4_a_follow_cut_after_any_write_is_finished_by_the_next_send_receive() {
+        for cut_after in [Cut::Written, Cut::Moved] {
+            let f = fixture();
+            let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+            let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+            run(&f);
+            let fetched = downloads(&f);
+            moved_on_the_drive(&f, &one, "Archive");
+            moved_on_the_drive(&f, &two, "Archive");
+            CUT_AFTER.with(|cut| cut.set(Some(cut_after)));
+            let stopped = sync_account(&f.bucket, &f.store, &options(), &no_restore(), &mut |_| {
+                true
+            });
+            CUT_AFTER.with(|cut| cut.set(None));
+            assert!(
+                matches!(stopped, Err(SyncError::Storage(_))),
+                "{cut_after:?}: {stopped:?}"
+            );
+            // The process starts again.
+            let report = run(&f);
+            assert_eq!(
+                (report.removed(), report.fetched()),
+                (0, 0),
+                "{cut_after:?}: nothing is held or fetched"
+            );
+            assert!(
+                held_keys(&f).is_empty(),
+                "{cut_after:?}: {:?}",
+                held_keys(&f)
+            );
+            assert_eq!(downloads(&f), fetched, "{cut_after:?}");
+            assert!(index(&f.store, "inbox").is_empty(), "{cut_after:?}");
+            let lines = index(&f.store, "archive");
+            let subjects: Vec<&str> = lines.iter().map(|line| line.subject.as_str()).collect();
+            assert_eq!(subjects, ["One", "Two"], "{cut_after:?}: one line each");
+            for (line, text) in lines.iter().zip([mail(1, "One"), mail(2, "Two")]) {
+                assert_eq!(
+                    f.store.get(&line.path).unwrap(),
+                    text,
+                    "{cut_after:?}: the file is under its new line"
+                );
+            }
+        }
+    }
+
+    /// What is really gone is still removed - and counted alone: two messages another device moved
+    /// and one it deleted.
+    #[test]
+    fn x_delta_apps4_4_only_what_is_really_gone_is_counted_as_removed() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        let two = deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        let three = deliver(&f, "Inbox", &mail(3, "Three"), SEP_30 + 120);
+        run(&f);
+        moved_on_the_drive(&f, &one, "Archive");
+        moved_on_the_drive(&f, &two, "Archive");
+        f.bucket.inner.delete(&three).unwrap();
+        let report = run(&f);
+        assert_eq!(report.removed(), 1);
+        assert_eq!(report.fetched(), 0);
+        crate::l10n::in_english();
+        let said = drive_sentences(&report);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].starts_with("1 message of "), "{said:?}");
+        assert_eq!(index(&f.store, "archive").len(), 2);
+    }
+
+    /// A message another program marked `\Deleted` and has not expunged is still in the drive: its line
+    /// stays in the index (flagged, so the window does not show it), nothing is held or said, and when
+    /// the mark goes the same line is back - no download, the same UID. Expunged, it is really gone: held
+    /// and said. RED on the code before: the line was held the moment the mark came and fetched again as
+    /// new mail under a new UID when it went.
+    #[test]
+    fn x_delta_apps4_4_a_message_marked_deleted_elsewhere_stays_hidden_and_is_not_held() {
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        let uids: Vec<u32> = index(&f.store, "inbox")
+            .iter()
+            .map(|line| line.uid)
+            .collect();
+        let fetched = downloads(&f);
+        let id = azlin::message_id(&one).unwrap().to_string();
+        let mark = azlin::marker_key(&id, azlin::DELETED);
+        f.bucket.inner.put(&mark, &[]).unwrap();
+        let report = run(&f);
+        assert_eq!((report.removed(), report.fetched()), (0, 0));
+        assert!(
+            drive_sentences(&report).is_empty(),
+            "{:?}",
+            drive_sentences(&report)
+        );
+        assert!(held_keys(&f).is_empty(), "{:?}", held_keys(&f));
+        let lines = index(&f.store, "inbox");
+        assert_eq!(lines.len(), 2, "the line stays");
+        assert!(
+            lines[0].flags.iter().any(|flag| flag == HIDDEN_FLAG),
+            "{:?}",
+            lines[0].flags
+        );
+        let shown: Vec<String> = crate::read_index(&f.store, "inbox")
+            .into_iter()
+            .map(|line| line.subject)
+            .collect();
+        assert_eq!(shown, ["Two"], "the window does not show it");
+        // The mark goes: the same line is back.
+        f.bucket.inner.delete(&mark).unwrap();
+        let report = run(&f);
+        assert_eq!((report.removed(), report.fetched()), (0, 0));
+        let lines = index(&f.store, "inbox");
+        assert_eq!(lines.iter().map(|line| line.uid).collect::<Vec<_>>(), uids);
+        assert!(lines[0].flags.iter().all(|flag| flag != HIDDEN_FLAG));
+        assert_eq!(crate::read_index(&f.store, "inbox").len(), 2);
+        assert_eq!(downloads(&f), fetched, "nothing was downloaded");
+        // Marked, then expunged: really gone, held and said.
+        f.bucket.inner.put(&mark, &[]).unwrap();
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        let report = run(&f);
+        assert_eq!(report.removed(), 1);
+        assert_eq!(drive_sentences(&report).len(), 1);
+        assert_eq!(held_rows(&f), ["Two"]);
+    }
+
+    /// A drive that lists NOTHING (an empty listing nobody announced: a new drive pointed at an account
+    /// with mail) still holds every line as before - and the sentence names the folder and says where the
+    /// mail is: `removed/<folder>/`. In both languages.
+    #[test]
+    fn x_delta_apps4_5_the_sentence_names_the_folder_and_where_the_held_mail_is() {
+        let f = fixture();
+        let keys: Vec<String> = (0..3_u32)
+            .map(|n| {
+                deliver(
+                    &f,
+                    "Inbox",
+                    &mail(n, &format!("Mail {n}")),
+                    SEP_30 + i64::from(n),
+                )
+            })
+            .collect();
+        run(&f);
+        for key in &keys {
+            f.bucket.inner.delete(key).unwrap();
+        }
+        let report = run(&f);
+        assert_eq!(report.removed(), 3);
+        let display = &report
+            .folders
+            .iter()
+            .find(|f| f.removed > 0)
+            .unwrap()
+            .display;
+        crate::l10n::in_english();
+        let said = drive_sentences(&report);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains(&format!(
+                "3 messages of {display} were removed from the drive"
+            )) && said[0].contains("for 90 days, in removed/inbox/."),
+            "{said:?}"
+        );
+        azul_appkit::l10n::set_locale("de-DE");
+        let said = drive_sentences(&report);
+        crate::l10n::in_english();
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains(&format!(
+                "3 Nachrichten aus {display} wurden aus dem Laufwerk entfernt"
+            )) && said[0].contains("90 Tage auf diesem Computer, in removed/inbox/."),
+            "{said:?}"
+        );
+        assert!(
+            held_keys(&f)
+                .iter()
+                .all(|key| key.starts_with("removed/inbox/")),
+            "the sentence's place is where the mail is: {:?}",
+            held_keys(&f)
+        );
+    }
+
+    /// A sweep that cannot read its list says so in the report - one sentence, in both languages - and
+    /// deletes nothing: it was on stderr only. Here the folder `removed/` cannot be read.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_apps4_5_a_sweep_that_cannot_run_is_told_in_the_report() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = fixture();
+        let one = deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        // The drive keeps mail, so that it has a reading of the time to agree with.
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 60);
+        run(&f);
+        f.bucket.inner.delete(&one).unwrap();
+        run_at(&f, SEP_30);
+        let folder = f.store.folder().path().join(store::REMOVED_PREFIX);
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
+        assert!(
+            std::fs::read_dir(&folder).is_err(),
+            "the premise of the test: the folder cannot be read (running as root?)"
+        );
+        let report = run_at(&f, SEP_30 + 100 * DAY);
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let why = report.sweep_failed.clone().expect("the sweep failed");
+        crate::l10n::in_english();
+        let said = drive_sentences(&report);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].starts_with("The mail removed from the drive could not be cleaned up (")
+                && said[0].contains(&why)
+                && said[0].ends_with("it stays on this computer."),
+            "{said:?}"
+        );
+        azul_appkit::l10n::set_locale("de-DE");
+        let said = drive_sentences(&report);
+        crate::l10n::in_english();
+        assert!(said[0].contains("ließen sich nicht aufräumen"), "{said:?}");
+        assert!(!held_keys(&f).is_empty(), "nothing was deleted");
     }
 
     /// The crash table of the hold, each row by stopping the flow after a write.

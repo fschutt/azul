@@ -232,9 +232,10 @@ azmail-restore-header-only = { $count ->
    *[other] The Azlin drive was restored to an earlier state and lacks { $count } more messages you have, of which only the headers are here: they cannot go back into the drive.
  }
 azmail-removed-held = { $count ->
-    [one] 1 message was removed from the drive; it stays on this computer for { $days } days.
-   *[other] { $count } messages were removed from the drive; they stay on this computer for { $days } days.
+    [one] 1 message of { $folder } was removed from the drive; it stays on this computer for { $days } days, in { $where }.
+   *[other] { $count } messages of { $folder } were removed from the drive; they stay on this computer for { $days } days, in { $where }.
  }
+azmail-removed-sweep-failed = The mail removed from the drive could not be cleaned up ({ $why }): it stays on this computer.
 azmail-restore-unknown = { $count ->
     [one] The Azlin drive no longer lists 1 message you have, and the token server could not be asked whether the drive was restored ({ $why }): it stays here until the next Send/Receive.
    *[other] The Azlin drive no longer lists { $count } messages you have, and the token server could not be asked whether the drive was restored ({ $why }): they stay here until the next Send/Receive.

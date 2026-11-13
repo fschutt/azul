@@ -232,9 +232,10 @@ azmail-restore-header-only = { $count ->
    *[other] Das Azlin-Laufwerk wurde auf einen früheren Stand zurückgesetzt und hat { $count } weitere Nachrichten nicht, die du hast und von denen nur die Köpfe hier sind: Sie können nicht ins Laufwerk zurück.
  }
 azmail-removed-held = { $count ->
-    [one] 1 Nachricht wurde aus dem Laufwerk entfernt; sie bleibt { $days } Tage auf diesem Computer.
-   *[other] { $count } Nachrichten wurden aus dem Laufwerk entfernt; sie bleiben { $days } Tage auf diesem Computer.
+    [one] 1 Nachricht aus { $folder } wurde aus dem Laufwerk entfernt; sie bleibt { $days } Tage auf diesem Computer, in { $where }.
+   *[other] { $count } Nachrichten aus { $folder } wurden aus dem Laufwerk entfernt; sie bleiben { $days } Tage auf diesem Computer, in { $where }.
  }
+azmail-removed-sweep-failed = Die aus dem Laufwerk entfernten Nachrichten ließen sich nicht aufräumen ({ $why }): Sie bleiben auf diesem Computer.
 azmail-restore-unknown = { $count ->
     [one] Das Azlin-Laufwerk listet 1 Nachricht, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleibt hier bis zum nächsten Senden/Empfangen.
    *[other] Das Azlin-Laufwerk listet { $count } Nachrichten, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleiben hier bis zum nächsten Senden/Empfangen.
