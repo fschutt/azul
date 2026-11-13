@@ -241,6 +241,8 @@ azmail-restore-unknown = { $count ->
     [one] The Azlin drive no longer lists 1 message you have, and the token server could not be asked whether the drive was restored ({ $why }): it stays here until the next Send/Receive.
    *[other] The Azlin drive no longer lists { $count } messages you have, and the token server could not be asked whether the drive was restored ({ $why }): they stay here until the next Send/Receive.
  }
+azmail-drops-wait-other-key = Incoming mail waits in the drive: its mail key belongs to another drive key than this computer holds, so it is filed once this computer has the drive's current key.
+azmail-drops-wait-damaged = Incoming mail waits in the drive: its mail key file is damaged, so nothing of it was opened. Nothing was deleted.
 azmail-send-receive-error = Send/Receive error: { $why }
 azmail-send-receive-stopped = Send/Receive stopped. What arrived until then is kept.
 azmail-outbox-empty-no-account = Nothing waits in the Outbox. To receive mail, add an account: File > Info > Add Account.

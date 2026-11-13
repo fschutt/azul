@@ -1775,6 +1775,16 @@ pub fn drive_sentences(report: &SyncReport) -> Vec<String> {
             ],
         ));
     }
+    // Incoming mail the drive keeps in its drops that this computer's key could not open this time.
+    match report.drops_waiting {
+        Some(crate::mail_drive::DropsWait::OtherKey) => {
+            sentences.push(azul_appkit::l10n::t("azmail-drops-wait-other-key"));
+        }
+        Some(crate::mail_drive::DropsWait::Damaged) => {
+            sentences.push(azul_appkit::l10n::t("azmail-drops-wait-damaged"));
+        }
+        None => {}
+    }
     sentences
 }
 
@@ -3134,6 +3144,51 @@ mod tests {
                     .any(|sentence| sentence.contains("in removed/archive/.")),
             "{said:?}"
         );
+    }
+
+    /// X-DELTA-KEYS4-1: incoming mail that waits in the drive because this computer's key does not open the
+    /// drive's drop key (a key change of its own that stopped, a damaged file) is ONE sentence of the sync's
+    /// report - in both languages, and nothing else is said where there is nothing to say. The sync itself went
+    /// on: no error of the drive (`mail_drive::file_drops`).
+    #[test]
+    fn x_delta_keys4_1_mail_waiting_for_its_drop_key_is_one_sentence_of_the_report_in_both_languages(
+    ) {
+        use crate::mail_drive::DropsWait;
+        crate::l10n::in_english();
+        assert!(
+            drive_sentences(&SyncReport::default()).is_empty(),
+            "nothing waits, nothing is said"
+        );
+        for (wait, english, german) in [
+            (
+                DropsWait::OtherKey,
+                "another drive key",
+                "anderen Laufwerksschlüssel",
+            ),
+            (DropsWait::Damaged, "is damaged", "ist beschädigt"),
+        ] {
+            let report = SyncReport {
+                drops_waiting: Some(wait),
+                ..SyncReport::default()
+            };
+            crate::l10n::in_english();
+            let said = drive_sentences(&report);
+            assert_eq!(said.len(), 1, "one sentence: {said:?}");
+            assert!(
+                said[0].starts_with("Incoming mail waits in the drive")
+                    && said[0].contains(english),
+                "{said:?}"
+            );
+            azul_appkit::l10n::set_locale("de-DE");
+            let said = drive_sentences(&report);
+            assert_eq!(said.len(), 1, "one sentence: {said:?}");
+            assert!(
+                said[0].starts_with("Eingehende E-Mails warten im Laufwerk")
+                    && said[0].contains(german),
+                "{said:?}"
+            );
+        }
+        crate::l10n::in_english();
     }
 
     /// The answer is the epoch this copy already took: the drive stands where it was left, so an

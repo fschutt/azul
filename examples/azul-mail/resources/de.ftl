@@ -241,6 +241,8 @@ azmail-restore-unknown = { $count ->
     [one] Das Azlin-Laufwerk listet 1 Nachricht, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleibt hier bis zum nächsten Senden/Empfangen.
    *[other] Das Azlin-Laufwerk listet { $count } Nachrichten, die du hast, nicht mehr, und der Token-Server ließ sich nicht fragen, ob das Laufwerk zurückgesetzt wurde ({ $why }): Sie bleiben hier bis zum nächsten Senden/Empfangen.
  }
+azmail-drops-wait-other-key = Eingehende E-Mails warten im Laufwerk: Der Mailschlüssel des Laufwerks gehört zu einem anderen Laufwerksschlüssel, als dieser Computer ihn hat. Sie werden einsortiert, sobald dieser Computer den aktuellen Schlüssel des Laufwerks hat.
+azmail-drops-wait-damaged = Eingehende E-Mails warten im Laufwerk: Die Datei des Mailschlüssels ist beschädigt, deshalb wurde nichts davon geöffnet. Es wurde nichts gelöscht.
 azmail-send-receive-error = Fehler beim Senden/Empfangen: { $why }
 azmail-send-receive-stopped = Senden/Empfangen angehalten. Was bis dahin ankam, bleibt erhalten.
 azmail-outbox-empty-no-account = Im Postausgang wartet nichts. Um E-Mails zu empfangen, füge ein Konto hinzu: Datei > Informationen > Konto hinzufügen.

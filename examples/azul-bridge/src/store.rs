@@ -294,9 +294,35 @@ pub fn drops_incoming(
     auto: Arc<azul_storage::encrypted::AutoEncrypted>,
     keyring: Arc<dyn azul_storage::keyring::KeyringStore>,
 ) -> Incoming {
+    let said = Mutex::new(None);
     Arc::new(move || {
-        azmail_core::mail_drive::receive_drops_into(&auto, keyring.as_ref()).map_err(drive_error)
+        let filed = azmail_core::mail_drive::receive_drops_into(&auto, keyring.as_ref())
+            .map_err(drive_error)?;
+        // Mail that waits for a drop key this computer's key does not open is no error of the drive: the
+        // listing goes on, and the wait is said once while it lasts (X-DELTA-KEYS4-1).
+        let mut said = said
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(wait) = to_say_now(&mut said, filed.waiting) {
+            eprintln!("[azul-bridge] {wait}");
+        }
+        Ok(filed.delivered)
     })
+}
+
+/// The wait of the drive's incoming mail ([`azmail_core::mail_drive::DropsWait`]) that is to be said now: the
+/// first time it is seen, and again when it changed - never at every listing while it lasts - and `None`
+/// when it is over (what is said next, when it comes back, is new).
+#[cfg(feature = "encryption")]
+fn to_say_now(
+    last: &mut Option<azmail_core::mail_drive::DropsWait>,
+    now: Option<azmail_core::mail_drive::DropsWait>,
+) -> Option<azmail_core::mail_drive::DropsWait> {
+    if *last == now {
+        return None;
+    }
+    *last = now;
+    now
 }
 
 /// The Azlin drive's mailbox (`AZLIN_MAIL.md`) as a [`MailStore`].
@@ -925,6 +951,104 @@ mod tests {
             keys.iter()
                 .all(|k| !k.starts_with("mail/") && !k.starts_with(".azlin/drop/")),
             "{keys:?}"
+        );
+    }
+
+    /// X-DELTA-KEYS4-1 (the bridge's side): the device whose own key change stopped between its Members step and
+    /// the new drop key holds the newest key, and the drive's drop key is still sealed under the one before. The
+    /// bridge's incoming mail used to answer an error at every look (`KeyRefused`, since 6011d4f59); it answers
+    /// "nothing filed" now - the mail waits in the drive - and the listing of the folder goes on, as it did.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys4_1_incoming_mail_over_a_drop_key_this_key_does_not_open_files_nothing_and_the_listing_goes_on(
+    ) {
+        use azmail_core::mail_drive;
+        use azul_storage::{
+            crypto::{
+                device,
+                drops::{self, DropFolder, DROP_KEY_FILE},
+                keys::RecoveryKdf,
+                DriveKey,
+            },
+            keyring::{KeyringStore, MemoryKeyring},
+            meta::MemoryBucket,
+        };
+        const DRIVE: &str = "d_bridge_window";
+        let keyring: Arc<dyn KeyringStore> = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), DRIVE, cheap).unwrap();
+        let k1 = device::load_drive_key(keyring.as_ref(), DRIVE)
+            .unwrap()
+            .unwrap();
+        let permit =
+            device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), DRIVE, &k1).unwrap();
+        let public = drops::enable_drop(&permit, bucket.as_ref(), &k1, DRIVE).unwrap();
+        let key = drops::new_drop_key().unwrap();
+        let raw = mail("Lunch on Thursday");
+        let sealed =
+            drops::seal_drop(&public, DRIVE, &key, OCT_1, DropFolder::Inbox, &raw).unwrap();
+        bucket.put(&key, &sealed).unwrap();
+        // The drive key is the new one; the drop key file is the one before's.
+        device::store_drive_key(keyring.as_ref(), DRIVE, &DriveKey::generate().unwrap()).unwrap();
+        let drop_key_file = bucket.get(DROP_KEY_FILE).unwrap();
+
+        let auto = mail_drive::wrap_auto(
+            bucket.clone(),
+            DRIVE,
+            keyring.clone(),
+            azul_storage::meta::RestoreSource::none("a test has no token server to ask"),
+        );
+        let incoming = drops_incoming(auto.clone(), keyring.clone());
+        assert_eq!(incoming().expect("no error of the drive"), 0);
+        assert_eq!(incoming().expect("nor at the next look"), 0);
+        let store = DriveMailStore::new(auto).with_incoming(incoming);
+        assert!(
+            store.messages("Inbox").unwrap().is_empty(),
+            "the listing goes on"
+        );
+        assert_eq!(
+            bucket.get(DROP_KEY_FILE).unwrap(),
+            drop_key_file,
+            "the file is as it was"
+        );
+        assert_eq!(
+            ops::list_all(bucket.as_ref(), ".azlin/drop/")
+                .unwrap()
+                .len(),
+            1,
+            "the mail waits in the bucket"
+        );
+    }
+
+    /// X-DELTA-KEYS4-1: the wait is said when it is first seen and when it changes - not at every listing, which
+    /// asks every two seconds - and what comes back after it was over is new.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys4_1_a_wait_of_the_drops_is_said_once_while_it_lasts() {
+        use azmail_core::mail_drive::DropsWait::{Damaged, OtherKey};
+        let mut last = None;
+        let said: Vec<_> = [
+            None,
+            Some(OtherKey),
+            Some(OtherKey),
+            Some(Damaged),
+            None,
+            Some(OtherKey),
+        ]
+        .into_iter()
+        .map(|now| to_say_now(&mut last, now))
+        .collect();
+        assert_eq!(
+            said,
+            [
+                None,
+                Some(OtherKey),
+                None,
+                Some(Damaged),
+                None,
+                Some(OtherKey)
+            ]
         );
     }
 }

@@ -142,6 +142,11 @@ pub struct SyncReport {
     /// (the text of the error), when some folder had mail the drive no longer lists. `None`:
     /// it was not needed, or it answered.
     pub restore_unknown: Option<String>,
+    /// An Azlin account's: why the drive's incoming mail (its drops) was not filed this time, when the
+    /// drive's drop key is no key this computer's drive key opens ([`crate::mail_drive::DropsWait`]): the
+    /// mail waits in the drive and nothing was deleted; the sync of the folders went on. `None`: the
+    /// drops were filed, or there were none.
+    pub drops_waiting: Option<crate::mail_drive::DropsWait>,
     /// An Azlin account's: why the holding area could not be swept this time (the text of the
     /// error); nothing was deleted then. `None`: it was swept, or there was nothing to sweep.
     pub sweep_failed: Option<String>,

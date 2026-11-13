@@ -1505,8 +1505,10 @@ fn sync_drive(
     now: i64,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<SyncReport, SyncError> {
-    // An encrypted drive's incoming mail first: its drops into the folders the sync reads.
-    mail_drive::receive_drops(
+    // An encrypted drive's incoming mail first: its drops into the folders the sync reads. A drop key
+    // this computer's key does not open (a key change of its own that stopped, a key that is an old
+    // one) is no error of the drive: the mail waits where it is, the sync goes on and says so.
+    let filed = mail_drive::receive_drops(
         session,
         job.endpoints.s3_url.as_deref(),
         Box::new(transport.clone()),
@@ -1522,14 +1524,16 @@ fn sync_drive(
     .map_err(azlin_sync::drive_error)?;
     // The drive's restore announcement is the session's (a re-sign-in may bring a newer one); the
     // token server is asked again when mail the drive no longer lists is about to go.
-    azlin_sync::sync_session(
+    let mut report = azlin_sync::sync_session(
         &drive,
         &MailStore::new(job.mail_root.clone()),
         session,
         now,
         &|| azlin_restore_now(job, session, transport),
         progress,
-    )
+    )?;
+    report.drops_waiting = filed.waiting;
+    Ok(report)
 }
 
 /// An Azlin account's Receive: signs in at the token server when the drive's credentials run

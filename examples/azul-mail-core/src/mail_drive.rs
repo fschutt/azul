@@ -170,23 +170,91 @@ pub fn wrap_auto(
     )
 }
 
+/// Why the drops of a drive were not opened in a round although the drive has a drop key file: the
+/// file is no drop key this computer's drive key opens. The mail waits in the bucket - nothing is
+/// deleted - and is opened once the file is a key this computer's drive key opens (after a key
+/// change that stopped is finished, through the previous drop keys). The sync goes on: it is no
+/// error of the drive (X-DELTA-KEYS4-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropsWait {
+    /// The file is sealed under ANOTHER drive key than the one this computer holds: a key change of
+    /// the drive stopped on this computer between its new key and the new drop key (the drop key is
+    /// replaced in the last steps), or this computer's key is an old one.
+    OtherKey,
+    /// The file names this computer's key and does not open with it: damaged.
+    Damaged,
+}
+
+impl std::fmt::Display for DropsWait {
+    /// The sentence a log line says (the windows say it in their own words).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            DropsWait::OtherKey => {
+                "incoming mail waits on the drive: its drop key is sealed under another drive key \
+                 than this computer holds, so it is filed once this computer has the current key"
+            }
+            DropsWait::Damaged => {
+                "incoming mail waits on the drive: its drop key file is damaged, so nothing of it \
+                 was opened and nothing was deleted"
+            }
+        })
+    }
+}
+
+/// What filing the drops of a drive did: how many messages were filed, and - when the drive's drop
+/// key could not be used this round - why the mail waits ([`DropsWait`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Filed {
+    pub delivered: u64,
+    pub waiting: Option<DropsWait>,
+}
+
+impl Filed {
+    /// Nothing filed, nothing waiting: a plain drive, a drive without incoming mail.
+    #[must_use]
+    pub fn nothing() -> Filed {
+        Filed::default()
+    }
+
+    /// Nothing filed, and `why` is the reason mail waits in the bucket.
+    #[must_use]
+    pub fn waiting(why: DropsWait) -> Filed {
+        Filed {
+            delivered: 0,
+            waiting: Some(why),
+        }
+    }
+}
+
 /// Files the drops of the drive `drive_id` (in its plain `bucket`) into its encrypted mail
-/// folders and deletes them; returns how many. `open` gives the encrypted drive, asked only when
-/// there is a drop key (so a drive without incoming mail costs one keyring look and one read).
-/// 0 for a drive whose key this computer does not keep or that has no drop key. A drop that does
-/// not open (sealed to an older drop key, damaged) stays in the bucket.
+/// folders and deletes them; says how many ([`Filed`]). `open` gives the encrypted drive, asked
+/// only when there is a drop key (so a drive without incoming mail costs one keyring look and one
+/// read). Nothing for a drive whose key this computer does not keep or that has no drop key. A drop
+/// that does not open (sealed to an older drop key, damaged) stays in the bucket.
+///
+/// A drop key file that this computer's drive key does not open - sealed under another drive key
+/// (a key change of this computer's own, stopped between its Members step and the new drop key, has
+/// the newest key and the file of the one before it), or damaged - is no error of the drive: no
+/// drop is opened this round, the mail waits in the bucket and the answer says why
+/// ([`Filed::waiting`]); the sync of the folders goes on, and the drops are filed once the file is
+/// the key's (X-DELTA-KEYS4-1). The writers of the drop key (`enable_drop`, `disable_drop`) still
+/// refuse such a file with their typed error: a drop key is never written over what nobody can read.
 #[cfg(feature = "encryption")]
 pub fn file_drops(
     bucket: &dyn Drive,
     drive_id: &str,
     keyring: &dyn KeyringStore,
     open: &mut dyn FnMut() -> Result<Arc<dyn Drive>, DriveError>,
-) -> Result<u64, DriveError> {
+) -> Result<Filed, DriveError> {
     let Some(drive_key) = device::load_drive_key(keyring, drive_id)? else {
-        return Ok(0);
+        return Ok(Filed::nothing());
     };
-    let Some(secret) = drops::load_drop_key(bucket, &drive_key, drive_id)? else {
-        return Ok(0);
+    let secret = match drops::load_drop_key(bucket, &drive_key, drive_id) {
+        Ok(Some(secret)) => secret,
+        Ok(None) => return Ok(Filed::nothing()),
+        Err(DriveError::KeyRefused { .. }) => return Ok(Filed::waiting(DropsWait::OtherKey)),
+        Err(DriveError::Corrupt { .. }) => return Ok(Filed::waiting(DropsWait::Damaged)),
+        Err(e) => return Err(e),
     };
     let drive = open()?;
     let mut delivered = drops::ingest(bucket, &secret, drive_id, &mut |dropped| {
@@ -202,36 +270,44 @@ pub fn file_drops(
         })?
         .delivered;
     }
-    Ok(delivered)
+    Ok(Filed {
+        delivered,
+        waiting: None,
+    })
 }
 
 /// [`file_drops`] for a drive opened with [`wrap_auto`]: the drops of its bucket into the same
-/// open drive (the bridge, before it lists a folder). 0 for a plain drive.
+/// open drive (the bridge, before it lists a folder). Nothing for a plain drive.
 #[cfg(feature = "encryption")]
-pub fn receive_drops_into(auto: &Arc<AutoEncrypted>, keyring: &dyn KeyringStore) -> Result<u64, DriveError> {
+pub fn receive_drops_into(
+    auto: &Arc<AutoEncrypted>,
+    keyring: &dyn KeyringStore,
+) -> Result<Filed, DriveError> {
     let bucket = Arc::clone(auto.bucket());
     let drive: Arc<dyn Drive> = Arc::clone(auto) as Arc<dyn Drive>;
     file_drops(bucket.as_ref(), auto.drive(), keyring, &mut || Ok(Arc::clone(&drive)))
 }
 
 /// Files the drive's incoming-mail drops into its encrypted mail folders (see the module
-/// documentation) and deletes them; returns how many. 0 - and no request at all - for a plain
-/// drive, a drive whose key this computer does not keep, a build without the feature or without
-/// the drive index; 0 after one listing for a drive without incoming mail. A drop that does not
-/// open (sealed to an older drop key, damaged) stays in the bucket.
+/// documentation) and deletes them; says how many ([`Filed`]). Nothing - and no request at all -
+/// for a plain drive, a drive whose key this computer does not keep, a build without the feature
+/// or without the drive index; nothing after one listing for a drive without incoming mail. A drop
+/// that does not open (sealed to an older drop key, damaged) stays in the bucket; a drop key that
+/// this computer's key does not open leaves every drop where it is and says so
+/// ([`file_drops`]).
 pub fn receive_drops(
     session: &AzlinSession,
     endpoint_override: Option<&str>,
     transport: Box<dyn Transport>,
     keyring: &dyn KeyringStore,
-) -> Result<u64, DriveError> {
+) -> Result<Filed, DriveError> {
     #[cfg(feature = "encryption")]
     {
         let Some(provider) = index_provider(session.restore_source()) else {
-            return Ok(0);
+            return Ok(Filed::nothing());
         };
         if device::load_drive_key(keyring, &session.drive_id)?.is_none() {
-            return Ok(0);
+            return Ok(Filed::nothing());
         }
         let bucket: Arc<dyn Drive> = Arc::new(session.open_drive(endpoint_override, transport)?);
         file_drops(bucket.as_ref(), &session.drive_id, keyring, &mut || {
@@ -246,7 +322,7 @@ pub fn receive_drops(
     #[cfg(not(feature = "encryption"))]
     {
         let _ = (session, endpoint_override, transport, keyring);
-        Ok(0)
+        Ok(Filed::nothing())
     }
 }
 
@@ -533,7 +609,13 @@ mod tests {
         bucket.put(&key, &sealed).unwrap();
 
         let auto = super::wrap_auto(bucket.clone(), "d_drops", keyring.clone(), no_restore());
-        assert_eq!(super::receive_drops_into(&auto, keyring.as_ref()).unwrap(), 1);
+        assert_eq!(
+            super::receive_drops_into(&auto, keyring.as_ref()).unwrap(),
+            super::Filed {
+                delivered: 1,
+                waiting: None
+            }
+        );
         let name = crate::azlin::object_name(raw, 1_791_619_200);
         assert_eq!(auto.get(&format!("mail/Inbox/{name}")).unwrap(), raw);
         assert!(
@@ -544,7 +626,10 @@ mod tests {
             list_all(bucket.as_ref(), "mail/").unwrap().is_empty(),
             "no message in the bucket in the clear"
         );
-        assert_eq!(super::receive_drops_into(&auto, keyring.as_ref()).unwrap(), 0);
+        assert_eq!(
+            super::receive_drops_into(&auto, keyring.as_ref()).unwrap(),
+            super::Filed::nothing()
+        );
 
         let plain = super::wrap_auto(
             Arc::new(MemoryBucket::new()),
@@ -552,7 +637,250 @@ mod tests {
             keyring.clone(),
             no_restore(),
         );
-        assert_eq!(super::receive_drops_into(&plain, keyring.as_ref()).unwrap(), 0);
+        assert_eq!(
+            super::receive_drops_into(&plain, keyring.as_ref()).unwrap(),
+            super::Filed::nothing()
+        );
+    }
+
+    /// A drive whose incoming mail is on: its key (K1) in the returned keyring, its drop key sealed under K1, one
+    /// message the Worker sealed to that drop key waiting in the bucket as a drop.
+    #[cfg(feature = "encryption")]
+    fn a_drive_with_one_waiting_drop(
+        drive: &str,
+    ) -> (
+        Arc<azul_storage::meta::MemoryBucket>,
+        Arc<MemoryKeyring>,
+        azul_storage::crypto::DriveKey,
+        &'static [u8],
+    ) {
+        use azul_storage::{
+            crypto::{
+                device,
+                drops::{self, DropFolder},
+                keys::RecoveryKdf,
+            },
+            meta::MemoryBucket,
+        };
+        let keyring = Arc::new(MemoryKeyring::new());
+        let bucket = Arc::new(MemoryBucket::new());
+        let cheap = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+        device::setup_new_drive(bucket.as_ref(), keyring.as_ref(), drive, cheap).unwrap();
+        let k1 = device::load_drive_key(keyring.as_ref(), drive)
+            .unwrap()
+            .unwrap();
+        let permit =
+            device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), drive, &k1).unwrap();
+        let public = drops::enable_drop(&permit, bucket.as_ref(), &k1, drive).unwrap();
+        let raw: &'static [u8] = b"From: ben@example.net\r\nSubject: Lunch\r\n\r\nNoon.\r\n";
+        let key = drops::new_drop_key().unwrap();
+        let sealed =
+            drops::seal_drop(&public, drive, &key, 1_791_619_200, DropFolder::Inbox, raw).unwrap();
+        bucket.put(&key, &sealed).unwrap();
+        (bucket, keyring, k1, raw)
+    }
+
+    /// X-DELTA-KEYS4-1: the device that holds the NEWEST key while its own "I was hacked" is stopped between its
+    /// Members step and the new drop key (the keyring's drive key is K2, `_drop.key` is still sealed under K1)
+    /// meets a drop key file its key does not open. Since 6011d4f59 that was `Err(KeyRefused)` out of
+    /// `file_drops`, and AzMail's whole Send/Receive ended on it before the drive was opened - on a device whose
+    /// key was NOT replaced - with a sentence that said it was. Now no drop is opened that round, the answer
+    /// says why, the drive is not even opened, the drops and the file stay as they are, and the writers of the
+    /// drop key still refuse. After the rotation's last step (the previous drop key, the new `_drop.key`) the
+    /// mail waiting in the bucket is filed through the previous drop keys.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys4_1_a_drop_key_of_the_key_before_stops_nothing_and_the_mail_is_filed_after_the_rotation_ends(
+    ) {
+        use azul_storage::{
+            crypto::{
+                device,
+                drops::{self, DROP_KEY_FILE},
+                DriveKey,
+            },
+            ops::list_all,
+            DriveError,
+        };
+        let _turn = provider_turn();
+        super::set_index_cache_root(None);
+        let drive_id = "d_k41_window";
+        let (bucket, keyring, k1, raw) = a_drive_with_one_waiting_drop(drive_id);
+        // The device's own key change: the drive key is K2 now; the key change has not replaced the drop key yet.
+        let k2 = DriveKey::generate().unwrap();
+        device::store_drive_key(keyring.as_ref(), drive_id, &k2).unwrap();
+        let drop_key_file = bucket.get(DROP_KEY_FILE).unwrap();
+        let opened = std::cell::Cell::new(0u32);
+        let filed = super::file_drops(bucket.as_ref(), drive_id, keyring.as_ref(), &mut || {
+            opened.set(opened.get() + 1);
+            Err(DriveError::Unsupported(String::from(
+                "the drive is not opened this round",
+            )))
+        });
+        assert_eq!(
+            filed.expect("no error of the drive: the sync goes on"),
+            super::Filed::waiting(super::DropsWait::OtherKey)
+        );
+        assert_eq!(
+            opened.get(),
+            0,
+            "no drop key to ingest with: the drive is not opened for it"
+        );
+        assert_eq!(
+            bucket.get(DROP_KEY_FILE).unwrap(),
+            drop_key_file,
+            "the file is as it was"
+        );
+        assert_eq!(
+            list_all(bucket.as_ref(), ".azlin/drop/").unwrap().len(),
+            1,
+            "the drop waits"
+        );
+        // What the sync does next: the drive opens (the newest key opens its index) and its folders list.
+        let drive = wrap(bucket.clone(), drive_id, keyring.clone(), no_restore());
+        assert!(
+            drive
+                .list(&azul_storage::ListRequest::recursive("mail/"))
+                .is_ok(),
+            "the sync goes on: the drive opens with the key this computer holds"
+        );
+        // The writers keep the typed refusal.
+        assert!(
+            matches!(
+                device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), drive_id, &k2),
+                Err(DriveError::KeyRefused { .. })
+            ),
+            "turning incoming mail on or off is still refused"
+        );
+        // The bridge's way: the same answer, through the open drive.
+        let auto = super::wrap_auto(bucket.clone(), drive_id, keyring.clone(), no_restore());
+        assert_eq!(
+            super::receive_drops_into(&auto, keyring.as_ref()).unwrap(),
+            super::Filed::waiting(super::DropsWait::OtherKey)
+        );
+        // The rotation's last step: the drop key before it is kept under K2 and the new one replaces the file.
+        drops::rotate_drop_key(bucket.as_ref(), &k1, &k2, drive_id)
+            .unwrap()
+            .expect("incoming mail was on");
+        assert_eq!(
+            super::receive_drops_into(&auto, keyring.as_ref()).unwrap(),
+            super::Filed {
+                delivered: 1,
+                waiting: None
+            },
+            "the mail that waited is filed through the previous drop key"
+        );
+        let name = crate::azlin::object_name(raw, 1_791_619_200);
+        assert_eq!(auto.get(&format!("mail/Inbox/{name}")).unwrap(), raw);
+        assert!(
+            list_all(bucket.as_ref(), ".azlin/drop/")
+                .unwrap()
+                .is_empty(),
+            "the drop is gone"
+        );
+    }
+
+    /// X-DELTA-KEYS4-1: a drop key file that names this computer's key and does not open with it (damaged) is no
+    /// error of the drive either: the sync goes on, the answer says so, nothing is deleted - and the writers of
+    /// the drop key (the permit) still refuse it with their typed error, for nothing may write over a key
+    /// nobody can read.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys4_1_a_damaged_drop_key_file_stops_nothing_and_the_writers_still_refuse() {
+        use azul_storage::{
+            crypto::{
+                device,
+                drops::{DropKeyFile, DROP_KEY_FILE},
+            },
+            ops::list_all,
+            DriveError,
+        };
+        let _turn = provider_turn();
+        super::set_index_cache_root(None);
+        let drive_id = "d_k41_damaged";
+        let (bucket, keyring, k1, _raw) = a_drive_with_one_waiting_drop(drive_id);
+        let mut file = DropKeyFile::parse(&bucket.get(DROP_KEY_FILE).unwrap()).unwrap();
+        file.sealed[0] ^= 1;
+        bucket.put(DROP_KEY_FILE, &file.to_bytes()).unwrap();
+        let damaged = bucket.get(DROP_KEY_FILE).unwrap();
+        let opened = std::cell::Cell::new(0u32);
+        let filed = super::file_drops(bucket.as_ref(), drive_id, keyring.as_ref(), &mut || {
+            opened.set(opened.get() + 1);
+            Err(DriveError::Unsupported(String::from(
+                "the drive is not opened this round",
+            )))
+        });
+        assert_eq!(
+            filed.expect("no error of the drive: the sync goes on"),
+            super::Filed::waiting(super::DropsWait::Damaged)
+        );
+        assert_eq!(opened.get(), 0);
+        assert_eq!(
+            bucket.get(DROP_KEY_FILE).unwrap(),
+            damaged,
+            "left as it was"
+        );
+        assert_eq!(
+            list_all(bucket.as_ref(), ".azlin/drop/").unwrap().len(),
+            1,
+            "the drop waits"
+        );
+        assert!(
+            matches!(
+                device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), drive_id, &k1),
+                Err(DriveError::Corrupt { .. })
+            ),
+            "the writers refuse a damaged file: {:?}",
+            device::drop_key_permit(bucket.as_ref(), keyring.as_ref(), drive_id, &k1).err()
+        );
+    }
+
+    /// X-DELTA-KEYS4-1: what is NOT taken for "waiting" stays an error: a drop key read that fails (the bucket
+    /// does not answer) is the bucket's own error, the sync stops on it as it did.
+    #[cfg(feature = "encryption")]
+    #[test]
+    fn x_delta_keys4_1_a_drop_key_that_cannot_be_read_is_still_an_error() {
+        use azul_storage::{crypto::drops::DROP_KEY_FILE, DriveError};
+        struct CutOffRead(Arc<azul_storage::meta::MemoryBucket>);
+        impl Drive for CutOffRead {
+            fn list(
+                &self,
+                request: &azul_storage::ListRequest,
+            ) -> Result<azul_storage::ListPage, DriveError> {
+                self.0.list(request)
+            }
+            fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+                if key == DROP_KEY_FILE {
+                    return Err(DriveError::Transport(String::from(
+                        "the connection was cut",
+                    )));
+                }
+                self.0.get(key)
+            }
+            fn get_range(
+                &self,
+                key: &str,
+                range: azul_storage::ByteRange,
+            ) -> Result<Vec<u8>, DriveError> {
+                self.0.get_range(key, range)
+            }
+            fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+                self.0.put(key, bytes)
+            }
+            fn delete(&self, key: &str) -> Result<(), DriveError> {
+                self.0.delete(key)
+            }
+            fn head(&self, key: &str) -> Result<azul_storage::ObjectInfo, DriveError> {
+                self.0.head(key)
+            }
+        }
+        let _turn = provider_turn();
+        let drive_id = "d_k41_cut";
+        let (bucket, keyring, _k1, _raw) = a_drive_with_one_waiting_drop(drive_id);
+        let cut = CutOffRead(bucket);
+        let filed = super::file_drops(&cut, drive_id, keyring.as_ref(), &mut || {
+            Err(DriveError::Unsupported(String::from("not asked")))
+        });
+        assert!(matches!(filed, Err(DriveError::Transport(_))), "{filed:?}");
     }
 
     /// X-DELTA-AZDRIVE-SYNC-3 (AZ-M4). AzMail keeps this computer's copy of the drive index between
