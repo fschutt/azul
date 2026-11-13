@@ -77,6 +77,9 @@ lettre = { version = "0.11.23", default-features = false, features = ["smtp-tran
 # (`azlin_keyring()`): a map of the process, never the owner's system keychain (X-TESTFIX-AZUL2-4).
 # Dev only: azul-srcgate's memory_keyring_gate refuses the name in any other table.
 azul-storage = { path = "../azul-storage", features = ["testing", "memory-keyring"] }
+# A keyring whose locks are in a folder of the test's own (SharedKeyring::with_lock_root): the sync thread's job is
+# built by a test (sync_drive_tests.rs), never with the locks in the user's folder.
+azcloud-kit = { path = "../azcloud-kit", features = ["testing"] }
 # The tests' helpers (`testutil`: the temporary folder, the SMTP sink).
 azul-mail-core = { path = "../azul-mail-core", default-features = false, features = ["testing"] }
 

@@ -94,6 +94,8 @@ mod compose_address_tests;
 mod test_switch_tests;
 #[cfg(test)]
 mod marks_tests;
+#[cfg(test)]
+mod sync_drive_tests;
 mod ui_account;
 mod ui_backstage;
 mod ui_bridge;
@@ -1476,7 +1478,7 @@ fn refresh_session(
 fn azlin_restore_now(
     job: &SyncInit,
     session: &azlin::AzlinSession,
-    transport: &AzulTransport,
+    transport: &dyn azul_storage::Transport,
 ) -> Result<Option<azul_storage::restore::RestoreNotice>, SyncError> {
     let link = job
         .account
@@ -1522,18 +1524,35 @@ fn sync_drive(
         std::sync::Arc::new(azlin_keyring(Asking::User)),
     )
     .map_err(azlin_sync::drive_error)?;
+    let mut report = sync_opened(job, session, &drive, transport, now, progress)?;
+    report.drops_waiting = filed.waiting;
+    Ok(report)
+}
+
+/// The sync of the folders of an Azlin account's mailbox against the drive that is open - the one place
+/// [`azlin_sync::sync_session`] is called from, so that a test enters the sync of the app with a drive of its own
+/// and a token server of its own. The token server is asked what it says NOW about a restore when mail the drive no
+/// longer lists is about to go ([`azlin_restore_now`]), and no test reached the line that hands the sync that
+/// asker: an asker that said "none" (`&|| Ok(None)`), or a failed ask taken for "none", left every other test green
+/// while the sync decided by the snapshot of the last sign-in alone (X-DELTA-APPS4-2 of X-DELTA-APPS3-2).
+fn sync_opened(
+    job: &SyncInit,
+    session: &azlin::AzlinSession,
+    drive: &dyn Drive,
+    transport: &dyn azul_storage::Transport,
+    now: i64,
+    progress: &mut dyn FnMut(Progress) -> bool,
+) -> Result<SyncReport, SyncError> {
     // The drive's restore announcement is the session's (a re-sign-in may bring a newer one); the
     // token server is asked again when mail the drive no longer lists is about to go.
-    let mut report = azlin_sync::sync_session(
-        &drive,
+    azlin_sync::sync_session(
+        drive,
         &MailStore::new(job.mail_root.clone()),
         session,
         now,
         &|| azlin_restore_now(job, session, transport),
         progress,
-    )?;
-    report.drops_waiting = filed.waiting;
-    Ok(report)
+    )
 }
 
 /// An Azlin account's Receive: signs in at the token server when the drive's credentials run
