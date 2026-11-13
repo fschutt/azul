@@ -106,26 +106,104 @@ pub fn refused_dir() -> PathBuf {
     PathBuf::from("\0scratch-refused")
 }
 
-/// Removes `AzDrive-open` from the system's shared temp folder: where an AzDrive before scratch
-/// put the decrypted copy of every file it opened (`AzDrive-open/<drive>/<name>`, folders 0755 and
-/// files 0644 - readable by every user of the computer), and where nothing ever removed them
-/// (AZ-W4). Only a folder this user owns and that is no link goes; one another user made is that
-/// user's. Whether something was removed.
-pub fn remove_legacy_open_copies() -> bool {
+/// What became of a folder an older program left decrypted copies in ([`remove_legacy_open_copies`],
+/// [`remove_legacy_copies_at`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LegacyCopies {
+    /// There was no such folder of this user's (or the name is a link, or another user's folder: not
+    /// ours to touch).
+    Absent,
+    /// It held no file, only folders: removed.
+    Removed,
+    /// It holds `files` entries that are no folder - copies an app was handed writable, and maybe what the
+    /// user changed in them, which nothing synced and nothing can tell from the copy (a folder of that time
+    /// kept no record of what was written) - and they stay where they are, the folder made private. The
+    /// caller says so (X-DELTA-SYNC4-25: the folders were removed whole, with whatever the user had saved
+    /// in them; a hidden copy that is rarely edited is no reason to delete). `files` is 0 for a folder
+    /// with no file that could not be removed.
+    Kept { files: usize },
+}
+
+/// Deals with `AzDrive-open` in the system's shared temp folder: where an AzDrive before scratch put the
+/// decrypted copy of every file it opened (`AzDrive-open/<drive>/<name>`, folders 0755 and files 0644 -
+/// readable by every user of the computer), and where nothing ever removed them (AZ-W4). Only a folder this
+/// user owns and that is no link is touched; one another user made is that user's. A folder with no file in
+/// it goes; one that holds files is made private and kept ([`LegacyCopies`]).
+pub fn remove_legacy_open_copies() -> LegacyCopies {
     remove_legacy_open_copies_in(&shared_temp())
 }
 
 /// [`remove_legacy_open_copies`] in the shared folder `temp`.
-pub(crate) fn remove_legacy_open_copies_in(temp: &Path) -> bool {
-    let ours = fs::symlink_metadata(temp.join(LEGACY_OPEN))
+pub(crate) fn remove_legacy_open_copies_in(temp: &Path) -> LegacyCopies {
+    remove_legacy_copies_at(&temp.join(LEGACY_OPEN))
+}
+
+/// The folder `folder` an older program left decrypted copies in: removed when it holds no file, else kept
+/// and made private ([`LegacyCopies`]). A listing or a look that cannot be done counts as a file: what
+/// cannot be seen is not removed. Only a folder this user owns and that is no link is touched.
+pub fn remove_legacy_copies_at(folder: &Path) -> LegacyCopies {
+    let ours = fs::symlink_metadata(folder)
         .is_ok_and(|meta| meta.file_type().is_dir() && owned_by_me(&meta));
     if !ours {
-        return false;
+        return LegacyCopies::Absent;
     }
-    let Ok(parent) = Dir::open_following(temp) else {
-        return false;
+    let mut looks = SWEEP_LOOKS;
+    let files = entries_that_are_no_folder(folder, 0, &mut looks);
+    if files > 0 {
+        close_to_other_users(folder);
+        return LegacyCopies::Kept { files };
+    }
+    let (Some(parent), Some(name)) = (folder.parent(), folder.file_name().and_then(|n| n.to_str()))
+    else {
+        return LegacyCopies::Kept { files: 0 };
     };
-    remove_tree(&parent, LEGACY_OPEN, 0).is_ok()
+    let Ok(dir) = Dir::open_following(parent) else {
+        return LegacyCopies::Kept { files: 0 };
+    };
+    match remove_tree(&dir, name, 0) {
+        Ok(()) => LegacyCopies::Removed,
+        Err(_) => LegacyCopies::Kept { files: 0 },
+    }
+}
+
+/// How many entries below `folder` are no folder (a file, a link, anything else), counting a listing or a
+/// look that fails as one; the folders themselves are walked, never a link. Bounded by `looks`: past it the
+/// count is at least one more, so a folder nobody can walk whole is not removed.
+fn entries_that_are_no_folder(folder: &Path, depth: usize, looks: &mut usize) -> usize {
+    let Ok(listing) = fs::read_dir(folder) else {
+        return 1;
+    };
+    let mut files = 0;
+    for entry in listing {
+        if *looks == 0 || depth > 16 {
+            return files + 1;
+        }
+        *looks -= 1;
+        let Ok(entry) = entry else {
+            files += 1;
+            continue;
+        };
+        match fs::symlink_metadata(entry.path()) {
+            Ok(meta) if meta.file_type().is_dir() => {
+                files += entries_that_are_no_folder(&entry.path(), depth + 1, looks);
+            }
+            _ => files += 1,
+        }
+    }
+    files
+}
+
+/// Closes `folder` to every other user (`rwx------`): the decrypted copies that stay are the user's own.
+fn close_to_other_users(folder: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // collapse-ok: a folder that cannot be closed is as it was; nothing is removed and the caller says
+        // that the copies stay.
+        let _ = fs::set_permissions(folder, fs::Permissions::from_mode(0o700));
+    }
+    #[cfg(not(unix))]
+    let _ = folder;
 }
 
 /// The folder of the copies an AzDrive before scratch opened.

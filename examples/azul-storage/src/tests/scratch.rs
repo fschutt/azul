@@ -716,30 +716,69 @@ fn x_delta_azdrive_files_29_a_checked_dir_is_made_and_a_refused_one_takes_no_wri
     assert!(fs::write(refused.join("x.json"), b"secret").is_err());
 }
 
-/// AZ-W4: the decrypted copies an AzDrive before scratch left in `<temp>/AzDrive-open` (0755/0644,
-/// readable by every user) are removed once; a link in that name, or a folder another user made,
-/// is not touched.
+/// AZ-W4 and X-DELTA-SYNC4-25: the decrypted copies an AzDrive before scratch left in `<temp>/AzDrive-open`
+/// (0755/0644, readable by every user). A folder with no file in it goes; one that holds files - copies an
+/// app was handed writable, and maybe what the user changed in them, which nothing synced - is KEPT, made
+/// private (`rwx------`), and reported (the coordinator's call D-SYNC5 3: the rarely edited hidden copy is
+/// no reason to delete). A link in that name, or a folder another user made, is not touched. RED on the old
+/// code: the folder with the user's saved copy was removed whole.
 #[cfg(unix)]
 #[test]
-fn x_delta_azdrive_files_29_the_old_open_folder_in_the_temp_folder_is_removed_once() {
+fn x_delta_sync4_25_the_old_open_folder_is_removed_when_it_holds_no_file_and_kept_when_it_holds_one() {
+    use scratch::LegacyCopies;
+    use std::os::unix::fs::PermissionsExt;
     let temp = TempDir::new("dx29-legacy");
-    assert!(
-        !scratch::remove_legacy_open_copies_in(temp.path()),
+    assert_eq!(
+        scratch::remove_legacy_open_copies_in(temp.path()),
+        LegacyCopies::Absent,
         "nothing to do"
     );
     let old = temp.path().join("AzDrive-open");
-    fs::create_dir_all(old.join("d_1")).unwrap();
-    fs::write(old.join("d_1").join("report.docx"), b"decrypted").unwrap();
-    scratch::make_read_only(&old.join("d_1").join("report.docx")).unwrap();
-    assert!(scratch::remove_legacy_open_copies_in(temp.path()));
+    // Only folders: nothing the user could have saved, nothing to keep.
+    fs::create_dir_all(old.join("d_1").join("empty")).unwrap();
+    assert_eq!(scratch::remove_legacy_open_copies_in(temp.path()), LegacyCopies::Removed);
     assert!(!old.exists());
-    assert!(!scratch::remove_legacy_open_copies_in(temp.path()), "once");
+    assert_eq!(scratch::remove_legacy_open_copies_in(temp.path()), LegacyCopies::Absent, "once");
+    // A copy, as the old AzDrive made it (0644, in a folder every user could enter): kept, and closed.
+    fs::create_dir_all(old.join("d_1")).unwrap();
+    fs::write(old.join("d_1").join("report.docx"), b"decrypted, and then edited by the user").unwrap();
+    fs::set_permissions(&old, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        scratch::remove_legacy_open_copies_in(temp.path()),
+        LegacyCopies::Kept { files: 1 }
+    );
+    assert_eq!(
+        fs::read(old.join("d_1").join("report.docx")).unwrap(),
+        b"decrypted, and then edited by the user",
+        "the user's copy is where it was"
+    );
+    assert_eq!(mode_of(&old), 0o700, "the folder is closed to other users");
+    assert_eq!(
+        scratch::remove_legacy_open_copies_in(temp.path()),
+        LegacyCopies::Kept { files: 1 },
+        "and it stays on every start"
+    );
+    // The same rule for a folder that is not the shared temp's: the pairing's state folder of the kit.
+    let state_open = temp.path().join("state").join("open");
+    fs::create_dir_all(state_open.join("a")).unwrap();
+    fs::write(state_open.join("a").join("note.txt"), b"plaintext").unwrap();
+    assert_eq!(
+        scratch::remove_legacy_copies_at(&state_open),
+        LegacyCopies::Kept { files: 1 }
+    );
+    assert!(state_open.join("a").join("note.txt").exists());
+    assert_eq!(
+        scratch::remove_legacy_copies_at(&temp.path().join("state").join("no-such-folder")),
+        LegacyCopies::Absent,
+        "a folder that is not there is not a file that cannot be seen"
+    );
     // A link in that name: not followed, not removed.
+    fs::remove_dir_all(&old).unwrap();
     let elsewhere = temp.path().join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
     fs::write(elsewhere.join("mine.txt"), b"mine").unwrap();
     std::os::unix::fs::symlink(&elsewhere, &old).unwrap();
-    assert!(!scratch::remove_legacy_open_copies_in(temp.path()));
+    assert_eq!(scratch::remove_legacy_open_copies_in(temp.path()), LegacyCopies::Absent);
     assert!(elsewhere.join("mine.txt").exists());
 }
 

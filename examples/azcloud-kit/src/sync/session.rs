@@ -2246,11 +2246,11 @@ impl SyncSession {
             }
         }
         let bytes = drive.get(&full)?;
-        // What an earlier version left in the state folder: the plaintext of files it opened.
-        let legacy = self.dir.join("open");
-        if legacy.is_dir() {
-            let _ = fs::remove_dir_all(&legacy);
-        }
+        // What an earlier version left in the state folder: the plaintext of files it opened. A folder that
+        // holds no file goes; one that holds files may hold what the user changed in them and never synced,
+        // and stays, closed to other users (X-DELTA-SYNC4-25: it was removed whole); AzDrive says so at
+        // its start.
+        let _ = azul_storage::scratch::remove_legacy_copies_at(&self.dir.join("open"));
         // The copy's own name is the key's last name (the folders of the key add nothing: the
         // copy's folder is one per drive, file and version), a name the policy admitted above.
         let name = admitted
