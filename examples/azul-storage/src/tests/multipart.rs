@@ -608,7 +608,9 @@ fn az_m14_a_sweep_does_not_abort_an_upload_whose_file_it_cannot_read_now() {
     // The shelf is shut: the file is there, and this process cannot look at it.
     std::fs::set_permissions(&shelf, std::fs::Permissions::from_mode(0o000)).unwrap();
     let swept = if std::fs::metadata(&path).is_ok() {
-        None // a user who reads everything (root): nothing can be made unreadable
+        // A user who reads everything (root): nothing can be made unreadable - and that run fails
+        // `x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds`, so this is no quiet pass.
+        None
     } else {
         Some(drive.abort_stale_uploads())
     };
@@ -629,6 +631,51 @@ fn az_m14_a_sweep_does_not_abort_an_upload_whose_file_it_cannot_read_now() {
     assert_eq!(drive.abort_stale_uploads(), 1);
     assert!(state_files(&resume).is_empty());
     assert!(s3.uploads().is_empty());
+}
+
+/// Whether this process is refused a file of `mode` (made in a folder of its own): `false` for root, and on a
+/// mount that ignores permission bits - the two ways a mode of 000 binds nobody.
+#[cfg(unix)]
+fn a_mode_binds(mode: u32) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new("multipart-mode-binds");
+    let file = dir.path().join("f");
+    std::fs::write(&file, b"x").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+    let refused = std::fs::read(&file).is_err();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    refused
+}
+
+/// Fails the run, saying why, unless a file of `mode` is refused to this process.
+#[cfg(unix)]
+fn demand_that_a_mode_binds(mode: u32) {
+    assert!(
+        a_mode_binds(mode),
+        "this process reads a file of mode {mode:o} (it runs as root, or on a mount that ignores \
+         permission bits), so the test that shuts a folder this process cannot look into - \
+         az_m14_a_sweep_does_not_abort_an_upload_whose_file_it_cannot_read_now - returns early and \
+         asserts nothing: this run cannot say it passes. Run the suite as an ordinary user \
+         (X-DELTA-INTEGRITY3-19)"
+    );
+}
+
+/// X-DELTA-INTEGRITY3-19, the twin of the kit's test of the same name. The test of an unreadable upload
+/// file returns early where the process reads a mode of 000 anyway - root, a CI container, a mount that
+/// ignores modes - and reported green on the runner that cannot play it. This is where that run fails.
+#[cfg(unix)]
+#[test]
+fn x_delta_integrity3_19_the_suite_runs_as_a_user_a_mode_of_000_binds() {
+    demand_that_a_mode_binds(0o000);
+}
+
+/// The control of the test above, at the same size: a process that reads the file - root's case, made here
+/// with a mode that lets the owner read it - fails the run with the words of the loud test.
+#[cfg(unix)]
+#[test]
+#[should_panic(expected = "this process reads a file of mode 600")]
+fn x_delta_integrity3_19_a_process_that_reads_through_the_mode_fails_the_run() {
+    demand_that_a_mode_binds(0o600);
 }
 
 /// AZ-M14. The sweep of one drive never aborts the upload another thread of the process is
