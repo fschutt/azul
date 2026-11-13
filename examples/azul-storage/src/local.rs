@@ -10,7 +10,7 @@ use std::{
 };
 
 use crate::{
-    beneath::{self, BeneathError, Dir, Fingerprint, Kind},
+    beneath::{self, BeneathError, Dir, Existing, Fingerprint, Kind},
     ctl::Quiet,
     dir_read::{self, DirItem, ItemKind},
     durable::{self, Expect, Landed, Mode, Publish},
@@ -105,7 +105,7 @@ pub(crate) fn beneath_error(key: &str, e: BeneathError) -> DriveError {
 /// Empties `dir`: files and links are unlinked (a link's target stays where it is), folders
 /// are emptied the same way and removed. It never leaves `dir` through a link, nor into
 /// another disk ([`beneath::Dir::child`] refuses both).
-fn remove_all(dir: &beneath::Dir) -> Result<(), BeneathError> {
+fn remove_all<K>(dir: &beneath::Dir<K>) -> Result<(), BeneathError> {
     for name in dir.names()? {
         let Some(name) = name.to_str() else {
             return Err(BeneathError::BadName(name.to_string_lossy().into_owned()));
@@ -247,7 +247,7 @@ const JUNK: [&str; 4] = [".DS_Store", "Thumbs.db", "desktop.ini", ".localized"];
 
 /// Whether `folder` holds nothing but empty folders (and the junk a file manager leaves): a read
 /// that changes nothing. A name that is not text, a link, a socket, a file: something.
-fn holds_only_empty_folders(folder: &Dir) -> Result<bool, BeneathError> {
+fn holds_only_empty_folders<K>(folder: &Dir<K>) -> Result<bool, BeneathError> {
     for entry in folder.names()? {
         let Some(entry) = entry.to_str() else {
             return Ok(false);
@@ -277,7 +277,7 @@ fn holds_only_empty_folders(folder: &Dir) -> Result<bool, BeneathError> {
 /// file manager leaves): `true` when it is gone, `false` when something is in it - a file, a
 /// link, anything a listing might not show - and then nothing of it is removed, not even an empty
 /// folder inside. Never recursive on content: a file that appears while it is removed stops it.
-fn remove_empty_tree(parent: &Dir, name: &str) -> Result<bool, BeneathError> {
+fn remove_empty_tree<K>(parent: &Dir<K>, name: &str) -> Result<bool, BeneathError> {
     let folder = match parent.child(name) {
         Ok(folder) => folder,
         Err(e) if e.is_not_found() => return Ok(true),
@@ -290,7 +290,11 @@ fn remove_empty_tree(parent: &Dir, name: &str) -> Result<bool, BeneathError> {
 }
 
 /// The removal pass of [`remove_empty_tree`]: the look just made said it may go.
-fn remove_folder_of_empties(parent: &Dir, name: &str, folder: &Dir) -> Result<bool, BeneathError> {
+fn remove_folder_of_empties<K>(
+    parent: &Dir<K>,
+    name: &str,
+    folder: &Dir<K>,
+) -> Result<bool, BeneathError> {
     for entry in folder.names()? {
         let Some(entry) = entry.to_str() else {
             return Ok(false);
@@ -442,7 +446,7 @@ impl LocalDrive {
 
     /// The folder of a (checked) key that is there, walked from the root without a link, and the key's
     /// name: no folder is made.
-    fn contained_parent_existing(&self, key: &str) -> Result<(beneath::Dir, String), DriveError> {
+    fn contained_parent_existing(&self, key: &str) -> Result<(Existing, String), DriveError> {
         self.path_of(key)?;
         let walked = existing_key(key)?;
         let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
@@ -619,31 +623,11 @@ impl LocalDrive {
         Ok(landed)
     }
 
-    /// The folder that holds the file or folder `key` (a folder key ends with `/`) and its name
-    /// there, for a rename or a move: with `create`, made where missing; a drive that is not
-    /// contained follows the links of the user's own folders, a contained one walks without any.
-    fn parent_dir(&self, key: &str, create: bool) -> Result<(Dir, String), DriveError> {
-        if self.contained {
-            let trimmed = key.trim_end_matches('/');
-            let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
-            // A key that is there is an `OnDisk` one and makes no folder; one that is to be made is
-            // an `Admitted` one (ARCH29 C6c).
-            let walked = if create {
-                let walked = new_key(trimmed)?;
-                root.parent_of_new(&walked)
-                    .map(|(dir, name)| (dir, name.to_string()))
-            } else {
-                let walked = existing_key(trimmed)?;
-                root.parent_of_existing(&walked)
-                    .map(|(dir, name)| (dir, name.to_string()))
-            };
-            return walked.map_err(|e| beneath_error(key, e));
-        }
+    /// The folder of a drive that is not contained that holds the file or folder `key` (a folder key ends with `/`),
+    /// as a path, and the name of `key` there: the user's own folders, whose links are the user's.
+    fn path_parent_and_name(&self, key: &str) -> Result<(PathBuf, String), DriveError> {
         let path = self.any_path(key)?;
-        let parent = path.parent().unwrap_or(&self.root);
-        if create {
-            fs::create_dir_all(parent)?;
-        }
+        let parent = path.parent().unwrap_or(&self.root).to_path_buf();
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -652,7 +636,47 @@ impl LocalDrive {
                 reason: "it has a name that cannot be a file name",
             })?
             .to_string();
-        let dir = Dir::open_following(parent).map_err(|e| not_found_or_io(key, e))?;
+        Ok((parent, name))
+    }
+
+    /// The folder that holds the file or folder `key` (a folder key ends with `/`) and its name there, for the
+    /// SOURCE of a rename or a move: it is there already, nothing is made, and the folder is an [`Existing`] one - it
+    /// can look at the file, remove it and move it out, and makes no name in itself (X-DELTA-STRUCT4-7). A drive that
+    /// is not contained follows the links of the user's own folders, a contained one walks without any.
+    fn parent_dir_existing(&self, key: &str) -> Result<(Existing, String), DriveError> {
+        if self.contained {
+            let trimmed = key.trim_end_matches('/');
+            let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
+            // A key that is there is an `OnDisk` one and makes no folder (ARCH29 C6c).
+            let walked = existing_key(trimmed)?;
+            return root
+                .parent_of_existing(&walked)
+                .map(|(dir, name)| (dir, name.to_string()))
+                .map_err(|e| beneath_error(key, e));
+        }
+        let (parent, name) = self.path_parent_and_name(key)?;
+        let dir = Dir::open_following(&parent)
+            .map_err(|e| not_found_or_io(key, e))?
+            .looked();
+        Ok((dir, name))
+    }
+
+    /// The folder that holds the file or folder `key` and its name there, for the TARGET of a rename or a move: made
+    /// where missing - an [`Admitted`] key of a contained drive, the user's own folders otherwise.
+    fn parent_dir_new(&self, key: &str) -> Result<(Dir, String), DriveError> {
+        if self.contained {
+            let trimmed = key.trim_end_matches('/');
+            let root = beneath::Root::open(&self.root).map_err(|e| not_found_or_io(key, e))?;
+            // A key that is to be made is an `Admitted` one (ARCH29 C6c).
+            let walked = new_key(trimmed)?;
+            return root
+                .parent_of_new(&walked)
+                .map(|(dir, name)| (dir, name.to_string()))
+                .map_err(|e| beneath_error(key, e));
+        }
+        let (parent, name) = self.path_parent_and_name(key)?;
+        fs::create_dir_all(&parent)?;
+        let dir = Dir::open_following(&parent).map_err(|e| not_found_or_io(key, e))?;
         Ok((dir, name))
     }
 
@@ -664,7 +688,7 @@ impl LocalDrive {
     /// while it is still the file that was copied; a folder is moved file by file.
     /// `version`: the move happens only while `from` is the file with that tag.
     fn move_entry(&self, from: &str, to: &str, version: Option<&str>) -> Result<(), DriveError> {
-        let (source, from_name) = match self.parent_dir(from, false) {
+        let (source, from_name) = match self.parent_dir_existing(from) {
             Ok(found) => found,
             Err(DriveError::NotFound { .. }) => {
                 return Err(DriveError::NotFound {
@@ -690,7 +714,7 @@ impl LocalDrive {
                 });
             }
         }
-        let (target, to_name) = self.parent_dir(to, true)?;
+        let (target, to_name) = self.parent_dir_new(to)?;
         let taken = || DriveError::InvalidKey {
             key: to.to_string(),
             reason: "something has this name already",
@@ -749,7 +773,7 @@ impl LocalDrive {
             self.remove_empty_folder(from)?;
             return Ok(());
         }
-        let (source, from_name) = self.parent_dir(from, false)?;
+        let (source, from_name) = self.parent_dir_existing(from)?;
         let (mut file, opened) = source
             .open_read(&from_name)
             .map_err(|e| beneath_error(from, e))?;
@@ -760,7 +784,7 @@ impl LocalDrive {
                 });
             }
         }
-        let (target, to_name) = self.parent_dir(to, true)?;
+        let (target, to_name) = self.parent_dir_new(to)?;
         let (mode, mtime) = source_bits(&file);
         let mut publish = Publish::new(Expect::Absent, mode, &Quiet);
         if let Some(mtime) = mtime {
@@ -1394,7 +1418,7 @@ impl Drive for LocalDrive {
     /// leaves): never a file, never recursive on content ([`remove_empty_tree`]).
     fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
         self.folder_path(prefix)?;
-        let (parent, name) = match self.parent_dir(prefix, false) {
+        let (parent, name) = match self.parent_dir_existing(prefix) {
             Ok(found) => found,
             // No folder of it: nothing in it either.
             Err(DriveError::NotFound { .. }) => return Ok(true),

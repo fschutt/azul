@@ -404,8 +404,10 @@ fn restore<R: SyncRemote + ?Sized>(
     file: &RemoteFile,
     point: &dyn Fn(&str),
 ) -> CloudResult<()> {
-    // The base's key of a damaged copy: a record of this device's, walked to and never made.
-    let (dir, name) = names::walk_record(tree, key)?;
+    // The base's key of a damaged copy: a record of this device's, walked to and never made; the copy is replaced in
+    // place, so the name passes the rows of a synced name (X-DELTA-STRUCT4-7).
+    let (dir, name) =
+        names::walk_admitted(tree, &names::Policy::here(names::Volume::default()), key)?;
     let name = name.as_str();
     let replacement = if file.size > BIG_BLOB {
         let blob = TempBlob::for_download(folder, key, &file.hash)?;

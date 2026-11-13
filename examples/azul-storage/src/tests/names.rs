@@ -527,6 +527,54 @@ fn c6c_an_on_disk_key_walks_to_what_is_there_and_never_makes_a_folder() {
     assert_eq!(refused.key, "a/../b");
 }
 
+/// X-DELTA-STRUCT4-7. A name is PUT into a folder that is there already - a file replaced in place, a recovery's rename, a
+/// copy kept beside a file - only by an `Admitted` key of a purpose that makes names (`Root::parent_of_admitted`), never by an
+/// `OnDisk` one (whose folder is an `Existing` one, which has no verb that makes a name): a key admitted by the weakest rows
+/// (a name a person typed, a rescue copy, a cached open) is refused whatever folder it names, a folder that is not there is
+/// not made, and the protected names in every spelling never pass `Policy::admit` for the sync.
+#[test]
+fn x_delta_struct4_7_a_name_is_put_into_an_existing_folder_only_by_an_admitted_key_of_a_purpose_that_makes_names(
+) {
+    use crate::beneath::{BeneathError, Root};
+    let tmp = TempDir::new("struct4-7-admitted");
+    let tree = Root::open(tmp.path()).unwrap();
+    std::fs::create_dir_all(tmp.path().join("docs/2026")).unwrap();
+    let policy = Policy::here(Volume::default());
+    // A synced name with its folder there: the folder is a full `Dir`, which makes the name.
+    let plain = policy.admit("docs/2026/a.txt", Purpose::Sync).unwrap();
+    let (dir, name) = tree.parent_of_admitted(&plain).unwrap();
+    assert_eq!(name, "a.txt");
+    drop(dir.create_new(name, 0o644).unwrap());
+    assert!(tmp.path().join("docs/2026/a.txt").exists());
+    // The purposes that make nothing are refused, whatever the folder: no name is put into it.
+    for purpose in [Purpose::UserTyped, Purpose::Rescue, Purpose::Open] {
+        let weak = policy.admit("docs/2026/b.txt", purpose).unwrap();
+        assert!(
+            matches!(
+                tree.parent_of_admitted(&weak),
+                Err(BeneathError::BadName(_))
+            ),
+            "{purpose:?}"
+        );
+    }
+    assert!(!tmp.path().join("docs/2026/b.txt").exists());
+    // A folder that is not there is not made: the walk fails and the disk is as it was.
+    let missing = policy.admit("docs/2027/x.txt", Purpose::Sync).unwrap();
+    assert!(tree
+        .parent_of_admitted(&missing)
+        .err()
+        .is_some_and(|e| e.is_not_found()));
+    assert!(!tmp.path().join("docs/2027").exists());
+    // The protected names in every spelling are refused for the sync before any folder is looked for.
+    for key in [
+        ".git/hooks/post-commit",
+        "proj/.GIT/hooks/post-commit",
+        "GIT~1/config",
+    ] {
+        assert!(policy.admit(key, Purpose::Sync).is_err(), "{key:?}");
+    }
+}
+
 /// ARCH29 C6c. A name is made here only from an `Admitted` key, and a name the full rows refuse (a
 /// protected folder in any spelling: `.git`, `.hg`, `.svn`, `.azlin`, `GIT~1`, `.GIT.`; a reserved
 /// Windows name) is never one, whoever renamed the folder: `Policy::admit` refuses it and

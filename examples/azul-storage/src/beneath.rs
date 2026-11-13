@@ -26,6 +26,7 @@ use std::{
     fmt,
     fs::File,
     io,
+    marker::PhantomData,
     path::{Path, PathBuf},
 };
 
@@ -459,8 +460,68 @@ impl fmt::Debug for Root {
     }
 }
 
-/// A folder below a [`Root`], reached without a link.
-pub struct Dir {
+/// How a [`Dir`] was reached, for the folders the code's own walks make: it may make names in it. The default of
+/// [`Dir`]'s parameter: a `Dir` is a `Dir<Made>` wherever nothing else is said.
+#[derive(Debug, Clone, Copy)]
+pub struct Made;
+
+/// How a [`Dir`] was reached, for a folder walked to by the key of what is on this disk ALREADY ([`OnDisk`]: a
+/// directory entry, a record this device wrote): [`Existing`]. It can look, remove what is there and move it out; it
+/// cannot make a name in itself and it is no folder a rename or a link makes one in.
+#[derive(Debug, Clone, Copy)]
+pub struct Looked;
+
+/// The folder of a name that is on this disk already, walked to by its [`OnDisk`] key
+/// ([`Root::parent_of_existing`]): a [`Dir`] that has only the verbs a look needs - `stat`, `lstat`, `names`,
+/// `read_link`, `open_read`, `unlink`, `rmdir`, `sync`, and the move OUT of it (`rename`, `rename_noreplace`,
+/// `link_noreplace`, into a [`Dir`] that is made, never into another `Existing`). A key that claims it is on this disk
+/// passed the shape of a path and this system's rows, and never the protected names' spelling rows (the disk has the
+/// file already), so what it reaches must not create, rename into, link into or symlink: a caller that held a drive's key
+/// could `walk_record` to `proj/.git/hooks` and `create_new("post-commit")` there, with every protected-name row
+/// never asked (X-DELTA-STRUCT4-7; it was a plain `Dir`). A name that is to be made or replaced goes through an
+/// [`Admitted`] key ([`Root::parent_of_new`], [`Root::parent_of_admitted`]).
+///
+/// ```compile_fail,E0599
+/// // It cannot make a file in its folder ...
+/// use azul_storage::beneath::Existing;
+/// fn make(existing: &Existing) {
+///     let _ = existing.create_new("post-commit", 0o755);
+/// }
+/// ```
+///
+/// ```compile_fail,E0599
+/// // ... nor a link ...
+/// use azul_storage::beneath::Existing;
+/// fn link(existing: &Existing) {
+///     let _ = existing.symlink("elsewhere", "post-commit");
+/// }
+/// ```
+///
+/// ```compile_fail,E0308
+/// // ... and no rename or link of anything makes a name in it: the folder they put a name in is a made one.
+/// use azul_storage::beneath::Existing;
+/// fn into(from: &Existing, target: &Existing) {
+///     let _ = from.rename_noreplace("a", target, "post-commit");
+/// }
+/// ```
+///
+/// ```no_run
+/// // The control of the three above: what it does - look, remove what is there, move it out into a made folder.
+/// use azul_storage::beneath::{Dir, Existing};
+/// fn look(existing: &Existing, made: &Dir) {
+///     let _ = existing.lstat("a.txt");
+///     let _ = existing.open_read("a.txt");
+///     let _ = existing.names();
+///     let _ = existing.unlink("old.txt");
+///     let _ = existing.rename_noreplace("a.txt", made, "b.txt");
+/// }
+/// ```
+pub type Existing = Dir<Looked>;
+
+/// A folder below a [`Root`], reached without a link. `K` says how: [`Made`] (the default: the root, the folders
+/// of a name that passed [`crate::names::Policy::admit`], the engine's own) may make names in it, [`Looked`]
+/// ([`Existing`]) may not.
+pub struct Dir<K = Made> {
     /// Its path from the root (`""` is the root, `a/b` a folder in it).
     rel: String,
     path: PathBuf,
@@ -472,9 +533,10 @@ pub struct Dir {
     anchor: Option<std::sync::Arc<str>>,
     #[cfg(unix)]
     fd: std::os::fd::OwnedFd,
+    kind: PhantomData<K>,
 }
 
-impl fmt::Debug for Dir {
+impl<K> fmt::Debug for Dir<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Dir").field("rel", &self.rel).finish()
     }
@@ -533,6 +595,7 @@ impl Root {
                 path: self.path.clone(),
                 dev: self.dev,
                 fd: self.fd.try_clone()?,
+                kind: PhantomData,
             })
         }
         #[cfg(not(unix))]
@@ -543,6 +606,7 @@ impl Root {
                 dev: self.dev,
                 #[cfg(windows)]
                 anchor: self.anchor.clone(),
+                kind: PhantomData,
             })
         }
     }
@@ -631,7 +695,33 @@ impl Root {
     /// # Errors
     ///
     /// As [`Root::dir_existing`], and [`BeneathError::BadName`] for a key without a name.
-    pub fn parent_of_existing<'k>(&self, key: &'k OnDisk) -> Result<(Dir, &'k str), BeneathError> {
+    pub fn parent_of_existing<'k>(
+        &self,
+        key: &'k OnDisk,
+    ) -> Result<(Existing, &'k str), BeneathError> {
+        let (folder, name) = split_key(key.as_str());
+        check_name(name)?;
+        Ok((self.dir_existing(folder)?.looked(), name))
+    }
+
+    /// The folder of a name that passed the rows of its purpose ([`Admitted`]) and is on this disk already,
+    /// and the key's last name: walked to and NEVER made (a missing folder is a not-found error and the disk is as
+    /// it was) - for a caller that puts a name into it: a file replaced in place, a step a crash cut off and a
+    /// recovery finishes. The key is an admitted one, so the protected names in every spelling were asked before a
+    /// name is made there (X-DELTA-STRUCT4-7: a recovery took the keys of its journal as `OnDisk` ones and renamed
+    /// into any folder that was there). As [`Root::parent_of_new`] it refuses a purpose that makes nothing
+    /// ([`crate::names::Purpose::makes_folders`]): the folder is a full [`Dir`], and a key admitted by the weakest
+    /// rows (a name a person typed, a rescue copy, a cached open) is no reason to put a name into it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Root::dir_existing`], and [`BeneathError::BadName`] for a key without a name or of a purpose that makes
+    /// no names.
+    pub fn parent_of_admitted<'k>(
+        &self,
+        key: &'k Admitted,
+    ) -> Result<(Dir, &'k str), BeneathError> {
+        makes_folders(key)?;
         let (folder, name) = split_key(key.as_str());
         check_name(name)?;
         Ok((self.dir_existing(folder)?, name))
@@ -684,7 +774,7 @@ enum Making {
     IfMissing,
 }
 
-impl Dir {
+impl<K> Dir<K> {
     /// Its path from the root.
     #[must_use]
     pub fn rel(&self) -> &str {
@@ -725,19 +815,12 @@ impl Dir {
     /// # Errors
     ///
     /// As [`Root::dir_existing`].
-    pub fn child(&self, name: &str) -> Result<Dir, BeneathError> {
+    pub fn child(&self, name: &str) -> Result<Dir<K>, BeneathError> {
         self.step(name, Making::Never)
     }
 
-    /// The folder `name` in it, made when missing. Only the walks of an [`Admitted`] key, the engine's
-    /// own folders and the contained drive's folder that is made make folders; every one is counted by
-    /// `names_gate`.
-    pub(crate) fn make_child(&self, name: &str) -> Result<Dir, BeneathError> {
-        self.step(name, Making::IfMissing)
-    }
-
     /// The step of every walk: the folder `name` of this one, made or not as `making` says.
-    fn step(&self, name: &str, making: Making) -> Result<Dir, BeneathError> {
+    fn step(&self, name: &str, making: Making) -> Result<Dir<K>, BeneathError> {
         let create = making == Making::IfMissing;
         check_name(name)?;
         let rel = self.rel_of(name);
@@ -768,6 +851,7 @@ impl Dir {
                 path,
                 dev: st.dev,
                 fd,
+                kind: PhantomData,
             })
         }
         #[cfg(not(unix))]
@@ -805,6 +889,7 @@ impl Dir {
                 dev: self.dev,
                 #[cfg(windows)]
                 anchor: self.anchor.clone(),
+                kind: PhantomData,
             })
         }
     }
@@ -928,46 +1013,6 @@ impl Dir {
         }
     }
 
-    /// A new file `name` (it must not exist; a link there is not followed), with `mode`.
-    ///
-    /// # Errors
-    ///
-    /// When it exists or cannot be made.
-    pub fn create_new(&self, name: &str, mode: u32) -> Result<File, BeneathError> {
-        check_name(name)?;
-        #[cfg(unix)]
-        {
-            Ok(File::from(sys::create_new(
-                &self.fd,
-                OsStr::new(name),
-                mode,
-            )?))
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = mode;
-            // Read as well as write: a handle that cannot read attributes cannot be asked for its
-            // identity and times ([`stat_of`]).
-            let path = self.path.join(name);
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&path)?;
-            #[cfg(windows)]
-            if let Err(e) = still_beneath(self.anchor.as_deref(), &file, &self.rel_of(name)) {
-                // The folder was swapped for a junction since it was walked, and the file was made
-                // in another tree. It is the one this call just made: it goes again.
-                drop(file);
-                // collapse-ok: a file we made a moment ago that cannot be removed again is the
-                // error already being returned; the refusal is what matters.
-                let _ = std::fs::remove_file(&path);
-                return Err(e);
-            }
-            Ok(file)
-        }
-    }
-
     /// Renames `from` in this folder to `to` in `target` (both of the same root; a link named
     /// `from` moves as the link). An existing `to` is replaced, as `rename` does: callers that
     /// must not replace check first.
@@ -975,7 +1020,7 @@ impl Dir {
     /// # Errors
     ///
     /// When the system refuses it.
-    pub fn rename(&self, from: &str, target: &Dir, to: &str) -> Result<(), BeneathError> {
+    pub fn rename(&self, from: &str, target: &Dir<Made>, to: &str) -> Result<(), BeneathError> {
         check_name(from)?;
         check_name(to)?;
         #[cfg(unix)]
@@ -1022,7 +1067,12 @@ impl Dir {
     ///
     /// [`BeneathError::Io`] of kind `AlreadyExists` ([`BeneathError::is_already_exists`]) when
     /// something has the name; otherwise as [`Dir::rename`].
-    pub fn rename_noreplace(&self, from: &str, target: &Dir, to: &str) -> Result<(), BeneathError> {
+    pub fn rename_noreplace(
+        &self,
+        from: &str,
+        target: &Dir<Made>,
+        to: &str,
+    ) -> Result<(), BeneathError> {
         check_name(from)?;
         check_name(to)?;
         #[cfg(unix)]
@@ -1066,7 +1116,12 @@ impl Dir {
     ///
     /// [`BeneathError::Io`] of kind `AlreadyExists` when `to` is taken, `NotFound` when `from` is
     /// not there, `Unsupported` when the file system makes no hard links ([`BeneathError::is_unsupported`]).
-    pub fn link_noreplace(&self, from: &str, target: &Dir, to: &str) -> Result<(), BeneathError> {
+    pub fn link_noreplace(
+        &self,
+        from: &str,
+        target: &Dir<Made>,
+        to: &str,
+    ) -> Result<(), BeneathError> {
         check_name(from)?;
         check_name(to)?;
         #[cfg(unix)]
@@ -1100,21 +1155,6 @@ impl Dir {
         }
     }
 
-    /// The folder at `path` as a [`Dir`], links followed: the folder a user chose (the folder of
-    /// a download, of a settings file), whose own links are the user's, not a name from another
-    /// device. Everything below it is reached without a link, as for any [`Dir`].
-    ///
-    /// # Errors
-    ///
-    /// When it does not exist or is no folder.
-    pub fn open_following(path: &Path) -> io::Result<Dir> {
-        let root = Root::open(path)?;
-        root.top().map_err(|e| match e {
-            BeneathError::Io(e) => e,
-            other => io::Error::other(other.to_string()),
-        })
-    }
-
     /// Removes the file (or link) `name`.
     ///
     /// # Errors
@@ -1131,32 +1171,6 @@ impl Dir {
             #[cfg(windows)]
             self.still_here()?;
             Ok(std::fs::remove_file(self.path.join(name))?)
-        }
-    }
-
-    /// Makes the link `name` here holding `target` (only the text: nothing is resolved or
-    /// followed). A system whose links a sync does not make (Windows) refuses it.
-    ///
-    /// # Errors
-    ///
-    /// When something has that name, or the link cannot be made.
-    pub fn symlink(&self, target: &str, name: &str) -> Result<(), BeneathError> {
-        check_name(name)?;
-        #[cfg(unix)]
-        {
-            Ok(sys::symlinkat(
-                OsStr::new(target),
-                &self.fd,
-                OsStr::new(name),
-            )?)
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = target;
-            Err(BeneathError::Io(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "links are not made on this system",
-            )))
         }
     }
 
@@ -1213,6 +1227,113 @@ impl Dir {
             // A rename is written through when it is made (`MOVEFILE_WRITE_THROUGH`): there is no
             // folder to flush.
             Ok(())
+        }
+    }
+}
+
+/// What only a folder that may make names has: the new file, the link, the folder (the walks of the code's own and of an
+/// [`Admitted`] key) - and where the walks start from a path the user chose.
+impl Dir<Made> {
+    /// The folder `name` in it, made when missing. Only the walks of an [`Admitted`] key, the engine's
+    /// own folders and the contained drive's folder that is made make folders; every one is counted by
+    /// `names_gate`.
+    pub(crate) fn make_child(&self, name: &str) -> Result<Dir, BeneathError> {
+        self.step(name, Making::IfMissing)
+    }
+
+    /// A new file `name` (it must not exist; a link there is not followed), with `mode`.
+    ///
+    /// # Errors
+    ///
+    /// When it exists or cannot be made.
+    pub fn create_new(&self, name: &str, mode: u32) -> Result<File, BeneathError> {
+        check_name(name)?;
+        #[cfg(unix)]
+        {
+            Ok(File::from(sys::create_new(
+                &self.fd,
+                OsStr::new(name),
+                mode,
+            )?))
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = mode;
+            // Read as well as write: a handle that cannot read attributes cannot be asked for its
+            // identity and times ([`stat_of`]).
+            let path = self.path.join(name);
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)?;
+            #[cfg(windows)]
+            if let Err(e) = still_beneath(self.anchor.as_deref(), &file, &self.rel_of(name)) {
+                // The folder was swapped for a junction since it was walked, and the file was made
+                // in another tree. It is the one this call just made: it goes again.
+                drop(file);
+                // collapse-ok: a file we made a moment ago that cannot be removed again is the
+                // error already being returned; the refusal is what matters.
+                let _ = std::fs::remove_file(&path);
+                return Err(e);
+            }
+            Ok(file)
+        }
+    }
+
+    /// Makes the link `name` here holding `target` (only the text: nothing is resolved or
+    /// followed). A system whose links a sync does not make (Windows) refuses it.
+    ///
+    /// # Errors
+    ///
+    /// When something has that name, or the link cannot be made.
+    pub fn symlink(&self, target: &str, name: &str) -> Result<(), BeneathError> {
+        check_name(name)?;
+        #[cfg(unix)]
+        {
+            Ok(sys::symlinkat(
+                OsStr::new(target),
+                &self.fd,
+                OsStr::new(name),
+            )?)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = target;
+            Err(BeneathError::Io(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "links are not made on this system",
+            )))
+        }
+    }
+
+    /// The folder at `path` as a [`Dir`], links followed: the folder a user chose (the folder of
+    /// a download, of a settings file), whose own links are the user's, not a name from another
+    /// device. Everything below it is reached without a link, as for any [`Dir`].
+    ///
+    /// # Errors
+    ///
+    /// When it does not exist or is no folder.
+    pub fn open_following(path: &Path) -> io::Result<Dir> {
+        let root = Root::open(path)?;
+        root.top().map_err(|e| match e {
+            BeneathError::Io(e) => e,
+            other => io::Error::other(other.to_string()),
+        })
+    }
+
+    /// This folder as one that may only be looked at ([`Existing`]): the capability to make names in it is given up and
+    /// never gained.
+    pub(crate) fn looked(self) -> Dir<Looked> {
+        Dir {
+            rel: self.rel,
+            path: self.path,
+            dev: self.dev,
+            #[cfg(windows)]
+            anchor: self.anchor,
+            #[cfg(unix)]
+            fd: self.fd,
+            kind: PhantomData,
         }
     }
 }

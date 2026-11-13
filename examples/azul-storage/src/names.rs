@@ -590,7 +590,8 @@ impl From<Refusal> for crate::DriveError {
 /// own folder - a base entry, a line of the oplog or the journal, an entry a scan or a listing of
 /// the trash read (ARCH29 C6c). It passed the shape of a path and this system's rows, and never the
 /// protected names' spelling rows: the disk has the file already. What it can do is walk to a file
-/// that is there: [`crate::beneath::Root::parent_of_existing`] never makes a folder.
+/// that is there: [`crate::beneath::Root::parent_of_existing`] never makes a folder, and the folder it gives is an
+/// [`crate::beneath::Existing`], which makes no name in itself either (X-DELTA-STRUCT4-7).
 ///
 /// It is the key of a lookup and of nothing that is made. A name that comes from a DRIVE, a device
 /// or a person and is to be MADE here is an [`Admitted`] key, which carries the rows of its purpose;
@@ -645,7 +646,8 @@ impl From<Refusal> for crate::DriveError {
 /// Made only by [`OnDisk::of_entry`] and [`OnDisk::of_record`]: the name says where the caller claims
 /// the key came from, and `names_gate` counts the callers of both per file - a new claim is a new
 /// line there. (The claim is the caller's: nothing here can tell a directory entry from a string. What
-/// the type guarantees is that nothing that claims it can make a folder.)
+/// the type guarantees is that nothing that claims it can make a folder, a file, a link or a name by a rename: the
+/// folder it reaches is an `Existing`, which has no verb that does.)
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OnDisk(String);
 

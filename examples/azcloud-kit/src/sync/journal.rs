@@ -35,7 +35,7 @@ use std::{
 };
 
 use azul_storage::{
-    beneath::{Dir, Kind, Root},
+    beneath::{Dir, Existing, Kind, Root},
     checked::hash_file,
 };
 use serde::{Deserialize, Serialize};
@@ -254,12 +254,24 @@ fn read_lines(path: &Path) -> Vec<Line> {
         .collect()
 }
 
-/// The folder of `key` and its name in it, reached from the root one folder at a time without
-/// a link; `None` when a folder on the way is a link, another disk, or gone. The key is a record
-/// this device wrote (a line of the journal): walked to, never made - recovery finishes or rolls
-/// back a step on what is there and makes no folder for a name (ARCH29 C6c).
-fn inside(tree: &Root, key: &str) -> Option<(Dir, String)> {
+/// The folder of a name recovery LOOKS at, removes or moves OUT of its folder - a half download's temp files, the file a
+/// conflict keeps, the staged version, the old file in the trash's slot, an aside, the file a case rename moves - and its
+/// name, reached from the root one folder at a time without a link; `None` when a folder on the way is a link, another disk,
+/// or gone. The key is a record this device wrote (a line of the journal): walked to, never made, and the folder is an
+/// [`Existing`] one, which makes no name in itself (ARCH29 C6c; X-DELTA-STRUCT4-7). The slot is in the trash, under
+/// `.azlin`: the rows of a synced name would refuse it, and it is only ever moved out of.
+fn looked_at(tree: &Root, key: &str) -> Option<(Existing, String)> {
     super::names::walk_record(tree, key).ok()
+}
+
+/// The folder of a name recovery PUTS something under - the copy a conflict keeps, the name a replaced or a freed file goes
+/// back to, a case rename's new name - and its name: a folder that is there already and the name passed the rows of a synced
+/// name again before one is made (X-DELTA-STRUCT4-7: it took them as `OnDisk` keys and renamed into any folder that was there,
+/// so a journal that names `proj/.git/hooks/post-commit` as the slot to fill got a hook). A step the engine could make passes
+/// them; a record a person wrote does not, and is left (`out.left`: "its folder is a link or gone").
+fn put_into(tree: &Root, key: &str) -> Option<(Dir, String)> {
+    let policy = super::names::Policy::here(super::names::Volume::default());
+    super::names::walk_admitted(tree, &policy, key).ok()
 }
 
 /// Whether `name` is a temp file azul-storage's local writes leave beside `target_name`.
@@ -270,8 +282,9 @@ pub fn is_download_temp(name: &str, target_name: &str) -> bool {
 
 /// Removes the temp files of a download of `key`.
 fn remove_temps(tree: &Root, key: &str, out: &mut Recovery) {
-    let Some((dir, name)) = inside(tree, key) else {
-        out.left.push(format!("{key}: its folder is a link or gone"));
+    let Some((dir, name)) = looked_at(tree, key) else {
+        out.left
+            .push(format!("{key}: its folder is a link or gone"));
         return;
     };
     let Ok(entries) = dir.names() else {
@@ -294,7 +307,7 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery, point: &dyn Fn(
         Intent::Conflict { key, copy, hash } => {
             remove_temps(tree, key, out);
             let (Some((from_dir, from)), Some((to_dir, to))) =
-                (inside(tree, key), inside(tree, copy))
+                (looked_at(tree, key), put_into(tree, copy))
             else {
                 out.left.push(format!("{key}: its folder is a link or gone"));
                 return;
@@ -330,7 +343,7 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery, point: &dyn Fn(
         Intent::Evict { key, aside } => recover_evict(tree, key, aside, out),
         Intent::CaseRename { from, via, to } => {
             let (Some((via_dir, via_name)), Some((to_dir, to_name))) =
-                (inside(tree, via), inside(tree, to))
+                (looked_at(tree, via), put_into(tree, to))
             else {
                 out.left.push(format!("{from}: its folder is a link or gone"));
                 return;
@@ -361,7 +374,7 @@ fn recover_one(tree: &Root, intent: &Intent, out: &mut Recovery, point: &dyn Fn(
 /// base to be known here, and an unlink on a guess is the one thing this must not do.
 fn recover_evict(tree: &Root, key: &str, aside: &str, out: &mut Recovery) {
     let (Some((aside_dir, aside_name)), Some((dir, name))) =
-        (inside(tree, aside), inside(tree, key))
+        (looked_at(tree, aside), put_into(tree, key))
     else {
         out.left
             .push(format!("{key}: its folder is a link or gone"));
@@ -390,8 +403,7 @@ fn recover_evict(tree: &Root, key: &str, aside: &str, out: &mut Recovery) {
                 "{key}: the file a stopped Free up space took aside is back"
             ));
         }
-        Err(e) if e.is_already_exists() => match super::keep_beside(&aside_dir, &aside_name, &name)
-        {
+        Err(e) if e.is_already_exists() => match super::keep_beside(&dir, &aside_name, &name) {
             Some(kept) => out.finished.push(format!(
                 "{key}: a newer file holds the name, the file a stopped Free up space took aside \
                  is kept as {kept}"
@@ -412,7 +424,7 @@ fn recover_evict(tree: &Root, key: &str, aside: &str, out: &mut Recovery) {
 /// back from the slot. A name that is held is nothing to finish: the old file is still there (the
 /// replace was cut before it moved anything) or the new one already is.
 fn recover_replace(tree: &Root, key: &str, staged: &str, slot: &str, out: &mut Recovery) {
-    let Some((dir, name)) = inside(tree, key) else {
+    let Some((dir, name)) = put_into(tree, key) else {
         out.left
             .push(format!("{key}: its folder is a link or gone"));
         return;
@@ -425,7 +437,7 @@ fn recover_replace(tree: &Root, key: &str, staged: &str, slot: &str, out: &mut R
             return;
         }
     }
-    if let Some((from_dir, from)) = inside(tree, staged) {
+    if let Some((from_dir, from)) = looked_at(tree, staged) {
         if from_dir.lstat(&from).is_ok_and(|st| st.kind == Kind::File) {
             match from_dir.rename_noreplace(&from, &dir, &name) {
                 Ok(()) => {
@@ -439,7 +451,7 @@ fn recover_replace(tree: &Root, key: &str, staged: &str, slot: &str, out: &mut R
             return;
         }
     }
-    if let Some((slot_dir, slot_name)) = inside(tree, slot) {
+    if let Some((slot_dir, slot_name)) = looked_at(tree, slot) {
         if slot_dir
             .lstat(&slot_name)
             .is_ok_and(|st| st.kind == Kind::File)

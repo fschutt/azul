@@ -2120,7 +2120,7 @@ impl From<PublishError> for Replace {
 }
 
 /// Whether the file `name` of `dir` is still what the scan found (`None`: still absent).
-fn still_there(dir: &beneath::Dir, name: &str, expect: Option<&LocalFile>) -> bool {
+fn still_there<K>(dir: &beneath::Dir<K>, name: &str, expect: Option<&LocalFile>) -> bool {
     match (dir.lstat(name), expect) {
         (Err(e), None) => e.kind() == std::io::ErrorKind::NotFound,
         (Ok(st), Some(file)) => file.matches(&st),
@@ -2601,9 +2601,23 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 };
                 let name = name.as_str();
                 let copy_name = beneath::split_key(copy).1;
+                // The copy is a name MADE here, beside the file: it passes the rows of a synced name like any other,
+                // and its folder is the one the file is in (X-DELTA-STRUCT4-7: it was a rename into the folder an
+                // `OnDisk` key reached).
+                let copy_here = match beneath::split_key(here).0 {
+                    "" => copy_name.to_string(),
+                    folder => format!("{folder}/{copy_name}"),
+                };
+                let (beside, _) = match names::walk_admitted(&tree, &policy, &copy_here) {
+                    Ok(found) => found,
+                    Err(e) => {
+                        failed_here(report, "keep", key, &e);
+                        continue;
+                    }
+                };
                 // The copy's name must still be free; this side's version still as scanned.
                 if !(expect.is_some() && still_there(&dir, name, expect))
-                    || dir.lstat(copy_name).is_ok()
+                    || beside.lstat(copy_name).is_ok()
                 {
                     report.changed_during_sync.push(moved_on());
                     continue;
@@ -2629,7 +2643,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
                     .map_err(BeneathError::from)
                     .and_then(|()| {
                         hooks.point("conflict-before-rename");
-                        dir.rename_noreplace(name, &dir, copy_name)
+                        dir.rename_noreplace(name, &beside, copy_name)
                     });
                 if renamed.is_ok() {
                     dir.sync();
@@ -2638,12 +2652,6 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 hooks.point("conflict-renamed");
                 match renamed {
                     Ok(()) => {
-                        let (folder, _) = beneath::split_key(here);
-                        let copy_here = if folder.is_empty() {
-                            copy_name.to_string()
-                        } else {
-                            format!("{folder}/{copy_name}")
-                        };
                         drive.note_renamed(here, &copy_here);
                         let entry = local::entry_now(&root.path, &copy_here, here_hash)
                             .or_else(|| scanned_entry(key));
@@ -2686,7 +2694,10 @@ fn apply_local<R: SyncRemote + ?Sized>(
                 let written = faults::check_write(&root.path)
                     .and_then(|()| faults::check_replace(&root.path, key))
                     .map_err(|e| Replace::Failed(e.into()))
-                    .and_then(|()| names::walk_record(&tree, here).map_err(Replace::Failed))
+                    .and_then(|()| {
+                        // A file replaced in place: its name passes the rows of a synced name (X-DELTA-STRUCT4-7).
+                        names::walk_admitted(&tree, &policy, here).map_err(Replace::Failed)
+                    })
                     .and_then(|(dir, name)| {
                         let exec = expect.is_some_and(|f| f.exec);
                         replace_checked(&dir, &name, expect, &mut &m.file[..], exec, 0)
@@ -5111,9 +5122,12 @@ pub(crate) fn evict_file_with(
     if entry.cloud_only {
         return Ok(());
     }
-    // Reached without a link: a folder swapped for one never makes this free a file elsewhere.
+    // Reached without a link: a folder swapped for one never makes this free a file elsewhere. The file is taken
+    // aside in its own folder (a rename into it), so its name passes the rows of a synced name again first, as a
+    // replaced file's does: a record that names a protected path frees nothing (X-DELTA-STRUCT4-7).
     let tree = beneath::Root::open(&root.path)?;
-    let (dir, name) = names::walk_record(&tree, key)?;
+    let policy = names::Policy::here(names::Volume::default());
+    let (dir, name) = names::walk_admitted(&tree, &policy, key)?;
     let name = name.as_str();
     let st = dir.lstat(name).with_context(|| format!("{key}"))?;
     if st.kind != Kind::File {

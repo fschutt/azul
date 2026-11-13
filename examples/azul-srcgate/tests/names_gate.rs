@@ -33,13 +33,20 @@
 //!   decision, not a surprise (the review of C6c found `Purpose::UserTyped` chosen where the weakest
 //!   rows made folders).
 //! - **`walk-existing-call`** and **`make-parent-of-call`**: the sync's own walks (`sync/names.rs`):
-//!   `names::walk_entry` and `names::walk_record` walk to a name that is on the disk (an entry of a
-//!   scan, a record this device wrote) and cannot make a folder; `names::make_parent_of` is the one
-//!   create, after the rows of a name from the drive. The create sites are counted by file: a new
-//!   one is a line here and a question about where its name came from.
+//!   `walk_entry` and `walk_record` walk to a name that is on the disk (an entry of a scan, a record this
+//!   device wrote) and give an `Existing` folder, which makes no name in itself (crate-private since
+//!   X-DELTA-STRUCT4-7); `names::make_parent_of` is the one create, after the rows of a name from the drive. The
+//!   create sites are counted by file: a new one is a line here and a question about where its name came from.
+//!   The finders read the NAME, whatever way it is spelled - a path call, a bare call after an import, an import
+//!   under another name (`use .. as ..`), a function value (they read `names::walk_entry(` only, and listed the
+//!   bare call as clean).
+//! - **`walk-admitted-call`** and **`parent-of-admitted-call`**: the walks to a name that is on the disk
+//!   already and passed the rows of its purpose (`Root::parent_of_admitted`, the sync's `walk_admitted`): a full
+//!   `Dir`, for a caller that puts a name into it - a file replaced in place, a recovery's rename, a copy kept
+//!   beside a file; counted by file like the creates.
 //! - **`on-disk-key`**: the callers of `OnDisk::of_entry` and `OnDisk::of_record`, the only ways to
-//!   an `OnDisk` key - a key to LOOK AT, never to make. A new caller is a new claim about where a
-//!   key came from, and a line here.
+//!   an `OnDisk` key - a key to LOOK AT, never to make; read by the function's name, so an alias is found
+//!   too. A new caller is a new claim about where a key came from, and a line here.
 //! - **`parent-of-existing-call`**, **`parent-of-new-call`**, **`dir-new-call`**, **`own-dir-call`**,
 //!   **`trash-dir-call`** and **`make-child-call`**: the callers of the walks, by file; each file
 //!   lists what it makes.
@@ -62,6 +69,8 @@ const LOCAL_KEY: &str = "local-key-call";
 const PURPOSE_LOCAL: &str = "purpose-local";
 const WALK_EXISTING: &str = "walk-existing-call";
 const MAKE_PARENT_OF: &str = "make-parent-of-call";
+const WALK_ADMITTED: &str = "walk-admitted-call";
+const PARENT_OF_ADMITTED: &str = "parent-of-admitted-call";
 const ON_DISK_KEY: &str = "on-disk-key";
 const PARENT_OF_EXISTING: &str = "parent-of-existing-call";
 const PARENT_OF_NEW: &str = "parent-of-new-call";
@@ -151,6 +160,20 @@ fn method_or_path_calls(t: &[Located], name: &str, path: &str) -> Vec<usize> {
     lines.extend(calls(t, path));
     lines.sort_unstable();
     lines
+}
+
+/// Every use of one of `names` that is no definition (`fn name`): a call under any path, a bare call after an import,
+/// an import under another name (`use .. name as ..`), a function value - what `calls(.., "names::name")` missed
+/// (X-DELTA-STRUCT4-7: it read the path call only and the rule listed the bare call as clean).
+fn uses_of(t: &[Located], names: &[&str]) -> Vec<usize> {
+    t.iter()
+        .enumerate()
+        .filter(|(at, x)| {
+            names.iter().any(|name| x.tok.is_ident(name))
+                && !(*at > 0 && t[*at - 1].tok.is_ident("fn"))
+        })
+        .map(|(_, x)| x.line)
+        .collect()
 }
 
 /// Whether the argument tokens hold a comma outside every bracket: two arguments or more.
@@ -263,20 +286,34 @@ fn rules() -> Vec<Rule> {
         ),
         Rule::new(
             WALK_EXISTING,
-            |t| {
-                let mut lines = calls(t, "names::walk_entry");
-                lines.extend(calls(t, "names::walk_record"));
-                lines.sort_unstable();
-                lines
-            },
+            |t| uses_of(t, &["walk_entry", "walk_record"]),
             &[
                 "let (dir, name) = names::walk_entry(&tree, key)?;",
                 "let (dir, name) = names::walk_record(&tree, key)?;",
+                // The spellings the path-call finder missed (X-DELTA-STRUCT4-7): a bare call after an import, an
+                // import under another name, a function value.
+                "let (dir, name) = walk_entry(&tree, key)?;",
+                "use super::names::walk_record as walk;",
+                "let walk = names::walk_entry;",
             ],
             &[
-                "let (dir, name) = walk_entry(&tree, key);",
-                "pub fn walk_record(tree: &Root, key: &str) {}",
+                "pub(crate) fn walk_record(tree: &Root, key: &str) {}",
                 "let x = names::walk_entry_total(1);",
+                "let y = walk_records;",
+            ],
+        ),
+        Rule::new(
+            WALK_ADMITTED,
+            |t| uses_of(t, &["walk_admitted"]),
+            &[
+                "let (dir, name) = names::walk_admitted(&tree, &policy, key)?;",
+                "let (dir, name) = walk_admitted(&tree, &policy, key)?;",
+                "use super::names::walk_admitted as walk;",
+                "let walk = names::walk_admitted;",
+            ],
+            &[
+                "pub(crate) fn walk_admitted(tree: &Root, policy: &Policy, key: &str) {}",
+                "let x = walk_admitted_total(1);",
             ],
         ),
         Rule::new(
@@ -290,32 +327,45 @@ fn rules() -> Vec<Rule> {
         ),
         Rule::new(
             ON_DISK_KEY,
-            |t| {
-                let mut lines = calls(t, "OnDisk::of_entry");
-                lines.extend(calls(t, "OnDisk::of_record"));
-                lines.sort_unstable();
-                lines
-            },
+            |t| uses_of(t, &["of_entry", "of_record"]),
             &[
                 "let on_disk = OnDisk::of_entry(key)?;",
                 "let on_disk = names::OnDisk::of_record(key)?;",
+                // By the function's name: a bare call after an import of it, an alias of the type, a function value.
+                "let on_disk = of_entry(key);",
+                "use azul_storage::names::OnDisk as Disk; let on_disk = Disk::of_record(key)?;",
+                "let make = OnDisk::of_entry;",
             ],
             &[
-                "let on_disk = of_entry(key);",
                 "pub fn of_record(key: &str) -> OnDisk {}",
                 "let x = OnDisk::as_str(&k);",
+                "let of_records = 1;",
             ],
         ),
         Rule::new(
             PARENT_OF_EXISTING,
-            |t| method_or_path_calls(t, "parent_of_existing", "Root::parent_of_existing"),
+            |t| uses_of(t, &["parent_of_existing"]),
             &[
                 "let (dir, name) = tree.parent_of_existing(&on_disk)?;",
                 "let (dir, name) = Root::parent_of_existing(&tree, &on_disk)?;",
+                "let walk = Root::parent_of_existing;",
             ],
             &[
-                "let x = parent_of_existing(1);",
                 "pub fn parent_of_existing(&self, key: &OnDisk) {}",
+                "let x = parent_of_existing_total(1);",
+            ],
+        ),
+        Rule::new(
+            PARENT_OF_ADMITTED,
+            |t| uses_of(t, &["parent_of_admitted"]),
+            &[
+                "let (dir, name) = tree.parent_of_admitted(&admitted)?;",
+                "let (dir, name) = Root::parent_of_admitted(&tree, &admitted)?;",
+                "let walk = Root::parent_of_admitted;",
+            ],
+            &[
+                "pub fn parent_of_admitted(&self, key: &Admitted) {}",
+                "let x = parent_of_admitted_total(1);",
             ],
         ),
         Rule::new(
@@ -507,14 +557,15 @@ const ALLOWED: &[Allow] = &[
         PARENT_OF_EXISTING,
         3,
         "the contained LocalDrive's walks to what is there: contained_parent_existing, \
-         contained_remove_folder, parent_dir (ARCH29 C6c)",
+         contained_remove_folder, parent_dir_existing (ARCH29 C6c; the folder is an `Existing` one, \
+         X-DELTA-STRUCT4-7)",
     ),
     Allow::exactly(
         "examples/azul-storage/src/local.rs",
         PARENT_OF_NEW,
         3,
         "the contained LocalDrive's walks that make a folder, each after Policy::admit for a copy's rows \
-         (new_key: Purpose::Copy): contained_parent_new, contained_make_folder, parent_dir (ARCH29 \
+         (new_key: Purpose::Copy): contained_parent_new, contained_make_folder, parent_dir_new (ARCH29 \
          C6c; X-DELTA-STRUCT-DRIVE-2)",
     ),
     Allow::exactly(
@@ -722,11 +773,20 @@ const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azcloud-kit/src/sync/mod.rs",
         WALK_EXISTING,
-        10,
+        8,
         "the pass's walks to a name that is on the disk: four a scan's entry (open_found, move_here's \
-         source, the delete, the conflict copy), six a record of the engine's (read_here, the JSON \
-         merge, a folder moved, a folder removed, hash_here, evict_file); no folder is made (ARCH29 \
-         C6c)",
+         source, the delete, the conflict file), four a record of the engine's (read_here, a folder \
+         moved, a folder removed, hash_here); they give an `Existing` folder: no folder and no name is \
+         made (ARCH29 C6c; X-DELTA-STRUCT4-7: the JSON merge, which replaces the file, and evict_file, \
+         which takes it aside in its folder, walk by an admitted key now)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/mod.rs",
+        WALK_ADMITTED,
+        3,
+        "the pass's walks to a name that is on the disk and passed the rows of a synced name, for a name \
+         that is put into it: the JSON merge's replace, the conflict copy kept beside its file and the \
+         file taken aside by \"Free up space\" (evict_file) (X-DELTA-STRUCT4-7)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/mod.rs",
@@ -755,17 +815,33 @@ const ALLOWED: &[Allow] = &[
         "make_parent_of: the sync's one create, after Policy::admitted (ARCH29 C6c)",
     ),
     Allow::exactly(
+        "examples/azcloud-kit/src/sync/names.rs",
+        PARENT_OF_ADMITTED,
+        1,
+        "walk_admitted: the walk to a name that is there and passed the rows of a synced name (X-DELTA-STRUCT4-7)",
+    ),
+    Allow::exactly(
         "examples/azcloud-kit/src/sync/journal.rs",
         WALK_EXISTING,
         1,
-        "inside: the journal's names (records of this device) walked to for a recovery, never made \
-         (ARCH29 C6c)",
+        "looked_at: the journal's names a recovery only looks at, removes or moves OUT of their folder (the file a \
+         conflict keeps, the staged version, the old file in the trash's slot, an aside), walked to and never made: an \
+         `Existing` folder (ARCH29 C6c; X-DELTA-STRUCT4-7)",
+    ),
+    Allow::exactly(
+        "examples/azcloud-kit/src/sync/journal.rs",
+        WALK_ADMITTED,
+        1,
+        "put_into: the journal's names a recovery PUTS something under (the copy a conflict keeps, the name of a \
+         replaced or a freed file, a case rename's new name): walked to, never made, and asked the rows of a synced \
+         name again (ARCH29 C6c; X-DELTA-STRUCT4-7)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/verify.rs",
-        WALK_EXISTING,
+        WALK_ADMITTED,
         1,
-        "restore: the base's key of a damaged copy (a record of this device's) walked to for the replacement, never made (ARCH29 C6c)",
+        "restore: the base's key of a damaged copy walked to for the replacement, which puts a new file in \
+         its place: the name passes the rows of a synced name (X-DELTA-STRUCT4-7)",
     ),
     Allow::exactly(
         "examples/azcloud-kit/src/sync/trash.rs",
@@ -1335,5 +1411,77 @@ fn x_delta_struct3_18_a_path_call_and_a_purpose_in_a_variable_are_caught_in_a_cr
         at(5, PARENT_OF_NEW),
         "the path call of the other walk: {wrong:?}"
     );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// X-DELTA-STRUCT4-7. The finders of the walks to what is on the disk read the path call `names::walk_record(` and
+/// `OnDisk::of_record(` as written and listed the bare call as CLEAN: a file that imported the function and called it
+/// bare, imported it under another name, took it as a function value or imported the type under another name was seen by
+/// no rule, and a key of a drive reached a folder nobody counted. Every spelling is a counted line now, the new walks
+/// to a name that passed its rows (`walk_admitted`, `parent_of_admitted`) are counted the same way, and a quiet file
+/// (a comment, a string, a test, a name that only contains one of these) is no site. RED on the old finders: the bare
+/// call, the alias and the value were found by none.
+#[test]
+fn x_delta_struct4_7_a_bare_call_an_alias_and_a_function_value_of_the_walks_are_counted_lines() {
+    let sneaky = [
+        "use super::names::{walk_record, walk_entry as walk};",
+        "use azul_storage::names::OnDisk as Disk;",
+        "pub fn all(tree: &Root, key: &str) {",
+        "    let _ = walk_record(tree, key);",
+        "    let on_disk = Disk::of_record(key);",
+        "    let _ = tree.parent_of_existing(&on_disk);",
+        "    let walk_made = Root::parent_of_admitted;",
+        "    let walk_put = walk_admitted;",
+        "}",
+        "",
+    ]
+    .join("\n");
+    let base = base_with(
+        "bare-walks",
+        &[
+            ("examples/azcloud-kit/src/lib.rs", "mod sneaky;\n"),
+            ("examples/azcloud-kit/src/sneaky.rs", sneaky.as_str()),
+        ],
+    );
+    let wrong = check(&base, &[]).expect_err("every spelling is a site, none is listed");
+    for (line, rule) in [
+        (1, "walk-existing-call"),
+        (4, "walk-existing-call"),
+        (5, "on-disk-key"),
+        (6, "parent-of-existing-call"),
+        (7, "parent-of-admitted-call"),
+        (8, "walk-admitted-call"),
+    ] {
+        assert!(
+            wrong.iter().any(|w| w
+                .starts_with(&format!("examples/azcloud-kit/src/sneaky.rs:{line}:"))
+                && w.contains(rule)),
+            "{rule} at line {line}: {wrong:?}"
+        );
+    }
+    assert_eq!(
+        wrong.len(),
+        7,
+        "the import of two walks on one line is two sites: {wrong:?}"
+    );
+    // What only contains the name, a comment, a string and a test are no site.
+    let quiet = [
+        "// walk_record(tree, key); OnDisk::of_record(key)",
+        "pub fn say() -> &'static str {",
+        "    \"walk_entry of_record parent_of_admitted\"",
+        "}",
+        "pub fn other(tree: &Root) {",
+        "    let _ = walk_records(tree);",
+        "    let _ = of_recorded(tree);",
+        "}",
+        "#[cfg(test)]",
+        "mod tests {",
+        "    fn t(tree: &Root) { let _ = walk_admitted(tree); }",
+        "}",
+        "",
+    ]
+    .join("\n");
+    std::fs::write(base.join("examples/azcloud-kit/src/sneaky.rs"), quiet).unwrap();
+    assert_eq!(check(&base, &[]), Ok(0));
     let _ = std::fs::remove_dir_all(base);
 }
