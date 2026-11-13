@@ -513,6 +513,14 @@ struct Guarded<'a> {
 /// failed download of the same version left there are kept - several at once, then puts it in
 /// place when the object did not change meanwhile ([`durable::publish_staged`]: synced to the
 /// disk, renamed, the folder synced).
+///
+/// Every range is pinned to the version the download began with where the drive tells a tag
+/// ([`Drive::get_range_if`]), so an object replaced and put back while the ranges were read is
+/// refused, not spliced. The RESIDUE (X-DELTA-SYNC4-12, named and not closed): a drive that names no
+/// tag for the object (SFTP, FTP, a service without entity tags, a folder on disk) cannot pin a range;
+/// its ranges are plain reads and only the look at the end - tag, size and date - tells a replaced
+/// object, so one replaced by bytes that keep size and date (`touch -r`, `rsync -t`) is published
+/// under the final name. There is no source hash to compare the staged file with here.
 fn download_ranges(
     drive: &dyn Drive,
     info: &ObjectInfo,
