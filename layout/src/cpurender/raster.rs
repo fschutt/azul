@@ -3535,6 +3535,9 @@ pub fn render_single_item(
                 let painted = snapshot_region(pixmap, x, y, w, h);
                 write_region(pixmap, &snapshot, w, h, x, y);
                 let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+                // `blend_pixel`'s levels, without its work where the group
+                // painted nothing or painted opaque.
+                let blender = super::blend::Blender::new(op, blend);
                 for py in 0..h as i32 {
                     let dy = y + py;
                     if dy < 0 || dy >= ph {
@@ -3551,7 +3554,7 @@ pub fn render_single_item(
                             continue;
                         }
                         let src = [painted[si], painted[si + 1], painted[si + 2], painted[si + 3]];
-                        blend_pixel(&mut pixmap.data[pi..pi + 4], src, op, blend);
+                        blender.blend(&mut pixmap.data[pi..pi + 4], src);
                     }
                 }
             }
