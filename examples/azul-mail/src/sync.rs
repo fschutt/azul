@@ -137,6 +137,10 @@ pub struct FolderReport {
     /// held or deleted, and the rest of the Send/Receive went on; a later Send/Receive that can date the hold
     /// takes them out. Never counted in `removed` (X-DELTA-APPS5-1).
     pub kept_undated: u64,
+    /// An IMAP account's: the newest INTERNALDATE - the SERVER's clock - of a message this Send/Receive fetched the
+    /// metadata of, in seconds since 1970: a lower bound of the server's time that does not depend on this
+    /// computer's clock. `None`: no new mail. The holding area is swept against it ([`sync_account`], X-APPS4B-3).
+    pub server_time: Option<u64>,
 }
 
 /// The whole sync's outcome.
@@ -365,6 +369,14 @@ pub fn sync_account(
             source, store, mailbox, options, &clocks, progress,
         )?);
     }
+    // Housekeeping: what Delete in the Outbox held under `removed/outbox/` is deleted after its 90 days by the one rule of
+    // the Azlin sweep - the earlier of the clock of this computer and an independent reading, here the server's newest
+    // INTERNALDATE of the mail fetched now (X-APPS4B-3: it was never swept for an IMAP account). No new mail, no
+    // reading, no sweep; a sweep that cannot read its list deletes nothing and never fails the Send/Receive.
+    let reading = report.folders.iter().filter_map(|f| f.server_time).max();
+    if let Err(why) = crate::azlin_sync::sweep_removed(store, options.now, reading) {
+        eprintln!("[azmail] the removed mail held here could not be swept: {why}");
+    }
     Ok(report)
 }
 
@@ -472,6 +484,11 @@ fn sync_folder_with(
         }
         metas.sort_by_key(|m| m.uid);
         metas.dedup_by_key(|m| m.uid);
+        report.server_time = metas
+            .iter()
+            .filter_map(|m| m.internal_date)
+            .filter_map(|date| u64::try_from(date).ok())
+            .max();
         let total = metas.len() as u64;
         let paths: Vec<String> = metas.iter().map(|m| message_path(key, m)).collect();
         let to_fetch: Vec<bool> = metas
@@ -686,6 +703,8 @@ mod tests {
         vanished: Vec<u32>,
         /// Answer SELECT without UIDNEXT (it is optional in IMAP4rev1).
         hide_uid_next: bool,
+        /// The INTERNALDATE every message answers: the server's clock (default SEP_30).
+        internal: Option<i64>,
     }
 
     impl FakeServer {
@@ -761,6 +780,7 @@ mod tests {
         }
 
         fn fetch_meta(&mut self, uids: &[u32]) -> Result<Vec<MessageMeta>, SyncError> {
+            let internal = self.internal.unwrap_or(SEP_30);
             let f = self.folder();
             Ok(uids
                 .iter()
@@ -769,7 +789,7 @@ mod tests {
                         uid: *u,
                         size: Some(m.len() as u64),
                         flags: vec![String::from("\\Seen")],
-                        internal_date: Some(SEP_30),
+                        internal_date: Some(internal),
                     })
                 })
                 .collect())
@@ -814,6 +834,58 @@ mod tests {
     }
 
     const DAY: i64 = 86_400;
+
+    /// X-APPS4B-3, RED on the code before: `removed/outbox/` - what Delete in the Outbox holds, for every kind of account -
+    /// was swept only by an Azlin account's Send/Receive; an IMAP account's holds stayed for ever. Now the IMAP
+    /// Send/Receive sweeps by the one rule: the EARLIER of the clock of this computer and an independent reading, the
+    /// server's newest INTERNALDATE of the mail it fetched. A hold made at SEP_30: 100 days on by this computer's clock
+    /// with the server's newest mail 30 days after the hold, it stays; a Send/Receive that fetches no mail has no reading
+    /// and sweeps nothing; mail the server dated 95 days on lets the sweep delete it.
+    #[test]
+    fn x_apps4b_3_the_outbox_hold_of_an_imap_account_is_swept_by_the_earlier_of_the_clock_and_the_servers_mail(
+    ) {
+        let dir = TempDir::new("imap-sweep");
+        let store = MailStore::new(dir.folder());
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1]);
+        run(&mut server, &store).unwrap();
+        let held = "removed/outbox/20260930T084200Z";
+        store.put(&format!("{held}/a.eml"), b"the letter").unwrap();
+        store.put(&format!("{held}/a.json"), b"{}").unwrap();
+        let swept = |store: &MailStore| store.keys(store::REMOVED_PREFIX).is_empty();
+        let at = |now: i64| SyncOptions { now, ..options() };
+        let arrive = |server: &mut FakeServer, uid: u32, internal: i64| {
+            server.internal = Some(internal);
+            server
+                .folders
+                .get_mut("INBOX")
+                .unwrap()
+                .messages
+                .insert(uid, message(uid));
+        };
+        // The server's newest mail says 30 days; this computer says 100: the earlier reading decides.
+        arrive(&mut server, 2, SEP_30 + 30 * DAY);
+        sync_account(&mut server, &store, &at(SEP_30 + 100 * DAY), &mut |_| true).unwrap();
+        assert!(!swept(&store), "{:?}", store.keys(store::REMOVED_PREFIX));
+        // No mail is fetched: no reading, no sweep, whatever the clock says.
+        let report =
+            sync_account(&mut server, &store, &at(SEP_30 + 100 * DAY), &mut |_| true).unwrap();
+        assert_eq!(report.fetched(), 0);
+        assert!(!swept(&store), "no reading, no sweep");
+        // Mail the server dated 95 days on: the server agrees that the hold is 90 days old.
+        arrive(&mut server, 3, SEP_30 + 95 * DAY);
+        sync_account(&mut server, &store, &at(SEP_30 + 100 * DAY), &mut |_| true).unwrap();
+        assert!(swept(&store), "{:?}", store.keys(store::REMOVED_PREFIX));
+        // And a clock that is behind the server's mail decides by itself: a second hold, 89 days by the clock.
+        let second = "removed/outbox/20270108T000000Z";
+        store.put(&format!("{second}/b.json"), b"{}").unwrap();
+        arrive(&mut server, 4, SEP_30 + 400 * DAY);
+        sync_account(&mut server, &store, &at(SEP_30 + 189 * DAY), &mut |_| true).unwrap();
+        assert!(
+            !swept(&store),
+            "the clock says 89 days since the second hold: {:?}",
+            store.keys(store::REMOVED_PREFIX)
+        );
+    }
 
     /// X-DELTA-APPS5-1, the other writer of the floor: the IMAP Send/Receive recorded its `synced_at` as the raw clock, so
     /// a Send/Receive on a clock ten years ahead made every later right clock "a day behind" it - and the floor that

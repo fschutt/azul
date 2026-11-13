@@ -150,7 +150,10 @@ Send/Receive on a device:
    `removed/outbox/<stamp>/` of the same folder, dated by the SAME rule (the clock of this computer set
    against the newest Send/Receive of the account), and removes nothing when that rule cannot date the
    hold - on a clock that is not set, a day behind or a year ahead, or when the account's record of the
-   last Send/Receive cannot be read; the sweep above deletes what it holds after the 90 days too.
+   last Send/Receive cannot be read; the sweep above deletes what it holds after the 90 days too. An IMAP
+   account's Send/Receive sweeps `removed/outbox/` by the same rule - the earlier of this computer's clock
+   and the newest INTERNALDATE the server gave the mail it fetched then (no new mail, no reading, no
+   sweep) - and records its `synced_at` by the same rule as an Azlin account's.
 
 After a pull the local copy equals the bucket as listed (what the bucket no longer lists is held
 under `removed/`, not in the folder); with no new writes, every device's next pull ends in the
