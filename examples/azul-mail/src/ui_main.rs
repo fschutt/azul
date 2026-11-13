@@ -2663,6 +2663,35 @@ mod tests {
         assert_eq!(zoom_by(ZOOM_MIN, -1.0), ZOOM_MIN);
         assert_eq!(zoom_by(57.0, -1.0), ZOOM_MIN);
     }
+
+    /// Delete on EVERY row of the Outbox, for the tests that do not test the lock. The lock is the process's
+    /// and a test of another module may hold it for the length of a send; a Delete that found it taken
+    /// stops (it never waits) and is made again over the rows the Outbox still lists, as the window's next
+    /// click would. The counts add up; the last pass says what is still being sent.
+    fn delete_all_when_free(root: &crate::store::DriveFolder, id: &str) -> OutboxRemoval {
+        let mut total = OutboxRemoval::default();
+        let started = std::time::Instant::now();
+        loop {
+            let listed = crate::send::outbox_entries(root, id);
+            let index = crate::send::outbox_index(&listed);
+            let waiting: std::collections::BTreeMap<String, crate::send::OutboxEntry> = index
+                .iter()
+                .zip(&listed)
+                .map(|(row, entry)| (row.path.clone(), entry.clone()))
+                .collect();
+            let all: Vec<u32> = index.iter().map(|row| row.uid).collect();
+            let done = remove_from_outbox(root, id, &index, &waiting, &all);
+            total.removed += done.removed;
+            total.waiting = done.waiting;
+            total.problems.extend(done.problems);
+            if !done.busy || started.elapsed() > std::time::Duration::from_secs(60) {
+                total.busy = done.busy;
+                return total;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
     /// X-DELTA-APPS3-4: Delete in the Outbox takes out the rows that say "Not sent" - one whose
     /// message file is gone included, which nothing else could remove - and leaves a mail that is
     /// still being sent where it is.
@@ -2712,14 +2741,7 @@ mod tests {
         }
         let listed = send::outbox_entries(&root, id);
         assert_eq!(listed.len(), 3);
-        let index = send::outbox_index(&listed);
-        let waiting: std::collections::BTreeMap<String, send::OutboxEntry> = index
-            .iter()
-            .zip(&listed)
-            .map(|(row, entry)| (row.path.clone(), entry.clone()))
-            .collect();
-        let all: Vec<u32> = index.iter().map(|row| row.uid).collect();
-        let done = remove_from_outbox(&root, id, &index, &waiting, &all);
+        let done = delete_all_when_free(&root, id);
         assert_eq!(
             done,
             OutboxRemoval {
@@ -2859,7 +2881,7 @@ mod tests {
             "{german}"
         );
         // Send/Receive is done: the same Delete goes through.
-        let done = remove_from_outbox(&root, id, &index, &waiting, &all);
+        let done = delete_all_when_free(&root, id);
         assert_eq!((done.removed, done.busy), (1, false));
     }
 }

@@ -2129,7 +2129,7 @@ fn x_delta_apps4_1_the_records_of_a_served_drive_are_files_in_the_state_folder_o
         1,
         "one folder for the one drive that has a record"
     );
-    assert!(folders[0].path().join("1000-4242-0.json").is_file());
+    assert!(folders[0].path().join("1000-4294967295-0.json").is_file());
     // A process that starts again finds it.
     let again = SwapRecords::of_drive(&state.0, Some("folder:/home/ada/Documents"));
     assert_eq!(

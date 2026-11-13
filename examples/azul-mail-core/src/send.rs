@@ -4230,6 +4230,25 @@ mod tests {
         assert_eq!(sent_index(&dir.0).len(), 1);
     }
 
+    /// [`remove_failed_entry`] for the tests that do not test its lock. The lock is the process's and the
+    /// tests of this file run side by side: another test's send or retry may hold it for a moment, and
+    /// the call never waits for it (a lock that is taken is `WouldBlock` and nothing was done), so it is
+    /// asked again until the lock is free.
+    fn remove(dir: &TempDir, id: &str) -> std::io::Result<()> {
+        let started = std::time::Instant::now();
+        loop {
+            match remove_failed_entry(&dir.folder(), ACCOUNT, id) {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        && started.elapsed() < std::time::Duration::from_secs(60) =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                other => return other,
+            }
+        }
+    }
+
     /// The Delete of the Outbox's row that says "Not sent": a failed entry whose message file is
     /// gone can be removed (nothing else did), a failed one with its file takes the file too, and a
     /// mail that is still being tried is refused and untouched.
@@ -4237,7 +4256,7 @@ mod tests {
     fn x_delta_apps3_4_a_failed_entry_can_be_removed_and_a_queued_one_cannot() {
         let dir = TempDir::new("send-remove");
         let entry = queued(&dir);
-        let refused = remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap_err();
+        let refused = remove(&dir, &entry.id).unwrap_err();
         assert_eq!(
             refused.kind(),
             std::io::ErrorKind::InvalidInput,
@@ -4254,13 +4273,13 @@ mod tests {
         retry_at(&dir, true, OCT_1 + 400, &mut fake);
         let kept = outbox_entries(&dir.folder(), ACCOUNT);
         assert_eq!((kept.len(), kept[0].state), (1, OutboxState::Failed));
-        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        remove(&dir, &entry.id).unwrap();
         assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty());
         assert!(outbox_files(&dir.0).is_empty());
         // One that is not there, and a name that is no entry's.
-        let missing = remove_failed_entry(&dir.folder(), ACCOUNT, "nobody").unwrap_err();
+        let missing = remove(&dir, "nobody").unwrap_err();
         assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
-        assert!(remove_failed_entry(&dir.folder(), ACCOUNT, "../x").is_err());
+        assert!(remove(&dir, "../x").is_err());
         // A failed entry whose file is there goes with it.
         let dir = TempDir::new("send-remove-both");
         let entry = queued(&dir);
@@ -4272,7 +4291,7 @@ mod tests {
         let kept = outbox_entries(&dir.folder(), ACCOUNT);
         assert_eq!((kept.len(), kept[0].state), (1, OutboxState::Failed));
         assert!(eml_of(&dir, &entry).exists());
-        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        remove(&dir, &entry.id).unwrap();
         assert!(outbox_files(&dir.0).is_empty());
     }
 
@@ -4602,7 +4621,7 @@ mod tests {
         let dir = TempDir::new("send-remove-held");
         let entry = failed(&dir);
         let text = std::fs::read(eml_of(&dir, &entry)).unwrap();
-        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        remove(&dir, &entry.id).unwrap();
         assert!(
             outbox_entries(&dir.folder(), ACCOUNT).is_empty(),
             "the row is gone"
@@ -4631,7 +4650,7 @@ mod tests {
         let entry = queued(&dir);
         std::fs::remove_file(eml_of(&dir, &entry)).unwrap();
         retry_at(&dir, true, OCT_1 + 400, &mut take_all());
-        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        remove(&dir, &entry.id).unwrap();
         let held = held_keys(&dir);
         assert_eq!(held.len(), 1, "{held:?}");
         assert!(held[0].ends_with(".json"), "{held:?}");
@@ -4644,7 +4663,7 @@ mod tests {
         let dir = TempDir::new("send-remove-unreadable");
         let entry = failed(&dir);
         let bytes = make_unreadable(&dir, &entry);
-        let refused = remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap_err();
+        let refused = remove(&dir, &entry.id).unwrap_err();
         assert_ne!(refused.kind(), std::io::ErrorKind::NotFound, "{refused}");
         assert_eq!(
             outbox_entries(&dir.folder(), ACCOUNT).len(),
@@ -4654,7 +4673,7 @@ mod tests {
         assert!(held_keys(&dir).is_empty(), "nothing was held");
         crate::testutil::make_readable(&eml_of(&dir, &entry));
         assert_eq!(std::fs::read(eml_of(&dir, &entry)).unwrap(), bytes);
-        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        remove(&dir, &entry.id).unwrap();
         assert_eq!(held_keys(&dir).len(), 2);
     }
 
@@ -4686,7 +4705,7 @@ mod tests {
         );
         assert!(held_keys(&dir).is_empty());
         // Send/Receive is done: the same Delete goes through.
-        remove_failed_entry(&dir.folder(), ACCOUNT, &entry.id).unwrap();
+        remove(&dir, &entry.id).unwrap();
         assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty());
     }
 
