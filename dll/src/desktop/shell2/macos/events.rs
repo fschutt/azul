@@ -738,6 +738,22 @@ impl MacOSWindow {
             }
         }
 
+        // CTRL + SCROLL IS A PINCH, as on Windows: what every browser zooms
+        // on, and on a mouse without a trackpad the only zoom gesture there
+        // is. `AppConfig::synthesize_pinch_from_ctrl_wheel` turns it off for
+        // an app where Ctrl + wheel means something else. The scroll is still
+        // delivered (with Ctrl among its modifiers), as on Windows.
+        let ctrl_held = unsafe { event.modifierFlags() }.contains(NSEventModifierFlags::Control);
+        if ctrl_held && azul_layout::window::synthesize_pinch_from_ctrl_wheel() {
+            self.ctrl_scroll_pinch(
+                ns_phase,
+                ns_momentum_phase,
+                raw_delta_y,
+                has_precise,
+                position,
+            );
+        }
+
         // A Mac's page swipe ("swipe between pages: scroll left or right with
         // two fingers", the default) arrives as this scroll gesture, and
         // AppKit apps turn it into one where nothing scrolls sideways
@@ -786,6 +802,62 @@ impl MacOSWindow {
         // V2 system will detect Scroll event from ScrollManager state
         let result = self.process_window_events(0);
         self.convert_result_with_fanout(result)
+    }
+
+    /// The pinch a Ctrl + scroll makes, injected before the event pass.
+    ///
+    /// A ratcheting wheel reports lines, a notch about one: each notch is a
+    /// pinch of its own (`began` and `ended`), 10 % per notch, as Windows'
+    /// `WM_MOUSEWHEEL` makes it. A trackpad (or Magic Mouse) scroll is one
+    /// gesture from the fingers down to their lift: one pinch, its scale
+    /// added up over the gesture's deltas (a line's worth of pixels a notch)
+    /// and its end reported; the momentum after the lift zooms nothing.
+    /// Positive deltas (a scroll up, in the direction the user's preference
+    /// gives the content) zoom in.
+    fn ctrl_scroll_pinch(
+        &mut self,
+        ns_phase: objc2_app_kit::NSEventPhase,
+        ns_momentum_phase: objc2_app_kit::NSEventPhase,
+        raw_delta_y: f64,
+        has_precise: bool,
+        center: LogicalPosition,
+    ) {
+        use azul_layout::managers::gesture::{
+            DetectedPinch, NativeGestureEvent, TrackpadGesturePhase,
+            CTRL_WHEEL_PINCH_STEP_PER_NOTCH,
+        };
+        use objc2_app_kit::NSEventPhase;
+        let Some(lw) = self.common.layout_window.as_mut() else {
+            return;
+        };
+        let manager = &mut lw.gesture_drag_manager;
+        if !has_precise {
+            if let Some(pinch) = DetectedPinch::from_ctrl_wheel_notches(raw_delta_y as f32, center)
+            {
+                manager.inject_native_gesture(NativeGestureEvent::Pinch(pinch));
+            }
+            return;
+        }
+        if ns_momentum_phase != NSEventPhase::None {
+            return;
+        }
+        let phase = if ns_phase == NSEventPhase::Began {
+            TrackpadGesturePhase::Began
+        } else if ns_phase == NSEventPhase::Changed || ns_phase == NSEventPhase::Stationary {
+            TrackpadGesturePhase::Changed
+        } else if ns_phase == NSEventPhase::Ended || ns_phase == NSEventPhase::Cancelled {
+            TrackpadGesturePhase::Ended
+        } else {
+            // MayBegin (fingers resting, nothing moved) and phase-less events.
+            return;
+        };
+        let notches = raw_delta_y as f32
+            / crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE;
+        if let Some(pinch) =
+            manager.trackpad_magnify(phase, notches * CTRL_WHEEL_PINCH_STEP_PER_NOTCH, center)
+        {
+            manager.inject_native_gesture(NativeGestureEvent::Pinch(pinch));
+        }
     }
 
     /// Process a key down event.

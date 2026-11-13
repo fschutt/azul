@@ -411,6 +411,34 @@ pub struct DetectedPinch {
     pub ended: bool,
 }
 
+/// The zoom step of one notch of a Ctrl + wheel turned into a pinch
+/// (`AppConfig::synthesize_pinch_from_ctrl_wheel`): 10 %, the ratio browsers
+/// use for a zoom level.
+pub const CTRL_WHEEL_PINCH_STEP_PER_NOTCH: f32 = 0.1;
+
+impl DetectedPinch {
+    /// The pinch of `notches` of a Ctrl + wheel turn at `center`: a gesture of
+    /// one update (`began` and `ended`), `1 + 0.1 * notches` - more than 1
+    /// (zoom in) for a wheel turned away from the user, a scroll up. `None`
+    /// for no turn, or a turn that would scale by nothing or less.
+    #[must_use]
+    pub fn from_ctrl_wheel_notches(notches: f32, center: LogicalPosition) -> Option<Self> {
+        let scale = 1.0 + notches * CTRL_WHEEL_PINCH_STEP_PER_NOTCH;
+        if notches.abs() < f32::EPSILON || !scale.is_finite() || scale <= 0.0 {
+            return None;
+        }
+        Some(Self {
+            scale,
+            center,
+            initial_distance: PINCH_NOMINAL_DISTANCE,
+            current_distance: PINCH_NOMINAL_DISTANCE * scale,
+            duration_ms: 0,
+            began: true,
+            ended: true,
+        })
+    }
+}
+
 /// The phase of a trackpad gesture event, as the OS reports it (macOS
 /// `NSEvent.phase`: `Began`, `Changed` / `Stationary`, `Ended` / `Cancelled`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3244,6 +3272,26 @@ mod touch_session_tests {
         m.note_pinch_dispatched();
         m.touch_up(2, pos(201.0, 100.0), ts(3), pos(201.0, 100.0));
         assert!(m.detect_pinch().is_none());
+    }
+
+    /// A Ctrl + wheel notch is a pinch of one update: 10 % a notch, `began`
+    /// and `ended` both.
+    #[test]
+    fn a_ctrl_wheel_notch_is_a_pinch_of_one_update() {
+        let c = pos(5.0, 6.0);
+        let up = DetectedPinch::from_ctrl_wheel_notches(1.0, c).expect("a notch");
+        assert!(up.began && up.ended, "{up:?}");
+        assert!((up.scale - 1.1).abs() < 1e-6);
+        assert!((up.current_distance / up.initial_distance - up.scale).abs() < 1e-6);
+        assert_eq!(up.center, c);
+        let down = DetectedPinch::from_ctrl_wheel_notches(-2.0, c).expect("two notches");
+        assert!((down.scale - 0.8).abs() < 1e-6);
+        for nothing in [0.0, -10.0, -20.0, f32::NAN, f32::INFINITY] {
+            assert!(
+                DetectedPinch::from_ctrl_wheel_notches(nothing, c).is_none(),
+                "{nothing} notches"
+            );
+        }
     }
 }
 
