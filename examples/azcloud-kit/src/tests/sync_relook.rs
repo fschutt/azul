@@ -1002,6 +1002,52 @@ fn x_delta_sync4_22_a_rename_made_here_never_replaces_a_file_that_appeared_at_th
     faults::clear(b.path());
 }
 
+/// X-DELTA-SYNC4-22 (write_link). A link of the drive is made under a name of its own and renamed into place after a look at the
+/// name ("nothing there"): a file the user saves under that name between the look and the rename - the point
+/// `link-before-rename`, the seam the race had none of, so its test could not be made to happen - must not be replaced by the
+/// link. The rename of a name the scan found nothing under never replaces; the user's file stays and says so. RED on a rename
+/// that replaces: the user's file is now a link.
+#[cfg(unix)]
+#[test]
+fn x_delta_sync4_22_a_link_made_here_never_replaces_a_file_that_appeared_at_its_name_since_the_look(
+) {
+    let store = Arc::new(S3Bucket::new());
+    let (a, a_state) = (
+        TempDir::new("azcloud-relook-s22l-a"),
+        TempDir::new("azcloud-relook-s22l-a-state"),
+    );
+    let (b, b_state) = (
+        TempDir::new("azcloud-relook-s22l-b"),
+        TempDir::new("azcloud-relook-s22l-b-state"),
+    );
+    let on_a = plain("A", a.path(), a_state.path(), &store);
+    let on_b = plain("B", b.path(), b_state.path(), &store);
+    fs::write(a.path().join("report.md"), "the report").unwrap();
+    std::os::unix::fs::symlink("report.md", a.path().join("latest.md")).unwrap();
+    on_a.pass(&AtomicBool::new(false), &mut |_| {})
+        .expect("a sends the file and the link");
+    // B's pass makes the link; a file of the user's own appears under its name right before the rename.
+    let b_path = b.path().to_path_buf();
+    let report = pass_with_a_step_at(&on_b, b.path(), "link-before-rename", move || {
+        fs::write(
+            b_path.join("latest.md"),
+            "what B's user saved under that name",
+        )
+        .unwrap();
+    });
+    let kept = fs::symlink_metadata(b.path().join("latest.md")).unwrap();
+    assert!(
+        kept.file_type().is_file(),
+        "the file that appeared is not replaced by the link: {}",
+        report.summary()
+    );
+    assert_eq!(
+        fs::read(b.path().join("latest.md")).unwrap(),
+        b"what B's user saved under that name"
+    );
+    faults::clear(b.path());
+}
+
 /// X-DELTA-SYNC4-22 (the conflict's copy). The conflict renames this side's file to the copy's name after
 /// a look at the name ("must still be free"), with a replacing rename: a file that took the name since
 /// (right before the rename, the point `conflict-before-rename`) was overwritten. RED on the old code:
