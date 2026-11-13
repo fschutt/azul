@@ -169,12 +169,7 @@ pub fn file_versions<B: Bucket, S: Sealer>(
     repo.pull()?;
     repo.fetch_all()?;
     let history = repo.history()?;
-    let window_start = i64::try_from(
-        repo.store()
-            .now()
-            .saturating_sub(RETENTION.versions.as_secs()),
-    )
-    .unwrap_or(i64::MAX);
+    let today = repo.store().now();
     // Oldest first: (the version, the moment the next change replaced it).
     let mut listed: Vec<(FileVersion, Option<i64>)> = Vec::new();
     let mut last: Option<ObjectId> = None;
@@ -204,7 +199,7 @@ pub fn file_versions<B: Bucket, S: Sealer>(
     }
     let inside: Vec<FileVersion> = listed
         .into_iter()
-        .filter(|(_, ended)| ended.is_none_or(|ended| ended >= window_start))
+        .filter(|(_, ended)| ended.is_none_or(|ended| RETENTION.offers(ended, today)))
         .map(|(version, _)| version)
         .collect();
     drop_gone(repo, inside)

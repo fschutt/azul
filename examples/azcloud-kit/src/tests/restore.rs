@@ -550,6 +550,108 @@ mod bytes_gone {
         );
     }
 
+    /// X-DELTA-SYNC4-8. What a restore can still bring back was derived twice: by the restore dialog
+    /// (`file_versions`, per file, along the drive's first parents) and by the reclaimer to check its own
+    /// window (`restorable`, the objects of the whole drive), each with its own subtraction and comparison.
+    /// They ask `Retention::offers` now, and this runs both over ONE repository - a file replaced exactly at the
+    /// window's edge, one replaced before it, one deleted inside it, a commit dated BEFORE the commit it follows
+    /// (a device whose clock lags) and a restore - at a time when part of the history is outside the window:
+    /// every version the dialog offers is named by the reclaimer's window (a delete from a window that names
+    /// less would take a version the dialog still offers), and the version replaced before the window is in
+    /// neither.
+    #[test]
+    fn x_delta_sync4_8_what_the_dialog_offers_the_reclaimers_window_names() {
+        use azul_storage::{
+            crypto::ObjectId as DataId,
+            meta::{pointer, reclaim::restorable},
+        };
+
+        let data_of = |repo: &MetaRepo<MemoryBucket, DriveKey>,
+                       blob: &azul_storage::meta::ObjectId|
+         -> DataId {
+            let bytes = repo
+                .objects()
+                .blob(blob)
+                .expect("the pointer blob is there");
+            pointer::decode(bytes)
+                .expect("a pointer")
+                .bucket_object()
+                .expect("a file with an object")
+        };
+
+        let lab = Lab::new();
+        lab.drive.put("a.txt", b"a, version one").unwrap();
+        lab.drive.put("b.txt", b"b, version one").unwrap();
+        lab.drive.put("e.txt", b"e, version one").unwrap();
+        // b's first version is replaced 95 days before the check: outside the window.
+        lab.at(T0 + 5 * DAY);
+        lab.drive.put("b.txt", b"b, version two").unwrap();
+        // a's and e's first versions are replaced exactly 90 days before it: the edge, and offered.
+        lab.at(T0 + 10 * DAY);
+        lab.drive.put("a.txt", b"a, version two").unwrap();
+        lab.drive.put("e.txt", b"e, version two").unwrap();
+        // A device whose clock lags: this commit is dated BEFORE the one it follows.
+        lab.at(T0 + 8 * DAY);
+        lab.drive
+            .put("c.txt", b"c, written by a clock that lags")
+            .unwrap();
+        lab.at(T0 + 70 * DAY);
+        lab.drive.delete("b.txt").unwrap();
+        // A restore: a's first version is put back as the drive's.
+        let a_one = file_versions(&mut lab.repo(T0 + 75 * DAY), "a.txt").unwrap()[0].id;
+        restore_file_version(&mut lab.repo(T0 + 80 * DAY), "a.txt", a_one, &mut keep_both).unwrap();
+
+        let now = T0 + 100 * DAY;
+        let mut repo = lab.repo(now);
+        let mut offered: Vec<(String, DataId)> = Vec::new();
+        for path in ["a.txt", "b.txt", "c.txt", "e.txt"] {
+            for version in file_versions(&mut repo, path).unwrap() {
+                offered.push((path.to_string(), data_of(&repo, &version.id)));
+            }
+        }
+        // The reclaimer's window, as it checks itself, over the same repository.
+        let head = repo.head().expect("a head");
+        let named = restorable(repo.objects(), &head, now).expect("the window can be derived");
+        for (path, object) in &offered {
+            assert!(
+                named.contains_key(object),
+                "{path}: the dialog offers a version the reclaimer's window does not name"
+            );
+        }
+        let b_one = {
+            let blob = file_versions(&mut lab.repo(T0 + 6 * DAY), "b.txt").unwrap()[0].id;
+            data_of(&repo, &blob)
+        };
+        assert!(
+            offered.iter().all(|(_, object)| *object != b_one),
+            "b's first version was replaced before the window: the dialog does not offer it"
+        );
+        assert!(
+            !named.contains_key(&b_one),
+            "and the window does not name it"
+        );
+        // The edge is really there: e's first version, replaced exactly at the window's start and never put back,
+        // is offered by the dialog AND named by the reclaimer's window. (a's first version is put back by the
+        // restore above and so is offered as the head whatever the edge does: e is the one that isolates it.)
+        let e_one = {
+            let blob = file_versions(&mut lab.repo(T0 + 11 * DAY), "e.txt").unwrap()[0].id;
+            data_of(&repo, &blob)
+        };
+        assert!(
+            offered
+                .iter()
+                .any(|(path, object)| path == "e.txt" && *object == e_one),
+            "the version replaced exactly at the window's edge is offered by the dialog"
+        );
+        assert!(
+            named.contains_key(&e_one),
+            "and named by the reclaimer's window"
+        );
+        let a_edge = data_of(&repo, &a_one);
+        assert!(offered.iter().any(|(_, object)| *object == a_edge));
+        assert!(named.contains_key(&a_edge));
+    }
+
     #[test]
     fn x_ar5a_21_only_versions_inside_the_retention_are_offered() {
         let lab = Lab::new();

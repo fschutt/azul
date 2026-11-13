@@ -1635,19 +1635,18 @@ fn first_named_after(
 /// replaced or the state the window began with. One that does not is a window that is not the one the
 /// user was promised - a retention that drifted, a frontier that lost a state - and a delete from it
 /// would take a version the dialog still offers. What the two share is the reading of a tree
-/// ([`Walk`]); the choice of the commits, the clock they are judged by and the walk of the graph are
-/// each one's own.
+/// ([`Walk`]) and the window itself ([`Retention::offers`], X-DELTA-SYNC4-8: the subtraction and the
+/// comparison are written once); the walk of the graph is each one's own, and a pair test
+/// (azcloud-kit `tests/restore.rs`) runs both over one repository.
 ///
 /// # Errors
 ///
 /// [`NotYet::Unreadable`] when a commit or a tree cannot be read: nothing is decided from it.
-pub(crate) fn restorable(
+pub fn restorable(
     objects: &Objects,
     head: &GitId,
     now: u64,
 ) -> Result<HashMap<ObjectId, u64>, NotYet> {
-    let window_start =
-        i64::try_from(now.saturating_sub(RETENTION.versions.as_secs())).unwrap_or(i64::MAX);
     let mut walk = Walk::new(objects);
     let mut offered: HashMap<ObjectId, u64> = HashMap::new();
     let mut commit = objects
@@ -1661,7 +1660,7 @@ pub(crate) fn restorable(
             .map_err(|e| NotYet::unreadable(format!("commit {}", parent.to_hex()), e))?;
         // What this commit replaced or deleted was a version of a file until it did: offered while
         // the commit is inside the window.
-        if commit.committer.time >= window_start {
+        if RETENTION.offers(commit.committer.time, now) {
             walk.dropped(&before.tree, &commit.tree, &mut offered)?;
         }
         commit = before;

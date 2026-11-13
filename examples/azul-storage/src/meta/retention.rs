@@ -56,4 +56,22 @@ impl Retention {
     pub const fn versions_days(self) -> u64 {
         self.versions.as_secs() / 86_400
     }
+
+    /// The oldest `committer.time` (seconds since 1970) a commit may carry for what it replaced or deleted
+    /// to still be offered by a restore at `now`: [`Retention::versions`] before it. THE derivation of the
+    /// restore window (X-DELTA-SYNC4-8): the restore dialog (azcloud-kit `restore::file_versions`) and the
+    /// reclaimer's check of its own window (`meta::reclaim::restorable`) both ask it, where each used to
+    /// write the subtraction and the comparison its own way; a pair test runs both over one repository
+    /// with a merge, a skewed commit and a restore.
+    #[must_use]
+    pub fn restore_window_start(self, now: u64) -> i64 {
+        i64::try_from(now.saturating_sub(self.versions.as_secs())).unwrap_or(i64::MAX)
+    }
+
+    /// Whether a version that the commit made at `replaced_at` replaced (or deleted) is offered by a restore
+    /// at `now`: a version is offered while the change that REPLACED it is inside the window.
+    #[must_use]
+    pub fn offers(self, replaced_at: i64, now: u64) -> bool {
+        replaced_at >= self.restore_window_start(now)
+    }
 }
