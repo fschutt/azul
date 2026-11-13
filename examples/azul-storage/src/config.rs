@@ -251,6 +251,83 @@ impl FromIterator<(String, String)> for SecretOptions {
     }
 }
 
+/// The name a drive's entry has in the drives file ([`DriveEntry::id`]: "stable, unique in the list; names the keyring
+/// entry"): what the window, the sync pairings and the records written into the drives file call the drive. Not an Azlin
+/// drive's id at the token server ([`DriveId`]), which its keys, its vault and its grants are kept under in every app.
+/// Where a drive's key and the record of it meet the two are written side by side, and as two `&str` a swap of them
+/// looked the key up under the slot's name, which no other app uses (X-DELTA-STRUCT4-3). Two types, so it does not
+/// compile:
+///
+/// ```compile_fail,E0308
+/// use azul_storage::config::{DriveId, SlotId};
+/// fn wrap(_drive: DriveId<'_>, _slot: SlotId<'_>) {}
+/// fn swapped(drive: DriveId<'_>, slot: SlotId<'_>) {
+///     wrap(slot, drive)
+/// }
+/// ```
+///
+/// Made by [`DriveEntry::slot`] and by nothing else (the entry owns its name):
+///
+/// ```compile_fail,E0451
+/// use azul_storage::config::SlotId;
+/// fn made_by_hand() -> SlotId<'static> {
+///     SlotId { id: "slot-1" }
+/// }
+/// ```
+///
+/// ```no_run
+/// // The control of the two above: the right order, with what an entry gives.
+/// use azul_storage::config::{DriveEntry, DriveId, SlotId};
+/// fn wrap(_drive: DriveId<'_>, _slot: SlotId<'_>) {}
+/// fn right(entry: &DriveEntry) {
+///     if let Some(drive) = entry.azlin_drive() {
+///         wrap(drive, entry.slot());
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlotId<'a> {
+    id: &'a str,
+}
+
+impl<'a> SlotId<'a> {
+    /// The name as the drives file spells it.
+    #[must_use]
+    pub fn as_str(&self) -> &'a str {
+        self.id
+    }
+
+    /// A slot a test names: no entry stands behind it.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn named(id: &'a str) -> SlotId<'a> {
+        SlotId { id }
+    }
+}
+
+/// An Azlin drive's id at the token server, as an entry of the drives file names it ([`DriveEntry::azlin_drive`]): what
+/// the drive's key is kept and bound under, in every app of this computer. Not the slot's name ([`SlotId`]); made by
+/// [`DriveEntry::azlin_drive`] and by nothing else (the entry owns what it names).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DriveId<'a> {
+    id: &'a str,
+}
+
+impl<'a> DriveId<'a> {
+    /// The id as the entry spells it.
+    #[must_use]
+    pub fn as_str(&self) -> &'a str {
+        self.id
+    }
+
+    /// A drive id a test names: no entry stands behind it.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn named(id: &'a str) -> DriveId<'a> {
+        DriveId { id }
+    }
+}
+
 /// One drive of the list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DriveEntry {
@@ -520,13 +597,28 @@ impl DriveEntry {
     /// ```
     #[must_use]
     pub fn azlin(&self) -> Option<&str> {
+        self.azlin_drive().map(|drive| drive.as_str())
+    }
+
+    /// An Azlin drive's id at the token server as this entry names it, as the type that is not the slot's name
+    /// ([`DriveId`]); `None` for every other drive. The one derivation: [`Self::azlin`] is this one's `&str`.
+    #[must_use]
+    pub fn azlin_drive(&self) -> Option<DriveId<'_>> {
         match &self.location {
             DriveLocation::S3 {
                 auth: DriveAuth::Azlin { drive_id, .. },
                 ..
-            } => Some(drive_id.as_str()),
+            } => Some(DriveId {
+                id: drive_id.as_str(),
+            }),
             _ => None,
         }
+    }
+
+    /// This entry's name in the drives file ([`SlotId`]).
+    #[must_use]
+    pub fn slot(&self) -> SlotId<'_> {
+        SlotId { id: &self.id }
     }
 
     /// What this device wrote down of an Azlin drive's encryption; `None` for every other

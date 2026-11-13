@@ -16,7 +16,8 @@ use azul_storage::{
     keyring::{KeyringNamespace, MemoryKeyring},
     meta::MemoryBucket,
     testing::TempDir,
-    AutoEncrypted, Drive, DriveError, HttpCall, HttpReply, Method, Precondition, Transport,
+    AutoEncrypted, Drive, DriveError, HttpCall, HttpReply, ListRequest, Method, Precondition,
+    Transport,
 };
 
 use crate::{
@@ -26,11 +27,13 @@ use crate::{
 
 const DRIVE: &str = "d_photos";
 
-/// A fake S3 bucket: a listing as S3 answers it (every object under the prefix, no delimiter), a GET and HEAD of an
-/// object, a PUT and a DELETE that change what it holds. Every request is recorded.
+/// A fake S3 bucket: the S3 protocol in front of a [`MemoryBucket`], whose versions are the entity tags and whose
+/// conditional writes are S3's `If-None-Match: *` and `If-Match` (412 when they do not hold): a listing as S3 answers it
+/// (its delimiter and its pages), a GET - ranged too - and a HEAD of an object, a PUT - conditional too -, a DELETE
+/// and the multi-object delete. Every request is recorded.
 #[derive(Default)]
 struct FakeS3 {
-    objects: Mutex<BTreeMap<String, Vec<u8>>>,
+    bucket: MemoryBucket,
     calls: Mutex<Vec<(Method, String)>>,
 }
 
@@ -44,30 +47,42 @@ impl FakeS3 {
     }
 
     fn put(&self, key: &str, bytes: &[u8]) {
-        self.objects
-            .lock()
-            .unwrap()
-            .insert(key.to_string(), bytes.to_vec());
+        self.bucket
+            .put(key, bytes)
+            .expect("a bucket in memory takes a put");
     }
 
     fn objects(&self) -> BTreeMap<String, Vec<u8>> {
-        self.objects.lock().unwrap().clone()
+        self.bucket.objects().into_iter().collect()
     }
 
-    /// What reached the bucket that is not a read.
-    fn writes(&self) -> Vec<(Method, String)> {
-        self.calls
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(method, _)| !matches!(method, Method::Get | Method::Head))
-            .cloned()
-            .collect()
+    /// The bucket itself, for a test that sets a drive up in it before the opening.
+    fn bucket(&self) -> &MemoryBucket {
+        &self.bucket
     }
 
     /// Every request that reached the bucket, reads included.
     fn calls(&self) -> Vec<(Method, String)> {
         self.calls.lock().unwrap().clone()
+    }
+
+    /// What reached the bucket that is not a read.
+    fn writes(&self) -> Vec<(Method, String)> {
+        self.calls()
+            .into_iter()
+            .filter(|(method, _)| !matches!(method, Method::Get | Method::Head))
+            .collect()
+    }
+
+    /// The entity tag of `key` as S3 sends it, quotes included.
+    fn etag(&self, key: &str) -> String {
+        let version = self
+            .bucket
+            .head(key)
+            .ok()
+            .and_then(|info| info.etag)
+            .unwrap_or_default();
+        format!("\"{version}\"")
     }
 
     fn answer(&self, call: &HttpCall) -> HttpReply {
@@ -76,69 +91,179 @@ impl FakeS3 {
             .unwrap()
             .push((call.method, call.url.clone()));
         let (path, query) = call.url.split_once('?').unwrap_or((call.url.as_str(), ""));
-        let key = path
-            .split_once("//")
-            .map_or(path, |(_, rest)| rest)
-            .split_once('/')
-            .map_or("", |(_, rest)| rest)
-            .strip_prefix("photos")
-            .unwrap_or_default()
-            .trim_start_matches('/');
-        let reply = |status: u16, body: Vec<u8>| HttpReply {
+        let key = decoded(
+            path.split_once("//")
+                .map_or(path, |(_, rest)| rest)
+                .split_once('/')
+                .map_or("", |(_, rest)| rest)
+                .strip_prefix("photos")
+                .unwrap_or_default()
+                .trim_start_matches('/'),
+        );
+        let header = |name: &str| {
+            call.headers
+                .iter()
+                .find(|(have, _)| have.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.as_str())
+        };
+        let param = |name: &str| {
+            query
+                .split('&')
+                .find_map(|part| part.strip_prefix(&format!("{name}=")))
+                .map(decoded)
+        };
+        let reply = |status: u16, headers: Vec<(&str, String)>, body: Vec<u8>| HttpReply {
             status,
-            headers: vec![
-                ("content-type".to_string(), "application/xml".to_string()),
-                ("etag".to_string(), "\"e1\"".to_string()),
-            ],
+            headers: headers
+                .into_iter()
+                .map(|(name, value)| (name.to_string(), value))
+                .collect(),
             body,
+        };
+        let error = |status: u16, code: &str| {
+            reply(
+                status,
+                vec![("content-type", String::from("application/xml"))],
+                format!("<Error><Code>{code}</Code></Error>").into_bytes(),
+            )
+        };
+        let described = |bytes: &[u8]| {
+            vec![
+                ("content-length", bytes.len().to_string()),
+                ("etag", self.etag(&key)),
+                (
+                    "last-modified",
+                    String::from("Thu, 01 Jan 2026 00:00:00 GMT"),
+                ),
+            ]
         };
         match call.method {
             Method::Get if query.contains("list-type=2") => {
-                let prefix = decoded(
-                    query
-                        .split('&')
-                        .find_map(|part| part.strip_prefix("prefix="))
-                        .unwrap_or_default(),
-                );
+                let request = ListRequest {
+                    prefix: param("prefix").unwrap_or_default(),
+                    delimiter: param("delimiter").filter(|d| !d.is_empty()),
+                    continuation: param("continuation-token"),
+                    max_keys: param("max-keys")
+                        .and_then(|n| n.parse().ok())
+                        .unwrap_or(1000),
+                    refresh: false,
+                };
+                let Ok(page) = self.bucket.list(&request) else {
+                    return error(500, "InternalError");
+                };
                 let mut body = String::from(
                     "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListBucketResult \
                      xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Name>photos</Name>",
                 );
-                let objects = self.objects.lock().unwrap();
-                let listed: Vec<_> = objects
-                    .iter()
-                    .filter(|(name, _)| name.starts_with(&prefix))
-                    .collect();
-                body.push_str(&format!("<KeyCount>{}</KeyCount>", listed.len()));
-                body.push_str("<MaxKeys>1000</MaxKeys><IsTruncated>false</IsTruncated>");
-                for (name, bytes) in listed {
+                body.push_str(&format!(
+                    "<KeyCount>{}</KeyCount><MaxKeys>{}</MaxKeys><IsTruncated>{}</IsTruncated>",
+                    page.objects.len() + page.folders.len(),
+                    request.max_keys,
+                    page.next.is_some()
+                ));
+                if let Some(next) = &page.next {
                     body.push_str(&format!(
-                        "<Contents><Key>{name}</Key><LastModified>2026-01-01T00:00:00.000Z\
-                         </LastModified><ETag>\"e1\"</ETag><Size>{}</Size></Contents>",
-                        bytes.len()
+                        "<NextContinuationToken>{}</NextContinuationToken>",
+                        escaped(next)
+                    ));
+                }
+                for object in &page.objects {
+                    body.push_str(&format!(
+                        "<Contents><Key>{}</Key><LastModified>2026-01-01T00:00:00.000Z</LastModified>\
+                         <ETag>\"{}\"</ETag><Size>{}</Size></Contents>",
+                        escaped(&object.key),
+                        object.etag.clone().unwrap_or_default(),
+                        object.size
+                    ));
+                }
+                for folder in &page.folders {
+                    body.push_str(&format!(
+                        "<CommonPrefixes><Prefix>{}</Prefix></CommonPrefixes>",
+                        escaped(folder)
                     ));
                 }
                 body.push_str("</ListBucketResult>");
-                reply(200, body.into_bytes())
+                reply(
+                    200,
+                    vec![("content-type", String::from("application/xml"))],
+                    body.into_bytes(),
+                )
             }
-            Method::Get | Method::Head => match self.objects.lock().unwrap().get(key) {
-                Some(bytes) => reply(200, bytes.clone()),
-                None => reply(404, b"<Error><Code>NoSuchKey</Code></Error>".to_vec()),
-            },
+            Method::Get | Method::Head => {
+                let Ok(bytes) = self.bucket.get(&key) else {
+                    // A HEAD's answer has no body.
+                    return if call.method == Method::Head {
+                        reply(404, Vec::new(), Vec::new())
+                    } else {
+                        error(404, "NoSuchKey")
+                    };
+                };
+                let head = call.method == Method::Head;
+                // `bytes=start-end` or `bytes=start-`.
+                let range = header("range")
+                    .and_then(|text| text.strip_prefix("bytes="))
+                    .and_then(|text| text.split_once('-'))
+                    .and_then(|(start, end)| {
+                        Some((start.parse::<usize>().ok()?, end.parse::<usize>().ok()))
+                    });
+                match range {
+                    Some((start, _)) if start >= bytes.len() => error(416, "InvalidRange"),
+                    Some((start, end)) if !head => {
+                        let end = end.map_or(bytes.len() - 1, |end| end.min(bytes.len() - 1));
+                        let mut headers = described(&bytes[start..=end]);
+                        headers.push((
+                            "content-range",
+                            format!("bytes {start}-{end}/{}", bytes.len()),
+                        ));
+                        reply(206, headers, bytes[start..=end].to_vec())
+                    }
+                    _ if head => reply(200, described(&bytes), Vec::new()),
+                    _ => reply(200, described(&bytes), bytes),
+                }
+            }
+            Method::Put if header("x-amz-copy-source").is_some() => error(501, "NotImplemented"),
             Method::Put => {
-                self.put(key, &call.body);
-                reply(200, Vec::new())
+                let condition = match (header("if-none-match"), header("if-match")) {
+                    (Some("*"), _) => Some(Precondition::Absent),
+                    (_, Some(tag)) => {
+                        Some(Precondition::Matches(tag.trim_matches('"').to_string()))
+                    }
+                    _ => None,
+                };
+                let written = match &condition {
+                    Some(condition) => self.bucket.put_if(&key, &call.body, condition).map(|_| ()),
+                    None => self.bucket.put(&key, &call.body),
+                };
+                match written {
+                    Ok(()) => reply(200, vec![("etag", self.etag(&key))], Vec::new()),
+                    Err(DriveError::Conflict { .. }) => error(412, "PreconditionFailed"),
+                    Err(_) => error(500, "InternalError"),
+                }
             }
             Method::Delete => {
-                self.objects.lock().unwrap().remove(key);
-                reply(204, Vec::new())
+                let _ = self.bucket.delete(&key);
+                reply(204, Vec::new(), Vec::new())
             }
-            _ => reply(501, b"<Error><Code>NotImplemented</Code></Error>".to_vec()),
+            // The multi-object delete: the keys of the body.
+            Method::Post if query.contains("delete") => {
+                let body = String::from_utf8_lossy(&call.body).into_owned();
+                for part in body.split("<Key>").skip(1) {
+                    if let Some((name, _)) = part.split_once("</Key>") {
+                        let _ = self.bucket.delete(&unescaped(name));
+                    }
+                }
+                reply(
+                    200,
+                    vec![("content-type", String::from("application/xml"))],
+                    b"<DeleteResult></DeleteResult>".to_vec(),
+                )
+            }
+            _ => error(501, "NotImplemented"),
         }
     }
 }
 
-/// `%XX` escapes of a query value read back.
+/// `%XX` escapes of a query value or a path read back.
 fn decoded(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::new();
@@ -155,6 +280,20 @@ fn decoded(text: &str) -> String {
         at += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// `text` as XML character data.
+fn escaped(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// XML character data read back.
+fn unescaped(text: &str) -> String {
+    text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
 }
 
 struct Handle(Arc<FakeS3>);
@@ -435,7 +574,7 @@ fn plain_azlin_slot(drive: Option<Arc<dyn Drive>>, auto: Option<Arc<AutoEncrypte
 #[test]
 fn x_delta_struct3_13_a_notice_goes_through_the_slots_gate_and_never_to_a_plain_drive() {
     use azul_storage::{
-        config::EncryptionRecord,
+        config::{DriveId, EncryptionRecord, SlotId},
         crypto::{device, keys::RecoveryKdf},
     };
 
@@ -454,10 +593,10 @@ fn x_delta_struct3_13_a_notice_goes_through_the_slots_gate_and_never_to_a_plain_
     let auto = crate::encryption::wrap_with(
         keyring,
         Some(Arc::new(crate::encryption::meta_provider(None))),
-        DRIVE,
+        DriveId::named(DRIVE),
         gate_bucket.clone(),
         EncryptionRecord::default(),
-        "slot-1",
+        SlotId::named("slot-1"),
         &KeyRecords::default(),
     );
     // ... and a plain drive of its own as the slot's `drive`: the two differ.
@@ -579,4 +718,186 @@ fn x_delta_struct4_2_a_slot_whose_session_is_another_drives_than_its_entrys_is_r
         machine.open(&mut slot, &fake).is_ok(),
         "the entry's own session opens"
     );
+}
+
+// ==== The opening with a key, a wrong id and a record (X-DELTA-STRUCT4-3) ====
+//
+// The four tests above are refusals over an EMPTY keyring: a gate built under the wrong id, without its index provider
+// or without the entry's record refuses them just the same, so swapping the two ids, dropping the provider and passing
+// a default record all left them green. These open a drive that EXISTS - set up under its id, its key in this
+// computer's keyring - and see what only the right wiring does: it opens, a file lands in the bucket as an AZL1 object
+// and never in the clear, and the key id is told under the slot's name.
+
+/// The file the tests of an open drive put: text that no sealed object may hold.
+const PLAINTEXT: &[u8] = b"the plain text of a.txt: photos of the cat, summer 2026";
+
+/// Whether `needle` is somewhere in `hay`.
+fn contains(hay: &[u8], needle: &[u8]) -> bool {
+    hay.windows(needle.len()).any(|window| window == needle)
+}
+
+/// The slot `id` of the drive `drive_id` with the record the drives file holds of its encryption.
+fn recorded_entry(id: &str, drive_id: &str, encrypted: bool, key_id: Option<&str>) -> DriveEntry {
+    let mut entry = azlin_entry(id, drive_id);
+    if let DriveLocation::S3 {
+        auth:
+            DriveAuth::Azlin {
+                encrypted: recorded,
+                key_id: recorded_key,
+                ..
+            },
+        ..
+    } = &mut entry.location
+    {
+        *recorded = encrypted;
+        *recorded_key = key_id.map(str::to_string);
+    }
+    entry
+}
+
+/// A slot of `entry`, with the session of the drive `DRIVE`, opened over `fake` on `machine`.
+fn open_entry(
+    machine: &Machine,
+    fake: &Arc<FakeS3>,
+    entry: DriveEntry,
+) -> (Slot, Result<Arc<dyn Drive>, DriveError>) {
+    let mut slot = Slot::new(entry);
+    slot.secret = Some(azcloud_kit::Zeroizing::new(session_text()));
+    let opened = machine.open(&mut slot, fake);
+    (slot, opened)
+}
+
+/// X-DELTA-STRUCT4-3. A drive SET UP under its id - its key files in the bucket, its key in this computer's keyring -
+/// opens through `open_azlin_in`: a put is taken, it lands in the bucket as AZL1 objects and no object (a key, a name)
+/// holds the text in the clear, the file reads back, and the key id the drive opened with is told under the SLOT's name
+/// ("slot-1": what the UI thread writes it under), not under the drive's id. Fails when the gate is built under
+/// another id than the account's (no key is found under the slot's name: the drive is locked), without its index
+/// provider (a put is refused as unsupported) or with the key id told under the wrong name.
+#[test]
+fn x_delta_struct4_3_a_drive_set_up_under_its_id_opens_with_its_key_and_a_put_lands_as_azl1_never_in_the_clear(
+) {
+    use azul_storage::crypto::{device, keys::RecoveryKdf};
+
+    let fake = FakeS3::with(&[]);
+    let machine = Machine::new();
+    let (key, _code) = device::setup_new_drive(
+        fake.bucket(),
+        machine.keys.as_ref(),
+        DRIVE,
+        RecoveryKdf::with_cost(64, 1, 1).unwrap(),
+    )
+    .expect("the drive is set up under its id");
+    let (slot, opened) = open_entry(&machine, &fake, azlin_entry("slot-1", DRIVE));
+    let drive = opened.expect("the slot opens");
+    assert!(slot.auto.is_some(), "the slot keeps the gate");
+    let before = fake.objects();
+    drive
+        .put("a.txt", PLAINTEXT)
+        .expect("an encrypted drive that holds its key takes a file");
+    assert_eq!(drive.get("a.txt").expect("the file reads back"), PLAINTEXT);
+    let after = fake.objects();
+    let new: Vec<(&String, &Vec<u8>)> = after
+        .iter()
+        .filter(|(name, _)| !before.contains_key(*name))
+        .collect();
+    assert!(
+        new.iter().any(|(_, bytes)| bytes.starts_with(b"AZL1")),
+        "the put lands as an AZL1 object: {:?}",
+        new.iter().map(|(name, _)| name).collect::<Vec<_>>()
+    );
+    for (name, bytes) in &after {
+        assert!(
+            !contains(bytes, PLAINTEXT),
+            "{name} holds the file's text in the clear"
+        );
+        assert!(!name.contains("a.txt"), "{name} names the file");
+    }
+    // The key it opened with is told for the UI thread under the SLOT's name.
+    let told: Vec<(String, String)> = machine
+        .records
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|record| (record.drive_id.clone(), record.key_id.clone()))
+        .collect();
+    let expected = (String::from("slot-1"), key.id().to_hex());
+    assert!(
+        !told.is_empty() && told.iter().all(|record| *record == expected),
+        "the key id is told under the slot's name: {told:?}"
+    );
+}
+
+/// X-DELTA-STRUCT4-3. The SAME bucket - set up under `DRIVE` - with this computer's key under ANOTHER drive's id is a drive
+/// whose key is missing: locked, a put is refused and the bucket is as it was. (A gate that found a key whatever it
+/// was kept under would open it.)
+#[test]
+fn x_delta_struct4_3_the_same_bucket_with_the_key_under_another_id_is_locked() {
+    use azul_storage::{
+        crypto::{device, keys::RecoveryKdf, DriveKey},
+        keyring::MemoryKeyring,
+    };
+
+    let fake = FakeS3::with(&[]);
+    let machine = Machine::new();
+    // Set up under its id, with the keys in a keyring of its own ...
+    device::setup_new_drive(
+        fake.bucket(),
+        &MemoryKeyring::new(),
+        DRIVE,
+        RecoveryKdf::with_cost(64, 1, 1).unwrap(),
+    )
+    .expect("the drive is set up under its id");
+    // ... and this computer holds a key under another drive's id only.
+    device::store_drive_key(
+        machine.keys.as_ref(),
+        "d_other",
+        &DriveKey::generate().unwrap(),
+    )
+    .unwrap();
+    let before = fake.objects();
+    let (_slot, opened) = open_entry(&machine, &fake, azlin_entry("slot-1", DRIVE));
+    let drive = opened.expect("the slot opens: the drive is decided at its first call");
+    match drive.put("a.txt", PLAINTEXT) {
+        Err(DriveError::Locked { .. }) => {}
+        other => panic!("a drive whose key is not this computer's took a file: {other:?}"),
+    }
+    assert_eq!(fake.objects(), before, "the bucket is as it was");
+    assert!(
+        machine.records.lock().unwrap().is_empty(),
+        "no key id was told"
+    );
+}
+
+/// X-DELTA-STRUCT4-3. A drive the drives file records as ENCRYPTED, whose key is gone from the keyring and whose bucket
+/// hides its key files (it lists nothing), is locked - never read as a new drive. The record is the ENTRY's, read inside
+/// the opener; one dropped on the way (`EncryptionRecord::default()`) read the same drive as new, and its first file went
+/// in as a plain one's would. The control: the entry that records nothing is the new drive it looks like, refused with the
+/// words of a new drive.
+#[test]
+fn x_delta_struct4_3_a_drive_recorded_as_encrypted_whose_key_is_gone_is_locked_not_new() {
+    let fake = FakeS3::with(&[]);
+    let machine = Machine::new();
+    let recorded = recorded_entry(
+        "slot-1",
+        DRIVE,
+        true,
+        Some("00112233445566778899aabbccddeeff"),
+    );
+    let (_slot, opened) = open_entry(&machine, &fake, recorded);
+    let drive = opened.expect("the slot opens");
+    match drive.put("a.txt", PLAINTEXT) {
+        Err(DriveError::Locked { .. }) => {}
+        other => panic!("a drive recorded as encrypted, with no key, took a file: {other:?}"),
+    }
+    assert_eq!(fake.writes(), Vec::new(), "nothing was written");
+    // The control: nothing recorded, nothing in the bucket: a new drive, refused as one.
+    let (_slot, opened) = open_entry(&machine, &fake, azlin_entry("slot-2", DRIVE));
+    let drive = opened.expect("the slot opens");
+    match drive.put("a.txt", PLAINTEXT) {
+        Err(DriveError::Denied { message }) => {
+            assert!(message.contains("not encrypted"), "{message}");
+        }
+        other => panic!("a new drive took a plaintext file: {other:?}"),
+    }
+    assert_eq!(fake.writes(), Vec::new(), "nothing was written");
 }

@@ -68,8 +68,9 @@ use azul_appkit::{
     client_health::{client_health, Device},
     l10n::{t, t_args, t_label, t_text, Arg, Phrase, Text},
 };
+use azul_storage::config::SlotId;
 #[cfg(test)]
-use azul_storage::config::EncryptionRecord;
+use azul_storage::config::{DriveId, EncryptionRecord};
 use azul_storage::{
     azul_keyring::azlin_keyring,
     azul_transport::AzulTransport,
@@ -226,7 +227,7 @@ impl Layers {
 /// the type of its result said "an `AutoEncrypted`", not "this account's bytes under this account's id").
 pub(crate) fn gate_parts(
     layers: Layers,
-    slot: &str,
+    slot: SlotId<'_>,
     records: &crate::KeyRecords,
 ) -> azcloud_kit::GateParts {
     let index_root = layers.index_root.clone();
@@ -240,9 +241,9 @@ pub(crate) fn gate_parts(
 
 /// What a drive does when it opens encrypted: tells the UI thread the id of the key it opened with, to write into the
 /// drives file under the slot's name (`slot`), so the drive opens as an encrypted one for good.
-fn key_recorder(slot: &str, records: &crate::KeyRecords) -> TellKeyId {
+fn key_recorder(slot: SlotId<'_>, records: &crate::KeyRecords) -> TellKeyId {
     let queue = records.clone();
-    let slot = slot.to_string();
+    let slot = slot.as_str().to_string();
     Arc::new(move |key: &KeyId| {
         if let Ok(mut queue) = queue.lock() {
             queue.push(crate::KeyRecord {
@@ -254,20 +255,22 @@ fn key_recorder(slot: &str, records: &crate::KeyRecords) -> TellKeyId {
 }
 
 /// An Azlin drive's bucket as the gate the tests use over a bucket they hold - a `MemoryBucket`, no account - under
-/// `drive_id`, over `keyring` and `provider` (production's is made by `azcloud_kit::open_azlin` from
-/// [`gate_parts`]): what the glue of the encryption flows is tested with.
+/// `drive`, over `keyring` and `provider` (production's is made by `azcloud_kit::open_azlin` from [`gate_parts`]):
+/// what the glue of the encryption flows is tested with. The drive's id and the slot's name are two types, so the
+/// swap that looked the key up under the slot's name (`AutoEncrypted::new(bucket, slot, ..)`) does not compile
+/// (X-DELTA-STRUCT4-3: both were `&str`, side by side).
 #[cfg(test)]
 pub(crate) fn wrap_with(
     keyring: Arc<dyn KeyringStore>,
     provider: Option<Arc<dyn IndexProvider>>,
-    drive_id: &str,
+    drive: DriveId<'_>,
     bucket: Arc<dyn Drive>,
     record: EncryptionRecord,
-    slot: &str,
+    slot: SlotId<'_>,
     records: &crate::KeyRecords,
 ) -> Arc<AutoEncrypted> {
     Arc::new(
-        AutoEncrypted::new(bucket, drive_id, keyring, provider)
+        AutoEncrypted::new(bucket, drive.as_str(), keyring, provider)
             .with_record(recorded(&record))
             .on_encrypted(key_recorder(slot, records)),
     )
@@ -5365,10 +5368,10 @@ mod tests {
         let auto = wrap_with(
             Arc::new(MemoryKeyring::new()),
             Some(provider),
-            "d_job",
+            DriveId::named("d_job"),
             bucket.clone(),
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         let job = auto
@@ -5384,10 +5387,10 @@ mod tests {
         let none = wrap_with(
             Arc::new(MemoryKeyring::new()),
             None,
-            "d_none",
+            DriveId::named("d_none"),
             Arc::new(MemoryBucket::new()),
             EncryptionRecord::default(),
-            "slot-2",
+            SlotId::named("slot-2"),
             &crate::KeyRecords::default(),
         );
         assert!(
@@ -5806,10 +5809,10 @@ mod tests {
             wrap_with(
                 Arc::clone(keyring),
                 provider.clone(),
-                "d_az",
+                DriveId::named("d_az"),
                 bucket,
                 EncryptionRecord::default(),
-                "slot-1",
+                SlotId::named("slot-1"),
                 &crate::KeyRecords::default(),
             )
         };
@@ -5875,10 +5878,10 @@ mod tests {
         let auto = wrap_with(
             Arc::clone(&keyring),
             provider.clone(),
-            "d_az",
+            DriveId::named("d_az"),
             bucket.clone(),
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &records,
         );
         assert!(
@@ -5908,13 +5911,13 @@ mod tests {
         let locked = wrap_with(
             Arc::new(MemoryKeyring::new()),
             provider.clone(),
-            "d_az",
+            DriveId::named("d_az"),
             bucket.clone(),
             EncryptionRecord {
                 encrypted: true,
                 key_id: Some(key.id().to_hex()),
             },
-            "slot-1",
+            SlotId::named("slot-1"),
             &locked_records,
         );
         assert!(matches!(
@@ -5928,10 +5931,10 @@ mod tests {
         let plain = wrap_with(
             Arc::new(MemoryKeyring::new()),
             provider,
-            "d_new",
+            DriveId::named("d_new"),
             Arc::new(MemoryBucket::new()),
             EncryptionRecord::default(),
-            "slot-2",
+            SlotId::named("slot-2"),
             &plain_records,
         );
         assert!(matches!(plain.decide(), Ok(EncState::Unencrypted(_))));
@@ -7090,10 +7093,10 @@ mod tests {
         let auto = wrap_with(
             keyring,
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             bucket,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         (auto, code)
@@ -7343,10 +7346,10 @@ mod tests {
         let auto = wrap_with(
             Arc::clone(&keyring),
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             bucket,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         let dir = TempDir::new("setup-after-the-wrap");
@@ -7470,10 +7473,10 @@ mod tests {
         let auto = wrap_with(
             b,
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             bucket.clone(),
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         (new_code, auto, new_key, bucket, record)
@@ -7655,13 +7658,13 @@ mod tests {
         let auto = wrap_with(
             Arc::clone(&b),
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             bucket,
             EncryptionRecord {
                 encrypted: true,
                 key_id: Some(old_key.id().to_hex()),
             },
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         let mut states = vec![record];
@@ -7726,13 +7729,13 @@ mod tests {
             wrap_with(
                 Arc::clone(&b),
                 Some(Arc::new(MemoryProvider)),
-                drive,
+                DriveId::named(drive),
                 bucket.clone(),
                 EncryptionRecord {
                     encrypted: true,
                     key_id: Some(recorded.id().to_hex()),
                 },
-                "slot-1",
+                SlotId::named("slot-1"),
                 &crate::KeyRecords::default(),
             )
         };
@@ -8001,10 +8004,10 @@ mod tests {
         let auto = wrap_with(
             keyring.clone(),
             Some(Arc::new(RekeyingProvider)),
-            drive,
+            DriveId::named(drive),
             dies,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
 
@@ -8342,10 +8345,10 @@ mod tests {
         let auto = wrap_with(
             keyring.clone(),
             Some(Arc::new(RekeyingProvider)),
-            drive,
+            DriveId::named(drive),
             dies,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         // What `guard_unfinished_setup` does, then what the worker thread does.
@@ -8438,10 +8441,10 @@ mod tests {
         wrap_with(
             keyring,
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             bucket,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         )
     }
@@ -8675,10 +8678,10 @@ mod tests {
             let auto = wrap_with(
                 Arc::clone(&keyring),
                 Some(Arc::new(MemoryProvider)),
-                drive,
+                DriveId::named(drive),
                 Arc::clone(&faults) as Arc<dyn Drive>,
                 EncryptionRecord::default(),
-                "slot-1",
+                SlotId::named("slot-1"),
                 &crate::KeyRecords::default(),
             );
             let (before, ran) = noting_before(&bucket);
@@ -8724,10 +8727,10 @@ mod tests {
         let auto = wrap_with(
             Arc::clone(&keyring),
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             Arc::clone(&faults) as Arc<dyn Drive>,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         let (before, ran) = noting_before(&bucket);
@@ -8777,10 +8780,10 @@ mod tests {
         let auto = wrap_with(
             Arc::clone(&keyring),
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             dies,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         let dying = Arc::clone(&dead);
@@ -9020,10 +9023,10 @@ mod tests {
         let auto = wrap_with(
             Arc::clone(&keyring),
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             refusing,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         let made = std::cell::Cell::new(0usize);
@@ -9086,10 +9089,10 @@ mod tests {
         let auto = wrap_with(
             Arc::clone(&keyring),
             Some(Arc::new(MemoryProvider)),
-            drive,
+            DriveId::named(drive),
             dies,
             EncryptionRecord::default(),
-            "slot-1",
+            SlotId::named("slot-1"),
             &crate::KeyRecords::default(),
         );
         let families = std::cell::Cell::new(0usize);

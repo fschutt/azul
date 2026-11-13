@@ -769,7 +769,7 @@ impl Slot {
                 nodes_file: Some(&world.nodes_file),
                 iroh: world.iroh,
             },
-            encryption::gate_parts(world.layers, &entry.id, records),
+            encryption::gate_parts(world.layers, entry.slot(), records),
         )?;
         self.azlin = Some(opened.account);
         self.objects = opened.objects;
@@ -2564,6 +2564,26 @@ pub(crate) fn set_window_title(info: &mut CallbackInfo, s: &DriveState) {
     }
 }
 
+/// How many files of the folders an older AzDrive handed copies out of stay on this computer: the shared
+/// temp folder's `AzDrive-open` (`temp`, dealt with at the start) and the `open` folder of each sync pairing's
+/// state, which the kit's open no longer removes whole (X-DELTA-SYNC4-25).
+fn legacy_copies_kept(s: &DriveState, temp: &scratch::LegacyCopies) -> usize {
+    let mut files = match temp {
+        scratch::LegacyCopies::Kept { files } => *files,
+        _ => 0,
+    };
+    if let Some(root) = sync_jobs::state_root(s) {
+        for setup in &s.settings.synced {
+            if let scratch::LegacyCopies::Kept { files: more } =
+                scratch::remove_legacy_copies_at(&setup.state_dir(&root).join("open"))
+            {
+                files += more;
+            }
+        }
+    }
+    files
+}
+
 /// [`set_window_title`]'s text: `Home/Documents - AzDrive`.
 pub(crate) fn window_title(s: &DriveState) -> String {
     // Another app's file picker keeps the request's title, as a system's dialog does.
@@ -4317,8 +4337,10 @@ pub fn start() {
     scratch::set_root(cache_dir.as_deref());
     scratch::sweep_all(jobs::OPEN_COPY_KEPT);
     // The decrypted copies an earlier AzDrive left in the shared temp folder, readable by every
-    // user of the computer, go once (AZ-W4).
-    scratch::remove_legacy_open_copies();
+    // user of the computer: a folder with no file in it goes (AZ-W4); one that holds files may hold what
+    // the user changed in them and never synced - it is made private and kept, and the start says so
+    // below (X-DELTA-SYNC4-25).
+    let legacy_copies = scratch::remove_legacy_open_copies();
     // The period vault holds the issue keys of paid checkouts (bearers for months) and the
     // period tokens: sealed under a random key the keyring holds (AZ-K13), plain only in a build
     // without the encryption (tests of the plain paths, never shipped).
@@ -4477,6 +4499,11 @@ pub fn start() {
         state.settings_found = Some(state.settings.clone());
     }
     refresh_disks(&mut state);
+    // What an older AzDrive handed out and that stays, said once per start in one sentence (X-DELTA-SYNC4-25).
+    let kept_copies = legacy_copies_kept(&state, &legacy_copies);
+    if kept_copies > 0 {
+        state.warn(azul_appkit::l10n::Phrase::new("azdrive-legacy-copies-kept").arg("files", kept_copies));
+    }
 
     // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
     let mut config = azul_appkit::ui::app_config(&state.kit);

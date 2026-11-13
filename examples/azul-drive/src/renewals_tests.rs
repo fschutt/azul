@@ -245,7 +245,7 @@ fn x_delta_azdrive_keys_4_a_price_notice_is_a_document_of_the_encrypted_drive_no
     use std::sync::Arc;
 
     use azul_storage::{
-        config::EncryptionRecord,
+        config::{DriveId, EncryptionRecord, SlotId},
         crypto::{device, keys::RecoveryKdf},
         keyring::MemoryKeyring,
         meta::MemoryBucket,
@@ -267,10 +267,10 @@ fn x_delta_azdrive_keys_4_a_price_notice_is_a_document_of_the_encrypted_drive_no
     let auto = crate::encryption::wrap_with(
         keyring,
         Some(Arc::new(crate::encryption::meta_provider(None))),
-        "d_az",
+        DriveId::named("d_az"),
         bucket.clone(),
         EncryptionRecord::default(),
-        "slot-1",
+        SlotId::named("slot-1"),
         &records,
     );
 
@@ -307,7 +307,10 @@ fn x_delta_azdrive_keys_4_a_drive_that_is_not_encrypted_takes_no_notice() {
     use std::sync::Arc;
 
     use azul_storage::{
-        config::EncryptionRecord, keyring::MemoryKeyring, meta::MemoryBucket, Drive,
+        config::{DriveId, EncryptionRecord, SlotId},
+        keyring::MemoryKeyring,
+        meta::MemoryBucket,
+        Drive,
     };
 
     let bucket = Arc::new(MemoryBucket::new());
@@ -315,10 +318,10 @@ fn x_delta_azdrive_keys_4_a_drive_that_is_not_encrypted_takes_no_notice() {
     let auto = crate::encryption::wrap_with(
         Arc::new(MemoryKeyring::new()),
         Some(Arc::new(crate::encryption::meta_provider(None))),
-        "d_new",
+        DriveId::named("d_new"),
         bucket.clone(),
         EncryptionRecord::default(),
-        "slot-1",
+        SlotId::named("slot-1"),
         &records,
     );
     let before = bucket.objects();
