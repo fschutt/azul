@@ -659,6 +659,7 @@ impl CompositorState {
                     bounds,
                     opacity,
                     opacity_key,
+                    mix_blend_mode,
                 } => {
                     // The LIVE value wins over the baked one — an enter/exit
                     // fade republishes its opacity every tick without the list
@@ -671,7 +672,12 @@ impl CompositorState {
                     let b = *bounds.inner();
                     let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
                     let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
+                    // A group that blends (`mix-blend-mode`) stays in its
+                    // parent: the rasteriser blends it there onto the pixels
+                    // below it, which a layer of its own does not hold.
                     let promote = effective < 1.0
+                        && *mix_blend_mode
+                            == azul_css::props::style::effects::StyleMixBlendMode::Normal
                         && !rounded_clips.contains(&true)
                         && !inside_turned_frame
                         && pw > 0
@@ -8015,6 +8021,7 @@ mod autotest_generated {
                     bounds: wlr(0.0, 0.0, 100.0, 100.0),
                     opacity: 0.0,
                     opacity_key: None,
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 ref_frame(3),
                 opaque_rect(0.0, 0.0, 50.0, 50.0),
@@ -8893,6 +8900,7 @@ mod autotest_generated {
                 bounds: wlr(22.0, 0.0, 20.0, 20.0),
                 opacity: 0.5,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             rect_item(
                 22.0,
@@ -9022,6 +9030,7 @@ mod autotest_generated {
                 bounds: wlr(30.0, 0.0, 20.0, 20.0),
                 opacity: 0.5,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             rect_item(30.0, 0.0, 16.0, 16.0, blue),
             DisplayListItem::PopOpacity,
@@ -9177,6 +9186,7 @@ mod autotest_generated {
                     bounds: wlr(0.0, 0.0, 20.0, 20.0),
                     opacity: op,
                     opacity_key: None,
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 DisplayListItem::PopOpacity,
             ]);
@@ -9189,6 +9199,7 @@ mod autotest_generated {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
                 opacity: -3.0,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             rect_item(
                 0.0,
@@ -9287,6 +9298,7 @@ mod autotest_generated {
                 bounds: wlr(0.0, 0.0, 8.0, 8.0),
                 opacity: 0.5,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             rect_item(0.0, 0.0, 8.0, 8.0, red),
             DisplayListItem::PopOpacity,
@@ -9418,6 +9430,7 @@ mod autotest_generated {
                     bounds: wlr(0.0, 0.0, 20.0, 20.0),
                     opacity: baked,
                     opacity_key: Some(key),
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 opaque_rect(0.0, 0.0, 5.0, 5.0),
                 DisplayListItem::PopOpacity,
@@ -9465,6 +9478,7 @@ mod autotest_generated {
                     bounds: wlr(0.0, 0.0, 10.0, 10.0),
                     opacity: 1.0,
                     opacity_key: Some(OpacityKey { id: 9 }),
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 DisplayListItem::PopOpacity,     // allocated nothing
                 opaque_rect(0.0, 0.0, 5.0, 5.0), // still inside the FRAME
@@ -9853,6 +9867,7 @@ mod autotest_generated {
                 bounds: wlr(0.0, 0.0, 16.0, 16.0),
                 opacity: 0.0, // fully transparent group
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             rect_item(
                 0.0,
@@ -10004,6 +10019,84 @@ mod autotest_generated {
         assert_eq!(at(&out, 16, 16)[1], 200, "the frame's content shows inside the clip");
     }
 
+    /// `mix-blend-mode: multiply` (a `PushOpacity` that blends): the group's
+    /// yellow over the cyan below it is green where they overlap, as two inks
+    /// overprinted; beside the backdrop the yellow is itself. Also inside a
+    /// scroll frame promoted to a layer of its own, whose pixbuf is seeded
+    /// with what is below it.
+    #[test]
+    fn a_multiply_group_multiplies_with_the_pixels_below_it() {
+        use azul_css::props::style::effects::StyleMixBlendMode;
+        let cyan = ColorU {
+            r: 0,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let yellow = ColorU {
+            r: 255,
+            g: 255,
+            b: 0,
+            a: 255,
+        };
+        let group = |opacity: f32| {
+            vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wlr(8.0, 0.0, 24.0, 32.0),
+                    opacity,
+                    opacity_key: None,
+                    mix_blend_mode: StyleMixBlendMode::Multiply,
+                },
+                rect_item(8.0, 0.0, 24.0, 32.0, yellow),
+                DisplayListItem::PopOpacity,
+            ]
+        };
+        let draw = |items: Vec<DisplayListItem>| {
+            let mut c = CompositorState::new(32, 32);
+            let list = dlist(items);
+            c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+            let (rr, mut gc, st) = render_deps();
+            c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+                .unwrap();
+            let mut out = AzulPixmap::new(32, 32).unwrap();
+            out.fill(255, 255, 255, 255);
+            c.composite_frame(&mut out, 1.0);
+            out
+        };
+
+        let mut items = vec![rect_item(0.0, 0.0, 16.0, 32.0, cyan)];
+        items.extend(group(1.0));
+        let out = draw(items);
+        assert_eq!(at(&out, 4, 16), [0, 255, 255, 255], "the backdrop alone");
+        assert_eq!(at(&out, 12, 16), [0, 255, 0, 255], "cyan x yellow");
+        assert_eq!(at(&out, 24, 16), [255, 255, 0, 255], "yellow x white");
+
+        // At opacity 0.5 the product is mixed half and half with the cyan.
+        let mut items = vec![rect_item(0.0, 0.0, 16.0, 32.0, cyan)];
+        items.extend(group(0.5));
+        let out = draw(items);
+        let half = at(&out, 12, 16);
+        assert!(
+            half[0] <= 1 && half[1] == 255 && (126..=129).contains(&half[2]),
+            "{half:?}"
+        );
+
+        // Inside a scroll frame, a layer of its own: still the pixels below.
+        let mut items = vec![
+            rect_item(0.0, 0.0, 16.0, 32.0, cyan),
+            push_scroll(7, 4.0, 4.0, 24.0, 24.0),
+        ];
+        items.extend(group(1.0));
+        items.push(DisplayListItem::PopScrollFrame);
+        let out = draw(items);
+        assert_eq!(
+            at(&out, 12, 16),
+            [0, 255, 0, 255],
+            "cyan x yellow in a scroll frame"
+        );
+        assert_eq!(at(&out, 24, 16), [255, 255, 0, 255]);
+    }
+
     /// A scroll frame inside an opacity group is a layer of its own, seeded
     /// with the group's pixels under it - the translucent box it scrolls in.
     /// Composited over the group, that box counted twice inside the frame's
@@ -10017,6 +10110,7 @@ mod autotest_generated {
                 bounds: wlr(0.0, 0.0, 32.0, 32.0),
                 opacity: 0.7,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             rect_item(
                 0.0,
@@ -10075,6 +10169,7 @@ mod autotest_generated {
                 bounds: wlr(0.0, 0.0, 16.0, 16.0),
                 opacity: 0.7,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             rect_item(
                 0.0,
@@ -10126,6 +10221,7 @@ mod autotest_generated {
                     bounds: wlr(0.0, 0.0, 16.0, 16.0),
                     opacity,
                     opacity_key: None,
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 DisplayListItem::PushReferenceFrame {
                     transform_key: TransformKey { id: 1 },
@@ -10725,6 +10821,7 @@ mod lane_az_1_a_group_inside_a_turned_frame {
                 bounds: wlr(100.0, 40.0, 50.0, 40.0),
                 opacity: 0.5,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             rect(100.0, 40.0, 50.0, 40.0, GREEN),
             DisplayListItem::PopOpacity,

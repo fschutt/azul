@@ -1106,11 +1106,13 @@ pub enum MaskEntry {
         width: u32,
         height: u32,
     },
-    /// Opacity layer.
+    /// Opacity layer: an isolated group put onto `snapshot` (what was
+    /// below it) at `opacity` with `blend` (`mix-blend-mode`).
     Opacity {
         snapshot: Vec<u8>,
         rect: AzRect,
         opacity: f32,
+        blend: azul_css::props::style::effects::StyleMixBlendMode,
     },
     /// The rounded corners of a `PushClip` with a border radius
     /// (`overflow: hidden` on a `border-radius` box).
@@ -3460,6 +3462,7 @@ pub fn render_single_item(
             bounds,
             opacity,
             opacity_key,
+            mix_blend_mode,
         } => {
             // Live value first — the damaged/incremental path must fade at the
             // same opacity the composited path shows.
@@ -3481,7 +3484,9 @@ pub fn render_single_item(
             // The group is isolated, as the compositor's layer for it is:
             // its region is set aside and cleared, the group paints into the
             // cleared pixels, and the pop composites them over what was set
-            // aside with the layer blend (`blend_over`).
+            // aside with the layer blend (`blend_over`), or with the node's
+            // `mix-blend-mode` (`blend_pixel`): a multiply needs the pixels
+            // below, so a blending group is never a layer of its own.
             let snap = snapshot_region(
                 pixmap,
                 rect.x as i32,
@@ -3501,6 +3506,7 @@ pub fn render_single_item(
                 snapshot: snap,
                 rect,
                 opacity: *opacity,
+                blend: *mix_blend_mode,
             });
         }
         DisplayListItem::PopOpacity => {
@@ -3515,6 +3521,7 @@ pub fn render_single_item(
                 snapshot,
                 rect,
                 opacity,
+                blend,
             }) = entry
             {
                 let x = rect.x as i32;
@@ -3544,7 +3551,7 @@ pub fn render_single_item(
                             continue;
                         }
                         let src = [painted[si], painted[si + 1], painted[si + 2], painted[si + 3]];
-                        blend_over(&mut pixmap.data[pi..pi + 4], src, op);
+                        blend_pixel(&mut pixmap.data[pi..pi + 4], src, op, blend);
                     }
                 }
             }
@@ -9348,6 +9355,7 @@ mod autotest_generated {
                 snapshot: vec![255; 64],
                 rect: AzRect::from_xywh(0.0, 0.0, 4.0, 4.0).unwrap(),
                 opacity: 0.5,
+                blend: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
         );
         assert_eq!(
@@ -10372,6 +10380,7 @@ mod autotest_generated {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
                     opacity: op,
                     opacity_key: None,
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 DisplayListItem::Rect {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -10431,6 +10440,7 @@ mod autotest_generated {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
                     opacity: 0.7,
                     opacity_key: None,
+                    mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
                 },
                 DisplayListItem::Rect {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -10469,6 +10479,7 @@ mod autotest_generated {
                 bounds: wrect(0.0, 0.0, f32::NAN, 0.0),
                 opacity: 0.5,
                 opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
             },
             &mut p,
             &mut st,

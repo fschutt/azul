@@ -2195,6 +2195,7 @@ pub fn translate_displaylist_to_wr(
                 bounds,
                 opacity,
                 opacity_key,
+                mix_blend_mode,
             } => {
                 log_debug!(
                     LogCategory::DisplayList,
@@ -2217,14 +2218,26 @@ pub fn translate_displaylist_to_wr(
                     ),
                     None => WrFilterOp::Opacity(PropertyBinding::Value(*opacity), *opacity),
                 };
+                // A group at full opacity that only blends needs no
+                // opacity filter: the stacking context's blend is the effect.
+                let filters: &[WrFilterOp] = if *opacity >= 1.0 && opacity_key.is_none() {
+                    &[]
+                } else {
+                    core::slice::from_ref(&opacity_filter)
+                };
                 // Use zero origin: children use absolute coordinates.
-                builder.push_simple_stacking_context_with_filters(
+                builder.push_stacking_context(
                     LayoutPoint::zero(),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
-                    &[opacity_filter],
+                    None,
+                    TransformStyle::Flat,
+                    translate_mix_blend_mode(*mix_blend_mode),
+                    filters,
                     &[],
                     &[],
+                    webrender::api::RasterSpace::Screen,
+                    webrender::api::StackingContextFlags::empty(),
                 );
             }
             DisplayListItem::PopOpacity => {
@@ -2601,6 +2614,32 @@ fn gradient_item_properties(
         ),
         spatial_id,
         flags: Default::default(),
+    }
+}
+
+/// CSS `mix-blend-mode` as `WebRender`'s stacking-context blend.
+fn translate_mix_blend_mode(
+    mode: azul_css::props::style::effects::StyleMixBlendMode,
+) -> webrender::api::MixBlendMode {
+    use azul_css::props::style::effects::StyleMixBlendMode as M;
+    use webrender::api::MixBlendMode as W;
+    match mode {
+        M::Normal => W::Normal,
+        M::Multiply => W::Multiply,
+        M::Screen => W::Screen,
+        M::Overlay => W::Overlay,
+        M::Darken => W::Darken,
+        M::Lighten => W::Lighten,
+        M::ColorDodge => W::ColorDodge,
+        M::ColorBurn => W::ColorBurn,
+        M::HardLight => W::HardLight,
+        M::SoftLight => W::SoftLight,
+        M::Difference => W::Difference,
+        M::Exclusion => W::Exclusion,
+        M::Hue => W::Hue,
+        M::Saturation => W::Saturation,
+        M::Color => W::Color,
+        M::Luminosity => W::Luminosity,
     }
 }
 
