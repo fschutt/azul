@@ -53,7 +53,7 @@ use std::{
 use azul_storage::{
     ops,
     restore::{judge, Clock, RestoreNotice, Seen, Standing},
-    time::{amz_date, parse_iso8601},
+    time::parse_iso8601,
     ByteRange, Drive, DriveError, ObjectInfo,
 };
 use serde::{Deserialize, Serialize};
@@ -63,7 +63,7 @@ use crate::{
     folders::{LocalMailbox, Role},
     listing::{self, LocalFlags},
     message,
-    store::{self, FolderState, IndexEntry, MailStore},
+    store::{self, Clocks, FolderState, IndexEntry, MailStore},
     sync::{FolderReport, Progress, SyncError, SyncReport},
 };
 
@@ -496,104 +496,27 @@ pub const HOLD_DAYS: u64 = azul_storage::meta::RETENTION.versions_days();
 /// [`HOLD_DAYS`] in seconds.
 const HOLD_SECS: u64 = azul_storage::meta::RETENTION.versions.as_secs();
 
-/// How far behind the newest Send/Receive of this account the clock of this computer may be before
-/// nothing is held ([`Clocks::hold_time`]): a correction, the winter time, a zone changed by hand.
-const CLOCK_BEHIND_SECS: u64 = 24 * 60 * 60;
-
-/// How far ahead of everything this account and the drive remember the clock of this computer may be
-/// before nothing is held: a computer that was away for a year is a computer that was away, and a clock
-/// a year ahead of the newest Send/Receive AND the newest mail of the drive is a clock that is wrong.
-const CLOCK_AHEAD_SECS: u64 = 366 * 24 * 60 * 60;
-
-/// The readings of the time that the clock of this computer is set against when a pull holds mail
-/// ([`hold`]) and when the holding area is swept ([`sweep_removed`]). The clock of a computer is wrong
-/// more often than a delete is meant: a hold dated by a clock that is BEHIND (a reset RTC, a virtual
-/// machine resumed before the time sync: 1970, 2000) was swept at the next Send/Receive with a right
-/// clock, so the held copy lasted ONE sync; one dated by a clock that is ahead was never swept
-/// (X-DELTA-APPS4-3, X-APPS3-1).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Clocks {
-    /// The newest `synced_at` of the account's folders as this Send/Receive found them: what this
-    /// computer's own clock said at the last one. `None`: the account never synced.
-    last_sync: Option<u64>,
-    /// The newest `modified` of the mail the drive listed at the start of this Send/Receive: the
-    /// drive's own word that it lived at least until then - a LOWER bound of its time, never a later
-    /// one than it is. `None`: the drive lists no mail.
-    drive: Option<u64>,
-}
-
-impl Clocks {
-    /// The readings of this Send/Receive: the folders' `synced_at` stamps in the local copy and the
-    /// listing of the drive. A state that cannot be READ is an error, never "no sync yet": a floor of
-    /// nothing would date a hold by any clock.
-    fn read(store: &MailStore, remote: &[RemoteFolder]) -> Result<Clocks, SyncError> {
-        let mut last_sync: Option<u64> = None;
-        for key in store.folders() {
-            let Some(state) = read_state(store, &key)? else {
-                continue;
-            };
-            if let Some(at) = parse_iso8601(&state.synced_at) {
-                last_sync = Some(last_sync.map_or(at, |was| was.max(at)));
-            }
-        }
-        let drive = remote
-            .iter()
-            .flat_map(|folder| folder.messages.iter())
-            .filter_map(|object| object.modified)
-            .max();
-        Ok(Clocks { last_sync, drive })
-    }
-
-    /// The moment a hold made now (`now`: seconds since 1970 by the clock of this computer) is dated,
-    /// or why none is made. The stamp is the later of the clock and the newest Send/Receive - a clock
-    /// a few hours behind never dates a hold before the last sync. Nothing is held on a clock that is
-    /// not set, one that is more than [`CLOCK_BEHIND_SECS`] behind the last Send/Receive, or one that is
-    /// more than [`CLOCK_AHEAD_SECS`] ahead of both the last Send/Receive and the newest mail the drive
-    /// lists: the mail stays in its folder and the pull says why.
-    fn hold_time(&self, now: i64) -> Result<u64, SyncError> {
-        let Some(now) = u64::try_from(now).ok().filter(|secs| *secs > 0) else {
-            return Err(SyncError::Storage(String::from(
-                "the clock of this computer is not set: nothing is removed from the folder",
-            )));
+/// The readings of this Send/Receive that the clock of this computer is set against when a pull holds mail
+/// ([`hold`]) and when the holding area is swept ([`sweep_removed`]): the folders' `synced_at` stamps in the
+/// local copy and the newest `modified` of the drive's listing - the ONE rule is [`store::Clocks`], the same
+/// that dates the hold of Delete in the Outbox (X-DELTA-APPS5-2). A state that cannot be READ is an error,
+/// never "no sync yet": a floor of nothing would date a hold by any clock.
+fn read_clocks(store: &MailStore, remote: &[RemoteFolder]) -> Result<Clocks, SyncError> {
+    let mut last_sync: Option<u64> = None;
+    for key in store.folders() {
+        let Some(state) = read_state(store, &key)? else {
+            continue;
         };
-        let said = |secs: u64| message::rfc3339_utc(i64::try_from(secs).unwrap_or(i64::MAX));
-        if let Some(last) = self.last_sync {
-            if now.saturating_add(CLOCK_BEHIND_SECS) < last {
-                return Err(SyncError::Storage(format!(
-                    "the clock of this computer says {}, more than a day before the last Send/Receive ({}): \
-                     nothing is removed from the folder until the clock is right",
-                    said(now),
-                    said(last)
-                )));
-            }
-        }
-        if let Some(known) = [self.last_sync, self.drive].into_iter().flatten().max() {
-            if now > known.saturating_add(CLOCK_AHEAD_SECS) {
-                return Err(SyncError::Storage(format!(
-                    "the clock of this computer says {}, more than a year after the last Send/Receive and the \
-                     newest mail of the drive ({}): nothing is removed from the folder until the clock is right",
-                    said(now),
-                    said(known)
-                )));
-            }
-        }
-        Ok(now.max(self.last_sync.unwrap_or(0)))
-    }
-
-    /// The `synced_at` a folder records at the end of a Send/Receive made at `now`: the clock of this
-    /// computer when it can date a hold ([`Clocks::hold_time`]: set, and not far off the last
-    /// Send/Receive and the drive), never earlier than the last Send/Receive; otherwise the last
-    /// Send/Receive's own, as it was. A clock that is wrong is never recorded: it would be the floor
-    /// that every later right clock is refused against, or the one that dates a hold years ahead.
-    fn recorded(&self, now: i64) -> i64 {
-        match self.hold_time(now) {
-            Ok(at) => i64::try_from(at).unwrap_or(now),
-            Err(_) => self
-                .last_sync
-                .and_then(|at| i64::try_from(at).ok())
-                .unwrap_or(now),
+        if let Some(at) = parse_iso8601(&state.synced_at) {
+            last_sync = Some(last_sync.map_or(at, |was| was.max(at)));
         }
     }
+    let drive = remote
+        .iter()
+        .flat_map(|folder| folder.messages.iter())
+        .filter_map(|object| object.modified)
+        .max();
+    Ok(Clocks::new(last_sync, drive))
 }
 
 /// Takes `leaving`, the lines of the folder `folder` whose objects the drive no longer has, out of
@@ -624,10 +547,15 @@ fn hold(
         return Ok(());
     }
     // A holding folder is dated by the clock of this computer, set against the last Send/Receive and
-    // the drive ([`Clocks::hold_time`]): a hold on a wrong clock is refused with nothing moved, never
-    // dated 1970 (swept at the next sync with a right clock) or 2036 (kept for ever).
-    let at = clocks.hold_time(now)?;
-    let held = store::removed_prefix(folder, &amz_date(at));
+    // the drive ([`Clocks::hold_time`], the one constructor of a hold's date): a hold on a wrong clock is
+    // refused with nothing moved, never dated 1970 (swept at the next sync with a right clock) or 2036
+    // (kept for ever).
+    let at = clocks.hold_time(now).map_err(|why| {
+        SyncError::Storage(format!(
+            "{why}: nothing is removed from the folder until the clock is right"
+        ))
+    })?;
+    let held = at.prefix(folder);
     let record_key = format!("{held}/{}", store::INDEX_FILE);
     let mut record: BTreeMap<u32, IndexEntry> = match store.get(&record_key) {
         Ok(bytes) => store::index_from_jsonl(&String::from_utf8_lossy(&bytes))
@@ -974,7 +902,7 @@ pub fn sync_account(
     let mut pass = Pass::new(read_restore_epoch(store)?, options.restore.as_ref(), ask);
     let remote = list_mailbox(drive).map_err(drive_error)?;
     // What the clock of this computer is set against, read before this pass writes a stamp.
-    pass.clocks = Clocks::read(store, &remote)?;
+    pass.clocks = read_clocks(store, &remote)?;
     let paths: Vec<String> = remote.iter().map(|folder| folder.path.clone()).collect();
     let mut boxes = local_folders(&paths);
     // A folder this computer has that the drive no longer lists (emptied or deleted there): an
@@ -1033,7 +961,7 @@ pub fn sync_account(
     report.restore_unknown = pass.unknown().map(str::to_string);
     // Housekeeping, after the mail is synced: what was held [`HOLD_DAYS`] days ago goes. A sweep
     // that cannot read its list deletes nothing and never fails the sync; the report says so.
-    report.sweep_failed = sweep_removed(store, options.now, pass.clocks.drive)
+    report.sweep_failed = sweep_removed(store, options.now, pass.clocks.drive())
         .err()
         .map(|e| e.to_string());
     Ok(report)
@@ -3671,6 +3599,130 @@ mod tests {
         let late = SEP_30 + 90 * DAY;
         assert_eq!(sweep_removed(&f.store, late, Some(late as u64)).unwrap(), 1);
         assert!(held_keys(&f).is_empty());
+    }
+
+    // ==== X-DELTA-APPS5-2: Delete in the Outbox is the second writer of `removed/` ====
+
+    const ACCOUNT_ID: &str = "ada@example.org";
+
+    /// The fixture of an account whose data folder is `f`'s local folder: the folder the sync keeps its copy
+    /// in is the account's own (`root/ada@example.org/`), where Delete in the Outbox keeps what it removes.
+    fn account_fixture() -> (Fixture, store::DriveFolder) {
+        let f = fixture();
+        let root = f._local_dir.folder();
+        let store = MailStore::new(crate::account::account_dir(&root, ACCOUNT_ID));
+        (Fixture { store, ..f }, root)
+    }
+
+    /// A mail that says "Not sent" in the Outbox of the account of [`account_fixture`], with its file.
+    fn failed_in_outbox(root: &store::DriveFolder, name: &str) {
+        use crate::send::{self, OutboxEntry, OutboxState};
+        let outbox = MailStore::new(send::outbox_dir(root, ACCOUNT_ID));
+        let entry = OutboxEntry {
+            format: String::from(send::OUTBOX_FORMAT),
+            version: 1,
+            id: name.to_string(),
+            message_id: format!("{name}@example.org"),
+            from: String::from(ACCOUNT_ID),
+            subject: name.to_string(),
+            created: SEP_30,
+            attempts: 1,
+            last_attempt: 0,
+            next_attempt: 0,
+            state: OutboxState::Failed,
+            recipients: Vec::new(),
+        };
+        outbox
+            .put(
+                &format!("{name}.json"),
+                serde_json::to_string(&entry).unwrap().as_bytes(),
+            )
+            .unwrap();
+        outbox
+            .put(
+                &format!("{name}.eml"),
+                b"Subject: x\r\n\r\nbody of the letter",
+            )
+            .unwrap();
+    }
+
+    /// Delete in the Outbox ([`crate::send::remove_failed_entry`]) at the clock `now`. The Outbox's lock is the
+    /// process's and the tests of this binary run side by side: another test's Delete or send may hold it for a
+    /// moment, and the call never waits for it (a lock that is taken is `WouldBlock` and nothing was done), so it
+    /// is asked again until the lock is free.
+    fn delete_in_outbox(root: &store::DriveFolder, name: &str, now: i64) -> std::io::Result<()> {
+        let started = std::time::Instant::now();
+        loop {
+            match crate::send::remove_failed_entry(root, ACCOUNT_ID, name, now) {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        && started.elapsed() < std::time::Duration::from_secs(60) =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                other => return other,
+            }
+        }
+    }
+
+    /// The names in the Outbox of the account.
+    fn outbox_names(root: &store::DriveFolder) -> Vec<String> {
+        MailStore::new(crate::account::account_dir(root, ACCOUNT_ID)).keys(crate::send::OUTBOX_DIR)
+    }
+
+    /// RED on the code before (the review's scenario): Delete in the Outbox dated its hold by the raw clock. A
+    /// computer whose clock was a year back (a reset RTC) held the only copy of the letter's text under that
+    /// stamp, and the next Send/Receive with a right clock swept it (`min(clock, drive) >= stamp + 90 days`):
+    /// the held copy lasted ONE sync. Now Delete is set against the account's last Send/Receive as the pull is:
+    /// on that clock it removes nothing - both files stay in the Outbox, nothing is held - and the right-clock
+    /// Send/Receive deletes nothing of it; a Delete at the right clock holds both files, which the SAME sweep
+    /// keeps for 90 days from that Delete and deletes after them.
+    #[test]
+    fn x_delta_apps5_2_a_delete_on_a_clock_a_year_back_keeps_both_files_through_a_right_clock_sync()
+    {
+        let (f, root) = account_fixture();
+        deliver(&f, "Inbox", &mail(1, "One"), SEP_30);
+        run_at(&f, SEP_30);
+        failed_in_outbox(&root, "a-failed");
+        let both = outbox_names(&root);
+        assert_eq!(both.len(), 2, "{both:?}");
+        // The clock of this computer is a year back (and, in the other case, ten years ahead): refused.
+        for now in [SEP_30 - 365 * DAY, SEP_30 + 10 * 366 * DAY] {
+            let refused = delete_in_outbox(&root, "a-failed", now).unwrap_err();
+            assert!(
+                refused
+                    .to_string()
+                    .ends_with(": nothing is removed from the Outbox"),
+                "{refused}"
+            );
+            assert_eq!(outbox_names(&root), both, "both files stay: {refused}");
+            assert!(
+                held_keys(&f).is_empty(),
+                "nothing is held: {:?}",
+                held_keys(&f)
+            );
+        }
+        // The Send/Receive with a right clock, on a drive that has lived 100 days since: it sweeps what is
+        // held, and nothing of the Outbox is held.
+        deliver(&f, "Inbox", &mail(2, "Two"), SEP_30 + 100 * DAY);
+        let report = run_at(&f, SEP_30 + 100 * DAY);
+        assert_eq!(report.sweep_failed, None);
+        assert_eq!(outbox_names(&root), both, "the Outbox is not the sweep's");
+        // A Delete at a right clock holds both files, dated by that clock.
+        delete_in_outbox(&root, "a-failed", SEP_30 + 100 * DAY).unwrap();
+        assert!(outbox_names(&root).is_empty());
+        let held = held_keys(&f);
+        assert_eq!(held.len(), 2, "{held:?}");
+        let place = holding("outbox", SEP_30 + 100 * DAY);
+        assert!(held.iter().all(|key| key.starts_with(&place)), "{held:?}");
+        // The same sweep keeps them 89 days (the drive and the clock agree it is that late) ...
+        deliver(&f, "Inbox", &mail(3, "Three"), SEP_30 + 189 * DAY);
+        run_at(&f, SEP_30 + 189 * DAY);
+        assert_eq!(held_keys(&f), held, "89 days after the Delete: held");
+        // ... and deletes them on the 90th.
+        deliver(&f, "Inbox", &mail(4, "Four"), SEP_30 + 190 * DAY);
+        run_at(&f, SEP_30 + 190 * DAY);
+        assert!(held_keys(&f).is_empty(), "{:?}", held_keys(&f));
     }
 
     // ==== X-DELTA-APPS4-4 + X-DELTA-APPS4-5: what is still in the drive is not "removed", and the window says where ====

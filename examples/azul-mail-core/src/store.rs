@@ -27,6 +27,8 @@ use std::path::{Component, Path, PathBuf};
 use azul_storage::{Drive, DriveError, LocalDrive, ScopedDrive};
 use serde::{Deserialize, Serialize};
 
+use crate::message;
+
 /// The prefix of every synced folder.
 pub const MAIL_PREFIX: &str = "mail";
 /// Where a renumbered folder's old files go.
@@ -80,9 +82,167 @@ pub fn stale_prefix(folder: &str, uidvalidity: u32) -> String {
 }
 
 /// `removed/<folder>/<stamp>` (`<stamp>` is the SigV4 date of the moment the pull took the mail
-/// out: `20261008T091500Z`).
+/// out: `20261008T091500Z`). To NAME a holding folder that is there (the sweep reads its stamp back
+/// from the key); a hold that is MADE takes its date from [`HoldAt`], whose one constructor is
+/// [`Clocks::hold_time`].
 pub fn removed_prefix(folder: &str, stamp: &str) -> String {
     format!("{REMOVED_PREFIX}/{folder}/{stamp}")
+}
+
+// ==== The clock a hold of mail is dated by ====
+
+/// How far behind the newest Send/Receive of an account the clock of this computer may be before no hold is
+/// dated by it: a correction, the winter time, a zone changed by hand.
+pub const CLOCK_BEHIND_SECS: u64 = 24 * 60 * 60;
+
+/// How far ahead of everything an account and its drive remember the clock of this computer may be before no
+/// hold is dated by it: a computer that was away for a year is a computer that was away, and a clock a year
+/// ahead of the newest Send/Receive AND the newest mail of the drive is a clock that is wrong.
+pub const CLOCK_AHEAD_SECS: u64 = 366 * 24 * 60 * 60;
+
+/// The moment a holding folder of `removed/` is dated: the stamp of `removed/<folder>/<stamp>/`, which the sweep
+/// of the account counts its 90 days from. A hold dated by a clock that is BEHIND (a reset RTC, a virtual
+/// machine resumed before the time sync: 1970, 2000) was swept by the next Send/Receive with a right clock - the
+/// held copy lasted ONE sync - and one dated by a clock that is ahead was kept for years. So the ONE constructor
+/// is [`Clocks::hold_time`], which sets the clock against what the account remembers of the time; every writer
+/// of `removed/` takes its date from it: the pull of an Azlin account (`azlin_sync::hold`) and Delete in the
+/// Outbox ([`crate::send::remove_failed_entry`], which dated its hold by the raw clock until X-DELTA-APPS5-2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HoldAt(u64);
+
+impl HoldAt {
+    /// Seconds since 1970.
+    #[must_use]
+    pub fn secs(self) -> u64 {
+        self.0
+    }
+
+    /// `removed/<folder>/<stamp>` of this moment.
+    #[must_use]
+    pub fn prefix(self, folder: &str) -> String {
+        removed_prefix(folder, &azul_storage::time::amz_date(self.0))
+    }
+}
+
+/// Why no hold is dated by the clock of this computer ([`Clocks::hold_time`]). The mail stays where it is, and
+/// whoever asked says why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClockRefusal {
+    /// The clock is not set (0, or before 1970).
+    NotSet,
+    /// The clock is more than [`CLOCK_BEHIND_SECS`] before the newest Send/Receive of the account.
+    Behind { now: u64, last: u64 },
+    /// The clock is more than [`CLOCK_AHEAD_SECS`] after everything the account and its drive remember;
+    /// `drive`: the newest mail of the drive was one of the readings.
+    Ahead { now: u64, known: u64, drive: bool },
+}
+
+impl std::fmt::Display for ClockRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let said = |secs: u64| message::rfc3339_utc(i64::try_from(secs).unwrap_or(i64::MAX));
+        match self {
+            ClockRefusal::NotSet => write!(f, "the clock of this computer is not set"),
+            ClockRefusal::Behind { now, last } => write!(
+                f,
+                "the clock of this computer says {}, more than a day before the last Send/Receive ({})",
+                said(*now),
+                said(*last)
+            ),
+            ClockRefusal::Ahead { now, known, drive } => write!(
+                f,
+                "the clock of this computer says {}, more than a year after the last Send/Receive{} ({})",
+                said(*now),
+                if *drive {
+                    " and the newest mail of the drive"
+                } else {
+                    ""
+                },
+                said(*known)
+            ),
+        }
+    }
+}
+
+/// The readings of the time that the clock of this computer is set against when mail is held
+/// ([`Clocks::hold_time`]). The clock of a computer is wrong more often than a delete is meant, and a hold
+/// is the one thing a wrong clock can make last one sync (X-DELTA-APPS4-3, X-APPS3-1).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Clocks {
+    /// The newest `synced_at` of the account's folders as the newest Send/Receive found them: what this
+    /// computer's own clock said at the last one ([`MailStore::last_sync`]). `None`: the account never synced.
+    last_sync: Option<u64>,
+    /// The newest `modified` of the mail the drive listed at the start of the Send/Receive: the drive's own
+    /// word that it lived at least until then - a LOWER bound of its time, never a later one than it is.
+    /// `None`: no drive (the Outbox's Delete has none at hand), or it lists no mail.
+    drive: Option<u64>,
+}
+
+impl Clocks {
+    /// The readings: the newest `synced_at` of the account (`None`: no Send/Receive yet) and the newest mail
+    /// of the drive (`None`: none listed, or no drive).
+    #[must_use]
+    pub fn new(last_sync: Option<u64>, drive: Option<u64>) -> Clocks {
+        Clocks { last_sync, drive }
+    }
+
+    /// The newest Send/Receive of the account.
+    #[must_use]
+    pub fn last_sync(&self) -> Option<u64> {
+        self.last_sync
+    }
+
+    /// The newest mail of the drive.
+    #[must_use]
+    pub fn drive(&self) -> Option<u64> {
+        self.drive
+    }
+
+    /// The moment a hold made now (`now`: seconds since 1970 by the clock of this computer) is dated, or why
+    /// none is made. The stamp is the later of the clock and the newest Send/Receive - a clock a few hours
+    /// behind never dates a hold before the last sync. Nothing is held on a clock that is not set, one that is
+    /// more than [`CLOCK_BEHIND_SECS`] behind the last Send/Receive, or one that is more than
+    /// [`CLOCK_AHEAD_SECS`] ahead of both the last Send/Receive and the newest mail the drive lists: the mail
+    /// stays where it is and the caller says why.
+    ///
+    /// # Errors
+    ///
+    /// The clock cannot date a hold: [`ClockRefusal`].
+    pub fn hold_time(&self, now: i64) -> Result<HoldAt, ClockRefusal> {
+        let Some(now) = u64::try_from(now).ok().filter(|secs| *secs > 0) else {
+            return Err(ClockRefusal::NotSet);
+        };
+        if let Some(last) = self.last_sync {
+            if now.saturating_add(CLOCK_BEHIND_SECS) < last {
+                return Err(ClockRefusal::Behind { now, last });
+            }
+        }
+        if let Some(known) = [self.last_sync, self.drive].into_iter().flatten().max() {
+            if now > known.saturating_add(CLOCK_AHEAD_SECS) {
+                return Err(ClockRefusal::Ahead {
+                    now,
+                    known,
+                    drive: self.drive.is_some(),
+                });
+            }
+        }
+        Ok(HoldAt(now.max(self.last_sync.unwrap_or(0))))
+    }
+
+    /// The `synced_at` a folder records at the end of a Send/Receive made at `now`: the clock of this
+    /// computer when it can date a hold ([`Clocks::hold_time`]: set, and not far off the last Send/Receive
+    /// and the drive), never earlier than the last Send/Receive; otherwise the last Send/Receive's own, as it
+    /// was. A clock that is wrong is never recorded: it would be the floor that every later right clock is
+    /// refused against, or the one that dates a hold years ahead.
+    #[must_use]
+    pub fn recorded(&self, now: i64) -> i64 {
+        match self.hold_time(now) {
+            Ok(at) => i64::try_from(at.secs()).unwrap_or(now),
+            Err(_) => self
+                .last_sync
+                .and_then(|at| i64::try_from(at).ok())
+                .unwrap_or(now),
+        }
+    }
 }
 
 /// A folder of AzMail's files on a drive: the drive's root on this computer, whether that root
@@ -277,16 +437,24 @@ impl MailStore {
         Ok(keys)
     }
 
-    /// The names of the folders directly in the folder `prefix` (empty: this folder's own).
+    /// The names of the folders directly in the folder `prefix` (empty: this folder's own). A listing that
+    /// failed is an empty one here; a caller that decides on what is NOT there asks
+    /// [`MailStore::subfolders_checked`].
     pub fn subfolders(&self, prefix: &str) -> Vec<String> {
-        let Ok(drive) = self.drive() else {
-            return Vec::new();
-        };
+        // collapse-ok: for the callers that only look (the sidebar's folders, the folders a sync visits); a
+        // caller that decides on what is not there takes `subfolders_checked` (X-DELTA-APPS5-6).
+        self.subfolders_checked(prefix).unwrap_or_default()
+    }
+
+    /// [`MailStore::subfolders`] where a listing that FAILED is an error, never an empty list: a folder that
+    /// cannot be read is no folder with nothing in it.
+    pub fn subfolders_checked(&self, prefix: &str) -> std::io::Result<Vec<String>> {
+        let drive = self.drive()?;
         let folder = match prefix.trim_end_matches('/') {
             "" => String::new(),
             p => format!("{p}/"),
         };
-        let level = azul_storage::ops::list_folder_all(&drive, &folder).unwrap_or_default();
+        let level = azul_storage::ops::list_folder_all(&drive, &folder).map_err(io_error)?;
         let mut names: Vec<String> = level
             .folders
             .iter()
@@ -297,7 +465,48 @@ impl MailStore {
             .collect();
         names.sort();
         names.dedup();
-        names
+        Ok(names)
+    }
+
+    /// The newest `synced_at` of the folders' state files: what the clock of this computer said when the
+    /// newest Send/Receive of the account ended, the floor that every later clock is set against
+    /// ([`Clocks`]). `None`: no folder records one (never synced). A listing of `mail/` that FAILS, a state
+    /// file that cannot be READ or that is there and is no state of this AzMail, and a `synced_at` that is
+    /// no date are errors, never "no Send/Receive yet": a floor of nothing would date a hold by any clock
+    /// (X-DELTA-APPS5-6). Only a folder without a state file (it is no synced folder) and an empty
+    /// `synced_at` (a state of a Send/Receive that could record no clock) are no reading.
+    ///
+    /// # Errors
+    ///
+    /// The listing or a state file cannot be read, or says nothing this AzMail reads.
+    pub fn last_sync(&self) -> std::io::Result<Option<u64>> {
+        let mut newest: Option<u64> = None;
+        for name in self.subfolders_checked(MAIL_PREFIX)? {
+            let key = state_key(&name);
+            // A name AzMail never writes is no folder of its own (`folders` skips it the same way).
+            if !is_valid_key(&key) {
+                continue;
+            }
+            let bytes = match self.get(&key) {
+                Ok(bytes) => bytes,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            };
+            let unreadable = |what: &str| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{key} {what}"))
+            };
+            let state = String::from_utf8(bytes)
+                .ok()
+                .and_then(|text| FolderState::from_json(&text))
+                .ok_or_else(|| unreadable("is no state this AzMail reads"))?;
+            if state.synced_at.trim().is_empty() {
+                continue;
+            }
+            let at = azul_storage::time::parse_iso8601(&state.synced_at)
+                .ok_or_else(|| unreadable("has a `synced_at` that is no date"))?;
+            newest = Some(newest.map_or(at, |was| was.max(at)));
+        }
+        Ok(newest)
     }
 
     /// Moves every object under `from` to the same place under `to` (on an object store: copy,
@@ -722,5 +931,180 @@ mod tests {
         );
         assert_eq!(FolderState::from_json("{}"), None);
         assert_eq!(FolderState::from_json("not json"), None);
+    }
+
+    // ==== X-DELTA-APPS5-2: the one constructor of a hold's date ====
+
+    /// 2026-09-30T08:42:00Z
+    const SEP_30: u64 = 1_790_757_720;
+    const DAY: u64 = 86_400;
+
+    /// The clock of this computer set against what an account remembers of the time: the later of the clock
+    /// and the newest Send/Receive; refused when it is not set, more than a day behind the last Send/Receive,
+    /// or more than 366 days ahead of the later of the last Send/Receive and the newest mail of the drive - and
+    /// accepted, to the second, at those two edges (the table that APPS5 read from the code, as a test).
+    #[test]
+    fn x_delta_apps5_2_a_hold_is_dated_by_the_clock_set_against_what_the_account_remembers() {
+        let known = Clocks::new(Some(SEP_30), Some(SEP_30 + 60));
+        let at = |now: u64| known.hold_time(i64::try_from(now).unwrap());
+        // A right clock dates the hold; a clock a few hours behind dates it at the last Send/Receive.
+        assert_eq!(at(SEP_30 + 5 * 3600).unwrap().secs(), SEP_30 + 5 * 3600);
+        assert_eq!(at(SEP_30 - 3 * 3600).unwrap().secs(), SEP_30);
+        // The edge behind: exactly a day is accepted, one second more is refused.
+        assert_eq!(at(SEP_30 - DAY).unwrap().secs(), SEP_30);
+        assert_eq!(
+            at(SEP_30 - DAY - 1),
+            Err(ClockRefusal::Behind {
+                now: SEP_30 - DAY - 1,
+                last: SEP_30
+            })
+        );
+        // The edge ahead is measured from the later of the last Send/Receive and the drive's newest mail.
+        let top = SEP_30 + 60;
+        assert!(at(top + 366 * DAY).is_ok());
+        assert_eq!(
+            at(top + 366 * DAY + 1),
+            Err(ClockRefusal::Ahead {
+                now: top + 366 * DAY + 1,
+                known: top,
+                drive: true
+            })
+        );
+        // A clock that is not set dates nothing.
+        for now in [0, -1, i64::MIN] {
+            assert_eq!(known.hold_time(now), Err(ClockRefusal::NotSet), "{now}");
+        }
+        // No Send/Receive yet: only the drive can be set against (the ahead rule); no reading at all: any set
+        // clock; no drive (Delete in the Outbox has none): the last Send/Receive alone.
+        let first = Clocks::new(None, Some(SEP_30));
+        assert!(first
+            .hold_time(i64::try_from(SEP_30 - 10 * DAY).unwrap())
+            .is_ok());
+        assert!(matches!(
+            first.hold_time(i64::try_from(SEP_30 + 10 * 366 * DAY).unwrap()),
+            Err(ClockRefusal::Ahead { drive: true, .. })
+        ));
+        assert!(Clocks::new(None, None).hold_time(1).is_ok());
+        let outbox = Clocks::new(Some(SEP_30), None);
+        let ahead = outbox.hold_time(i64::try_from(SEP_30 + 400 * DAY).unwrap());
+        assert!(
+            matches!(ahead, Err(ClockRefusal::Ahead { drive: false, .. })),
+            "{ahead:?}"
+        );
+        // The words the window and the Outbox say: the refusal names what it was set against.
+        let said = ahead.unwrap_err().to_string();
+        assert!(
+            said.contains("more than a year after the last Send/Receive (2026-09-30T08:42:00Z)")
+                && !said.contains("newest mail of the drive"),
+            "{said}"
+        );
+        let said = at(SEP_30 - DAY - 1).unwrap_err().to_string();
+        assert!(
+            said.starts_with("the clock of this computer says 2026-09-29T08:41:59Z, more than a day before the last Send/Receive (2026-09-30T08:42:00Z)"),
+            "{said}"
+        );
+        assert_eq!(
+            Clocks::default().hold_time(0).unwrap_err().to_string(),
+            "the clock of this computer is not set"
+        );
+    }
+
+    /// The folder a hold is made in is the stamp of the moment it is dated at, in the form the sweep reads.
+    #[test]
+    fn x_delta_apps5_2_a_hold_dated_at_a_moment_is_the_folder_of_its_stamp() {
+        let at = Clocks::new(None, None)
+            .hold_time(i64::try_from(SEP_30).unwrap())
+            .unwrap();
+        assert_eq!(at.prefix("outbox"), "removed/outbox/20260930T084200Z");
+        assert_eq!(
+            at.prefix("inbox"),
+            removed_prefix("inbox", "20260930T084200Z")
+        );
+    }
+
+    /// A state file as Send/Receive writes it, with `synced_at` as given.
+    fn put_state(store: &MailStore, folder: &str, synced_at: &str) {
+        let mut state = FolderState::create("INBOX", "Inbox", 1);
+        state.synced_at = String::from(synced_at);
+        store
+            .put(&state_key(folder), state.to_json().as_bytes())
+            .unwrap();
+    }
+
+    /// X-DELTA-APPS5-2 / X-DELTA-APPS5-6: the account's record of the time is the newest `synced_at` of its
+    /// folders; only a folder with no state file and an empty `synced_at` are "no reading" - a state that is
+    /// there and says nothing this AzMail reads, and a `synced_at` that is no date, are errors that name the
+    /// file, never "no Send/Receive yet".
+    #[test]
+    fn x_delta_apps5_6_the_last_send_receive_is_the_newest_stamp_and_an_unreadable_one_is_an_error()
+    {
+        let dir = TempDir::new("store-last-sync");
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
+        assert_eq!(store.last_sync().unwrap(), None, "no mail folder yet");
+        // A folder with no state file (half made) and a state with no stamp are no reading.
+        store.put("mail/half-done/2026/09/1.eml", b"x").unwrap();
+        put_state(&store, "spam", "");
+        assert_eq!(store.last_sync().unwrap(), None);
+        put_state(&store, "inbox", "2026-09-30T08:42:00Z");
+        put_state(&store, "archive", "2026-09-29T00:00:00Z");
+        assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
+        // A state that is not a state of this AzMail: an error naming the file.
+        store
+            .put(&state_key("work"), b"{ this is not a state")
+            .unwrap();
+        let damaged = store.last_sync().unwrap_err();
+        assert_eq!(damaged.kind(), std::io::ErrorKind::InvalidData);
+        assert!(
+            damaged
+                .to_string()
+                .contains("mail/work/state.json is no state this AzMail reads"),
+            "{damaged}"
+        );
+        put_state(&store, "work", "yesterday");
+        let undated = store.last_sync().unwrap_err();
+        assert!(
+            undated
+                .to_string()
+                .contains("mail/work/state.json has a `synced_at` that is no date"),
+            "{undated}"
+        );
+        // A newer AzMail's state is no state of this one either: not read, not guessed.
+        store
+            .put(
+                &state_key("work"),
+                br#"{"format": "azmail.folder", "version": 2, "server_name": "Work", "uidvalidity": 1, "last_uid": 0, "synced_at": "2026-10-30T08:42:00Z"}"#,
+            )
+            .unwrap();
+        assert!(store.last_sync().is_err());
+        put_state(&store, "work", "2026-10-01T00:00:00Z");
+        assert_eq!(store.last_sync().unwrap(), Some(1_790_812_800));
+    }
+
+    /// X-DELTA-APPS5-6: a listing of `mail/` that FAILS is an error too - the folders it would have named are
+    /// not "none". A folder that cannot be listed but whose files can be read (mode 111) is the fault; the
+    /// lenient `subfolders` still answers an empty list for the callers that only look.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_apps5_6_a_listing_of_mail_that_fails_is_an_error_not_no_send_receive_yet() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("store-last-sync-listing");
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
+        put_state(&store, "inbox", "2026-09-30T08:42:00Z");
+        assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
+        let mail = dir.0.join(MAIL_PREFIX);
+        std::fs::set_permissions(&mail, std::fs::Permissions::from_mode(0o111)).unwrap();
+        let premise = std::fs::read_dir(&mail).is_err();
+        let failed = store.last_sync();
+        let lenient = store.subfolders(MAIL_PREFIX);
+        let checked = store.subfolders_checked(MAIL_PREFIX);
+        std::fs::set_permissions(&mail, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            premise,
+            "the premise of the test: `mail/` cannot be listed (running as root?)"
+        );
+        assert!(failed.is_err(), "{failed:?}");
+        assert!(checked.is_err(), "{checked:?}");
+        assert!(lenient.is_empty(), "the callers that only look get none");
+        assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
     }
 }

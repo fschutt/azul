@@ -140,6 +140,11 @@ Send/Receive on a device:
    lived that long does not agree to, and an unset clock or a drive that lists no mail deletes
    nothing. (The drive's `modified` of an encrypted drive is its writers' clock, this computer's
    included: an independent reading - the token server's `Date` - is the named rest.)
+   Delete in the Outbox is the other writer of `removed/`: it holds the mail's text and its entry under
+   `removed/outbox/<stamp>/` of the same folder, dated by the SAME rule (the clock of this computer set
+   against the newest Send/Receive of the account), and removes nothing when that rule cannot date the
+   hold - on a clock that is not set, a day behind or a year ahead, or when the account's record of the
+   last Send/Receive cannot be read; the sweep above deletes what it holds after the 90 days too.
 
 After a pull the local copy equals the bucket as listed (what the bucket no longer lists is held
 under `removed/`, not in the folder); with no new writes, every device's next pull ends in the

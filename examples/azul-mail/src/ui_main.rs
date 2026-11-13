@@ -658,13 +658,16 @@ struct OutboxRemoval {
 /// ([`crate::send::remove_failed_entry`]); that is the only way a failed entry whose message file is
 /// gone leaves the list (X-DELTA-APPS3-4). A mail that is still being sent stays; so does everything
 /// when Send/Receive is using the Outbox at that moment (the click does not wait for it).
-/// `entries` are the Outbox's rows, `waiting` their entries by row path.
+/// `entries` are the Outbox's rows, `waiting` their entries by row path; `now` is the clock of this computer
+/// (seconds since 1970), which the hold is dated by once the account's record of the time has vouched for it
+/// (X-DELTA-APPS5-2).
 fn remove_from_outbox(
     root: &crate::store::DriveFolder,
     mailbox_id: &str,
     entries: &[crate::store::IndexEntry],
     waiting: &std::collections::BTreeMap<String, crate::send::OutboxEntry>,
     uids: &[u32],
+    now: i64,
 ) -> OutboxRemoval {
     let mut done = OutboxRemoval::default();
     for uid in uids {
@@ -679,7 +682,7 @@ fn remove_from_outbox(
             done.waiting += 1;
             continue;
         }
-        match crate::send::remove_failed_entry(root, mailbox_id, &entry.id) {
+        match crate::send::remove_failed_entry(root, mailbox_id, &entry.id, now) {
             Ok(()) => done.removed += 1,
             // The lock Send/Receive holds across its SMTP sessions: not waited for, not a problem
             // of the mail - the rest of the selection would meet the same lock.
@@ -703,7 +706,14 @@ fn delete_from_outbox(s: &mut MailApp) {
     let Some(id) = s.current.and_then(|i| s.mailbox_id(i)) else {
         return;
     };
-    let done = remove_from_outbox(&s.root, &id, &s.entries, &s.outbox_waiting, &uids);
+    let done = remove_from_outbox(
+        &s.root,
+        &id,
+        &s.entries,
+        &s.outbox_waiting,
+        &uids,
+        crate::now_unix(),
+    );
     s.notice = match (done.problems.first(), done.removed, done.waiting) {
         _ if done.busy => t("azmail-notice-outbox-busy"),
         (Some(why), _, _) => t_args(
@@ -2680,7 +2690,7 @@ mod tests {
                 .map(|(row, entry)| (row.path.clone(), entry.clone()))
                 .collect();
             let all: Vec<u32> = index.iter().map(|row| row.uid).collect();
-            let done = remove_from_outbox(root, id, &index, &waiting, &all);
+            let done = remove_from_outbox(root, id, &index, &waiting, &all, crate::now_unix());
             total.removed += done.removed;
             total.waiting = done.waiting;
             total.problems.extend(done.problems);
@@ -2846,6 +2856,7 @@ mod tests {
                 &thread_index,
                 &thread_waiting,
                 &thread_all,
+                crate::now_unix(),
             ));
         });
         let answered = receiver.recv_timeout(std::time::Duration::from_secs(5));

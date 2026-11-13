@@ -2028,7 +2028,15 @@ fn file_sent_once(
 /// order is every step a crash cell: after the copies nothing is gone yet (the row is still there; a
 /// second Delete holds a second copy); after the entry went the row is gone and the message file is a
 /// harmless orphan beside its held copy. A message file that cannot be READ is an error, never "no
-/// file": nothing is removed then. A clock that is not set dates no hold: nothing is removed.
+/// file": nothing is removed then.
+///
+/// The hold is dated like every hold of `removed/` - by [`store::Clocks::hold_time`], the clock of this
+/// computer (`now`, seconds since 1970) set against the account's own record of the time, the newest
+/// `synced_at` of its folders - and nothing is removed when that cannot date it: a clock that is not set,
+/// one a day behind the last Send/Receive or a year ahead of it, and a record that cannot be READ. It was
+/// dated by the raw clock: a computer whose clock was behind (a reset RTC: 2000) held the only copy of the
+/// letter under a stamp that the next Send/Receive with a right clock swept, and one far ahead kept it for
+/// years (X-DELTA-APPS5-2; the pull of an Azlin account was the first writer of `removed/`).
 ///
 /// It never waits: Send/Receive holds [`OUTBOX_LOCK`] across every SMTP session of a retry (30 to 120
 /// seconds per exchanger that does not answer), and this runs in the window's click callback. A
@@ -2037,9 +2045,14 @@ fn file_sent_once(
 ///
 /// # Errors
 ///
-/// The Outbox is in use, the entry cannot be read, is not a failed one, the hold cannot be written,
-/// or a file cannot be removed.
-pub fn remove_failed_entry(root: &DriveFolder, account_id: &str, id: &str) -> std::io::Result<()> {
+/// The Outbox is in use, the entry cannot be read, is not a failed one, the clock cannot date the
+/// hold, the hold cannot be written, or a file cannot be removed.
+pub fn remove_failed_entry(
+    root: &DriveFolder,
+    account_id: &str,
+    id: &str,
+    now: i64,
+) -> std::io::Result<()> {
     let _lock = match OUTBOX_LOCK.try_lock() {
         Ok(lock) => lock,
         Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
@@ -2066,13 +2079,22 @@ pub fn remove_failed_entry(root: &DriveFolder, account_id: &str, id: &str) -> st
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(e),
     };
-    let Some(at) = u64::try_from(now_secs()).ok().filter(|secs| *secs > 0) else {
-        return Err(std::io::Error::other(
-            "the clock of this computer is not set: nothing is removed from the Outbox",
-        ));
-    };
+    // The holding area is the account's mail folder, where the pull of an Azlin account keeps its own holds
+    // and its sweep deletes them: the time they are dated by is the account's record of it. No drive is
+    // at hand here (a click of the window): the newest Send/Receive is the one reading.
     let held = MailStore::new(sent_store_root(root, account_id));
-    let place = store::removed_prefix(OUTBOX_DIR, &azul_storage::time::amz_date(at));
+    let last_sync = held.last_sync().map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!("the time of the last Send/Receive cannot be read ({e}): nothing is removed from the Outbox"),
+        )
+    })?;
+    let at = store::Clocks::new(last_sync, None)
+        .hold_time(now)
+        .map_err(|why| {
+            std::io::Error::other(format!("{why}: nothing is removed from the Outbox"))
+        })?;
+    let place = at.prefix(OUTBOX_DIR);
     if let Some(bytes) = &message {
         held.put(&format!("{place}/{id}.eml"), bytes)?;
     }
@@ -4235,9 +4257,14 @@ mod tests {
     /// the call never waits for it (a lock that is taken is `WouldBlock` and nothing was done), so it is
     /// asked again until the lock is free.
     fn remove(dir: &TempDir, id: &str) -> std::io::Result<()> {
+        remove_at(dir, id, OCT_1 + 1000)
+    }
+
+    /// [`remove`] at the clock `now`.
+    fn remove_at(dir: &TempDir, id: &str, now: i64) -> std::io::Result<()> {
         let started = std::time::Instant::now();
         loop {
-            match remove_failed_entry(&dir.folder(), ACCOUNT, id) {
+            match remove_failed_entry(&dir.folder(), ACCOUNT, id, now) {
                 Err(e)
                     if e.kind() == std::io::ErrorKind::WouldBlock
                         && started.elapsed() < std::time::Duration::from_secs(60) =>
@@ -4690,7 +4717,7 @@ mod tests {
         let (root, id) = (dir.folder(), entry.id.clone());
         let (sender, receiver) = std::sync::mpsc::channel();
         let delete = std::thread::spawn(move || {
-            let _ = sender.send(remove_failed_entry(&root, ACCOUNT, &id));
+            let _ = sender.send(remove_failed_entry(&root, ACCOUNT, &id, OCT_1 + 1000));
         });
         let answered = receiver.recv_timeout(std::time::Duration::from_secs(5));
         // Released before anything is judged, so that a Delete that does wait can end.
@@ -4707,6 +4734,129 @@ mod tests {
         // Send/Receive is done: the same Delete goes through.
         remove(&dir, &entry.id).unwrap();
         assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty());
+    }
+
+    // ==== X-DELTA-APPS5-2: the hold of a Delete is dated by the account's record of the time ====
+
+    const DAY: i64 = 86_400;
+
+    /// The account's folder of mail records a Send/Receive that ended at `at`: the `synced_at` of its Inbox's
+    /// state, as the sync writes it - the floor the clock of a Delete is set against.
+    fn synced_at(dir: &TempDir, at: i64) {
+        put_state(dir, &message::rfc3339_utc(at));
+    }
+
+    /// The Inbox's state file of the account, with `synced_at` as given.
+    fn put_state(dir: &TempDir, synced_at: &str) {
+        let mut state = FolderState::create("INBOX", "Inbox", 1);
+        state.synced_at = String::from(synced_at);
+        MailStore::new(account::account_dir(&dir.folder(), ACCOUNT))
+            .put(&store::state_key("inbox"), state.to_json().as_bytes())
+            .unwrap();
+    }
+
+    /// RED on the code before: Delete dated its hold by the raw clock (`now_secs()`), so a computer whose
+    /// clock was behind (a reset RTC, a virtual machine resumed before the time sync) held the only copy of
+    /// the letter under a stamp that the next Send/Receive with a right clock swept - and a clock far ahead
+    /// dated it years ahead. The pull of an Azlin account was set against the account's last Send/Receive
+    /// (X-DELTA-APPS4-3); Delete was the second writer of `removed/` and was not. Now a clock a year back, a
+    /// clock ten years ahead and a clock that is not set remove NOTHING - the row, its file and the Outbox
+    /// stay - and say why in the words of the pull.
+    #[test]
+    fn x_delta_apps5_2_delete_on_a_clock_a_year_back_or_ten_years_ahead_removes_nothing() {
+        let dir = TempDir::new("send-remove-clock");
+        let entry = failed(&dir);
+        synced_at(&dir, OCT_1 + 3600);
+        for (what, now, said) in [
+            (
+                "a year back",
+                OCT_1 - 365 * DAY,
+                "more than a day before the last Send/Receive (2026-10-01T09:30:00Z)",
+            ),
+            (
+                "ten years ahead",
+                OCT_1 + 10 * 366 * DAY,
+                "more than a year after the last Send/Receive (2026-10-01T09:30:00Z)",
+            ),
+            ("not set", 0, "the clock of this computer is not set"),
+        ] {
+            let refused = remove_at(&dir, &entry.id, now).unwrap_err();
+            assert!(
+                refused.to_string().contains(said)
+                    && refused
+                        .to_string()
+                        .ends_with(": nothing is removed from the Outbox"),
+                "{what}: {refused}"
+            );
+            assert_eq!(
+                outbox_entries(&dir.folder(), ACCOUNT).len(),
+                1,
+                "{what}: the row stays"
+            );
+            assert!(eml_of(&dir, &entry).exists(), "{what}: and its file");
+            assert!(held_keys(&dir).is_empty(), "{what}: nothing is held");
+        }
+    }
+
+    /// The same one rule as the pull's: a clock a few hours behind dates the hold at the last Send/Receive
+    /// (never before it), a right clock dates it now, and both files are held under that stamp.
+    #[test]
+    fn x_delta_apps5_2_delete_is_dated_like_the_pull_at_the_later_of_the_clock_and_the_last_send_receive(
+    ) {
+        let floor = OCT_1 + 3600;
+        for (what, now, dated) in [
+            ("a few hours behind", floor - 3 * 3600, floor),
+            ("exactly a day behind", floor - DAY, floor),
+            ("a right clock", floor + 2 * DAY, floor + 2 * DAY),
+            ("a month ahead", floor + 30 * DAY, floor + 30 * DAY),
+        ] {
+            let dir = TempDir::new("send-remove-dated");
+            let entry = failed(&dir);
+            synced_at(&dir, floor);
+            remove_at(&dir, &entry.id, now).unwrap();
+            let held = held_keys(&dir);
+            assert_eq!(held.len(), 2, "{what}: {held:?}");
+            let stamp = azul_storage::time::amz_date(u64::try_from(dated).unwrap());
+            assert!(
+                held.iter()
+                    .all(|key| key.starts_with(&format!("removed/outbox/{stamp}/"))),
+                "{what}: dated {stamp}: {held:?}"
+            );
+            assert!(outbox_entries(&dir.folder(), ACCOUNT).is_empty(), "{what}");
+        }
+    }
+
+    /// K19 for the Delete (the clock's floor is a read, and a read that failed is no "never synced"): a state
+    /// file that is there and says nothing this AzMail reads, and a `synced_at` that is no date, remove
+    /// nothing; the same Delete over a good state goes through, so it was the state that stopped it.
+    #[test]
+    fn x_delta_apps5_6_delete_removes_nothing_when_the_time_of_the_last_send_receive_cannot_be_read(
+    ) {
+        for what in ["a damaged state", "a stamp that is no date"] {
+            let dir = TempDir::new("send-remove-floor-unreadable");
+            let entry = failed(&dir);
+            if what == "a damaged state" {
+                MailStore::new(account::account_dir(&dir.folder(), ACCOUNT))
+                    .put(&store::state_key("inbox"), b"{ this is not a state")
+                    .unwrap();
+            } else {
+                put_state(&dir, "yesterday");
+            }
+            let refused = remove(&dir, &entry.id).unwrap_err();
+            assert!(
+                refused.to_string().starts_with(
+                    "the time of the last Send/Receive cannot be read (mail/inbox/state.json "
+                ) && refused
+                    .to_string()
+                    .ends_with(": nothing is removed from the Outbox"),
+                "{what}: {refused}"
+            );
+            assert_eq!(outbox_entries(&dir.folder(), ACCOUNT).len(), 1, "{what}");
+            assert!(held_keys(&dir).is_empty(), "{what}");
+            synced_at(&dir, OCT_1);
+            remove(&dir, &entry.id).unwrap();
+            assert_eq!(held_keys(&dir).len(), 2, "{what}: the state was the fault");
+        }
     }
 
     // ==== X-DELTA-APPS3-7 and X-APPS2-1: a file that cannot be read is not the defaults ====
