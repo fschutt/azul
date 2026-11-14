@@ -23,17 +23,17 @@ use azlin_regbase::{SmallText, SpaceId};
 use crate::support::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Row {
-    name: String,
-    kind: String,
-    context: String,
-    hex: String,
-    extra: String,
-    expect: String,
+pub struct Row {
+    pub name: String,
+    pub kind: String,
+    pub context: String,
+    pub hex: String,
+    pub extra: String,
+    pub expect: String,
 }
 
 impl Row {
-    fn new(name: &str, kind: &str, context: &str, hex: &str, extra: &str, expect: &str) -> Row {
+    pub fn new(name: &str, kind: &str, context: &str, hex: &str, extra: &str, expect: &str) -> Row {
         Row {
             name: name.to_string(),
             kind: kind.to_string(),
@@ -45,7 +45,7 @@ impl Row {
     }
 }
 
-fn vector_path(file: &str) -> PathBuf {
+pub fn vector_path(file: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/vectors")
         .join(file)
@@ -189,7 +189,7 @@ impl Parser<'_> {
     }
 }
 
-fn parse_json(text: &str) -> Vec<Row> {
+pub fn parse_json(text: &str) -> Vec<Row> {
     let mut p = Parser {
         s: text.as_bytes(),
         i: 0,
@@ -201,7 +201,7 @@ fn parse_json(text: &str) -> Vec<Row> {
 }
 
 /// Compares `computed` with the vector file, or writes it under `UPDATE_VECTORS=1` (never in CI).
-fn check_or_update(file: &str, computed: &[Row]) {
+pub fn check_or_update(file: &str, computed: &[Row]) {
     let path = vector_path(file);
     if std::env::var_os("UPDATE_VECTORS").is_some_and(|v| v == "1") {
         assert!(
@@ -226,7 +226,7 @@ fn check_or_update(file: &str, computed: &[Row]) {
     }
 }
 
-fn seed_text(n: u8) -> String {
+pub fn seed_text(n: u8) -> String {
     format!("seed={}", to_hex(&[n; 32]))
 }
 
@@ -315,7 +315,7 @@ fn s9e_14_the_credential_vectors_are_what_the_crate_computes() {
     check_or_update("credential_v2.json", &credential_rows());
 }
 
-fn seed_of(extra: &str) -> [u8; 32] {
+pub fn seed_of(extra: &str) -> [u8; 32] {
     let hex = extra
         .split_whitespace()
         .find_map(|part| part.strip_prefix("seed="))

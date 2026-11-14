@@ -5,9 +5,11 @@
 //! The crate's hygiene (S9E-15 and S9E-19) is `tests/hygiene.rs`; the witness types' `compile_fail`
 //! doctests (S9E-11) are in the documentation of the types.
 
+mod assertion_tests;
 mod chain;
 mod costs;
 mod domains;
+mod entitlement_tests;
 mod expiry;
 mod fields;
 mod hostile;
@@ -17,3 +19,4 @@ mod round_trip;
 mod scope_tests;
 mod support;
 mod vectors;
+mod vectors_signed;
