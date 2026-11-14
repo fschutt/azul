@@ -942,6 +942,9 @@ name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+dependencies = [
+ "zeroize",
+]
 
 [[package]]
 name = "as-slice"
@@ -1327,6 +1330,7 @@ dependencies = [
  "p256",
  "rsa 0.9.10",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1367,6 +1371,7 @@ dependencies = [
  "rsa 0.9.10",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "subtle",
  "thiserror 2.0.20",
 ]
@@ -1465,6 +1470,7 @@ name = "azlin-reports"
 version = "0.1.0"
 dependencies = [
  "azlin-cbor",
+ "zeroize",
 ]
 
 [[package]]
@@ -2372,6 +2378,7 @@ dependencies = [
  "cfg-if 1.0.4",
  "constant_time_eq",
  "cpufeatures 0.3.1",
+ "zeroize",
 ]
 
 [[package]]

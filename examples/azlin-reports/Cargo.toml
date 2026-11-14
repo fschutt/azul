@@ -12,3 +12,6 @@ publish = false
 
 [dependencies]
 azlin-cbor = { path = "../azlin-cbor" }
+# DEP-2 (X-DELTA-W1S46A-10): the owned copy of a link's key (`Text`) must be wiped. The form azlin-cbor uses
+# (default features off, `alloc`): a lock edge, no new package. The code that uses it is lane S46a's.
+zeroize = { version = "1.8", default-features = false, features = ["alloc"] }

@@ -303,6 +303,21 @@ criteria = "safe-to-deploy"
 version = "1.5.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.azul-core]]
+version = "0.0.16"
+criteria = "safe-to-deploy"
+notes = "azul's own crate as published on crates.io (the workspace builds its own 0.0.17 from the path). The published 0.0.16 is in the tree only through printpdf 0.12.8 (the fork on branch azul-codegen-api, which azul-dll takes), together with azul-css and azul-layout 0.0.16. Not read."
+
+[[exemptions.azul-css]]
+version = "0.0.16"
+criteria = "safe-to-deploy"
+notes = "azul's own crate as published on crates.io (the workspace builds its own 0.0.17 from the path). The published 0.0.16 is in the tree only through printpdf 0.12.8 (the fork on branch azul-codegen-api, which azul-dll takes), together with azul-core and azul-layout 0.0.16. Not read."
+
+[[exemptions.azul-layout]]
+version = "0.0.16"
+criteria = "safe-to-deploy"
+notes = "azul's own crate as published on crates.io (the workspace builds its own 0.0.17 from the path). The published 0.0.16 is in the tree only through printpdf 0.12.8 (the fork on branch azul-codegen-api, which azul-dll takes), together with azul-core and azul-css 0.0.16. Not read."
+
 [[exemptions.azul-simplecss]]
 version = "0.2.3"
 criteria = "safe-to-deploy"
@@ -3295,6 +3310,11 @@ criteria = "safe-to-deploy"
 [[exemptions.rustls]]
 version = "0.23.45"
 criteria = "safe-to-deploy"
+
+[[exemptions.rustls]]
+version = "0.23.46"
+criteria = "safe-to-deploy"
+notes = "TLS for reqwest, hyper-rustls, iroh, lettre, redis and sqlx; the patch release after the exempted 0.23.45, which the lock has moved past. Not read."
 
 [[exemptions.rustls-native-certs]]
 version = "0.8.4"

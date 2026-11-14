@@ -13,7 +13,9 @@ publish = false
 
 [dependencies]
 azlin-cbor = { path = "../azlin-cbor" }
-blake3 = "1.8"
+# DEP-2 (D-W1S15A -7): a hasher that held key material must be wipeable. blake3 1.8 defines `zeroize` as
+# ["dep:zeroize", "arrayvec/zeroize"]: two lock edges (zeroize is a package already), no new package.
+blake3 = { version = "1.8", features = ["zeroize"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"] }
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize", "fast"] }
