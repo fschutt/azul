@@ -2414,11 +2414,11 @@ const SVG_FIT_MAX_SIDE_PX: f32 = 16384.0;
     clippy::cast_sign_loss,
     clippy::cast_precision_loss
 )] // clamped px sizes
-fn svg_render_size(s: &ParsedSvg, options: &SvgRenderOptions) -> (u32, u32) {
+fn svg_render_size(svg_data: &[u8], options: &SvgRenderOptions) -> (u32, u32) {
     if let Some(size) = options.target_size.as_ref() {
         return (size.width.max(0) as u32, size.height.max(0) as u32);
     }
-    let (w, h) = crate::cpurender::svg_natural_size(s.svg_data.as_ref()).unwrap_or((
+    let (w, h) = crate::cpurender::svg_natural_size(svg_data).unwrap_or((
         DEFAULT_SVG_RENDER_SIZE.0 as f32,
         DEFAULT_SVG_RENDER_SIZE.1 as f32,
     ));
@@ -2441,7 +2441,17 @@ fn svg_render_size(s: &ParsedSvg, options: &SvgRenderOptions) -> (u32, u32) {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 #[must_use]
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
-    let (target_width, target_height) = svg_render_size(s, &options);
+    svg_render_bytes(s.svg_data.as_ref(), options)
+}
+
+/// [`svg_render`] of a document's bytes: the rasteriser parses them (once), with no
+/// [`ParsedSvg`] made first (whose [`svg_parse`] parses the document to check it). What
+/// `RawImage::from_svg` draws: an app that rasterises SVGs it made itself (map tiles, icons)
+/// many times a second. `None` if the document cannot be parsed or the size is 0.
+#[cfg(feature = "cpurender")]
+#[must_use]
+pub fn svg_render_bytes(svg_data: &[u8], options: SvgRenderOptions) -> Option<RawImage> {
+    let (target_width, target_height) = svg_render_size(svg_data, &options);
 
     if target_width == 0 || target_height == 0 {
         return None;
@@ -2457,7 +2467,7 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
     // The rasteriser's own pixels (premultiplied, labelled so): no PNG
     // encode and decode in between.
     crate::cpurender::render_svg_to_raw_image_over(
-        s.svg_data.as_ref(),
+        svg_data,
         target_width,
         target_height,
         background,
@@ -2469,7 +2479,13 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
 /// without that feature there is nothing to render to. Parsing and layout are
 /// unaffected — only the raster output is unavailable.
 #[cfg(not(feature = "cpurender"))]
-pub fn svg_render(_s: &ParsedSvg, _options: SvgRenderOptions) -> Option<RawImage> {
+pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
+    svg_render_bytes(s.svg_data.as_ref(), options)
+}
+
+/// `cpurender`-less stub of [`svg_render`] on a document's bytes: nothing to render to.
+#[cfg(not(feature = "cpurender"))]
+pub fn svg_render_bytes(_svg_data: &[u8], _options: SvgRenderOptions) -> Option<RawImage> {
     // The caller asked for pixels and can NEVER get any from this build —
     // a permanent None is otherwise indistinguishable from a bad SVG.
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
@@ -4273,6 +4289,33 @@ mod autotest_generated {
             (126..=128).contains(&px[3]) && px[0] == px[3] && px[1] == 0 && px[2] == 0,
             "half-transparent red over a transparent backdrop, premultiplied: {px:?}"
         );
+    }
+
+    /// A document's bytes rasterise as its `ParsedSvg` does (`RawImage::from_svg`), at the size
+    /// asked for or its own, and not at all where they are no SVG.
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_document_renders_from_its_bytes_as_its_parsed_svg_does() {
+        let svg = br#"<svg viewBox="0 0 4 4"><rect x="1" y="1" width="2" height="2" fill="red" fill-opacity="0.5"/></svg>"#;
+        let p = svg_parse(svg, SvgParseOptions::default()).expect("parse");
+        for opts in [
+            SvgRenderOptions {
+                target_size: OptionLayoutSize::Some(LayoutSize::new(8, 8)),
+                ..SvgRenderOptions::default()
+            },
+            SvgRenderOptions::default(),
+        ] {
+            let parsed = svg_render(&p, opts).expect("rasterize");
+            let bytes = svg_render_bytes(svg, opts).expect("rasterize the bytes");
+            assert_eq!((bytes.width, bytes.height), (parsed.width, parsed.height));
+            assert_eq!(bytes.pixels, parsed.pixels);
+            assert!(bytes.premultiplied_alpha);
+        }
+        let four = SvgRenderOptions {
+            target_size: OptionLayoutSize::Some(LayoutSize::new(4, 4)),
+            ..SvgRenderOptions::default()
+        };
+        assert!(svg_render_bytes(b"<html><body/></html>", four).is_none());
     }
 
     #[cfg(feature = "cpurender")]

@@ -13,7 +13,10 @@
 //! - `script`: Unicode script detection
 //! - `selection`: text selection and cursor utilities
 //! - `ui_fonts`: the fonts azul bundles for its widget themes (EB Garamond)
+//! - `api`: the public text module (api.json `text`): lay a text out in a font stack and read
+//!   its glyphs, from outside the DOM
 
+pub mod api;
 pub mod cache;
 pub mod default;
 pub mod dense;

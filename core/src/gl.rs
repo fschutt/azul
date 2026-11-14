@@ -651,7 +651,9 @@ impl U8VecRefMut {
         }
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
-    const fn as_mut_slice(&mut self) -> &mut [u8] {
+    /// The bytes, to write (a function of the API that fills or blends a buffer the caller
+    /// lends it)
+    pub const fn as_mut_slice(&mut self) -> &mut [u8] {
         // AUDIT: `from_raw_parts` is UB on a null ptr; guard FFI null/empty.
         if self.ptr.is_null() || self.len == 0 {
             return &mut [];

@@ -43500,6 +43500,28 @@
                                 "Luminosity": {}
                             }
                         ],
+                        "functions": {
+                            "blend_premultiplied": {
+                                "doc": [
+                                    "Puts the premultiplied RGBA8 pixels `source` onto the premultiplied RGBA8 pixels `backdrop` (pixel for pixel, their common length) at `opacity` (0..1) with this blend mode, as Compositing and Blending Level 1 composites an isolated group onto its backdrop: source-over, the mode's mixing function where both are present. An empty source pixel leaves the backdrop as it is in every mode. A layer drawn on its own (a rasterised SVG, a sprite, one pixel of a colour) onto what is below it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "backdrop": "U8VecRefMut"
+                                    },
+                                    {
+                                        "source": "U8VecRef"
+                                    },
+                                    {
+                                        "opacity": "f32"
+                                    }
+                                ],
+                                "fn_body": "{ let mut backdrop = backdrop; azul_layout::cpurender::blend_premultiplied(backdrop.as_mut_slice(), source.as_slice(), opacity, *style_mix_blend_mode) }"
+                            }
+                        },
                         "repr": "C"
                     },
                     "StyleFilter": {
@@ -128556,6 +128578,23 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::resources::RawImage::create_rgba8(width, height, pixels, premultiplied_alpha)"
+                            },
+                            "from_svg": {
+                                "doc": [
+                                    "Rasterises the SVG document `svg_bytes` at `options.target_size` (else at its own size, as `options.fit` asks), over `options.background_color` (else transparent): RGBA8, premultiplied (and labelled so). The rasteriser parses the document once; `ParsedSvg::from_bytes` parses it to check it before. `None` if the bytes are no SVG or a side is 0."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "svg_bytes": "U8VecRef"
+                                    },
+                                    {
+                                        "options": "SvgRenderOptions"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRawImage"
+                                },
+                                "fn_body": "azul_layout::xml::svg::svg_render_bytes(svg_bytes.as_slice(), options).into()"
                             }
                         },
                         "functions": {
@@ -130276,6 +130315,71 @@
                                     "type": "u64"
                                 },
                                 "fn_body": "azul_core::resources::font_ref_get_hash(fontref)"
+                            },
+                            "get_glyph_index": {
+                                "doc": [
+                                    "The glyph `codepoint` maps to in the font (its cmap): None if the font has no glyph for it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "codepoint": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU16"
+                                },
+                                "fn_body": "azul_layout::text3::api::font_glyph_index(font_ref, codepoint)"
+                            },
+                            "get_glyph_advance": {
+                                "doc": [
+                                    "A glyph's advance, in font units (its hmtx width)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "glyph_id": "u16"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u16"
+                                },
+                                "fn_body": "azul_layout::text3::api::font_glyph_advance(font_ref, glyph_id)"
+                            },
+                            "get_glyph_bounds": {
+                                "doc": [
+                                    "The box of a glyph's outline, in font units: None for a glyph without an outline (a space) or past the font's glyphs."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "glyph_id": "u16"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionGlyphBounds"
+                                },
+                                "fn_body": "azul_layout::text3::api::font_glyph_bounds(font_ref, glyph_id)"
+                            },
+                            "get_space_width": {
+                                "doc": [
+                                    "The advance of the font's space glyph, in font units: None if it has no space."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU32"
+                                },
+                                "fn_body": "azul_layout::text3::api::font_space_width(font_ref)"
                             }
                         },
                         "repr": "C"
@@ -130606,6 +130710,32 @@
                             {
                                 "Empty": {},
                                 "System": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FontRefVecSlice": {
+                        "external": "azul_css::props::basic::font::FontRefVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FontRef",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"
@@ -177301,6 +177431,645 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "TextGlyphVec": {
+                        "external": "azul_layout::text3::api::TextGlyphVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TextGlyph",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TextGlyphVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TextGlyphVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TextGlyphVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TextGlyphVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextGlyphVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "text_glyph_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "text_glyph_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "text_glyph_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TextGlyphVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TextGlyph"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextGlyphVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TextGlyphVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TextGlyph"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextGlyphVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTextGlyph"
+                                },
+                                "fn_body": "text_glyph_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TextGlyphVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextGlyphVecSlice"
+                                },
+                                "fn_body": "text_glyph_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextGlyphVecSlice"
+                                },
+                                "fn_body": "text_glyph_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TextGlyphVecDestructor": {
+                        "external": "azul_layout::text3::api::TextGlyphVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TextGlyphVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TextGlyphVecDestructorType": {
+                        "external": "azul_layout::text3::api::TextGlyphVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "TextGlyphVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "TextLineVec": {
+                        "external": "azul_layout::text3::api::TextLineVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TextLine",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TextLineVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TextLineVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TextLineVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TextLineVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextLineVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "text_line_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "text_line_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "text_line_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TextLineVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TextLine"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextLineVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TextLineVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TextLine"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextLineVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTextLine"
+                                },
+                                "fn_body": "text_line_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TextLineVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextLineVecSlice"
+                                },
+                                "fn_body": "text_line_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextLineVecSlice"
+                                },
+                                "fn_body": "text_line_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TextLineVecDestructor": {
+                        "external": "azul_layout::text3::api::TextLineVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TextLineVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TextLineVecDestructorType": {
+                        "external": "azul_layout::text3::api::TextLineVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "TextLineVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "FontRefVec": {
+                        "doc": [
+                            "A stack of fonts, best first: what `TextLayout::create` lays a text out in (each grapheme cluster in the first font that has it)."
+                        ],
+                        "external": "azul_css::props::basic::font::FontRefVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FontRef",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "FontRefVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `FontRefVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "FontRefVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `FontRefVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FontRefVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "font_ref_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "font_ref_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "font_ref_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `FontRefVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "FontRef"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FontRefVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `FontRefVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const FontRef"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FontRefVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFontRef"
+                                },
+                                "fn_body": "font_ref_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `FontRefVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FontRefVecSlice"
+                                },
+                                "fn_body": "font_ref_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FontRefVecSlice"
+                                },
+                                "fn_body": "font_ref_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FontRefVecDestructor": {
+                        "external": "azul_css::props::basic::font::FontRefVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "FontRefVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FontRefVecDestructorType": {
+                        "external": "azul_css::props::basic::font::FontRefVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "FontRefVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
                     }
                 }
             },
@@ -188501,6 +189270,106 @@
                                     "type": "E2eCommand",
                                     "doc": [
                                         "Some value of type E2eCommand"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionGlyphBounds": {
+                        "external": "azul_layout::text3::api::OptionGlyphBounds",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "GlyphBounds",
+                                    "doc": [
+                                        "Some value of type GlyphBounds"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTextGlyph": {
+                        "external": "azul_layout::text3::api::OptionTextGlyph",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "TextGlyph",
+                                    "doc": [
+                                        "Some value of type TextGlyph"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTextLine": {
+                        "external": "azul_layout::text3::api::OptionTextLine",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "TextLine",
+                                    "doc": [
+                                        "Some value of type TextLine"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTextLayout": {
+                        "external": "azul_layout::text3::api::OptionTextLayout",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "TextLayout",
+                                    "doc": [
+                                        "Some value of type TextLayout"
                                     ]
                                 }
                             }
@@ -216151,6 +217020,435 @@
                                 "Denied": {},
                                 "Unavailable": {},
                                 "Failed": {}
+                            }
+                        ],
+                        "repr": "C"
+                    }
+                }
+            },
+            "text": {
+                "doc": [
+                    "Text measuring from outside the DOM: lay a text out in a stack of fonts (bidi, shaping, line breaking, visual order) and read every glyph where the layout put it - its font, advance, mark offset, cluster text and ink box. The `FontRef` functions of the `font` module answer a font's own measures."
+                ],
+                "classes": {
+                    "TextLayoutDirection": {
+                        "doc": [
+                            "The direction a paragraph of text reads in."
+                        ],
+                        "external": "azul_layout::text3::api::TextLayoutDirection",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {
+                                    "doc": [
+                                        "The direction of the text's first strong letter (`dir=\"auto\"`): an Arabic or Hebrew text reads right to left; left to right without a strong letter."
+                                    ]
+                                },
+                                "LeftToRight": {
+                                    "doc": [
+                                        "Left to right, whatever the text's letters."
+                                    ]
+                                },
+                                "RightToLeft": {
+                                    "doc": [
+                                        "Right to left, whatever the text's letters."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextLayoutOptions": {
+                        "doc": [
+                            "How `TextLayout::create` lays a text out."
+                        ],
+                        "external": "azul_layout::text3::api::TextLayoutOptions",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "font_size": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "The font size, in the unit the layout's positions come in (px, mm, ...)."
+                                    ]
+                                },
+                                "max_width": {
+                                    "type": "OptionF32",
+                                    "doc": [
+                                        "The width the lines are broken to fit, at spaces (the spaces are kept as written: `white-space: pre-wrap`). None: a line per hard break (`white-space: pre`)."
+                                    ]
+                                },
+                                "direction": {
+                                    "type": "TextLayoutDirection",
+                                    "doc": [
+                                        "The direction the paragraph reads in."
+                                    ]
+                                },
+                                "letter_spacing": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Added after every letter (CSS `letter-spacing`)."
+                                    ]
+                                },
+                                "word_spacing": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Added to every space (CSS `word-spacing`)."
+                                    ]
+                                },
+                                "tab_size": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "A tab's width, in spaces (CSS `tab-size`)."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "The options for a text at `font_size`: one line per hard break, its direction from its first strong letter, no extra spacing, tabs 8 spaces wide."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "font_size": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::text3::api::TextLayoutOptions::create(font_size)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "GlyphBounds": {
+                        "doc": [
+                            "The box of a glyph's outline: from its origin, x to the right, y up (font units from `FontRef::get_glyph_bounds`, the layout's unit in a `TextGlyph`)."
+                        ],
+                        "external": "azul_layout::text3::api::GlyphBounds",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "min_x": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Left edge."
+                                    ]
+                                },
+                                "min_y": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Bottom edge (below the baseline: negative)."
+                                    ]
+                                },
+                                "max_x": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Right edge."
+                                    ]
+                                },
+                                "max_y": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Top edge."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextGlyph": {
+                        "doc": [
+                            "A glyph where `TextLayout::create` put it."
+                        ],
+                        "external": "azul_layout::text3::api::TextGlyph",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ink": {
+                                    "type": "OptionGlyphBounds",
+                                    "doc": [
+                                        "The box of its outline at the font size, from its origin (x right, y up); None for a glyph without one (a space)."
+                                    ]
+                                },
+                                "font_index": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "Its font: an index into the font stack the text was laid out in."
+                                    ]
+                                },
+                                "x": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Where the pen stands at it, from the left edge of the layout: its advance box starts here."
+                                    ]
+                                },
+                                "advance": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "How far it moves the pen on: its advance with its kerning (nothing for a mark on a letter)."
+                                    ]
+                                },
+                                "offset_x": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Where it is drawn from the pen (the font's GPOS: a mark on its letter): x to the right."
+                                    ]
+                                },
+                                "offset_y": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Where it is drawn from the pen: y up."
+                                    ]
+                                },
+                                "cluster_start": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "The byte range of its grapheme cluster's text in the laid out text (several glyphs of one cluster share it)."
+                                    ]
+                                },
+                                "cluster_end": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "The end of that byte range (exclusive)."
+                                    ]
+                                },
+                                "glyph_id": {
+                                    "type": "u16",
+                                    "doc": [
+                                        "The glyph in its font."
+                                    ]
+                                },
+                                "first_in_cluster": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "It is the first glyph of its cluster in reading order (the one a copied text takes the cluster's text from)."
+                                    ]
+                                },
+                                "whitespace": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Its cluster is white space (a space, a tab, a line break)."
+                                    ]
+                                },
+                                "tab": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "It stands for a tab: `advance` is the tab's width, `glyph_id` 0."
+                                    ]
+                                },
+                                "cursive": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Its cluster is of a script whose letters join (Arabic, Syriac, N'Ko, ...): no spacing between its letters."
+                                    ]
+                                },
+                                "grapheme_continuation": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Its cluster continues the grapheme before it."
+                                    ]
+                                },
+                                "right_to_left": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Its cluster reads right to left."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextLine": {
+                        "doc": [
+                            "A line of a `TextLayout`."
+                        ],
+                        "external": "azul_layout::text3::api::TextLine",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "glyphs": {
+                                    "type": "TextGlyphVec",
+                                    "doc": [
+                                        "Its glyphs in visual order, left to right (its spaces' too)."
+                                    ]
+                                },
+                                "y": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Where the line stands, from the top of the layout (the top of its line box)."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextLayout": {
+                        "doc": [
+                            "A text laid out in a stack of fonts: what an app measures, draws or hit-tests a text with, outside the DOM (`TextLayout::create`)."
+                        ],
+                        "external": "azul_layout::text3::api::TextLayout",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "lines": {
+                                    "type": "TextLineVec",
+                                    "doc": [
+                                        "Its lines, from the top."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "`text` laid out in `fonts` (a stack, best first) with `options`: each grapheme cluster in the first font of the stack that has all of its characters, else in the one that misses the fewest (white space in the font of the run it is in); the bidi algorithm over the whole text; each run shaped in its font; the lines broken at spaces to fit `options.max_width` and put in visual order.",
+                                    "",
+                                    "None without a font, or when the text cannot be shaped (a shaper panic is caught: the call never unwinds)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "fonts": "FontRefVec"
+                                    },
+                                    {
+                                        "options": "TextLayoutOptions"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTextLayout"
+                                },
+                                "fn_body": "azul_layout::text3::api::TextLayout::create(text, fonts, options)"
+                            }
+                        },
+                        "functions": {
+                            "visual_order_of_pieces": {
+                                "doc": [
+                                    "The order in which the pieces of a one-line text are seen from left to right: `starts` are the pieces' byte offsets into `text`, ascending; the answer holds indices into `starts`. The bidi algorithm runs over the whole text (in `direction`, `Auto`: as `unicode-bidi: plaintext`), each piece at the level of the character it starts with.",
+                                    "",
+                                    "A text set piece by piece - the words of a label along a curve, each placed on its own - lies in this order: the words of an Arabic name from the last to the first, the Arabic part of a Latin name reversed in its place, a number in an Arabic name where it is read."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "text": "String"
+                                    },
+                                    {
+                                        "starts": "U32Vec"
+                                    },
+                                    {
+                                        "direction": "TextLayoutDirection"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U32Vec"
+                                },
+                                "fn_body": "azul_layout::text3::api::TextLayout::visual_order_of_pieces(text, starts, direction)"
+                            },
+                            "line_count": {
+                                "doc": [
+                                    "How many lines the layout has."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "text_layout.line_count()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TextGlyphVecSlice": {
+                        "external": "azul_layout::text3::api::TextGlyphVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TextGlyph",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextLineVecSlice": {
+                        "external": "azul_layout::text3::api::TextLineVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TextLine",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"

@@ -330,6 +330,22 @@ pub mod ffi {
     pub use crate::__ffi_internal::__dll_api_inner::*;
 }
 
+// A parsed font is shared between threads: `FontRef` counts its copies atomically and is
+// `Send + Sync`, but its mirror holds the same handle as raw pointers, and the codegen derives
+// no auto traits. An app parses a font once and lays text out with it on any thread
+// (`TextLayout::create` from a worker, a server's requests).
+#[cfg(feature = "cabi_internal")]
+const _: () = {
+    const fn shared_between_threads<T: Send + Sync>() {}
+    shared_between_threads::<azul_css::props::basic::FontRef>();
+};
+// SAFETY: the same layout and the same handle as `azul_css::props::basic::FontRef` (the
+// C-ABI transmutes between the two), which is `Send + Sync` (asserted above).
+#[cfg(feature = "cabi_internal")]
+unsafe impl Send for dll::AzFontRef {}
+#[cfg(feature = "cabi_internal")]
+unsafe impl Sync for dll::AzFontRef {}
+
 // =============================================================================
 // External Bindings: extern "C" declarations for dynamic linking
 // Used by link-dynamic (links against pre-built libazul.dylib/so/dll)

@@ -682,6 +682,19 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq, Hash]
 );
+// A stack of fonts, best first: what the text module lays a text out in (each grapheme
+// cluster in the first font that has it).
+impl_vec!(
+    FontRef,
+    FontRefVec,
+    FontRefVecDestructor,
+    FontRefVecDestructorType,
+    FontRefVecSlice,
+    OptionFontRef
+);
+impl_vec_clone!(FontRef, FontRefVec, FontRefVecDestructor);
+impl_vec_debug!(FontRef, FontRefVec);
+impl_vec_partialeq!(FontRef, FontRefVec);
 unsafe impl Send for FontRef {}
 unsafe impl Sync for FontRef {}
 // Identity is the never-reused `id`, NOT the `parsed` pointer (which is freed
