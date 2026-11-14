@@ -3235,7 +3235,8 @@ fn x_delta_sync9_9_a_round_before_that_is_no_span_to_compare_with_leaves_the_rou
     let bucket: Arc<dyn Drive> = Arc::new(lab.bucket.clone());
     let dbucket = DriveBucket::new(Arc::clone(&bucket));
 
-    let plants: [(&str, fn(&mut Round)); 4] = [
+    type Plant = (&'static str, fn(&mut Round));
+    let plants: [Plant; 4] = [
         ("not clean", |round| {
             round.clean = false;
             round.unclean = String::from("planted");

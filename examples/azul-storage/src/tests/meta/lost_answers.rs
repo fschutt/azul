@@ -1491,6 +1491,7 @@ fn x_delta_sync9_3_a_long_list_of_young_leftovers_costs_a_look_at_the_first_and_
 /// the client's copy of - and a leftover must have outlived a generous number of such windows (192: two days, what an
 /// orphan waits before the sweep deletes it). The test ties the constants to each other and to the window.
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn x_delta_sync9_4_the_age_a_leftover_must_reach_is_many_windows_of_the_nodes_request_window() {
     use crate::meta::{wal, Maintenance};
 
