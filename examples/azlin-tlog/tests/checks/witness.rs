@@ -170,6 +170,26 @@ fn t16_a_witness_cosigns_a_consistent_checkpoint_and_remembers_it() {
         ),
         Err(WitnessRefusal::BadLogSignature)
     );
+    let genuine = cp_note(&tree, 9);
+    let line = genuine.sigs()[0].clone();
+    let mut damaged_payload = line.payload().to_vec();
+    damaged_payload[10] ^= 1;
+    let damaged = Note::new(
+        genuine.text().to_string(),
+        vec![
+            azlin_tlog::NoteSig::new(line.name().clone(), line.key_hash(), damaged_payload)
+                .unwrap(),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        witness.add_checkpoint(
+            &AddRequest::new(TreeSize(9), vec![], damaged).unwrap(),
+            t(700)
+        ),
+        Err(WitnessRefusal::BadLogSignature),
+        "the log's own line with a damaged signature"
+    );
     let unsigned = Note::new(cp.text(), vec![witness_key(1).cosign_for_test(&cp.text())]).unwrap();
     assert_eq!(
         witness.add_checkpoint(

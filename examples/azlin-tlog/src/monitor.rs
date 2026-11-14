@@ -39,7 +39,7 @@ use crate::record::{Digest, RecordError, ReleaseKey, ReleaseRecord};
 use crate::time::UnixTime;
 
 /// The most records the monitor's index holds (brief section 5): a larger log is refused, never evicted.
-pub const MAX_INDEX_RECORDS: usize = 1_000_000;
+pub const MAX_INDEX_RECORDS: TreeSize = TreeSize(1_000_000);
 
 /// What a checkpoint note told the monitor, when it raised no alarm.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -173,7 +173,7 @@ struct Seen {
 /// Seam: first callers are S45-INT-4 (the leader's watcher) and the phone apps' start check.
 pub struct Monitor {
     policy: Policy,
-    limit: usize,
+    limit: TreeSize,
     last: Option<Seen>,
     index: BTreeMap<Digest, ReleaseRecord>,
     indexed: Option<TreeSize>,
@@ -199,7 +199,7 @@ impl Monitor {
     }
 
     /// A monitor with a lower (or higher) index limit: for a small client, and for the tests of the limit.
-    pub fn with_limit(policy: Policy, limit: usize) -> Monitor {
+    pub fn with_limit(policy: Policy, limit: TreeSize) -> Monitor {
         Monitor {
             policy,
             limit,
@@ -279,7 +279,7 @@ impl Monitor {
     pub fn ingest(&mut self, records: &[Vec<u8>]) -> Result<(), Alarm> {
         let seen = self.last.as_ref().ok_or(Alarm::NoCheckpoint)?;
         let size = seen.checkpoint.size();
-        if size.0 > self.limit as u64 {
+        if size > self.limit {
             return Err(Alarm::TooMany);
         }
         if records.len() as u64 != size.0 {

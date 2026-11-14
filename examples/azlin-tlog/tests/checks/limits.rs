@@ -344,17 +344,17 @@ fn t35_limits() {
     );
 
     // the monitor's index: 1,000,000 records by default, a refusal and never an eviction one above the limit
-    assert_eq!(MAX_INDEX_RECORDS, 1_000_000);
+    assert_eq!(MAX_INDEX_RECORDS, TreeSize(1_000_000));
     let mut world = World::new(1);
     world.grow_to(6);
     let note6 = world.note();
     let note6 = world.cosigned(&note6, &[(0, 10)]);
     let records6: Vec<Vec<u8>> = (0..6).map(|i| record(i).to_bytes()).collect();
-    let mut at_limit = Monitor::with_limit(world.policy(1), 6);
+    let mut at_limit = Monitor::with_limit(world.policy(1), TreeSize(6));
     at_limit.observe(&note6, t(100), None).unwrap();
     at_limit.ingest(&records6).unwrap();
     assert_eq!(at_limit.indexed(), Some(TreeSize(6)));
-    let mut over_limit = Monitor::with_limit(world.policy(1), 5);
+    let mut over_limit = Monitor::with_limit(world.policy(1), TreeSize(5));
     over_limit.observe(&note6, t(100), None).unwrap();
     assert_eq!(over_limit.ingest(&records6), Err(Alarm::TooMany));
     assert_eq!(over_limit.indexed(), None);

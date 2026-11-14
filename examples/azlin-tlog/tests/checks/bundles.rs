@@ -2,14 +2,14 @@
 
 use azlin_merkle::{leaf_hash, verify_inclusion};
 use azlin_tlog::{
-    verify_bundle, Arch, BundleError, BundleLine, Digest, Expect, ExpectField, Hash, LeafIndex,
-    LogKey, Name, Note, NoteSig, NumberError, Origin, Policy, PolicyError, ProofBundle, ProofError,
-    ReleaseRecord, SigKind, Span, SubjectKind, TreeSize, Verifier, Version, MAX_BUNDLE_BYTES,
-    MAX_NOTE_BYTES, MAX_RECORD_BYTES,
+    sign_checkpoint, verify_bundle, Arch, BundleError, BundleLine, Checkpoint, Digest, Expect,
+    ExpectField, Hash, LeafIndex, LogError, LogKey, Name, Note, NoteSig, NumberError, Origin,
+    Policy, PolicyError, ProofBundle, ProofError, ReleaseRecord, SigKind, Span, SubjectKind,
+    TreeSize, Verifier, Version, MAX_BUNDLE_BYTES, MAX_NOTE_BYTES, MAX_RECORD_BYTES,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 
-use crate::common::{hex32, hex_string, key, kname, record, t, World, LOG_KEY_NAME};
+use crate::common::{hex32, hex_string, key, kname, log_key, record, t, World, LOG_KEY_NAME};
 use crate::gold;
 
 fn expect_of(i: usize) -> Expect {
@@ -125,6 +125,61 @@ fn t26_log_witnesses_bundle_verify_end_to_end() {
     );
     // an empty log has no bundle, and a leaf past the checkpoint has none either
     assert!(world.log.bundle(LeafIndex(12), &note).is_err());
+}
+
+#[test]
+fn t26_the_log_makes_bundles_and_requests_only_for_its_own_checkpoints() {
+    let mut world = World::new(1);
+    world.grow_to(6);
+    let own = world.note();
+    assert!(world.log.bundle(LeafIndex(1), &own).is_ok());
+    assert!(world.log.add_request(TreeSize(0), &own).is_ok());
+    // a checkpoint of another history of the same size: another root
+    let mut other = World::new(1);
+    other.grow_to(5);
+    other.log.append(&record(500)).unwrap();
+    let foreign = other.note();
+    assert_eq!(
+        world.log.bundle(LeafIndex(1), &foreign).err(),
+        Some(LogError::NotOurs)
+    );
+    assert_eq!(
+        world.log.add_request(TreeSize(0), &foreign).err(),
+        Some(LogError::NotOurs)
+    );
+    // a checkpoint of a larger tree than the log has reached, and one of another origin
+    let mut bigger = World::new(1);
+    bigger.grow_to(9);
+    assert_eq!(
+        world.log.bundle(LeafIndex(1), &bigger.note()).err(),
+        Some(LogError::NotOurs)
+    );
+    let elsewhere = Origin::new("other.example/log").unwrap();
+    let root = world.log.root().unwrap();
+    let cp = Checkpoint::new(elsewhere, TreeSize(6), root, vec![]).unwrap();
+    let note = sign_checkpoint(&cp, &log_key()).unwrap();
+    assert_eq!(
+        world.log.bundle(LeafIndex(1), &note).err(),
+        Some(LogError::NotOurs)
+    );
+    // an old size above the checkpoint's, a leaf past it, a note that is no checkpoint
+    assert_eq!(
+        world.log.add_request(TreeSize(7), &own).err(),
+        Some(LogError::OldAfterNew)
+    );
+    assert_eq!(
+        world.log.bundle(LeafIndex(6), &own).err(),
+        Some(LogError::IndexOutOfRange)
+    );
+    let junk = Note::new("hello\n".to_string(), own.sigs().to_vec()).unwrap();
+    assert!(matches!(
+        world.log.bundle(LeafIndex(0), &junk),
+        Err(LogError::Checkpoint(_))
+    ));
+    // the checkpoint of an older size of this log is its own
+    let mut grown = World::new(1);
+    grown.grow_to(3);
+    assert!(world.log.bundle(LeafIndex(2), &grown.note()).is_ok());
 }
 
 #[test]

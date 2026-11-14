@@ -249,6 +249,19 @@ fn t2_note_parse_is_strict() {
             NoteError::ControlCharacter,
         ),
         (
+            "a carriage return at the end of a signature line",
+            format!("{GOLDEN_TEXT}\n{good}\r\n").into_bytes(),
+            NoteError::ControlCharacter,
+        ),
+        (
+            "a control character in a key name",
+            note_bytes(
+                GOLDEN_TEXT,
+                &[sig_line("azlin\u{1}io/release-log", GOLDEN_SIG_B64)],
+            ),
+            NoteError::ControlCharacter,
+        ),
+        (
             "an empty text",
             format!("\n\n{good}\n").into_bytes(),
             NoteError::EmptyText,

@@ -423,14 +423,14 @@ fn t32_the_digest_index() {
     monitor.ingest(&twins).unwrap();
     assert_eq!(monitor.knows(&record(5).digest), Some(&record(5)));
     // the limit: 5 records in an index of 5, never an eviction at 6
-    let mut small = Monitor::with_limit(world.policy(2), 5);
+    let mut small = Monitor::with_limit(world.policy(2), TreeSize(5));
     let five: Vec<Vec<u8>> = (0..5).map(|i| record(i).to_bytes()).collect();
     small.observe(&manual_note(&five), t(NOW), None).unwrap();
     small.ingest(&five).unwrap();
     assert_eq!(small.indexed(), Some(TreeSize(5)));
     let six: Vec<Vec<u8>> = (0..6).map(|i| record(i).to_bytes()).collect();
     let six_note = manual_note(&six);
-    let mut probe = Monitor::with_limit(world.policy(2), 5);
+    let mut probe = Monitor::with_limit(world.policy(2), TreeSize(5));
     probe.observe(&six_note, t(NOW), None).unwrap();
     assert_eq!(probe.ingest(&six), Err(Alarm::TooMany));
     let proof = ConsistencyProof {
@@ -459,5 +459,5 @@ fn t32_the_digest_index() {
             "no record was evicted"
         );
     }
-    assert_eq!(MAX_INDEX_RECORDS, 1_000_000);
+    assert_eq!(MAX_INDEX_RECORDS, TreeSize(1_000_000));
 }
