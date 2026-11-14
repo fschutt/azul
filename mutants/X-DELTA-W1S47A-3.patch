@@ -1,0 +1,17 @@
+# row: X-DELTA-W1S47A-3
+# why: `check_chain` refuses every entry whose restore epoch is not exactly the floor the chain stands in (below it the chain itself refuses it: BelowRestoreEpoch); the patch drops the refusal of an epoch ABOVE the floor, so a plain member's entry that claims restore epoch u64::MAX is admitted (and, before apply stopped moving the epoch, raised it: no later restore could be announced)
+# killers: azlin-teamlog:an_entry_cannot_raise_the_restore_epoch
+# replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-W1S47A-3.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
+# mutant: epoch_above_the_floor_accepted
+# guard: an entry carries exactly the floor; only TeamState::raise_floor, driven by a verified restore record, moves it: the killer has a member's device sign an app op of epoch u64::MAX (and of epochs 1, 2 and 1000) and demands EpochNotAnnounced (class Alarm) from the metadata group and from a device's replay, and the owner's next entry of epoch 0 admitted.
+--- a/examples/azlin-teamlog/src/admit.rs
++++ b/examples/azlin-teamlog/src/admit.rs
+@@ -645,7 +645,7 @@
+     match state.tip().check(&link) {
+         Ok(Placement::Next) => {
+             let floor = state.tip().epoch();
+-            if meta.epoch != floor {
++            if false {
+                 return Err(Refusal::EpochNotAnnounced {
+                     got: meta.epoch,
+                     floor,

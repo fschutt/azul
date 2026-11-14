@@ -1,0 +1,24 @@
+# row: X-DELTA-W1S47A-1
+# why: `bind` in verify_signatures compares the account, the position (seq, prev), the claimed time, the restore epoch, the signer and the op of the typed entry with what the signed bytes say (the EntryDecoder seam); the patch drops the comparison, so an old, validly signed entry whose typed seq and prev were changed to those of a new entry passes verify_signatures and is admitted at the new position (story 8 of azlin-escalate-e1)
+# killers: azlin-teamlog:an_old_valid_entry_cannot_be_replayed_at_a_new_position
+# replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-W1S47A-1.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
+# mutant: typed_fields_comparison_dropped
+# guard: an entry whose typed fields differ from the decode of its preimage is BadSignature (class Signature): the killer takes a validly admitted helpdesk entry E, lets the owner take the role away again, changes ONLY seq and prev of E to those of the next entry (preimage, hash and every signature untouched: the copy is intact) and demands BadSignature from the metadata group and from a device's replay, while an entry the owner really signs at that position is admitted.
+#   The same decision has hand mutants per field (account, seq, prev, at, epoch, signer, op), for the domain prefix and for an undecodable preimage, killed in the one-hold round of the commit (tests every_typed_field_of_an_entry_is_bound_to_its_signed_bytes and a_preimage_of_another_domain_or_of_no_entry_is_no_signed_entry; they are no killers of this patch: one killer is enough).
+--- a/examples/azlin-teamlog/src/verify.rs
++++ b/examples/azlin-teamlog/src/verify.rs
+@@ -73,13 +73,7 @@
+     let Ok(signed) = decoder.decode(canonical) else {
+         return Err(Refusal::BadSignature);
+     };
+-    let bound = signed.account == e.account
+-        && signed.seq == e.seq
+-        && signed.prev == e.prev
+-        && signed.at == e.at
+-        && signed.epoch == e.epoch
+-        && signed.signer == e.signer
+-        && signed.op == e.op;
++    let bound = true;
+     if bound {
+         Ok(())
+     } else {
