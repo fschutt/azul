@@ -28,6 +28,11 @@
 //! purpose (the encryption wrappers, `ScopedDrive`, the bridge's account drive) stay in `WRAPPERS`
 //! with their per-method census: forwarding as it is would be the bug for a method nobody looked at.
 
+use azul_srcgate::{
+    lex::{item_end, test_items},
+    lex_spans, Spanned, Tok,
+};
+
 /// The methods `LocalDrive` leaves to the trait's default, each with why that is right.
 const LOCAL_DEFAULTS: &[(&str, &str)] = &[
     ("get_range_if", "refused as unsupported: a folder on disk is copied by its path (a file copy), never by ranges of one request each, and keeps no versions to ask (see conditional_writes)"),
@@ -44,19 +49,36 @@ const LOCAL_DEFAULTS: &[(&str, &str)] = &[
     ("delete_folder_for", "the reason is checked against the folder, then LocalDrive::delete_folder"),
 ];
 
-fn methods_of(source: &str, header: &str) -> Vec<String> {
+/// The block that starts at `header` in `source`, and how far in its first line stands: from the header to the closing brace
+/// that stands as far in as that line (column 0 for an impl at the start of a line, the module's indent for one inside a
+/// module: a block is read by its own indentation, X-DELTA-DRIVEE-7).
+fn block_of<'a>(source: &'a str, header: &str) -> (&'a str, usize) {
     let start = source
         .find(header)
         .unwrap_or_else(|| panic!("{header:?} not found"));
+    let line_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+    let indent = source[line_start..]
+        .bytes()
+        .take_while(|byte| *byte == b' ')
+        .count();
     let body = &source[start..];
-    // The impl or trait ends at the first closing brace in column 0.
-    let end = body.find("\n}\n").expect("end of the block");
-    body[..end]
+    let closing = format!("\n{}}}\n", " ".repeat(indent));
+    let end = body.find(&closing).expect("end of the block");
+    (&body[..end], indent)
+}
+
+fn methods_of(source: &str, header: &str) -> Vec<String> {
+    let (block, indent) = block_of(source, header);
+    let (one, two) = (
+        format!("{}fn ", " ".repeat(indent + 4)),
+        format!("{}fn ", " ".repeat(indent + 12)),
+    );
+    block
         .lines()
         .filter_map(|line| {
             let rest = line
-                .strip_prefix("    fn ")
-                .or_else(|| line.strip_prefix("            fn "))?;
+                .strip_prefix(one.as_str())
+                .or_else(|| line.strip_prefix(two.as_str()))?;
             Some(rest.split(['(', '<']).next()?.trim().to_string())
         })
         .collect()
@@ -595,13 +617,9 @@ fn inherited(block: &str) -> Vec<(Vec<String>, String)> {
         .collect()
 }
 
-/// The text of the impl that starts with `header` in `source`, to its closing brace in column 0.
+/// The text of the impl that starts with `header` in `source`, to its closing brace.
 fn impl_block<'a>(source: &'a str, header: &str) -> &'a str {
-    let start = source
-        .find(header)
-        .unwrap_or_else(|| panic!("{header:?} not found"));
-    let body = &source[start..];
-    &body[..body.find("\n}\n").expect("end of the impl")]
+    block_of(source, header).0
 }
 
 fn examples_dir() -> std::path::PathBuf {
@@ -696,82 +714,24 @@ fn c6e_a_delegating_wrapper_calls_the_macro_and_writes_only_below_send_and_metho
     }
 }
 
-/// Every `impl Drive for X` of the shipped code (a column-0 impl in a file that is no test's) is
-/// a wrapper of the table or one of the others: a new drive is a decision, not a surprise.
+/// The shipped impls of `Drive` (`impl Drive for X`, `delegate_drive!(X)`) that `known` does not name, with their files.
+fn unclassified<'a>(
+    found: &'a [(String, std::path::PathBuf)],
+    known: &[&str],
+) -> Vec<&'a (String, std::path::PathBuf)> {
+    found
+        .iter()
+        .filter(|(name, _)| !known.contains(&name.as_str()))
+        .collect()
+}
+
+/// Every `impl Drive for X` of the shipped code - at the start of a line or inside a module, in a file that is no test's, and
+/// no item a test build alone compiles - is a wrapper of the table or one of the others: a new drive is a decision, not a
+/// surprise. It read the impls at the start of a line, so `mod mirror { impl<D: Drive> Drive for Mirror<D> { .. } }` was
+/// classified nowhere and read by no census test (X-DELTA-DRIVEE-7; the finder is `drive_impls_in`, which has its planted cases).
 #[test]
 fn x_delta_azdrive_files_2_every_shipped_impl_of_drive_is_classified() {
-    fn is_test_source(path: &std::path::Path) -> bool {
-        path.components()
-            .any(|c| matches!(c.as_os_str().to_str(), Some("tests" | "e2e" | "target")))
-            || path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .is_some_and(|stem| stem.ends_with("tests") || stem.ends_with("_test"))
-    }
-    fn walk(dir: &std::path::Path, found: &mut Vec<(String, std::path::PathBuf)>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if is_test_source(&path) {
-                continue;
-            }
-            if path.is_dir() {
-                walk(&path, found);
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                let Ok(text) = std::fs::read_to_string(&path) else {
-                    continue;
-                };
-                for line in text.lines().filter(|l| l.starts_with("impl")) {
-                    // `impl Drive for X {`, `impl<D: Drive> Drive for X<D> {`,
-                    // `impl azul_storage::Drive for X {` - but not `impl SyncDrive for X`.
-                    let Some(at) = line.find("Drive for ") else {
-                        continue;
-                    };
-                    if line[..at]
-                        .chars()
-                        .next_back()
-                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
-                    {
-                        continue;
-                    }
-                    let name: String = line[at + "Drive for ".len()..]
-                        .chars()
-                        .take_while(|c| c.is_alphanumeric() || *c == '_')
-                        .collect();
-                    if !name.is_empty() {
-                        found.push((name, path.clone()));
-                    }
-                }
-                // `azul_storage::delegate_drive!(X);`: the impl is made by the macro (a comment or
-                // a doc line that shows it starts with `//` and is none).
-                for line in text.lines() {
-                    let line = line.trim_start();
-                    let Some(at) = line.find("delegate_drive!(") else {
-                        continue;
-                    };
-                    if line.starts_with("//") || line[..at].contains(' ') {
-                        continue;
-                    }
-                    let name: String = line[at + "delegate_drive!(".len()..]
-                        .chars()
-                        .take_while(|c| c.is_alphanumeric() || *c == '_')
-                        .collect();
-                    if !name.is_empty() {
-                        found.push((name, path.clone()));
-                    }
-                }
-            }
-        }
-    }
-    let mut found = Vec::new();
-    let Ok(crates) = std::fs::read_dir(examples_dir()) else {
-        panic!("the examples folder cannot be read");
-    };
-    for krate in crates.flatten() {
-        walk(&krate.path().join("src"), &mut found);
-    }
+    let found = shipped_impls();
     assert!(found.len() >= 10, "the impls were found: {found:?}");
     let known: Vec<&str> = WRAPPERS
         .iter()
@@ -779,9 +739,8 @@ fn x_delta_azdrive_files_2_every_shipped_impl_of_drive_is_classified() {
         .chain(DELEGATING.iter().map(|(name, _)| *name))
         .chain(OTHERS.iter().map(|(name, _)| *name))
         .collect();
-    for (name, path) in &found {
-        assert!(
-            known.contains(&name.as_str()),
+    if let Some((name, path)) = unclassified(&found, &known).first() {
+        panic!(
             "`impl Drive for {name}` in {} is in none of WRAPPERS, DELEGATING and OTHERS of drive_coverage.rs: \
              a drive that sits on another one forwards every call or says why not",
             path.display()
@@ -811,7 +770,7 @@ use std::sync::Arc;
 use crate::erase::{Chose, Target, Why};
 use crate::testing::{
     conditional_write_arrives, every_method, pinned_read_arrives, versioned_batches_arrive,
-    ConditionalWrite, Probe, METHOD_NAMES,
+    ConditionalWrite, Heard, Probe, METHOD_NAMES,
 };
 
 /// `Box`, `Arc` and `&` of a drive are drives (`forward_drive!`): each sends a pinned read down with its
@@ -902,6 +861,26 @@ fn x_delta_struct3_8_the_call_of_every_method_is_the_list_and_nothing_else() {
             .any(|c| c.name == "get_range_if" && c.outcome.is_ok()),
         "the pinned read reached the probe, which answers it"
     );
+    // The checked upload of the call arrived with the check of the file it names (X-DELTA-DRIVEE-7: the call asserted
+    // nothing about its check).
+    let heard = probe.heard();
+    let checked: Vec<&Heard> = heard
+        .iter()
+        .filter(|call| call.method == "put_file_checked")
+        .collect();
+    assert_eq!(
+        checked.len(),
+        1,
+        "the checked upload was heard once: {heard:?}"
+    );
+    assert_eq!(
+        checked[0]
+            .check
+            .as_ref()
+            .map(|check| (check.size, check.blake3.as_str())),
+        Some((1, blake3::hash(b"x").to_hex().as_str())),
+        "the check of the one-byte file"
+    );
 }
 
 /// The shipped drives that sit on no drive: none of them holds a drive below it - a `dyn Drive`, an `Arc` of
@@ -910,9 +889,10 @@ fn x_delta_struct3_8_the_call_of_every_method_is_the_list_and_nothing_else() {
 /// pinned read was dropped by a wrapper no census read (X-DELTA-STRUCT3-6).
 #[test]
 fn x_delta_struct3_8_a_drive_filed_as_no_wrapper_holds_no_drive_below_it() {
+    let impls = shipped_impls();
     for (name, _) in OTHERS {
-        for (found, path) in shipped_impls() {
-            if found != *name {
+        for (found, path) in &impls {
+            if found != name {
                 continue;
             }
             let text = std::fs::read_to_string(&path)
@@ -928,30 +908,35 @@ fn x_delta_struct3_8_a_drive_filed_as_no_wrapper_holds_no_drive_below_it() {
     }
 }
 
-/// The text of the struct `name` in `source` (its header to the end of its field list), when there is one.
+/// The tokens of `source` (comments left out, a string literal one token) with the byte range each came from, and whether the
+/// shipped code has it: what only a test build compiles (`#[cfg(test)]`, `#[test]`, a file under `#![cfg(test)]`) is not
+/// shipped. The census reads items through this and not through lines: an `impl` or a `struct` inside a module is found as it
+/// is at the start of a line, and a test module's is none (X-DELTA-DRIVEE-7: the finders read the start of a line only).
+fn shipped_tokens(source: &str) -> (Vec<Spanned>, Vec<bool>) {
+    let (tokens, _) = lex_spans(source);
+    let plain: Vec<Tok> = tokens.iter().map(|(token, _)| token.clone()).collect();
+    let mut shipped = vec![true; tokens.len()];
+    for range in test_items(&plain) {
+        for at in range {
+            if let Some(token) = shipped.get_mut(at) {
+                *token = false;
+            }
+        }
+    }
+    (tokens, shipped)
+}
+
+/// The text of the struct `name` in `source`, from its `struct` keyword to the end of its fields (the closing brace, or the `;`
+/// of a tuple or unit struct), when there is one - wherever it stands, at the start of a line or inside a module, and not
+/// when only a test build compiles it.
 fn struct_text<'a>(source: &'a str, name: &str) -> Option<&'a str> {
-    ["pub struct ", "pub(crate) struct ", "struct "]
-        .iter()
-        .find_map(|head| {
-            let at = source
-                .match_indices(&format!("{head}{name}"))
-                .find(|(at, _)| {
-                    let rest = &source[at + head.len() + name.len()..];
-                    rest.starts_with(['<', ' ', '{', '(', ';', '\n'])
-                        && (*at == 0 || source[..*at].ends_with('\n'))
-                })?
-                .0;
-            let rest = &source[at..];
-            // A struct ends at its closing brace in column 0, or at the `;` of a tuple or unit struct.
-            let end = rest
-                .find("\n}\n")
-                .map(|i| i + 2)
-                .into_iter()
-                .chain(rest.find(";\n").map(|i| i + 1))
-                .min()
-                .unwrap_or(rest.len());
-            Some(&rest[..end])
-        })
+    let (tokens, shipped) = shipped_tokens(source);
+    let at = (0..tokens.len().saturating_sub(1)).find(|&at| {
+        shipped[at] && tokens[at].0.is_ident("struct") && tokens[at + 1].0.is_ident(name)
+    })?;
+    let plain: Vec<Tok> = tokens.iter().map(|(token, _)| token.clone()).collect();
+    let end = item_end(&plain, at).max(at + 1);
+    Some(&source[tokens[at].1.start..tokens[end - 1].1.end])
 }
 
 /// What shows that `source`'s struct `name` holds a drive below it: a `dyn .. Drive`, an `Arc`, `Box` or
@@ -1008,8 +993,50 @@ fn bounded_by_drive(code: &str) -> Option<String> {
     None
 }
 
-/// Every `impl Drive for X` / `delegate_drive!(X)` of the shipped code, with its file: what the census above
-/// walks, as a list.
+/// The types `source` writes `Drive` for - `impl Drive for X`, `impl<D: Drive> Drive for X<D>`, `impl azul_storage::Drive for X`,
+/// at the start of a line or inside a module - and the types `delegate_drive!(X)` makes it for, in the order they stand. What
+/// only a test build compiles is left out, `SyncDrive` is no `Drive`, and the `$wrapper` of a macro is no name.
+fn drive_impls_in(source: &str) -> Vec<String> {
+    let (tokens, shipped) = shipped_tokens(source);
+    let mut found = Vec::new();
+    for (at, (token, _)) in tokens.iter().enumerate() {
+        if !shipped[at] {
+            continue;
+        }
+        if token.is_ident("impl") {
+            // The header: up to the `{` of the impl - its generics, the trait, the type and a `where` clause.
+            let end = tokens[at..]
+                .iter()
+                .position(|(token, _)| token.is_punct('{') || token.is_punct(';'))
+                .map_or(tokens.len(), |len| at + len);
+            let header = &tokens[at..end];
+            for (n, (token, _)) in header.iter().enumerate() {
+                let for_next = header
+                    .get(n + 1)
+                    .is_some_and(|(next, _)| next.is_ident("for"));
+                if token.is_ident("Drive") && for_next {
+                    if let Some(name) = header.get(n + 2).and_then(|(named, _)| named.ident()) {
+                        found.push(name.to_string());
+                    }
+                }
+            }
+        } else if token.is_ident("delegate_drive") {
+            // `delegate_drive!(X)`, behind any path: the type the macro makes the impl for.
+            if let [(bang, _), (open, _), (named, _)] = &tokens[at + 1..(at + 4).min(tokens.len())]
+            {
+                if bang.is_punct('!') && open.is_punct('(') {
+                    if let Some(name) = named.ident() {
+                        found.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Every `impl Drive for X` / `delegate_drive!(X)` of the shipped code, with its file: what the census above walks, as a list
+/// (a file of a test build - a `tests` or `e2e` folder, a file named `*tests` or `*_test` - is none).
 fn shipped_impls() -> Vec<(String, std::path::PathBuf)> {
     fn is_test_source(path: &std::path::Path) -> bool {
         path.components()
@@ -1034,35 +1061,89 @@ fn shipped_impls() -> Vec<(String, std::path::PathBuf)> {
                 let Ok(text) = std::fs::read_to_string(&path) else {
                     continue;
                 };
-                for line in text.lines().filter(|l| l.starts_with("impl")) {
-                    let Some(at) = line.find("Drive for ") else {
-                        continue;
-                    };
-                    if line[..at]
-                        .chars()
-                        .next_back()
-                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
-                    {
-                        continue;
-                    }
-                    let name: String = line[at + "Drive for ".len()..]
-                        .chars()
-                        .take_while(|c| c.is_alphanumeric() || *c == '_')
-                        .collect();
-                    if !name.is_empty() {
-                        found.push((name, path.clone()));
-                    }
+                // The lexer reads only a file that can name one.
+                if !text.contains("Drive") && !text.contains("delegate_drive") {
+                    continue;
+                }
+                for name in drive_impls_in(&text) {
+                    found.push((name, path.clone()));
                 }
             }
         }
     }
     let mut found = Vec::new();
-    if let Ok(crates) = std::fs::read_dir(examples_dir()) {
-        for krate in crates.flatten() {
-            walk(&krate.path().join("src"), &mut found);
-        }
+    let Ok(crates) = std::fs::read_dir(examples_dir()) else {
+        panic!("the examples folder cannot be read");
+    };
+    for krate in crates.flatten() {
+        walk(&krate.path().join("src"), &mut found);
     }
     found
+}
+
+/// What the body of a row's test must name when the row's label is no type a test can write: `&` is no name, and the drive below
+/// the bytes of an Azlin drive is a private type of the kit that its tests reach through `DriveDelegate::below`. A label that
+/// is a type is its own name (X-DELTA-DRIVEE-7: a row whose test names another wrapper proved nothing about this one).
+const NAMED_AS: &[(&str, &[&str])] = &[
+    ("Box, Arc and & of a drive", &["Arc", "Box"]),
+    ("NoDriveBelow", &["below"]),
+];
+
+/// The names the test of the row `wrapper` must write in its body.
+fn names_of_row(wrapper: &str) -> Vec<&str> {
+    NAMED_AS
+        .iter()
+        .find(|(label, _)| *label == wrapper)
+        .map_or_else(|| vec![wrapper], |(_, names)| names.to_vec())
+}
+
+/// Why the test a census row names proves nothing about the wrapper of the row, or `None` when it does: it is in `source`, it is
+/// a `#[test]`, it is not ignored, its body NAMES the wrapper (a type: an identifier, not a word of a string or a comment) and
+/// calls one of `words` (an identifier, or a string such as a header's name: a word in a comment is none). A row that points at
+/// another wrapper's test, or at a test whose comment says the word, passed the old census: it asked that the test exist, that
+/// it be a test and that its body hold a word, and the body of a test in a module ran to the end of the module.
+fn row_problem(wrapper: &str, source: &str, test: &str, words: &[&str]) -> Option<String> {
+    let (tokens, _) = lex_spans(source);
+    let plain: Vec<Tok> = tokens.iter().map(|(token, _)| token.clone()).collect();
+    let Some(at) = (0..plain.len().saturating_sub(2)).find(|&at| {
+        plain[at].is_ident("fn")
+            && plain[at + 1].is_ident(test)
+            && (plain[at + 2].is_punct('(') || plain[at + 2].is_punct('<'))
+    }) else {
+        return Some(format!("the test `{test}` is not in the file"));
+    };
+    // Its attributes: the lines right above it, back to the blank line before the doc comment (a test in a module is
+    // indented: the indent is no line).
+    let above = source[..tokens[at].1.start].trim_end_matches([' ', '\t']);
+    let attributes: Vec<&str> = above
+        .lines()
+        .rev()
+        .take_while(|line| !line.trim().is_empty())
+        .collect();
+    if !attributes.iter().any(|line| line.trim() == "#[test]") {
+        return Some(format!("`{test}` is no #[test] ({attributes:?})"));
+    }
+    if attributes.iter().any(|line| line.contains("ignore")) {
+        return Some(format!("`{test}` is ignored"));
+    }
+    let end = item_end(&plain, at).max(at + 1);
+    let body = &plain[at..end];
+    let ident = |name: &str| body.iter().any(|token| token.is_ident(name));
+    let string = |part: &str| {
+        body.iter()
+            .any(|token| matches!(token, Tok::Str(text) if text.contains(part)))
+    };
+    for name in names_of_row(wrapper) {
+        if !ident(name) {
+            return Some(format!(
+                "the body of `{test}` does not name `{name}`: a row for a wrapper is the test of THAT wrapper"
+            ));
+        }
+    }
+    if !words.iter().any(|word| ident(word) || string(word)) {
+        return Some(format!("the body of `{test}` calls none of {words:?}"));
+    }
+    None
 }
 
 /// The test that looks at what ARRIVES below each wrapper, one row per wrapper that decides for itself what to
@@ -1140,34 +1221,20 @@ fn x_delta_struct3_8_every_wrapper_that_decides_for_itself_has_a_test_of_what_ar
         let path = examples_dir().join(file);
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("{name}: {} cannot be read ({e})", path.display()));
-        let header = format!("fn {test}(");
-        let at = source
-            .find(&header)
-            .unwrap_or_else(|| panic!("{name}: the test `{test}` is not in {file}"));
-        // Its attributes: the lines right above it, back to the blank line before the doc comment (a test in a
-        // module is indented: the indent is no line).
-        let above = source[..at].trim_end_matches([' ', '\t']);
-        let attributes: Vec<&str> = above
-            .lines()
-            .rev()
-            .take_while(|line| !line.trim().is_empty())
-            .collect();
-        assert!(
-            attributes.iter().any(|line| line.trim() == "#[test]"),
-            "{name}: `{test}` is no #[test] ({attributes:?})"
-        );
-        assert!(
-            !attributes.iter().any(|line| line.contains("ignore")),
-            "{name}: `{test}` is ignored"
-        );
-        let body = &source[at..];
-        let body = &body[..body.find("\n}\n").unwrap_or(body.len())];
-        assert!(
-            ["pinned_read_arrives", "get_range_if", "every_method"]
-                .iter()
-                .any(|word| body.contains(word)),
-            "{name}: `{test}` does not send a pinned read or call every method"
-        );
+        // A row's test is the test of its wrapper (X-DELTA-DRIVEE-7: it named the test, not what the test is about).
+        if let Some(problem) = row_problem(
+            name,
+            &source,
+            test,
+            &[
+                "pinned_read_arrives",
+                "get_range_if",
+                "every_method",
+                "every_method_of",
+            ],
+        ) {
+            panic!("{name} ({file}): {problem} - a test that sends a pinned read through it or calls every method");
+        }
     }
 }
 
@@ -1332,17 +1399,55 @@ fn x_delta_struct4_4_the_encryption_gate_lets_no_write_through_without_its_condi
     assert_eq!(writes, Vec::new(), "nothing was written below the gate");
 }
 
-/// The methods of `DriveDelegate` that write something and carry a condition or a version: a wrapper that writes one of
-/// them decides for itself what happens to it (X-DELTA-STRUCT4-4).
-const CONDITIONAL: &[&str] = &[
-    "put_if",
-    "put_from_if",
-    "put_file_if",
-    "put_many",
-    "put_from_many",
-    "delete_many",
-    "move_many",
-];
+/// The methods of `drive_methods!` that carry a condition, a version or a check - their arguments name `Precondition`,
+/// `BatchPut`, `BatchDelete`, `BatchMove`, `BatchStream` or `FileCheck` - in the list's order: a wrapper that writes one of them
+/// decides for itself what happens to it (X-DELTA-STRUCT4-4). Derived from the list, not written out: the seven names of the
+/// hand list left out `put_file_checked` (X-DELTA-DRIVEE-7), and a method the trait gets next that carries one of them is a
+/// method a wrapper can drop it from, so it is in the list at once.
+fn conditional_methods(lib: &str) -> Vec<Entry> {
+    const CARRIED: [&str; 6] = [
+        "Precondition",
+        "BatchPut",
+        "BatchDelete",
+        "BatchMove",
+        "BatchStream",
+        "FileCheck",
+    ];
+    list_entries(lib)
+        .into_iter()
+        .filter(|entry| {
+            let arguments = entry
+                .signature
+                .split(" -> ")
+                .next()
+                .unwrap_or(&entry.signature);
+            CARRIED.iter().any(|carried| arguments.contains(carried))
+        })
+        .collect()
+}
+
+/// What the test a CONDITION row names may call to be one of conditional writes: the helpers of `testing` (and the crates' own
+/// `every_method_of`, which calls `every_method`), a header's name and every WRITE of [`conditional_methods`] (a pinned read, `get_range_if`, is BODY_TESTS's; a `compose` call is the trait's
+/// default over `delete_many`).
+fn condition_words(lib: &str) -> Vec<String> {
+    let mut words: Vec<String> = [
+        "conditional_write_arrives",
+        "versioned_batches_arrive",
+        "if-match",
+        "every_method",
+        "every_method_of",
+    ]
+    .iter()
+    .map(|word| (*word).to_string())
+    .collect();
+    words.extend(
+        conditional_methods(lib)
+            .into_iter()
+            .filter(|entry| entry.kind != "compose" && !entry.name.starts_with("get_"))
+            .map(|entry| entry.name),
+    );
+    words
+}
 
 /// The test that looks at what a CONDITIONAL WRITE does below each wrapper that decides for itself what to do with one:
 /// `(wrapper, file below examples/, the test)`. Over a probe (a leaf that listens; the key as it arrives, the condition
@@ -1364,6 +1469,21 @@ const CONDITION_TESTS: &[(&str, &str, &str)] = &[
         "AutoEncrypted",
         "azul-storage/src/tests/encrypted.rs",
         "x_delta_drivee_6_an_admitted_gate_writes_a_file_only_while_it_is_unchanged",
+    ),
+    (
+        "AutoEncrypted",
+        "azul-storage/src/tests/encrypted.rs",
+        "x_delta_drivee_6_an_admitted_gate_writes_a_streamed_body_and_a_file_only_while_the_name_is_unchanged",
+    ),
+    (
+        "AutoEncrypted",
+        "azul-storage/src/tests/encrypted.rs",
+        "x_delta_drivee_6_an_admitted_gate_holds_the_condition_and_the_version_of_every_item_of_a_batch",
+    ),
+    (
+        "AutoEncrypted",
+        "azul-storage/src/tests/encrypted.rs",
+        "x_delta_drivee_6_an_admitted_gate_sends_a_checked_upload_with_its_check",
     ),
     (
         "AutoEncrypted",
@@ -1412,15 +1532,25 @@ const CONDITION_TESTS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// X-DELTA-STRUCT4-4. The census learns CONDITIONS: every wrapper that writes a method of `CONDITIONAL` for itself - the
-/// hand-written ones (`WRAPPERS`), the pointer impls and every delegating wrapper whose `DriveDelegate` has one of the
-/// seven (`RetryingDrive`, `ObjectCache`, `AzlinDrive`, `Stops`, `Stoppable`: read from the file, so a new one is
-/// found) - has a named test that exists, is not ignored and sends a conditional write through it. A wrapper that
-/// answers `put_if` with `put`, or retries a write with `Precondition::Absent`, turns an `If-Match` write into an
-/// overwrite of what another device just wrote (the AZ-M1 / SYNC4-1 class); the old census passed it.
+/// X-DELTA-STRUCT4-4. The census learns CONDITIONS: every wrapper that writes one of [`conditional_methods`] for itself - the
+/// hand-written ones (`WRAPPERS`), the pointer impls and every delegating wrapper whose `DriveDelegate` has one of them
+/// (`RetryingDrive`, `ObjectCache`, `AzlinDrive`, `Stops`, `Stoppable`: read from the file, so a new one is found) - has a
+/// named test that exists, is a test, is not ignored, NAMES the wrapper and sends a conditional write through it
+/// ([`row_problem`]). A wrapper that answers `put_if` with `put`, or retries a write with `Precondition::Absent`, turns an
+/// `If-Match` write into an overwrite of what another device just wrote (the AZ-M1 / SYNC4-1 class); the old census passed it,
+/// and passed a row that pointed at another wrapper's test (X-DELTA-DRIVEE-7).
 #[test]
 fn x_delta_struct4_4_every_wrapper_that_writes_a_conditional_body_has_a_test_that_its_conditions_arrive(
 ) {
+    let lib = include_str!("../lib.rs");
+    let conditional: Vec<String> = conditional_methods(lib)
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    assert!(
+        conditional.len() >= 8,
+        "the conditional methods were derived: {conditional:?}"
+    );
     let rows = |name: &str| {
         CONDITION_TESTS
             .iter()
@@ -1451,7 +1581,7 @@ fn x_delta_struct4_4_every_wrapper_that_writes_a_conditional_body_has_a_test_tha
         let decides: Vec<&str> = written
             .iter()
             .map(String::as_str)
-            .filter(|method| CONDITIONAL.contains(method))
+            .filter(|method| conditional.iter().any(|carried| carried == method))
             .collect();
         if !decides.is_empty() {
             assert!(
@@ -1461,40 +1591,350 @@ fn x_delta_struct4_4_every_wrapper_that_writes_a_conditional_body_has_a_test_tha
             );
         }
     }
+    let words = condition_words(lib);
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
     for (name, file, test) in CONDITION_TESTS {
         let path = examples_dir().join(file);
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("{name}: {} cannot be read ({e})", path.display()));
-        let header = format!("fn {test}(");
-        let at = source
-            .find(&header)
-            .unwrap_or_else(|| panic!("{name}: the test `{test}` is not in {file}"));
-        let above = source[..at].trim_end_matches([' ', '\t']);
-        let attributes: Vec<&str> = above
-            .lines()
-            .rev()
-            .take_while(|line| !line.trim().is_empty())
-            .collect();
-        assert!(
-            attributes.iter().any(|line| line.trim() == "#[test]"),
-            "{name}: `{test}` is no #[test] ({attributes:?})"
-        );
-        assert!(
-            !attributes.iter().any(|line| line.contains("ignore")),
-            "{name}: `{test}` is ignored"
-        );
-        let body = &source[at..];
-        let body = &body[..body.find("\n}\n").unwrap_or(body.len())];
-        assert!(
-            [
-                "conditional_write_arrives",
-                "put_if",
-                "if-match",
-                "every_method"
-            ]
+        if let Some(problem) = row_problem(name, &source, test, &words) {
+            panic!("{name} ({file}): {problem} - a test that sends a conditional write through it");
+        }
+    }
+}
+
+// ==== The census reads what it must read (X-DELTA-DRIVEE-7) ====
+//
+// The finders read the start of a line, a row was satisfied by a word of the test's body and `CONDITIONAL` was seven names
+// written by hand: a wrapper in a module was classified nowhere, a row pointed at another wrapper's test, and a wrapper that
+// answered a checked upload with `put_file` passed. Each has its planted case here: it fails, and the clean one passes.
+
+/// An impl inside a module is found like one at the start of a line, and what only a test build compiles is not.
+#[test]
+fn x_delta_drivee_7_an_impl_inside_a_module_is_found_and_the_impls_of_a_test_build_are_not() {
+    let planted = r#"
+impl Drive for Plain {}
+mod mirror {
+    pub struct Mirror<D>(pub D);
+    impl<D: Drive> Drive for Mirror<D> {
+        fn put_if(&self) {}
+    }
+}
+azul_storage::delegate_drive!(Wrapped);
+impl crate::Drive
+    for Wrapped2 {}
+// impl Drive for InAComment {}
+/// impl Drive for InADoc {}
+impl SyncDrive for NotADrive {}
+macro_rules! pointer {
+    ($pointer:ty) => {
+        impl<D: Drive + ?Sized> Drive for $pointer {}
+    };
+}
+#[cfg(test)]
+mod tests {
+    impl Drive for InATestModule {}
+}
+#[cfg(test)]
+impl Drive for ATestItem {}
+"#;
+    assert_eq!(
+        drive_impls_in(planted),
+        ["Plain", "Mirror", "Wrapped", "Wrapped2"],
+        "the one at the start of a line, the one in the module, the macro's and the one that wraps its header"
+    );
+    // The census fails on the planted drive until it is classified, and passes once it is.
+    let found: Vec<(String, std::path::PathBuf)> = drive_impls_in(planted)
+        .into_iter()
+        .map(|name| (name, std::path::PathBuf::from("planted.rs")))
+        .collect();
+    let unknown = unclassified(&found, &["Plain", "Wrapped", "Wrapped2"]);
+    assert_eq!(
+        unknown
             .iter()
-            .any(|word| body.contains(word)),
-            "{name}: `{test}` sends no conditional write"
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["Mirror"],
+        "the wrapper in the module is classified nowhere"
+    );
+    assert!(unclassified(&found, &["Plain", "Mirror", "Wrapped", "Wrapped2"]).is_empty());
+}
+
+/// A struct inside a module is read to its own end, not to the end of the module: a leaf is no wrapper whatever follows it,
+/// and a wrapper in a module is found.
+#[test]
+fn x_delta_drivee_7_a_struct_inside_a_module_is_read_to_its_own_end() {
+    let planted = r#"
+mod wrappers {
+    pub struct Leaf {
+        count: usize,
+    }
+
+    pub struct Boxed {
+        inner: Box<dyn Drive>,
+    }
+
+    pub struct Tuple<D>(pub D)
+    where
+        D: Drive;
+
+    #[cfg(test)]
+    struct OnlyInTests {
+        inner: Box<dyn Drive>,
+    }
+}
+"#;
+    assert_eq!(
+        holds_a_drive(planted, "Leaf"),
+        None,
+        "a leaf is no wrapper, whatever follows it in its module"
+    );
+    assert!(
+        holds_a_drive(planted, "Boxed").is_some(),
+        "a boxed drive in a module"
+    );
+    assert!(
+        holds_a_drive(planted, "Tuple").is_some(),
+        "a tuple struct with a where clause"
+    );
+    assert!(
+        struct_text(planted, "OnlyInTests").is_none(),
+        "a struct that only a test build compiles is none"
+    );
+    // The block of an impl in a module ends at its own closing brace, and its methods are the ones at its own depth.
+    let module = "mod mirror {\n    impl Drive for Mirror {\n        fn get(&self) {}\n        fn put(&self) {\n            let _ = |x| {};\n        }\n    }\n    impl Drive for Second {\n        fn list(&self) {}\n    }\n}\nimpl Drive for Other {\n    fn head(&self) {}\n}\n";
+    assert_eq!(
+        methods_of(module, "impl Drive for Mirror {"),
+        ["get", "put"],
+        "the methods of the first impl of a module, not the module's"
+    );
+    assert_eq!(methods_of(module, "impl Drive for Second {"), ["list"]);
+    assert_eq!(methods_of(module, "impl Drive for Other {"), ["head"]);
+}
+
+/// A row is the test of its wrapper: one whose test names another wrapper, is no test, is ignored, or says the word in a
+/// comment proves nothing; the clean row passes.
+#[test]
+fn x_delta_drivee_7_a_row_whose_test_names_another_wrapper_or_says_the_word_in_a_comment_proves_nothing(
+) {
+    let planted = r#"
+mod tests {
+    #[test]
+    fn the_pointers_send_every_write() {
+        let probe = Probe::new();
+        conditional_write_arrives(&Box::new(Arc::new(probe.clone())), &probe, &file, "object").unwrap();
+    }
+
+    #[test]
+    fn mirror_sends_every_write() {
+        let probe = Probe::new();
+        let mirror = Mirror(probe.clone());
+        conditional_write_arrives(&mirror, &probe, &file, "object").unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn mirror_is_ignored() {
+        conditional_write_arrives(&Mirror(Probe::new()), &probe, &file, "object").unwrap();
+    }
+
+    fn mirror_is_no_test() {
+        conditional_write_arrives(&Mirror(Probe::new()), &probe, &file, "object").unwrap();
+    }
+
+    #[test]
+    fn mirror_says_it_in_a_comment() {
+        // Mirror sends conditional_write_arrives
+        let _ = "Mirror";
+    }
+}
+"#;
+    let words = ["conditional_write_arrives", "if-match"];
+    assert_eq!(
+        row_problem("Mirror", planted, "mirror_sends_every_write", &words),
+        None,
+        "the clean row"
+    );
+    for test in [
+        "the_pointers_send_every_write",
+        "mirror_is_ignored",
+        "mirror_is_no_test",
+        "mirror_says_it_in_a_comment",
+        "no_such_test",
+    ] {
+        assert!(
+            row_problem("Mirror", planted, test, &words).is_some(),
+            "a row for Mirror that names `{test}` passed"
+        );
+    }
+    // The pointers' own row names the pointers, and the drive below the bytes names the accessor that hands it out.
+    assert_eq!(
+        row_problem(
+            "Box, Arc and & of a drive",
+            planted,
+            "the_pointers_send_every_write",
+            &words
+        ),
+        None
+    );
+    assert_eq!(
+        names_of_row("NoDriveBelow"),
+        ["below"],
+        "a private type of the kit is reached through the bytes' accessor"
+    );
+    assert_eq!(names_of_row("Mirror"), ["Mirror"]);
+}
+
+/// A wrapper made with the macro that forwards every method: the checked upload as well.
+struct Faithful {
+    below: Probe,
+}
+
+impl crate::DriveDelegate for Faithful {
+    fn below(&self) -> &dyn crate::Drive {
+        &self.below
+    }
+}
+
+crate::delegate_drive!(Faithful);
+
+/// The same, except that it answers a checked upload with `put_file`: the check of the file is dropped, and a file that
+/// changed while it was uploaded is uploaded under the name of what it was.
+struct Forgetful {
+    below: Probe,
+}
+
+impl crate::DriveDelegate for Forgetful {
+    fn below(&self) -> &dyn crate::Drive {
+        &self.below
+    }
+
+    fn put_file_checked(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        _check: &crate::checked::FileCheck,
+        ctl: &dyn crate::Ctl,
+    ) -> Result<crate::checked::CheckedUpload, crate::DriveError> {
+        crate::Drive::put_file(&self.below, key, path, ctl).map(crate::checked::CheckedUpload::Sent)
+    }
+}
+
+crate::delegate_drive!(Forgetful);
+
+/// The probe hears a checked upload with its check, and the census helpers send one: a wrapper that forwards everything passes,
+/// and one that answers it with `put_file` fails - it reaches the probe as a plain `put`, with no check.
+#[test]
+fn x_delta_drivee_7_a_wrapper_that_drops_the_file_check_fails_the_census_and_a_faithful_one_passes()
+{
+    use crate::Drive;
+
+    let (_dir, file) = one_byte_file("drivee7-check");
+    // The probe hears it with its check.
+    let probe = Probe::new();
+    let check = crate::checked::FileCheck {
+        size: 1,
+        modified_ns: 7,
+        blake3: String::from("not the hash of anything"),
+        dev: 0,
+        ino: 0,
+    };
+    let answer = probe.put_file_checked("k", &file, &check, &crate::ctl::Quiet);
+    assert_eq!(answer, Ok(crate::checked::CheckedUpload::Sent(1)));
+    assert_eq!(
+        probe.heard(),
+        [Heard {
+            method: "put_file_checked",
+            key: String::from("k"),
+            condition: None,
+            check: Some(check),
+        }]
+    );
+    // The clean wrapper passes every write, the checked upload too.
+    let probe = Probe::new();
+    let faithful = Faithful {
+        below: probe.clone(),
+    };
+    conditional_write_arrives(&faithful, &probe, &file, "object")
+        .expect("a wrapper that forwards every method");
+    // The one that drops the check passes the conditional writes and fails the checked upload.
+    let probe = Probe::new();
+    let forgetful = Forgetful {
+        below: probe.clone(),
+    };
+    match conditional_write_arrives(&forgetful, &probe, &file, "object") {
+        Err(ConditionalWrite::NotConditional {
+            call: "put_file_checked",
+            heard,
+        }) => {
+            assert!(
+                heard.iter().all(|call| call.check.is_none()),
+                "no check reached the probe: {heard:?}"
+            );
+            assert!(
+                heard.iter().all(|call| call.method == "put"),
+                "what reached it is a plain write: {heard:?}"
+            );
+        }
+        other => panic!("a checked upload answered with put_file passed the census: {other:?}"),
+    }
+}
+
+/// The conditional methods are the list's, not seven names written out: the entries of `drive_methods!` whose arguments carry a
+/// condition, a version or a check - `put_file_checked` is one - and a method the trait gets next that carries one is in at once.
+/// And the helpers of the census send every write of them: a derived method that neither helper sends fails here.
+#[test]
+fn x_delta_drivee_7_the_conditional_methods_are_derived_from_the_list_and_every_write_of_them_is_sent_by_the_helpers(
+) {
+    use std::collections::BTreeSet;
+
+    let lib = include_str!("../lib.rs");
+    let derived: Vec<String> = conditional_methods(lib)
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    for hand_written in [
+        "put_if",
+        "put_from_if",
+        "put_file_if",
+        "put_many",
+        "put_from_many",
+        "delete_many",
+        "move_many",
+    ] {
+        assert!(
+            derived.iter().any(|name| name == hand_written),
+            "{hand_written} is in the derived list: {derived:?}"
+        );
+    }
+    assert!(
+        derived.iter().any(|name| name == "put_file_checked"),
+        "the hand list left it out: {derived:?}"
+    );
+    // A method the list gets next is derived at once; one whose arguments carry none of them is not.
+    let planted = "macro_rules! drive_methods {\n    ($callback:path ; $($context:tt)*) => {\n        $callback! {\n            (pass, provided) fn put_checked_if(key: &str, condition: &$crate::Precondition) -> ::core::result::Result<(), $crate::DriveError>;\n            (send, required) fn head(key: &str) -> ::core::result::Result<$crate::ObjectInfo, $crate::DriveError>;\n            (send, provided) fn count(key: &str) -> ::core::result::Result<$crate::Precondition, $crate::DriveError>;\n        }\n    };\n}\n";
+    assert_eq!(
+        conditional_methods(planted)
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        ["put_checked_if"]
+    );
+    // Both helpers over the probe itself: every write of the derived list is heard.
+    let (_dir, file) = one_byte_file("drivee7-derived");
+    let probe = Probe::new();
+    conditional_write_arrives(&probe, &probe, &file, "object")
+        .expect("the probe, through the helper");
+    versioned_batches_arrive(&probe, &probe, "object").expect("the probe, through the helper");
+    let heard: BTreeSet<&str> = probe.heard().iter().map(|call| call.method).collect();
+    for entry in conditional_methods(lib) {
+        if entry.kind == "compose" || entry.name.starts_with("get_") {
+            continue;
+        }
+        assert!(
+            heard.contains(entry.name.as_str()),
+            "no helper of the census sends `{}`: a wrapper can drop what it carries and pass",
+            entry.name
         );
     }
 }

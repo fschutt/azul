@@ -179,10 +179,13 @@ pub struct Heard {
     pub key: String,
     /// The condition it carried: what a pinned read is pinned to.
     pub condition: Option<crate::Precondition>,
+    /// The check it carried, for a checked upload (`put_file_checked`): what the file must still be when the upload
+    /// completes. A wrapper that answers the call with `put_file` sends none (X-DELTA-DRIVEE-7).
+    pub check: Option<crate::checked::FileCheck>,
 }
 
 /// A leaf drive that does nothing but listen: it records the calls that reach it - the method, the key as
-/// it arrived, the condition - and answers what a drive nobody has written to answers (an empty listing,
+/// it arrived, the condition, the check of a file - and answers what a drive nobody has written to answers (an empty listing,
 /// no object), except a pinned read, which it answers with a few bytes. What a wrapper over it does with a
 /// call is seen from below: the census of the wrappers checks that a method is NAMED, and a probe behind
 /// each wrapper checks what its BODY does with it (a `get_range_if` that called `get_range` dropped the
@@ -240,14 +243,29 @@ impl Probe {
     }
 
     fn hear(&self, method: &'static str, key: &str, condition: Option<&crate::Precondition>) {
+        self.note(Heard {
+            method,
+            key: key.to_string(),
+            condition: condition.cloned(),
+            check: None,
+        });
+    }
+
+    /// A call that carried the check of a file.
+    fn hear_check(&self, method: &'static str, key: &str, check: &crate::checked::FileCheck) {
+        self.note(Heard {
+            method,
+            key: key.to_string(),
+            condition: None,
+            check: Some(check.clone()),
+        });
+    }
+
+    fn note(&self, heard: Heard) {
         self.heard
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(Heard {
-                method,
-                key: key.to_string(),
-                condition: condition.cloned(),
-            });
+            .push(heard);
     }
 }
 
@@ -328,6 +346,19 @@ impl crate::Drive for Probe {
     ) -> Result<Option<String>, crate::DriveError> {
         self.hear("put_file_if", key, Some(condition));
         self.written(Some(String::from("tag-2")))
+    }
+    // A checked upload is heard with its check (X-DELTA-DRIVEE-7): a wrapper that answers it with `put_file` sends none, and
+    // the probe then hears the plain write the trait's default makes of it. The file is not read: the probe takes the upload
+    // as the check describes it.
+    fn put_file_checked(
+        &self,
+        key: &str,
+        _path: &std::path::Path,
+        check: &crate::checked::FileCheck,
+        _ctl: &dyn crate::Ctl,
+    ) -> Result<crate::checked::CheckedUpload, crate::DriveError> {
+        self.hear_check("put_file_checked", key, check);
+        self.written(crate::checked::CheckedUpload::Sent(check.size))
     }
     fn put_many(
         &self,
@@ -418,6 +449,7 @@ pub fn pinned_read_arrives(
         method: "get_range_if",
         key: arrives_as.to_string(),
         condition: Some(condition),
+        check: None,
     };
     if heard == [expected] {
         Ok(())
@@ -436,8 +468,9 @@ pub enum ConditionalWrite {
         /// What the wrapper answered.
         error: crate::DriveError,
     },
-    /// What reached the probe is not ONE write carrying the condition: these writes did (a write whose condition was
-    /// dropped is a `put`, a retry that asked something else carries another condition).
+    /// What reached the probe is not ONE write carrying the condition (or, for a checked upload, the check): these writes did
+    /// (a write whose condition was dropped is a `put`, a retry that asked something else carries another condition, a checked
+    /// upload answered with `put_file` is a `put`).
     NotConditional {
         /// The method that was called.
         call: &'static str,
@@ -469,17 +502,7 @@ fn arrives(
         call: arrival.call,
         error,
     })?;
-    let heard: Vec<Heard> = probe
-        .heard()
-        .into_iter()
-        .skip(before)
-        .filter(|heard| {
-            !matches!(
-                heard.method,
-                "list" | "get" | "get_range" | "get_range_if" | "head"
-            )
-        })
-        .collect();
+    let heard = writes_since(probe, before);
     let arrived = matches!(
         heard.as_slice(),
         [one] if arrival.methods.contains(&one.method)
@@ -496,19 +519,90 @@ fn arrives(
     }
 }
 
+/// What `probe` heard after its first `before` calls, writes only: a wrapper that looks before it writes (a head, a listing,
+/// a read) is not what is asked about.
+fn writes_since(probe: &Probe, before: usize) -> Vec<Heard> {
+    probe
+        .heard()
+        .into_iter()
+        .skip(before)
+        .filter(|heard| {
+            !matches!(
+                heard.method,
+                "list" | "get" | "get_range" | "get_range_if" | "head"
+            )
+        })
+        .collect()
+}
+
+/// What a scan finds of `file`: its size, its modification time and its BLAKE3, and no device or inode (a scan that found
+/// none). The check of a checked upload that the calls of this module send.
+///
+/// # Panics
+///
+/// When `file` cannot be read.
+fn check_of(file: &Path) -> crate::checked::FileCheck {
+    let meta = std::fs::metadata(file).expect("the file of the call");
+    let opened = std::fs::File::open(file).expect("the file of the call opens");
+    crate::checked::FileCheck {
+        size: meta.len(),
+        modified_ns: crate::checked::modified_ns(&meta),
+        blake3: crate::checked::hash_file(opened).expect("the file of the call reads"),
+        dev: 0,
+        ino: 0,
+    }
+}
+
+/// Sends a checked upload of `file` through the wrapper - `put_file_checked("object", file, check)` with the check a scan of
+/// the file finds ([`check_of`]) - and says whether ONE `put_file_checked` reached `probe`, with the key `arrives_as` and that
+/// very check. A wrapper that answers the call with `put_file` sends no check: an upload of a file that changed while it was
+/// uploaded then completes, under the name of what the file was (X-DELTA-DRIVEE-7).
+fn check_arrives(
+    wrapper: &dyn crate::Drive,
+    probe: &Probe,
+    file: &Path,
+    arrives_as: &str,
+) -> Result<(), ConditionalWrite> {
+    let check = check_of(file);
+    let before = probe.heard().len();
+    wrapper
+        .put_file_checked("object", file, &check, &crate::ctl::Quiet)
+        .map_err(|error| ConditionalWrite::Refused {
+            call: "put_file_checked",
+            error,
+        })?;
+    let heard = writes_since(probe, before);
+    let arrived = matches!(
+        heard.as_slice(),
+        [one] if one.method == "put_file_checked"
+            && one.key == arrives_as
+            && one.check.as_ref() == Some(&check)
+    );
+    if arrived {
+        Ok(())
+    } else {
+        Err(ConditionalWrite::NotConditional {
+            call: "put_file_checked",
+            heard,
+        })
+    }
+}
+
 /// Sends every write that carries a condition - `put_if`, `put_from_if`, `put_file_if`, and one item of `put_many` and
 /// `put_from_many` - through `wrapper`, which stands over `probe`, with the condition `Matches("tag-1")`, and says whether
 /// each arrived as it was sent: ONE write at the probe, with that condition and the key `arrives_as` (a wrapper that
 /// rewrites keys names the rewrite), by the method it was sent by or by the single write the trait's default makes of it.
-/// `file` is a file that exists (the one the upload of a file reads; the caller makes it, this module writes no file). A
-/// wrapper that answers a conditional write with an unconditional one turns it into an overwrite of what another device
-/// saved in the meantime (AZ-M1, X-DELTA-SYNC4-1): the census of the wrappers read their NAMES and the pinned read only;
-/// this reads what each write does (X-DELTA-STRUCT4-4). The versions of a batch delete and a batch move are
+/// The last is the checked upload (`put_file_checked`): it arrives as ONE `put_file_checked` with the check of `file` as a
+/// scan finds it. `file` is a file that exists (the one the upload of a file reads; the caller makes it, this module writes no
+/// file). A wrapper that answers a conditional write with an unconditional one turns it into an overwrite of what another
+/// device saved in the meantime (AZ-M1, X-DELTA-SYNC4-1), and one that answers a checked upload with `put_file` into an
+/// upload of whatever the file has become: the census of the wrappers read their NAMES and the pinned read only; this reads
+/// what each write does (X-DELTA-STRUCT4-4, X-DELTA-DRIVEE-7). The versions of a batch delete and a batch move are
 /// [`versioned_batches_arrive`]'s.
 ///
 /// # Errors
 ///
-/// [`ConditionalWrite`]: the wrapper refused a write, or what arrived is not that write with its condition.
+/// [`ConditionalWrite`]: the wrapper refused a write, or what arrived is not that write with its condition (its check).
 pub fn conditional_write_arrives(
     wrapper: &dyn crate::Drive,
     probe: &Probe,
@@ -561,7 +655,8 @@ pub fn conditional_write_arrives(
     arrives(probe, &put_from_many, &condition, arrives_as, &mut || {
         let mut body: &[u8] = b"x";
         first(wrapper.put_from_many(&mut [BatchStream::new("object", &mut body).when(&condition)]))
-    })
+    })?;
+    check_arrives(wrapper, probe, file, arrives_as)
 }
 
 /// Sends a batch delete and a batch move, each of one item with the version `tag-1`, through `wrapper`, which stands over
@@ -649,22 +744,10 @@ pub fn every_method<'a>(
     folder: impl Fn() -> crate::erase::Why<'a>,
 ) -> Vec<Called> {
     use crate::{
-        checked::FileCheck, BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Limit,
-        ListRequest, Precondition,
+        BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Limit, ListRequest, Precondition,
     };
 
-    let meta = std::fs::metadata(file).expect("the file of the call");
-    let check = FileCheck {
-        size: meta.len(),
-        modified_ns: meta
-            .modified()
-            .ok()
-            .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(0)),
-        blake3: blake3::hash(b"x").to_hex().to_string(),
-        dev: 0,
-        ino: 0,
-    };
+    let check = check_of(file);
     let condition = Precondition::Matches(String::from("tag-1"));
     let quiet = crate::ctl::Quiet;
     let one = |called: Vec<Result<Option<String>, crate::DriveError>>| {

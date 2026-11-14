@@ -282,7 +282,7 @@ fn a_ranged_read_fetches_the_header_the_tail_and_only_the_covering_segments() {
 /// once the name names another.
 #[test]
 fn x_delta_sync2_3_a_pinned_range_is_of_the_object_head_showed_and_of_no_other() {
-    let drive = drive_with(small_segments());
+    let drive: EncryptedDrive<Arc<MemBucket>> = drive_with(small_segments());
     let first = noise(3 * SMALL as usize + 50);
     drive.put("big.bin", &first).unwrap();
     let tag = drive.head("big.bin").unwrap().etag.expect("a tag");
@@ -457,7 +457,7 @@ fn renaming_a_folder_moves_every_entry_under_it_in_the_index() {
 
 #[test]
 fn a_conditional_write_holds_only_while_the_file_is_unchanged() {
-    let drive = new_drive();
+    let drive: EncryptedDrive<Arc<MemBucket>> = new_drive();
     let first = drive
         .put_if("a.txt", b"v1", &Precondition::Absent)
         .unwrap()
