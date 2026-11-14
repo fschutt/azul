@@ -902,6 +902,20 @@ pub mod parsed {
         pub y_strikeout_size: i16,
         /// Vertical position of strikeout stroke.
         pub y_strikeout_position: i16,
+        /// `fsSelection`: bit 7 (`USE_TYPO_METRICS`) says the typographic
+        /// metrics below are the ones to set lines with.
+        pub fs_selection: u16,
+        /// `sTypoAscender`, `sTypoDescender`, `sTypoLineGap`, `usWinAscent`
+        /// and `usWinDescent` (OS/2 version 0; `None` without an OS/2 table
+        /// or in a shortened legacy one).
+        pub s_typo_ascender: Option<i16>,
+        pub s_typo_descender: Option<i16>,
+        pub s_typo_line_gap: Option<i16>,
+        pub us_win_ascent: Option<u16>,
+        pub us_win_descent: Option<u16>,
+        /// `sxHeight` and `sCapHeight` (OS/2 version 2 and later).
+        pub sx_height: Option<i16>,
+        pub s_cap_height: Option<i16>,
     }
 
     impl Default for PdfFontMetrics {
@@ -933,7 +947,23 @@ pub mod parsed {
                 us_width_class: 0,
                 y_strikeout_size: 0,
                 y_strikeout_position: 0,
+                fs_selection: 0,
+                s_typo_ascender: None,
+                s_typo_descender: None,
+                s_typo_line_gap: None,
+                us_win_ascent: None,
+                us_win_descent: None,
+                sx_height: None,
+                s_cap_height: None,
             }
+        }
+
+        /// Whether the font's `fsSelection` sets `USE_TYPO_METRICS` (bit 7):
+        /// lines are to be set with the typographic ascender, descender and
+        /// line gap rather than the `hhea` ones.
+        #[must_use]
+        pub const fn use_typo_metrics(&self) -> bool {
+            self.fs_selection & 0x0080 != 0
         }
     }
 
@@ -2376,6 +2406,14 @@ pub mod parsed {
                 us_width_class: os2.us_width_class,
                 y_strikeout_size: os2.y_strikeout_size,
                 y_strikeout_position: os2.y_strikeout_position,
+                fs_selection: os2.fs_selection.bits(),
+                s_typo_ascender: os2.version0.as_ref().map(|v| v.s_typo_ascender),
+                s_typo_descender: os2.version0.as_ref().map(|v| v.s_typo_descender),
+                s_typo_line_gap: os2.version0.as_ref().map(|v| v.s_typo_line_gap),
+                us_win_ascent: os2.version0.as_ref().map(|v| v.us_win_ascent),
+                us_win_descent: os2.version0.as_ref().map(|v| v.us_win_descent),
+                sx_height: os2.version2to4.as_ref().map(|v| v.s_x_height),
+                s_cap_height: os2.version2to4.as_ref().map(|v| v.s_cap_height),
                 ..base
             })
         }
@@ -3908,6 +3946,52 @@ pub mod parsed {
             // the pre-decoded space glyph carries the same advance
             let glyph = shared.get_or_decode_glyph(space).expect("the space decodes");
             assert_eq!(glyph.horz_advance, advance);
+        }
+
+        /// The OS/2 table's line metrics reach `pdf_font_metrics` and the full
+        /// `FontMetrics` (`get_full_font_metrics` left them `None`, so an app
+        /// that sets lines by `USE_TYPO_METRICS` read the table itself).
+        #[test]
+        fn the_os2_typographic_metrics_are_read() {
+            use allsorts::{
+                binary::read::ReadScope,
+                font_data::FontData,
+                tables::{os2::Os2, FontTableProvider},
+                tag,
+            };
+
+            use crate::text3::default::FontRefExt;
+
+            let font = parse_mock();
+            let data = ReadScope::new(MOCK_MONO).read::<FontData<'_>>().unwrap();
+            let provider = data.table_provider(0).unwrap();
+            let os2_data = provider.table_data(tag::OS_2).unwrap().expect("Mock Mono has OS/2");
+            let os2 = ReadScope::new(&os2_data).read_dep::<Os2>(os2_data.len()).unwrap();
+            let v0 = os2.version0.as_ref().expect("a full OS/2 table");
+
+            let m = font.pdf_font_metrics;
+            assert_eq!(m.fs_selection, os2.fs_selection.bits());
+            assert_eq!(m.use_typo_metrics(), os2.fs_selection.bits() & 0x80 != 0);
+            assert_eq!(m.s_typo_ascender, Some(v0.s_typo_ascender));
+            assert_eq!(m.s_typo_descender, Some(v0.s_typo_descender));
+            assert_eq!(m.s_typo_line_gap, Some(v0.s_typo_line_gap));
+            assert_eq!(m.us_win_ascent, Some(v0.us_win_ascent));
+            assert_eq!(m.us_win_descent, Some(v0.us_win_descent));
+            assert_eq!(m.sx_height, os2.version2to4.as_ref().map(|v| v.s_x_height));
+            assert_eq!(m.s_cap_height, os2.version2to4.as_ref().map(|v| v.s_cap_height));
+            assert_ne!(m.s_typo_ascender, Some(0), "a real ascender: {m:?}");
+
+            let full = crate::parsed_font_to_font_ref(font).get_full_font_metrics();
+            assert_eq!(full.fs_selection, m.fs_selection);
+            assert_eq!(full.use_typo_metrics(), m.use_typo_metrics());
+            assert_eq!(full.s_typo_ascender.as_option().copied(), m.s_typo_ascender);
+            assert_eq!(full.s_typo_descender.as_option().copied(), m.s_typo_descender);
+            assert_eq!(full.us_win_descent.as_option().copied(), m.us_win_descent);
+            assert_eq!(full.s_cap_height.as_option().copied(), m.s_cap_height);
+
+            // no OS/2 table: nothing
+            assert_eq!(PdfFontMetrics::zero().s_typo_ascender, None);
+            assert!(!PdfFontMetrics::zero().use_typo_metrics());
         }
 
         #[test]

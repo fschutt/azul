@@ -280,15 +280,15 @@ impl FontRefExt for FontRef {
             ach_vend_id: 0,       // Not in PdfFontMetrics
 
             // OS/2 version 0 fields (optional)
-            s_typo_ascender: OptionI16::None,
-            s_typo_descender: OptionI16::None,
-            s_typo_line_gap: OptionI16::None,
-            us_win_ascent: OptionU16::None,
-            us_win_descent: OptionU16::None,
+            s_typo_ascender: OptionI16::from(pdf.s_typo_ascender),
+            s_typo_descender: OptionI16::from(pdf.s_typo_descender),
+            s_typo_line_gap: OptionI16::from(pdf.s_typo_line_gap),
+            us_win_ascent: OptionU16::from(pdf.us_win_ascent),
+            us_win_descent: OptionU16::from(pdf.us_win_descent),
 
             // OS/2 version 2 fields (optional)
-            sx_height: OptionI16::None,
-            s_cap_height: OptionI16::None,
+            sx_height: OptionI16::from(pdf.sx_height),
+            s_cap_height: OptionI16::from(pdf.s_cap_height),
             us_default_char: OptionU16::None,
             us_break_char: OptionU16::None,
             us_max_context: OptionU16::None,
@@ -334,7 +334,7 @@ impl FontRefExt for FontRef {
             y_strikeout_size: pdf.y_strikeout_size,
             y_strikeout_position: pdf.y_strikeout_position,
             s_family_class: 0,      // Not in PdfFontMetrics
-            fs_selection: 0,        // Not in PdfFontMetrics
+            fs_selection: pdf.fs_selection,
             us_first_char_index: 0, // Not in PdfFontMetrics
             us_last_char_index: 0,  // Not in PdfFontMetrics
 
