@@ -106,7 +106,7 @@ fn s9e_02_any_changed_claim_breaks_the_signature() {
     let mut covered: Vec<(&str, &str)> = Vec::new();
     for (base_name, base) in bases() {
         let original = signed_credential(&f.cred, f.cert, base.clone());
-        verify_credential(&original, &f.anchors, now(ISSUED), &f.rules)
+        verify_credential(&original, &f.anchors, &placement(), now(ISSUED), &f.rules)
             .unwrap_or_else(|e| panic!("the control ({base_name}) must verify: {e}"));
         for (field, mutate) in &mutations {
             let mut changed = base.clone();
@@ -117,7 +117,8 @@ fn s9e_02_any_changed_claim_breaks_the_signature() {
             );
             let forged = Credential::from_parts(changed, f.cert, *original.signature())
                 .expect("the changed claims encode");
-            let verdict = verify_credential(&forged, &f.anchors, now(ISSUED), &f.rules);
+            let verdict =
+                verify_credential(&forged, &f.anchors, &placement(), now(ISSUED), &f.rules);
             let error = verdict.expect_err(&format!("{field} changed on {base_name} must fail"));
             match (*field, error) {
                 // The epoch of a credential is bound to its certificate's before any signature is read.
@@ -187,7 +188,7 @@ fn s9e_02_any_changed_certificate_field_is_refused() {
             Credential::from_parts(credential.claims().clone(), cert, *credential.signature())
                 .expect("encodes");
         assert_eq!(
-            verify_credential(&forged, &f.anchors, now(ISSUED), &f.rules).err(),
+            verify_credential(&forged, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
             Some(expected),
             "{field} changed"
         );

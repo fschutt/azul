@@ -28,6 +28,7 @@ use crate::canon::{build, bytes_of, preimage_of, write, Canonical, OUTER_LIMITS}
 use crate::cert::Certificate;
 use crate::claims::AssertionClaims;
 use crate::error::{AssertError, CanonicalError, WireError};
+use crate::groups::{check_placement, AccountGroups};
 use crate::verify::{check_lifetime, check_times, VerifierNow, VerifyRules};
 
 /// The wire keys of an assertion.
@@ -238,8 +239,9 @@ impl VerifiedAssertion {
         self.claims.expires
     }
 
-    /// The metadata group whose identity key certified the credential key. A service installed for an
-    /// account must check that the account lives in this group (drift row X-DELTA-W1S9E-3).
+    /// The metadata group whose identity key certified the credential key, and, because
+    /// `verify_assertion` checked it against the verifier's `AccountGroups`, the group the account
+    /// lives on (drift row X-DELTA-W1S9E-3: a voter of another group is `GroupMismatch`).
     pub fn group(&self) -> MetaGroupId {
         self.group
     }
@@ -270,23 +272,40 @@ impl fmt::Debug for VerifiedAssertion {
 /// the certificate's window covers `issued` and the node's now (`CertWindow`); the certificate's signer is
 /// an identity key of its group in the anchors (`UnknownIdentity`) whose window covers the certificate's
 /// `not_before` and the node's now (`IdentityWindow`); the identity key's signature over the
-/// certificate (`BadCert`) and the credential key's signature over the claims (`BadSignature`) verify.
+/// certificate (`BadCert`) and the credential key's signature over the claims (`BadSignature`) verify;
+/// and last, once the chain is authentic, the placement: `groups` knows the account (`UnknownAccount`)
+/// and names the group whose identity key certified the credential key (`GroupMismatch`, an ALARM: a
+/// voter of another group is vouching for an account that is not its own).
+///
+/// `groups` is REQUIRED (drift row X-DELTA-W1S9E-3, decision D-W1S9E3), and a service builds it from its
+/// install config: an `InstalledAccount` of the account id and the group the map places it on. The
+/// placement runs after the signatures so that a forgery cannot raise the alarm.
 ///
 /// An empty anchor set refuses everything (`UnknownIdentity`): never "no check".
 ///
 /// Implements planning/architecture.md section 5.11 ("Services verify it against the cluster's map
-/// anchors (static config) and the account id set at install").
+/// anchors (static config) and the account id set at install") and section 2.4 ("Accounts map to a
+/// metadata group").
 ///
 /// Caller: the services A2 to A5 (meet in org mode, the mail sending relay, the identity service's admin
-/// API).
+/// API), with `InstalledAccount` as `groups`.
 pub fn verify_assertion(
     a: &Assertion,
     anchors: &AnchorSet,
+    groups: &dyn AccountGroups,
     now: VerifierNow,
     rules: &VerifyRules,
     installed_account: &AccountId,
 ) -> Result<VerifiedAssertion, AssertError> {
-    verify_assertion_with(&Ed25519Verifier, a, anchors, now, rules, installed_account)
+    verify_assertion_with(
+        &Ed25519Verifier,
+        a,
+        anchors,
+        groups,
+        now,
+        rules,
+        installed_account,
+    )
 }
 
 /// `verify_assertion` over a signature verifier of the caller's (see `verify_credential_with`).
@@ -296,10 +315,29 @@ pub fn verify_assertion_with(
     verifier: &dyn SignatureVerifier,
     a: &Assertion,
     anchors: &AnchorSet,
+    groups: &dyn AccountGroups,
     now: VerifierNow,
     rules: &VerifyRules,
     installed_account: &AccountId,
 ) -> Result<VerifiedAssertion, AssertError> {
+    let (claims, certified) =
+        verify_chain_with(verifier, a, anchors, now, rules, installed_account)?;
+    check_placement(groups, &claims.account, certified)?;
+    Ok(VerifiedAssertion::new(claims, certified))
+}
+
+/// Everything `verify_assertion` checks but the placement of the account (see
+/// `credential::verify_chain_with`): the clock, the shape, the installed account, the chain and both
+/// signatures; the claims are read from the signed bytes, with the group whose identity key certified
+/// the credential key. Crate-internal: the issuers' probe tests a key, not an account.
+pub(crate) fn verify_chain_with(
+    verifier: &dyn SignatureVerifier,
+    a: &Assertion,
+    anchors: &AnchorSet,
+    now: VerifierNow,
+    rules: &VerifyRules,
+    installed_account: &AccountId,
+) -> Result<(AssertionClaims, MetaGroupId), AssertError> {
     let now = now.decide()?;
     // The verified claims are the signed bytes' own, never the copy the value carries.
     let claims = AssertionClaims::decode_payload(&a.payload)?;
@@ -329,21 +367,22 @@ pub fn verify_assertion_with(
     if verdict.is_err() {
         return Err(AssertError::BadSignature);
     }
-    Ok(VerifiedAssertion::new(claims, cert.group))
+    Ok((claims, cert.group))
 }
 
 /// Reads an assertion from its bytes and verifies it: `ClockUntrusted` first, then the refusals of
-/// `Assertion::decode` as `Malformed`, then `verify_assertion`.
+/// `Assertion::decode` as `Malformed`, then `verify_assertion` (with its placement check).
 ///
 /// Caller: the services A2 to A5: the bytes a device presents, in one call.
 pub fn verify_assertion_bytes(
     bytes: &[u8],
     anchors: &AnchorSet,
+    groups: &dyn AccountGroups,
     now: VerifierNow,
     rules: &VerifyRules,
     installed_account: &AccountId,
 ) -> Result<VerifiedAssertion, AssertError> {
     now.decide()?;
     let assertion = Assertion::decode(bytes)?;
-    verify_assertion(&assertion, anchors, now, rules, installed_account)
+    verify_assertion(&assertion, anchors, groups, now, rules, installed_account)
 }

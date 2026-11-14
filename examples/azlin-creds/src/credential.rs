@@ -12,8 +12,9 @@
 //! certificate (a map, see `cert.rs`), key 3 the signature.
 //!
 //! [`VerifiedCredential`] is a witness: the only way to get one is `verify_credential` (or its two
-//! variants), which checked, in order, the clock, the shape, the certificate's window and chain, and the
-//! credential key's signature. It has no public constructor, no `Clone`, no `Default`, no `From<&str>`.
+//! variants), which checked, in order, the clock, the shape, the certificate's window and chain, the
+//! credential key's signature, and that the group that certified the key owns the account. It has no
+//! public constructor, no `Clone`, no `Default`, no `From<&str>`.
 
 use core::fmt;
 
@@ -28,6 +29,7 @@ use crate::canon::{build, bytes_of, preimage_of, write, Canonical, OUTER_LIMITS}
 use crate::cert::Certificate;
 use crate::claims::{CredentialClaims, SsoClaim};
 use crate::error::{CanonicalError, CredError, WireError};
+use crate::groups::{check_placement, AccountGroups};
 use crate::scopes::Scopes;
 use crate::verify::{check_times, VerifierNow, VerifyRules};
 
@@ -261,10 +263,9 @@ impl VerifiedCredential {
         self.claims.sso.as_ref()
     }
 
-    /// The metadata group whose identity key certified the credential key. THE CALLER MUST check that
-    /// the credential's account lives in this group (the account-to-group placement is the map's): a
-    /// voter of another group holds a valid credential key too and could otherwise vouch for an account
-    /// that is not its own (drift row X-DELTA-W1S9E-3).
+    /// The metadata group whose identity key certified the credential key, and, because
+    /// `verify_credential` checked it against the verifier's `AccountGroups`, the group the account
+    /// lives on (drift row X-DELTA-W1S9E-3: a voter of another group is `GroupMismatch`).
     pub fn group(&self) -> MetaGroupId {
         self.group
     }
@@ -284,9 +285,10 @@ impl fmt::Debug for VerifiedCredential {
     }
 }
 
-/// Does NOT consult revocations: this verifies a signature chain and a lifetime, nothing about the
-/// registry. A credential whose nonce, family, device, member or key epoch is revoked still verifies
-/// here; S9g's `check_connection` refuses it against the registry.
+/// Does NOT consult revocations: this verifies a signature chain, a lifetime and the placement of the
+/// account, nothing about the registry's revocation rows. A credential whose nonce, family, device,
+/// member or key epoch is revoked still verifies here; S9g's `check_connection` refuses it against the
+/// registry.
 ///
 /// What it checks, in this order, and the first failure is the answer: the node's clock is trusted
 /// (`ClockUntrusted`); the signed bytes parse and the claims are well shaped, `expires_at` after
@@ -297,23 +299,31 @@ impl fmt::Debug for VerifiedCredential {
 /// window covers `issued_at` and the node's now (`CertWindow`); the certificate's signer is an identity
 /// key of its group in the anchors (`UnknownIdentity`) whose window covers the certificate's
 /// `not_before` and the node's now (`IdentityWindow`); the identity key's signature over the certificate
-/// (`BadCert`) and the credential key's signature over the claims (`BadSignature`) verify. Two signature
-/// verifications in all.
+/// (`BadCert`) and the credential key's signature over the claims (`BadSignature`) verify (two signature
+/// verifications in all); and last, once the chain is authentic, the placement: `groups` knows the
+/// credential's account (`UnknownAccount`) and names the group whose identity key certified the
+/// credential key (`GroupMismatch`, an ALARM: a voter of another group is vouching for an account that
+/// is not its own).
+///
+/// `groups` is REQUIRED (drift row X-DELTA-W1S9E-3, decision D-W1S9E3): there is no verification
+/// without a placement, and no implementation of [`AccountGroups`] answers for every account. The
+/// placement runs after the signatures so that a forgery cannot raise the alarm.
 ///
 /// An empty anchor set refuses everything (`UnknownIdentity`): never "no check".
 ///
-/// Implements planning/architecture.md section 2.4 ("Credentials are verifiable on every node") and
-/// section 5.11.
+/// Implements planning/architecture.md section 2.4 ("Credentials are verifiable on every node";
+/// "Accounts map to a metadata group") and section 5.11.
 ///
-/// Caller: the nodes' connection handler (S6) through S9g's `check_connection`; S9f's probe through
-/// `CredentialIssuer::new`; the tests.
+/// Caller: the nodes' connection handler (S6) through S9g's `check_connection`, with the registry's
+/// placement as `groups`; S9i; the tests.
 pub fn verify_credential(
     c: &Credential,
     anchors: &AnchorSet,
+    groups: &dyn AccountGroups,
     now: VerifierNow,
     rules: &VerifyRules,
 ) -> Result<VerifiedCredential, CredError> {
-    verify_credential_with(&Ed25519Verifier, c, anchors, now, rules)
+    verify_credential_with(&Ed25519Verifier, c, anchors, groups, now, rules)
 }
 
 /// `verify_credential` over a signature verifier of the caller's: the seam of the cost test (a counting
@@ -325,9 +335,26 @@ pub fn verify_credential_with(
     verifier: &dyn SignatureVerifier,
     c: &Credential,
     anchors: &AnchorSet,
+    groups: &dyn AccountGroups,
     now: VerifierNow,
     rules: &VerifyRules,
 ) -> Result<VerifiedCredential, CredError> {
+    let (claims, certified) = verify_chain_with(verifier, c, anchors, now, rules)?;
+    check_placement(groups, &claims.account, certified)?;
+    Ok(VerifiedCredential::new(claims, certified))
+}
+
+/// Everything `verify_credential` checks but the placement of the account: the clock, the shape, the
+/// chain and both signatures. The claims it returns are read from the signed bytes, with the group whose
+/// identity key certified the credential key. Crate-internal: a value that has not passed the placement
+/// is no [`VerifiedCredential`]; the issuers' probe tests a key, not an account, and uses this.
+pub(crate) fn verify_chain_with(
+    verifier: &dyn SignatureVerifier,
+    c: &Credential,
+    anchors: &AnchorSet,
+    now: VerifierNow,
+    rules: &VerifyRules,
+) -> Result<(CredentialClaims, MetaGroupId), CredError> {
     let now = now.decide()?;
     // The verified claims are the signed bytes' own, never the copy the value carries.
     let claims = CredentialClaims::decode_payload(&c.payload)?;
@@ -355,21 +382,22 @@ pub fn verify_credential_with(
     if verdict.is_err() {
         return Err(CredError::BadSignature);
     }
-    Ok(VerifiedCredential::new(claims, cert.group))
+    Ok((claims, cert.group))
 }
 
 /// Reads a credential from its bytes and verifies it: `ClockUntrusted` first (an untrusted clock refuses
 /// even bytes that do not parse), then the refusals of `Credential::decode` as `Malformed` (an unknown
-/// scope kind as `UnknownScope`), then `verify_credential`.
+/// scope kind as `UnknownScope`), then `verify_credential` (with its placement check).
 ///
 /// Caller: the nodes' connection handler (S6): the bytes of a request's credential in one call.
 pub fn verify_credential_bytes(
     bytes: &[u8],
     anchors: &AnchorSet,
+    groups: &dyn AccountGroups,
     now: VerifierNow,
     rules: &VerifyRules,
 ) -> Result<VerifiedCredential, CredError> {
     now.decide()?;
     let credential = Credential::decode(bytes)?;
-    verify_credential(&credential, anchors, now, rules)
+    verify_credential(&credential, anchors, groups, now, rules)
 }

@@ -16,9 +16,13 @@
 //! not at the moment of verification, so a rotation does not kill the entitlements of the old key (and
 //! the outbox's re-submission after a restore keeps working). Two guards keep that rule from being a hole:
 //! the entitlement must not be issued on a day that has not begun (a key staged for a future window
-//! cannot sign into it), and the verified value hands the registry the key and the day, so that the
-//! registry can refuse an entitlement of a key it has REVOKED (DRIFT X-DELTA-W1S9E-5: `KeyWindow` merges
-//! the retirement and the revocation of a key; X-D-11 asks the registry to tell them apart).
+//! cannot sign into it), and a key the registry has REVOKED is refused from the day of its revocation on:
+//! `KeyWindow::revoked_from` (DRIFT X-DELTA-W1S9E-5, decision D-W1S9E3; X-D-11 asks to tell the
+//! RETIREMENT of a key from its REVOCATION) makes `verify_entitlement` answer `Revoked`, an ALARM, when
+//! the day the entitlement was issued is at or after it, whatever the window of the key says. THE LIMIT:
+//! an entitlement a thief dates BEFORE `revoked_from` cannot be told from the old, honest one, so the
+//! registry fills `revoked_from` with the earliest second the key may have been in other hands (the
+//! window's `not_before` when that is unknown: every date of the window is then refused).
 //!
 //! The wire form is a map: key 1 the payload (the canonical claims), key 2 the payments public key, key
 //! 3 the signature. "The bytes the registry stores are the claims' bytes and the signature": the
@@ -474,8 +478,8 @@ impl VerifiedEntitlement {
         self.claims.version
     }
 
-    /// The payments key that signed it. The registry compares it with the keys it has REVOKED
-    /// (DRIFT X-DELTA-W1S9E-5): a window that has ended says "retired", not "stolen".
+    /// The payments key that signed it: a key of the anchors whose window covers the day of issue and
+    /// that is not revoked from that day on (`KeyWindow::revoked_from`, DRIFT X-DELTA-W1S9E-5).
     pub fn key(&self) -> &PublicKey32 {
         &self.key
     }
@@ -535,18 +539,22 @@ pub fn sign_entitlement(
 ///
 /// What it checks, in this order, and the first failure is the answer: the signing key is a payments key
 /// of the anchors (`UnknownKey`; an empty anchor set knows none, and refuses); one of its windows covers
-/// the DAY THE ENTITLEMENT WAS ISSUED (`KeyWindow`: a key that was not active yet, or was retired or
-/// revoked before that day: "entitlements signed by the old key stay valid until they expire", so the
-/// window is NOT tested at `now`); the day has begun at `now`, within the skew (`NotYetIssued`: a staged
-/// key cannot sign into its future window); the signature verifies (`BadSignature`).
+/// the DAY THE ENTITLEMENT WAS ISSUED (`KeyWindow`: a key that was not active yet, or was retired
+/// before that day: "entitlements signed by the old key stay valid until they expire", so the window is
+/// NOT tested at `now`); the day has begun at `now`, within the skew (`NotYetIssued`: a staged
+/// key cannot sign into its future window); the signature verifies (`BadSignature`); and last, once the
+/// signature is authentic, the key is not REVOKED: no window of it has `revoked_from` at or before the
+/// day of issue (`Revoked`, an ALARM; one window that says so is enough, whatever the others say). The
+/// RETIREMENT of a key (the end of its window) and its REVOCATION are two facts (`KeyWindow::not_after`
+/// and `KeyWindow::revoked_from`): the registry fills the second from its revocation rows (S9d, S9i).
 ///
-/// It does not know which keys the operator REVOKED (the window of an anchor merges retirement and
-/// revocation): the registry compares [`VerifiedEntitlement::key`] and `issued_at` with its revocations
-/// (DRIFT X-DELTA-W1S9E-5, the answer X-D-11).
+/// What it cannot see: an entitlement a thief dates BEFORE `revoked_from` verifies like the old honest
+/// one (the date is the thief's to write), so the registry sets `revoked_from` to the earliest second
+/// the key may have been in other hands, and to the window's `not_before` when that is unknown.
 ///
 /// Implements planning/architecture.md section 2.4 ("The group verifies the payments key") and section
-/// 5.11; DRIFT X-DELTA-W1S9E-5: the brief's `verify_entitlement(e, anchors)` has no time, and its check
-/// S9E-09 and its mutant (d) presuppose one.
+/// 5.11; DRIFT X-DELTA-W1S9E-5 (decision D-W1S9E3): the brief's `verify_entitlement(e, anchors)` has no
+/// time, and its check S9E-09 and its mutant (d) presuppose one.
 ///
 /// Caller: S9i's `CredsEntitlementVerifier` (inside the apply of `entitlement_put`, at the leader's
 /// stamp), S9d.
@@ -572,6 +580,7 @@ pub fn verify_entitlement_with(
     let issued = claims.issued_at.start();
     let mut key_known = false;
     let mut window_covers = false;
+    let mut revoked = false;
     for window in &anchors.payments {
         if window.public != e.key {
             continue;
@@ -586,6 +595,24 @@ pub fn verify_entitlement_with(
         };
         if window.contains(tested) {
             window_covers = true;
+        }
+        // The revocation is tested at the same day, and a window that says the key is revoked from a
+        // second at or before it is enough: any window of the key, fail closed (the mutants test at
+        // `now`, and with `>`).
+        if let Some(from) = window.revoked_from {
+            let dated = if azlin_seams::mutant!("creds_revocation_at_now") {
+                now
+            } else {
+                issued
+            };
+            let hit = if azlin_seams::mutant!("creds_revocation_boundary_open") {
+                dated > from
+            } else {
+                dated >= from
+            };
+            if hit {
+                revoked = true;
+            }
         }
     }
     if !key_known {
@@ -611,5 +638,94 @@ pub fn verify_entitlement_with(
     if verdict.is_err() {
         return Err(EntitlementError::BadSignature);
     }
+    // After the signature: an alarm is a fact about an authentic signature, never about a forgery that
+    // merely names a revoked key's public key.
+    if revoked && !azlin_seams::mutant!("creds_revoked_from_ignored") {
+        return Err(EntitlementError::Revoked);
+    }
     Ok(VerifiedEntitlement::new(claims, e.key))
+}
+
+#[cfg(test)]
+mod tests {
+    use azlin_keys::Secret;
+    use azlin_regbase::KeyWindow;
+
+    use super::*;
+    use crate::signer::SeedSigner;
+
+    const DAY: u64 = 86_400;
+
+    fn payments() -> SeedSigner {
+        SeedSigner::from_seed(&Secret::from_bytes([41; 32]))
+    }
+
+    fn day(n: u64) -> DayStart {
+        DayStart::from_start(LeaderTime::from_secs(n * DAY)).expect("a day start")
+    }
+
+    fn claims(issued_day: u64) -> EntitlementClaims {
+        EntitlementClaims {
+            account: AccountId::from_bytes([0x11; 16]),
+            kind: AccountKind::Team,
+            seats: 25,
+            quota: ByteCount::gib(500),
+            retention: Span::days(90),
+            features: Features::new(vec![SmallText::new("team").expect("a word")])
+                .expect("features"),
+            period_until: None,
+            state: EntitlementState::Active,
+            regions_allowed: RegionSet::new(vec![RegionId::new(1)]).expect("regions"),
+            issued_at: day(issued_day),
+            version: 7,
+        }
+    }
+
+    /// The payments key: its window ran from day 0 and was RETIRED at day 200 (a newer key replaced
+    /// it); the registry may have REVOKED it from a day.
+    fn anchors(revoked_from_day: Option<u64>) -> AnchorSet {
+        AnchorSet {
+            payments: vec![KeyWindow {
+                public: payments().public(),
+                not_before: LeaderTime::from_secs(0),
+                not_after: Some(LeaderTime::from_secs(200 * DAY)),
+                revoked_from: revoked_from_day.map(|d| LeaderTime::from_secs(d * DAY)),
+            }],
+            operator: Vec::new(),
+            identity: Vec::new(),
+            map_epoch: 5,
+        }
+    }
+
+    /// The attack of drift row X-DELTA-W1S9E-5: the payments key was retired at day 200 and is stolen
+    /// afterwards; the thief signs an entitlement and writes a day inside the old window on it, so that
+    /// the retirement rule (the window is tested at the day of issue) accepts it. The registry has
+    /// revoked the key from day 150: an entitlement dated at or after that day is refused, as an alarm,
+    /// however long after the retirement it is put.
+    #[test]
+    fn a_stolen_payments_key_cannot_back_date_an_entitlement() {
+        let thief_now = LeaderTime::from_secs(300 * DAY + 10);
+        let backdated = sign_entitlement(&payments(), claims(160)).expect("signs");
+        // the hole: a key nobody marked revoked still verifies the back-dated day
+        assert!(
+            verify_entitlement(&backdated, &anchors(None), thief_now).is_ok(),
+            "a retired key that is not revoked keeps its entitlements"
+        );
+        // the fix: revoked from day 150, the same entitlement is refused
+        assert_eq!(
+            verify_entitlement(&backdated, &anchors(Some(150)), thief_now).err(),
+            Some(EntitlementError::Revoked)
+        );
+        // the revocation day itself is refused (the first second belongs to the revoked side)
+        let on_the_day = sign_entitlement(&payments(), claims(150)).expect("signs");
+        assert_eq!(
+            verify_entitlement(&on_the_day, &anchors(Some(150)), thief_now).err(),
+            Some(EntitlementError::Revoked)
+        );
+        // an entitlement the key signed before the revocation stays valid, also long after it: the day of
+        // issue decides, not the moment of the check
+        let honest = sign_entitlement(&payments(), claims(149)).expect("signs");
+        assert!(verify_entitlement(&honest, &anchors(Some(150)), thief_now).is_ok());
+        assert!(EntitlementError::Revoked.is_alarm());
+    }
 }

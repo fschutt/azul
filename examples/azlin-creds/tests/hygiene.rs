@@ -570,6 +570,51 @@ fn s9e_19_every_mutation_guard_has_its_own_id() {
     }
 }
 
+/// The lines of blanked, test-free code that implement `AccountGroups` (`impl AccountGroups for X`, and
+/// any generic or blanket form of it).
+fn placement_impls(text: &str) -> Vec<(usize, String)> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("AccountGroups for"))
+        .map(|(n, line)| (n + 1, line.trim().to_string()))
+        .collect()
+}
+
+/// D-W1S9E3 (drift row X-DELTA-W1S9E-3): the library has NO implementation of the placement seam that
+/// answers for every account. Its one implementation, `InstalledAccount`, knows exactly one; a test double
+/// lives in `#[cfg(test)]` or in test support, never here.
+#[test]
+fn d_w1s9e3_the_only_library_implementation_of_the_placement_seam_knows_one_account() {
+    // the scan has its planted and its clean case, as every needle of this file has
+    assert_eq!(
+        placement_impls(&code("impl AccountGroups for Everything {}")).len(),
+        1
+    );
+    assert_eq!(
+        placement_impls(&code("impl<T: Any> AccountGroups for T {}")).len(),
+        1
+    );
+    assert!(placement_impls(&code(
+        "// impl AccountGroups for X\n#[cfg(test)]\nmod t { impl AccountGroups for Fixed {} }"
+    ))
+    .is_empty());
+    let mut found = Vec::new();
+    for (name, source) in sources() {
+        for (line, text) in placement_impls(&code(&source)) {
+            found.push(format!("src/{name}:{line}: {text}"));
+        }
+    }
+    assert_eq!(
+        found.len(),
+        1,
+        "exactly one library implementation of AccountGroups: {found:?}"
+    );
+    assert!(
+        found[0].starts_with("src/groups.rs:") && found[0].contains("for InstalledAccount"),
+        "the one implementation is InstalledAccount's: {found:?}"
+    );
+}
+
 // ---- the manifest ---------------------------------------------------------------------------
 
 /// The keys of a manifest section: the text before ` =`.

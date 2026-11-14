@@ -1,7 +1,8 @@
 //! S9E-17 `property_random_chains` (seeded, 2,000 cases): random identity windows, certificate windows,
-//! issue and verify times, shapes, anchors and corrupted signatures; `verify_credential` agrees with an
-//! independent oracle written here from the rules of S9E-03 and S9E-04, one step per rule, with no
-//! code shared with the crate (plain `u64` arithmetic).
+//! issue and verify times, shapes, anchors, corrupted signatures and the verifier's placement of the
+//! account (D-W1S9E3); `verify_credential` agrees with an independent oracle written here from the
+//! rules of S9E-03 and S9E-04, one step per rule, with no code shared with the crate (plain `u64`
+//! arithmetic).
 
 use azlin_creds::{verify_credential, CredError, Scope, Scopes, Signer, VerifierNow, VerifyRules};
 use azlin_regbase::{AnchorSet, KeyEpoch, MetaGroupId, Signature64};
@@ -31,6 +32,9 @@ struct Case {
     cert_sig_ok: bool,
     cred_sig_ok: bool,
     now: u64,
+    /// The verifier's placement of the account (D-W1S9E3): 0 the group of the certificate, 1 the
+    /// account is not known, 2 another group.
+    placement: u8,
 }
 
 fn name(r: &Result<azlin_creds::VerifiedCredential, CredError>) -> &'static str {
@@ -48,6 +52,8 @@ fn name(r: &Result<azlin_creds::VerifiedCredential, CredError>) -> &'static str 
         Err(CredError::IdentityWindow) => "IdentityWindow",
         Err(CredError::BadCert) => "BadCert",
         Err(CredError::BadSignature) => "BadSignature",
+        Err(CredError::UnknownAccount) => "UnknownAccount",
+        Err(CredError::GroupMismatch) => "GroupMismatch",
         Err(CredError::UnknownScope) => "UnknownScope",
     }
 }
@@ -105,7 +111,22 @@ fn oracle(c: &Case) -> &'static str {
     if !c.cred_sig_ok {
         return "BadSignature";
     }
-    "ok"
+    // the placement of the account, last: only an authentic chain can be an alarm
+    match c.placement {
+        0 => "ok",
+        1 => "UnknownAccount",
+        _ => "GroupMismatch",
+    }
+}
+
+/// The placement a case asks for: mostly right, otherwise unknown or another group (drawn last, so the
+/// draws before it are the ones the property test always made).
+fn draw_placement(rng: &mut SplitMix64) -> u8 {
+    match rng.below(10) {
+        0 => 1,
+        1 => 2,
+        _ => 0,
+    }
 }
 
 /// A case that is valid in every respect: the chain, the windows, the shape, the signatures.
@@ -139,6 +160,7 @@ fn draw_sane(rng: &mut SplitMix64) -> Case {
         cert_sig_ok: true,
         cred_sig_ok: true,
         now,
+        placement: 0,
     }
 }
 
@@ -191,6 +213,7 @@ fn draw(rng: &mut SplitMix64) -> Case {
     for _ in 0..rng.pick(&[0u32, 1, 1, 1, 2]) {
         fault(rng, &mut c);
     }
+    c.placement = draw_placement(rng);
     c
 }
 
@@ -288,6 +311,7 @@ fn draw_wild(rng: &mut SplitMix64) -> Case {
         cert_sig_ok: rng.chance(94),
         cred_sig_ok: rng.chance(94),
         now,
+        placement: draw_placement(rng),
     }
 }
 
@@ -346,7 +370,13 @@ fn run(c: &Case) -> Result<azlin_creds::VerifiedCredential, CredError> {
     } else {
         VerifierNow::untrusted(node(c.now))
     };
-    verify_credential(&credential, &anchors, now, &VerifyRules::default())
+    let account = grant().account;
+    let groups = match c.placement {
+        0 => FixedGroups::of(&[(account, GROUP)]),
+        1 => FixedGroups::of(&[]),
+        _ => FixedGroups::of(&[(account, MetaGroupId::new(3))]),
+    };
+    verify_credential(&credential, &anchors, &groups, now, &VerifyRules::default())
 }
 
 #[test]
@@ -376,6 +406,8 @@ fn s9e_17_the_verifier_agrees_with_the_oracle_on_2000_random_chains() {
         "IdentityWindow",
         "BadCert",
         "BadSignature",
+        "UnknownAccount",
+        "GroupMismatch",
     ] {
         let count = seen.get(rule).copied().unwrap_or(0);
         assert!(

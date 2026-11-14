@@ -41,7 +41,7 @@ fn issuer_of(f: &Fixture) -> AssertionIssuer<'_> {
 }
 
 fn verdict(f: &Fixture, a: &Assertion, secs: u64) -> Result<(), AssertError> {
-    verify_assertion(a, &f.anchors, now(secs), &f.rules, &account()).map(|_| ())
+    verify_assertion(a, &f.anchors, &placement(), now(secs), &f.rules, &account()).map(|_| ())
 }
 
 /// An assertion of arbitrary claims, signed by the fixture's credential key.
@@ -60,8 +60,15 @@ fn s9e_07_an_assertion_round_trips() {
     let f = fixture();
     let issuer = issuer_of(&f);
     let assertion = issuer.issue(claims()).expect("an assertion");
-    let verified = verify_assertion(&assertion, &f.anchors, now(ISSUED_A), &f.rules, &account())
-        .expect("verifies");
+    let verified = verify_assertion(
+        &assertion,
+        &f.anchors,
+        &placement(),
+        now(ISSUED_A),
+        &f.rules,
+        &account(),
+    )
+    .expect("verifies");
     let c = claims();
     assert_eq!(verified.account(), c.account);
     assert_eq!(verified.member(), c.member);
@@ -76,9 +83,15 @@ fn s9e_07_an_assertion_round_trips() {
     let again = Assertion::decode(&bytes).expect("decodes");
     assert_eq!(again, assertion);
     assert_eq!(again.encode().expect("encodes again"), bytes);
-    assert!(
-        verify_assertion_bytes(&bytes, &f.anchors, now(ISSUED_A), &f.rules, &account()).is_ok()
-    );
+    assert!(verify_assertion_bytes(
+        &bytes,
+        &f.anchors,
+        &placement(),
+        now(ISSUED_A),
+        &f.rules,
+        &account()
+    )
+    .is_ok());
 }
 
 #[test]
@@ -131,7 +144,15 @@ fn s9e_07_an_assertion_for_another_account_is_refused() {
     let a = signed(&f, claims());
     let other = AccountId::from_bytes([0x99; 16]);
     assert_eq!(
-        verify_assertion(&a, &f.anchors, now(ISSUED_A), &f.rules, &other).err(),
+        verify_assertion(
+            &a,
+            &f.anchors,
+            &placement(),
+            now(ISSUED_A),
+            &f.rules,
+            &other
+        )
+        .err(),
         Some(AssertError::WrongAccount)
     );
     // The account is checked before any signature: a service installed for another account does no
@@ -140,6 +161,7 @@ fn s9e_07_an_assertion_for_another_account_is_refused() {
         verify_assertion_bytes(
             &a.encode().expect("encodes"),
             &f.anchors,
+            &placement(),
             now(ISSUED_A),
             &f.rules,
             &other
@@ -220,7 +242,15 @@ fn s9e_07_a_verifier_refuses_groups_that_are_not_sorted_distinct_and_few() {
     let f = fixture();
     let ok = craft(&f, vec![id_value(1), id_value(2), id_value(3)]);
     assert!(
-        verify_assertion_bytes(&ok, &f.anchors, now(ISSUED_A), &f.rules, &account()).is_ok(),
+        verify_assertion_bytes(
+            &ok,
+            &f.anchors,
+            &placement(),
+            now(ISSUED_A),
+            &f.rules,
+            &account()
+        )
+        .is_ok(),
         "the control: a sorted list verifies"
     );
     for (name, groups, wire) in [
@@ -238,7 +268,15 @@ fn s9e_07_a_verifier_refuses_groups_that_are_not_sorted_distinct_and_few() {
         let bytes = craft(&f, groups);
         assert_eq!(Assertion::decode(&bytes).err(), Some(wire), "{name}");
         assert_eq!(
-            verify_assertion_bytes(&bytes, &f.anchors, now(ISSUED_A), &f.rules, &account()).err(),
+            verify_assertion_bytes(
+                &bytes,
+                &f.anchors,
+                &placement(),
+                now(ISSUED_A),
+                &f.rules,
+                &account()
+            )
+            .err(),
             Some(AssertError::Malformed),
             "{name}"
         );
@@ -254,14 +292,28 @@ fn s9e_07_a_verifier_refuses_groups_that_are_not_sorted_distinct_and_few() {
     let bytes = craft(&f, many.clone());
     assert!(Assertion::decode(&bytes).is_err());
     assert_eq!(
-        verify_assertion_bytes(&bytes, &f.anchors, now(ISSUED_A), &f.rules, &account()).err(),
+        verify_assertion_bytes(
+            &bytes,
+            &f.anchors,
+            &placement(),
+            now(ISSUED_A),
+            &f.rules,
+            &account()
+        )
+        .err(),
         Some(AssertError::Malformed)
     );
     // 256 are fine; 10,000 are refused whatever they are.
     let bytes = craft(&f, many[..MAX_GROUPS].to_vec());
-    assert!(
-        verify_assertion_bytes(&bytes, &f.anchors, now(ISSUED_A), &f.rules, &account()).is_ok()
-    );
+    assert!(verify_assertion_bytes(
+        &bytes,
+        &f.anchors,
+        &placement(),
+        now(ISSUED_A),
+        &f.rules,
+        &account()
+    )
+    .is_ok());
     let huge: Vec<Value> = (0..10_000u64)
         .map(|i| {
             let mut id = vec![0u8; 16];
@@ -291,9 +343,15 @@ fn s9e_07_an_assertions_role_is_a_word_of_its_vocabulary() {
         c.role = role;
         let a = signed(&f, c);
         let bytes = a.encode().expect("encodes");
-        let verified =
-            verify_assertion_bytes(&bytes, &f.anchors, now(ISSUED_A), &f.rules, &account())
-                .expect("verifies");
+        let verified = verify_assertion_bytes(
+            &bytes,
+            &f.anchors,
+            &placement(),
+            now(ISSUED_A),
+            &f.rules,
+            &account(),
+        )
+        .expect("verifies");
         assert_eq!(verified.role(), role);
     }
 }
@@ -308,6 +366,7 @@ fn s9e_07_the_chain_and_the_clock_apply_to_assertions_too() {
             verify_assertion(
                 &a,
                 &f.anchors,
+                &placement(),
                 VerifierNow::untrusted(node(secs)),
                 &f.rules,
                 &account()
@@ -321,6 +380,7 @@ fn s9e_07_the_chain_and_the_clock_apply_to_assertions_too() {
         verify_assertion(
             &a,
             &azlin_regbase::AnchorSet::empty(),
+            &placement(),
             now(ISSUED_A),
             &f.rules,
             &account()
@@ -330,7 +390,15 @@ fn s9e_07_the_chain_and_the_clock_apply_to_assertions_too() {
     );
     let other_group = fixture_anchors(azlin_regbase::MetaGroupId::new(2), 1, &[(0, None)]);
     assert_eq!(
-        verify_assertion(&a, &other_group, now(ISSUED_A), &f.rules, &account()).err(),
+        verify_assertion(
+            &a,
+            &other_group,
+            &placement(),
+            now(ISSUED_A),
+            &f.rules,
+            &account()
+        )
+        .err(),
         Some(AssertError::UnknownIdentity)
     );
     // A signature by another credential key.
@@ -439,7 +507,15 @@ fn s9e_02_any_changed_assertion_field_breaks_the_signature() {
         // The service is installed for the CHANGED account, so that the account check does not hide
         // the signature check for that one field.
         assert_eq!(
-            verify_assertion(&forged, &f.anchors, now(ISSUED_A), &f.rules, &installed).err(),
+            verify_assertion(
+                &forged,
+                &f.anchors,
+                &placement(),
+                now(ISSUED_A),
+                &f.rules,
+                &installed
+            )
+            .err(),
             Some(AssertError::BadSignature),
             "{field} changed"
         );

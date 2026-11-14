@@ -13,7 +13,7 @@ use crate::support::*;
 #[test]
 fn s9e_01_a_device_credential_round_trips() {
     let (f, credential) = issue_fixture();
-    let verified = verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules)
+    let verified = verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules)
         .expect("the credential verifies");
     let g = grant();
     assert_eq!(verified.account(), g.account);
@@ -55,8 +55,8 @@ fn s9e_01_an_app_principals_credential_round_trips_with_scopes_and_sso() {
     g.sso = Some(sso.clone());
     let issuer = CredentialIssuer::new(&f.cred, f.cert, &f.anchors, at(ISSUED)).expect("issuer");
     let credential = issuer.issue(g.clone()).expect("an app credential");
-    let verified =
-        verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).expect("verifies");
+    let verified = verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules)
+        .expect("verifies");
     assert_eq!(verified.device(), None);
     assert_eq!(verified.family(), None);
     assert_eq!(verified.scopes(), Some(&scopes));
@@ -75,7 +75,7 @@ fn s9e_01_the_wire_form_round_trips_byte_for_byte() {
         bytes,
         "a credential read from bytes writes the same bytes"
     );
-    let verified = verify_credential_bytes(&bytes, &f.anchors, now(ISSUED), &f.rules)
+    let verified = verify_credential_bytes(&bytes, &f.anchors, &placement(), now(ISSUED), &f.rules)
         .expect("the bytes verify");
     assert_eq!(verified.account(), grant().account);
 }

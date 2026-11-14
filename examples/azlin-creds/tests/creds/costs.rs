@@ -5,9 +5,9 @@
 use std::cell::RefCell;
 
 use azlin_creds::{
-    verify_credential, verify_credential_with, AssertError, CanonicalError, CertError, CredError,
-    Credential, CredentialClaims, EntitlementError, IssueError, IssuerError, ProbeFailure,
-    SignError, VerifiedCredential, VerifierNow, VerifyRules, WireError,
+    verify_credential, verify_credential_with, AccountGroups, AssertError, CanonicalError,
+    CertError, CredError, Credential, CredentialClaims, EntitlementError, IssueError, IssuerError,
+    ProbeFailure, SignError, VerifiedCredential, VerifierNow, VerifyRules, WireError,
 };
 use azlin_regbase::AnchorSet;
 use azlin_seams::{Ed25519Verifier, SigAlg, SignatureVerifier, VerifyError};
@@ -40,9 +40,15 @@ fn s9e_22_verifying_one_credential_costs_two_signature_checks() {
     let counting = Counting {
         preimages: RefCell::new(Vec::new()),
     };
-    let verified =
-        verify_credential_with(&counting, &credential, &f.anchors, now(ISSUED), &f.rules)
-            .expect("verifies");
+    let verified = verify_credential_with(
+        &counting,
+        &credential,
+        &f.anchors,
+        &placement(),
+        now(ISSUED),
+        &f.rules,
+    )
+    .expect("verifies");
     assert_eq!(verified.account(), grant().account);
     let seen = counting.preimages.borrow();
     assert_eq!(
@@ -78,13 +84,22 @@ fn s9e_22_a_refusal_before_the_chain_costs_no_signature_check() {
         } else {
             VerifierNow::untrusted(node(secs))
         };
-        assert!(verify_credential_with(&counting, &credential, &f.anchors, now, &f.rules).is_err());
+        assert!(verify_credential_with(
+            &counting,
+            &credential,
+            &f.anchors,
+            &placement(),
+            now,
+            &f.rules
+        )
+        .is_err());
     }
     // An empty anchor set is refused without a check too: no key, no verification.
     assert!(verify_credential_with(
         &counting,
         &credential,
         &AnchorSet::empty(),
+        &placement(),
         now(ISSUED),
         &f.rules
     )
@@ -94,17 +109,23 @@ fn s9e_22_a_refusal_before_the_chain_costs_no_signature_check() {
 
 #[test]
 fn s9e_13_verification_does_not_consult_revocations() {
-    // The signature of the function has no registry parameter: this does not compile if one is added.
-    let _: fn(
+    // The signature of the function has no revocation parameter: this does not compile if one is added.
+    // The only thing it is given about the registry is where the account lives (`AccountGroups`,
+    // D-W1S9E3), and that is a placement, not a revocation list.
+    type VerifyCredential = fn(
         &Credential,
         &AnchorSet,
+        &dyn AccountGroups,
         VerifierNow,
         &VerifyRules,
-    ) -> Result<VerifiedCredential, CredError> = verify_credential;
+    ) -> Result<VerifiedCredential, CredError>;
+    let _: VerifyCredential = verify_credential;
     // A credential whose nonce, family, device and member the registry has revoked still verifies here:
     // there is nothing in this crate to ask.
     let (f, credential) = issue_fixture();
-    assert!(verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).is_ok());
+    assert!(
+        verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules).is_ok()
+    );
     // And the documentation says so in its first line.
     let source = include_str!("../../src/credential.rs");
     let marker = "pub fn verify_credential(";
@@ -162,7 +183,8 @@ fn s9e_12_nothing_secret_prints() {
     assert!(!format!("{claims:?}").contains(&g.account.to_string()));
     assert!(!format!("{g:?}").contains(&g.member.to_string()));
     let (f, c) = issue_fixture();
-    let verified = verify_credential(&c, &f.anchors, now(ISSUED), &f.rules).expect("verifies");
+    let verified =
+        verify_credential(&c, &f.anchors, &placement(), now(ISSUED), &f.rules).expect("verifies");
     assert!(!format!("{verified:?}").contains(&g.account.to_string()));
 }
 
@@ -199,6 +221,8 @@ fn s9e_12_no_error_text_carries_a_byte_of_a_key_or_a_signature() {
         CredError::IdentityWindow,
         CredError::BadCert,
         CredError::BadSignature,
+        CredError::UnknownAccount,
+        CredError::GroupMismatch,
         CredError::UnknownScope,
     ] {
         add(format!("{e} / {e:?}"));
@@ -216,6 +240,8 @@ fn s9e_12_no_error_text_carries_a_byte_of_a_key_or_a_signature() {
         AssertError::IdentityWindow,
         AssertError::BadCert,
         AssertError::BadSignature,
+        AssertError::UnknownAccount,
+        AssertError::GroupMismatch,
     ] {
         add(format!("{e} / {e:?}"));
     }
@@ -235,6 +261,7 @@ fn s9e_12_no_error_text_carries_a_byte_of_a_key_or_a_signature() {
         EntitlementError::KeyWindow,
         EntitlementError::NotYetIssued,
         EntitlementError::BadSignature,
+        EntitlementError::Revoked,
         EntitlementError::Malformed,
         EntitlementError::SignerFault,
     ] {

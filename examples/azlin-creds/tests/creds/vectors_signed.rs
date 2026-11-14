@@ -196,6 +196,7 @@ fn s9e_14_the_assertion_and_entitlement_vector_files_verify_without_the_code_tha
                     verify_assertion_bytes(
                         &bytes,
                         &anchors,
+                        &placement(),
                         now(ISSUED),
                         &VerifyRules::default(),
                         &account,

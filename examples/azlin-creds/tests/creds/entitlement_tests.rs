@@ -558,3 +558,145 @@ fn s9e_09_a_retention_the_decoder_would_refuse_is_refused_by_the_signer() {
     let signed = sign_entitlement(&a, c).expect("the largest retention signs");
     assert!(SignedEntitlement::decode(&signed.encode().expect("encodes")).is_ok());
 }
+
+/// The anchors of `rotated()` where the old key A is also REVOKED from `from_day` (its window was
+/// RETIRED at day 100, as before): decision D-W1S9E3, drift row X-DELTA-W1S9E-5.
+fn revoked_a(from_day: u64) -> AnchorSet {
+    let mut anchors = rotated();
+    anchors.payments[0].revoked_from = Some(at(from_day * DAY));
+    anchors
+}
+
+#[test]
+fn s9e3_a_revoked_key_signs_nothing_dated_at_or_after_its_revocation() {
+    let a = signer(41);
+    let anchors = revoked_a(50);
+    // Dated before the revocation: the entitlement keeps its value, also long after (the retirement
+    // rule as built: the day of issue decides, not the moment of the check).
+    for issued_day in [0, 1, 49] {
+        let signed = sign_entitlement(&a, claims(issued_day)).expect("signs");
+        for now_day in [issued_day, 99, 100, 400] {
+            assert!(
+                verify_entitlement(&signed, &anchors, after(now_day)).is_ok(),
+                "dated day {issued_day}, verified on day {now_day}"
+            );
+        }
+    }
+    // Dated at or after it, inside the window: an alarm, whenever it is put.
+    for issued_day in [50, 51, 99] {
+        let signed = sign_entitlement(&a, claims(issued_day)).expect("signs");
+        for now_day in [issued_day, 100, 400] {
+            let verdict = verify_entitlement(&signed, &anchors, after(now_day));
+            assert_eq!(
+                verdict.err(),
+                Some(EntitlementError::Revoked),
+                "dated day {issued_day}, verified on day {now_day}"
+            );
+        }
+    }
+    // Past the window of the key it is the retirement that speaks: the window is checked first.
+    let late = sign_entitlement(&a, claims(100)).expect("signs");
+    assert_eq!(
+        verify_entitlement(&late, &anchors, after(100)).err(),
+        Some(EntitlementError::KeyWindow)
+    );
+    // The same anchors without the revocation verify every one of them: the field is what refuses.
+    for issued_day in [0, 49, 50, 51, 99] {
+        let signed = sign_entitlement(&a, claims(issued_day)).expect("signs");
+        assert!(verify_entitlement(&signed, &rotated(), after(400)).is_ok());
+    }
+}
+
+#[test]
+fn s9e3_one_window_that_says_revoked_is_enough_and_another_keys_revocation_is_not_this_keys() {
+    let a = signer(41);
+    // The key A twice in the list: its plain window and a second window that says revoked from day 60.
+    let mut anchors = rotated();
+    anchors.payments.push(KeyWindow {
+        public: a.public(),
+        not_before: at(0),
+        not_after: None,
+        revoked_from: Some(at(60 * DAY)),
+    });
+    let early = sign_entitlement(&a, claims(59)).expect("signs");
+    assert!(verify_entitlement(&early, &anchors, after(99)).is_ok());
+    let inside_both = sign_entitlement(&a, claims(70)).expect("signs");
+    assert_eq!(
+        verify_entitlement(&inside_both, &anchors, after(99)).err(),
+        Some(EntitlementError::Revoked),
+        "a window that says revoked refuses, whatever the other window of the key says"
+    );
+    // B revoked from the start of its window refuses every entitlement of B and none of A's.
+    let mut b_revoked = rotated();
+    b_revoked.payments[1].revoked_from = Some(at(100 * DAY));
+    let b = signer(42);
+    let of_b = sign_entitlement(&b, claims(100)).expect("signs");
+    assert_eq!(
+        verify_entitlement(&of_b, &b_revoked, after(100)).err(),
+        Some(EntitlementError::Revoked)
+    );
+    let of_a = sign_entitlement(&a, claims(90)).expect("signs");
+    assert!(verify_entitlement(&of_a, &b_revoked, after(100)).is_ok());
+}
+
+#[test]
+fn s9e3_the_revocation_is_judged_after_the_other_checks_and_after_the_signature() {
+    let a = signer(41);
+    let b = signer(42);
+    // both keys revoked from the start of time
+    let mut anchors = rotated();
+    anchors.payments[0].revoked_from = Some(at(0));
+    anchors.payments[1].revoked_from = Some(at(0));
+    // an unknown key, a day outside the window and a day that has not begun speak first
+    let unknown = sign_entitlement(&signer(99), claims(50)).expect("signs");
+    assert_eq!(
+        verify_entitlement(&unknown, &anchors, after(50)).err(),
+        Some(EntitlementError::UnknownKey)
+    );
+    let outside = sign_entitlement(&a, claims(100)).expect("signs");
+    assert_eq!(
+        verify_entitlement(&outside, &anchors, after(100)).err(),
+        Some(EntitlementError::KeyWindow)
+    );
+    let staged = sign_entitlement(&b, claims(100)).expect("signs");
+    assert_eq!(
+        verify_entitlement(&staged, &anchors, after(99)).err(),
+        Some(EntitlementError::NotYetIssued)
+    );
+    // A forgery that names the revoked key is a forgery (no alarm); the authentic signature is the alarm.
+    let by_b = sign_entitlement(&b, claims(99)).expect("signs");
+    let forged =
+        SignedEntitlement::from_parts(claims(99), a.public(), *by_b.signature()).expect("built");
+    let verdict = verify_entitlement(&forged, &anchors, after(99)).err();
+    assert_eq!(verdict, Some(EntitlementError::BadSignature));
+    assert!(!verdict.is_some_and(EntitlementError::is_alarm));
+    let authentic = sign_entitlement(&a, claims(99)).expect("signs");
+    let verdict = verify_entitlement(&authentic, &anchors, after(99)).err();
+    assert_eq!(verdict, Some(EntitlementError::Revoked));
+    assert!(verdict.is_some_and(EntitlementError::is_alarm));
+}
+
+#[test]
+fn s9e3_the_day_of_issue_is_compared_with_the_second_of_the_revocation() {
+    let a = signer(41);
+    // Revoked one second into day 50: the claim "day 50" is dated at its first second, which is before
+    // the revocation, so it passes; day 51 does not. The registry sets the second to the earliest one
+    // the key may have been in other hands (a day start when it wants the whole day refused).
+    let mut anchors = rotated();
+    anchors.payments[0].revoked_from = Some(at(50 * DAY + 1));
+    let on_day_50 = sign_entitlement(&a, claims(50)).expect("signs");
+    assert!(verify_entitlement(&on_day_50, &anchors, after(60)).is_ok());
+    let on_day_51 = sign_entitlement(&a, claims(51)).expect("signs");
+    assert_eq!(
+        verify_entitlement(&on_day_51, &anchors, after(60)).err(),
+        Some(EntitlementError::Revoked)
+    );
+    // Revoked from the first second of day 50: the whole day is refused, and a day before is not.
+    anchors.payments[0].revoked_from = Some(at(50 * DAY));
+    assert_eq!(
+        verify_entitlement(&on_day_50, &anchors, after(60)).err(),
+        Some(EntitlementError::Revoked)
+    );
+    let on_day_49 = sign_entitlement(&a, claims(49)).expect("signs");
+    assert!(verify_entitlement(&on_day_49, &anchors, after(60)).is_ok());
+}

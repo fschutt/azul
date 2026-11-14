@@ -20,12 +20,13 @@ use azlin_regbase::{
     AccountId, AccountRole, AnchorSet, CredentialNonce, DeviceId, KeyEpoch, LeaderTime, MemberId,
     PolicyEpoch, UserGroupId,
 };
+use azlin_seams::Ed25519Verifier;
 
-use crate::assertion::{verify_assertion, Assertion};
+use crate::assertion::{verify_chain_with as verify_assertion_chain, Assertion};
 use crate::canon::{domain_of, Canonical};
 use crate::cert::Certificate;
 use crate::claims::{AssertionClaims, CredentialClaims, GrantClaims, MAX_GROUPS};
-use crate::credential::{verify_credential, Credential};
+use crate::credential::{verify_chain_with as verify_credential_chain, Credential};
 use crate::error::{AssertError, CredError, IssueError, IssuerError, ProbeFailure};
 use crate::scopes::{LogRef, Scope, Scopes};
 use crate::signer::{sign_checked, SignFailure, Signer};
@@ -102,7 +103,9 @@ impl<'a> CredentialIssuer<'a> {
     }
 
     /// The probe: a credential one second long, issued through [`CredentialIssuer::issue`] and
-    /// verified like any node would verify it.
+    /// verified like any node would verify it, but for the placement of its account: the probe tests a
+    /// KEY (the certificate, the windows, both signatures), and its account is a value no registry
+    /// places anywhere.
     fn probe(&self, anchors: &AnchorSet, now: LeaderTime) -> Result<(), IssuerError> {
         let failed = IssuerError::ProbeFailed;
         let expires = now
@@ -125,7 +128,8 @@ impl<'a> CredentialIssuer<'a> {
             sso: None,
         };
         let credential = self.issue(grant).map_err(|e| failed(probe_failure(e)))?;
-        verify_credential(
+        verify_credential_chain(
+            &Ed25519Verifier,
             &credential,
             anchors,
             VerifierNow::trusted(crossing(now)),
@@ -232,7 +236,8 @@ impl<'a> AssertionIssuer<'a> {
     }
 
     /// The probe: an assertion one second long, issued through [`AssertionIssuer::issue`] and verified
-    /// like any service would verify it.
+    /// like any service would verify it, but for the placement of its account (see
+    /// [`CredentialIssuer`]: the probe tests a key).
     fn probe(&self, anchors: &AnchorSet, now: LeaderTime) -> Result<(), IssuerError> {
         let failed = IssuerError::ProbeFailed;
         let expires = now
@@ -250,7 +255,8 @@ impl<'a> AssertionIssuer<'a> {
         let assertion = self
             .issue(claims)
             .map_err(|e| failed(assertion_probe_failure(e)))?;
-        verify_assertion(
+        verify_assertion_chain(
+            &Ed25519Verifier,
             &assertion,
             anchors,
             VerifierNow::trusted(crossing(now)),

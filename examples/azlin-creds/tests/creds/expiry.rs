@@ -22,7 +22,7 @@ fn claims(issued: u64, expires: u64) -> CredentialClaims {
 fn check(c: CredentialClaims, secs: u64) -> Result<(), CredError> {
     let f = fixture();
     let credential = signed_credential(&f.cred, f.cert, c);
-    verify_credential(&credential, &f.anchors, now(secs), &f.rules).map(|_| ())
+    verify_credential(&credential, &f.anchors, &placement(), now(secs), &f.rules).map(|_| ())
 }
 
 #[test]
@@ -73,14 +73,14 @@ fn s9e_04_the_lifetime_is_capped_at_twelve_hours() {
         ..VerifyRules::default()
     };
     assert_eq!(
-        verify_credential(&credential, &f.anchors, now(I), &strict).err(),
+        verify_credential(&credential, &f.anchors, &placement(), now(I), &strict).err(),
         Some(CredError::LifetimeTooLong)
     );
     let exact = VerifyRules {
         max_credential_lifetime: span(7_200),
         ..VerifyRules::default()
     };
-    assert!(verify_credential(&credential, &f.anchors, now(I), &exact).is_ok());
+    assert!(verify_credential(&credential, &f.anchors, &placement(), now(I), &exact).is_ok());
 }
 
 #[test]
@@ -91,18 +91,18 @@ fn s9e_04_the_skew_is_the_rules() {
         skew: span(120),
         ..VerifyRules::default()
     };
-    assert!(verify_credential(&credential, &f.anchors, now(I - 120), &wide).is_ok());
+    assert!(verify_credential(&credential, &f.anchors, &placement(), now(I - 120), &wide).is_ok());
     assert_eq!(
-        verify_credential(&credential, &f.anchors, now(I - 121), &wide).err(),
+        verify_credential(&credential, &f.anchors, &placement(), now(I - 121), &wide).err(),
         Some(CredError::NotYetValid)
     );
     let none = VerifyRules {
         skew: span(0),
         ..VerifyRules::default()
     };
-    assert!(verify_credential(&credential, &f.anchors, now(I), &none).is_ok());
+    assert!(verify_credential(&credential, &f.anchors, &placement(), now(I), &none).is_ok());
     assert_eq!(
-        verify_credential(&credential, &f.anchors, now(I - 1), &none).err(),
+        verify_credential(&credential, &f.anchors, &placement(), now(I - 1), &none).err(),
         Some(CredError::NotYetValid)
     );
 }
@@ -145,7 +145,8 @@ fn s9e_05_an_untrusted_clock_decides_nothing() {
     let bytes = credential.encode().expect("encodes");
     for secs in [0, I - 1_000, I, E - 1, E, E + 1_000, u64::MAX] {
         let untrusted = VerifierNow::untrusted(node(secs));
-        let refused = verify_credential(&credential, &f.anchors, untrusted, &f.rules).err();
+        let refused =
+            verify_credential(&credential, &f.anchors, &placement(), untrusted, &f.rules).err();
         assert_eq!(
             refused,
             Some(CredError::ClockUntrusted),
@@ -154,7 +155,7 @@ fn s9e_05_an_untrusted_clock_decides_nothing() {
         assert_ne!(refused, Some(CredError::Expired));
         assert_ne!(refused, Some(CredError::NotYetValid));
         assert_eq!(
-            verify_credential_bytes(&bytes, &f.anchors, untrusted, &f.rules).err(),
+            verify_credential_bytes(&bytes, &f.anchors, &placement(), untrusted, &f.rules).err(),
             Some(CredError::ClockUntrusted)
         );
     }
@@ -163,6 +164,7 @@ fn s9e_05_an_untrusted_clock_decides_nothing() {
         verify_credential_bytes(
             b"\xff\xff",
             &f.anchors,
+            &placement(),
             VerifierNow::untrusted(node(I)),
             &f.rules
         )
@@ -170,7 +172,7 @@ fn s9e_05_an_untrusted_clock_decides_nothing() {
         Some(CredError::ClockUntrusted)
     );
     // The same credential with a trusted clock is fine at the same instants.
-    assert!(verify_credential(&credential, &f.anchors, now(I), &f.rules).is_ok());
+    assert!(verify_credential(&credential, &f.anchors, &placement(), now(I), &f.rules).is_ok());
 }
 
 #[test]
