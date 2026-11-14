@@ -7,28 +7,28 @@
 //! answers every sign-in `Unsupported` (through the request queue, like every resumable call);
 //! its PKCE pair is empty, so nothing could sign in with it by mistake.
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::auth_session::{create_pkce, AuthSession};
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::{refany::RefAny, task::RequestId};
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::AzString;
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_layout::{
     auth_session::{AuthPkce, AuthRequest, AuthSessionResult, AuthSessionStatus},
     callbacks::{CallbackInfo, ResumeCallback},
 };
 
 /// wasm stub of the desktop `AuthSession` namespace; `#[repr(C)]` layout MUST match.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub struct AuthSession {
     pub _reserved: u8,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl AuthSession {
     pub const fn new() -> Self {
         Self { _reserved: 0 }
@@ -54,7 +54,7 @@ impl AuthSession {
 }
 
 /// No random source here: an empty pair (a sign-in with it fails).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[must_use]
 pub fn create_pkce() -> AuthPkce {
     AuthPkce {

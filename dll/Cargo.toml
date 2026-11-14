@@ -858,6 +858,35 @@ link-dynamic = [
     "cabi_external",
     "rust_api",
 ]
+# The engine and the whole Rust / C API WITHOUT the desktop module: for servers and command-line
+# tools that lay out, measure, shape and render (text, SVG, the DOM to a picture) without a
+# window - no window shells, GPU renderer, clipboard, dialogs or device crates, nothing to install
+# on a Linux server. The API's window, app and device handles are the stubs they are on wasm
+# (`crate::unified`: invalid handles that do nothing). Additive: with `link-static` (whose
+# `_internal_deps` bring `desktop`) the same build has the desktop module again.
+engine = [
+    "cabi_internal",
+    "rust_api",
+    "std",
+    "azul-core",
+    "azul-css",
+    "azul-layout",
+    "cpurender",
+    "font_loading",
+    "text_layout",
+    "svg",
+    "xml",
+    "icu",
+    "fluent",
+    "zip",
+    "json",
+    "icons",
+    "serde-json",
+    "libm",
+]
+# The desktop module (`src/desktop`: the window shells, the GPU renderer, clipboard, dialogs,
+# devices): part of `_internal_deps` (build-dll, link-static). See `az_desktop` in build.rs.
+desktop = []
 
 # Nightly only: `?` directly on the FFI Option* / Result* types, and inside a
 # callback returning `Update` (a missing value or an error means "do nothing").
@@ -866,6 +895,7 @@ try-trait = []
 
 # Shared dependencies for build-dll and link-static (not user-facing)
 _internal_deps = [
+    "desktop",
     "std",
     "azul-core",
     "azul-css",

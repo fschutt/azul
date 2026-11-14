@@ -284,29 +284,27 @@ extern crate azul_layout;
 
 // `getrandom`: the random source of a sign-in's PKCE verifier and state
 // (`desktop::extra::auth_session::create_pkce`). A build without the desktop
-// module (link-dynamic, wasm) links it unused.
-#[cfg(not(all(feature = "cabi_internal", not(target_arch = "wasm32"))))]
+// module (link-dynamic, wasm, the `engine` profile) links it unused.
+#[cfg(not(az_desktop))]
 use getrandom as _;
 
 // Desktop windowing implementation (OpenGL, fonts, event loop, etc.)
-// Compiled when internal bindings are available (not for link-dynamic)
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+// Compiled when internal bindings are available with the `desktop` feature, off wasm
+// (`az_desktop`, see build.rs): not for link-dynamic, nor the `engine` profile
+#[cfg(az_desktop)]
 pub mod desktop;
 #[cfg(feature = "web-e2e-runner")]
 pub mod e2e_web_runner;
 
 // Target-stable home for the `extra::*` feature handles (audio, video_codec,
-// sqlite, pdf, webtransport). Off-wasm it re-exports the real `desktop::extra::*` types;
-// on wasm it provides repr-C-identical stubs so the generated C-ABI bindings
-// resolve everywhere. UNGATED on purpose (the path must exist on every target).
+// sqlite, pdf, webtransport). With the desktop module it re-exports the real `desktop::extra::*`
+// types; without it (wasm, the `engine` profile: `az_engine_stubs`) it provides repr-C-identical
+// stubs so the generated C-ABI bindings resolve everywhere. UNGATED on purpose (the path must
+// exist on every target).
 pub mod unified;
 
 // Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
-#[cfg(all(
-    feature = "web",
-    feature = "cabi_internal",
-    not(target_arch = "wasm32")
-))]
+#[cfg(all(feature = "web", az_desktop))]
 pub mod web;
 
 // =============================================================================

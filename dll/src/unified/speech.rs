@@ -4,14 +4,14 @@
 //! backend yet: the stubs below have the identical `#[repr(C)]` layout and answer every call
 //! `Unavailable`.
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::AzString;
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::speech::{HeardStatus, Speech, SpeechHeard, SpeechStatus};
 
 /// wasm stub of the desktop `SpeechStatus`; `#[repr(C)]` layout MUST match.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SpeechStatus {
@@ -20,7 +20,7 @@ pub enum SpeechStatus {
 }
 
 /// wasm stub of the desktop `HeardStatus`; `#[repr(C)]` layout MUST match.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum HeardStatus {
@@ -31,26 +31,28 @@ pub enum HeardStatus {
     Failed,
 }
 
-/// wasm stub of the desktop `SpeechHeard`; `#[repr(C)]` layout MUST match.
-#[cfg(target_arch = "wasm32")]
+/// wasm stub of the desktop `SpeechHeard`; `#[repr(C)]` layout MUST match: the desktop
+/// type's fields in the desktop type's order (the C ABI transmutes between this and
+/// `AzSpeechHeard`, which api.json lays out so).
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpeechHeard {
-    pub status: HeardStatus,
     pub text: AzString,
-    pub confidence: f32,
     pub message: AzString,
+    pub status: HeardStatus,
+    pub confidence: f32,
 }
 
 /// wasm stub of the desktop `Speech` namespace; `#[repr(C)]` layout MUST match.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Speech {
     pub _reserved: u8,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Speech {
     pub const fn new() -> Self {
         Self { _reserved: 0 }

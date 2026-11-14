@@ -86,6 +86,28 @@ fn main() {
         }
     }
 
+    // `az_desktop`: the desktop module (the window shells, the GPU renderer, clipboard, dialogs,
+    // devices) is compiled in - an internal build (`cabi_internal`) with the `desktop` feature
+    // (part of `_internal_deps`: build-dll, link-static), off wasm. `az_engine_stubs`: an
+    // internal build off wasm without it - the `engine` profile of servers and command-line
+    // tools - where `crate::unified` gives the C ABI the repr-C-identical stub handles it has on
+    // wasm (`any(target_arch = "wasm32", az_engine_stubs)`), so the whole generated API compiles
+    // without the desktop crates. One definition for every gate.
+    println!("cargo:rustc-check-cfg=cfg(az_desktop)");
+    println!("cargo:rustc-check-cfg=cfg(az_engine_stubs)");
+    {
+        let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+        let internal = env::var("CARGO_FEATURE_CABI_INTERNAL").is_ok();
+        let desktop = env::var("CARGO_FEATURE_DESKTOP").is_ok();
+        if internal && arch != "wasm32" {
+            if desktop {
+                println!("cargo:rustc-cfg=az_desktop");
+            } else {
+                println!("cargo:rustc-cfg=az_engine_stubs");
+            }
+        }
+    }
+
     println!("cargo:rustc-check-cfg=cfg(az_db_engine)");
     {
         let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();

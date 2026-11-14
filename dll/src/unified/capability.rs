@@ -1,14 +1,14 @@
 //! Unified `PlatformCapability` type + probes. See [`crate::unified`].
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::AzString;
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::capability::*;
 
 /// wasm stub of the desktop `PlatformCapability` — IDENTICAL `#[repr(C)]` layout. On
 /// wasm there are no native device backends, so every probe reports unavailable.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlatformCapability {
@@ -17,7 +17,7 @@ pub struct PlatformCapability {
     pub reason: AzString,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl PlatformCapability {
     fn unavailable() -> PlatformCapability {
         PlatformCapability {

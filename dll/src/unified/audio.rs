@@ -4,22 +4,22 @@
 // the same condition as `crate::desktop`.
 use core::ffi::c_void;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::audio::{AudioConfig, AudioFrame};
 // wasm: stub with an identical `#[repr(C)]` layout (ptr + error +
 // run_destructor) so the C-ABI transmute to `AzAudioSink` stays valid. Defined
 // directly in this module so the path resolves to
 // `azul_dll::unified::audio::AudioSink`. Includes a `Drop` impl to match the
 // real desktop type's `custom_impl(Drop)`.
-#[cfg(target_arch = "wasm32")]
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::{AzString, OptionString, StringVec};
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::audio::*;
 
 /// wasm stub of the desktop `AudioSink` handle (no audio backend on wasm).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct AudioSink {
     pub ptr: *mut c_void,
@@ -27,7 +27,7 @@ pub struct AudioSink {
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for AudioSink {
     fn clone(&self) -> Self {
         AudioSink {
@@ -38,7 +38,7 @@ impl Clone for AudioSink {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for AudioSink {
     fn default() -> Self {
         AudioSink {
@@ -49,12 +49,12 @@ impl Default for AudioSink {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for AudioSink {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl AudioSink {
     /// No audio backend on wasm: always returns a closed handle that says so.
     pub fn open(_config: AudioConfig) -> AudioSink {
@@ -104,14 +104,14 @@ impl AudioSink {
 }
 
 /// wasm stub of `AudioDeviceListResult`; layout MUST match the desktop type.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct AudioDeviceListResult {
     pub devices: AudioDeviceList,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 azul_css::impl_option!(
     AudioDeviceListResult,
     OptionAudioDeviceListResult,
@@ -119,7 +119,7 @@ azul_css::impl_option!(
     [Debug, Clone]
 );
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl AudioDeviceListResult {
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionAudioDeviceListResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -128,14 +128,14 @@ impl AudioDeviceListResult {
 
 /// wasm stub of `AudioDeviceList` (no enumeration backend on wasm). `#[repr(C)]`
 /// layout MUST match the desktop `audio::AudioDeviceList`.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct AudioDeviceList {
     pub outputs: StringVec,
     pub inputs: StringVec,
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl AudioDeviceList {
     /// No audio enumeration on wasm: resumes with empty lists.
     pub fn enumerate(
@@ -156,14 +156,14 @@ impl AudioDeviceList {
 /// wasm stubs of the desktop Opus handles (`audio::codec`): no Opus engine on
 /// wasm, so every handle is closed. `#[repr(C)]` layout MUST match the desktop
 /// `AudioEncoder` / `AudioDecoder` (ptr + run_destructor).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct AudioEncoder {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for AudioEncoder {
     fn clone(&self) -> Self {
         AudioEncoder {
@@ -173,7 +173,7 @@ impl Clone for AudioEncoder {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for AudioEncoder {
     fn default() -> Self {
         AudioEncoder {
@@ -183,12 +183,12 @@ impl Default for AudioEncoder {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for AudioEncoder {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl AudioEncoder {
     pub fn create(_config: AudioConfig, _bitrate_kbps: u32) -> AudioEncoder {
         AudioEncoder::default()
@@ -208,14 +208,14 @@ impl AudioEncoder {
     pub fn close(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct AudioDecoder {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for AudioDecoder {
     fn clone(&self) -> Self {
         AudioDecoder {
@@ -225,7 +225,7 @@ impl Clone for AudioDecoder {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for AudioDecoder {
     fn default() -> Self {
         AudioDecoder {
@@ -235,12 +235,12 @@ impl Default for AudioDecoder {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for AudioDecoder {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl AudioDecoder {
     pub fn create(_config: AudioConfig) -> AudioDecoder {
         AudioDecoder::default()
@@ -257,14 +257,14 @@ impl AudioDecoder {
 /// wasm stub of the desktop `EchoCanceller` (`audio::echo`): closed, so
 /// `process` hands the microphone back unchanged. `#[repr(C)]` layout MUST
 /// match the desktop type (ptr + run_destructor).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct EchoCanceller {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for EchoCanceller {
     fn clone(&self) -> Self {
         EchoCanceller {
@@ -274,7 +274,7 @@ impl Clone for EchoCanceller {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for EchoCanceller {
     fn default() -> Self {
         EchoCanceller {
@@ -284,12 +284,12 @@ impl Default for EchoCanceller {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for EchoCanceller {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl EchoCanceller {
     pub fn create(_sample_rate: u32, _tail_ms: u32) -> EchoCanceller {
         EchoCanceller::default()
@@ -315,7 +315,7 @@ impl EchoCanceller {
 /// wasm stub of the desktop `AudioFileDecoder` (`audio::decode`): no decoder
 /// on wasm, so every handle is closed and says so. `#[repr(C)]` layout MUST
 /// match the desktop type (ptr + error + run_destructor).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct AudioFileDecoder {
     pub ptr: *mut c_void,
@@ -323,7 +323,7 @@ pub struct AudioFileDecoder {
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for AudioFileDecoder {
     fn clone(&self) -> Self {
         AudioFileDecoder {
@@ -334,7 +334,7 @@ impl Clone for AudioFileDecoder {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for AudioFileDecoder {
     fn default() -> Self {
         AudioFileDecoder {
@@ -345,12 +345,12 @@ impl Default for AudioFileDecoder {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for AudioFileDecoder {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl AudioFileDecoder {
     fn closed() -> AudioFileDecoder {
         AudioFileDecoder {
@@ -398,14 +398,14 @@ impl AudioFileDecoder {
 /// no decoder on wasm; every call is a no-op, the state says there is no
 /// output. `#[repr(C)]` layout MUST match the desktop type (ptr +
 /// run_destructor).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct AudioPlayer {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for AudioPlayer {
     fn clone(&self) -> Self {
         AudioPlayer {
@@ -415,7 +415,7 @@ impl Clone for AudioPlayer {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for AudioPlayer {
     fn default() -> Self {
         AudioPlayer {
@@ -425,12 +425,12 @@ impl Default for AudioPlayer {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for AudioPlayer {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl AudioPlayer {
     pub fn create() -> AudioPlayer {
         AudioPlayer::default()

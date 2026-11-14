@@ -8,7 +8,7 @@
 //! `crate::desktop::extra::sensors`. No identifier (a network's name, an address, a carrier, a
 //! serial number) is read at all.
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::sensors::{
     battery::{BatteryState, ThermalState, BATTERY_STATE_FILE_VAR},
     network::{NetworkKind, NetworkState, NETWORK_STATE_FILE_VAR},
@@ -16,7 +16,7 @@ pub use crate::desktop::extra::sensors::{
 };
 
 /// wasm stub of the desktop `ThermalState` - IDENTICAL `#[repr(C)]` layout.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ThermalState {
@@ -30,7 +30,7 @@ pub enum ThermalState {
 /// wasm stub of the desktop `BatteryState` - IDENTICAL `#[repr(C)]` layout. A browser's Battery
 /// Status API answers a promise (and is gone from Firefox and Safari), and a page has no
 /// thermal or power-saver reading, so every query answers [`BatteryState::UNKNOWN`].
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BatteryState {
@@ -41,7 +41,7 @@ pub struct BatteryState {
     pub thermal: ThermalState,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl BatteryState {
     pub const LEVEL_UNKNOWN: u8 = 255;
     pub const HEADLESS: BatteryState = BatteryState {
@@ -81,7 +81,7 @@ impl BatteryState {
 /// wasm stub of the desktop `PowerState` - IDENTICAL `#[repr(C)]` layout. A browser offers no
 /// synchronous reading (the Battery Status API is a promise, idleness a permission prompt), so
 /// every query answers the cautious [`PowerState::UNKNOWN`]: background work waits.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PowerState {
@@ -89,7 +89,7 @@ pub struct PowerState {
     pub idle_secs: u64,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl PowerState {
     pub const HEADLESS: PowerState = PowerState {
         on_mains: true,
@@ -117,7 +117,7 @@ impl PowerState {
 }
 
 /// wasm stub of the desktop `NetworkKind` - IDENTICAL `#[repr(C)]` layout.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NetworkKind {
@@ -132,7 +132,7 @@ pub enum NetworkKind {
 /// Information API (`navigator.connection`: `saveData`, `type`) is missing from several browsers
 /// and is not reached from here, so every query answers [`NetworkState::UNKNOWN`]: connected and
 /// free.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NetworkState {
@@ -143,7 +143,7 @@ pub struct NetworkState {
     pub hotspot: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl NetworkState {
     pub const HEADLESS: NetworkState = NetworkState {
         kind: NetworkKind::Wired,
