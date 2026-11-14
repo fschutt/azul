@@ -302,6 +302,44 @@ fn m7_consistency_verification_is_tight() {
             }
         }
     }
+    // Equal sizes have the empty proof and the roots are compared: "the same size, so consistent" is not
+    // an answer. The empty tree (old = 0) likewise needs the empty root as its old root.
+    for n in 0..=24usize {
+        let equal = ConsistencyProof {
+            old: ts(n),
+            new: ts(n),
+            path: vec![],
+        };
+        assert_eq!(
+            verify_consistency(&equal, &roots[n], &roots[n]),
+            Ok(()),
+            "({n}, {n})"
+        );
+        for other in (0..=24usize).filter(|&m| m != n) {
+            assert_eq!(
+                verify_consistency(&equal, &roots[n], &roots[other]),
+                Err(ProofError::RootMismatch),
+                "({n}, {n}) against the root of {other} leaves"
+            );
+            assert_eq!(
+                verify_consistency(&equal, &roots[other], &roots[n]),
+                Err(ProofError::RootMismatch),
+                "({n}, {n}) with the root of {other} leaves first"
+            );
+        }
+        let from_empty = ConsistencyProof {
+            old: ts(0),
+            new: ts(n),
+            path: vec![],
+        };
+        for other in 1..=24usize {
+            assert_eq!(
+                verify_consistency(&from_empty, &roots[other], &roots[n]),
+                Err(ProofError::RootMismatch),
+                "(0, {n}) with the root of {other} leaves as the old root"
+            );
+        }
+    }
     // A proof of the wrong sizes for its hashes: the same list read at another pair of sizes.
     let proof = tree.consistency_proof(ts(5), ts(13)).unwrap();
     for (old, new) in [(5, 14), (5, 12), (4, 13), (6, 13), (3, 13)] {
