@@ -1,0 +1,18 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2): the FINAL manifest. Lanes never edit it: a missing dependency is a drift row.
+# Test-support library. Independence rule: the model never reads azlin-teamlog's source.
+
+[package]
+name = "azlin-escalate-e1"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin escalate E1: the independent reference model of the team log's permission check and its differential test"
+publish = false
+
+[dependencies]
+azlin-seams = { path = "../azlin-seams" }
+azlin-policy = { path = "../azlin-policy" }
+azlin-chain = { path = "../azlin-chain" }
+azlin-teamlog = { path = "../azlin-teamlog" }

@@ -153,6 +153,10 @@ windows-sys = { version = "0.61", default-features = false, features = [
 # The tests' DOCX (deflated ZIP members) and their CRC-32s; both already in Cargo.lock (zip, lepton_jpeg).
 flate2 = "1"
 crc32fast = "1"
+# The census of the drives (src/tests/drive_coverage.rs) reads the shipped code's items with the source-gate kit's lexer: an `impl`
+# or a `struct` inside a module is found like one at the start of a line, and a test module's is none. A workspace member with no
+# dependencies of its own (X-DELTA-DRIVEE-7).
+azul-srcgate = { path = "../azul-srcgate" }
 
 [features]
 default = []

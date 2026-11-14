@@ -135,6 +135,10 @@ pub enum ClockRefusal {
     /// The clock is more than [`CLOCK_AHEAD_SECS`] after everything the account and its drive remember;
     /// `drive`: the newest mail of the drive was one of the readings.
     Ahead { now: u64, known: u64, drive: bool },
+    /// What the account remembers of its last Send/Receive cannot be read (a listing of `mail/` that failed, a
+    /// state file that is damaged): the text of the error. A floor that cannot be read is no floor of nothing -
+    /// a clock set against nothing would date a hold by any clock (X-DELTA-APPS5-6).
+    FloorUnreadable(String),
 }
 
 impl std::fmt::Display for ClockRefusal {
@@ -159,6 +163,10 @@ impl std::fmt::Display for ClockRefusal {
                 },
                 said(*known)
             ),
+            ClockRefusal::FloorUnreadable(why) => write!(
+                f,
+                "the time of the last Send/Receive cannot be read ({why})"
+            ),
         }
     }
 }
@@ -168,13 +176,29 @@ impl std::fmt::Display for ClockRefusal {
 /// is the one thing a wrong clock can make last one sync (X-DELTA-APPS4-3, X-APPS3-1).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Clocks {
-    /// The newest `synced_at` of the account's folders as the newest Send/Receive found them: what this
-    /// computer's own clock said at the last one ([`MailStore::last_sync`]). `None`: the account never synced.
-    last_sync: Option<u64>,
+    /// What the account remembers of its newest Send/Receive ([`MailStore::last_sync`]).
+    floor: Floor,
     /// The newest `modified` of the mail the drive listed at the start of the Send/Receive: the drive's own
     /// word that it lived at least until then - a LOWER bound of its time, never a later one than it is.
     /// `None`: no drive (the Outbox's Delete has none at hand), or it lists no mail.
     drive: Option<u64>,
+}
+
+/// What an account remembers of the time of its last Send/Receive: the newest `synced_at` of its folders as the
+/// newest Send/Receive found them - what this computer's own clock said at the last one - or why that could not
+/// be read. The failure has its own arm: it is never "no Send/Receive yet".
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Floor {
+    /// The newest stamp; `None`: the account never synced.
+    Read(Option<u64>),
+    /// The text of the error that stopped the read.
+    Unreadable(String),
+}
+
+impl Default for Floor {
+    fn default() -> Floor {
+        Floor::Read(None)
+    }
 }
 
 impl Clocks {
@@ -182,19 +206,48 @@ impl Clocks {
     /// of the drive (`None`: none listed, or no drive).
     #[must_use]
     pub fn new(last_sync: Option<u64>, drive: Option<u64>) -> Clocks {
-        Clocks { last_sync, drive }
+        Clocks {
+            floor: Floor::Read(last_sync),
+            drive,
+        }
     }
 
-    /// The newest Send/Receive of the account.
+    /// The readings of the account in `store`, with the newest mail of the drive (`None`: none listed, or no
+    /// drive). A floor that cannot be READ is an arm of its own, not an empty one: no hold is dated and nothing
+    /// is swept against it ([`Clocks::hold_time`], [`Clocks::sweep_reading`]).
+    #[must_use]
+    pub fn of(store: &MailStore, drive: Option<u64>) -> Clocks {
+        let floor = match store.last_sync() {
+            Ok(last_sync) => Floor::Read(last_sync),
+            Err(e) => Floor::Unreadable(e.to_string()),
+        };
+        Clocks { floor, drive }
+    }
+
+    /// The newest Send/Receive of the account; `None` too when it cannot be read.
     #[must_use]
     pub fn last_sync(&self) -> Option<u64> {
-        self.last_sync
+        match &self.floor {
+            Floor::Read(last_sync) => *last_sync,
+            Floor::Unreadable(_) => None,
+        }
     }
 
     /// The newest mail of the drive.
     #[must_use]
     pub fn drive(&self) -> Option<u64> {
         self.drive
+    }
+
+    /// The drive's reading that the sweep of the holding area sets the clock against ([`Clocks::drive`]) - and
+    /// none when what the account remembers of the time cannot be read: nothing is swept then, the next
+    /// Send/Receive that can read it sweeps (X-DELTA-APPS5-6).
+    #[must_use]
+    pub fn sweep_reading(&self) -> Option<u64> {
+        match &self.floor {
+            Floor::Read(_) => self.drive,
+            Floor::Unreadable(_) => None,
+        }
     }
 
     /// The moment a hold made now (`now`: seconds since 1970 by the clock of this computer) is dated, or why
@@ -206,17 +259,21 @@ impl Clocks {
     ///
     /// # Errors
     ///
-    /// The clock cannot date a hold: [`ClockRefusal`].
+    /// The clock cannot date a hold: [`ClockRefusal`] - a floor that cannot be read among its reasons.
     pub fn hold_time(&self, now: i64) -> Result<HoldAt, ClockRefusal> {
         let Some(now) = u64::try_from(now).ok().filter(|secs| *secs > 0) else {
             return Err(ClockRefusal::NotSet);
         };
-        if let Some(last) = self.last_sync {
+        let last_sync = match &self.floor {
+            Floor::Read(last_sync) => *last_sync,
+            Floor::Unreadable(why) => return Err(ClockRefusal::FloorUnreadable(why.clone())),
+        };
+        if let Some(last) = last_sync {
             if now.saturating_add(CLOCK_BEHIND_SECS) < last {
                 return Err(ClockRefusal::Behind { now, last });
             }
         }
-        if let Some(known) = [self.last_sync, self.drive].into_iter().flatten().max() {
+        if let Some(known) = [last_sync, self.drive].into_iter().flatten().max() {
             if now > known.saturating_add(CLOCK_AHEAD_SECS) {
                 return Err(ClockRefusal::Ahead {
                     now,
@@ -225,23 +282,19 @@ impl Clocks {
                 });
             }
         }
-        Ok(HoldAt(now.max(self.last_sync.unwrap_or(0))))
+        Ok(HoldAt(now.max(last_sync.unwrap_or(0))))
     }
 
     /// The `synced_at` a folder records at the end of a Send/Receive made at `now`: the clock of this
     /// computer when it can date a hold ([`Clocks::hold_time`]: set, and not far off the last Send/Receive
-    /// and the drive), never earlier than the last Send/Receive; otherwise the last Send/Receive's own, as it
-    /// was. A clock that is wrong is never recorded: it would be the floor that every later right clock is
-    /// refused against, or the one that dates a hold years ahead.
+    /// and the drive), never earlier than the last Send/Receive; otherwise NONE - a clock that was refused is
+    /// not recorded, whatever else is known: it would be the floor that every later right clock is refused
+    /// against, or the one that dates a hold years ahead (X-DELTA-APPS5-1: the first Send/Receive of a copy
+    /// recorded the clock it had just refused, `now`, when there was no earlier one). The caller keeps what
+    /// the folder's own file said.
     #[must_use]
-    pub fn recorded(&self, now: i64) -> i64 {
-        match self.hold_time(now) {
-            Ok(at) => i64::try_from(at.secs()).unwrap_or(now),
-            Err(_) => self
-                .last_sync
-                .and_then(|at| i64::try_from(at).ok())
-                .unwrap_or(now),
-        }
+    pub fn recorded(&self, now: i64) -> Option<u64> {
+        self.hold_time(now).ok().map(HoldAt::secs)
     }
 }
 
@@ -1009,6 +1062,52 @@ mod tests {
         );
     }
 
+    /// X-DELTA-APPS5-6: a floor that cannot be read is an arm of its own. It dates no hold (whatever the clock
+    /// says), records no stamp, gives the sweep no reading - and the same account with a floor that reads fine does
+    /// all three; a floor read from a store that is not there is a floor of nothing, as it always was.
+    #[test]
+    fn x_delta_apps5_6_a_floor_that_cannot_be_read_dates_no_hold_records_nothing_and_sweeps_nothing(
+    ) {
+        let dir = TempDir::new("store-clocks-floor");
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
+        let newest = SEP_30 + 60;
+        let now = i64::try_from(SEP_30 + DAY).unwrap();
+        // Never synced: a floor of nothing - and the drive's reading goes to the sweep.
+        let fresh = Clocks::of(&store, Some(newest));
+        assert_eq!(fresh, Clocks::new(None, Some(newest)));
+        assert!(fresh.hold_time(now).is_ok());
+        assert_eq!(fresh.sweep_reading(), Some(newest));
+        // A state that cannot be read: the clock is refused whatever it says (also a year back), nothing is
+        // recorded and the sweep has no reading.
+        store.put(&state_key("inbox"), b"{ not a state").unwrap();
+        let damaged = Clocks::of(&store, Some(newest));
+        for at in [now, now - 365 * i64::try_from(DAY).unwrap()] {
+            let refused = damaged.hold_time(at).unwrap_err();
+            assert!(
+                matches!(&refused, ClockRefusal::FloorUnreadable(why) if why.contains("mail/inbox/state.json")),
+                "{refused:?}"
+            );
+            assert!(refused
+                .to_string()
+                .starts_with("the time of the last Send/Receive cannot be read (mail/inbox/state.json is no state"));
+        }
+        assert_eq!(damaged.recorded(now), None);
+        assert_eq!(damaged.sweep_reading(), None);
+        assert_eq!(damaged.last_sync(), None);
+        assert_eq!(
+            damaged.drive(),
+            Some(newest),
+            "the drive's reading is still the drive's"
+        );
+        // The same account once its state reads: all three work again.
+        put_state(&store, "inbox", "2026-09-30T08:42:00Z");
+        let read = Clocks::of(&store, Some(newest));
+        assert_eq!(read, Clocks::new(Some(SEP_30), Some(newest)));
+        assert!(read.hold_time(now).is_ok());
+        assert_eq!(read.recorded(now), Some(SEP_30 + DAY));
+        assert_eq!(read.sweep_reading(), Some(newest));
+    }
+
     /// The folder a hold is made in is the stamp of the moment it is dated at, in the form the sweep reads.
     #[test]
     fn x_delta_apps5_2_a_hold_dated_at_a_moment_is_the_folder_of_its_stamp() {
@@ -1105,6 +1204,34 @@ mod tests {
         assert!(failed.is_err(), "{failed:?}");
         assert!(checked.is_err(), "{checked:?}");
         assert!(lenient.is_empty(), "the callers that only look get none");
+        assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
+    }
+
+    /// X-DELTA-APPS5-6: a state file that is THERE and cannot be read (mode 000: the listing names the folder,
+    /// the read is refused) is an error too - not the lenient answer, the newest stamp of the OTHER folders,
+    /// which is older than the account's real one and would date a hold against a floor that is too low. Only a
+    /// file that is not there is no reading. The test of a listing that fails does not reach this arm: it
+    /// fails before the first state file is asked for.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_apps5_6_a_state_file_that_cannot_be_read_is_an_error_not_no_reading() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("store-last-sync-unreadable");
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
+        put_state(&store, "inbox", "2026-09-30T08:42:00Z");
+        put_state(&store, "archive", "2026-09-29T00:00:00Z");
+        assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
+        let file = dir.0.join(state_key("inbox"));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let premise = std::fs::read(&file).is_err();
+        let failed = store.last_sync();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            premise,
+            "the premise of the test: the state file cannot be read (running as root?)"
+        );
+        let failed = failed.unwrap_err();
+        assert_ne!(failed.kind(), std::io::ErrorKind::NotFound, "{failed}");
         assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
     }
 }

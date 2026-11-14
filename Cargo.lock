@@ -1217,6 +1217,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "azlin-cbor"
+version = "0.1.0"
+dependencies = [
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-chain"
+version = "0.1.0"
+dependencies = [
+ "azlin-keys",
+ "azlin-seams",
+ "blake3",
+ "ed25519-dalek 2.2.0",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
 name = "azlin-compress"
 version = "0.1.0"
 dependencies = [
@@ -1232,11 +1251,190 @@ dependencies = [
 ]
 
 [[package]]
+name = "azlin-content"
+version = "0.1.0"
+dependencies = [
+ "azlin-cbor",
+ "azlin-keys",
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "zeroize",
+]
+
+[[package]]
 name = "azlin-contract"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "azlin-creds"
+version = "0.1.0"
+dependencies = [
+ "azlin-cbor",
+ "azlin-keys",
+ "azlin-regbase",
+ "azlin-seams",
+ "blake3",
+ "ed25519-dalek 2.2.0",
+ "subtle",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-enroll"
+version = "0.1.0"
+dependencies = [
+ "azlin-policy",
+ "azlin-seams",
+ "blake3",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "azlin-escalate-e1"
+version = "0.1.0"
+dependencies = [
+ "azlin-chain",
+ "azlin-policy",
+ "azlin-seams",
+ "azlin-teamlog",
+]
+
+[[package]]
+name = "azlin-escalate-e2"
+version = "0.1.0"
+dependencies = [
+ "azlin-enroll",
+ "azlin-policy",
+ "azlin-seams",
+]
+
+[[package]]
+name = "azlin-escalate-e34"
+version = "0.1.0"
+dependencies = [
+ "azlin-chain",
+ "azlin-escrow",
+ "azlin-idtoken",
+ "azlin-seams",
+ "azlin-sync",
+ "base64 0.22.1",
+ "ed25519-dalek 2.2.0",
+ "p256",
+ "rsa 0.9.10",
+ "serde_json",
+]
+
+[[package]]
+name = "azlin-escalate-e56"
+version = "0.1.0"
+dependencies = [
+ "azlin-enroll",
+ "azlin-idtoken",
+ "azlin-linkkit",
+ "azlin-linkpass",
+ "azlin-links",
+ "azlin-requests",
+ "azlin-seams",
+ "azlin-webauthn",
+]
+
+[[package]]
+name = "azlin-escrow"
+version = "0.1.0"
+dependencies = [
+ "azlin-seams",
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "curve25519-dalek 4.1.3",
+ "subtle",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-idtoken"
+version = "0.1.0"
+dependencies = [
+ "azlin-seams",
+ "base64 0.22.1",
+ "ed25519-dalek 2.2.0",
+ "p256",
+ "rsa 0.9.10",
+ "serde",
+ "serde_json",
+ "subtle",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "azlin-keys"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "azlin-cbor",
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "ed25519-dalek 2.2.0",
+ "getrandom 0.2.17",
+ "ml-kem",
+ "p256",
+ "subtle",
+ "x25519-dalek 2.0.1",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-linkkit"
+version = "0.1.0"
+dependencies = [
+ "azlin-links",
+ "azlin-seams",
+ "base64 0.22.1",
+ "blake3",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-linkpass"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "azlin-seams",
+ "blake3",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-links"
+version = "0.1.0"
+dependencies = [
+ "azlin-policy",
+ "azlin-seams",
+ "blake3",
+ "subtle",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "azlin-merkle"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "azlin-policy"
+version = "0.1.0"
+dependencies = [
+ "azlin-seams",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1247,6 +1445,123 @@ dependencies = [
  "default-boxed",
  "deranged",
  "flate2",
+]
+
+[[package]]
+name = "azlin-regbase"
+version = "0.1.0"
+dependencies = [
+ "azlin-keys",
+ "azlin-seams",
+ "blake3",
+ "ed25519-dalek 2.2.0",
+ "subtle",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-reports"
+version = "0.1.0"
+dependencies = [
+ "azlin-cbor",
+]
+
+[[package]]
+name = "azlin-requests"
+version = "0.1.0"
+dependencies = [
+ "azlin-policy",
+ "azlin-seams",
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "hkdf 0.12.4",
+ "thiserror 2.0.20",
+ "x25519-dalek 2.0.1",
+]
+
+[[package]]
+name = "azlin-seams"
+version = "0.1.0"
+dependencies = [
+ "azlin-keys",
+ "blake3",
+ "ed25519-dalek 2.2.0",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-session"
+version = "0.1.0"
+dependencies = [
+ "azlin-contract",
+ "azlin-creds",
+ "azlin-keys",
+ "azlin-regbase",
+ "azlin-seams",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-spaces"
+version = "0.1.0"
+dependencies = [
+ "azlin-chain",
+ "azlin-keys",
+ "azlin-policy",
+ "azlin-seams",
+ "blake3",
+ "subtle",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "azlin-sync"
+version = "0.1.0"
+dependencies = [
+ "azlin-chain",
+ "azlin-seams",
+ "blake3",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "azlin-teamlog"
+version = "0.1.0"
+dependencies = [
+ "azlin-chain",
+ "azlin-policy",
+ "azlin-seams",
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "azlin-tlog"
+version = "0.1.0"
+dependencies = [
+ "azlin-merkle",
+ "base64 0.22.1",
+ "ed25519-dalek 2.2.0",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "azlin-webauthn"
+version = "0.1.0"
+dependencies = [
+ "azlin-seams",
+ "base64 0.22.1",
+ "ed25519-dalek 2.2.0",
+ "p256",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1743,6 +2058,7 @@ dependencies = [
  "azlin-compress",
  "azlin-contract",
  "azul-dll",
+ "azul-srcgate",
  "base64 0.22.1",
  "blake3",
  "chacha20poly1305 0.10.1",
@@ -2079,7 +2395,7 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
- "hybrid-array",
+ "hybrid-array 0.4.14",
  "zeroize",
 ]
 
@@ -2098,7 +2414,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "710f1dd022ef4e93f8a438b4ba958de7f64308434fa6a87104481645cc30068b"
 dependencies = [
- "hybrid-array",
+ "hybrid-array 0.4.14",
 ]
 
 [[package]]
@@ -3159,7 +3475,7 @@ checksum = "9c035cb64cba03dad2fb921f3e218785e8cf9a41790da5eb3a1400f62fa2be11"
 dependencies = [
  "cpubits",
  "ctutils",
- "hybrid-array",
+ "hybrid-array 0.4.14",
  "num-traits",
  "rand_core 0.10.1",
  "serdect",
@@ -3184,7 +3500,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
- "hybrid-array",
+ "hybrid-array 0.4.14",
  "rand_core 0.10.1",
 ]
 
@@ -3816,7 +4132,7 @@ dependencies = [
  "ff",
  "group",
  "hkdf 0.13.0",
- "hybrid-array",
+ "hybrid-array 0.4.14",
  "pem-rfc7468 1.0.0",
  "pkcs8 0.11.0",
  "rand_core 0.10.1",
@@ -6010,6 +6326,15 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hybrid-array"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2d35805454dc9f8662a98d6d61886ffe26bd465f5960e0e55345c70d5c0d2a9"
+dependencies = [
+ "typenum",
+]
+
+[[package]]
+name = "hybrid-array"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "707114b52a152fa7bdb290cd7cd5912d9467273b6d74e21b8d81aca1f8533f6b"
@@ -6732,7 +7057,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4250ce6452e92010fdf7268ccc5d14faa80bb12fc741938534c58f16804e03c7"
 dependencies = [
  "block-padding 0.4.2",
- "hybrid-array",
+ "hybrid-array 0.4.14",
 ]
 
 [[package]]
@@ -7232,6 +7557,25 @@ dependencies = [
  "cfg-if 1.0.4",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
+name = "kem"
+version = "0.3.0-pre.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b8645470337db67b01a7f966decf7d0bafedbae74147d33e641c67a91df239f"
+dependencies = [
+ "rand_core 0.6.4",
+ "zeroize",
 ]
 
 [[package]]
@@ -7828,6 +8172,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "536bfad37a309d62069485248eeaba1e8d9853aaf951caaeaed0585a95346f08"
 dependencies = [
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ml-kem"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8de49b3df74c35498c0232031bb7e85f9389f913e2796169c8ab47a53993a18f"
+dependencies = [
+ "hybrid-array 0.2.3",
+ "kem",
+ "rand_core 0.6.4",
+ "sha3",
+ "zeroize",
 ]
 
 [[package]]
@@ -11737,7 +12094,7 @@ dependencies = [
  "base16ct",
  "ctutils",
  "der 0.8.1",
- "hybrid-array",
+ "hybrid-array 0.4.14",
  "subtle",
  "zeroize",
 ]
@@ -11986,6 +12343,16 @@ dependencies = [
  "cfg-if 1.0.4",
  "cpufeatures 0.3.1",
  "digest 0.11.3",
+]
+
+[[package]]
+name = "sha3"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
+dependencies = [
+ "digest 0.10.7",
+ "keccak",
 ]
 
 [[package]]
@@ -14909,7 +15276,7 @@ checksum = "795ca18b3fdb5e62bf982199278341ddcf7ebf7d32e25e212ad05d496e95f6fa"
 dependencies = [
  "ff",
  "group",
- "hybrid-array",
+ "hybrid-array 0.4.14",
  "primefield",
 ]
 

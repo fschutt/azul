@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::{
     folders::{self, LocalMailbox, ServerMailbox},
     message,
-    store::{self, FolderState, IndexEntry, MailStore},
+    store::{self, Clocks, FolderState, IndexEntry, MailStore},
 };
 
 /// What `SELECT` reports.
@@ -132,6 +132,15 @@ pub struct FolderReport {
     /// could not be asked whether the drive was restored ([`SyncReport::restore_unknown`]). They
     /// are neither removed nor put back; the next Send/Receive decides. Never counted in `removed`.
     pub kept_unasked: u64,
+    /// An Azlin account's: messages the drive no longer lists, left where they are in the folder because the
+    /// clock of this computer could not date a hold ([`SyncReport::hold_refused`]). Nothing was moved,
+    /// held or deleted, and the rest of the Send/Receive went on; a later Send/Receive that can date the hold
+    /// takes them out. Never counted in `removed` (X-DELTA-APPS5-1).
+    pub kept_undated: u64,
+    /// An IMAP account's: the newest INTERNALDATE - the SERVER's clock - of a message this Send/Receive fetched the
+    /// metadata of, in seconds since 1970: a lower bound of the server's time that does not depend on this
+    /// computer's clock. `None`: no new mail. The holding area is swept against it ([`sync_account`], X-APPS4B-3).
+    pub server_time: Option<u64>,
 }
 
 /// The whole sync's outcome.
@@ -150,6 +159,10 @@ pub struct SyncReport {
     /// An Azlin account's: why the holding area could not be swept this time (the text of the
     /// error); nothing was deleted then. `None`: it was swept, or there was nothing to sweep.
     pub sweep_failed: Option<String>,
+    /// An Azlin account's: why no hold was dated this time (the clock of this computer is not set, or far off the
+    /// last Send/Receive and the drive), when some folder had mail the drive no longer lists
+    /// ([`FolderReport::kept_undated`]). `None`: it was not needed, or the clock dated the hold.
+    pub hold_refused: Option<String>,
 }
 
 impl SyncReport {
@@ -175,6 +188,10 @@ impl SyncReport {
 
     pub fn kept_unasked(&self) -> u64 {
         self.folders.iter().map(|f| f.kept_unasked).sum()
+    }
+
+    pub fn kept_undated(&self) -> u64 {
+        self.folders.iter().map(|f| f.kept_undated).sum()
     }
 
     pub fn header_only_after_restore(&self) -> u64 {
@@ -337,6 +354,9 @@ pub fn sync_account(
     let mailboxes = folders::local_mailboxes(&listed);
     let count = mailboxes.len();
     let mut report = SyncReport::default();
+    // What the clock of this computer is set against, read before this Send/Receive writes a stamp (a floor that
+    // cannot be read records nothing: [`Clocks::recorded`]).
+    let clocks = Clocks::of(store, None);
     for (index, mailbox) in mailboxes.iter().enumerate() {
         if !progress(Progress::Folder {
             index,
@@ -345,9 +365,17 @@ pub fn sync_account(
         }) {
             return Err(SyncError::Stopped);
         }
-        report
-            .folders
-            .push(sync_folder(source, store, mailbox, options, progress)?);
+        report.folders.push(sync_folder_with(
+            source, store, mailbox, options, &clocks, progress,
+        )?);
+    }
+    // Housekeeping: what Delete in the Outbox held under `removed/outbox/` is deleted after its 90 days by the one rule of
+    // the Azlin sweep - the earlier of the clock of this computer and an independent reading, here the server's newest
+    // INTERNALDATE of the mail fetched now (X-APPS4B-3: it was never swept for an IMAP account). No new mail, no
+    // reading, no sweep; a sweep that cannot read its list deletes nothing and never fails the Send/Receive.
+    let reading = report.folders.iter().filter_map(|f| f.server_time).max();
+    if let Err(why) = crate::azlin_sync::sweep_removed(store, options.now, reading) {
+        eprintln!("[azmail] the removed mail held here could not be swept: {why}");
     }
     Ok(report)
 }
@@ -358,6 +386,21 @@ pub fn sync_folder(
     store: &MailStore,
     mailbox: &LocalMailbox,
     options: &SyncOptions,
+    progress: &mut dyn FnMut(Progress) -> bool,
+) -> Result<FolderReport, SyncError> {
+    let clocks = Clocks::of(store, None);
+    sync_folder_with(source, store, mailbox, options, &clocks, progress)
+}
+
+/// [`sync_folder`] with the readings the whole Send/Receive was set against ([`sync_account`] reads them once): the
+/// `synced_at` of the folder is the clock of this computer when `clocks` accept it, else what the folder's file said
+/// (X-DELTA-APPS5-1: the one rule of the Azlin sync, [`Clocks::recorded`], for this writer of the floor too).
+fn sync_folder_with(
+    source: &mut dyn MailSource,
+    store: &MailStore,
+    mailbox: &LocalMailbox,
+    options: &SyncOptions,
+    clocks: &Clocks,
     progress: &mut dyn FnMut(Progress) -> bool,
 ) -> Result<FolderReport, SyncError> {
     let key = mailbox.key.as_str();
@@ -373,6 +416,11 @@ pub fn sync_folder(
         Err(e) => return Err(storage(e)),
     };
     let plan = plan_folder(old_state.as_ref(), &selected);
+    // What the folder's file said of the last Send/Receive: it stays when this one has no clock to record.
+    let synced_before = old_state
+        .as_ref()
+        .map(|old| old.synced_at.clone())
+        .unwrap_or_default();
     // Mail written here (a sent mail SEND filed, a draft) has a LOCAL UID, not one of the
     // server's numbering: it is carried across a renumbering instead of going to stale/.
     let local: Vec<(IndexEntry, Vec<u8>)> = if plan.renumbered.is_some() {
@@ -436,6 +484,11 @@ pub fn sync_folder(
         }
         metas.sort_by_key(|m| m.uid);
         metas.dedup_by_key(|m| m.uid);
+        report.server_time = metas
+            .iter()
+            .filter_map(|m| m.internal_date)
+            .filter_map(|date| u64::try_from(date).ok())
+            .max();
         let total = metas.len() as u64;
         let paths: Vec<String> = metas.iter().map(|m| message_path(key, m)).collect();
         let to_fetch: Vec<bool> = metas
@@ -498,7 +551,14 @@ pub fn sync_folder(
             done += range.len() as u64;
             since_checkpoint += range.len() as u64;
             if checkpoint_due(since_checkpoint, index.len()) {
-                write_checkpoint(store, key, &index, &mut state, options.now, true)?;
+                write_checkpoint(
+                    store,
+                    key,
+                    &index,
+                    &mut state,
+                    Stamp::of(clocks, options.now, &synced_before),
+                    true,
+                )?;
                 index_dirty = false;
                 since_checkpoint = 0;
             }
@@ -514,7 +574,14 @@ pub fn sync_folder(
     })();
 
     // However the batches ended, what was written is recorded, so the next run picks up here.
-    let recorded = write_checkpoint(store, key, &index, &mut state, options.now, index_dirty);
+    let recorded = write_checkpoint(
+        store,
+        key,
+        &index,
+        &mut state,
+        Stamp::of(clocks, options.now, &synced_before),
+        index_dirty,
+    );
     result?;
     recorded?;
     report.messages = index.len() as u64;
@@ -553,6 +620,19 @@ fn read_index(store: &MailStore, folder: &str) -> Result<BTreeMap<u32, IndexEntr
     }
 }
 
+/// The `synced_at` a checkpoint writes: the clock of this computer when [`Clocks::recorded`] accepts it, else what the
+/// folder's file said before (none for a folder never synced).
+struct Stamp(String);
+
+impl Stamp {
+    fn of(clocks: &Clocks, now: i64, before: &str) -> Stamp {
+        Stamp(match clocks.recorded(now) {
+            Some(at) => message::rfc3339_utc(i64::try_from(at).unwrap_or(i64::MAX)),
+            None => before.to_string(),
+        })
+    }
+}
+
 /// Writes the index (when `with_index`) and then the state: the state never names a UID the
 /// index file does not have.
 fn write_checkpoint(
@@ -560,7 +640,7 @@ fn write_checkpoint(
     folder: &str,
     index: &BTreeMap<u32, IndexEntry>,
     state: &mut FolderState,
-    now: i64,
+    synced_at: Stamp,
     with_index: bool,
 ) -> Result<(), SyncError> {
     if with_index {
@@ -573,7 +653,7 @@ fn write_checkpoint(
             .map_err(storage)?;
     }
     state.messages = index.len() as u64;
-    state.synced_at = message::rfc3339_utc(now);
+    state.synced_at = synced_at.0;
     store
         .put(&store::state_key(folder), state.to_json().as_bytes())
         .map_err(storage)
@@ -623,6 +703,8 @@ mod tests {
         vanished: Vec<u32>,
         /// Answer SELECT without UIDNEXT (it is optional in IMAP4rev1).
         hide_uid_next: bool,
+        /// The INTERNALDATE every message answers: the server's clock (default SEP_30).
+        internal: Option<i64>,
     }
 
     impl FakeServer {
@@ -698,6 +780,7 @@ mod tests {
         }
 
         fn fetch_meta(&mut self, uids: &[u32]) -> Result<Vec<MessageMeta>, SyncError> {
+            let internal = self.internal.unwrap_or(SEP_30);
             let f = self.folder();
             Ok(uids
                 .iter()
@@ -706,7 +789,7 @@ mod tests {
                         uid: *u,
                         size: Some(m.len() as u64),
                         flags: vec![String::from("\\Seen")],
-                        internal_date: Some(SEP_30),
+                        internal_date: Some(internal),
                     })
                 })
                 .collect())
@@ -748,6 +831,88 @@ mod tests {
 
     fn index(store: &MailStore, folder: &str) -> Vec<IndexEntry> {
         index_from_jsonl(&String::from_utf8(store.get(&index_key(folder)).unwrap()).unwrap())
+    }
+
+    const DAY: i64 = 86_400;
+
+    /// X-APPS4B-3, RED on the code before: `removed/outbox/` - what Delete in the Outbox holds, for every kind of account -
+    /// was swept only by an Azlin account's Send/Receive; an IMAP account's holds stayed for ever. Now the IMAP
+    /// Send/Receive sweeps by the one rule: the EARLIER of the clock of this computer and an independent reading, the
+    /// server's newest INTERNALDATE of the mail it fetched. A hold made at SEP_30: 100 days on by this computer's clock
+    /// with the server's newest mail 30 days after the hold, it stays; a Send/Receive that fetches no mail has no reading
+    /// and sweeps nothing; mail the server dated 95 days on lets the sweep delete it.
+    #[test]
+    fn x_apps4b_3_the_outbox_hold_of_an_imap_account_is_swept_by_the_earlier_of_the_clock_and_the_servers_mail(
+    ) {
+        let dir = TempDir::new("imap-sweep");
+        let store = MailStore::new(dir.folder());
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1]);
+        run(&mut server, &store).unwrap();
+        let held = "removed/outbox/20260930T084200Z";
+        store.put(&format!("{held}/a.eml"), b"the letter").unwrap();
+        store.put(&format!("{held}/a.json"), b"{}").unwrap();
+        let swept = |store: &MailStore| store.keys(store::REMOVED_PREFIX).is_empty();
+        let at = |now: i64| SyncOptions { now, ..options() };
+        let arrive = |server: &mut FakeServer, uid: u32, internal: i64| {
+            server.internal = Some(internal);
+            server
+                .folders
+                .get_mut("INBOX")
+                .unwrap()
+                .messages
+                .insert(uid, message(uid));
+        };
+        // The server's newest mail says 30 days; this computer says 100: the earlier reading decides.
+        arrive(&mut server, 2, SEP_30 + 30 * DAY);
+        sync_account(&mut server, &store, &at(SEP_30 + 100 * DAY), &mut |_| true).unwrap();
+        assert!(!swept(&store), "{:?}", store.keys(store::REMOVED_PREFIX));
+        // No mail is fetched: no reading, no sweep, whatever the clock says.
+        let report =
+            sync_account(&mut server, &store, &at(SEP_30 + 100 * DAY), &mut |_| true).unwrap();
+        assert_eq!(report.fetched(), 0);
+        assert!(!swept(&store), "no reading, no sweep");
+        // Mail the server dated 95 days on: the server agrees that the hold is 90 days old.
+        arrive(&mut server, 3, SEP_30 + 95 * DAY);
+        sync_account(&mut server, &store, &at(SEP_30 + 100 * DAY), &mut |_| true).unwrap();
+        assert!(swept(&store), "{:?}", store.keys(store::REMOVED_PREFIX));
+        // And a clock that is behind the server's mail decides by itself: a second hold, 89 days by the clock.
+        let second = "removed/outbox/20270108T000000Z";
+        store.put(&format!("{second}/b.json"), b"{}").unwrap();
+        arrive(&mut server, 4, SEP_30 + 400 * DAY);
+        sync_account(&mut server, &store, &at(SEP_30 + 189 * DAY), &mut |_| true).unwrap();
+        assert!(
+            !swept(&store),
+            "the clock says 89 days since the second hold: {:?}",
+            store.keys(store::REMOVED_PREFIX)
+        );
+    }
+
+    /// X-DELTA-APPS5-1, the other writer of the floor: the IMAP Send/Receive recorded its `synced_at` as the raw clock, so
+    /// a Send/Receive on a clock ten years ahead made every later right clock "a day behind" it - and the floor that
+    /// Delete in the Outbox of an IMAP account is set against was a clock that was wrong. Now it records by the rule of the
+    /// Azlin sync: a clock ten years ahead, one a year back and one that is not set record nothing (the file keeps
+    /// what it said); one a day on is the time.
+    #[test]
+    fn x_delta_apps5_1_an_imap_send_receive_records_no_clock_the_rule_refused() {
+        let dir = TempDir::new("imap-stamp");
+        let store = MailStore::new(dir.folder());
+        let mut server = FakeServer::default().with_folder("INBOX", &[], &[1]);
+        run(&mut server, &store).unwrap();
+        let stamp = |s: &MailStore| {
+            FolderState::from_json(
+                &String::from_utf8(s.get(&store::state_key("inbox")).unwrap()).unwrap(),
+            )
+            .unwrap()
+            .synced_at
+        };
+        assert_eq!(stamp(&store), "2026-09-30T08:42:00Z");
+        let at = |now: i64| SyncOptions { now, ..options() };
+        for now in [SEP_30 + 10 * 366 * DAY, SEP_30 - 365 * DAY, 0] {
+            sync_account(&mut server, &store, &at(now), &mut |_| true).unwrap();
+            assert_eq!(stamp(&store), "2026-09-30T08:42:00Z", "clock {now}");
+        }
+        sync_account(&mut server, &store, &at(SEP_30 + DAY), &mut |_| true).unwrap();
+        assert_eq!(stamp(&store), message::rfc3339_utc(SEP_30 + DAY));
     }
 
     /// X-DELTA-SYNC4-21. RED on the code before: an index that could not be READ was an empty one,

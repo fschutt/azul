@@ -1613,6 +1613,10 @@ version = "1.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.hybrid-array]]
+version = "0.2.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.hybrid-array]]
 version = "0.4.14"
 criteria = "safe-to-deploy"
 
@@ -1950,6 +1954,14 @@ criteria = "safe-to-deploy"
 version = "0.3.104"
 criteria = "safe-to-deploy"
 
+[[exemptions.keccak]]
+version = "0.1.6"
+criteria = "safe-to-deploy"
+
+[[exemptions.kem]]
+version = "0.3.0-pre.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.lazy-regex]]
 version = "3.6.1"
 criteria = "safe-to-deploy"
@@ -2177,6 +2189,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.miow]]
 version = "0.6.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.ml-kem]]
+version = "0.2.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.mmapio]]
@@ -3439,6 +3455,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.sha2]]
 version = "0.11.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.sha3]]
+version = "0.10.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.shuttle]]

@@ -1,0 +1,22 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2): the FINAL manifest. Lanes never edit it: a missing dependency is a drift row.
+# curve25519-dalek is pinned exactly and without rand_core (default features add none): random scalars come from Entropy bytes.
+# New cryptography: external review before business launch (plan section 12).
+
+[package]
+name = "azlin-escrow"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin escrow: threshold escrow (envelope algorithm 7): Feldman shares, DKG, resharing, partial decryption"
+publish = false
+
+[dependencies]
+azlin-seams = { path = "../azlin-seams" }
+curve25519-dalek = "=4.1.3"
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+blake3 = "1.8"
+zeroize = "1.8"
+subtle = "2"
+thiserror = "2"

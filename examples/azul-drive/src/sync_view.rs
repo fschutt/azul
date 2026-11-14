@@ -1685,13 +1685,24 @@ const PROBLEMS_SHOWN: usize = 20;
 /// Read only where the keys are needed - the click's job (`sync_jobs`), once per click: the base is a file of
 /// every file the pairing knows, parsed whole. Whether to OFFER the button is [`kept_offered`], which never
 /// opens it.
-pub(crate) fn kept_keys(s: &DriveState, setup: &SyncSetup) -> Vec<String> {
+///
+/// A base that cannot be read is no list of nothing: the answer is the sentence of what is wrong, and the click says
+/// it (X-DELTA-SYNC8-5: the click used to find no keys, do nothing and say nothing, the file staying on this device).
+pub(crate) fn kept_keys(
+    s: &DriveState,
+    setup: &SyncSetup,
+) -> Result<Vec<String>, azul_appkit::l10n::Text> {
     let Some(root) = sync_jobs::state_root(s) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    // collapse-ok: a base that cannot be read offers no "Send them again"; the next pass says what is
-    // wrong, and nothing is sent or dropped on this answer.
-    azcloud_kit::sync::session::kept_files(&setup.state_dir(&root)).unwrap_or_default()
+    kept_keys_in(&setup.state_dir(&root))
+}
+
+/// [`kept_keys`] for the pairing whose states are kept in `state_dir`.
+pub(crate) fn kept_keys_in(
+    state_dir: &std::path::Path,
+) -> Result<Vec<String>, azul_appkit::l10n::Text> {
+    azcloud_kit::sync::session::kept_files(state_dir).map_err(|e| crate::l10n::cloud_error_text(&e))
 }
 
 /// Whether "Send them again" is offered for the pairing: its last pass listed a file the drive deleted before this

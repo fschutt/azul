@@ -1,0 +1,18 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2): the FINAL manifest. Lanes never edit it: a missing dependency is a drift row.
+# Keeps local UnixTime/Span/TreeSize newtypes on purpose: a verifier crate with no dependency on azlin-keys.
+
+[package]
+name = "azlin-tlog"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin transparency log: signed checkpoints, witnesses, the release record, proof bundles and the monitor"
+publish = false
+
+[dependencies]
+azlin-merkle = { path = "../azlin-merkle" }
+sha2 = "0.10"
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize", "fast"] }
+base64 = "0.22"

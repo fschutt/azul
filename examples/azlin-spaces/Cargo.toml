@@ -1,0 +1,20 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2): the FINAL manifest. Lanes never edit it: a missing dependency is a drift row.
+
+[package]
+name = "azlin-spaces"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin spaces: space chains, grants and authorized key epochs"
+publish = false
+
+[dependencies]
+azlin-seams = { path = "../azlin-seams" }
+azlin-chain = { path = "../azlin-chain" }
+azlin-policy = { path = "../azlin-policy" }
+azlin-keys = { path = "../azlin-keys", default-features = false }
+blake3 = "1.8"
+subtle = "2"
+thiserror = "2"

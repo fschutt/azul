@@ -130,10 +130,16 @@ Send/Receive on a device:
    it into the folder; a window action that puts a whole pull back (it re-imports the lines of a
    `removed/<folder>/<stamp>/index.jsonl`, whose `remote` names the objects they had) is not built
    yet.
-   The stamp is the clock of this computer, set against what else is known of the time: a pull on a
-   clock that is behind the last Send/Receive by more than a day, or ahead of the last Send/Receive
-   and of the newest mail the drive lists by more than a year, moves nothing and says so; one that
-   is a few hours behind dates the hold at the last Send/Receive. The sweep deletes a hold only
+   The stamp is the clock of this computer, set against what else is known of the time (the one
+   rule, `store::Clocks::hold_time`, that Delete in the Outbox follows too): a pull on a clock that
+   is behind the last Send/Receive by more than a day, or ahead of the last Send/Receive and of the
+   newest mail the drive lists by more than a year, holds nothing - the lines stay in their folder,
+   the Send/Receive goes on (new mail comes, the later folders are synced, the sweep runs) and the
+   window says why; a clock that was refused is not recorded as the time of the sync; one that
+   is a few hours behind dates the hold at the last Send/Receive. The same when the account's record of
+   the last Send/Receive cannot be read (the listing of `mail/` fails, a folder's `state.json` is damaged):
+   no hold is dated, nothing is swept and nothing is recorded that time - the Send/Receive goes on and
+   makes a damaged state again. The sweep deletes a hold only
    when BOTH the clock of this computer and the drive agree that it is 90 days old (the drive's
    reading is the newest `modified` it lists: it lived at least until then, so it never says a
    later time than it is): a clock that jumped ahead deletes nothing that a drive which has not
@@ -144,7 +150,10 @@ Send/Receive on a device:
    `removed/outbox/<stamp>/` of the same folder, dated by the SAME rule (the clock of this computer set
    against the newest Send/Receive of the account), and removes nothing when that rule cannot date the
    hold - on a clock that is not set, a day behind or a year ahead, or when the account's record of the
-   last Send/Receive cannot be read; the sweep above deletes what it holds after the 90 days too.
+   last Send/Receive cannot be read; the sweep above deletes what it holds after the 90 days too. An IMAP
+   account's Send/Receive sweeps `removed/outbox/` by the same rule - the earlier of this computer's clock
+   and the newest INTERNALDATE the server gave the mail it fetched then (no new mail, no reading, no
+   sweep) - and records its `synced_at` by the same rule as an Azlin account's.
 
 After a pull the local copy equals the bucket as listed (what the bucket no longer lists is held
 under `removed/`, not in the folder); with no new writes, every device's next pull ends in the

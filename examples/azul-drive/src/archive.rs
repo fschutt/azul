@@ -27,7 +27,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::UNIX_EPOCH,
 };
 
 use azcloud_kit::{
@@ -880,20 +879,31 @@ pub(crate) fn landed_dir(state: &Path) -> PathBuf {
 }
 
 /// The landed files of `state`'s folder, in the order they landed (their names are their numbers).
-fn landed_names(state: &Path) -> Vec<(u64, PathBuf)> {
-    let Ok(entries) = std::fs::read_dir(landed_dir(state)) else {
-        return Vec::new();
+///
+/// # Errors
+///
+/// A folder that cannot be listed (a failed listing is no empty folder: the files it holds are not known);
+/// no folder is no files.
+fn landed_names(state: &Path) -> std::io::Result<Vec<(u64, PathBuf)>> {
+    let entries = match std::fs::read_dir(landed_dir(state)) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
     };
-    let mut found: Vec<(u64, PathBuf)> = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let path = entry.path();
-            let number = path.file_stem()?.to_str()?.parse::<u64>().ok()?;
-            (path.extension()? == "json").then_some((number, path))
-        })
-        .collect();
+    let mut found: Vec<(u64, PathBuf)> = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        let is_json = path.extension().is_some_and(|ext| ext == "json");
+        let number = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .and_then(|stem| stem.parse::<u64>().ok());
+        if let Some(number) = number.filter(|_| is_json) {
+            found.push((number, path));
+        }
+    }
     found.sort();
-    found
+    Ok(found)
 }
 
 /// Writes the file `key` down as landed, as the `number`th of the folder: one small file of its own,
@@ -914,13 +924,37 @@ fn note_landed(state: &Path, number: u64, key: &str, written: &Written) -> std::
 }
 
 /// What the landed files say, oldest first: a key that landed twice is as its last file says.
-fn read_landed(state: &Path) -> Vec<Landed> {
-    landed_names(state)
-        .into_iter()
-        // collapse-ok: a landed file that does not read (cut in two by the same crash) is a file
-        // the next run looks at again, which is what a file nobody wrote down is.
-        .filter_map(|(_, path)| serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok())
-        .collect()
+///
+/// # Errors
+///
+/// A landed file that cannot be READ now (an `EIO`, a scanner that holds it) or a folder that cannot be listed: the
+/// copy's record is then not known, and the next whole write of the ledger would unlink the file ([`forget_landed`]) -
+/// the run stops, as it does for the ledger itself (X-DELTA-SYNC8-7). A file that reads and is no record - cut in two by
+/// the crash, not a landed file - is no record of anything: it is left out, and goes with the others.
+fn read_landed(state: &Path) -> std::io::Result<Vec<Landed>> {
+    let mut landed = Vec::new();
+    for (_, path) in landed_names(state)? {
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            // Gone since the listing (another run's whole write took it), or not text: no record.
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidData
+                ) =>
+            {
+                continue
+            }
+            Err(e) => return Err(e),
+        };
+        // collapse-ok: a landed file that reads and does not parse is cut off, and is no record of a file that
+        // landed: the file counts as one nobody wrote down - kept as it is, never refreshed (a copy the user did
+        // not write, or the user's own).
+        if let Ok(file) = serde_json::from_str(&text) {
+            landed.push(file);
+        }
+    }
+    Ok(landed)
 }
 
 /// The landed files go once the ledger holds them: after a whole write of it that took, and in
@@ -931,7 +965,11 @@ fn read_landed(state: &Path) -> Vec<Landed> {
 /// folder is removed (`remove_dir`), and the next landed file makes it again
 /// ([`durable::replace`] makes a folder that is missing).
 fn forget_landed(state: &Path) {
-    for (_, path) in landed_names(state) {
+    // collapse-ok: a folder that cannot be listed leaves its files where they are: the next run reads them again.
+    let Ok(names) = landed_names(state) else {
+        return;
+    };
+    for (_, path) in names {
         // collapse-ok: a landed file that stays is read again by the next run, and says what the
         // ledger says.
         if std::fs::remove_file(path).is_err() {
@@ -1050,7 +1088,8 @@ fn set_aside_unread(path: &Path) -> Option<Rescue> {
 /// state: it may be whole. It is neither "no state" nor "damaged": nothing is set aside and the copy
 /// does not run on a record it could not read (X-DELTA-SYNC4-14: the whole ledger used to be renamed to
 /// `.damaged-<time>` on any read error, and the next run found every file of the copy with no record -
-/// the copy was never refreshed again while the bar said done).
+/// the copy was never refreshed again while the bar said done). The same for a landed file
+/// ([`read_landed`]) that cannot be read (X-DELTA-SYNC8-7).
 fn rescue_read(path: &Path) -> Result<Option<Rescue>, std::io::Error> {
     let ledger = match std::fs::read_to_string(path) {
         Ok(text) => match serde_json::from_str::<Rescue>(&text) {
@@ -1068,7 +1107,7 @@ fn rescue_read(path: &Path) -> Result<Option<Rescue>, std::io::Error> {
     // The files that landed after the ledger's last whole write: what a run that was cut off had
     // written down one by one (X-DELTA-SYNC2-10). A cut-off run before its first whole write has
     // only these.
-    let landed = read_landed(path);
+    let landed = read_landed(path)?;
     if landed.is_empty() {
         return Ok(ledger);
     }
@@ -1428,7 +1467,7 @@ const ROOM_POSTURE: Posture = Posture::Degrade(
 );
 
 /// What the copy does with one file of the drive.
-enum Step {
+pub(crate) enum Step {
     /// It is on this computer already, as the copy wrote it or with the size of the drive's.
     Have,
     /// It is copied: the name must hold what this says when the file is put in place.
@@ -1440,28 +1479,18 @@ enum Step {
     Missing,
 }
 
-/// The nanoseconds since 1970 of a file's last status change: a write by anyone moves it and no program
-/// sets it back. 0 where the system keeps none.
-#[cfg(unix)]
-fn ctime_ns(meta: &std::fs::Metadata) -> u64 {
-    use std::os::unix::fs::MetadataExt;
-    u64::try_from(meta.ctime())
-        .unwrap_or(0)
-        .saturating_mul(1_000_000_000)
-        .saturating_add(u64::try_from(meta.ctime_nsec()).unwrap_or(0))
-}
-
-#[cfg(not(unix))]
-fn ctime_ns(_meta: &std::fs::Metadata) -> u64 {
-    0
-}
-
-/// The nanoseconds since 1970 of a file's modification.
-fn mtime_ns(meta: &std::fs::Metadata) -> u64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+/// What `lstat` says of the entry at `path` - a link is the link - from the ONE derivation of a file's size and times
+/// ([`beneath::Dir::lstat`]: the modification and the status-change time of Unix and of Windows alike, X-DELTA-SYNC8-6: the
+/// change time was derived here a second time, for Unix only). The folder is opened following links (it is the user's own),
+/// the name below it is not followed.
+fn lstat_of(path: &Path) -> std::io::Result<beneath::Stat> {
+    let (Some(parent), Some(name)) = (
+        path.parent(),
+        path.file_name().and_then(|name| name.to_str()),
+    ) else {
+        return Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+    };
+    beneath::Dir::open_following(parent)?.lstat(name)
 }
 
 /// What to do with the object `o` of the drive, to be at `target`, given what an earlier run
@@ -1471,12 +1500,24 @@ fn step(written: Option<&Written>, target: Option<&Path>, o: &ObjectInfo) -> Ste
     let Some(path) = target else {
         return Step::Missing;
     };
-    let meta = match std::fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Step::Copy(Expect::Absent),
-        Err(_) => return Step::Missing,
+    match lstat_of(path) {
+        Ok(stat) => decide(written, Some(stat), o),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => decide(written, None, o),
+        Err(_) => Step::Missing,
+    }
+}
+
+/// [`step`] over what the name looks like (`None`: nothing is there): the rule, which a test enters with the `Stat` of any system -
+/// Windows' change time included - on any host.
+pub(crate) fn decide(
+    written: Option<&Written>,
+    stat: Option<beneath::Stat>,
+    o: &ObjectInfo,
+) -> Step {
+    let Some(stat) = stat else {
+        return Step::Copy(Expect::Absent);
     };
-    if !meta.is_file() {
+    if stat.kind != beneath::Kind::File {
         return Step::Kept;
     }
     match written {
@@ -1484,10 +1525,13 @@ fn step(written: Option<&Written>, target: Option<&Path>, o: &ObjectInfo) -> Ste
         // one. A file of the drive written to again with the length it had (a database, a disk
         // image, a fixed-size container) is another version; a size alone is not one
         // (X-DELTA-AZDRIVE-FILES-17). A drive that names none, then or now, has only the size.
+        //
+        // The change time is compared where the ledger recorded one: 0 is a ledger an older AzDrive wrote, which had none
+        // to compare - no unknown of today's look is taken for "the same", a time that is not the recorded one is a change.
         Some(w)
-            if w.len == meta.len()
-                && w.mtime_ns == mtime_ns(&meta)
-                && (w.ctime_ns == 0 || w.ctime_ns == ctime_ns(&meta)) =>
+            if w.len == stat.size
+                && w.mtime_ns == stat.mtime_ns
+                && (w.ctime_ns == 0 || w.ctime_ns == stat.ctime_ns) =>
         {
             let same = o.size == w.len
                 && match w.same_version(o) {
@@ -1500,16 +1544,13 @@ fn step(written: Option<&Written>, target: Option<&Path>, o: &ObjectInfo) -> Ste
             if same {
                 return Step::Have;
             }
-            match beneath::stat_path(path) {
-                Ok(stat) => Step::Copy(Expect::Is(stat.fingerprint())),
-                Err(_) => Step::Kept,
-            }
+            Step::Copy(Expect::Is(stat.fingerprint()))
         }
         // Ours once, changed by its user since.
         Some(_) => Step::Kept,
         // Not written by this copy (an earlier version of AzDrive, or the user): the size of the
         // drive's file makes it that file; anything else is the user's.
-        None if meta.len() == o.size => Step::Have,
+        None if stat.size == o.size => Step::Have,
         None => Step::Kept,
     }
 }
@@ -1622,9 +1663,11 @@ pub(crate) fn run_rescue(
     let mut last_kept = std::time::Instant::now();
     // The next landed file's number: after the ones an earlier cut-off run left, which are replayed
     // into the ledger (`rescue_read`) and go with its next whole write.
-    let mut landed_number = state
-        .and_then(|state| landed_names(state).last().map(|(number, _)| number + 1))
-        .unwrap_or(1);
+    // None where the folder cannot be listed: nothing is written down then (a number taken without the list could
+    // replace a record that is there).
+    let mut landed_number: Option<u64> = state
+        .and_then(|state| landed_names(state).ok())
+        .map(|names| names.last().map_or(1, |(number, _)| number + 1));
     // Files that were in the folder with no record of the copy having written them: taken as they are.
     let mut unrecorded = 0usize;
     for (n, ((o, target), step)) in files.iter().zip(&targets).zip(steps).enumerate() {
@@ -1674,8 +1717,10 @@ pub(crate) fn run_rescue(
                 match (result, landed) {
                     (Some(Ok(len)), Some((path, name))) => {
                         report.copied += 1;
-                        let (mtime, ctime) = std::fs::metadata(path)
-                            .map_or((0, 0), |meta| (mtime_ns(&meta), ctime_ns(&meta)));
+                        // collapse-ok: a file that cannot be looked at right after it was written records no times:
+                        // the next run takes it for one the copy did not write and leaves it as it is (the careful side).
+                        let (mtime, ctime) =
+                            lstat_of(path).map_or((0, 0), |stat| (stat.mtime_ns, stat.ctime_ns));
                         let written = Written {
                             len,
                             mtime_ns: mtime,
@@ -1688,9 +1733,9 @@ pub(crate) fn run_rescue(
                         };
                         // Written down at once, before the next file: a kill loses this one file
                         // at most, not everything since the ledger's last whole write.
-                        if let Some(state) = state {
-                            if note_landed(state, landed_number, &o.key, &written).is_ok() {
-                                landed_number += 1;
+                        if let (Some(state), Some(number)) = (state, landed_number) {
+                            if note_landed(state, number, &o.key, &written).is_ok() {
+                                landed_number = Some(number + 1);
                             }
                         }
                         report.written.insert(o.key.clone(), written);

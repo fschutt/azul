@@ -1238,7 +1238,11 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 // decides.
                 let names_entry =
                     |manifest: &Manifest| manifest.log.iter().any(|r| r.key == log_key);
-                match self.swap_landed(names_entry)? {
+                // A 412 carried the version the swap was made from: reading it again is no answer.
+                let refused_at = matches!(lost, MetaError::Conflict { .. })
+                    .then_some(known.as_deref())
+                    .flatten();
+                match self.swap_landed(names_entry, refused_at)? {
                     Some(true) => Ok(true),
                     // A lost race: nothing names the entry, and nobody else writes its key. The
                     // pack of this attempt stays - the next attempt builds another - and is written
@@ -1271,7 +1275,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                 // The swap may have landed and only the answer got lost.
                 let names_entry =
                     |manifest: &Manifest| manifest.log.iter().any(|r| r.key == log_key);
-                match self.swap_landed(names_entry)? {
+                match self.swap_landed(names_entry, None)? {
                     Some(true) => Ok(true),
                     // Named by no manifest as read now - and the entry STAYS, whatever the error
                     // says. A refusal for policy (a frozen drive, a quota, an expired session)
@@ -1488,13 +1492,22 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
     /// it is adopted then. `None` when [`read_back_manifest`] has nothing to believe - the one rule
     /// of what a read-back of the manifest says, which [`swap_outcome`] asks too. After a swap whose
     /// outcome is unknown this decides, never the swap's own error.
+    ///
+    /// `refused_at` is the version a swap that was REFUSED (412) carried: a conditional write that met another
+    /// version means the manifest was not at the version the swap was made from, so a read that serves that very
+    /// version again is a replica or a cache that lags, not a manifest that did not move - no word about the swap
+    /// (`None`: the entry or the checkpoint stays, and the caller says the outcome is unknown, X-DELTA-SYNC8-4).
     fn swap_landed(
         &mut self,
         mine: impl Fn(&Manifest) -> bool,
+        refused_at: Option<&str>,
     ) -> Result<Option<bool>, MetaError> {
         let Some((bytes, version)) = read_back_manifest(&self.bucket) else {
             return Ok(None);
         };
+        if refused_at == Some(version.as_str()) {
+            return Ok(None);
+        }
         let Ok(manifest) = self.open_sealed::<Manifest>(keys::MANIFEST, &bytes) else {
             return Ok(None);
         };
@@ -1591,7 +1604,10 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                     let names = |manifest: &Manifest| {
                         manifest.checkpoint.as_ref().is_some_and(|c| c.key == key)
                     };
-                    match (self.swap_landed(names)?, &lost) {
+                    let refused_at = matches!(lost, MetaError::Conflict { .. })
+                        .then_some(known.as_deref())
+                        .flatten();
+                    match (self.swap_landed(names, refused_at)?, &lost) {
                         (Some(true), _) => return Ok(cp_ref),
                         (Some(false), MetaError::Conflict { .. }) => {
                             let _ = self.bucket.remove(&key);
@@ -1990,7 +2006,7 @@ impl<B: Bucket, S: Sealer> MetaStore<B, S> {
                         && manifest.writer == device
                         && manifest.reclaimed == next.reclaimed
                 };
-                match self.swap_landed(mine)? {
+                match self.swap_landed(mine, None)? {
                     Some(true) => Ok(revision),
                     Some(false) => Err(match lost {
                         MetaError::Raced { .. } => MetaError::Conflict {
@@ -2206,6 +2222,7 @@ pub struct Resealed {
 /// | success | - | stays | deleted once the new set is proven whole |
 /// | any, or none | names this call's checkpoint | stays | deleted once the new set is proven whole |
 /// | 412 | another manifest (the old key's, or another writer's) | removed: a refused conditional write cannot land later | stay |
+/// | 412 | the very manifest the swap carried (a replica that lags: a 412 says it had moved) | stays: [`MetaError::OutcomeUnknown`] | stay |
 /// | 409 (under way) | another manifest | stays: this swap may still land; an orphan is only space | stay |
 /// | an error of unknown certainty (a timeout) | another manifest | stays, same reason | stay |
 /// | a refusal for policy (frozen, over quota, an expired session) | another manifest | stays: it is the answer of the last request sent, the first may still land (X-DELTA-SYNC6-2) | stay |
@@ -2321,8 +2338,11 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
             Err(lost @ (MetaError::Conflict { .. } | MetaError::Raced { .. })) => {
                 // Another device swapped first - or this very swap landed, its answer got lost
                 // and the request, sent again, met the version it had made (a 412), or is still
-                // under way (a 409). A fresh read decides; no answer of the swap does.
-                match swap_outcome(bucket, old, new, &checkpoint_key) {
+                // under way (a 409). A fresh read decides; no answer of the swap does - and the read of the
+                // very version a refused swap carried is no answer either (a replica that lags).
+                let refused_at =
+                    matches!(lost, MetaError::Conflict { .. }).then_some(version.as_str());
+                match swap_outcome(bucket, old, new, &checkpoint_key, refused_at) {
                     Swap::Landed(landed, version) => {
                         let whole = prove_new_set(bucket, new, &landed)?;
                         let removed =
@@ -2354,7 +2374,7 @@ pub fn reseal<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
             }
             Err(e) => {
                 // The swap may have landed and only its answer got lost: a fresh read decides.
-                match swap_outcome(bucket, old, new, &checkpoint_key) {
+                match swap_outcome(bucket, old, new, &checkpoint_key, None) {
                     Swap::Landed(landed, version) => {
                         let whole = prove_new_set(bucket, new, &landed)?;
                         let removed =
@@ -2418,10 +2438,16 @@ fn swap_outcome<B: Bucket + ?Sized, O: Sealer, N: Sealer>(
     old: &O,
     new: &N,
     checkpoint_key: &str,
+    refused_at: Option<&str>,
 ) -> Swap {
     let Some((bytes, version)) = read_back_manifest(bucket) else {
         return Swap::Unknown;
     };
+    // A swap that was refused (412) carried the version `refused_at`: a read that serves it again is a replica that
+    // lags, and says nothing of whether the swap landed (X-DELTA-SYNC8-4).
+    if refused_at == Some(version.as_str()) {
+        return Swap::Unknown;
+    }
     match open_json::<Manifest, N>(new, keys::MANIFEST, &bytes) {
         Ok(manifest)
             if manifest

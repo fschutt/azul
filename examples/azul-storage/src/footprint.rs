@@ -565,6 +565,8 @@ pub struct Paths {
     /// Whether what is here may be the only way back to the drive or to what was paid for it,
     /// so that it goes only with a [`RemovalProof`].
     needs_proof: bool,
+    /// The child of every folder place that this store leaves where it is ([`Paths::keeping`]).
+    keeps: Option<&'static str>,
 }
 
 impl Paths {
@@ -578,7 +580,19 @@ impl Paths {
             store,
             places_of: Box::new(places_of),
             needs_proof: false,
+            keeps: None,
         }
+    }
+
+    /// What this store does not take out of a folder place: the child called `name` stays where it is, with all it
+    /// holds - another store of the removal deals with it ([`LegacyCopiesFootprint`]: the copies an older program
+    /// handed out, which may hold what the user changed) - and so does the folder around it, while it holds nothing
+    /// else. Everything else in the folder goes, a link as the link it is (X-DELTA-SYNC9-1: the pairing's state
+    /// folder was removed whole, `open` in it too).
+    #[must_use]
+    pub fn keeping(mut self, name: &'static str) -> Paths {
+        self.keeps = Some(name);
+        self
     }
 
     /// This store goes only with a [`RemovalProof`], like the keys: a vault of paid months, the
@@ -607,6 +621,43 @@ fn remove_place(path: &Path) -> Result<(), String> {
             Err(format!("{}: {e}", path.display()))
         }
         _ => Ok(()),
+    }
+}
+
+/// [`remove_place`] for a folder that keeps its child `keep`: every other entry in it goes - a file or a link, a
+/// folder and everything in it - and the folder itself goes when nothing is left in it. A folder that still holds
+/// `keep` stays, which is no error; a place that is a file goes as a file.
+fn remove_place_keeping(path: &Path, keep: &str) -> Result<(), String> {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if !meta.is_dir() {
+        return remove_place(path);
+    }
+    let listing = std::fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut failures = Vec::new();
+    for entry in listing {
+        match entry {
+            Ok(entry) if entry.file_name() == std::ffi::OsStr::new(keep) => {}
+            Ok(entry) => {
+                if let Err(e) = remove_place(&entry.path()) {
+                    failures.push(e);
+                }
+            }
+            Err(e) => failures.push(format!("{}: {e}", path.display())),
+        }
+    }
+    if !failures.is_empty() {
+        return Err(failures.join("; "));
+    }
+    match std::fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        // The child that stays is why the folder stays.
+        Err(_) if std::fs::symlink_metadata(path.join(keep)).is_ok() => Ok(()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
     }
 }
 
@@ -640,7 +691,14 @@ impl Footprint for Paths {
                 }
                 continue;
             }
-            match remove_place(&place) {
+            let removed = match self.keeps {
+                Some(keep) => remove_place_keeping(&place, keep),
+                None => remove_place(&place),
+            };
+            match removed {
+                // A folder that still holds what it keeps is not said to be removed: the store that deals
+                // with the kept child says what became of it.
+                Ok(()) if self.keeps.is_some() && std::fs::symlink_metadata(&place).is_ok() => {}
                 Ok(()) => done.removed.push(place.display().to_string()),
                 Err(e) => failures.push(e),
             }

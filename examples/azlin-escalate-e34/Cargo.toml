@@ -1,0 +1,24 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2): the FINAL manifest. Lanes never edit it: a missing dependency is a drift row.
+# Test-support library. Test-side token building uses the same primitives as azlin-idtoken (jsonwebtoken only if approval A3 is ever given).
+
+[package]
+name = "azlin-escalate-e34"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin escalate E3 and E4: the ID-token negatives and the restore announcements"
+publish = false
+
+[dependencies]
+azlin-seams = { path = "../azlin-seams" }
+azlin-idtoken = { path = "../azlin-idtoken" }
+azlin-escrow = { path = "../azlin-escrow" }
+azlin-chain = { path = "../azlin-chain" }
+azlin-sync = { path = "../azlin-sync" }
+serde_json = "1"
+base64 = "0.22"
+rsa = "0.9.10"
+p256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
+ed25519-dalek = "2.2.0"

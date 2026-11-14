@@ -1473,8 +1473,8 @@ fn x_delta_struct4_2_a_lockdown_answer_for_another_drive_is_not_kept_and_the_cal
 
 // ==== The bytes' conditional writes (X-DELTA-STRUCT4-4) ====
 
-/// X-DELTA-STRUCT4-4. The bytes of an Azlin drive write `put_from_if`, `put_file_if`, `put_many` and the other batches
-/// by hand (they have no drive below: 13 methods are `pass`, written out), so the census read their NAMES: a
+/// X-DELTA-STRUCT4-4. The bytes of an Azlin drive write `put_from_if`, `put_file_if`, `put_many`, the other batches and
+/// `put_file_checked` by hand (they have no drive below: 13 methods are `pass`, written out), so the census read their NAMES: a
 /// `put_file_if` that sent `Precondition::Absent`, or a `put_many` that dropped its items' conditions, turned an
 /// `If-Match` write into an overwrite of what another device had saved. The probe here is the transport: each
 /// conditional write reaches the bucket as ONE PUT of the object with `If-Match: "tag-1"`, and the control - a plain
@@ -1501,7 +1501,7 @@ fn x_delta_struct4_4_an_azlin_drive_sends_its_conditional_writes_to_the_bucket_w
             body: Vec::new(),
         })
     });
-    let (drive, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir);
+    let (drive, _, _): (AzlinDrive, _, _) = drive(&fake, EXPIRES - 6 * 3600, &dir);
     let tag = Precondition::Matches(String::from("tag-1"));
     drive.put_if("object", b"x", &tag).unwrap();
     drive.put_from_if("object", &mut &b"x"[..], &tag).unwrap();
@@ -1523,6 +1523,27 @@ fn x_delta_struct4_4_an_azlin_drive_sends_its_conditional_writes_to_the_bucket_w
             "the condition reached the bucket: {put:?}"
         );
     }
+    // The checked upload keeps its check (X-DELTA-DRIVEE-7): a file that is not the one the check names is `Changed`, and no
+    // request names its object - a bytes that answered the call with `put_file` would upload what the file has become.
+    let named = azul_storage::checked::FileCheck {
+        size: 2,
+        modified_ns: 0,
+        blake3: String::new(),
+        dev: 0,
+        ino: 0,
+    };
+    let answer = drive.put_file_checked("changed", &file, &named, &azul_storage::ctl::Quiet);
+    assert_eq!(
+        answer,
+        Ok(azul_storage::checked::CheckedUpload::Changed),
+        "the file is one byte, the check names two"
+    );
+    assert!(
+        fake.calls()
+            .iter()
+            .all(|call| !call.url.ends_with("/d-1/changed")),
+        "nothing was sent for the changed file"
+    );
     // The control: an unconditional write asks nothing of the bucket.
     drive.put("other", b"x").unwrap();
     let plain: Vec<_> = fake

@@ -1,0 +1,58 @@
+{
+  "contract": 4,
+  "family": "db_tokens",
+  "section": "4.1",
+  "tables": [
+    {
+      "name": "databases",
+      "header": ["database", "writer", "node_token"],
+      "rows": [
+        ["ctl", "AzCtl", "RO"],
+        ["rel", "AzCtl", "RO"],
+        ["ops", "AzCtl", "none"],
+        ["accounts", "payments", "none"],
+        ["biz", "payments", "none"],
+        ["fleet", "nodes", "RW own rows"],
+        ["tele", "nodes", "RW own rows"],
+        ["bulk", "nodes", "RW own rows"]
+      ]
+    },
+    {
+      "name": "tokens",
+      "header": ["holder", "ctl", "rel", "ops", "accounts", "biz", "fleet", "tele", "bulk"],
+      "rows": [
+        ["node", "RO", "RO", "-", "-", "-", "RW own", "RW own", "RW own"],
+        ["watcher (leader)", "RO", "-", "-", "-", "-", "RW own", "RW own", "-"],
+        ["health prober", "RO", "-", "-", "-", "-", "-", "RO pages, RW own rows", "-"],
+        ["payments", "-", "-", "-", "RW", "RW", "-", "-", "-"],
+        ["AzCtl", "RW", "RW", "RW", "RO", "RO", "RO", "RO", "RO"],
+        ["new server, before approval", "-", "-", "-", "-", "-", "RW", "-", "-"]
+      ]
+    }
+  ],
+  "documents": [
+    {
+      "name": "eight_libsql_connections",
+      "json": "{\"ctl\": {\"type\": \"libsql\", \"url\": \"libsql://ctl.example.net\", \"auth\": {\"bearer\": \"sealed-ctl\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://ctl-b.example.net\"]}, \"rel\": {\"type\": \"libsql\", \"url\": \"libsql://rel.example.net\", \"auth\": {\"bearer\": \"sealed-rel\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://rel-b.example.net\"]}, \"ops\": {\"type\": \"libsql\", \"url\": \"libsql://ops.example.net\", \"auth\": {\"bearer\": \"sealed-ops\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://ops-b.example.net\"]}, \"accounts\": {\"type\": \"libsql\", \"url\": \"libsql://accounts.example.net\", \"auth\": {\"bearer\": \"sealed-accounts\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://accounts-b.example.net\"]}, \"biz\": {\"type\": \"libsql\", \"url\": \"libsql://biz.example.net\", \"auth\": {\"bearer\": \"sealed-biz\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://biz-b.example.net\"]}, \"fleet\": {\"type\": \"libsql\", \"url\": \"libsql://fleet.example.net\", \"auth\": {\"bearer\": \"sealed-fleet\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://fleet-b.example.net\"]}, \"tele\": {\"type\": \"libsql\", \"url\": \"libsql://tele.example.net\", \"auth\": {\"bearer\": \"sealed-tele\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://tele-b.example.net\"]}, \"bulk\": {\"type\": \"libsql\", \"url\": \"libsql://bulk.example.net\", \"auth\": {\"bearer\": \"sealed-bulk\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://bulk-b.example.net\"]}}"
+    },
+    {
+      "name": "mixed_types",
+      "json": "{\"ctl\": {\"type\": \"sqld\", \"url\": \"https://db.example.net:8080\", \"auth\": {\"basic\": {\"user\": \"u\", \"password\": \"sealed-p\"}}, \"roots\": {\"pinned_hash\": \"ab\"}}, \"rel\": {\"type\": \"node-local\", \"url\": \"file:/var/lib/azlin/rel.db\"}, \"ops\": {\"type\": \"libsql\", \"url\": \"libsql://ops.example.net\", \"auth\": {\"bearer\": \"sealed-ops\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://ops-b.example.net\"]}, \"accounts\": {\"type\": \"libsql\", \"url\": \"libsql://accounts.example.net\", \"auth\": {\"bearer\": \"sealed-accounts\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://accounts-b.example.net\"]}, \"biz\": {\"type\": \"libsql\", \"url\": \"libsql://biz.example.net\", \"auth\": {\"bearer\": \"sealed-biz\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://biz-b.example.net\"]}, \"fleet\": {\"type\": \"libsql\", \"url\": \"libsql://fleet.example.net\", \"auth\": {\"bearer\": \"sealed-fleet\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://fleet-b.example.net\"]}, \"tele\": {\"type\": \"libsql\", \"url\": \"libsql://tele.example.net\", \"auth\": {\"bearer\": \"sealed-tele\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://tele-b.example.net\"]}, \"bulk\": {\"type\": \"libsql\", \"url\": \"libsql://bulk.example.net\", \"auth\": {\"bearer\": \"sealed-bulk\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://bulk-b.example.net\"]}}"
+    },
+    {
+      "name": "a_database_missing",
+      "json": "{\"ctl\": {\"type\": \"libsql\", \"url\": \"libsql://ctl.example.net\", \"auth\": {\"bearer\": \"sealed-ctl\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://ctl-b.example.net\"]}, \"rel\": {\"type\": \"libsql\", \"url\": \"libsql://rel.example.net\", \"auth\": {\"bearer\": \"sealed-rel\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://rel-b.example.net\"]}, \"ops\": {\"type\": \"libsql\", \"url\": \"libsql://ops.example.net\", \"auth\": {\"bearer\": \"sealed-ops\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://ops-b.example.net\"]}, \"accounts\": {\"type\": \"libsql\", \"url\": \"libsql://accounts.example.net\", \"auth\": {\"bearer\": \"sealed-accounts\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://accounts-b.example.net\"]}, \"biz\": {\"type\": \"libsql\", \"url\": \"libsql://biz.example.net\", \"auth\": {\"bearer\": \"sealed-biz\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://biz-b.example.net\"]}, \"fleet\": {\"type\": \"libsql\", \"url\": \"libsql://fleet.example.net\", \"auth\": {\"bearer\": \"sealed-fleet\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://fleet-b.example.net\"]}, \"tele\": {\"type\": \"libsql\", \"url\": \"libsql://tele.example.net\", \"auth\": {\"bearer\": \"sealed-tele\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://tele-b.example.net\"]}}",
+      "error": "missing_database"
+    },
+    {
+      "name": "an_unknown_database",
+      "json": "{\"ctl\": {\"type\": \"libsql\", \"url\": \"libsql://ctl.example.net\", \"auth\": {\"bearer\": \"sealed-ctl\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://ctl-b.example.net\"]}, \"rel\": {\"type\": \"libsql\", \"url\": \"libsql://rel.example.net\", \"auth\": {\"bearer\": \"sealed-rel\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://rel-b.example.net\"]}, \"ops\": {\"type\": \"libsql\", \"url\": \"libsql://ops.example.net\", \"auth\": {\"bearer\": \"sealed-ops\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://ops-b.example.net\"]}, \"accounts\": {\"type\": \"libsql\", \"url\": \"libsql://accounts.example.net\", \"auth\": {\"bearer\": \"sealed-accounts\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://accounts-b.example.net\"]}, \"biz\": {\"type\": \"libsql\", \"url\": \"libsql://biz.example.net\", \"auth\": {\"bearer\": \"sealed-biz\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://biz-b.example.net\"]}, \"fleet\": {\"type\": \"libsql\", \"url\": \"libsql://fleet.example.net\", \"auth\": {\"bearer\": \"sealed-fleet\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://fleet-b.example.net\"]}, \"tele\": {\"type\": \"libsql\", \"url\": \"libsql://tele.example.net\", \"auth\": {\"bearer\": \"sealed-tele\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://tele-b.example.net\"]}, \"zzz\": {\"type\": \"libsql\", \"url\": \"libsql://bulk.example.net\", \"auth\": {\"bearer\": \"sealed-bulk\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://bulk-b.example.net\"]}}",
+      "error": "unknown_database"
+    },
+    {
+      "name": "a_connection_without_auth",
+      "json": "{\"ctl\": {\"type\": \"libsql\", \"url\": \"libsql://a\", \"roots\": \"system\"}, \"rel\": {\"type\": \"libsql\", \"url\": \"libsql://rel.example.net\", \"auth\": {\"bearer\": \"sealed-rel\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://rel-b.example.net\"]}, \"ops\": {\"type\": \"libsql\", \"url\": \"libsql://ops.example.net\", \"auth\": {\"bearer\": \"sealed-ops\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://ops-b.example.net\"]}, \"accounts\": {\"type\": \"libsql\", \"url\": \"libsql://accounts.example.net\", \"auth\": {\"bearer\": \"sealed-accounts\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://accounts-b.example.net\"]}, \"biz\": {\"type\": \"libsql\", \"url\": \"libsql://biz.example.net\", \"auth\": {\"bearer\": \"sealed-biz\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://biz-b.example.net\"]}, \"fleet\": {\"type\": \"libsql\", \"url\": \"libsql://fleet.example.net\", \"auth\": {\"bearer\": \"sealed-fleet\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://fleet-b.example.net\"]}, \"tele\": {\"type\": \"libsql\", \"url\": \"libsql://tele.example.net\", \"auth\": {\"bearer\": \"sealed-tele\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://tele-b.example.net\"]}, \"bulk\": {\"type\": \"libsql\", \"url\": \"libsql://bulk.example.net\", \"auth\": {\"bearer\": \"sealed-bulk\"}, \"roots\": \"turso\", \"fallback\": [\"libsql://bulk-b.example.net\"]}}",
+      "error": "auth_roots"
+    }
+  ]
+}

@@ -236,6 +236,10 @@ azmail-removed-held = { $count ->
     [one] 1 message of { $folder } was removed from the drive; it stays on this computer for { $days } days, in { $where }.
    *[other] { $count } messages of { $folder } were removed from the drive; they stay on this computer for { $days } days, in { $where }.
  }
+azmail-hold-refused = { $count ->
+    [one] The Azlin drive no longer lists 1 message you have, and it was left in its folder because { $why }: a later Send/Receive that can date it takes it out of the folder, and it is kept on this computer for { $days } days.
+   *[other] The Azlin drive no longer lists { $count } messages you have, and they were left in their folders because { $why }: a later Send/Receive that can date them takes them out of the folders, and they are kept on this computer for { $days } days.
+ }
 azmail-removed-sweep-failed = The mail removed from the drive could not be cleaned up ({ $why }): it stays on this computer.
 azmail-restore-unknown = { $count ->
     [one] The Azlin drive no longer lists 1 message you have, and the token server could not be asked whether the drive was restored ({ $why }): it stays here until the next Send/Receive.

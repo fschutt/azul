@@ -164,7 +164,10 @@ fn the_hello_reads_its_header_and_skips_parameters_it_does_not_know() {
 
 #[test]
 fn a_client_below_the_minimum_is_told_what_to_reach_and_one_without_a_hello_is_no_app() {
-    assert!(MIN_CONTRACT <= CONTRACT_VERSION, "the services speak the contract they demand");
+    // not a constant assertion: clippy's `assertions_on_constants` reads both sides as constants (and the
+    // test said nothing the compiler does not check once the version moved past the floor)
+    let (floor_contract, current) = (std::hint::black_box(MIN_CONTRACT), CONTRACT_VERSION);
+    assert!(floor_contract <= current, "the services speak the contract they demand");
     let floor = SemVer::parse("0.3.1").expect("version");
     let minimum = ClientMinimum {
         contract: 3,

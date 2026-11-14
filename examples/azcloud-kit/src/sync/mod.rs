@@ -2572,7 +2572,16 @@ fn apply_local<R: SyncRemote + ?Sized>(
                             scan,
                             policy: &policy,
                         };
-                        write_link(&made, key, target, &f.hash, expect.as_ref(), base, report);
+                        write_link(
+                            &made,
+                            hooks,
+                            key,
+                            target,
+                            &f.hash,
+                            expect.as_ref(),
+                            base,
+                            report,
+                        );
                         continue;
                     }
                     if !fits(key, f.size, report) {
@@ -2669,7 +2678,7 @@ fn apply_local<R: SyncRemote + ?Sized>(
                                     scan,
                                     policy: &policy,
                                 };
-                                write_link(&made, key, target, &f.hash, None, base, report);
+                                write_link(&made, hooks, key, target, &f.hash, None, base, report);
                             } else if fits(key, f.size, report) {
                                 downloads.push(Download {
                                     key: key.to_string(),
@@ -2953,8 +2962,10 @@ struct Made<'a> {
 /// `None`: nothing): never through another link, never over a folder, never over a file that
 /// changed since the scan, and only when its target stays inside the folder and is the content
 /// (`hash`) the entry names.
+#[allow(clippy::too_many_arguments)]
 fn write_link(
     made: &Made<'_>,
+    hooks: &RunHooks<'_>,
     key: &str,
     target: &str,
     hash: &str,
@@ -2988,6 +2999,9 @@ fn write_link(
     // Made under a name of its own, then renamed into place: what had the name before is
     // replaced in one step, and a folder of that name is never replaced.
     let temp = beneath::temp_name(name);
+    // The named point between the look and the rename: a test makes a file under the name right here, as a user's save
+    // can (X-DELTA-SYNC4-22: the race had no seam, and its test could not be made to happen).
+    hooks.point("link-before-rename");
     // A name the scan found nothing under is never replaced: what appeared since the look stays
     // (X-DELTA-SYNC4-22); one that held a file as scanned is replaced as before.
     match dir.symlink(target, &temp).and_then(|()| {

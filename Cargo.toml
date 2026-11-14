@@ -17,6 +17,33 @@ members = [
     "examples/azlin-compress", # azlin-compress: AzDrive's client-side lossless compression (detection, Lepton and deflate-rebuild transforms, per-segment zstd / brotli / dictionaries, the AZC1 container); azul-storage seals its output
     "examples/azlin-preflate", # azlin-preflate: deflate reconstruction (preflate-rs 0.7.6, Apache-2.0, vendored without its LGPL range coder) for azlin-compress
     "examples/azlin-contract", # azlin-contract: what the Azlin apps and services say to each other (contract version, client hello, ids and units, idempotency key, deadlines, error codes, golden fixtures); serde only
+    "examples/azlin-cbor", # Strict deterministic CBOR: the one codec of the Azlin engine's wire and signed formats (W1-S14a)
+    "examples/azlin-keys", # Azlin keys: typed ids, secrets, entropy and clock seams, key derivation, signatures, envelopes, key hierarchy, recovery (W1-S15a)
+    "examples/azlin-content", # Azlin content: FastCDC chunker, AZL2 chunks, AZP2 packs, signed pointers, chunk index, dedup and client prune (W1-S14b)
+    "examples/azlin-seams", # Azlin seams: the engine's vocabulary adapter (hashes, stamps, sizes, signature verifier seam, mutation guards, seeded simulation) (W1-S17a)
+    "examples/azlin-chain", # Azlin chain: signed hash chains (team log, space chains): entries, links, pins, peers, checkpoints, restore (W1-S17a)
+    "examples/azlin-policy", # Azlin policy: the account policy table, inheritance, tightening and quorum counting (W1-S17b)
+    "examples/azlin-teamlog", # Azlin team log: ops, roles, groups, the permission check (admit) and the deterministic apply (W1-S17c1)
+    "examples/azlin-webauthn", # Azlin WebAuthn: passkey assertion verification (authenticator data, client data, COSE keys) (W1-S17d)
+    "examples/azlin-enroll", # Azlin enroll: enrollment holds, recovery paths and escrow-opening waits (W1-S17e)
+    "examples/azlin-escrow", # Azlin escrow: threshold escrow (envelope algorithm 7): Feldman shares, DKG, resharing, partial decryption (W1-S17f)
+    "examples/azlin-idtoken", # Azlin idtoken: strict checking of an identity provider's ID token for the key agent (W1-S17g)
+    "examples/azlin-sync", # Azlin sync: space heads, compare-and-swap, append logs and the device's head guard (W1-S16a)
+    "examples/azlin-spaces", # Azlin spaces: space chains, grants and authorized key epochs (W1-S16b)
+    "examples/azlin-links", # Azlin links: the server side of links: options, bounds, resolving, counters and credentials (W1-S16c1)
+    "examples/azlin-linkkit", # Azlin linkkit: the client side of links: URLs, keys and 'Only this person can open it' (W1-S16d)
+    "examples/azlin-linkpass", # Azlin linkpass: link_login with OPAQUE and the guess ledger (W1-S16e)
+    "examples/azlin-requests", # Azlin requests: requests and AZD2 drops (W1-S16f)
+    "examples/azlin-escalate-e1", # Azlin escalate E1: the independent reference model of the team log's permission check and its differential test (W1-S47a)
+    "examples/azlin-escalate-e2", # Azlin escalate E2: the recovery-path matrix (W1-S47b)
+    "examples/azlin-escalate-e34", # Azlin escalate E3 and E4: the ID-token negatives and the restore announcements (W1-S47c)
+    "examples/azlin-escalate-e56", # Azlin escalate E5 and E6: commands before sign-in, hostile text and rows (W1-S47d)
+    "examples/azlin-regbase", # Azlin registry vocabulary: ids, time, bytes, enums, anchors, signing and proofs shared by the registry and the client (W1-S9a)
+    "examples/azlin-creds", # Azlin credentials: credential v2, certificates, member assertions, signed entitlements and the refresh frames (W1-S9e)
+    "examples/azlin-session", # Azlin session: the client's session: spend the token once, persist before use, retry the lost answer (W1-S9h)
+    "examples/azlin-merkle", # Azlin Merkle: the RFC 9162 Merkle tree and its inclusion and consistency proofs (W1-S45b)
+    "examples/azlin-tlog", # Azlin transparency log: signed checkpoints, witnesses, the release record, proof bundles and the monitor (W1-S45c)
+    "examples/azlin-reports", # Azlin reports: content reports, the counting that pauses a link, decisions and their statements of reasons (W1-S46a)
     "examples/azcloud-kit", # azcloud-kit: the Azlin cloud client of the desktop apps and the azcloud CLI (token server, account, bucket, sync, links)
     "examples/azul-pay", # azul-pay: the checkout's client half - the provider registry, the offer filter, the pills, the surfaces, the navigation bridge, the checkout state machine
     "examples/azul-pay-methods", # azul-pay-methods: the payment methods registry by country (methods, providers, routes, the providers' documented test data); data plus a checked parser

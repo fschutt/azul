@@ -118,7 +118,7 @@ impl fmt::Display for SemVer {
     }
 }
 
-/// What a client says it is: `azdrive/0.3.0; contract=3`.
+/// What a client says it is: `azdrive/0.3.0; contract=4`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ClientHello {

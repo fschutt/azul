@@ -576,8 +576,8 @@ const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "examples/azul-drive/src/e2e/b_tamper.rs",
         RAW,
-        1,
-        "the E2E step `drive_tamper` of an encrypted remote (`drop_blob`, `purge`): a stand-in for a server that loses an object, registered only when a scenario or the debug server drives the run (e2e/COMMANDS.md); it deletes the object of the key the scenario names and no flow of the app calls it. The rule that reads a delete of a local bound from a key's maker (X-DELTA-SYNC4-6) is what shows it",
+        2,
+        "the E2E step `drive_tamper` of an encrypted remote (`drop_blob`, `purge`): a stand-in for a server that loses an object, registered only when a scenario or the debug server drives the run (e2e/COMMANDS.md); it deletes the object of the key the scenario names and no flow of the app calls it. The rule that reads a delete of a local bound from a key's maker (X-DELTA-SYNC4-6) shows `drop_blob`, the one that follows a `for` over a set of such keys (X-DELTA-SYNC9-10) shows `purge`: the count was 1 while the rule read one shape",
     ),
     Allow::exactly(
         "examples/azul-storage/src/meta/reclaim.rs",
