@@ -8,13 +8,15 @@
 #     cargo +nightly fuzz build                   # what CI does; it never runs them
 #     cargo +nightly fuzz run envelope_decode     # an hour on a quiet machine
 #
-# Four targets, one per parser of the crate, PRE-DECLARED by lane W1-S15a so that no later lane
-# edits this file; each lane creates only its own target file under `fuzz_targets/`:
+# Five targets, one per parser of the crate: four PRE-DECLARED by lane W1-S15a for the later lanes,
+# so that no later lane edits this file (each creates only its own target file under
+# `fuzz_targets/`), and the one of W1-S15a itself:
 #
 #     envelope_decode   W1-S15b  `Envelope::from_cbor`, `check_shape`, `open`
 #     reg_wrap_row      W1-S15c2 `reg_wrap::validate_row` on a row's bytes
 #     contact_text      W1-S15d  the contact, share and recovery-request text forms, `RecoveryCode::parse`
 #     bound_secret      W1-S15e  `BoundSecret::from_bytes` (needs the feature `binding`, on below)
+#     id_text           W1-S15a  the text parsers of the ids and the epoch (the target file is in place)
 #
 # The entry points are the same the lanes' unit tests run on a few thousand fixed inputs. A
 # target whose file does not exist yet makes `cargo fuzz build` fail until its lane lands; `corpus/`
@@ -60,6 +62,13 @@ bench = false
 [[bin]]
 name = "bound_secret"
 path = "fuzz_targets/bound_secret.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "id_text"
+path = "fuzz_targets/id_text.rs"
 test = false
 doc = false
 bench = false

@@ -7,6 +7,8 @@
 //! (launch rule 10 of the W1 lanes).
 #![allow(dead_code)]
 
+pub mod fuzz_entry;
+
 use std::path::PathBuf;
 
 /// SplitMix64: the seeded generator of every property test. A failing case prints its seed and

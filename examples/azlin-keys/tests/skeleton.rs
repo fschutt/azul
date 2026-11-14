@@ -2,7 +2,7 @@
 //! module file above it (`lib.rs`, or the `mod.rs` of its folder), every `mod` line has its file,
 //! and every stub that W1-S15a pre-declared for a later lane exists: either as the one-line stub
 //! `//! owned by lane W1-S15<x>` or, once its lane has replaced it, as that lane's module. The
-//! fuzz project declares the four targets of the later lanes.
+//! fuzz project declares the four targets of the later lanes and the one of this lane.
 //!
 //! This test keeps holding while the later lanes fill their stubs and add sibling files inside
 //! their own folders: it reads the `mod` lines of each `mod.rs` it meets.
@@ -195,12 +195,13 @@ fn c9_the_fuzz_project_declares_the_targets_of_the_later_lanes() {
         ("reg_wrap_row", "W1-S15c2"),
         ("contact_text", "W1-S15d"),
         ("bound_secret", "W1-S15e"),
+        ("id_text", "W1-S15a"),
     ];
     let names: Vec<&str> = bins.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(
         names,
         want.map(|(n, _)| n),
-        "the four pre-declared targets, in this order"
+        "the four pre-declared targets of the later lanes and this lane's own, in this order"
     );
     for (name, path) in &bins {
         assert_eq!(path, &format!("fuzz_targets/{name}.rs"), "{name}");
