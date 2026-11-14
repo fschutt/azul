@@ -294,10 +294,20 @@ fn the_fixture_folder_holds_exactly_the_listed_fixtures_as_built() {
     if blessing() {
         return;
     }
-    let mut on_disk: Vec<String> = std::fs::read_dir(fixtures_dir())
-        .expect("the fixtures folder")
-        .map(|entry| entry.expect("an entry").file_name().to_string_lossy().into_owned())
-        .collect();
+    // the files of the folder and of its sub-folders (`c4/`), by their path under it
+    fn walk(dir: &std::path::Path, prefix: &str, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).expect("the fixtures folder") {
+            let entry = entry.expect("an entry");
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.path().is_dir() {
+                walk(&entry.path(), &format!("{prefix}{name}/"), out);
+            } else {
+                out.push(format!("{prefix}{name}"));
+            }
+        }
+    }
+    let mut on_disk: Vec<String> = Vec::new();
+    walk(&fixtures_dir(), "", &mut on_disk);
     on_disk.sort();
     let mut listed: Vec<String> = FIXTURES.iter().map(|(name, _)| name.to_string()).collect();
     listed.sort();

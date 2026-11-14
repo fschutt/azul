@@ -1,0 +1,148 @@
+{
+  "contract": 4,
+  "family": "native_protocol",
+  "section": "2.5",
+  "tables": [
+    {
+      "name": "verbs",
+      "header": ["number", "name", "range", "position"],
+      "rows": [
+        ["0x0001", "hello", "0x00 session", "1"],
+        ["0x0002", "ping", "0x00 session", "2"],
+        ["0x0003", "map", "0x00 session", "3"],
+        ["0x0004", "prices", "0x00 session", "4"],
+        ["0x0005", "refresh", "0x00 session", "5"],
+        ["0x0006", "watch", "0x00 session", "6"],
+        ["0x0007", "lockdown", "0x00 session", "7"],
+        ["0x0008", "device_enroll_begin", "0x00 session", "8"],
+        ["0x0009", "device_enroll_finish", "0x00 session", "9"],
+        ["0x000a", "device_remove", "0x00 session", "10"],
+        ["0x000b", "member_assert", "0x00 session", "11"],
+        ["0x000c", "push_register", "0x00 session", "12"],
+        ["0x0101", "pack_put", "0x01 data", "1"],
+        ["0x0102", "shard_put", "0x01 data", "2"],
+        ["0x0103", "shard_forward", "0x01 data", "3"],
+        ["0x0104", "pack_commit", "0x01 data", "4"],
+        ["0x0105", "object_get", "0x01 data", "5"],
+        ["0x0106", "locate", "0x01 data", "6"],
+        ["0x0107", "delete", "0x01 data", "7"],
+        ["0x0108", "cancel", "0x01 data", "8"],
+        ["0x0201", "head_get", "0x02 space", "1"],
+        ["0x0202", "head_cas", "0x02 space", "2"],
+        ["0x0203", "head_history", "0x02 space", "3"],
+        ["0x0204", "restore_as_of", "0x02 space", "4"],
+        ["0x0205", "space_keys_get", "0x02 space", "5"],
+        ["0x0206", "space_create", "0x02 space", "6"],
+        ["0x0207", "space_rekey", "0x02 space", "7"],
+        ["0x0208", "log_append", "0x02 space", "8"],
+        ["0x0209", "log_read", "0x02 space", "9"],
+        ["0x020a", "retention_set", "0x02 space", "10"],
+        ["0x0301", "link_create", "0x03 sharing", "1"],
+        ["0x0302", "link_update", "0x03 sharing", "2"],
+        ["0x0303", "link_revoke", "0x03 sharing", "3"],
+        ["0x0304", "link_list", "0x03 sharing", "4"],
+        ["0x0305", "link_resolve", "0x03 sharing", "5"],
+        ["0x0306", "link_login", "0x03 sharing", "6"],
+        ["0x0307", "grant_add", "0x03 sharing", "7"],
+        ["0x0308", "grant_remove", "0x03 sharing", "8"],
+        ["0x0309", "request_create", "0x03 sharing", "9"],
+        ["0x030a", "request_upload", "0x03 sharing", "10"],
+        ["0x030b", "request_revoke", "0x03 sharing", "11"],
+        ["0x030c", "inbox_list", "0x03 sharing", "12"],
+        ["0x0401", "team_log_append", "0x04 team", "1"],
+        ["0x0402", "team_log_get", "0x04 team", "2"],
+        ["0x0403", "entitlement_put", "0x04 team", "3"],
+        ["0x0404", "audit_config", "0x04 team", "4"],
+        ["0x0501", "verify", "0x05 durability", "1"],
+        ["0x0502", "lock_set", "0x05 durability", "2"],
+        ["0x0503", "lock_get", "0x05 durability", "3"],
+        ["0x0504", "legal_hold", "0x05 durability", "4"],
+        ["0x0701", "replicate_stream", "0x07 region", "1"],
+        ["0x0702", "replica_status", "0x07 region", "2"],
+        ["0x0703", "space_promote", "0x07 region", "3"]
+      ]
+    },
+    {
+      "name": "statuses",
+      "header": ["number", "name", "class"],
+      "rows": [
+        ["0", "ok", "-"],
+        ["1", "conflict", "retry"],
+        ["2", "map_stale", "retry"],
+        ["3", "overloaded", "elsewhere"],
+        ["4", "lagging", "elsewhere"],
+        ["5", "retry_after", "after"],
+        ["6", "not_ready", "after"],
+        ["7", "not_found", "fatal"],
+        ["8", "forbidden", "fatal"],
+        ["9", "unsupported_verb", "fatal"],
+        ["10", "bad_request", "fatal"],
+        ["11", "not_sealed", "fatal"],
+        ["12", "revoked", "fatal"],
+        ["13", "quota_exceeded", "fatal"],
+        ["14", "locked", "fatal"],
+        ["15", "client_too_old", "fatal"]
+      ]
+    },
+    {
+      "name": "limits",
+      "header": ["name", "label", "default", "at_the_limit"],
+      "rows": [
+        ["connections_per_node", "connections per node", "count 100000", "overloaded"],
+        ["connections_per_device", "connections per device", "count 8", "overloaded"],
+        ["open_streams_per_connection", "open streams per connection", "count 256", "-"],
+        ["bytes_in_flight_per_connection", "bytes in flight per connection", "path-bound, at most bytes 67108864", "-"],
+        ["open_upload_sessions_per_device", "open upload sessions per device", "count 64", "retry_after"],
+        ["request_header", "request header", "bytes 16384", "bad_request"],
+        ["log_append_record", "log_append record", "bytes 65536", "bad_request"],
+        ["uncompacted_log_bytes_per_account", "uncompacted append-log bytes per account (they count against its quota)", "bytes 1073741824", "quota_exceeded"],
+        ["watch_streams_per_node", "watch streams per node", "count 50000", "overloaded"],
+        ["spaces_per_watch", "spaces in one watch subscription", "count 20000", "bad_request"],
+        ["queued_events_per_space_kind", "queued events per watcher", "one per (space, kind)", "-"]
+      ]
+    },
+    {
+      "name": "flags",
+      "header": ["bit", "name"],
+      "rows": [
+        ["0x0001", "idempotent"],
+        ["0x0002", "zero_rtt"]
+      ]
+    },
+    {
+      "name": "framing",
+      "header": ["frame", "layout", "byte order", "prefix bytes"],
+      "rows": [
+        ["request", "u16 verb | u16 flags | u32 header length | header (deterministic CBOR) | body", "big-endian", "8"],
+        ["response", "u16 status | u32 header length | header | body", "big-endian", "6"]
+      ]
+    },
+    {
+      "name": "crit",
+      "header": ["key", "meaning"],
+      "rows": [
+        ["0", "crit: the header keys the receiver must understand, or refuse"]
+      ]
+    },
+    {
+      "name": "features",
+      "header": ["name"],
+      "rows": [
+        ["delta"],
+        ["teams"],
+        ["links.v2"],
+        ["lock"],
+        ["sso"],
+        ["watch.stream"],
+        ["p2p"]
+      ]
+    },
+    {
+      "name": "retries",
+      "header": ["attempts", "backoff"],
+      "rows": [
+        ["5", "jittered"]
+      ]
+    }
+  ]
+}
