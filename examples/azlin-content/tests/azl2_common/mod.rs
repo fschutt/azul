@@ -239,8 +239,9 @@ impl Compressor for RleDouble {
             return Err(CodecError::Damaged);
         }
         let mut out = Zeroizing::new(Vec::new());
-        for pair in stored.chunks_exact(2) {
-            let (count, byte) = (usize::from(pair[0]), pair[1]);
+        let (pairs, _) = stored.as_chunks::<2>();
+        for &[count, byte] in pairs {
+            let count = usize::from(count);
             if count == 0 {
                 return Err(CodecError::Damaged);
             }

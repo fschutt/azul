@@ -319,6 +319,8 @@ pub fn seal_stored(
     blob.push(codec_byte);
     blob.extend_from_slice(&nonce);
     blob.extend_from_slice(stored);
+    // `from_slice` panics on a slice of the wrong length: the key is 32 bytes and the nonce 24 by
+    // their array types, so it cannot see one.
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key.expose()));
     let body = blob
         .get_mut(BLOB_CODEC_LEN + BLOB_NONCE_LEN..)
@@ -434,6 +436,7 @@ pub fn open_chunk(
 
     // 2. Authenticate. The codec byte is used here only as the byte the associated data names.
     let key = full.chunk_key();
+    // The key, nonce and tag are 32, 24 and 16 bytes by their array types (see `seal_stored`).
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key.expose()));
     let mut stored = Zeroizing::new(parts.ciphertext.to_vec());
     cipher
