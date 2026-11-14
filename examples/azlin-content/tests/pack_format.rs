@@ -322,12 +322,29 @@ fn odd_vectors(m: &Made) -> Vec<Odd> {
         "the length of blob 2 (141) is the last byte of its line"
     );
 
+    assert_eq!(
+        base_plain[44], 0x91,
+        "the offset of blob 2 (145) is the last byte of its offset head"
+    );
+
+    // Blob 1 "is" 40 bytes, less than its framing, and blob 2 takes the rest of the body (222 bytes, at
+    // offset 64): the lines are back to back and end at the end of the body, so only the check of the
+    // framing refuses them.
     let mut below_framing = base_plain.clone();
-    below_framing[24] = 0x28; // blob 1 "is" 40 bytes: less than its framing
+    below_framing[24] = 0x28;
+    below_framing[44] = 0x40;
+    below_framing[46] = 0xde;
+    // Blob 2 "is" 140 bytes: the lines are back to back and stop one byte before the body ends, so only
+    // the check of the end of the body refuses them.
     let mut short_of_the_end = base_plain.clone();
-    short_of_the_end[46] = 0x8c; // blob 2 "is" 140 bytes: the lines stop one byte before the body ends
-                                 // The header says three lines, the plaintext lists two (and an ignored key 9 of 20 bytes brings the
-                                 // trailer to 144 bytes, the least that three lines make, so that the sizes of the header agree).
+    short_of_the_end[46] = 0x8c;
+    // Blob 2 starts one byte late (offset 146) and is one byte shorter (140): the lines end where the
+    // body ends, so only the check that each blob starts where the last one ended refuses them.
+    let mut with_a_gap = base_plain.clone();
+    with_a_gap[44] = 0x92;
+    with_a_gap[46] = 0x8c;
+    // The header says three lines, the plaintext lists two (and an ignored key 9 of 20 bytes brings the
+    // trailer to 144 bytes, the least that three lines make, so that the sizes of the header agree).
     let mut miscounted = vec![0xa3];
     miscounted.extend_from_slice(&base_plain[1..]);
     miscounted.extend_from_slice(&[0x09, 0x54]);
@@ -397,6 +414,12 @@ fn odd_vectors(m: &Made) -> Vec<Odd> {
         rebuild(
             "neg_first_blob_not_at_24",
             with_plain(m, &off_by_one),
+            false,
+            "BadTrailer",
+        ),
+        rebuild(
+            "neg_lines_with_a_gap",
+            with_plain(m, &with_a_gap),
             false,
             "BadTrailer",
         ),
