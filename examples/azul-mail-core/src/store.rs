@@ -1206,4 +1206,32 @@ mod tests {
         assert!(lenient.is_empty(), "the callers that only look get none");
         assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
     }
+
+    /// X-DELTA-APPS5-6: a state file that is THERE and cannot be read (mode 000: the listing names the folder,
+    /// the read is refused) is an error too - not the lenient answer, the newest stamp of the OTHER folders,
+    /// which is older than the account's real one and would date a hold against a floor that is too low. Only a
+    /// file that is not there is no reading. The test of a listing that fails does not reach this arm: it
+    /// fails before the first state file is asked for.
+    #[cfg(unix)]
+    #[test]
+    fn x_delta_apps5_6_a_state_file_that_cannot_be_read_is_an_error_not_no_reading() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("store-last-sync-unreadable");
+        let store = MailStore::new(DriveFolder::outside(dir.0.clone()));
+        put_state(&store, "inbox", "2026-09-30T08:42:00Z");
+        put_state(&store, "archive", "2026-09-29T00:00:00Z");
+        assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
+        let file = dir.0.join(state_key("inbox"));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let premise = std::fs::read(&file).is_err();
+        let failed = store.last_sync();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            premise,
+            "the premise of the test: the state file cannot be read (running as root?)"
+        );
+        let failed = failed.unwrap_err();
+        assert_ne!(failed.kind(), std::io::ErrorKind::NotFound, "{failed}");
+        assert_eq!(store.last_sync().unwrap(), Some(SEP_30));
+    }
 }
