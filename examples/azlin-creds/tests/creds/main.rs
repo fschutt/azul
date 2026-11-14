@@ -14,6 +14,7 @@ mod expiry;
 mod fields;
 mod hostile;
 mod issuer_probe;
+mod pins;
 mod prop;
 mod refresh_tests;
 mod round_trip;

@@ -279,6 +279,9 @@ fn normalize(mut scopes: Vec<Scope>) -> Vec<Scope> {
 
 /// Whether `scope` lets an operation `op` through.
 fn covers(scope: &Scope, op: &ScopedOp) -> bool {
+    if azlin_seams::mutant!("creds_scope_allows_unscoped") && *op == ScopedOp::Unscoped {
+        return true;
+    }
     match (scope, op) {
         (Scope::LinkRead { link: a }, ScopedOp::LinkRead { link: b }) => a == b,
         (Scope::RequestUpload { request: a }, ScopedOp::RequestUpload { request: b }) => a == b,
@@ -372,6 +375,11 @@ impl Scopes {
     /// Caller: S9g (an app principal's credential is the row's scopes narrowed by the request), S16c's
     /// glue (a link credential narrows the link's grants).
     pub fn narrow(&self, other: &Scopes) -> Scopes {
+        if azlin_seams::mutant!("creds_narrow_is_union") {
+            let mut all = self.0.clone();
+            all.extend(other.0.iter().copied());
+            return Scopes(normalize(all));
+        }
         let mut out = Vec::new();
         for a in &self.0 {
             for b in &other.0 {

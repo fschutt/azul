@@ -166,6 +166,9 @@ impl Certificate {
     /// Whether the window covers a credential issued at `issued` and checked at the node's `now`: both
     /// inside `[not_before, not_after)`.
     pub(crate) fn window_covers(&self, issued: LeaderTime, now: NodeTime) -> bool {
+        if azlin_seams::mutant!("creds_cert_window_unchecked") {
+            return true;
+        }
         self.not_before <= issued
             && issued < self.not_after
             && window_holds(self.not_before, Some(self.not_after), now)

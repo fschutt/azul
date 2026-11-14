@@ -126,7 +126,11 @@ fn retention_days(retention: Span) -> Result<u64, CanonicalError> {
     if !retention.as_secs().is_multiple_of(whole) {
         return Err(CanonicalError::NotWholeDays);
     }
-    Ok(retention.as_secs() / whole)
+    let days = retention.as_secs() / whole;
+    if u32::try_from(days).is_err() {
+        return Err(CanonicalError::TooLarge);
+    }
+    Ok(days)
 }
 
 /// What a bounded type refused, as a decode refusal.
@@ -594,7 +598,7 @@ pub fn verify_entitlement_with(
         Some(limit) => issued > limit,
         None => false,
     };
-    if begins_later {
+    if begins_later && !azlin_seams::mutant!("creds_entitlement_future_ok") {
         return Err(EntitlementError::NotYetIssued);
     }
     let preimage = preimage_of::<EntitlementClaims>(&e.payload);

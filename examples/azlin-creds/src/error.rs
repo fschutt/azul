@@ -125,7 +125,8 @@ pub(crate) enum Chain {
 ///
 /// The checks run in this order and the first that fails is the answer: `ClockUntrusted`, `Malformed`,
 /// `LifetimeTooLong`, `CertMalformed`, `CertMismatch`, `NotYetValid`, `Expired`, `CertWindow`,
-/// `UnknownIdentity`, `IdentityWindow`, `BadCert`, `BadSignature`.
+/// `UnknownIdentity`, `IdentityWindow`, `BadCert`, `BadSignature`. (`UnknownScope` is raised by the decoder, at
+/// the step where `Malformed` is.)
 ///
 /// Caller: `verify_credential` (S9g maps each to a status of its own).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

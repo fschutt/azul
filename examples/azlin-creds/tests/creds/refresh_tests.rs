@@ -589,6 +589,11 @@ fn s9e_refresh_a_hostile_answer_is_refused() {
             WireError::TooMany,
         ),
         (
+            "an empty notices array",
+            answer_map(vec![cred(), (5, Value::Array(Vec::new()))]),
+            WireError::NotCanonical,
+        ),
+        (
             "a notice that is a number",
             answer_map(vec![cred(), (5, Value::Array(vec![Value::Uint(1)]))]),
             WireError::Malformed,

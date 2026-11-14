@@ -97,7 +97,8 @@ fn s9e_18_thousands_of_scopes_are_refused_on_every_path() {
         })
         .collect();
     assert!(Scopes::new(scopes).is_err());
-    // On the wire: the codec's item limit refuses before anything is built.
+    // On the wire: the codec's input limit refuses before anything is built (the 65-scope case of
+    // `scope_tests` pins the count limit).
     let f = fixture();
     let mut claims = claims_of(grant());
     claims.device = None;
@@ -343,4 +344,32 @@ fn s9e_18_the_claims_of_a_credential_come_from_the_signed_bytes() {
     let decoded: CredentialClaims =
         CredentialClaims::decode_payload(signed.payload()).expect("claims");
     assert_eq!(decoded, other);
+}
+
+#[test]
+fn s9e_18_an_empty_sso_provider_is_refused_by_the_issuer_as_well_as_by_the_verifier() {
+    use azlin_creds::{CredentialIssuer, IssueError, SsoClaim};
+    let f = fixture();
+    let issuer = CredentialIssuer::new(&f.cred, f.cert, &f.anchors, at(ISSUED)).expect("issuer");
+    let mut g = grant();
+    g.sso = Some(SsoClaim {
+        provider: SmallText::new("").expect("the bounded text may be empty"),
+        auth_time: at(ISSUED - 1),
+    });
+    assert_eq!(
+        issuer.issue(g.clone()).err(),
+        Some(IssueError::Claims(CredError::Malformed)),
+        "nothing is signed that no verifier accepts"
+    );
+    // The same claims signed by hand are refused by the verifier (the decoder).
+    let claims = {
+        let mut c = claims_of(grant());
+        c.sso = g.sso;
+        c
+    };
+    let credential = signed_credential(&f.cred, f.cert, claims);
+    assert_eq!(
+        verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).err(),
+        Some(CredError::Malformed)
+    );
 }

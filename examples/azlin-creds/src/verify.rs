@@ -6,7 +6,7 @@
 //! A credential's `issued_at` and `expires_at` are LEADER stamps; the verifying node has its OWN clock.
 //! [`VerifierNow`] is the node's reading with the verdict of its clock check ([`ClockTrust`]): an
 //! untrusted clock refuses every verification with its own error, never "valid" and never "expired".
-//! The ONE place a leader stamp meets a node time is [`crossing`], so a typed clock later (a node time
+//! The ONE place a leader stamp meets a node time is `crossing`, so a typed clock later (a node time
 //! that is not a leader stamp) is a change of this file alone.
 //!
 //! Implements planning/architecture.md section 2.4 and section 5.11 (credential and assertion
@@ -19,7 +19,7 @@ use azlin_regbase::LeaderTime;
 use crate::error::Chain;
 
 /// The time a verifying node reads on its own clock (whole seconds since 1970). It is the same type as
-/// a leader stamp today; the NAME says which clock a value came from, and [`crossing`] is the only
+/// a leader stamp today; the NAME says which clock a value came from, and `crossing` is the only
 /// function that compares the two.
 ///
 /// Caller: `VerifierNow`, S9g (`replica_usable`).
@@ -72,6 +72,9 @@ impl VerifierNow {
     pub(crate) fn decide(self) -> Result<NodeTime, Chain> {
         match self.trust {
             ClockTrust::Trusted => Ok(self.time),
+            ClockTrust::Untrusted if azlin_seams::mutant!("creds_untrusted_clock_ignored") => {
+                Ok(self.time)
+            }
             ClockTrust::Untrusted => Err(Chain::ClockUntrusted),
         }
     }
@@ -159,7 +162,12 @@ pub(crate) fn check_times(
             return Err(Chain::NotYetValid);
         }
     }
-    if now >= crossing(expires) {
+    let expired = if azlin_seams::mutant!("creds_expiry_inclusive") {
+        now > crossing(expires)
+    } else {
+        now >= crossing(expires)
+    };
+    if expired {
         return Err(Chain::Expired);
     }
     Ok(())

@@ -354,7 +354,8 @@ impl RefreshRequest {
         };
         let proof_kind = map.req_u64(R_PROOF_KIND)?;
         let family = map.opt_bytes_n::<16>(R_FAMILY)?;
-        let mut token_secret = map.opt_bytes_n::<32>(R_SECRET)?;
+        // The wrapper wipes whatever is left of the secret on every path out of this function.
+        let mut token_secret = Zeroizing::new(map.opt_bytes_n::<32>(R_SECRET)?);
         let challenge = map.opt_bytes_n::<16>(R_CHALLENGE)?;
         let signature = map.opt_bytes_n::<64>(R_SIGNATURE)?;
         let client = read_version(map.req_array(R_CLIENT)?)?;
@@ -362,7 +363,7 @@ impl RefreshRequest {
         let proof = match (
             proof_kind,
             family,
-            token_secret.as_mut(),
+            Option::as_mut(&mut token_secret),
             challenge,
             signature,
         ) {
@@ -382,8 +383,6 @@ impl RefreshRequest {
             }
             _ => Err(WireError::Malformed),
         };
-        // Whatever of the secret is still on this stack frame is wiped, accepted or not.
-        token_secret.zeroize();
         let proof = proof?;
         if matches!(
             (&subject, &proof),
@@ -583,7 +582,8 @@ impl RefreshAnswerWire {
         let mut map = IntMap::new(tree.as_value())?;
         let credential = map.opt_bytes(A_CREDENTIAL)?.map(<[u8]>::to_vec);
         let family = map.opt_bytes_n::<16>(A_TOKEN_FAMILY)?;
-        let mut token_secret = map.opt_bytes_n::<32>(A_TOKEN_SECRET)?;
+        // The wrapper wipes whatever is left of the secret on every path out of this function.
+        let mut token_secret = Zeroizing::new(map.opt_bytes_n::<32>(A_TOKEN_SECRET)?);
         let family_expires_at = match map.opt_u64(A_FAMILY_EXPIRES)? {
             Some(number) => Some(
                 DayStart::from_start(LeaderTime::from_secs(number))
@@ -593,6 +593,10 @@ impl RefreshAnswerWire {
         };
         let mut notices: Vec<SmallText> = Vec::new();
         if let Some(items) = map.opt_array(A_NOTICES)? {
+            if items.is_empty() {
+                // The writer leaves the key out: an empty array would be a second encoding.
+                return Err(WireError::NotCanonical);
+            }
             if items.len() > MAX_NOTICES {
                 return Err(WireError::TooMany);
             }
@@ -621,7 +625,7 @@ impl RefreshAnswerWire {
             None => None,
         };
         map.finish()?;
-        let token = match (family, token_secret.as_mut()) {
+        let token = match (family, Option::as_mut(&mut token_secret)) {
             (Some(family), Some(raw)) => {
                 let secret = Secret::from_bytes(*raw);
                 raw.zeroize();
@@ -630,7 +634,6 @@ impl RefreshAnswerWire {
             (None, None) => Ok(None),
             _ => Err(WireError::Malformed),
         };
-        token_secret.zeroize();
         let answer = RefreshAnswerWire {
             credential,
             token: token?,

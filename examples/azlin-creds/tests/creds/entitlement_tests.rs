@@ -538,3 +538,19 @@ fn s9e_18_an_unknown_entitlement_field_is_ignored_and_the_signature_still_verifi
         "the registry keeps the signed bytes"
     );
 }
+
+#[test]
+fn s9e_09_a_retention_the_decoder_would_refuse_is_refused_by_the_signer() {
+    let a = signer(41);
+    let mut c = claims(90);
+    // One day more than the largest whole number of days that fits the wire's u32.
+    c.retention = azlin_keys::Span::secs((u64::from(u32::MAX) + 1) * DAY);
+    assert_eq!(
+        sign_entitlement(&a, c).err(),
+        Some(EntitlementError::Malformed)
+    );
+    let mut c = claims(90);
+    c.retention = azlin_keys::Span::days(u32::MAX);
+    let signed = sign_entitlement(&a, c).expect("the largest retention signs");
+    assert!(SignedEntitlement::decode(&signed.encode().expect("encodes")).is_ok());
+}

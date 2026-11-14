@@ -261,6 +261,9 @@ impl CredentialClaims {
         if self.scopes.as_ref().is_some_and(Scopes::is_empty) {
             return Err(CredError::Malformed);
         }
+        if self.sso.as_ref().is_some_and(|sso| sso.provider.is_empty()) {
+            return Err(CredError::Malformed);
+        }
         Ok(())
     }
 }

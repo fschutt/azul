@@ -336,7 +336,7 @@ pub fn verify_credential_with(
     if !cert.shape_ok() {
         return Err(CredError::CertMalformed);
     }
-    if claims.key_epoch != cert.epoch {
+    if claims.key_epoch != cert.epoch && !azlin_seams::mutant!("creds_epoch_binding_skipped") {
         return Err(CredError::CertMismatch);
     }
     check_times(claims.issued_at, claims.expires_at, now, rules.skew)?;

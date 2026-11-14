@@ -120,6 +120,8 @@ pub(crate) fn sign_checked(
 ) -> Result<Signature64, SignFailure> {
     let sig = signer.sign(domain, payload).map_err(SignFailure::Sign)?;
     let preimage = signing_input(domain, payload);
-    verify_preimage(&preimage, &signer.public(), &sig).map_err(|_| SignFailure::Fault)?;
+    if !azlin_seams::mutant!("creds_signer_unchecked") {
+        verify_preimage(&preimage, &signer.public(), &sig).map_err(|_| SignFailure::Fault)?;
+    }
     Ok(sig)
 }

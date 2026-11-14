@@ -304,7 +304,9 @@ pub fn verify_assertion_with(
     // The verified claims are the signed bytes' own, never the copy the value carries.
     let claims = AssertionClaims::decode_payload(&a.payload)?;
     check_lifetime(claims.issued, claims.expires, rules.max_assertion_lifetime)?;
-    if claims.account != *installed_account {
+    if claims.account != *installed_account
+        && !azlin_seams::mutant!("creds_assertion_account_unchecked")
+    {
         return Err(AssertError::WrongAccount);
     }
     let cert = &a.cert;
