@@ -554,23 +554,24 @@ fn check_of(file: &Path) -> crate::checked::FileCheck {
 }
 
 /// Sends a checked upload of `file` through the wrapper - `put_file_checked("object", file, check)` with the check a scan of
-/// the file finds ([`check_of`]) - and says whether ONE `put_file_checked` reached `probe`, with the key `arrives_as` and that
-/// very check. A wrapper that answers the call with `put_file` sends no check: an upload of a file that changed while it was
-/// uploaded then completes, under the name of what the file was (X-DELTA-DRIVEE-7).
+/// the file finds ([`check_of`]) - and says what is wrong with it: `None` when ONE `put_file_checked` reached `probe`, with the
+/// key `arrives_as` and that very check. A wrapper that answers the call with `put_file` sends no check: an upload of a file
+/// that changed while it was uploaded then completes, under the name of what the file was (X-DELTA-DRIVEE-7). An `Option` and no
+/// `Result`: the error type is large (`clippy::result_large_err`), and the caller that returns it is the one place that has it.
 fn check_arrives(
     wrapper: &dyn crate::Drive,
     probe: &Probe,
     file: &Path,
     arrives_as: &str,
-) -> Result<(), ConditionalWrite> {
+) -> Option<ConditionalWrite> {
     let check = check_of(file);
     let before = probe.heard().len();
-    wrapper
-        .put_file_checked("object", file, &check, &crate::ctl::Quiet)
-        .map_err(|error| ConditionalWrite::Refused {
+    if let Err(error) = wrapper.put_file_checked("object", file, &check, &crate::ctl::Quiet) {
+        return Some(ConditionalWrite::Refused {
             call: "put_file_checked",
             error,
-        })?;
+        });
+    }
     let heard = writes_since(probe, before);
     let arrived = matches!(
         heard.as_slice(),
@@ -578,14 +579,10 @@ fn check_arrives(
             && one.key == arrives_as
             && one.check.as_ref() == Some(&check)
     );
-    if arrived {
-        Ok(())
-    } else {
-        Err(ConditionalWrite::NotConditional {
-            call: "put_file_checked",
-            heard,
-        })
-    }
+    (!arrived).then_some(ConditionalWrite::NotConditional {
+        call: "put_file_checked",
+        heard,
+    })
 }
 
 /// Sends every write that carries a condition - `put_if`, `put_from_if`, `put_file_if`, and one item of `put_many` and
@@ -656,7 +653,10 @@ pub fn conditional_write_arrives(
         let mut body: &[u8] = b"x";
         first(wrapper.put_from_many(&mut [BatchStream::new("object", &mut body).when(&condition)]))
     })?;
-    check_arrives(wrapper, probe, file, arrives_as)
+    match check_arrives(wrapper, probe, file, arrives_as) {
+        None => Ok(()),
+        Some(wrong) => Err(wrong),
+    }
 }
 
 /// Sends a batch delete and a batch move, each of one item with the version `tag-1`, through `wrapper`, which stands over
