@@ -143,7 +143,9 @@ fn c19_skeleton_declares_every_family_module() {
     assert!(lib.contains("#![forbid(unsafe_code)]"));
 
     // The vocabulary and the chunk modules of W1-S14b exist and are not stubs.
-    for name in ["ids", "units", "error", "limits", "codec", "chunk"] {
+    for name in [
+        "ids", "units", "error", "limits", "codec", "chunk", "gear", "chunker",
+    ] {
         let text = fs::read_to_string(src.join(format!("{name}.rs"))).expect("a module of S14b");
         assert!(
             !text.starts_with("//! owned by lane"),

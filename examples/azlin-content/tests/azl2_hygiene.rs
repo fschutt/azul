@@ -57,7 +57,9 @@ fn section_value(manifest: &str, section: &str, key: &str) -> Option<String> {
 }
 
 /// The source files of W1-S14b that are library code (the stubs belong to the later lanes).
-const LIBRARY_FILES: [&str; 7] = ["lib", "ids", "units", "error", "limits", "codec", "chunk"];
+const LIBRARY_FILES: [&str; 9] = [
+    "lib", "ids", "units", "error", "limits", "codec", "chunk", "gear", "chunker",
+];
 
 #[test]
 fn c22_crate_hygiene() {

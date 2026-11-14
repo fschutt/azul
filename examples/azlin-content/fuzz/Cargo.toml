@@ -37,6 +37,7 @@ libfuzzer-sys = "0.4"
 azlin-content = { path = ".." }
 azlin-cbor = { path = "../../azlin-cbor" }
 azlin-keys = { path = "../../azlin-keys", default-features = false, features = ["test-support"] }
+zeroize = { version = "1.8", features = ["alloc"] }
 
 # Not a member of azul's workspace: it needs nightly and libfuzzer, and keeps both out of the
 # lockfile of the apps.

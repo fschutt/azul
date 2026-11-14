@@ -56,7 +56,7 @@ use azlin_keys::{IdError, Secret};
 use blake3::Hasher;
 
 use crate::error::ChunkError;
-use crate::limits::{BLOB_OVERHEAD, CHUNK_ID, MAX_CHUNK};
+use crate::limits::{BLOB_OVERHEAD, CHUNK_ID, CHUNK_KEY, MAX_CHUNK};
 use crate::units::{ChunkLen, PackLen, PackOffset};
 
 /// Writes `bytes` as lowercase hex (two digits per byte).
@@ -225,6 +225,11 @@ impl Full {
         let mut id = [0u8; ChunkId::LEN];
         hasher.finalize_xof().fill(&mut id);
         ChunkId(id)
+    }
+
+    /// The key this chunk is sealed under: `derive_key("azlin chunk key v1", full)`.
+    pub(crate) fn chunk_key(&self) -> Secret<32> {
+        CHUNK_KEY.derive(&self.0)
     }
 }
 
