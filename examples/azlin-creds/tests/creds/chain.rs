@@ -64,6 +64,7 @@ fn s9e_03_an_identity_key_of_another_group_is_no_identity_key_of_this_one() {
             public: azlin_creds::Signer::public(&k2),
             not_before: at(0),
             not_after: None,
+            revoked_from: None,
         },
     ));
     let cert = signed_cert(
@@ -275,6 +276,7 @@ fn s9e_16_identity_windows_overlap_during_a_rotation() {
             public: azlin_creds::Signer::public(&k2),
             not_before: at(100),
             not_after: None,
+            revoked_from: None,
         },
     ));
     let cert_by = |who: &azlin_creds::SeedSigner, not_before: u64| {
@@ -319,6 +321,7 @@ fn s9e_16_an_empty_anchor_set_refuses_everything() {
         public: azlin_creds::Signer::public(&f.identity),
         not_before: at(0),
         not_after: None,
+        revoked_from: None,
     });
     assert_eq!(
         verify_cert(&f.cert, &payments_only),

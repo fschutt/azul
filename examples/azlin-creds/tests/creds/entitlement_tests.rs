@@ -60,11 +60,13 @@ fn rotated() -> AnchorSet {
                 public: a.public(),
                 not_before: at(0),
                 not_after: Some(at(100 * DAY)),
+                revoked_from: None,
             },
             KeyWindow {
                 public: b.public(),
                 not_before: at(100 * DAY),
                 not_after: None,
+                revoked_from: None,
             },
         ],
         operator: Vec::new(),
@@ -166,6 +168,7 @@ fn s9e_09_an_unknown_key_and_a_revoked_key_are_refused() {
         public: c.public(),
         not_before: at(0),
         not_after: Some(at(40 * DAY)),
+        revoked_from: None,
     });
     let late = sign_entitlement(&c, claims(41)).expect("signs");
     assert_eq!(
@@ -187,6 +190,7 @@ fn s9e_09_an_unknown_key_and_a_revoked_key_are_refused() {
             public: signer(41).public(),
             not_before: at(0),
             not_after: None,
+            revoked_from: None,
         },
     ));
     assert_eq!(

@@ -122,6 +122,7 @@ pub fn fixture_anchors(
                         public: identity.public(),
                         not_before: at(*from),
                         not_after: until.map(at),
+                        revoked_from: None,
                     },
                 )
             })

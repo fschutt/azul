@@ -70,6 +70,7 @@ fn payments_anchors() -> AnchorSet {
             public: signer(PAYMENTS_SEED).public(),
             not_before: at(0),
             not_after: None,
+            revoked_from: None,
         }],
         operator: Vec::new(),
         identity: Vec::new(),
