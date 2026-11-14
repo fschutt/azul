@@ -945,6 +945,7 @@ azlin-session = "azul's own crate (workspace member): the client's session: spen
 azlin-merkle = "azul's own crate (workspace member): the RFC 9162 Merkle tree and its inclusion and consistency proofs."
 azlin-tlog = "azul's own crate (workspace member): the transparency log: signed checkpoints, witnesses, proof bundles and the monitor."
 azlin-reports = "azul's own crate (workspace member): content reports, the count that pauses a link, and the statements of reasons."
+azlin-sim = "azul's own crate (workspace member): test-support: the seeded simulation harness that composes the engine's crates."
 
 # === ML-KEM for azlin-keys' optional feature pq (A1, approved 2026-11-14; the owner enables it after a review) ===
 ml-kem = "ML-KEM-768 (pure Rust, RustCrypto; not independently audited): azlin-keys feature pq (envelope algorithm 2), off by default until the owner has reviewed it."
