@@ -213,9 +213,25 @@ fn c2_ct_eq_uses_subtle_and_not_equality_operators() {
             "src/secret.rs must not contain `{forbidden}`"
         );
     }
-    // The destructor wipes.
-    assert!(code.contains("impl<const N: usize> Drop for Secret<N>"));
-    assert!(code.contains("self.0.zeroize()"));
+    // The destructor wipes: the body of the Drop impl itself calls `zeroize()` (a wipe that is
+    // only in `Zeroize::zeroize` would not run when the value is dropped), and the marker trait
+    // that says so is implemented.
+    let drop_start = code
+        .find("impl<const N: usize> Drop for Secret<N>")
+        .expect("the Drop impl");
+    let drop_end = drop_start
+        + code[drop_start..]
+            .find("\n}\n")
+            .expect("end of the Drop impl");
+    assert!(
+        code[drop_start..drop_end].contains("self.0.zeroize()"),
+        "the destructor must wipe the bytes: {}",
+        &code[drop_start..drop_end]
+    );
+    fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+    assert_zeroize_on_drop::<Secret<16>>();
+    assert_zeroize_on_drop::<Secret<32>>();
+    assert_zeroize_on_drop::<Secret<64>>();
 }
 
 #[cfg(feature = "test-support")]
