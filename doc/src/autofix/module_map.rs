@@ -1083,6 +1083,12 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_layout::window::") {
         return Some("window".to_string());
     }
+    // The text module (`azul_layout::text3::api`: a text laid out in a font stack, its lines,
+    // glyphs and options) has no keyword of its own: by name alone `TextLayout` and its kin
+    // fell to css's `text` and `GlyphBounds` / `TextGlyph` to font's `glyph`.
+    if path.starts_with("azul_layout::text3::api::") {
+        return Some("text".to_string());
+    }
     // `RequestId` (the resumable-API handle) has no keyword of its own and
     // would otherwise fall to `misc`; every `azul_core::task::` type is a
     // timer / thread / request primitive of the `task` module.
@@ -2063,6 +2069,29 @@ mod tests {
             ),
             None
         );
+    }
+
+    /// The text module's types (`azul_layout::text3::api`, api.json's `text`) stay there: by
+    /// their names alone `TextLayout` and its kin are css's and `GlyphBounds` font's.
+    #[test]
+    fn the_text_modules_types_stay_in_text() {
+        for name in [
+            "TextLayout",
+            "TextLayoutOptions",
+            "TextLayoutDirection",
+            "TextLine",
+            "TextLineVecSlice",
+            "TextGlyph",
+            "TextGlyphVecSlice",
+            "GlyphBounds",
+        ] {
+            let path = format!("azul_layout::text3::api::{name}");
+            assert_eq!(
+                get_correct_module_with_path(name, "text", Some(&path)),
+                None,
+                "{name} stays in text"
+            );
+        }
     }
 
     /// The device-state readings live in `sensor`, with the accelerometer and the compass
