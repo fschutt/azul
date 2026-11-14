@@ -13,8 +13,8 @@ use std::collections::BTreeMap;
 use azlin_links::{
     pause, repoint, revoke, rotate, unpause, update, Actor, Audience, Change, Counters,
     DeviceToken, KeyBound, LinkKind, LinkOptions, LinkRecord, Notify, OptionError, OptionName,
-    PausedBy, Pauses, PolicyViolation, PublicLinkId, RecordError, Rights, RotationReason, Slug,
-    UpdateRefusal,
+    PausedBy, Pauses, PolicyViolation, PublicLinkId, RecordError, RequestId, Rights,
+    RotationReason, Slug, UpdateRefusal,
 };
 use azlin_policy::{AudienceClass, AudienceSet, LinkPolicy};
 use azlin_seams::sim::Rng;
@@ -60,7 +60,8 @@ fn apply(r: &mut LinkRecord, change: Change) -> Result<(), UpdateRefusal> {
     update(r, change, &creator(), &open(), NOW)
 }
 
-/// The key-bound parts a link has now (a rotation that changes nothing but the id).
+/// The key-bound parts a link has now, with a NEW paired request where it has one (a rotation that
+/// changes nothing but the id: the old request ends with the old id, so it cannot be given back).
 fn same_key(r: &LinkRecord) -> KeyBound {
     KeyBound {
         audience: r.options().audience.clone(),
@@ -70,7 +71,9 @@ fn same_key(r: &LinkRecord) -> KeyBound {
         grants: r.grants().clone(),
         opaque_record: r.opaque_record().cloned(),
         wraps: r.wraps().cloned().collect(),
-        request: r.request_id().copied(),
+        request: r
+            .request_id()
+            .map(|old| RequestId::from_bytes([old.as_bytes()[0].wrapping_add(100); 16])),
     }
 }
 
@@ -718,9 +721,66 @@ fn rotation_keeps_the_pauses_and_the_comment_log() {
     assert_ne!(rotated.old, rotated.new);
     assert_eq!(r.pauses(), Pauses::NONE.with(PausedBy::Owner));
     assert_eq!(r.comment_log(), Some(&log(8)));
-    // With the same request given again, nothing about the request changes.
-    assert_eq!(r.request_id(), Some(&request(7)));
+    // The new paired request is the record's (`same_key` adds 100 to the old one's first byte), and
+    // the old one is the one that ends with the old id.
+    assert_eq!(r.request_id(), Some(&request(107)));
     assert_eq!(rotated.ended_request, Some(request(7)));
+}
+
+#[test]
+fn a_rotation_needs_a_new_paired_request() {
+    // A paired request ends with its link (S16f): a rotation that gives back the request it ends is
+    // refused, and the record is as it was.
+    let base = paired_people_link();
+    let mut r = base.clone();
+    let reused = KeyBound {
+        request: base.request_id().copied(),
+        ..same_key(&base)
+    };
+    assert_eq!(
+        rotate(
+            &mut r,
+            &mut TestEntropy::new(1),
+            reused,
+            &creator(),
+            &open(),
+            later(1)
+        ),
+        Err(UpdateRefusal::AlreadyPaired)
+    );
+    assert_eq!(r, base);
+    // With a new request it goes through, and the old one is the one that ends.
+    let fresh = same_key(&base);
+    assert_ne!(fresh.request.as_ref(), base.request_id());
+    let rotated = rotate(
+        &mut r,
+        &mut TestEntropy::new(1),
+        fresh,
+        &creator(),
+        &open(),
+        later(1),
+    )
+    .expect("rotated");
+    assert_eq!(rotated.ended_request, Some(request(7)));
+    assert_ne!(r.request_id(), base.request_id());
+    // A link without a request ends none, and may gain one with the rotation.
+    let plain = people_link();
+    let mut p = plain.clone();
+    let with_request = KeyBound {
+        request: Some(request(40)),
+        ..same_key(&plain)
+    };
+    let rotated = rotate(
+        &mut p,
+        &mut TestEntropy::new(2),
+        with_request,
+        &creator(),
+        &open(),
+        later(1),
+    )
+    .expect("rotated");
+    assert_eq!(rotated.ended_request, None);
+    assert_eq!(p.request_id(), Some(&request(40)));
 }
 
 #[test]
@@ -858,22 +918,24 @@ fn a_rotation_is_judged_whole() {
     .expect("rotated");
     assert_eq!(r.options().audience, Audience::Approval);
     assert_eq!(r.wraps().count(), 0);
-    // A time before the creation is no time to key a link.
+    // A time before the creation (a clock that went back) does not stop a rotation: the link is
+    // keyed at its creation.
     let mut r = base.clone();
     let key = same_key(&r);
     let early = NOW.checked_sub(Span::secs(1)).expect("after the epoch");
-    assert_eq!(
-        rotate(
-            &mut r,
-            &mut TestEntropy::new(1),
-            key,
-            &creator(),
-            &open(),
-            early
-        ),
-        Err(UpdateRefusal::Invalid(RecordError::KeyedBeforeCreated))
-    );
-    assert_eq!(r, base);
+    let rotated = rotate(
+        &mut r,
+        &mut TestEntropy::new(1),
+        key,
+        &creator(),
+        &open(),
+        early,
+    )
+    .expect("rotated");
+    assert_ne!(rotated.old, rotated.new);
+    assert_eq!(r.keyed_at(), NOW);
+    assert_eq!(r.created_at(), NOW);
+    assert_eq!(r.check(), Ok(()));
 }
 
 #[test]
@@ -1103,6 +1165,19 @@ fn revoking_is_for_the_owner_and_the_operator() {
         );
         assert!(!r.is_revoked());
     }
+}
+
+#[test]
+fn a_revocation_is_never_refused_for_a_clock_reason() {
+    // The stamp of a revocation is stored as given, even when it is before the creation (a clock that
+    // went back): ending a link is never refused.
+    let base = signed_in_link();
+    let mut r = base.clone();
+    let early = NOW.checked_sub(Span::secs(5)).expect("after the epoch");
+    assert_eq!(revoke(&mut r, &creator(), early), Ok(()));
+    assert_eq!(r.revoked_at(), Some(early));
+    assert_eq!(r.check(), Ok(()));
+    assert_eq!(LinkRecord::from_row(r.row().clone()), Ok(r.clone()));
 }
 
 #[test]

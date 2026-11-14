@@ -212,12 +212,15 @@ pub use validate::{validate, Facts, OptionError, Validated};
 /// | `links_rotate_keeps_old_id` | "a new id, the old URL stops at once" | `rotation_gives_a_new_id_and_the_old_id_stops_at_once` |
 /// | `links_repoint_by_non_writer` | "writers re-point" | `repoint_only_for_folder_live_by_a_writer` |
 /// | `links_repoint_any_kind` | "only a live folder is re-pointed" | `repoint_only_for_folder_live_by_a_writer` |
+/// | `links_wraps_may_name_strangers` | "the wraps of a people link are the named people" | `the_wraps_of_a_people_link_are_the_named_people` |
+/// | `links_frozen_link_changes` | "a link the operator or the reports paused is frozen for its owner" | `a_link_the_operator_or_the_reports_paused_is_frozen_for_its_owner` |
+/// | `links_rotate_reuses_request` | "a rotation brings a new paired request" | `a_rotation_needs_a_new_paired_request` |
 ///
 /// Implements planning/architecture.md section 12 (E5) and section 1.4 rule 1 (the guard reads its
 /// switch as a parameter of the process).
 ///
 /// Seam: the mutant hold of lane W1-S16c1; S47d (the escalation lane attacks the same rules).
-pub const MUTANT_GUARDS: [(&str, &str); 22] = [
+pub const MUTANT_GUARDS: [(&str, &str); 25] = [
     (
         "links_slug_without_password_or_name",
         "slug_needs_a_password_or_a_named_audience",
@@ -299,5 +302,17 @@ pub const MUTANT_GUARDS: [(&str, &str); 22] = [
     (
         "links_repoint_any_kind",
         "repoint_only_for_folder_live_by_a_writer",
+    ),
+    (
+        "links_wraps_may_name_strangers",
+        "the_wraps_of_a_people_link_are_the_named_people",
+    ),
+    (
+        "links_frozen_link_changes",
+        "a_link_the_operator_or_the_reports_paused_is_frozen_for_its_owner",
+    ),
+    (
+        "links_rotate_reuses_request",
+        "a_rotation_needs_a_new_paired_request",
     ),
 ];

@@ -741,7 +741,7 @@ pub(crate) fn check_row(row: &LinkRow) -> Result<(), RecordError> {
     }
     if let Audience::People { people } = &row.options.audience {
         let wrapped: BTreeSet<MemberId> = row.wraps.keys().copied().collect();
-        if wrapped != *people {
+        if wrapped != *people && !azlin_seams::mutant!("links_wraps_may_name_strangers") {
             return Err(RecordError::WrapsAreNotThePeople);
         }
     }
@@ -814,11 +814,14 @@ impl LinkRecord {
         Ok(LinkRecord(row))
     }
 
-    /// Reads a stored row back: every invariant is checked again.
+    /// Reads a stored row back: every invariant of a row is checked again. This is for a row that
+    /// was stored (and for the tests of the resolver): it does not know what the row was before, so
+    /// it cannot judge a CHANGE. A change of a link goes through `update`, `rotate`, `pause`,
+    /// `unpause`, `revoke` or `repoint`, which hold the rules of changing a link.
     ///
     /// Implements planning/architecture.md section 5.12 (`reg_link`).
     ///
-    /// Caller: Seam: S9 (loading `reg_link`), S16c2's tests.
+    /// Seam: S9 (loading `reg_link`), S16c2's tests.
     pub fn from_row(row: LinkRow) -> Result<LinkRecord, RecordError> {
         check_row(&row)?;
         Ok(LinkRecord(row))
