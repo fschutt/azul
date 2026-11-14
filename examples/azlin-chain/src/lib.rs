@@ -80,3 +80,6 @@ pub use restore::{
     RestoreRecord, RestoreRefusal, RestoreSig, RestoreSigVerifier, RestoreSigner, RestoreTrust,
     StrictTrust, VerifiedRestore,
 };
+
+#[cfg(test)]
+mod restore_epoch_tests;

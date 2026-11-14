@@ -187,10 +187,21 @@ fn every_source_file_is_declared_and_every_module_has_its_file() {
         declared, on_disk,
         "lib.rs declares exactly the files of src/"
     );
-    let expected: BTreeSet<String> = ["checkpoint", "entry", "link", "peers", "pin", "restore"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    // DRIFT X-DELTA-W1CLOSE1-1: the six modules of the brief (section 3) and the ONE lib-test module of
+    // the replayable patches of X-DELTA-W1S17A-3 (the replay tool runs lib tests only, so its killers
+    // cannot live in tests/); lib.rs declares it behind `#[cfg(test)]`.
+    let expected: BTreeSet<String> = [
+        "checkpoint",
+        "entry",
+        "link",
+        "peers",
+        "pin",
+        "restore",
+        "restore_epoch_tests",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
     assert_eq!(declared, expected, "the modules of the brief (section 3)");
 }
 
@@ -232,7 +243,13 @@ const BANNED: &[&str] = &[
 fn no_unwrap_in_non_test_code() {
     let mut scanned = 0usize;
     for (name, text) in source_files() {
-        // This crate keeps no unit tests in `src/`: the whole file is library code.
+        // DRIFT X-DELTA-W1CLOSE1-1: the one lib-test module of the replayable patches is test code: its
+        // file is not library code, and `lib.rs` declares it behind `#[cfg(test)]` and nothing else.
+        if name == "restore_epoch_tests.rs" {
+            continue;
+        }
+        let text = text.replace("#[cfg(test)]\nmod restore_epoch_tests;\n", "");
+        // Every other file keeps no unit tests in `src/`: the whole file is library code.
         assert!(
             !text.contains("#[cfg(test)]"),
             "{name}: tests live in tests/"
