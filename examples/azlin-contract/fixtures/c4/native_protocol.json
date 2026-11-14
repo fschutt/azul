@@ -144,5 +144,109 @@
         ["5", "jittered"]
       ]
     }
+  ],
+  "frames": [
+    {
+      "name": "hello",
+      "direction": "request",
+      "hex": "0001000000000001a0"
+    },
+    {
+      "name": "pack_put_idempotent",
+      "direction": "request",
+      "hex": "0101000100000004a10261786162"
+    },
+    {
+      "name": "shard_put_zero_rtt",
+      "direction": "request",
+      "hex": "0102000300000001a078"
+    },
+    {
+      "name": "ok_empty",
+      "direction": "response",
+      "hex": "000000000001a0"
+    },
+    {
+      "name": "conflict",
+      "direction": "response",
+      "hex": "000100000001a07a"
+    },
+    {
+      "name": "verb_zero",
+      "direction": "request",
+      "hex": "0000000000000001a0",
+      "error": "unknown_verb",
+      "answer": "unsupported_verb"
+    },
+    {
+      "name": "reserved_range",
+      "direction": "request",
+      "hex": "0601000000000001a0",
+      "error": "unknown_verb",
+      "answer": "unsupported_verb"
+    },
+    {
+      "name": "past_the_end_of_a_row",
+      "direction": "request",
+      "hex": "0109000000000001a0",
+      "error": "unknown_verb",
+      "answer": "unsupported_verb"
+    },
+    {
+      "name": "reserved_flag_bit",
+      "direction": "request",
+      "hex": "0001000400000001a0",
+      "error": "reserved_flags",
+      "answer": "bad_request"
+    },
+    {
+      "name": "zero_rtt_on_pack_put",
+      "direction": "request",
+      "hex": "0101000200000001a0",
+      "error": "zero_rtt_not_allowed",
+      "answer": "bad_request"
+    },
+    {
+      "name": "header_over_the_limit",
+      "direction": "request",
+      "hex": "0001000000004001",
+      "error": "header_too_long",
+      "answer": "bad_request"
+    },
+    {
+      "name": "prefix_cut_short",
+      "direction": "request",
+      "hex": "00010000000000",
+      "error": "truncated",
+      "answer": "bad_request"
+    },
+    {
+      "name": "header_cut_short",
+      "direction": "request",
+      "hex": "0001000000000005a0",
+      "error": "truncated",
+      "answer": "bad_request"
+    },
+    {
+      "name": "status_past_the_table",
+      "direction": "response",
+      "hex": "001000000001a0",
+      "error": "unknown_status",
+      "answer": "bad_request"
+    },
+    {
+      "name": "header_over_the_limit",
+      "direction": "response",
+      "hex": "000000004001",
+      "error": "header_too_long",
+      "answer": "bad_request"
+    },
+    {
+      "name": "prefix_cut_short",
+      "direction": "response",
+      "hex": "00010000",
+      "error": "truncated",
+      "answer": "bad_request"
+    }
   ]
 }

@@ -312,6 +312,273 @@ pub const FLAGS_KNOWN: u16 = FLAG_IDEMPOTENT | FLAG_ZERO_RTT;
 /// "Key 0 (`crit`) lists keys the receiver must understand, or refuse" (2.5): the key of `crit` in a header.
 pub const KEY_CRIT: u64 = 0;
 
+/// Why bytes are not the start of a frame of `azlin/1`, and the status a node answers for it. The header
+/// bytes stay opaque at this layer: that they are a deterministic CBOR map, and what `crit` lists, is the
+/// next layer's (the verb's unit, with `azlin-cbor`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameError {
+    /// Fewer bytes than the fixed prefix, or than the prefix says the header has.
+    Truncated,
+    /// A verb number that is not in the table (the reserved range included): `unsupported_verb`.
+    UnknownVerb(u16),
+    /// A status number that is not in the table.
+    UnknownStatus(u16),
+    /// A flag bit the contract does not define.
+    ReservedFlags(u16),
+    /// The 0-RTT flag on a verb whose repeat is not harmless (2.5: 0-RTT is safe for shard writes).
+    ZeroRttNotAllowed(Verb),
+    /// A header over the limit (`REQUEST_HEADER_MAX_BYTES`).
+    HeaderTooLong(u32),
+}
+
+impl FrameError {
+    /// The status a node answers for the frame.
+    #[must_use]
+    pub const fn status(&self) -> Status {
+        match self {
+            FrameError::UnknownVerb(_) => Status::UnsupportedVerb,
+            _ => Status::BadRequest,
+        }
+    }
+
+    /// The stable name the fixtures record.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            FrameError::Truncated => "truncated",
+            FrameError::UnknownVerb(_) => "unknown_verb",
+            FrameError::UnknownStatus(_) => "unknown_status",
+            FrameError::ReservedFlags(_) => "reserved_flags",
+            FrameError::ZeroRttNotAllowed(_) => "zero_rtt_not_allowed",
+            FrameError::HeaderTooLong(_) => "header_too_long",
+        }
+    }
+}
+
+impl std::fmt::Display for FrameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FrameError::Truncated => f.write_str("the frame ends before its prefix or its header"),
+            FrameError::UnknownVerb(n) => write!(f, "verb {n:#06x} is not in the verb table"),
+            FrameError::UnknownStatus(n) => write!(f, "status {n} is not in the status table"),
+            FrameError::ReservedFlags(n) => write!(f, "flag bits {n:#06x} are reserved"),
+            FrameError::ZeroRttNotAllowed(v) => {
+                write!(f, "`{}` may not be sent in 0-RTT", v.name())
+            }
+            FrameError::HeaderTooLong(n) => write!(f, "a header of {n} bytes is over the limit"),
+        }
+    }
+}
+
+impl std::error::Error for FrameError {}
+
+/// The fixed part of a request, `u16 verb | u16 flags | u32 header length`, read first off a stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequestPrefix {
+    pub verb: Verb,
+    /// Only the defined bits ([`FLAGS_KNOWN`]).
+    pub flags: u16,
+    pub header_len: u32,
+}
+
+fn be16(bytes: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_be_bytes([*bytes.get(at)?, *bytes.get(at + 1)?]))
+}
+
+fn be32(bytes: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_be_bytes([
+        *bytes.get(at)?,
+        *bytes.get(at + 1)?,
+        *bytes.get(at + 2)?,
+        *bytes.get(at + 3)?,
+    ]))
+}
+
+fn check_header_len(header_len: u32) -> Result<(), FrameError> {
+    if u64::from(header_len) > REQUEST_HEADER_MAX_BYTES {
+        Err(FrameError::HeaderTooLong(header_len))
+    } else {
+        Ok(())
+    }
+}
+
+impl RequestPrefix {
+    /// The prefix of `bytes` (at least [`REQUEST_PREFIX_BYTES`] of them).
+    ///
+    /// # Errors
+    ///
+    /// Fewer than eight bytes; a verb not in the table; a reserved flag bit; 0-RTT on a verb that does not
+    /// allow it; a header over the limit.
+    pub fn parse(bytes: &[u8]) -> Result<RequestPrefix, FrameError> {
+        let (Some(verb), Some(flags), Some(header_len)) =
+            (be16(bytes, 0), be16(bytes, 2), be32(bytes, 4))
+        else {
+            return Err(FrameError::Truncated);
+        };
+        let verb = Verb::from_number(verb).ok_or(FrameError::UnknownVerb(verb))?;
+        if flags & !FLAGS_KNOWN != 0 {
+            return Err(FrameError::ReservedFlags(flags));
+        }
+        if flags & FLAG_ZERO_RTT != 0 && !verb.allows_zero_rtt() {
+            return Err(FrameError::ZeroRttNotAllowed(verb));
+        }
+        check_header_len(header_len)?;
+        Ok(RequestPrefix {
+            verb,
+            flags,
+            header_len,
+        })
+    }
+
+    /// The eight bytes of the prefix.
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; REQUEST_PREFIX_BYTES] {
+        let v = self.verb.number().to_be_bytes();
+        let f = self.flags.to_be_bytes();
+        let h = self.header_len.to_be_bytes();
+        [v[0], v[1], f[0], f[1], h[0], h[1], h[2], h[3]]
+    }
+
+    #[must_use]
+    pub const fn idempotent(&self) -> bool {
+        self.flags & FLAG_IDEMPOTENT != 0
+    }
+
+    #[must_use]
+    pub const fn zero_rtt(&self) -> bool {
+        self.flags & FLAG_ZERO_RTT != 0
+    }
+}
+
+/// The fixed part of a response, `u16 status | u32 header length`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResponsePrefix {
+    pub status: Status,
+    pub header_len: u32,
+}
+
+impl ResponsePrefix {
+    /// The prefix of `bytes` (at least [`RESPONSE_PREFIX_BYTES`] of them).
+    ///
+    /// # Errors
+    ///
+    /// Fewer than six bytes; a status not in the table; a header over the limit.
+    pub fn parse(bytes: &[u8]) -> Result<ResponsePrefix, FrameError> {
+        let (Some(status), Some(header_len)) = (be16(bytes, 0), be32(bytes, 2)) else {
+            return Err(FrameError::Truncated);
+        };
+        let status = Status::from_number(status).ok_or(FrameError::UnknownStatus(status))?;
+        check_header_len(header_len)?;
+        Ok(ResponsePrefix { status, header_len })
+    }
+
+    /// The six bytes of the prefix.
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; RESPONSE_PREFIX_BYTES] {
+        let s = self.status.number().to_be_bytes();
+        let h = self.header_len.to_be_bytes();
+        [s[0], s[1], h[0], h[1], h[2], h[3]]
+    }
+}
+
+/// A whole request split into its three parts: the prefix, the header bytes (deterministic CBOR, opaque
+/// here) and the body (everything after the header).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequestFrame<'a> {
+    pub prefix: RequestPrefix,
+    pub header: &'a [u8],
+    pub body: &'a [u8],
+}
+
+impl<'a> RequestFrame<'a> {
+    /// Splits a whole request.
+    ///
+    /// # Errors
+    ///
+    /// Anything [`RequestPrefix::parse`] refuses, and a frame that ends inside its header.
+    pub fn split(bytes: &'a [u8]) -> Result<RequestFrame<'a>, FrameError> {
+        let prefix = RequestPrefix::parse(bytes)?;
+        let end = REQUEST_PREFIX_BYTES + prefix.header_len as usize;
+        let header = bytes
+            .get(REQUEST_PREFIX_BYTES..end)
+            .ok_or(FrameError::Truncated)?;
+        let body = bytes.get(end..).ok_or(FrameError::Truncated)?;
+        Ok(RequestFrame {
+            prefix,
+            header,
+            body,
+        })
+    }
+
+    /// The bytes of a request.
+    ///
+    /// # Errors
+    ///
+    /// Reserved flag bits, 0-RTT on a verb that does not allow it, or a header over the limit.
+    pub fn join(verb: Verb, flags: u16, header: &[u8], body: &[u8]) -> Result<Vec<u8>, FrameError> {
+        let header_len =
+            u32::try_from(header.len()).map_err(|_| FrameError::HeaderTooLong(u32::MAX))?;
+        let prefix = RequestPrefix {
+            verb,
+            flags,
+            header_len,
+        };
+        // the same refusals as a reader's
+        RequestPrefix::parse(&prefix.to_bytes())?;
+        let mut out = Vec::with_capacity(REQUEST_PREFIX_BYTES + header.len() + body.len());
+        out.extend_from_slice(&prefix.to_bytes());
+        out.extend_from_slice(header);
+        out.extend_from_slice(body);
+        Ok(out)
+    }
+}
+
+/// A whole response split into its three parts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResponseFrame<'a> {
+    pub prefix: ResponsePrefix,
+    pub header: &'a [u8],
+    pub body: &'a [u8],
+}
+
+impl<'a> ResponseFrame<'a> {
+    /// Splits a whole response.
+    ///
+    /// # Errors
+    ///
+    /// Anything [`ResponsePrefix::parse`] refuses, and a frame that ends inside its header.
+    pub fn split(bytes: &'a [u8]) -> Result<ResponseFrame<'a>, FrameError> {
+        let prefix = ResponsePrefix::parse(bytes)?;
+        let end = RESPONSE_PREFIX_BYTES + prefix.header_len as usize;
+        let header = bytes
+            .get(RESPONSE_PREFIX_BYTES..end)
+            .ok_or(FrameError::Truncated)?;
+        let body = bytes.get(end..).ok_or(FrameError::Truncated)?;
+        Ok(ResponseFrame {
+            prefix,
+            header,
+            body,
+        })
+    }
+
+    /// The bytes of a response.
+    ///
+    /// # Errors
+    ///
+    /// A header over the limit.
+    pub fn join(status: Status, header: &[u8], body: &[u8]) -> Result<Vec<u8>, FrameError> {
+        let header_len =
+            u32::try_from(header.len()).map_err(|_| FrameError::HeaderTooLong(u32::MAX))?;
+        check_header_len(header_len)?;
+        let prefix = ResponsePrefix { status, header_len };
+        let mut out = Vec::with_capacity(RESPONSE_PREFIX_BYTES + header.len() + body.len());
+        out.extend_from_slice(&prefix.to_bytes());
+        out.extend_from_slice(header);
+        out.extend_from_slice(body);
+        Ok(out)
+    }
+}
+
 /// The features `hello` names (2.5: "`delta`, `teams`, `links.v2`, `lock`, `sso`, `watch.stream`, `p2p`,
 /// ..."): an open list, so a client ignores a name it does not know.
 pub const FEATURES_KNOWN: &[&str] = &[

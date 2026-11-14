@@ -18,9 +18,10 @@ use azlin_contract::links::{
     LinkAudience, LinkGroup, LinkKind, LinkNotify, LinkRights, Strength, LINK_OPTIONS,
 };
 use azlin_contract::native::{
-    LimitId, LimitValue, Status, StatusClass, Verb, VerbRange, FEATURES_KNOWN, FLAGS_KNOWN,
-    FLAG_IDEMPOTENT, FLAG_ZERO_RTT, KEY_CRIT, REQUEST_LAYOUT, REQUEST_PREFIX_BYTES, RESERVED_RANGE,
-    RESPONSE_LAYOUT, RESPONSE_PREFIX_BYTES, RETRY_ATTEMPTS,
+    FrameError, LimitId, LimitValue, RequestFrame, RequestPrefix, ResponseFrame, ResponsePrefix,
+    Status, StatusClass, Verb, VerbRange, FEATURES_KNOWN, FLAGS_KNOWN, FLAG_IDEMPOTENT,
+    FLAG_ZERO_RTT, KEY_CRIT, REQUEST_HEADER_MAX_BYTES, REQUEST_LAYOUT, REQUEST_PREFIX_BYTES,
+    RESERVED_RANGE, RESPONSE_LAYOUT, RESPONSE_PREFIX_BYTES, RETRY_ATTEMPTS,
 };
 use azlin_contract::signed::{DomainSource, SIGNED_DOMAINS};
 use azlin_contract::{digest_of, fixture, fixtures_digest, CONTRACT_VERSION, FIXTURES};
@@ -104,16 +105,15 @@ fn table(name: &str, header: &[&str], rows: Vec<Vec<String>>) -> J {
 }
 
 /// A family's fixture: written when blessing, else held byte for byte to the one compiled into the crate.
-fn check(family: &str, section: &str, tables: Vec<J>, documents: Vec<J>) {
+/// `extra` are further top-level keys (`documents`, `frames`).
+fn check(family: &str, section: &str, tables: Vec<J>, extra: Vec<(&'static str, J)>) {
     let mut fields = vec![
         ("contract", J::Num(4)),
         ("family", s(family)),
         ("section", s(section)),
         ("tables", J::Arr(tables)),
     ];
-    if !documents.is_empty() {
-        fields.push(("documents", J::Arr(documents)));
-    }
+    fields.extend(extra);
     let mut text = String::new();
     render(&J::Obj(fields), 0, &mut text);
     text.push('\n');
@@ -386,7 +386,289 @@ fn native_tables() -> Vec<J> {
 
 #[test]
 fn the_native_protocol_fixture_is_what_the_constants_say() {
-    check("native_protocol", "2.5", native_tables(), Vec::new());
+    check(
+        "native_protocol",
+        "2.5",
+        native_tables(),
+        vec![("frames", frames())],
+    );
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("hex"))
+        .collect()
+}
+
+/// A golden request: its name, the hex the plan's layout gives, the verb, the flags, the header and the body.
+type RequestCase = (
+    &'static str,
+    &'static str,
+    Verb,
+    u16,
+    &'static [u8],
+    &'static [u8],
+);
+/// A golden response: its name, the hex, the status, the header and the body.
+type ResponseCase = (
+    &'static str,
+    &'static str,
+    Status,
+    &'static [u8],
+    &'static [u8],
+);
+
+/// The golden frames: the plan's layout assembled BY HAND (the expected hex is written out, not computed),
+/// each read back to its parts; and the frames that are refused, each with its error and its status.
+fn frames() -> J {
+    // (name, expected hex, verb, flags, header, body)
+    let requests: [RequestCase; 3] = [
+        ("hello", "0001000000000001a0", Verb::Hello, 0, &[0xa0], &[]),
+        (
+            "pack_put_idempotent",
+            "0101000100000004a10261786162",
+            Verb::PackPut,
+            FLAG_IDEMPOTENT,
+            &[0xa1, 0x02, 0x61, 0x78],
+            b"ab",
+        ),
+        (
+            "shard_put_zero_rtt",
+            "0102000300000001a078",
+            Verb::ShardPut,
+            FLAG_IDEMPOTENT | FLAG_ZERO_RTT,
+            &[0xa0],
+            b"x",
+        ),
+    ];
+    let responses: [ResponseCase; 2] = [
+        ("ok_empty", "000000000001a0", Status::Ok, &[0xa0], &[]),
+        (
+            "conflict",
+            "000100000001a07a",
+            Status::Conflict,
+            &[0xa0],
+            b"z",
+        ),
+    ];
+    let mut out = Vec::new();
+    let mut entry = |name: &str,
+                     direction: &str,
+                     bytes: &[u8],
+                     error: Option<&'static str>,
+                     status: Option<Status>| {
+        let mut fields = vec![
+            ("name", s(name)),
+            ("direction", s(direction)),
+            ("hex", J::Str(hex(bytes))),
+        ];
+        if let Some(e) = error {
+            fields.push(("error", s(e)));
+        }
+        if let Some(st) = status {
+            fields.push(("answer", s(st.name())));
+        }
+        out.push(J::Obj(fields));
+    };
+    for (name, want, verb, flags, header, body) in requests {
+        let bytes = RequestFrame::join(verb, flags, header, body).expect("joins");
+        assert_eq!(hex(&bytes), want, "{name}: the layout of the plan");
+        let frame = RequestFrame::split(&bytes).expect("splits");
+        assert_eq!(
+            (
+                frame.prefix.verb,
+                frame.prefix.flags,
+                frame.header,
+                frame.body
+            ),
+            (verb, flags, header, body),
+            "{name}"
+        );
+        assert_eq!(frame.prefix.idempotent(), flags & FLAG_IDEMPOTENT != 0);
+        assert_eq!(frame.prefix.zero_rtt(), flags & FLAG_ZERO_RTT != 0);
+        entry(name, "request", &bytes, None, None);
+    }
+    for (name, want, status, header, body) in responses {
+        let bytes = ResponseFrame::join(status, header, body).expect("joins");
+        assert_eq!(hex(&bytes), want, "{name}: the layout of the plan");
+        let frame = ResponseFrame::split(&bytes).expect("splits");
+        assert_eq!(
+            (frame.prefix.status, frame.header, frame.body),
+            (status, header, body),
+            "{name}"
+        );
+        entry(name, "response", &bytes, None, None);
+    }
+    let refused_requests: [(&str, &str, &str, Status); 8] = [
+        (
+            "verb_zero",
+            "0000000000000001a0",
+            "unknown_verb",
+            Status::UnsupportedVerb,
+        ),
+        (
+            "reserved_range",
+            "0601000000000001a0",
+            "unknown_verb",
+            Status::UnsupportedVerb,
+        ),
+        (
+            "past_the_end_of_a_row",
+            "0109000000000001a0",
+            "unknown_verb",
+            Status::UnsupportedVerb,
+        ),
+        (
+            "reserved_flag_bit",
+            "0001000400000001a0",
+            "reserved_flags",
+            Status::BadRequest,
+        ),
+        (
+            "zero_rtt_on_pack_put",
+            "0101000200000001a0",
+            "zero_rtt_not_allowed",
+            Status::BadRequest,
+        ),
+        (
+            "header_over_the_limit",
+            "0001000000004001",
+            "header_too_long",
+            Status::BadRequest,
+        ),
+        (
+            "prefix_cut_short",
+            "00010000000000",
+            "truncated",
+            Status::BadRequest,
+        ),
+        (
+            "header_cut_short",
+            "0001000000000005a0",
+            "truncated",
+            Status::BadRequest,
+        ),
+    ];
+    for (name, bytes_hex, error, status) in refused_requests {
+        let bytes = unhex(bytes_hex);
+        let err = RequestFrame::split(&bytes).expect_err(name);
+        assert_eq!((err.kind(), err.status()), (error, status), "{name}");
+        entry(name, "request", &bytes, Some(error), Some(status));
+    }
+    let refused_responses: [(&str, &str, &str); 3] = [
+        ("status_past_the_table", "001000000001a0", "unknown_status"),
+        ("header_over_the_limit", "000000004001", "header_too_long"),
+        ("prefix_cut_short", "00010000", "truncated"),
+    ];
+    for (name, bytes_hex, error) in refused_responses {
+        let bytes = unhex(bytes_hex);
+        let err = ResponseFrame::split(&bytes).expect_err(name);
+        assert_eq!(err.kind(), error, "{name}");
+        entry(name, "response", &bytes, Some(error), Some(err.status()));
+    }
+    J::Arr(out)
+}
+
+#[test]
+fn the_frame_prefixes_hold_at_their_edges() {
+    // exactly the header limit is a frame, one more is not (the plan: request header 16 KiB, `bad_request`)
+    let at = REQUEST_HEADER_MAX_BYTES as u32;
+    let ok = RequestPrefix {
+        verb: Verb::Ping,
+        flags: 0,
+        header_len: at,
+    };
+    assert_eq!(RequestPrefix::parse(&ok.to_bytes()), Ok(ok));
+    let over = RequestPrefix {
+        verb: Verb::Ping,
+        flags: 0,
+        header_len: at + 1,
+    };
+    assert_eq!(
+        RequestPrefix::parse(&over.to_bytes()),
+        Err(FrameError::HeaderTooLong(at + 1))
+    );
+    let response = ResponsePrefix {
+        status: Status::Ok,
+        header_len: at,
+    };
+    assert_eq!(ResponsePrefix::parse(&response.to_bytes()), Ok(response));
+    assert_eq!(
+        ResponsePrefix::parse(
+            &ResponsePrefix {
+                status: Status::Ok,
+                header_len: at + 1
+            }
+            .to_bytes()
+        ),
+        Err(FrameError::HeaderTooLong(at + 1))
+    );
+    // every verb round-trips through its prefix; every status through its prefix; every undefined flag bit is refused
+    for v in Verb::ALL {
+        let flags = if v.allows_zero_rtt() {
+            FLAGS_KNOWN
+        } else {
+            FLAG_IDEMPOTENT
+        };
+        let p = RequestPrefix {
+            verb: *v,
+            flags,
+            header_len: 1,
+        };
+        assert_eq!(RequestPrefix::parse(&p.to_bytes()), Ok(p), "{}", v.name());
+        assert_eq!(
+            RequestPrefix::parse(
+                &RequestPrefix {
+                    flags: FLAG_ZERO_RTT,
+                    ..p
+                }
+                .to_bytes()
+            )
+            .is_ok(),
+            v.allows_zero_rtt(),
+            "{}: 0-RTT only where a repeat is harmless",
+            v.name()
+        );
+    }
+    for st in Status::ALL {
+        let p = ResponsePrefix {
+            status: *st,
+            header_len: 0,
+        };
+        assert_eq!(ResponsePrefix::parse(&p.to_bytes()), Ok(p), "{}", st.name());
+    }
+    for bit in 2..16 {
+        let bytes = [
+            0,
+            1,
+            (1u16 << bit >> 8) as u8,
+            (1u16 << bit) as u8,
+            0,
+            0,
+            0,
+            1,
+        ];
+        assert_eq!(
+            RequestPrefix::parse(&bytes),
+            Err(FrameError::ReservedFlags(1 << bit)),
+            "bit {bit}"
+        );
+    }
+    // a frame whose header runs past its bytes
+    assert_eq!(
+        RequestFrame::split(&[0, 1, 0, 0, 0, 0, 0, 2, 0xa0]),
+        Err(FrameError::Truncated)
+    );
+    // flags that the plan forbids cannot be joined either
+    assert!(RequestFrame::join(Verb::PackPut, FLAG_ZERO_RTT, &[0xa0], &[]).is_err());
+    assert!(RequestFrame::join(Verb::Ping, 0x8000, &[0xa0], &[]).is_err());
+    let big = vec![0u8; REQUEST_HEADER_MAX_BYTES as usize + 1];
+    assert!(RequestFrame::join(Verb::Ping, 0, &big, &[]).is_err());
 }
 
 // ---- 4.1 and 4.2: the databases and their tokens -----------------------------------------------------
@@ -689,7 +971,7 @@ fn the_db_tokens_fixture_is_what_the_constants_say() {
             ),
             table("tokens", &header, tokens),
         ],
-        documents,
+        vec![("documents", J::Arr(documents))],
     );
 }
 
