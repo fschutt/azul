@@ -23,7 +23,7 @@
 //! the verifier never does, so there is no double framing.
 //!
 //! Features: `os-rng` (default off) forwards to `azlin-keys` and re-exports `OsEntropy`; `mutants`
-//! turns the guard of [`mutant!`] on (the holds of every crate that carries guards run
+//! turns the guard of [`mutant!`](crate::mutant) on (the holds of every crate that carries guards run
 //! `cargo test -p <crate> --features azlin-seams/mutants`, COMMON-W1R R19). The test doubles of
 //! `azlin-keys` (`SeededEntropy`, `ManualClock`, `MapDirectory`) sit behind that crate's feature
 //! `test-support`, which this crate's final manifest does not forward: DRIFT X-DELTA-W1S17A-1.

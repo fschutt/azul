@@ -96,12 +96,10 @@ impl FromStr for Hash32 {
             return Err(IdError::Length);
         }
         let mut out = [0u8; 32];
-        for (byte, pair) in out.iter_mut().zip(digits.chunks_exact(2)) {
-            let (high, low) = match pair {
-                [high, low] => (nibble(*high), nibble(*low)),
-                _ => return Err(IdError::Length),
-            };
-            match (high, low) {
+        // The length is exactly 64, so the pairs cover every digit and nothing is left over.
+        let (pairs, _) = digits.as_chunks::<2>();
+        for (byte, [high, low]) in out.iter_mut().zip(pairs) {
+            match (nibble(*high), nibble(*low)) {
                 (Some(high), Some(low)) => *byte = (high << 4) | low,
                 _ => return Err(IdError::BadDigit),
             }

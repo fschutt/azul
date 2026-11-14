@@ -1,4 +1,4 @@
-//! The mutation guard of the engine's pure crates: [`mutant!`] (planning/architecture.md section
+//! The mutation guard of the engine's pure crates: [`mutant!`](crate::mutant) (planning/architecture.md section
 //! 1.4 rule 1 and the mutation standard of the QUALITY rules, rule 12: a guard that a fix added is
 //! proved by turning it OFF and watching a test fail). The contract is the one of azlin-proto's
 //! `mutants.rs` (the iso crate cannot be a dependency of an azul crate, so the macro is copied
