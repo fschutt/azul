@@ -280,15 +280,15 @@ impl FontRefExt for FontRef {
             ach_vend_id: 0,       // Not in PdfFontMetrics
 
             // OS/2 version 0 fields (optional)
-            s_typo_ascender: OptionI16::None,
-            s_typo_descender: OptionI16::None,
-            s_typo_line_gap: OptionI16::None,
-            us_win_ascent: OptionU16::None,
-            us_win_descent: OptionU16::None,
+            s_typo_ascender: OptionI16::from(pdf.s_typo_ascender),
+            s_typo_descender: OptionI16::from(pdf.s_typo_descender),
+            s_typo_line_gap: OptionI16::from(pdf.s_typo_line_gap),
+            us_win_ascent: OptionU16::from(pdf.us_win_ascent),
+            us_win_descent: OptionU16::from(pdf.us_win_descent),
 
             // OS/2 version 2 fields (optional)
-            sx_height: OptionI16::None,
-            s_cap_height: OptionI16::None,
+            sx_height: OptionI16::from(pdf.sx_height),
+            s_cap_height: OptionI16::from(pdf.s_cap_height),
             us_default_char: OptionU16::None,
             us_break_char: OptionU16::None,
             us_max_context: OptionU16::None,
@@ -334,7 +334,7 @@ impl FontRefExt for FontRef {
             y_strikeout_size: pdf.y_strikeout_size,
             y_strikeout_position: pdf.y_strikeout_position,
             s_family_class: 0,      // Not in PdfFontMetrics
-            fs_selection: 0,        // Not in PdfFontMetrics
+            fs_selection: pdf.fs_selection,
             us_first_char_index: 0, // Not in PdfFontMetrics
             us_last_char_index: 0,  // Not in PdfFontMetrics
 
@@ -1746,9 +1746,12 @@ mod autotest_generated {
         assert_eq!(manager.evict_unused(Duration::ZERO), 0);
 
         // Touch the deferred face -> it materialises loca+glyf and stamps last_used.
+        // (A glyph with an outline: the space's is pre-decoded from hmtx and loads
+        // nothing.)
         let parsed = crate::font_ref_to_parsed_font(&deferred);
-        assert!(parsed.get_or_decode_glyph(1).is_some(), "gid 1 must decode");
-        let _ = crate::font_ref_to_parsed_font(&eager).get_or_decode_glyph(1);
+        let a = parsed.lookup_glyph_index('A' as u32).expect("A is mapped");
+        assert!(parsed.get_or_decode_glyph(a).is_some(), "A must decode");
+        let _ = crate::font_ref_to_parsed_font(&eager).get_or_decode_glyph(a);
 
         // A face used microseconds ago is not idle for an hour.
         assert_eq!(manager.evict_unused(Duration::from_secs(3600)), 0);

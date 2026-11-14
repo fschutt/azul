@@ -1159,8 +1159,12 @@ pub struct AppConfig {
     /// the synthesis off and leaves Ctrl+wheel as a plain wheel event with the
     /// Ctrl modifier set, which such an app can read directly.
     ///
-    /// Ignored on every platform but Windows: macOS and Wayland report real
-    /// pinch gestures, so nothing has to be inferred there.
+    /// Windows and macOS. On a Mac a trackpad pinches by itself
+    /// (`magnifyWithEvent:`), but a mouse has no other zoom gesture, and
+    /// Ctrl + scroll is what browsers zoom on there too: a wheel notch is a
+    /// pinch of its own, a trackpad's Ctrl + two-finger scroll one pinch from
+    /// the fingers down to their lift. Wayland reports real pinch gestures,
+    /// so nothing is inferred there.
     pub synthesize_pinch_from_ctrl_wheel: bool,
     /// Whether the app publishes itself to the OS as a media player.
     /// Default `false`.

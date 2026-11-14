@@ -3535,6 +3535,9 @@ pub fn render_single_item(
                 let painted = snapshot_region(pixmap, x, y, w, h);
                 write_region(pixmap, &snapshot, w, h, x, y);
                 let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+                // `blend_pixel`'s levels, without its work where the group
+                // painted nothing or painted opaque.
+                let blender = super::blend::Blender::new(op, blend);
                 for py in 0..h as i32 {
                     let dy = y + py;
                     if dy < 0 || dy >= ph {
@@ -3551,7 +3554,7 @@ pub fn render_single_item(
                             continue;
                         }
                         let src = [painted[si], painted[si + 1], painted[si + 2], painted[si + 3]];
-                        blend_pixel(&mut pixmap.data[pi..pi + 4], src, op, blend);
+                        blender.blend(&mut pixmap.data[pi..pi + 4], src);
                     }
                 }
             }
@@ -6431,21 +6434,34 @@ fn mask_row_to_rounded_rect(
 /// grows with the radius: three pixels for a radius of a hundred million.
 const MAX_FINE_ARC_RADIUS: f64 = 4_194_304.0;
 
+/// How much longer than its other segments the LAST segment of an AGG arc can
+/// be. `Arc::vertex` steps the angle by `da` and ends with the end point as
+/// soon as the next step would come within a quarter step of it
+/// (`angle < end - da / 4`), so what is left for the last segment is up to
+/// `da + da / 4`. A step held to [`MAX_ARC_SEGMENT_PX`] left last segments of
+/// 30.9 px (a radius of 1000 px at 1x), 32.2 (1500) and 33.6 (2000): longer
+/// than the margin a cut needs (caught by
+/// `no_arc_segment_of_a_rounded_box_is_longer_than_the_margin`).
+const ARC_LAST_SEGMENT_FACTOR: f64 = 1.25;
+
 /// The approximation scale AGG steps the corner arcs of a rounded box by.
 ///
-/// AGG steps an arc so that a segment is about `sqrt(radius / scale)` px long.
+/// AGG steps an arc so that a segment is about `sqrt(radius / scale)` px long,
+/// the last one up to [`ARC_LAST_SEGMENT_FACTOR`] times that.
 /// The rasterizer cuts a path's geometry [`GEOMETRY_MARGIN`] beyond the visible
 /// pixels, which is exact only while no segment is longer than that: a cut inside
 /// a long segment leaves its pixels a level off between a fill under a clip and
 /// one under none (the incremental frame against the full redraw). So the scale
 /// is the output's own (`dpi`, never coarser than 1) - or, for a radius whose
-/// segment that would leave longer than [`MAX_ARC_SEGMENT_PX`] (a radius of 1000
-/// px at 1x), the finer one that holds the segment to it - bounded by
-/// [`MAX_FINE_ARC_RADIUS`]. Below `MAX_ARC_SEGMENT_PX^2 * dpi` (784 px at 1x)
-/// nothing changed.
+/// segments that would leave longer than [`MAX_ARC_SEGMENT_PX`] (the last one
+/// included), the finer one that holds every segment to it: a step of
+/// `MAX_ARC_SEGMENT_PX / ARC_LAST_SEGMENT_FACTOR` (22.4 px) - bounded by
+/// [`MAX_FINE_ARC_RADIUS`]. Below `22.4^2 * dpi` (502 px at 1x) nothing
+/// changed.
 fn arc_approximation_scale(dpi_factor: f32, largest_radius_px: f64) -> f64 {
     let largest = largest_radius_px.max(1.0);
-    let for_segments = largest / (MAX_ARC_SEGMENT_PX * MAX_ARC_SEGMENT_PX);
+    let step = MAX_ARC_SEGMENT_PX / ARC_LAST_SEGMENT_FACTOR;
+    let for_segments = largest / (step * step);
     f64::from(dpi_factor.max(1.0))
         .max(for_segments)
         .min(MAX_FINE_ARC_RADIUS / largest)
@@ -13402,12 +13418,13 @@ mod a_big_rounded_boxs_arcs_stay_within_the_geometry_margin_tests {
         assert_eq!(arc_approximation_scale(2.0, 100.0), 2.0);
         assert_eq!(arc_approximation_scale(0.5, 100.0), 1.0);
         assert_eq!(arc_approximation_scale(1.0, 0.0), 1.0);
-        // The boundary: (28 px)^2 = 784 px at 1x.
-        assert_eq!(arc_approximation_scale(1.0, 784.0), 1.0);
-        assert_eq!(arc_approximation_scale(2.0, 1568.0), 2.0);
-        // Past it the scale grows with the radius: a segment of 28 px.
-        assert!((arc_approximation_scale(1.0, 1568.0) - 2.0).abs() < 1e-9);
-        assert!((arc_approximation_scale(1.0, 7840.0) - 10.0).abs() < 1e-9);
+        // The boundary: a step of 28 / 1.25 = 22.4 px, (22.4 px)^2 = 501.76 px
+        // at 1x - so that AGG's last segment, up to 1.25 steps, is 28 px.
+        assert_eq!(arc_approximation_scale(1.0, 500.0), 1.0);
+        assert_eq!(arc_approximation_scale(2.0, 1000.0), 2.0);
+        // Past it the scale grows with the radius: a step of 22.4 px.
+        assert!((arc_approximation_scale(1.0, 1003.52) - 2.0).abs() < 1e-9);
+        assert!((arc_approximation_scale(1.0, 5017.6) - 10.0).abs() < 1e-9);
         // An absurd radius is stepped as coarsely as it always was.
         assert_eq!(
             arc_approximation_scale(1.0, 1.0e9),

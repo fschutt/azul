@@ -225,12 +225,137 @@ fn set_sat(c: [f32; 3], s: f32) -> [f32; 3] {
 /// rasterised over transparent pixels, a tile step) composited onto what is
 /// below it. Both buffers are the same size; only their common length is
 /// blended.
+///
+/// The levels are [`blend_pixel`]'s, bit for bit; a buffer only lets the work
+/// be skipped where the result is known without it (see [`Blender`]).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // opacity clamped to 0..=255
 pub fn blend_premultiplied(dst: &mut [u8], src: &[u8], opacity: f32, mode: StyleMixBlendMode) {
     let op = (opacity * 255.0).round().clamp(0.0, 255.0) as u32;
-    for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-        blend_pixel(d, [s[0], s[1], s[2], s[3]], op, mode);
+    Blender::new(op, mode).blend_row(dst, src);
+}
+
+/// [`blend_pixel`] for many pixels of one `op` and `mode`, with the work a
+/// buffer lets it skip. A layer is mostly empty (the lines of a map step, an
+/// SVG group, a halo) and mostly opaque where it is not, and a backdrop is
+/// mostly opaque; per pixel, every mode worked all of that out again.
+///
+/// - an empty source pixel leaves the backdrop as it is, in every mode: one
+///   compare, not the mode's arithmetic;
+/// - `Normal`: an opaque source pixel at full opacity IS the result: a copy;
+/// - `Multiply`: an opaque source over an opaque backdrop at full opacity is
+///   the channels' product, without the two terms that are zero then;
+/// - the separable modes worked out in floats (all but `Normal`, `Multiply`
+///   and the four non-separable ones): an opaque source over an opaque
+///   backdrop at full opacity mixes each channel with nothing but its two
+///   values, so the result is looked up in a table of the 256 x 256 results of
+///   the float path itself (built once per mode, on first use).
+///
+/// Every shortcut gives exactly the levels [`blend_pixel`] gives; the tests
+/// compare the two on every mode.
+pub(crate) struct Blender {
+    op: u32,
+    mode: StyleMixBlendMode,
+    /// `opaque[usize::from(cb) << 8 | usize::from(cs)]`: the channel an opaque
+    /// source channel `cs` gives over an opaque backdrop channel `cb` at full
+    /// opacity, for the float-path modes.
+    opaque: Option<&'static [u8]>,
+}
+
+impl Blender {
+    pub(crate) fn new(op: u32, mode: StyleMixBlendMode) -> Self {
+        let op = op.min(255);
+        let opaque = if op == 255 { opaque_table(mode) } else { None };
+        Self { op, mode, opaque }
     }
+
+    /// Puts the pixel `src` onto `dst`: [`blend_pixel`] with this blender's
+    /// opacity and mode.
+    #[inline]
+    #[allow(clippy::needless_range_loop, clippy::cast_possible_truncation)] // channels 0..3 of both; mul255 <= 255
+    pub(crate) fn blend(&self, dst: &mut [u8], src: [u8; 4]) {
+        if src[3] == 0 {
+            // `blend_over`, `multiply_pixel` and `blend_pixel_float` all
+            // return untouched for a source alpha of 0 (at any opacity).
+            return;
+        }
+        if self.op == 255 && src[3] == 255 {
+            match self.mode {
+                StyleMixBlendMode::Normal => {
+                    // `blend_over` at covered = 255, kept = 0: each channel
+                    // is (c * 255 + 127) / 255 = c, the alpha 255.
+                    dst.copy_from_slice(&src);
+                    return;
+                }
+                StyleMixBlendMode::Multiply if dst[3] == 255 => {
+                    // `multiply_pixel` at a = ab = 255: the (1 - ab) and
+                    // (1 - as) terms are 0, the alpha stays 255.
+                    for i in 0..3 {
+                        dst[i] = mul255(u32::from(src[i]), u32::from(dst[i])) as u8;
+                    }
+                    return;
+                }
+                _ => {}
+            }
+            if let (Some(table), 255) = (self.opaque, dst[3]) {
+                for i in 0..3 {
+                    dst[i] = table[usize::from(dst[i]) << 8 | usize::from(src[i])];
+                }
+                return;
+            }
+        }
+        blend_pixel(dst, src, self.op, self.mode);
+    }
+
+    /// Puts the row `src` onto the row `dst`, pixel for pixel; only their
+    /// common length is blended.
+    pub(crate) fn blend_row(&self, dst: &mut [u8], src: &[u8]) {
+        if self.op == 0 {
+            // Every mode leaves the backdrop as it is at opacity 0.
+            return;
+        }
+        for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+            self.blend(d, [s[0], s[1], s[2], s[3]]);
+        }
+    }
+}
+
+/// The table of [`Blender::opaque`] for `mode`, or `None` when the mode is
+/// not worked out per channel in floats.
+fn opaque_table(mode: StyleMixBlendMode) -> Option<&'static [u8]> {
+    use std::sync::OnceLock;
+    use StyleMixBlendMode as M;
+    // One slot per separable float mode, built on first use (64 KiB each).
+    static TABLES: [OnceLock<Box<[u8]>>; 10] = [const { OnceLock::new() }; 10];
+    let slot = match mode {
+        M::Screen => 0,
+        M::Overlay => 1,
+        M::Darken => 2,
+        M::Lighten => 3,
+        M::ColorDodge => 4,
+        M::ColorBurn => 5,
+        M::HardLight => 6,
+        M::SoftLight => 7,
+        M::Difference => 8,
+        M::Exclusion => 9,
+        // Integer paths of their own, or a channel that depends on the
+        // other two (hue, saturation, colour, luminosity).
+        M::Normal | M::Multiply | M::Hue | M::Saturation | M::Color | M::Luminosity => {
+            return None
+        }
+    };
+    let table = TABLES[slot].get_or_init(|| {
+        let mut table = vec![0_u8; 256 * 256].into_boxed_slice();
+        for cb in 0..=255_u8 {
+            for cs in 0..=255_u8 {
+                // The float path itself, so the table holds its levels.
+                let mut px = [cb, cb, cb, 255];
+                blend_pixel_float(&mut px, [cs, cs, cs, 255], 255, mode);
+                table[usize::from(cb) << 8 | usize::from(cs)] = px[0];
+            }
+        }
+        table
+    });
+    Some(table)
 }
 
 /// [`super::blit_pixmap_clipped`] with a blend mode: `src` placed at
@@ -247,8 +372,12 @@ pub fn blit_pixmap_blend(
     clip: Option<(i32, i32, i32, i32)>,
 ) {
     let op = (opacity * 255.0).round().clamp(0.0, 255.0) as u32;
+    let blender = Blender::new(op, mode);
+    if blender.op == 0 {
+        return;
+    }
     super::pixmap::for_each_clipped_pixel(src, dst, px_x, px_y, clip, |below, layer| {
-        blend_pixel(below, layer, op, mode);
+        blender.blend(below, layer);
     });
 }
 
@@ -407,6 +536,118 @@ mod tests {
         assert_eq!(at(2, 2), [0, 255, 0, 255]);
         assert_eq!(at(0, 0), [0, 255, 255, 255]);
         assert_eq!(at(3, 3), [0, 255, 255, 255]);
+    }
+
+    const ALL_MODES: [StyleMixBlendMode; 16] = {
+        use StyleMixBlendMode as M;
+        [
+            M::Normal,
+            M::Multiply,
+            M::Screen,
+            M::Overlay,
+            M::Darken,
+            M::Lighten,
+            M::ColorDodge,
+            M::ColorBurn,
+            M::HardLight,
+            M::SoftLight,
+            M::Difference,
+            M::Exclusion,
+            M::Hue,
+            M::Saturation,
+            M::Color,
+            M::Luminosity,
+        ]
+    };
+
+    /// A premultiplied pixel from `seed`: a quarter empty, a quarter opaque,
+    /// the rest translucent (premultiplied: no channel above the alpha).
+    fn pixel(seed: &mut u64) -> [u8; 4] {
+        let mut next = || {
+            *seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            (*seed >> 33) as u8
+        };
+        let alpha = match next() % 4 {
+            0 => 0,
+            1 => 255,
+            _ => next(),
+        };
+        let channel = |c: u8| ((u32::from(c) * u32::from(alpha)) / 255) as u8;
+        [channel(next()), channel(next()), channel(next()), alpha]
+    }
+
+    /// The shortcuts of a buffer blend give the levels of `blend_pixel`, bit
+    /// for bit: every mode, empty / opaque / translucent pixels on both sides,
+    /// at full, partial and no opacity.
+    #[test]
+    fn a_buffer_blends_to_the_levels_of_blend_pixel_in_every_mode() {
+        let mut seed = 7;
+        let count = 4096;
+        let backdrop: Vec<u8> = (0..count).flat_map(|_| pixel(&mut seed)).collect();
+        let layer: Vec<u8> = (0..count).flat_map(|_| pixel(&mut seed)).collect();
+        for mode in ALL_MODES {
+            for opacity in [1.0_f32, 0.5, 0.0] {
+                let op = (opacity * 255.0).round() as u32;
+                let mut fast = backdrop.clone();
+                blend_premultiplied(&mut fast, &layer, opacity, mode);
+                let mut slow = backdrop.clone();
+                for (d, s) in slow.chunks_exact_mut(4).zip(layer.chunks_exact(4)) {
+                    blend_pixel(d, [s[0], s[1], s[2], s[3]], op, mode);
+                }
+                for (i, (f, w)) in fast.chunks_exact(4).zip(slow.chunks_exact(4)).enumerate() {
+                    assert_eq!(
+                        f,
+                        w,
+                        "{mode:?} at {opacity}: pixel {i}, layer {:?} over {:?}",
+                        &layer[i * 4..i * 4 + 4],
+                        &backdrop[i * 4..i * 4 + 4]
+                    );
+                }
+            }
+        }
+    }
+
+    /// The table of a float mode holds the float path's level for every pair
+    /// of opaque channels, not only for the pairs the random pixels hit.
+    #[test]
+    fn the_opaque_table_of_each_float_mode_is_the_float_path() {
+        for mode in ALL_MODES {
+            let Some(table) = opaque_table(mode) else {
+                continue;
+            };
+            for cb in 0..=255_u8 {
+                for cs in 0..=255_u8 {
+                    let mut px = [cb, cb.wrapping_add(1), 7, 255];
+                    blend_pixel_float(&mut px, [cs, 3, cs.wrapping_mul(3), 255], 255, mode);
+                    assert_eq!(
+                        table[usize::from(cb) << 8 | usize::from(cs)],
+                        px[0],
+                        "{mode:?}: {cs} over {cb}"
+                    );
+                }
+            }
+        }
+        assert!(opaque_table(StyleMixBlendMode::Normal).is_none());
+        assert!(opaque_table(StyleMixBlendMode::Multiply).is_none());
+        assert!(opaque_table(StyleMixBlendMode::Hue).is_none());
+    }
+
+    /// The blit takes the same shortcuts: an opaque layer copies in the normal
+    /// mode and an empty one changes nothing.
+    #[test]
+    fn blit_pixmap_blend_copies_opaque_and_skips_empty_pixels() {
+        let mut dst = AzulPixmap::new(3, 1).unwrap();
+        dst.fill(10, 20, 30, 255);
+        let mut src = AzulPixmap::new(3, 1).unwrap();
+        src.fill(0, 0, 0, 0);
+        src.data_mut()[..4].copy_from_slice(&[200, 100, 50, 255]);
+        src.data_mut()[4..8].copy_from_slice(&[0, 0, 0, 128]);
+        blit_pixmap_blend(&src, &mut dst, 0, 0, 1.0, StyleMixBlendMode::Normal, None);
+        assert_eq!(&dst.data()[..4], &[200, 100, 50, 255], "the opaque pixel is copied");
+        assert_eq!(&dst.data()[8..], &[10, 20, 30, 255], "the empty pixel changes nothing");
+        let mut half = [10, 20, 30, 255];
+        blend_pixel(&mut half, [0, 0, 0, 128], 255, StyleMixBlendMode::Normal);
+        assert_eq!(&dst.data()[4..8], &half, "the translucent one is blended");
     }
 
     #[test]

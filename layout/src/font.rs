@@ -902,6 +902,20 @@ pub mod parsed {
         pub y_strikeout_size: i16,
         /// Vertical position of strikeout stroke.
         pub y_strikeout_position: i16,
+        /// `fsSelection`: bit 7 (`USE_TYPO_METRICS`) says the typographic
+        /// metrics below are the ones to set lines with.
+        pub fs_selection: u16,
+        /// `sTypoAscender`, `sTypoDescender`, `sTypoLineGap`, `usWinAscent`
+        /// and `usWinDescent` (OS/2 version 0; `None` without an OS/2 table
+        /// or in a shortened legacy one).
+        pub s_typo_ascender: Option<i16>,
+        pub s_typo_descender: Option<i16>,
+        pub s_typo_line_gap: Option<i16>,
+        pub us_win_ascent: Option<u16>,
+        pub us_win_descent: Option<u16>,
+        /// `sxHeight` and `sCapHeight` (OS/2 version 2 and later).
+        pub sx_height: Option<i16>,
+        pub s_cap_height: Option<i16>,
     }
 
     impl Default for PdfFontMetrics {
@@ -933,7 +947,23 @@ pub mod parsed {
                 us_width_class: 0,
                 y_strikeout_size: 0,
                 y_strikeout_position: 0,
+                fs_selection: 0,
+                s_typo_ascender: None,
+                s_typo_descender: None,
+                s_typo_line_gap: None,
+                us_win_ascent: None,
+                us_win_descent: None,
+                sx_height: None,
+                s_cap_height: None,
             }
+        }
+
+        /// Whether the font's `fsSelection` sets `USE_TYPO_METRICS` (bit 7):
+        /// lines are to be set with the typographic ascender, descender and
+        /// line gap rather than the `hhea` ones.
+        #[must_use]
+        pub const fn use_typo_metrics(&self) -> bool {
+            self.fs_selection & 0x0080 != 0
         }
     }
 
@@ -1222,6 +1252,7 @@ pub mod parsed {
                     font_bytes.to_vec(),
                 ))));
             }
+            font.measure_space();
             Some(font)
         }
 
@@ -1697,7 +1728,7 @@ pub mod parsed {
             font_index.hash(&mut hasher);
             let hash = hasher.finish();
 
-            let mut font = Self {
+            let font = Self {
                 hash,
                 font_metrics,
                 pdf_font_metrics,
@@ -1737,61 +1768,51 @@ pub mod parsed {
                 hint_instance,
             };
 
-            // Calculate space width
-            let space_width = font.get_space_width_internal();
-
-            // Pre-decode the space glyph straight into the lazy
-            // `glyph_cache`. Space typically has no outline, so the
-            // decoder's outline visitor returns nothing useful and
-            // we'd spin re-decoding it every shape — short-circuit
-            // here with a hand-rolled record carrying the hmtx
-            // advance.
-            let _ = (|| {
-                let space_gid = font.lookup_glyph_index(' ' as u32)?;
-                {
-                    // StLock::read() is infallible (Result<_, Infallible>);
-                    // kept in a tight block so the guard drops at scope end.
-                    let Ok(cache) = font.glyph_cache.read();
-                    if cache.contains_key(&space_gid) {
-                        return None;
-                    }
-                }
-                let space_width_val = space_width?;
-                // Only pre-cache when we actually know a non-zero advance. During
-                // `from_bytes_internal` the source bytes are not attached yet, so
-                // `hmtx` is unreadable and `get_space_width_internal` reads back 0;
-                // caching that would pin every space to a 0 advance for the life of
-                // the face. Skip it and let the space decode lazily once bytes are
-                // attached (mock fonts that carry a real space width still cache).
-                if space_width_val == 0 {
-                    return None;
-                }
-                let space_record = OwnedGlyph {
-                    bounding_box: OwnedGlyphBoundingBox {
-                        max_x: 0,
-                        max_y: 0,
-                        min_x: 0,
-                        min_y: 0,
-                    },
-                    horz_advance: space_width_val as u16,
-                    outline: Vec::new(),
-                    phantom_points: None,
-                    raw_points: None,
-                    raw_on_curve: None,
-                    raw_contour_ends: None,
-                    instructions: None,
-                };
-                {
-                    // StLock::write() is infallible (Result<_, Infallible>).
-                    let Ok(mut cache) = font.glyph_cache.write();
-                    cache.insert(space_gid, Arc::new(space_record));
-                }
-                Some(())
-            })();
-
-            font.space_width = space_width;
-
+            // The space's advance is measured by the constructors once the source
+            // bytes are attached (`measure_space`): `hmtx` is read from them, so
+            // here every advance still reads back 0.
             Some(font)
+        }
+
+        /// Measures the space (`space_width`, [`ParsedFont::get_space_width`]) and
+        /// pre-decodes its glyph into the lazy `glyph_cache`, from the `hmtx` of the
+        /// attached source bytes. Every constructor calls it once the bytes are
+        /// attached (and [`ParsedFont::with_source_bytes`] again): measured before,
+        /// in `from_bytes_internal`, every advance read back 0 and every font's
+        /// space was 0 wide.
+        ///
+        /// Space typically has no outline, so the decoder's outline visitor returns
+        /// nothing useful and we'd spin re-decoding it every shape — short-circuit
+        /// with a hand-rolled record carrying the hmtx advance.
+        fn measure_space(&mut self) {
+            let space_width = self.get_space_width_internal();
+            self.space_width = space_width;
+            let Some(space_gid) = self.lookup_glyph_index(' ' as u32) else {
+                return;
+            };
+            // A space of 0 advance (or none) decodes lazily, as any glyph.
+            let Some(space_width_val) = space_width.filter(|w| *w > 0) else {
+                return;
+            };
+            let space_record = OwnedGlyph {
+                bounding_box: OwnedGlyphBoundingBox {
+                    max_x: 0,
+                    max_y: 0,
+                    min_x: 0,
+                    min_y: 0,
+                },
+                horz_advance: u16::try_from(space_width_val).unwrap_or(u16::MAX),
+                outline: Vec::new(),
+                phantom_points: None,
+                raw_points: None,
+                raw_on_curve: None,
+                raw_contour_ends: None,
+                instructions: None,
+            };
+            // StLock::write() is infallible (Result<_, Infallible>). Replaces a record
+            // decoded from the bytes attached before (`with_source_bytes`).
+            let Ok(mut cache) = self.glyph_cache.write();
+            cache.insert(space_gid, Arc::new(space_record));
         }
 
         /// Attach the source font bytes to this `ParsedFont`, enabling
@@ -1806,6 +1827,7 @@ pub mod parsed {
         #[must_use]
         pub fn with_source_bytes(mut self, bytes: Arc<rust_fontconfig::FontBytes>) -> Self {
             self.original_bytes = Some(bytes);
+            self.measure_space();
             self
         }
 
@@ -1844,6 +1866,7 @@ pub mod parsed {
                 font_index,
                 loaded: Arc::new(std::sync::Mutex::new(None)),
             };
+            font.measure_space();
             Some(font)
         }
 
@@ -2383,6 +2406,14 @@ pub mod parsed {
                 us_width_class: os2.us_width_class,
                 y_strikeout_size: os2.y_strikeout_size,
                 y_strikeout_position: os2.y_strikeout_position,
+                fs_selection: os2.fs_selection.bits(),
+                s_typo_ascender: os2.version0.as_ref().map(|v| v.s_typo_ascender),
+                s_typo_descender: os2.version0.as_ref().map(|v| v.s_typo_descender),
+                s_typo_line_gap: os2.version0.as_ref().map(|v| v.s_typo_line_gap),
+                us_win_ascent: os2.version0.as_ref().map(|v| v.us_win_ascent),
+                us_win_descent: os2.version0.as_ref().map(|v| v.us_win_descent),
+                sx_height: os2.version2to4.as_ref().map(|v| v.s_x_height),
+                s_cap_height: os2.version2to4.as_ref().map(|v| v.s_cap_height),
                 ..base
             })
         }
@@ -3755,9 +3786,9 @@ pub mod parsed {
         #[test]
         fn prime_glyph_cache_decodes_every_glyph_and_is_idempotent() {
             let mut font = parse_mock();
-            // the lazy cache starts empty (the space stub is skipped while the source
-            // bytes are still unattached)
-            assert!(font.glyph_cache_snapshot().is_empty());
+            // the lazy cache starts with the space's stub only (`measure_space`)
+            let space = font.lookup_glyph_index(' ' as u32).expect("a space");
+            assert_eq!(font.glyph_cache_snapshot().keys().copied().collect::<Vec<_>>(), [space]);
 
             font.prime_glyph_cache();
             let snap = font.glyph_cache_snapshot();
@@ -3839,9 +3870,13 @@ pub mod parsed {
             assert!(font.source_bytes_for_subset().is_some());
 
             // nothing is loaded until the first decode, so there is nothing to evict yet
+            // (the space's stub comes from hmtx, not from loca+glyf)
             assert!(!font.evict_loca_glyf());
 
-            let g1 = font.get_or_decode_glyph(1).expect("gid 1 must decode");
+            // glyphs with outlines (the space's is pre-decoded: it loads nothing)
+            let a = font.lookup_glyph_index('A' as u32).expect("A is mapped");
+            let b = font.lookup_glyph_index('B' as u32).expect("B is mapped");
+            let g1 = font.get_or_decode_glyph(a).expect("A must decode");
             assert!(
                 font.evict_loca_glyf(),
                 "a loaded Deferred slot is evictable"
@@ -3850,11 +3885,11 @@ pub mod parsed {
 
             // after eviction the face still decodes: it re-parses from the retained bytes
             let g2 = font
-                .get_or_decode_glyph(2)
-                .expect("gid 2 decodes after eviction");
-            assert_eq!(g2.horz_advance, font.get_horizontal_advance(2));
+                .get_or_decode_glyph(b)
+                .expect("B decodes after eviction");
+            assert_eq!(g2.horz_advance, font.get_horizontal_advance(b));
             // and already-decoded glyphs still come from the glyph cache
-            assert!(Arc::ptr_eq(&g1, &font.get_or_decode_glyph(1).unwrap()));
+            assert!(Arc::ptr_eq(&g1, &font.get_or_decode_glyph(a).unwrap()));
         }
 
         #[test]
@@ -3885,6 +3920,102 @@ pub mod parsed {
             assert_eq!(a.bounding_box.min_y, b.bounding_box.min_y);
             assert_eq!(a.bounding_box.max_x, b.bounding_box.max_x);
             assert_eq!(a.bounding_box.max_y, b.bounding_box.max_y);
+        }
+
+        /// `get_space_width` is the space glyph's `hmtx` advance, from every
+        /// constructor: it was measured in `from_bytes_internal`, before the
+        /// source bytes were attached, where every advance reads back 0 - so
+        /// every real font's space was 0 wide (m4p's map labels lost their word
+        /// gaps: "Im Wyl" became "ImWyl").
+        #[test]
+        fn the_space_width_is_the_space_glyphs_advance() {
+            let eager = parse_mock();
+            let space = eager.lookup_glyph_index(' ' as u32).expect("Mock Mono has a space");
+            let advance = eager.get_horizontal_advance(space);
+            assert!(advance > 0, "the space glyph advances the pen in hmtx");
+            assert_eq!(eager.get_space_width(), Some(usize::from(advance)));
+
+            let shared = mock_shared();
+            assert_eq!(shared.get_space_width(), Some(usize::from(advance)));
+
+            let attached = eager.with_source_bytes(Arc::new(rust_fontconfig::FontBytes::Owned(
+                Arc::from(MOCK_MONO.to_vec()),
+            )));
+            assert_eq!(attached.get_space_width(), Some(usize::from(advance)));
+
+            // the pre-decoded space glyph carries the same advance
+            let glyph = shared.get_or_decode_glyph(space).expect("the space decodes");
+            assert_eq!(glyph.horz_advance, advance);
+        }
+
+        /// A glyph of a CID-keyed CFF font (no `glyf`: Noto Sans CJK, Source Han
+        /// Sans) decodes from the `CFF ` table with its outline and that
+        /// outline's box, as a TrueType glyph does - from either constructor.
+        /// printpdf's mock: gid 2 is "A", a rectangle 300 wide and 700 high.
+        #[test]
+        fn a_cid_keyed_cff_glyph_has_its_outlines_box() {
+            const CFF_CID: &[u8] = include_bytes!("../assets/fonts/test/printpdf-mock-cff-cid.otf");
+            let eager = ParsedFont::from_bytes(CFF_CID, 0, &mut Vec::new()).expect("parses");
+            let shared = ParsedFont::from_bytes_shared(
+                Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(CFF_CID.to_vec()))),
+                0,
+                &mut Vec::new(),
+            )
+            .expect("parses");
+            for font in [eager, shared] {
+                let a = font.lookup_glyph_index('A' as u32).expect("A is mapped");
+                let glyph = font.get_or_decode_glyph(a).expect("A decodes");
+                assert!(!glyph.outline.is_empty(), "A has its outline");
+                let b = &glyph.bounding_box;
+                assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (0, 0, 300, 700));
+                assert_eq!(glyph.horz_advance, 300);
+            }
+        }
+
+        /// The OS/2 table's line metrics reach `pdf_font_metrics` and the full
+        /// `FontMetrics` (`get_full_font_metrics` left them `None`, so an app
+        /// that sets lines by `USE_TYPO_METRICS` read the table itself).
+        #[test]
+        fn the_os2_typographic_metrics_are_read() {
+            use allsorts::{
+                binary::read::ReadScope,
+                font_data::FontData,
+                tables::{os2::Os2, FontTableProvider},
+                tag,
+            };
+
+            use crate::text3::default::FontRefExt;
+
+            let font = parse_mock();
+            let data = ReadScope::new(MOCK_MONO).read::<FontData<'_>>().unwrap();
+            let provider = data.table_provider(0).unwrap();
+            let os2_data = provider.table_data(tag::OS_2).unwrap().expect("Mock Mono has OS/2");
+            let os2 = ReadScope::new(&os2_data).read_dep::<Os2>(os2_data.len()).unwrap();
+            let v0 = os2.version0.as_ref().expect("a full OS/2 table");
+
+            let m = font.pdf_font_metrics;
+            assert_eq!(m.fs_selection, os2.fs_selection.bits());
+            assert_eq!(m.use_typo_metrics(), os2.fs_selection.bits() & 0x80 != 0);
+            assert_eq!(m.s_typo_ascender, Some(v0.s_typo_ascender));
+            assert_eq!(m.s_typo_descender, Some(v0.s_typo_descender));
+            assert_eq!(m.s_typo_line_gap, Some(v0.s_typo_line_gap));
+            assert_eq!(m.us_win_ascent, Some(v0.us_win_ascent));
+            assert_eq!(m.us_win_descent, Some(v0.us_win_descent));
+            assert_eq!(m.sx_height, os2.version2to4.as_ref().map(|v| v.s_x_height));
+            assert_eq!(m.s_cap_height, os2.version2to4.as_ref().map(|v| v.s_cap_height));
+            assert_ne!(m.s_typo_ascender, Some(0), "a real ascender: {m:?}");
+
+            let full = crate::parsed_font_to_font_ref(font).get_full_font_metrics();
+            assert_eq!(full.fs_selection, m.fs_selection);
+            assert_eq!(full.use_typo_metrics(), m.use_typo_metrics());
+            assert_eq!(full.s_typo_ascender.as_option().copied(), m.s_typo_ascender);
+            assert_eq!(full.s_typo_descender.as_option().copied(), m.s_typo_descender);
+            assert_eq!(full.us_win_descent.as_option().copied(), m.us_win_descent);
+            assert_eq!(full.s_cap_height.as_option().copied(), m.s_cap_height);
+
+            // no OS/2 table: nothing
+            assert_eq!(PdfFontMetrics::zero().s_typo_ascender, None);
+            assert!(!PdfFontMetrics::zero().use_typo_metrics());
         }
 
         #[test]

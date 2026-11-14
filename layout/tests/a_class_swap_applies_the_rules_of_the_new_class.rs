@@ -173,16 +173,26 @@ fn r_classes_a_swapped_class_resizes_the_node() {
 /// R-classes: a class on the node ABOVE changes the boxes BELOW it. The rows'
 /// own data did not change, so a warm reconcile would hand them their old
 /// boxes; the swap lays the window out cold (a sheet is there to match).
+///
+/// The sheet is the BODY's, not the class owner's: a `with_css` sheet's rules
+/// are nested in the scope of the node that carries it (`* { .light > div }`,
+/// `@scope` and CSS Nesting: `* .light > div`), so `.light` has to be a node
+/// below that one. On the `.light` node itself the rule could never match it,
+/// whatever its class - which is why this test failed at its harness.
 #[test]
 fn r_classes_a_class_on_an_ancestor_resizes_the_nodes_below_it() {
-    let mut lw = window(page(
-        ".light > div { height: 20px; } .dark > div { height: 50px; }",
-        &["light"],
-        &["row"],
-    ));
+    let owner = Dom::create_div()
+        .with_ids_and_classes(classes(&["light"]))
+        .with_child(Dom::create_div().with_ids_and_classes(classes(&["row"])));
+    let mut lw = window(
+        Dom::create_body()
+            .with_css(".light > div { height: 20px; } .dark > div { height: 50px; }")
+            .with_child(owner),
+    );
     assert!(
         (rect(&lw, TARGET).size.height - 20.0).abs() < 0.01,
-        "harness: 20 tall first"
+        "harness: 20 tall first: {:?}",
+        rect(&lw, TARGET)
     );
     assert!(swap(&mut lw, OWNER, &["dark"]));
     relayout(&mut lw);

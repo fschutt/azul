@@ -160,6 +160,93 @@ fn is_bidi_white_space(item: &ShapedItem) -> bool {
         })
 }
 
+/// The order in which the pieces of a one-line text are seen from left to
+/// right: the bidi algorithm over the whole of `text` (in `direction`, else in
+/// the direction of its first strong letter, as `unicode-bidi: plaintext` /
+/// `dir="auto"`), each piece at the level of the character it starts with,
+/// and rule L2 over the pieces. `starts` are the pieces' byte offsets into
+/// `text`, ascending; the result indexes into `starts`. A piece that starts
+/// at the end of `text`, or at no character boundary, is at the paragraph's
+/// level.
+///
+/// A text set piece by piece - the words of a label along a curve, each
+/// placed on its own - lies in this order from the curve's start: the words
+/// of an Arabic name from the last to the first, the Arabic part of a Latin
+/// name reversed in its place, a number in an Arabic name where it is read.
+/// The same levels as the layout's ([`paragraph_bidi`],
+/// [`split_into_bidi_runs`]): each word lies where [`LogicalLine::into_visual`]
+/// puts its glyphs when the text is laid out as one line.
+#[must_use]
+pub fn visual_order_of_pieces(
+    text: &str,
+    starts: &[usize],
+    direction: Option<BidiDirection>,
+) -> Vec<usize> {
+    use std::sync::Arc;
+
+    use azul_core::selection::ContentIndex;
+
+    use super::{
+        paragraph_bidi, split_into_bidi_runs, LogicalItem, StyleProperties, UnicodeBidi,
+        UnifiedConstraints,
+    };
+
+    let as_written: Vec<usize> = (0..starts.len()).collect();
+    if text.is_empty() || starts.len() < 2 {
+        return as_written;
+    }
+    // Without a right-to-left letter, an Arabic number or a right-to-left
+    // embedding every level is even (outside a right-to-left paragraph): the
+    // pieces keep their order, without the bidi stages (most texts).
+    let right_to_left = |c: char| {
+        use unicode_bidi::{bidi_class, BidiClass};
+        matches!(
+            bidi_class(c),
+            BidiClass::R | BidiClass::AL | BidiClass::AN | BidiClass::RLE | BidiClass::RLO | BidiClass::RLI
+        )
+    };
+    if direction != Some(BidiDirection::Rtl) && !text.chars().any(right_to_left) {
+        return as_written;
+    }
+    // One logical item for the whole text: the bidi runs' byte offsets are
+    // then offsets into `text`.
+    let items = [LogicalItem::Text {
+        source: ContentIndex {
+            run_index: 0,
+            item_index: 0,
+        },
+        text: Arc::from(text),
+        style: Arc::new(StyleProperties::default()),
+        marker_position_outside: None,
+        source_node_id: None,
+    }];
+    let constraints = UnifiedConstraints {
+        direction,
+        unicode_bidi: if direction.is_some() {
+            UnicodeBidi::Normal
+        } else {
+            UnicodeBidi::Plaintext
+        },
+        ..UnifiedConstraints::default()
+    };
+    let (base, mode) = paragraph_bidi(&items, &constraints);
+    let Ok(runs) = split_into_bidi_runs(&items, base, mode, &mut None) else {
+        return as_written;
+    };
+    let paragraph = BidiLevel::paragraph(base).level();
+    let levels: Vec<u8> = starts
+        .iter()
+        .map(|&start| {
+            runs.iter()
+                .find(|run| {
+                    start >= run.run_byte_offset && start < run.run_byte_offset + run.text.len()
+                })
+                .map_or(paragraph, |run| run.bidi_level.level())
+        })
+        .collect();
+    visual_order(&levels)
+}
+
 /// The visual order rule L2 puts items at `levels` in, as indices into
 /// `levels`: from the highest level down to the lowest odd one, every run of
 /// items at that level or higher is reversed.
@@ -218,5 +305,78 @@ mod tests {
     fn a_left_to_right_line_keeps_its_order() {
         assert_eq!(visual_order(&[0, 0, 0]), [0, 1, 2]);
         assert_eq!(visual_order(&[]), Vec::<usize>::new());
+    }
+
+    /// The words of `words`, a space between two, in the order they are seen
+    /// from left to right on one line
+    fn words_left_to_right(words: &[&str], direction: Option<super::BidiDirection>) -> Vec<usize> {
+        let mut text = String::new();
+        let mut starts = Vec::new();
+        for (i, w) in words.iter().enumerate() {
+            if i > 0 {
+                text.push(' ');
+            }
+            starts.push(text.len());
+            text.push_str(w);
+        }
+        super::visual_order_of_pieces(&text, &starts, direction)
+    }
+
+    #[test]
+    fn the_words_of_a_name_written_right_to_left_are_seen_from_the_last() {
+        // an Arabic name: its words from the last to the first
+        assert_eq!(words_left_to_right(&["الطريق", "المداري", "الشمالي"], None), [2, 1, 0]);
+        // Hebrew
+        assert_eq!(words_left_to_right(&["תל", "אביב"], None), [1, 0]);
+        // a Latin name: as written
+        assert_eq!(words_left_to_right(&["Max-", "Eyth-", "Straße"], None), [0, 1, 2]);
+    }
+
+    #[test]
+    fn the_arabic_part_of_a_latin_name_is_reversed_in_its_place() {
+        assert_eq!(
+            words_left_to_right(&["Avenue", "Hassan", "II", "شارع", "الحسن", "الثاني"], None),
+            [0, 1, 2, 5, 4, 3]
+        );
+        // the pieces of "Casablanca-Agadir ... - أكادير" with the empty piece a
+        // hyphen leaves: it takes the level of the space at its place
+        assert_eq!(
+            words_left_to_right(
+                &["Autoroute", "Casablanca-", "Agadir", "طرق", "السيارات", "-", "", "أكادير"],
+                None
+            ),
+            [0, 1, 2, 7, 6, 5, 4, 3]
+        );
+    }
+
+    #[test]
+    fn a_name_that_starts_in_arabic_reads_right_to_left() {
+        // its Latin part on the left
+        assert_eq!(words_left_to_right(&["أكادير", "Agadir"], None), [1, 0]);
+        // a number in an Arabic name stays where it is read ("20 August Street")
+        assert_eq!(words_left_to_right(&["شارع", "20", "غشت"], None), [2, 1, 0]);
+        // a direction given: in a right-to-left paragraph a Latin part keeps
+        // its order and stands at the right, where the paragraph starts
+        assert_eq!(
+            words_left_to_right(&["Oued", "Sebou"], Some(super::BidiDirection::Rtl)),
+            [0, 1]
+        );
+        assert_eq!(
+            words_left_to_right(&["Oued", "Sebou", "وادي", "سبو"], Some(super::BidiDirection::Rtl)),
+            [3, 2, 0, 1]
+        );
+        assert_eq!(
+            words_left_to_right(&["أكادير", "Agadir"], Some(super::BidiDirection::Ltr)),
+            [0, 1]
+        );
+    }
+
+    #[test]
+    fn pieces_without_a_letter_keep_their_order() {
+        assert_eq!(super::visual_order_of_pieces("", &[0, 0], None), [0, 1]);
+        assert_eq!(super::visual_order_of_pieces("abc", &[0], None), [0]);
+        assert_eq!(super::visual_order_of_pieces("12 34", &[0, 3], None), [0, 1]);
+        // a piece past the end of the text is at the paragraph's level
+        assert_eq!(super::visual_order_of_pieces("ab", &[0, 5], None), [0, 1]);
     }
 }

@@ -759,6 +759,100 @@ impl FrameDamage {
     }
 }
 
+/// How long this window's frames take, for the app itself: what
+/// `CallbackInfo::get_frame_timings` answers ([`LayoutWindow::frame_timings`]).
+///
+/// An app that adapts its own work to the frame rate (a map that draws fewer
+/// tiles while frames are slow, a list that renders fewer rows) had no clock
+/// for it: the per-phase spans of `AZ_PROFILE` are for a profiler, not for the
+/// app. Microseconds of the monotonic clock; `0` where there is nothing to
+/// report yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(C)]
+pub struct FrameTimings {
+    /// The frames this window has presented, on every backend (CPU and GPU).
+    pub frame_count: u64,
+    /// The time between the last two presented frames: one over the frame
+    /// rate while frames follow each other (an animation, a drag); long after
+    /// an idle stretch. `0` before the second frame.
+    pub frame_interval_us: u64,
+    /// The work of the last presented frame, from the start of its first
+    /// layout pass to its presentation: layout, display list, painting and
+    /// the hand-off to the renderer (not the callbacks that asked for it).
+    /// `0` for a frame that needed no layout pass (a scroll, a repaint of
+    /// the same display list).
+    pub frame_work_us: u64,
+    /// The last layout pass alone: style, layout and display list.
+    pub layout_us: u64,
+}
+
+/// The clock behind [`FrameTimings`]: atomics, because a frame is presented
+/// by renderers that only borrow the window
+/// ([`LayoutWindow::note_frame_presented`]).
+///
+/// The instants are nanoseconds of `probe::monotonic_now_nanos` plus one, so
+/// that `0` can mean "none".
+#[derive(Debug, Default)]
+pub struct FrameClock {
+    frames: core::sync::atomic::AtomicU64,
+    /// The start of the work of the frame not yet presented.
+    work_started: core::sync::atomic::AtomicU64,
+    last_present: core::sync::atomic::AtomicU64,
+    interval_ns: core::sync::atomic::AtomicU64,
+    work_ns: core::sync::atomic::AtomicU64,
+    layout_ns: core::sync::atomic::AtomicU64,
+}
+
+impl FrameClock {
+    /// Work for the next frame starts at `now` (nanoseconds); the first
+    /// start since the last presented frame counts.
+    pub fn note_work(&self, now: u64) {
+        let _ = self.work_started.compare_exchange(
+            0,
+            now.saturating_add(1),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+    }
+
+    /// A layout pass took `nanos`.
+    pub fn note_layout(&self, nanos: u64) {
+        self.layout_ns.store(nanos, Ordering::Relaxed);
+    }
+
+    /// A frame was presented at `now` (nanoseconds).
+    pub fn note_present(&self, now: u64) {
+        self.frames.fetch_add(1, Ordering::Relaxed);
+        let stamp = now.saturating_add(1);
+        let previous = self.last_present.swap(stamp, Ordering::Relaxed);
+        if previous != 0 {
+            self.interval_ns
+                .store(stamp.saturating_sub(previous), Ordering::Relaxed);
+        }
+        let started = self.work_started.swap(0, Ordering::Relaxed);
+        self.work_ns.store(
+            if started == 0 {
+                0
+            } else {
+                stamp.saturating_sub(started)
+            },
+            Ordering::Relaxed,
+        );
+    }
+
+    /// What the clock measured so far.
+    #[must_use]
+    pub fn timings(&self) -> FrameTimings {
+        let us = |nanos: &core::sync::atomic::AtomicU64| nanos.load(Ordering::Relaxed) / 1_000;
+        FrameTimings {
+            frame_count: self.frames.load(Ordering::Relaxed),
+            frame_interval_us: us(&self.interval_ns),
+            frame_work_us: us(&self.work_ns),
+            layout_us: us(&self.layout_ns),
+        }
+    }
+}
+
 /// Per-frame observability record hung off [`LayoutWindow`].
 ///
 /// This is what makes damage + frame-work counters visible to an E2E assertion:
@@ -1295,6 +1389,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         window_occluded: _,
         root_display_list_gpu_fingerprint: _,
         presented_frames: _,
+        // Six atomics.
+        frame_clock: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -1902,6 +1998,9 @@ pub struct LayoutWindow {
     /// renderer only borrows the window. See
     /// [`Self::presented_frame_generation`].
     pub presented_frames: core::sync::atomic::AtomicU64,
+    /// When frames were presented and how long their work took
+    /// ([`Self::frame_timings`]).
+    pub frame_clock: FrameClock,
     /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
     /// consumed by the NEXT layout pass of that DOM: node -> worst
     /// `RelayoutScope` across its changed properties (including `None` =
@@ -2823,6 +2922,14 @@ impl LayoutWindow {
     pub fn note_frame_presented(&self) {
         self.presented_frames
             .fetch_add(1, Ordering::Relaxed);
+        self.frame_clock
+            .note_present(crate::probe::monotonic_now_nanos());
+    }
+
+    /// How long this window's frames take ([`FrameTimings`]).
+    #[must_use]
+    pub fn frame_timings(&self) -> FrameTimings {
+        self.frame_clock.timings()
     }
 
     /// Moves whenever this window presents a frame, on every backend: the
@@ -2844,6 +2951,8 @@ impl LayoutWindow {
         let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
         self.frame_report
             .record_frame_at_generation(generation, paint, present);
+        self.frame_clock
+            .note_present(crate::probe::monotonic_now_nanos());
     }
 
     /// Create a new layout window with empty caches.
@@ -2911,6 +3020,7 @@ impl LayoutWindow {
             window_occluded: false,
             root_display_list_gpu_fingerprint: None,
             presented_frames: core::sync::atomic::AtomicU64::new(0),
+            frame_clock: FrameClock::default(),
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -3219,6 +3329,34 @@ impl LayoutWindow {
     /// The one funnel behind both entry points; `new_generation` is the
     /// [`Self::layout_new_generation`] distinction.
     fn layout_and_generate_display_list_impl(
+        &mut self,
+        root_dom: StyledDom,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        new_generation: bool,
+    ) -> Result<(), solver3::LayoutError> {
+        // Timed for `frame_timings`: the pass, and the start of the frame's
+        // work if it is the frame's first.
+        let started = crate::probe::monotonic_now_nanos();
+        self.frame_clock.note_work(started);
+        let result = self.layout_and_generate_display_list_timed(
+            root_dom,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
+            new_generation,
+        );
+        self.frame_clock
+            .note_layout(crate::probe::monotonic_now_nanos().saturating_sub(started));
+        result
+    }
+
+    /// The body of [`Self::layout_and_generate_display_list_impl`], which
+    /// times it.
+    fn layout_and_generate_display_list_timed(
         &mut self,
         mut root_dom: StyledDom,
         window_state: &FullWindowState,
@@ -15058,6 +15196,58 @@ impl LayoutWindow {
             .and_then(|cursor| self.caret_text_node(block, cursor))
             .unwrap_or(enode);
         self.node_is_self_or_descendant(edom, caret_node, fnode)
+    }
+
+    /// The node under the pointer that a key event ALSO reaches, besides the
+    /// focused node it is aimed at - or `None`.
+    ///
+    /// `HoverEventFilter::VirtualKeyDown` / `VirtualKeyUp` promise a key "while
+    /// the element is hovered", but a key is aimed at the focused node (the
+    /// root when nothing has the focus), so a listener on a node that was only
+    /// hovered never ran: the map of an editor, which takes no focus, got none
+    /// of its tool keys. The dispatchers plan the hover listeners of a key
+    /// along both paths ([`azul_core::events::hover_callbacks_along_paths`]).
+    ///
+    /// Not while the focused node edits text (`contenteditable`, inherited, or
+    /// an `<input>` / `<textarea>`): typing into a field is the field's, and a
+    /// hovered node that took those keys too (and perhaps prevented their
+    /// default) would act on every letter typed. Only the primary seat's keys
+    /// (the mouse is its pointer), and only while the pointer is over a node
+    /// (the shells clear the hover hit test when it leaves the window).
+    #[must_use]
+    pub fn key_event_pointer_target(
+        &self,
+        event: &azul_core::events::SyntheticEvent,
+    ) -> Option<DomNodeId> {
+        use azul_core::events::EventType;
+        if !matches!(event.event_type, EventType::KeyDown | EventType::KeyUp) {
+            return None;
+        }
+        if crate::managers::hover::seat_of_event(event) != azul_core::window::PRIMARY_POINTER_SEAT {
+            return None;
+        }
+        if let Some(focused) = self.focus_manager.get_focused_node() {
+            if self.node_edits_text(*focused) {
+                return None;
+            }
+        }
+        self.hover_manager.current_hover_node_full()
+    }
+
+    /// Whether keys at `node` are typing: an editable node (or one inside
+    /// an editable), an `<input>` or a `<textarea>`.
+    fn node_edits_text(&self, node: DomNodeId) -> bool {
+        let Some(node_id) = node.node.into_crate_internal() else {
+            return false;
+        };
+        let is_field = self.layout_results.get(&node.dom).is_some_and(|lr| {
+            lr.styled_dom
+                .node_data
+                .as_container()
+                .get(node_id)
+                .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::Input | NodeType::TextArea))
+        });
+        is_field || self.is_node_contenteditable_inherited_internal(node.dom, node_id)
     }
 
     /// Collapse `dom_id`'s document selection for a plain (non-extending)
@@ -29379,6 +29569,8 @@ impl LayoutWindow {
             root_display_list_gpu_fingerprint: _,
             // A counter, keyed by nothing.
             presented_frames: _,
+            // Clock readings, keyed by nothing.
+            frame_clock: _,
             // The cached layout trees keep the ids of the DOM they were laid
             // out from: the next pass of the DOM reads them through the
             // diff's pairing (set below).
@@ -30508,6 +30700,35 @@ mod autotest_generated {
     /// `record_frame` against a report with no reset pending.
     fn record(r: &mut FrameReport, paint: FrameDamage, present: FrameDamage) {
         r.record_frame_at_generation(r.reset_generation, paint, present);
+    }
+
+    /// The frame clock: the interval between presented frames, the work of
+    /// a frame from its first layout pass to its presentation, and nothing
+    /// for a frame no layout started.
+    #[test]
+    fn frame_clock_times_the_work_of_a_frame_and_the_interval_between_frames() {
+        let clock = FrameClock::default();
+        assert_eq!(clock.timings(), FrameTimings::default(), "nothing yet");
+
+        // A frame whose work began at 1 ms (two layout passes, the first
+        // counts) and was presented at 5 ms.
+        clock.note_work(1_000_000);
+        clock.note_layout(2_000_000);
+        clock.note_work(3_000_000);
+        clock.note_present(5_000_000);
+        let first = clock.timings();
+        assert_eq!(first.frame_count, 1);
+        assert_eq!(first.frame_interval_us, 0, "no interval before a second frame");
+        assert_eq!(first.frame_work_us, 4_000);
+        assert_eq!(first.layout_us, 2_000);
+
+        // A repaint without a layout pass, 16 ms later.
+        clock.note_present(21_000_000);
+        let second = clock.timings();
+        assert_eq!(second.frame_count, 2);
+        assert_eq!(second.frame_interval_us, 16_000);
+        assert_eq!(second.frame_work_us, 0, "no layout started this frame");
+        assert_eq!(second.layout_us, 2_000, "the last layout pass stays");
     }
 
     #[test]

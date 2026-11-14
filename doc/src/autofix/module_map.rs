@@ -1077,6 +1077,12 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_layout::callbacks::") {
         return Some("callbacks".to_string());
     }
+    // A window's own records (`FrameTimings`, what `CallbackInfo::get_frame_timings`
+    // answers) are the window module's; by name alone they fell to a keyword's guess
+    // (`widgets`).
+    if path.starts_with("azul_layout::window::") {
+        return Some("window".to_string());
+    }
     // `RequestId` (the resumable-API handle) has no keyword of its own and
     // would otherwise fall to `misc`; every `azul_core::task::` type is a
     // timer / thread / request primitive of the `task` module.

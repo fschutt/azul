@@ -379,6 +379,11 @@ impl_option!(
 /// by the ratio of successive updates of one gesture - `scale / previous`,
 /// with `previous = 1.0` on the update that has `began` set - and never by an
 /// update's scale on its own.
+///
+/// `ended` marks the gesture's last update: the fingers lifted. Its `scale`
+/// is the gesture's final one (no step of its own), so a consumer that zooms
+/// by the ratio does nothing more there and can settle: snap to a zoom
+/// level, render at full quality. Without it an app could only debounce.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct DetectedPinch {
@@ -399,6 +404,39 @@ pub struct DetectedPinch {
     /// measured from 1.0 here, and a new gesture starts no matter what the
     /// last one ended at.
     pub began: bool,
+    /// This is the last update of its gesture (once per gesture, where the
+    /// source reports an end): the fingers lifted, or the OS cancelled the
+    /// gesture. `scale` repeats the last update's. A one-step gesture (a
+    /// Ctrl + wheel notch) has `began` and `ended` both.
+    pub ended: bool,
+}
+
+/// The zoom step of one notch of a Ctrl + wheel turned into a pinch
+/// (`AppConfig::synthesize_pinch_from_ctrl_wheel`): 10 %, the ratio browsers
+/// use for a zoom level.
+pub const CTRL_WHEEL_PINCH_STEP_PER_NOTCH: f32 = 0.1;
+
+impl DetectedPinch {
+    /// The pinch of `notches` of a Ctrl + wheel turn at `center`: a gesture of
+    /// one update (`began` and `ended`), `1 + 0.1 * notches` - more than 1
+    /// (zoom in) for a wheel turned away from the user, a scroll up. `None`
+    /// for no turn, or a turn that would scale by nothing or less.
+    #[must_use]
+    pub fn from_ctrl_wheel_notches(notches: f32, center: LogicalPosition) -> Option<Self> {
+        let scale = 1.0 + notches * CTRL_WHEEL_PINCH_STEP_PER_NOTCH;
+        if notches.abs() < f32::EPSILON || !scale.is_finite() || scale <= 0.0 {
+            return None;
+        }
+        Some(Self {
+            scale,
+            center,
+            initial_distance: PINCH_NOMINAL_DISTANCE,
+            current_distance: PINCH_NOMINAL_DISTANCE * scale,
+            duration_ms: 0,
+            began: true,
+            ended: true,
+        })
+    }
 }
 
 /// The phase of a trackpad gesture event, as the OS reports it (macOS
@@ -994,7 +1032,8 @@ impl GestureAndDragManager {
     /// starts a gesture at 1.0 (`began` set); `Changed` multiplies in
     /// `1 + magnification` (an update with no gesture open begins one; a
     /// delta that is not a finite growth factor changes nothing); `Ended`
-    /// ends the gesture and answers nothing.
+    /// ends the gesture and answers its last update again, `ended` set (or
+    /// nothing, with no gesture open).
     pub fn trackpad_magnify(
         &mut self,
         phase: TrackpadGesturePhase,
@@ -1003,8 +1042,16 @@ impl GestureAndDragManager {
     ) -> Option<DetectedPinch> {
         let (scale, began) = match phase {
             TrackpadGesturePhase::Ended => {
-                self.trackpad_pinch_scale = None;
-                return None;
+                let scale = self.trackpad_pinch_scale.take()?;
+                return Some(DetectedPinch {
+                    scale,
+                    center,
+                    initial_distance: PINCH_NOMINAL_DISTANCE,
+                    current_distance: PINCH_NOMINAL_DISTANCE * scale,
+                    duration_ms: 0,
+                    began: false,
+                    ended: true,
+                });
             }
             TrackpadGesturePhase::Began => (1.0, true),
             TrackpadGesturePhase::Changed => {
@@ -1030,6 +1077,7 @@ impl GestureAndDragManager {
             // A trackpad magnify carries no gesture clock.
             duration_ms: 0,
             began,
+            ended: false,
         })
     }
 
@@ -2189,8 +2237,50 @@ impl GestureAndDragManager {
         // is `ended` on button-up before the next begins), so without this guard a
         // stale ended session (e.g. a prior click on a button) pairs with the
         // current drag and is misread as a pinch — the map zooms on a plain click.
-        let (session1, session2) = self.active_touch_pair()?;
+        let Some((session1, session2)) = self.active_touch_pair() else {
+            return self.ended_touch_pinch();
+        };
+        let pinch = Self::touch_pinch_between(session1, session2)?;
 
+        // Check if scale change is significant (threshold from config)
+        let scale_threshold = 1.0 + self.config.pinch_scale_threshold;
+        if pinch.scale > 1.0 / scale_threshold && pinch.scale < scale_threshold {
+            return None; // Change too small
+        }
+
+        Some(DetectedPinch {
+            began: self.touch_pinch_pair != Some((session1.session_id, session2.session_id)),
+            ..pinch
+        })
+    }
+
+    /// The last update of a touch pinch: the pair it was reported for (by
+    /// [`Self::note_pinch_dispatched`]) has just lost a finger. Its scale
+    /// where the fingers were last, `ended` set - once: the pass's
+    /// `note_pinch_dispatched` forgets the pair.
+    fn ended_touch_pinch(&self) -> Option<DetectedPinch> {
+        let pair = self.touch_pinch_pair?;
+        let n = self.input_sessions.len();
+        if n < 2 {
+            return None;
+        }
+        let (a, b) = (&self.input_sessions[n - 2], &self.input_sessions[n - 1]);
+        if (a.session_id, b.session_id) != pair || !(a.ended || b.ended) {
+            return None;
+        }
+        Some(DetectedPinch {
+            ended: true,
+            ..Self::touch_pinch_between(a, b)?
+        })
+    }
+
+    /// The pinch between two touch sessions, measured from where they landed
+    /// to where they are (no threshold; neither `began` nor `ended`).
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    fn touch_pinch_between(
+        session1: &InputSession,
+        session2: &InputSession,
+    ) -> Option<DetectedPinch> {
         // Both must have samples
         let first1 = session1.first_sample()?;
         let first2 = session2.first_sample()?;
@@ -2215,12 +2305,6 @@ impl GestureAndDragManager {
         // Calculate scale factor
         let scale = current_distance / initial_distance;
 
-        // Check if scale change is significant (threshold from config)
-        let scale_threshold = 1.0 + self.config.pinch_scale_threshold;
-        if scale > 1.0 / scale_threshold && scale < scale_threshold {
-            return None; // Change too small
-        }
-
         // Calculate center point
         let center = LogicalPosition {
             x: f32::midpoint(last1.position.x, last2.position.x),
@@ -2237,7 +2321,8 @@ impl GestureAndDragManager {
             initial_distance,
             current_distance,
             duration_ms,
-            began: self.touch_pinch_pair != Some((session1.session_id, session2.session_id)),
+            began: false,
+            ended: false,
         })
     }
 
@@ -3085,9 +3170,22 @@ mod touch_session_tests {
         let c = pos(0.0, 0.0);
         let _ = m.trackpad_magnify(TrackpadGesturePhase::Began, 0.0, c);
         let _ = m.trackpad_magnify(TrackpadGesturePhase::Changed, 0.5, c);
-        assert!(m
+        // The lift is reported: the gesture's last scale again, `ended` set
+        // (the editor debounced its pinch for want of it).
+        let end = m
             .trackpad_magnify(TrackpadGesturePhase::Ended, 0.0, c)
-            .is_none());
+            .expect("the end of an open gesture is reported");
+        assert!(end.ended && !end.began, "{end:?}");
+        assert!(
+            (end.scale - 1.5).abs() < 1e-6,
+            "the end repeats the last scale: {}",
+            end.scale
+        );
+        assert!(
+            m.trackpad_magnify(TrackpadGesturePhase::Ended, 0.0, c)
+                .is_none(),
+            "an end with no gesture open reports nothing"
+        );
         let p = m
             .trackpad_magnify(TrackpadGesturePhase::Changed, 0.1, c)
             .expect("an update");
@@ -3134,6 +3232,66 @@ mod touch_session_tests {
         m.touch_down(4, pos(200.0, 300.0), ts(7), u, pos(200.0, 300.0));
         m.touch_move(4, pos(260.0, 300.0), ts(8), pos(260.0, 300.0));
         assert!(m.detect_pinch().expect("a new pinch").began);
+    }
+
+    /// A finger of a reported touch pinch lifts: one last update, `ended`,
+    /// at the scale the fingers had - and nothing after it.
+    #[test]
+    fn a_touch_pinch_reports_its_end_once_when_a_finger_lifts() {
+        let mut m = GestureAndDragManager::new();
+        let u = WindowPosition::Uninitialized;
+        m.touch_down(1, pos(100.0, 100.0), ts(0), u, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), u, pos(200.0, 100.0));
+        m.touch_move(2, pos(300.0, 100.0), ts(2), pos(300.0, 100.0));
+        let pinch = m.detect_pinch().expect("a pinch");
+        assert!(!pinch.ended);
+        m.note_pinch_dispatched();
+
+        m.touch_up(2, pos(300.0, 100.0), ts(3), pos(300.0, 100.0));
+        let end = m.detect_pinch().expect("the lift ends the pinch");
+        assert!(end.ended && !end.began, "{end:?}");
+        assert!(
+            (end.scale - pinch.scale).abs() < 1e-6,
+            "the end keeps the scale ({} vs {})",
+            end.scale,
+            pinch.scale
+        );
+        m.note_pinch_dispatched();
+        assert!(m.detect_pinch().is_none(), "the end is reported once");
+    }
+
+    /// Two touches that never pinched (under the threshold) end no pinch.
+    #[test]
+    fn a_pair_of_touches_that_never_pinched_reports_no_end() {
+        let mut m = GestureAndDragManager::new();
+        let u = WindowPosition::Uninitialized;
+        m.touch_down(1, pos(100.0, 100.0), ts(0), u, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), u, pos(200.0, 100.0));
+        m.touch_move(2, pos(201.0, 100.0), ts(2), pos(201.0, 100.0));
+        assert!(m.detect_pinch().is_none(), "premise: under the threshold");
+        m.note_pinch_dispatched();
+        m.touch_up(2, pos(201.0, 100.0), ts(3), pos(201.0, 100.0));
+        assert!(m.detect_pinch().is_none());
+    }
+
+    /// A Ctrl + wheel notch is a pinch of one update: 10 % a notch, `began`
+    /// and `ended` both.
+    #[test]
+    fn a_ctrl_wheel_notch_is_a_pinch_of_one_update() {
+        let c = pos(5.0, 6.0);
+        let up = DetectedPinch::from_ctrl_wheel_notches(1.0, c).expect("a notch");
+        assert!(up.began && up.ended, "{up:?}");
+        assert!((up.scale - 1.1).abs() < 1e-6);
+        assert!((up.current_distance / up.initial_distance - up.scale).abs() < 1e-6);
+        assert_eq!(up.center, c);
+        let down = DetectedPinch::from_ctrl_wheel_notches(-2.0, c).expect("two notches");
+        assert!((down.scale - 0.8).abs() < 1e-6);
+        for nothing in [0.0, -10.0, -20.0, f32::NAN, f32::INFINITY] {
+            assert!(
+                DetectedPinch::from_ctrl_wheel_notches(nothing, c).is_none(),
+                "{nothing} notches"
+            );
+        }
     }
 }
 
@@ -4432,6 +4590,7 @@ mod autotest_generated {
             current_distance: f32::NAN,
             duration_ms: 0,
             began: true,
+            ended: false,
         };
         m.inject_native_gesture(NativeGestureEvent::Pinch(pinch));
         let got = m.detect_pinch().expect("native pinch is passed through");

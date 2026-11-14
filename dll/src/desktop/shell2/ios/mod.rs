@@ -970,6 +970,7 @@ extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
                 current_distance: 0.0,
                 duration_ms: 0,
                 began,
+                ended: false,
             }),
         );
     }

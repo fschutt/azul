@@ -10398,6 +10398,34 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "FrameTimings": {
+                        "external": "azul_layout::window::FrameTimings",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "frame_count": {
+                                    "type": "u64"
+                                },
+                                "frame_interval_us": {
+                                    "type": "u64"
+                                },
+                                "frame_work_us": {
+                                    "type": "u64"
+                                },
+                                "layout_us": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -20908,6 +20936,66 @@
                                     }
                                 ],
                                 "fn_body": "object.keyring_store(key, secret, require_biometry)"
+                            },
+                            "get_frame_timings": {
+                                "doc": [
+                                    "How long this window's frames take: the frames presented so far, the",
+                                    "time between the last two, the work of the last one (layout to",
+                                    "presentation) and its layout pass alone, in microseconds.",
+                                    "",
+                                    "What an app that adapts its own work to the frame rate reads - a map",
+                                    "that draws fewer tiles while frames are slow - without a profiler."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameTimings"
+                                },
+                                "fn_body": "object.get_frame_timings()"
+                            },
+                            "get_scroll_momentum_phase": {
+                                "doc": [
+                                    "Where the delta of the current `Scroll` callback lies in the OS's",
+                                    "momentum after the fingers lifted (macOS `NSEvent.momentumPhase`):",
+                                    "`Began` and `Changed` for the deltas the fingers did not make, `Ended`",
+                                    "when the momentum ran out or a finger stopped it. `None` while the",
+                                    "fingers scroll, for a wheel step and outside a scroll dispatch."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScrollPhase"
+                                },
+                                "fn_body": "object.get_scroll_momentum_phase()"
+                            },
+                            "get_scroll_phase": {
+                                "doc": [
+                                    "Where the delta of the current `Scroll` callback lies in the fingers'",
+                                    "gesture: `Began` as the fingers start to scroll, `Changed` while they",
+                                    "move, `Ended` as they lift (usually a zero delta). `None` for a wheel",
+                                    "step, for a momentum delta (see [`Self::get_scroll_momentum_phase`]),",
+                                    "on a platform that reports no phase, and outside a scroll dispatch.",
+                                    "",
+                                    "What a widget that pans by the deltas starts and settles a pan at,",
+                                    "instead of guessing the end of a gesture from a pause in its deltas.",
+                                    "macOS reports it (`NSEvent.phase`); Wayland reports the end",
+                                    "(`axis_stop`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScrollPhase"
+                                },
+                                "fn_body": "object.get_scroll_phase()"
                             }
                         },
                         "repr": "C"
@@ -39091,6 +39179,29 @@
                             {
                                 "All": {},
                                 "SameType": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollPhase": {
+                        "external": "azul_core::events::ScrollPhase",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Began": {},
+                                "Changed": {},
+                                "Ended": {}
                             }
                         ],
                         "repr": "C"
@@ -199897,6 +200008,9 @@
                                     "type": "f32"
                                 },
                                 "began": {
+                                    "type": "bool"
+                                },
+                                "ended": {
                                     "type": "bool"
                                 }
                             }
