@@ -38,9 +38,9 @@ pub use crate::error::{ChainError, ClockError, EntropyError};
 use crate::ids::{ChainSeq, DeviceId, Epoch, KeyId, SpaceId};
 
 #[cfg(any(test, feature = "test-support"))]
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-#[cfg(any(test, feature = "test-support"))]
 use std::collections::BTreeMap;
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 // ---------------------------------------------------------------------------------------------
 // Time: UnixTime and Span (whole seconds, checked arithmetic, no raw numbers in an API)
@@ -324,8 +324,17 @@ where
     }
 }
 
+/// What a [`ManualClock`] reads and whether it fails.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Debug)]
+struct ClockState {
+    secs: u64,
+    failing: bool,
+}
+
 /// A clock a test sets by hand: `set`, `advance`, `jump_back` and `fail`. It takes `&self` (the
-/// code under test holds it as a `&dyn Clock` while the test moves it), so it is built of atomics.
+/// code under test holds it as a `&dyn Clock` while the test moves it), so its state is behind a
+/// mutex.
 ///
 /// Under the feature `test-support`.
 ///
@@ -333,8 +342,7 @@ where
 #[cfg(any(test, feature = "test-support"))]
 #[derive(Debug)]
 pub struct ManualClock {
-    secs: AtomicU64,
-    failing: AtomicBool,
+    state: Mutex<ClockState>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -342,56 +350,56 @@ impl ManualClock {
     /// A clock that reads `at`.
     pub fn new(at: UnixTime) -> ManualClock {
         ManualClock {
-            secs: AtomicU64::new(at.0),
-            failing: AtomicBool::new(false),
+            state: Mutex::new(ClockState {
+                secs: at.0,
+                failing: false,
+            }),
         }
+    }
+
+    /// The state. A poisoned lock (a test that panicked while holding it) still holds its data.
+    fn state(&self) -> MutexGuard<'_, ClockState> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Sets the time.
     pub fn set(&self, at: UnixTime) {
-        self.secs.store(at.0, Ordering::SeqCst);
+        self.state().secs = at.0;
     }
 
     /// Moves the clock forward by `by` and returns the new time; `None` (and no change) when that
     /// would overflow.
     pub fn advance(&self, by: Span) -> Option<UnixTime> {
-        match self
-            .secs
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |now| {
-                now.checked_add(by.0)
-            }) {
-            Ok(before) => before.checked_add(by.0).map(UnixTime),
-            Err(_) => None,
-        }
+        let mut state = self.state();
+        let next = state.secs.checked_add(by.0)?;
+        state.secs = next;
+        Some(UnixTime(next))
     }
 
     /// Moves the clock back by `by` (a jump of the real clock) and returns the new time; `None`
     /// (and no change) when that would be before the epoch.
     pub fn jump_back(&self, by: Span) -> Option<UnixTime> {
-        match self
-            .secs
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |now| {
-                now.checked_sub(by.0)
-            }) {
-            Ok(before) => before.checked_sub(by.0).map(UnixTime),
-            Err(_) => None,
-        }
+        let mut state = self.state();
+        let next = state.secs.checked_sub(by.0)?;
+        state.secs = next;
+        Some(UnixTime(next))
     }
 
     /// While `failing` is true the clock cannot be read: `now` answers
     /// [`ClockError::Unreadable`].
     pub fn fail(&self, failing: bool) {
-        self.failing.store(failing, Ordering::SeqCst);
+        self.state().failing = failing;
     }
 }
 
 #[cfg(any(test, feature = "test-support"))]
 impl Clock for ManualClock {
     fn now(&self) -> Result<UnixTime, ClockError> {
-        if self.failing.load(Ordering::SeqCst) {
+        let state = self.state();
+        if state.failing {
             Err(ClockError::Unreadable)
         } else {
-            Ok(UnixTime(self.secs.load(Ordering::SeqCst)))
+            Ok(UnixTime(state.secs))
         }
     }
 }
