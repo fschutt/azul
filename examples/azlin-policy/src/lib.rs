@@ -14,7 +14,7 @@
 //! | `Policy::defaults` | the table's column for a kind | [`defaults`] |
 //! | `PolicyPatch`, `apply` | what `policy_set` carries, and putting it on a policy | [`patch`] |
 //! | `Tighter`, `check_tightens`, `clamp`, `Loosened` | "groups may only tighten": the order of each field | [`tighten`] |
-//! | `effective`, `next_epoch` | the policy of a group down a tree; the epoch of a change | [`effective`] |
+//! | `effective`, `next_epoch` | the policy of a group down a tree; the epoch of a change | [`effective`](mod@effective) |
 //! | `QuorumClass`, `required_people`, `Signatory`, `distinct_people`, `quorum_met` | the quorum counts distinct people | [`quorum`] |
 //! | `LinkPolicy`, `AudienceSet`, `LINK_OPTION_NAMES` | the `link_policy` row and the link options | [`link_policy`] |
 //!

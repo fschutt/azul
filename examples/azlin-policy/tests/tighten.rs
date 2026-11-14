@@ -112,6 +112,37 @@ fn change_is_refused<V: Copy>(
     );
 }
 
+/// A field of the account only has no value that is tighter than the parent's: the only child a
+/// group may have is one with the parent's own value (accepted, and the clamp keeps it), and every
+/// other value of the field, whichever way, is refused naming this field alone.
+fn only_the_parents_value_is_accepted<V: Copy + PartialEq + Debug>(
+    field: Field,
+    set: impl Fn(&mut Policy, V),
+    all: &[V],
+) {
+    for parent_value in all {
+        for child_value in all {
+            let mut parent = base();
+            set(&mut parent, *parent_value);
+            let mut child = parent.clone();
+            set(&mut child, *child_value);
+            let result = check_tightens(&parent, &child);
+            if parent_value == child_value {
+                assert_eq!(
+                    result,
+                    Ok(()),
+                    "{field}: the parent's own value is accepted"
+                );
+                assert_eq!(clamp(&parent, &child), child);
+            } else {
+                let refused = result.expect_err("another value is refused");
+                let fields: Vec<Field> = refused.iter().map(|l| l.field).collect();
+                assert_eq!(fields, vec![field], "{parent_value:?} -> {child_value:?}");
+            }
+        }
+    }
+}
+
 /// The two tests of a field that a group may tighten.
 macro_rules! tightenable {
     ($loosen:ident, $tighten:ident, $field:expr, $set:expr,
@@ -352,15 +383,22 @@ tightenable!(
 
 /// The two tests of a field of the account only.
 macro_rules! account_only {
-    ($loosen:ident, $tighten:ident, $field:expr, $set:expr,
+    ($loosen:ident, $tighten:ident, $other_way:ident, $field:expr, $set:expr, $all:expr,
      $from:expr => $from_text:expr, $to:expr => $to_text:expr) => {
         #[test]
         fn $loosen() {
             change_is_refused($field, $set, $from, $to, $from_text, $to_text);
         }
 
+        // There is no tighter value for a field of the account only: the tightest child a group
+        // can have is the parent's own value, which is accepted; every other value is refused.
         #[test]
         fn $tighten() {
+            only_the_parents_value_is_accepted($field, $set, $all);
+        }
+
+        #[test]
+        fn $other_way() {
             change_is_refused($field, $set, $to, $from, $to_text, $from_text);
         }
     };
@@ -368,28 +406,53 @@ macro_rules! account_only {
 
 account_only!(
     child_that_loosens_managed_default_is_refused_naming_field_parent_child,
-    child_that_tightens_managed_default_is_refused_a_group_may_not_change_it,
+    child_that_tightens_managed_default_is_accepted,
+    child_that_changes_managed_default_the_other_way_is_refused,
     Field::ManagedDefault,
     |p: &mut Policy, v| p.managed_default = v,
+    ManagedDefault::ALL,
     ManagedDefault::No => "no",
     ManagedDefault::Yes => "yes"
 );
 account_only!(
     child_that_loosens_updates_is_refused_naming_field_parent_child,
-    child_that_tightens_updates_is_refused_a_group_may_not_change_it,
+    child_that_tightens_updates_is_accepted,
+    child_that_changes_updates_the_other_way_is_refused,
     Field::Updates,
     |p: &mut Policy, v| p.updates = v,
+    UpdatePolicy::ALL,
     UpdatePolicy::Auto => "auto",
     UpdatePolicy::ManagedByMdm => "managed_by_mdm"
 );
 account_only!(
     child_that_loosens_padding_is_refused_naming_field_parent_child,
-    child_that_tightens_padding_is_refused_a_group_may_not_change_it,
+    child_that_tightens_padding_is_accepted,
+    child_that_changes_padding_the_other_way_is_refused,
     Field::Padding,
     |p: &mut Policy, v| p.padding = v,
+    PaddingPolicy::ALL,
     PaddingPolicy::Buckets => "buckets",
     PaddingPolicy::Full => "full"
 );
+
+#[test]
+fn audit_level_is_tighter_the_more_it_records() {
+    // 5.10: none, admin, access_summary, access_full, in this order of tightness: a child may keep
+    // or raise the level and never lower it, for every pair of levels.
+    for (i, parent_level) in AuditLevel::ALL.iter().enumerate() {
+        for (j, child_level) in AuditLevel::ALL.iter().enumerate() {
+            let mut parent = base();
+            parent.audit_level = *parent_level;
+            let mut child = parent.clone();
+            child.audit_level = *child_level;
+            assert_eq!(
+                check_tightens(&parent, &child).is_ok(),
+                j >= i,
+                "{parent_level} -> {child_level}"
+            );
+        }
+    }
+}
 
 #[test]
 fn equal_child_is_accepted() {

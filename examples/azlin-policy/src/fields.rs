@@ -264,7 +264,7 @@ impl RequestPolicy {
 
 /// The account policy: one field for every row of the table of planning/architecture.md section
 /// 5.10. `Policy::defaults(kind)` is the table's column for a kind; [`apply`](crate::apply) puts a
-/// `policy_set` patch on it; [`effective`](crate::effective) computes the policy of a group down a
+/// `policy_set` patch on it; [`effective`](crate::effective()) computes the policy of a group down a
 /// tree (a group inherits and may only tighten); [`required_people`](crate::required_people) and
 /// [`quorum_met`](crate::quorum_met) read `admin_quorum`.
 ///
