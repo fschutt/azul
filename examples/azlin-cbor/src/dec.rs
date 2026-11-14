@@ -189,8 +189,7 @@ impl<'a> Reader<'a, '_> {
         if n > u64::from(self.l.max_items) || n > self.items_left() {
             return Err(DecodeError::TooManyItems);
         }
-        let cap = usize::try_from(n).map_or(self.rest.len(), |n| n.min(self.rest.len()));
-        let mut items = Vec::with_capacity(cap);
+        let mut items = Vec::with_capacity(reserve(n, self.rest.len()));
         for _ in 0..n {
             items.push(self.item(inner)?);
         }
@@ -207,8 +206,7 @@ impl<'a> Reader<'a, '_> {
             return Err(DecodeError::TooManyItems);
         }
         // Every pair takes at least two bytes.
-        let cap = usize::try_from(n).map_or(self.rest.len() / 2, |n| n.min(self.rest.len() / 2));
-        let mut entries: Vec<(Value, Value)> = Vec::with_capacity(cap);
+        let mut entries: Vec<(Value, Value)> = Vec::with_capacity(reserve(n, self.rest.len() / 2));
         let mut previous: Option<&'a [u8]> = None;
         for _ in 0..n {
             let before = self.rest;
@@ -233,6 +231,14 @@ impl<'a> Reader<'a, '_> {
     }
 }
 
+/// How many items to make room for: the claim `n`, but never more than `room`, the most items the
+/// input that is left can still hold (every item takes at least one byte, every map pair two). A
+/// claim of 2^32 items in a 10-byte input makes room for at most 10: no allocation follows a
+/// number the input has not paid for (planning/architecture.md section 1.4 rule 4).
+fn reserve(claim: u64, room: usize) -> usize {
+    usize::try_from(claim).map_or(room, |n| n.min(room))
+}
+
 /// An item of major type 7 with additional information `ai`: `false`, `true` and `null` are in the
 /// profile; the break is reserved; floats, `undefined` and the other simple values are not.
 fn simple(ai: u8) -> Result<Value, DecodeError> {
@@ -242,5 +248,22 @@ fn simple(ai: u8) -> Result<Value, DecodeError> {
         22 => Ok(Value::Null),
         31 => Err(DecodeError::ReservedBreak),
         _ => Err(DecodeError::DisallowedType),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reserve;
+
+    #[test]
+    fn c8_reservation_never_exceeds_the_input_that_is_left() {
+        // The claim of a hostile head, whatever it is, makes room for what the input can hold.
+        assert_eq!(reserve(u64::MAX, 10), 10);
+        assert_eq!(reserve(u64::from(u32::MAX), 9), 9);
+        assert_eq!(reserve(1 << 40, 0), 0);
+        // An honest claim gets exactly its room.
+        assert_eq!(reserve(3, 10), 3);
+        assert_eq!(reserve(10, 10), 10);
+        assert_eq!(reserve(0, 10), 0);
     }
 }

@@ -7,7 +7,7 @@ pub mod fuzz_entry;
 
 use std::path::PathBuf;
 
-use azlin_cbor::Value;
+use azlin_cbor::{Limits, Map, Value};
 
 /// SplitMix64: the seeded generator of every property test (no `rand`). A failing case prints its
 /// seed and index, and `SplitMix64::new(seed)` replays it.
@@ -297,4 +297,138 @@ pub fn parse_vectors(text: &str) -> Vec<Vector> {
     p.ws();
     assert_eq!(p.i, p.s.len(), "vector file: text after the array");
     rows
+}
+
+/// Limits that refuse nothing a test builds: the decoder still reserves nothing for a claim.
+pub const BIG: Limits = Limits {
+    max_input: u32::MAX,
+    max_depth: 255,
+    max_items: u32::MAX,
+    max_total_items: u32::MAX,
+    max_text: u32::MAX,
+};
+
+/// Unsigned integers: the width boundaries, small numbers and every bit length.
+pub fn gen_uint(rng: &mut SplitMix64) -> u64 {
+    const EDGES: [u64; 12] = [
+        23,
+        24,
+        25,
+        255,
+        256,
+        257,
+        65535,
+        65536,
+        65537,
+        u32::MAX as u64,
+        u32::MAX as u64 + 1,
+        u64::MAX,
+    ];
+    match rng.below(6) {
+        0 => rng.below(30),
+        1 => EDGES[rng.below(EDGES.len() as u64) as usize],
+        2 => rng.below(1 << 16),
+        3 => rng.below(1 << 32),
+        _ => rng.next_u64(),
+    }
+}
+
+/// Short strings from a small pool, so keys often share long prefixes (and `\u{0}`, two-byte,
+/// three-byte and four-byte characters occur).
+pub fn gen_text(rng: &mut SplitMix64) -> String {
+    const POOL: [&str; 8] = [
+        "a",
+        "b",
+        "aa",
+        "ab",
+        "\u{e9}",
+        "\u{6c34}",
+        "\u{1f600}",
+        "\u{0}",
+    ];
+    let n = if rng.chance(30) {
+        rng.below(40)
+    } else {
+        rng.below(6)
+    };
+    (0..n)
+        .map(|_| POOL[rng.below(POOL.len() as u64) as usize])
+        .collect()
+}
+
+pub fn gen_bytes(rng: &mut SplitMix64) -> Vec<u8> {
+    let n = if rng.chance(8) {
+        rng.below(300)
+    } else {
+        rng.below(12)
+    };
+    rng.bytes(n as usize)
+}
+
+fn gen_len(rng: &mut SplitMix64) -> u64 {
+    if rng.chance(20) {
+        rng.below(40)
+    } else {
+        rng.below(5)
+    }
+}
+
+/// A random value with at most `depth` levels of arrays and maps below it. Maps are built through
+/// `Map::from_entries` from distinct keys in a random order.
+pub fn gen_value(rng: &mut SplitMix64, depth: u32) -> Value {
+    let kinds = if depth == 0 { 6 } else { 8 };
+    match rng.below(kinds) {
+        0 => Value::Uint(gen_uint(rng)),
+        1 => Value::Nint(gen_uint(rng)),
+        2 => Value::Bytes(gen_bytes(rng)),
+        3 => Value::Text(gen_text(rng)),
+        4 => Value::Bool(rng.chance(2)),
+        5 => Value::Null,
+        6 => {
+            let n = gen_len(rng);
+            Value::Array((0..n).map(|_| gen_value(rng, depth - 1)).collect())
+        }
+        _ => {
+            let n = gen_len(rng);
+            let mut entries: Vec<(Value, Value)> = Vec::new();
+            for _ in 0..n {
+                let key = gen_value(rng, (depth - 1).min(1));
+                if entries.iter().any(|(k, _)| *k == key) {
+                    continue;
+                }
+                entries.push((key, gen_value(rng, depth - 1)));
+            }
+            Value::Map(Map::from_entries(entries).expect("the keys are distinct"))
+        }
+    }
+}
+
+/// One random change of `bytes`: a bit flip, a deleted byte, an inserted byte, a replaced byte or
+/// a cut.
+pub fn mutate(rng: &mut SplitMix64, bytes: &[u8]) -> Vec<u8> {
+    let mut b = bytes.to_vec();
+    let kind = rng.below(5);
+    if b.is_empty() && kind != 2 {
+        return b;
+    }
+    match kind {
+        0 => {
+            let i = rng.below(b.len() as u64) as usize;
+            b[i] ^= 1 << rng.below(8);
+        }
+        1 => {
+            let i = rng.below(b.len() as u64) as usize;
+            b.remove(i);
+        }
+        2 => {
+            let i = rng.below(b.len() as u64 + 1) as usize;
+            b.insert(i, rng.next_u64().to_le_bytes()[0]);
+        }
+        3 => {
+            let i = rng.below(b.len() as u64) as usize;
+            b[i] = rng.next_u64().to_le_bytes()[0];
+        }
+        _ => b.truncate(rng.below(b.len() as u64 + 1) as usize),
+    }
+    b
 }
