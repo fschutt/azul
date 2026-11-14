@@ -6,7 +6,10 @@
 //! to the recipient's encapsulation key; the two shared secrets and every public value feed ONE
 //! combiner (`combiner::combine`), which gives the AEAD key. The draws are, in this order: the
 //! 32-byte ephemeral X25519 secret, the 32-byte ML-KEM message `m` (`encapsulate_deterministic`:
-//! the randomness comes from the seam, so a seeded run replays), then the 24-byte nonce.
+//! the randomness comes from the seam, so a seeded run replays), then the 24-byte nonce. The
+//! `ml-kem` crate calls that interface unsafe because the encapsulation is only secure when `m`
+//! is uniformly random: here `m` is a draw from the entropy seam and nothing else (never derived,
+//! never reused: check C9).
 //!
 //! ML-KEM is the crate `ml-kem` behind the feature `pq` (NOT a default feature until the owner
 //! has reviewed it: ARCH29 9.13 decision 3). Without the feature `wrap_hybrid` and the open of an

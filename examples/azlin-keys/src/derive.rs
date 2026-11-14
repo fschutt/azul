@@ -169,7 +169,7 @@ pub fn derive(ctx: &Context, key: &Secret<32>) -> Secret<32> {
 /// The 32 bytes BLAKE3 `derive_key` gives for public `material` under `ctx`: an id or a check
 /// value, never a key. A derivation from secret material is fine as long as the output is a
 /// one-way commitment that is meant to be published (a key id); a derivation whose output is used
-/// as a key is [`derive`].
+/// as a key is [`derive()`].
 ///
 /// Caller: `KeyId::of_bundle`, S15c1 (`SpaceKey::key_id`, `GroupKey::id`), S15e (the binding key
 /// id), S15d (`check_value`).

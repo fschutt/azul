@@ -724,6 +724,55 @@ fn c12_algs_3_to_7_decode_with_their_params_and_open_is_unsupported_here() {
     assert!(check_shape(&env.to_cbor().expect("bytes")).is_ok());
 }
 
+/// A Shamir share wrapped to a contact is sealed like algorithm 1 or 2 (W1-S15d's reading), so an
+/// envelope of algorithm 5 may carry an ephemeral key, and with it a KEM ciphertext; a KEM
+/// ciphertext without its ephemeral key is no envelope.
+#[test]
+fn c12_alg5_may_carry_the_ephemeral_key_and_the_kem_ciphertext_of_a_sealed_share() {
+    let f = Fixture::new(12);
+    let key = Secret::<32>::from_bytes(pat32(0xee));
+    let seal = |epk: Option<[u8; 32]>, kem_ct: Option<Vec<u8>>| {
+        let header = Header {
+            epk,
+            kem_ct,
+            ..keyed_header(&f, Alg::Shamir)
+        };
+        let mut ent = SeededEntropy::from_u64(5);
+        seal_with_key(&header, &key, b"a share", &f.signer, &mut ent)
+    };
+    assert!(seal(None, None).is_ok());
+    let sealed_box = seal(Some(pat32(1)), None).expect("an ephemeral key");
+    let hybrid = seal(Some(pat32(1)), Some(vec![0u8; KEM_CT_LEN])).expect("both");
+    for env in [&sealed_box, &hybrid] {
+        let bytes = env.to_cbor().expect("bytes");
+        assert_eq!(check_shape(&bytes).map(|m| m.alg), Ok(Alg::Shamir));
+        assert_eq!(&Envelope::from_cbor(&bytes).expect("reads"), env);
+        assert_eq!(verify_signature(env, &f.dir, VerifyAt::Now), Ok(()));
+    }
+    let envelope = |e: EnvelopeError| Some(WrapError::Envelope(e));
+    assert_eq!(
+        seal(None, Some(vec![0u8; KEM_CT_LEN])).err(),
+        envelope(EnvelopeError::FieldRequired(4))
+    );
+    assert_eq!(
+        seal(Some(pat32(1)), Some(vec![0u8; 5])).err(),
+        envelope(EnvelopeError::Shape(ShapeError::WrongLength(5)))
+    );
+    // Algorithms 3 and 4 still forbid both.
+    for alg in [Alg::Argon2id, Alg::Prf] {
+        let header = Header {
+            epk: Some(pat32(1)),
+            ..keyed_header(&f, alg)
+        };
+        let mut ent = SeededEntropy::from_u64(6);
+        assert_eq!(
+            seal_with_key(&header, &key, b"x", &f.signer, &mut ent).err(),
+            envelope(EnvelopeError::FieldForbidden(4)),
+            "{alg:?}"
+        );
+    }
+}
+
 #[test]
 fn c12_the_field_rules_are_data_and_say_what_the_brief_says() {
     use Presence::{Forbidden, Optional, Required};
@@ -732,7 +781,7 @@ fn c12_the_field_rules_are_data_and_say_what_the_brief_says() {
         (Alg::X25519MlKem768, Required, Required, ParamsKind::None),
         (Alg::Argon2id, Forbidden, Forbidden, ParamsKind::Argon2id),
         (Alg::Prf, Forbidden, Forbidden, ParamsKind::Prf),
-        (Alg::Shamir, Forbidden, Forbidden, ParamsKind::Shamir),
+        (Alg::Shamir, Optional, Optional, ParamsKind::Shamir),
         (Alg::Attested, Optional, Forbidden, ParamsKind::Attested),
         (Alg::Threshold, Required, Forbidden, ParamsKind::Threshold),
     ];

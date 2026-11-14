@@ -316,6 +316,92 @@ mod fuzz {
         }
     }
 
+    /// The text parser of `Ctx` on one string: never a panic, and a text it accepts is the one
+    /// canonical text of its value (rebuilt from its parts with the typed constructors).
+    fn ctx_text_entry(text: &str) {
+        use azlin_keys::envelope::{Ctx, CtxKind};
+        use azlin_keys::{AccountId, GroupId, MemberId, SpaceId};
+
+        if let Ok(ctx) = Ctx::parse(text) {
+            assert_eq!(ctx.as_str(), text);
+            let id = *ctx.id_bytes();
+            let epoch = ctx.epoch();
+            let rebuilt = match (ctx.kind(), epoch, ctx.method()) {
+                (CtxKind::Space, Some(e), None) => Ctx::space_epoch(&SpaceId::from_bytes(id), e),
+                (CtxKind::Group, Some(e), None) => Ctx::group_epoch(&GroupId::from_bytes(id), e),
+                (CtxKind::Member, None, None) => Ctx::member_key(&MemberId::from_bytes(id)),
+                (CtxKind::Chain, Some(e), None) => Ctx::chain(&SpaceId::from_bytes(id), e),
+                (CtxKind::Seal, Some(e), None) => Ctx::seal(&AccountId::from_bytes(id), e),
+                (CtxKind::Escrow, None, None) => Ctx::escrow(&MemberId::from_bytes(id)),
+                (CtxKind::Recovery, None, Some(m)) => Ctx::recovery(&MemberId::from_bytes(id), m),
+                other => panic!("{text}: an accepted context with the parts {other:?}"),
+            };
+            assert_eq!(rebuilt.as_str(), text, "a second spelling of one value");
+            assert_eq!(rebuilt, ctx);
+        }
+    }
+
+    /// `Ctx::parse` on 20,000 random strings over the characters of the grammar and those next to
+    /// it, and on 15,000 valid contexts with one to three edits: never a panic, and every accepted
+    /// text is the canonical text of its value.
+    #[test]
+    fn c15_the_ctx_parser_never_panics_and_accepts_only_canonical_text() {
+        use azlin_keys::envelope::Ctx;
+        use azlin_keys::{AccountId, Epoch, GroupId, MemberId, SpaceId};
+
+        const ALPHABET: &[u8] = b"abcdef0123456789/spacegroupmberchinslwotyk-+._ \n\0";
+        let mut rng = SplitMix64::new(0xC17);
+        ctx_text_entry("");
+        for _ in 0..20_000 {
+            let len = rng.below(140) as usize;
+            let text: String = (0..len)
+                .map(|_| char::from(ALPHABET[rng.below(ALPHABET.len() as u64) as usize]))
+                .collect();
+            ctx_text_entry(&text);
+        }
+        let mut accepted = 0;
+        for _ in 0..15_000 {
+            let mut id = [0u8; 16];
+            id.copy_from_slice(&rng.bytes(16));
+            let epoch = Epoch::new(1 + rng.below(u64::from(u32::MAX)) as u32).expect("nonzero");
+            let valid = match rng.below(4) {
+                0 => Ctx::space_epoch(&SpaceId::from_bytes(id), epoch),
+                1 => Ctx::group_epoch(&GroupId::from_bytes(id), epoch),
+                2 => Ctx::seal(&AccountId::from_bytes(id), epoch),
+                _ => Ctx::member_key(&MemberId::from_bytes(id)),
+            };
+            ctx_text_entry(valid.as_str());
+            assert!(Ctx::parse(valid.as_str()).is_ok());
+            let mut bytes = valid.as_str().as_bytes().to_vec();
+            for _ in 0..1 + rng.below(3) {
+                let len = bytes.len() as u64;
+                match rng.below(4) {
+                    0 if len > 0 => {
+                        let i = rng.below(len) as usize;
+                        bytes[i] = ALPHABET[rng.below(ALPHABET.len() as u64) as usize];
+                    }
+                    1 => {
+                        let i = rng.below(len + 1) as usize;
+                        bytes.insert(i, ALPHABET[rng.below(ALPHABET.len() as u64) as usize]);
+                    }
+                    2 if len > 0 => {
+                        let i = rng.below(len) as usize;
+                        bytes.remove(i);
+                    }
+                    _ => bytes.push(ALPHABET[rng.below(ALPHABET.len() as u64) as usize]),
+                }
+            }
+            let text = String::from_utf8(bytes).expect("the alphabet is ASCII");
+            if Ctx::parse(&text).is_ok() {
+                accepted += 1;
+            }
+            ctx_text_entry(&text);
+        }
+        // The oracle is not vacuous: some edits leave a text that is still a context (a digit
+        // swapped for a digit), most do not.
+        assert!(accepted > 100, "only {accepted} edited texts were accepted");
+    }
+
     /// The key exchange and the AEAD on garbage that carries a valid signature: the fields of a
     /// real envelope replaced by random bytes, the envelope signed again by the legitimate
     /// device, and opened by the recipient it names. Nothing panics; nothing but the unchanged

@@ -82,6 +82,7 @@ fn c1_alg1_roundtrip_for_every_size() {
 #[test]
 fn c1_alg2_roundtrip_for_every_size() {
     let f = Fixture::new(2);
+    assert_eq!(f.me.pq_public().map(<[u8]>::len), Some(PQ_KEY_LEN));
     for (i, &size) in SIZES.iter().enumerate() {
         let plaintext = plaintext_of(size);
         let mut ent = SeededEntropy::from_u64(2000 + i as u64);
@@ -116,6 +117,51 @@ fn c1_alg2_roundtrip_for_every_size() {
             plaintext.as_slice()
         );
     }
+}
+
+/// The plaintext limit is exact: a wrap at `MAX_PLAINTEXT` survives the wire and opens, one byte
+/// more is refused before any draw, and the node's limit refuses the biggest wrap as a stored wrap.
+#[test]
+fn c1_the_plaintext_limit_is_exact_and_the_biggest_wrap_survives_the_wire() {
+    let f = Fixture::new(1);
+    let plaintext = vec![0x5au8; MAX_PLAINTEXT];
+    let mut ent = SeededEntropy::from_u64(1);
+    let env = wrap_x25519(
+        &f.me.recipient_x25519(),
+        &f.ctx,
+        &plaintext,
+        &f.device,
+        &f.signer,
+        &mut ent,
+    )
+    .expect("a wrap at the limit");
+    assert_eq!(env.ct.len(), MAX_PLAINTEXT + TAG_LEN);
+    let bytes = env.to_cbor().expect("the bytes of the biggest wrap");
+    let again = Envelope::from_cbor(&bytes).expect("the reader accepts the biggest wrap");
+    assert_eq!(again, env);
+    assert_eq!(
+        f.open(&again).expect("opens").as_slice(),
+        plaintext.as_slice()
+    );
+    assert_eq!(
+        azlin_keys::envelope::check_shape(&bytes).err(),
+        Some(azlin_keys::envelope::EnvelopeError::TooLarge)
+    );
+    let mut ent = SeededEntropy::from_u64(2);
+    let too_big = vec![0u8; MAX_PLAINTEXT + 1];
+    assert_eq!(
+        wrap_x25519(
+            &f.me.recipient_x25519(),
+            &f.ctx,
+            &too_big,
+            &f.device,
+            &f.signer,
+            &mut ent
+        )
+        .err(),
+        Some(WrapError::PlaintextTooLarge)
+    );
+    assert_eq!(ent.drawn(), 0, "refused before any draw");
 }
 
 /// Without the feature `pq` algorithm 2 is `Unsupported`, before any entropy is drawn, and an

@@ -136,7 +136,7 @@ pub enum ParamsKind {
 /// `params`. `v`, `alg`, `rcpt`, `nonce`, `ct`, `ctx`, `signer` and `sig` are required for every
 /// algorithm.
 ///
-/// Caller: [`rules`], the shape checks of `wire.rs`, the data test `c6_*`/`c12_*`.
+/// Caller: [`rules`], the shape checks of `wire.rs`, the data tests `c6` and `c12`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FieldRules {
     /// The ephemeral public key (32 bytes).
@@ -149,12 +149,15 @@ pub struct FieldRules {
 }
 
 /// The field rules of `alg` (the brief's PER-ALG FIELD RULES). Algorithm 1: `epk` required,
-/// `kem_ct` forbidden. Algorithm 2: both required. Algorithms 3 to 5: `epk` and `kem_ct`
-/// forbidden, `params` required. Algorithm 6: `params {evidence, policy}`, `epk` optional.
-/// Algorithm 7: `params {k, n, holder}`, `epk` required (it carries the Ristretto point of the
-/// hashed ElGamal wrap, S17f's reading). `kem_ct` is forbidden for algorithms 3 to 7.
+/// `kem_ct` forbidden. Algorithm 2: both required. Algorithms 3 and 4: `epk` and `kem_ct`
+/// forbidden, `params` required. Algorithm 5: `params {x, k, n, split_id}` required, `epk` and
+/// `kem_ct` OPTIONAL (a share wrapped to a contact is sealed like algorithm 1 or 2: W1-S15d's
+/// reading; a `kem_ct` needs its `epk`). Algorithm 6: `params {evidence, policy}`, `epk`
+/// optional. Algorithm 7: `params {k, n, holder}`, `epk` required (it carries the Ristretto point
+/// of the hashed ElGamal wrap, S17f's reading). `kem_ct` is forbidden for algorithms 6 and 7.
 ///
-/// DRIFT X-DELTA-W1S15B-11: the brief gives no `epk` rule for algorithms 6 and 7; this is the
+/// DRIFT X-DELTA-W1S15B-11: the brief gives no `epk` rule for algorithms 6 and 7 and forbids
+/// `epk` and `kem_ct` for algorithm 5, which W1-S15d's sealed shares contradict; this is the
 /// one place to change it.
 ///
 /// Caller: `Envelope::from_cbor`, `Envelope::to_cbor`, `check_shape`, `open`, INT-PLAN-TABLES.
@@ -181,8 +184,8 @@ pub const fn rules(alg: Alg) -> FieldRules {
             params: ParamsKind::Prf,
         },
         Alg::Shamir => FieldRules {
-            epk: Presence::Forbidden,
-            kem_ct: Presence::Forbidden,
+            epk: Presence::Optional,
+            kem_ct: Presence::Optional,
             params: ParamsKind::Shamir,
         },
         Alg::Attested => FieldRules {

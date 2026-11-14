@@ -512,6 +512,43 @@ fn c5_each_signature_failure_is_its_own_error() {
     );
 }
 
+/// The signer is looked up at a position of the team log or a space chain as well as now and at a
+/// time ("valid at the log position of the write"): the key is valid from its position `added`
+/// (inclusive) until `removed` (exclusive).
+#[test]
+fn c5_the_signer_is_looked_up_at_a_chain_position_too() {
+    use azlin_keys::ChainSeq;
+
+    let f = Fixture::new(5);
+    let env = f.wrap1(b"a space key", 55);
+    let mut dir = MapDirectory::new();
+    let mut entry = DirectoryEntry::active(f.signer.verify_key());
+    entry.added_seq = ChainSeq::new(10);
+    entry.removed_seq = Some(ChainSeq::new(20));
+    dir.insert(f.device, entry);
+    let at = |n: u64| VerifyAt::ChainSeq(ChainSeq::new(n));
+    assert_eq!(verify_signature(&env, &dir, at(10)), Ok(()));
+    assert_eq!(verify_signature(&env, &dir, at(19)), Ok(()));
+    assert_eq!(
+        verify_signature(&env, &dir, at(9)),
+        Err(EnvelopeError::SignerNotYetActive)
+    );
+    assert_eq!(
+        verify_signature(&env, &dir, at(20)),
+        Err(EnvelopeError::SignerRevoked)
+    );
+    assert_eq!(
+        open(&env, &f.me, &f.ctx, &dir, at(20)).err(),
+        Some(OpenError::SignerRevoked)
+    );
+    assert_eq!(
+        open(&env, &f.me, &f.ctx, &dir, at(15))
+            .expect("opens")
+            .as_slice(),
+        b"a space key"
+    );
+}
+
 /// The signature covers the ciphertext: two envelopes with an identical header (the same
 /// entropy, so the same ephemeral key and nonce) and different plaintexts; the ciphertext of one
 /// put into the other is refused. A signature over the header alone would accept it.

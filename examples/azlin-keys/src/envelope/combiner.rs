@@ -22,11 +22,11 @@
 //! The contexts are entries of the registry in `derive.rs` (`ENVELOPE_ALG1_KEY`,
 //! `ENVELOPE_ALG2_KEY`), which differ from every string of the old azul-storage keys.
 //!
-//! DRIFT X-DELTA-W1S15A-7: the BLAKE3 hasher that sees the shared secrets is not wiped until the
-//! dependency commit sets blake3's `zeroize` feature (the one place to add the wipe is [`kdf`]);
-//! the key itself lives only in the returned `Secret`.
+//! The BLAKE3 hasher that sees the shared secrets, and the hash that is the key, are wiped as
+//! soon as the key sits in its `Secret` (DRIFT X-DELTA-W1S15A-7: DEP-2 set blake3's `zeroize`
+//! feature for azlin-keys; `kdf` is the one place the secrets are hashed).
 
-use zeroize::Zeroizing;
+use zeroize::Zeroize;
 
 use crate::derive::{Context, ENVELOPE_ALG1_KEY, ENVELOPE_ALG2_KEY};
 use crate::secret::Secret;
@@ -92,13 +92,16 @@ pub fn alg1_key(input: &Alg1Input<'_>) -> Secret<32> {
     kdf(&ENVELOPE_ALG1_KEY, &parts)
 }
 
-/// BLAKE3 `derive_key` over the concatenation of `parts` under `context`; the output is wiped
-/// except for the `Secret` it ends in.
+/// BLAKE3 `derive_key` over the concatenation of `parts` under `context`. The hasher (it has seen
+/// the shared secrets) and the hash are wiped; the key lives on only in the `Secret` returned.
 fn kdf(context: &Context, parts: &[&[u8]]) -> Secret<32> {
     let mut hasher = blake3::Hasher::new_derive_key(context.as_str());
     for part in parts {
         hasher.update(part);
     }
-    let key = Zeroizing::new(*hasher.finalize().as_bytes());
-    Secret::from_bytes(*key)
+    let mut hash = hasher.finalize();
+    let key = Secret::from_bytes(*hash.as_bytes());
+    hasher.zeroize();
+    hash.zeroize();
+    key
 }

@@ -10,8 +10,8 @@
 //! | 1 | `v` | 2 |
 //! | 2 | `alg` | 1 to 7 |
 //! | 3 | `rcpt` | 32 bytes: BLAKE3 of the recipient's public keys (`KeyId::of_bundle`) |
-//! | 4 | `epk` | 32 bytes: the ephemeral public key (algorithms 1, 2, 7; 6 optionally) |
-//! | 5 | `kem_ct` | 1,088 bytes: the ML-KEM-768 ciphertext (algorithm 2) |
+//! | 4 | `epk` | 32 bytes: the ephemeral public key (algorithms 1, 2, 7; 5 and 6 optionally) |
+//! | 5 | `kem_ct` | 1,088 bytes: the ML-KEM-768 ciphertext (algorithm 2; 5 optionally) |
 //! | 6 | `nonce` | 24 bytes |
 //! | 7 | `ct` | the XChaCha20-Poly1305 ciphertext and its 16-byte tag |
 //! | 8 | `ctx` | text: what is wrapped |
@@ -403,9 +403,9 @@ pub struct Envelope {
     pub alg: Alg,
     /// The id of the recipient's public keys (`KeyId::of_bundle`).
     pub rcpt: KeyId,
-    /// The ephemeral public key (algorithms 1, 2 and 7; optional for 6).
+    /// The ephemeral public key (algorithms 1, 2 and 7; optional for 5 and 6).
     pub epk: Option<[u8; 32]>,
-    /// The ML-KEM-768 ciphertext, 1,088 bytes (algorithm 2).
+    /// The ML-KEM-768 ciphertext, 1,088 bytes (algorithm 2; optional for 5).
     pub kem_ct: Option<Vec<u8>>,
     /// The XChaCha20-Poly1305 nonce, drawn from the entropy seam.
     pub nonce: [u8; 24],
@@ -514,6 +514,10 @@ impl HeaderRef<'_> {
         let rule = rules(self.alg);
         presence(rule.epk, field::EPK, self.epk.is_some())?;
         presence(rule.kem_ct, field::KEM_CT, self.kem_ct.is_some())?;
+        // A KEM ciphertext belongs to a hybrid, which has the ephemeral X25519 key too.
+        if self.kem_ct.is_some() && self.epk.is_none() {
+            return Err(EnvelopeError::FieldRequired(field::EPK));
+        }
         if let Some(kem_ct) = self.kem_ct {
             if kem_ct.len() != KEM_CT_LEN {
                 return Err(EnvelopeError::Shape(ShapeError::WrongLength(field::KEM_CT)));

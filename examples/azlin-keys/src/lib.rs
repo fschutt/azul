@@ -12,7 +12,7 @@
 //! | [`ids`] | `AccountId`, `MemberId`, `DeviceId`, `SpaceId`, `GroupId`, `KeyId`, `Epoch`, `ChainSeq` | S15a |
 //! | [`secret`] | `Secret<N>`: no copy, no print, wiped on drop | S15a |
 //! | [`seam`] | `Entropy`, `Clock`, `UnixTime`, `Span`, `SpaceChainView`, `Commitment`; the test doubles | S15a |
-//! | [`derive`] | the registry of every BLAKE3 `derive_key` context, `derive`, `derive_public` | S15a |
+//! | [`mod@derive`] | the registry of every BLAKE3 `derive_key` context, `derive`, `derive_public` | S15a |
 //! | [`sign`] | `signing_input`, `sign`, `verify`, `Domain`, `DeviceDirectory`, `VerifyAt`, `MapDirectory` | S15a |
 //! | [`error`] | the typed errors of the modules above | S15a |
 //! | `envelope`, `member`, `group`, `space`, `epoch`, `reg_wrap`, `rekey`, `recovery`, `binding` | stubs: `//! owned by lane W1-S15x` | S15b to S15e |
