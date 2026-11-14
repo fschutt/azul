@@ -15,6 +15,7 @@ mod fields;
 mod hostile;
 mod issuer_probe;
 mod prop;
+mod refresh_tests;
 mod round_trip;
 mod scope_tests;
 mod support;

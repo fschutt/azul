@@ -11,6 +11,7 @@
 //! | [`credential`] | [`Credential`], [`VerifiedCredential`], `verify_credential` |
 //! | [`assertion`] | [`Assertion`], [`VerifiedAssertion`], `verify_assertion`: the member assertion services verify |
 //! | [`entitlement`] | [`EntitlementClaims`], [`SignedEntitlement`], `sign_entitlement`, `verify_entitlement` |
+//! | [`refresh`] | [`RefreshRequest`] and [`RefreshAnswerWire`]: the frames of a refresh (a token or a key proof; a grant or a refusal) |
 //! | [`scopes`] | [`Scopes`]: what a credential may do at most (only narrows) |
 //! | [`signer`] | [`Signer`], the seam of the key holder; [`SeedSigner`] |
 //! | [`verify`] | [`VerifierNow`], [`ClockTrust`], [`VerifyRules`]: who judges time (D-12) |
@@ -55,6 +56,7 @@ pub mod credential;
 pub mod entitlement;
 pub mod error;
 pub mod issuer;
+pub mod refresh;
 pub mod scopes;
 pub mod signer;
 pub mod verify;
@@ -81,6 +83,10 @@ pub use error::{
     ProbeFailure, WireError,
 };
 pub use issuer::{AssertionIssuer, CredentialIssuer};
+pub use refresh::{
+    FamilyToken, RefreshAnswerWire, RefreshProof, RefreshRequest, RefreshSubject, CREDENTIAL_MAX,
+    MAX_NOTICES,
+};
 pub use scopes::{
     AppPerms, AppScope, LinkRef, LogRef, RequestRef, Scope, ScopedOp, Scopes, ScopesError,
     MAX_SCOPES,
