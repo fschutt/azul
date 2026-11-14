@@ -89,6 +89,15 @@ fn c10_secrets_are_wiped_and_never_printed() {
             "83, 69, 67, 82, 69, 84, 85".to_string(),
         ),
         ("the file's BLAKE3".to_string(), to_hex(&p.blake3)),
+        (
+            "the file's BLAKE3 as bytes".to_string(),
+            p.blake3
+                .iter()
+                .take(6)
+                .map(|b| b.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
     ];
     let mut outputs: Vec<(String, String)> = vec![
         ("{:?} of the pointer".to_string(), format!("{p:?}")),

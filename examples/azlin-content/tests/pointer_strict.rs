@@ -463,6 +463,23 @@ fn c12_declared_size_reasonableness() {
             )
         );
     }
+    // With a transform `size` is not what the chunks add up to (the transformed length is), and it is
+    // bounded all the same: above 2^50 refused on both sides, 2^50 itself a pointer.
+    for size in [(1u64 << 50) + 1, u64::MAX] {
+        let mut p = full();
+        p.size = FileSize::new(size);
+        assert_eq!(
+            both(&p),
+            (
+                Some(PointerError::SizeTooLarge),
+                Some(PointerError::SizeTooLarge)
+            ),
+            "size {size} with a transform"
+        );
+    }
+    let mut p = full();
+    p.size = FileSize::new(1 << 50);
+    assert_eq!(both(&p), (None, None), "2^50 with a transform");
     // 2^50 itself is not too large; it does not add up to one chunk.
     let mut p = minimal_one_chunk();
     p.size = FileSize::new(1 << 50);

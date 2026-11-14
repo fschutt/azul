@@ -640,6 +640,11 @@ impl fmt::Debug for PointerV2 {
 /// one): `Decoded::Current(p)` gives a `Box<PointerV2>`, which dereferences to the pointer (`*p` moves
 /// it out).
 ///
+/// A reader that decides what is LIVE from the chunks a pointer names (the prune of S14e2) must take a
+/// `Newer` pointer, like any pointer it cannot read, as "cannot tell" and delete nothing: this build
+/// knows nothing of what that pointer names (a writer's field that names chunks is listed in `crit`,
+/// so a minor version of the format is refused here instead of being read without it).
+///
 /// Caller: INT-S14-1 and INT-S14-2 (every read of a pointer).
 #[derive(Debug)]
 pub enum Decoded {

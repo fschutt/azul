@@ -646,11 +646,69 @@ impl PointerV2 {
             crit,
         };
         pointer.validate()?;
-        // The signature covers canonical bytes: what was accepted must write back to what was read.
-        let again = pointer.to_cbor()?;
-        if again.as_slice() != bytes {
-            return Err(PointerError::NotCanonical);
-        }
+        written_back(&pointer, bytes)?;
         Ok(Decoded::Current(Box::new(pointer)))
+    }
+}
+
+/// The safety net behind the signature rule: a pointer that was read must WRITE BACK to exactly the
+/// bytes it was read from, so the signature, which covers canonical bytes, is a signature over what was
+/// received. Every rule of the reader already makes this true (shortest forms, sorted keys, one form for
+/// an empty list, the unknown fields and `crit` kept); this refuses a pointer for which it is not, so a
+/// field added to the format and forgotten by the writer can never be accepted and then verified over
+/// bytes other than the ones that arrived (DRIFT X-DELTA-W1S14D-10). No input reaches the refusal today:
+/// the unit test below holds the comparison itself.
+fn written_back(pointer: &PointerV2, bytes: &[u8]) -> Result<(), PointerError> {
+    let again = pointer.to_cbor()?;
+    if again.as_slice() != bytes {
+        return Err(PointerError::NotCanonical);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The smallest pointer: an empty file.
+    fn minimal() -> PointerV2 {
+        PointerV2 {
+            size: FileSize::ZERO,
+            mtime: FileTime::UNIX_EPOCH,
+            mode: 0o644,
+            blake3: [0x10; 32],
+            transform: None,
+            chunks: ChunkList::Inline(Vec::new()),
+            author_device: DeviceId::from_bytes([0xA1; 16]),
+            sig: None,
+            previews: Vec::new(),
+            streams: Vec::new(),
+            xattrs: Vec::new(),
+            labels: Vec::new(),
+            derived: Vec::new(),
+            created_at: UnixTime::from_secs(1),
+            unknown: UnknownFields::none(),
+            crit: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn c6_the_reader_refuses_a_pointer_that_does_not_write_back_to_its_bytes() {
+        let p = minimal();
+        let bytes = p.to_cbor().expect("a valid pointer writes");
+        // The bytes the pointer writes are accepted.
+        assert_eq!(written_back(&p, &bytes), Ok(()));
+        // Any other bytes are not: one byte changed, one byte less, one byte more, nothing at all.
+        let mut changed = bytes.to_vec();
+        changed[3] ^= 1;
+        assert_eq!(written_back(&p, &changed), Err(PointerError::NotCanonical));
+        assert_eq!(
+            written_back(&p, &bytes[..bytes.len() - 1]),
+            Err(PointerError::NotCanonical)
+        );
+        let mut longer = bytes.to_vec();
+        longer.push(0);
+        assert_eq!(written_back(&p, &longer), Err(PointerError::NotCanonical));
+        assert_eq!(written_back(&p, &[]), Err(PointerError::NotCanonical));
     }
 }
