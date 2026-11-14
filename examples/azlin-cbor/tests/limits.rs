@@ -188,6 +188,34 @@ fn c8_a_claimed_count_is_refused_before_it_is_believed() {
             "map of {claim}"
         );
     }
+    // A claim that cannot fit the item budget is refused before its items are read: a map's pairs
+    // are two items each, so 2^32 - 1 pairs are more than any budget ...
+    let mut map = vec![0xba, 0xff, 0xff, 0xff, 0xff];
+    map.extend_from_slice(&[0x00, 0x00, 0x01, 0x00, 0x02, 0x00]);
+    assert_eq!(decode(&map, &BIG), Err(DecodeError::TooManyItems));
+    // ... and so are 8 pairs (16 items) under a budget of 10, with one pair present, and 10 array
+    // elements under the same budget (the array itself is the first item), with one present.
+    let tight = Limits {
+        max_total_items: 10,
+        ..Limits::OBJECT
+    };
+    assert_eq!(
+        decode(&from_hex("a80000"), &tight),
+        Err(DecodeError::TooManyItems)
+    );
+    assert_eq!(
+        decode(&from_hex("8a00"), &tight),
+        Err(DecodeError::TooManyItems)
+    );
+    // The claims that do fit are read, and the input that is cut short is `Truncated`.
+    assert_eq!(
+        decode(&from_hex("a40000"), &tight),
+        Err(DecodeError::Truncated)
+    );
+    assert_eq!(
+        decode(&from_hex("8900"), &tight),
+        Err(DecodeError::Truncated)
+    );
     // Eight-byte lengths.
     for hex in [
         "9bffffffffffffffff",
