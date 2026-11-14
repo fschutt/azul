@@ -8,6 +8,7 @@ use azlin_seams::{hash32, AccountKind, Hash32};
 use super::kit::{device, hash, key, member};
 use super::signed::{dkeys, invite_op, join_op, universe, SignedKit};
 use crate::admit::{Invalid, Refusal};
+use crate::devices::DeviceState;
 use crate::hash::entry_hash;
 use crate::invite::{invite_hash, INVITE_HASH_DOMAIN};
 use crate::members::MemberState;
@@ -240,4 +241,59 @@ fn the_invite_hash_is_a_domain_separated_hash_of_the_secret() {
     assert_ne!(invite_hash(&secret), Hash32::from_bytes([7; 32]));
     assert_ne!(invite_hash(&secret), hash(7));
     assert_eq!(INVITE_HASH_DOMAIN, "azlin-teamlog-invite-v1");
+}
+
+// ---- the decisions the first mutant round showed unguarded -----------------------------------------
+
+#[test]
+fn an_invitation_of_a_member_who_is_no_longer_invited_opens_nothing() {
+    let kit = invited();
+    assert_eq!(kit.verdict(&join_by(&kit, 2, 2, &[1])), Ok(()));
+    // The state machine clears the invitation when a member joins or is removed; a state in which it is
+    // still there (a damaged snapshot) opens nothing either.
+    for state in [
+        MemberState::Active,
+        MemberState::Suspended,
+        MemberState::Removed,
+        MemberState::Pending,
+    ] {
+        let mut other = kit.clone();
+        other
+            .state
+            .members
+            .get_mut(&member(2))
+            .expect("a member")
+            .state = state;
+        assert_eq!(
+            other.verdict(&join_by(&other, 2, 2, &[1])),
+            Err(Refusal::InviteInvalid),
+            "{state:?}"
+        );
+    }
+}
+
+#[test]
+fn an_inviters_device_in_its_hold_does_not_confirm_a_join() {
+    let mut kit = SignedKit::new(AccountKind::Team);
+    kit.enrol(3, Role::Admin, &[], None);
+    // The owner enrols a second device for admin 3: the quorum path, so it starts in its hold.
+    kit.must(
+        1,
+        Op::DeviceAdd {
+            member: member(3),
+            device: device(70),
+            keys: dkeys(70),
+        },
+    );
+    assert!(matches!(
+        kit.state.device(&device(70)).expect("a device").state,
+        DeviceState::Pending { .. }
+    ));
+    kit.must(3, invite_op(4, &[]));
+    // The device in its hold confirms nothing; an Active device of the inviter does.
+    assert_eq!(
+        kit.verdict(&join_by(&kit, 4, 4, &[70])),
+        Err(Refusal::InviteInvalid)
+    );
+    assert_eq!(kit.verdict(&join_by(&kit, 4, 4, &[3])), Ok(()));
 }

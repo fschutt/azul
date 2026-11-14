@@ -7,7 +7,7 @@ use azlin_chain::{ChainRefusal, RefusalClass};
 use azlin_policy::{AdminQuorum, PolicyPatch};
 use azlin_seams::{AccountKind, ByteCount, ChainSeq, Span};
 
-use super::kit::{account, at, device, group, hash, member};
+use super::kit::{account, at, device, group, hash, key, member};
 use super::signed::{dkeys, invite_op, join_op, sign_with, universe, SignedKit};
 use crate::admit::{admit, Invalid, PolicyReason, Refusal};
 use crate::devices::DeviceState;
@@ -18,7 +18,9 @@ use crate::ops::{
 };
 use crate::proposal::{AssertionVerdict, Signer};
 use crate::roles::Role;
-use crate::state::{MAX_ESCROW_HOLDERS, MAX_GROUP_DEPTH};
+use crate::state::{
+    MAX_ESCROW_HOLDERS, MAX_GROUPS_PER_MEMBER, MAX_GROUP_DEPTH, MAX_PENDING_ESCROW_OPENS,
+};
 use crate::verify::verify_signatures;
 
 fn team() -> SignedKit {
@@ -2006,4 +2008,418 @@ fn admit_returns_the_witness_of_the_entry_it_admitted() {
     assert_eq!(admitted.hash(), entry.hash);
     assert_eq!(admitted.stamp(), kit.stamp());
     assert_eq!(admitted.op(), &entry.op);
+}
+
+// ---- the decisions the first mutant round showed unguarded -----------------------------------------
+//
+// Each test below turns one surviving hand mutant red (the mutant round of lane W1-S17c: 153 exact-text
+// mutants, 15 of which survived the first 462 tests).
+
+#[test]
+fn verify_signatures_alone_refuses_an_entry_of_another_account() {
+    let kit = team();
+    let mut foreign = kit.entry_by(1, &[], notes());
+    foreign.account = azlin_seams::AccountId::from_bytes([0x44; 16]);
+    // Everything else about it is in order: the copy is intact and its signature holds.
+    assert!(foreign.is_intact());
+    let proposal = verify_signatures(
+        &kit.state,
+        &foreign,
+        &azlin_seams::FakeScheme,
+        &super::signed::trusted(),
+    );
+    assert_eq!(
+        proposal.err(),
+        Some(Refusal::Chain(ChainRefusal::WrongChain))
+    );
+}
+
+#[test]
+fn a_delegate_keys_signature_must_verify() {
+    let mut kit = team();
+    kit.must(
+        1,
+        Op::Delegate {
+            key: key(40),
+            ops: [OpName::MemberInvite].into_iter().collect(),
+            expires: None,
+        },
+    );
+    let mut entry = kit.entry(
+        SignedKit::delegate_signer(40),
+        invite_op(70, &[]),
+        &[],
+        Vec::new(),
+        None,
+    );
+    assert_eq!(kit.verdict(&entry), Ok(()));
+    // The signature of another key is no signature of the delegate key; nor is a flipped bit of its own.
+    let right = entry.sig.clone();
+    entry.sig = sign_with([41; 32], &entry.preimage);
+    assert_eq!(kit.verdict(&entry), Err(Refusal::BadSignature));
+    entry.sig = right;
+    entry.sig[0] ^= 0x01;
+    assert_eq!(kit.verdict(&entry), Err(Refusal::BadSignature));
+}
+
+#[test]
+fn the_payments_key_signs_an_entitlement_and_nothing_else() {
+    // It creates no account: a genesis it signs is refused.
+    let empty = SignedKit::empty(AccountKind::Team);
+    let genesis = Op::Genesis {
+        owner: member(1),
+        device: device(1),
+        member_keys: dkeys(101),
+        device_keys: dkeys(1),
+    };
+    let created = empty.entry(Signer::PaymentsKey, genesis, &[], Vec::new(), None);
+    assert_eq!(
+        why(empty.verdict(&created)),
+        Refusal::RoleMaySignNo {
+            op: OpName::Genesis,
+            role: None
+        }
+    );
+    // It joins nobody: no role signs a join, and the role gate never sees it.
+    let mut kit = team();
+    kit.must(1, invite_op(2, &[]));
+    let join = kit.entry(Signer::PaymentsKey, join_op(2, 2), &[1], Vec::new(), None);
+    assert_eq!(
+        why(kit.verdict(&join)),
+        Refusal::RoleMaySignNo {
+            op: OpName::MemberJoin,
+            role: None
+        }
+    );
+    // And it signs no other op.
+    for op in [
+        notes(),
+        Op::MemberSuspend { member: member(1) },
+        Op::GroupCreate {
+            group: group(9),
+            parent: None,
+        },
+        Op::AuditKeySet { audit_pub: [4; 32] },
+    ] {
+        let name = op.name();
+        let entry = kit.entry(Signer::PaymentsKey, op, &[], Vec::new(), None);
+        assert_eq!(
+            why(kit.verdict(&entry)),
+            Refusal::RoleMaySignNo {
+                op: name,
+                role: None
+            }
+        );
+    }
+}
+
+#[test]
+fn an_app_principal_signs_until_the_second_before_its_expiry_and_not_at_it() {
+    let mut kit = team();
+    let mut scopes = std::collections::BTreeSet::new();
+    scopes.insert(AppName::new("notes").expect("valid"));
+    let expires = at(kit.stamp().as_secs() + 1_000);
+    kit.must(
+        1,
+        Op::MemberInvite {
+            member: member(5),
+            kind: azlin_seams::MemberKind::App,
+            role: Role::Member,
+            invite_hash: crate::invite::invite_hash(&crate::ops::InviteSecret([5; 32])),
+            groups: Default::default(),
+            app: Some(crate::members::AppSpec {
+                scopes,
+                expires_at: Some(expires),
+            }),
+        },
+    );
+    let join = kit.entry(
+        Signer::Device(device(5)),
+        join_op(5, 5),
+        &[1],
+        Vec::new(),
+        None,
+    );
+    kit.push(join).expect("the app principal joins");
+    // One second before its `expires_at` it signs; at it, it is over.
+    kit.advance(expires.as_secs() - kit.stamp().as_secs() - 1);
+    assert_eq!(kit.stamp().as_secs() + 1, expires.as_secs());
+    assert_eq!(kit.verdict(&kit.entry_by(5, &[], notes())), Ok(()));
+    kit.advance(1);
+    assert_eq!(kit.stamp(), expires);
+    assert_eq!(
+        kit.verdict(&kit.entry_by(5, &[], notes())),
+        Err(Refusal::Invalid(Invalid::AppExpired))
+    );
+}
+
+#[test]
+fn a_proposal_is_checked_against_the_device_key_of_the_state_that_admits_it() {
+    let mut kit = team();
+    kit.enrol(2, Role::Member, &[], None);
+    let entry = kit.entry_by(2, &[], notes());
+    let proposal = verify_signatures(
+        &kit.state,
+        &entry,
+        &azlin_seams::FakeScheme,
+        &super::signed::trusted(),
+    )
+    .expect("the signatures hold");
+    assert!(admit(&kit.state, &proposal, kit.stamp()).is_ok());
+    // Another state of the same log in which device 2 has another key: the signature that verified is
+    // not a signature of that device.
+    let mut other = kit.clone();
+    other
+        .state
+        .devices
+        .get_mut(&device(2))
+        .expect("a device")
+        .keys
+        .sign = [77; 32];
+    assert_eq!(
+        admit(&other.state, &proposal, other.stamp()).err(),
+        Some(Refusal::BadSignature)
+    );
+}
+
+#[test]
+fn device_add_is_for_an_active_member_only() {
+    let mut kit = team();
+    kit.enrol(2, Role::Member, &[], None);
+    kit.enrol(3, Role::Member, &[], None);
+    kit.enrol(5, Role::Member, &[], None);
+    kit.must(1, Op::MemberSuspend { member: member(2) });
+    kit.must(1, Op::MemberRemove { member: member(3) });
+    kit.must(1, invite_op(4, &[]));
+    let add = |n: u8| Op::DeviceAdd {
+        member: member(n),
+        device: device(70),
+        keys: dkeys(70),
+    };
+    for (n, state) in [
+        (2u8, MemberState::Suspended),
+        (3, MemberState::Removed),
+        (4, MemberState::Invited),
+    ] {
+        assert_eq!(
+            kit.verdict(&kit.entry_by(1, &[], add(n))),
+            Err(Refusal::Invalid(Invalid::WrongMemberState(state))),
+            "member {n}"
+        );
+    }
+    assert_eq!(kit.verdict(&kit.entry_by(1, &[], add(5))), Ok(()));
+}
+
+#[test]
+fn a_scoped_role_needs_a_scope_group_and_the_others_have_none() {
+    let kit = universe();
+    let role_op = |role: Role, scope: Option<u8>| Op::MemberRole {
+        member: member(40),
+        role,
+        admin_scope: scope.map(group),
+    };
+    for role in [Role::GroupAdmin, Role::Helpdesk] {
+        assert_eq!(
+            kit.verdict(&kit.entry_by(1, &[], role_op(role, None))),
+            Err(Refusal::Invalid(Invalid::Args(
+                "a group admin or helpdesk member needs a scope group"
+            ))),
+            "{role:?}"
+        );
+        assert_eq!(
+            kit.verdict(&kit.entry_by(1, &[], role_op(role, Some(2)))),
+            Ok(()),
+            "{role:?}"
+        );
+        assert_eq!(
+            kit.verdict(&kit.entry_by(1, &[], role_op(role, Some(99)))),
+            Err(Refusal::SubjectUnknown),
+            "{role:?}"
+        );
+    }
+    assert_eq!(
+        kit.verdict(&kit.entry_by(1, &[], role_op(Role::Guest, Some(2)))),
+        Err(Refusal::Invalid(Invalid::Args(
+            "only a group admin or a helpdesk member has a scope group"
+        )))
+    );
+    assert_eq!(
+        kit.verdict(&kit.entry_by(1, &[], role_op(Role::Guest, None))),
+        Ok(())
+    );
+}
+
+#[test]
+fn an_app_principal_is_never_managed_has_no_escrow_and_holds_none() {
+    let mut kit = universe();
+    kit.must(
+        1,
+        Op::MemberInvite {
+            member: member(70),
+            kind: azlin_seams::MemberKind::App,
+            role: Role::Member,
+            invite_hash: hash(70),
+            groups: Default::default(),
+            app: Some(crate::members::AppSpec {
+                scopes: Default::default(),
+                expires_at: None,
+            }),
+        },
+    );
+    assert_eq!(
+        kit.verdict(&kit.entry_by(
+            1,
+            &[],
+            Op::MemberManaged {
+                member: member(70),
+                managed: true
+            }
+        )),
+        Err(Refusal::Invalid(Invalid::Args(
+            "an app principal is never managed"
+        )))
+    );
+    let open = kit.entry(
+        Signer::Device(device(1)),
+        Op::EscrowOpen {
+            member: member(70),
+            reason: EscrowReason::LegalRequest,
+        },
+        &[3],
+        vec![av(1), av(3)],
+        None,
+    );
+    assert_eq!(
+        kit.verdict(&open),
+        Err(Refusal::Invalid(Invalid::Args(
+            "an app principal has no escrow"
+        )))
+    );
+    let holder = Op::EscrowSet {
+        escrow_pub: [3; 32],
+        holders: [member(1), member(70)].into_iter().collect(),
+    };
+    assert_eq!(
+        kit.verdict(&kit.entry_by(1, &[4], holder)),
+        Err(Refusal::Invalid(Invalid::Args(
+            "an escrow holder is a person"
+        )))
+    );
+}
+
+#[test]
+fn a_member_is_in_at_most_the_most_groups_one_member_may_be_in() {
+    let mut kit = team();
+    kit.enrol(2, Role::Member, &[], None);
+    let first = 100u8;
+    for n in 0..MAX_GROUPS_PER_MEMBER as u8 {
+        kit.make_group(first + n, None);
+        kit.must(
+            1,
+            Op::GroupMember {
+                group: group(first + n),
+                member: member(2),
+                present: true,
+            },
+        );
+    }
+    kit.make_group(200, None);
+    let one_more = Op::GroupMember {
+        group: group(200),
+        member: member(2),
+        present: true,
+    };
+    assert_eq!(
+        kit.verdict(&kit.entry_by(1, &[], one_more.clone())),
+        Err(Refusal::Invalid(Invalid::Limit("groups of one member")))
+    );
+    // Leaving a group frees a place.
+    kit.must(
+        1,
+        Op::GroupMember {
+            group: group(first),
+            member: member(2),
+            present: false,
+        },
+    );
+    assert_eq!(kit.verdict(&kit.entry_by(1, &[], one_more)), Ok(()));
+}
+
+#[test]
+fn escrow_openings_that_wait_are_bounded() {
+    let mut kit = universe();
+    let open = |kit: &SignedKit| {
+        kit.entry(
+            Signer::Device(device(1)),
+            Op::EscrowOpen {
+                member: member(24),
+                reason: EscrowReason::LegalRequest,
+            },
+            &[3],
+            vec![av(1), av(3)],
+            None,
+        )
+    };
+    for _ in 0..MAX_PENDING_ESCROW_OPENS {
+        let entry = open(&kit);
+        kit.push(entry).expect("an opening that waits is admitted");
+    }
+    assert_eq!(
+        kit.state.pending_escrow_opens().count(),
+        MAX_PENDING_ESCROW_OPENS
+    );
+    assert_eq!(
+        kit.verdict(&open(&kit)),
+        Err(Refusal::Invalid(Invalid::Limit(
+            "escrow openings that wait"
+        )))
+    );
+}
+
+#[test]
+fn a_group_may_replace_its_own_patch_with_a_looser_one_that_still_tightens_what_it_inherits() {
+    let mut kit = universe();
+    let ttl = |hours: u32| PolicyPatch {
+        credential_ttl: Some(Span::hours(hours)),
+        ..PolicyPatch::none()
+    };
+    let set = |hours: u32| Op::PolicySet {
+        scope: PolicyScope::Group(group(3)),
+        patch: ttl(hours),
+    };
+    kit.must_with(1, &[4], set(2));
+    // Looser than its own earlier patch and still tighter than the 12 hours it inherits: a new patch is
+    // measured against the level above, not against the patch it replaces.
+    assert_eq!(kit.verdict(&kit.entry_by(1, &[4], set(6))), Ok(()));
+    // Looser than what it inherits: refused, whatever it set before.
+    assert!(matches!(
+        kit.verdict(&kit.entry_by(1, &[4], set(24))),
+        Err(Refusal::PolicyForbids(PolicyReason::Loosens(_)))
+    ));
+}
+
+#[test]
+fn an_assertion_holds_only_when_all_three_of_its_facts_do() {
+    for bits in 0..8u8 {
+        let verdict = AssertionVerdict {
+            key: device(1),
+            user_verified: bits & 1 != 0,
+            challenge_matches: bits & 2 != 0,
+            rp_ok: bits & 4 != 0,
+        };
+        assert_eq!(verdict.holds(), bits == 7, "{verdict:?}");
+    }
+}
+
+#[test]
+fn an_entry_is_intact_only_when_its_hash_is_the_hash_of_its_preimage() {
+    let kit = team();
+    let entry = kit.entry_by(1, &[], notes());
+    assert!(entry.is_intact());
+    let mut other_hash = entry.clone();
+    other_hash.hash = hash(5);
+    assert!(!other_hash.is_intact());
+    let mut other_preimage = entry.clone();
+    other_preimage.preimage.push(0);
+    assert!(!other_preimage.is_intact());
 }
