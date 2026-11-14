@@ -13,7 +13,8 @@
 //! hold equal states and equal [`TeamState::state_hash`]es, whatever order a member or a device was
 //! first inserted in, and nothing in the crate iterates an unordered collection.
 //!
-//! The state is changed only by `apply::apply` (every field is `pub(crate)`); readers get the
+//! The state is changed only by `apply::apply` (every field is `pub(crate)`) and, for the restore epoch
+//! of its chain, by [`TeamState::raise_floor`] (a verified restore record, nothing else); readers get the
 //! accessors below and [`TeamState::view`], plain data for the differential test of lane S47a.
 //!
 //! LIMITS (planning/architecture.md section 1.4 rule 4: everything has a limit, stated up front; the
@@ -21,7 +22,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use azlin_chain::{ChainId, Head, Tip};
+use azlin_chain::{ChainId, Head, RestoreRefusal, Tip, VerifiedRestore};
 use azlin_policy::{effective, Policy, PolicyPatch};
 use azlin_seams::{
     AccountId, AccountKind, ByteCount, ChainSeq, DeviceId, Epoch, GroupId, Hash32, KeyId, MemberId,
@@ -355,6 +356,47 @@ impl TeamState {
     /// Caller: the registry glue (a checkpoint), `admit.rs` (the chain check).
     pub fn tip(&self) -> &Tip {
         &self.tip
+    }
+
+    /// Raises the restore epoch this chain stands in to the epoch of a VERIFIED restore record: the one
+    /// way the epoch moves (X-DELTA-W1S47A-3, decision D-W1S17C3). `admit` refuses every entry whose
+    /// epoch is not exactly the floor, so no entry of any device can raise it, and the entries of the
+    /// lost timeline of a restore (an older epoch) and of an unannounced one (a newer epoch) are refused
+    /// as alarms. A record whose epoch is not above the floor has been applied already: `Replayed`, the
+    /// state as it was.
+    ///
+    /// The witness is `azlin_chain::VerifiedRestore`, which only `verify_record` (or `reanchor`) makes:
+    /// this method takes no bare epoch, so nothing but a record that passed the restore trust (the map
+    /// key's signature, planning/architecture.md section 12 E4) can call it with an epoch. Rebuilding
+    /// the state at the position the record lists for this account is the glue's (CHAIN-GLUE): an entry
+    /// that does not chain from the survivor is refused as a gap or a fork.
+    ///
+    /// Implements planning/architecture.md section 5.13 ("The only way back is a restore, which the
+    /// metadata group announces signed") and section 6.10 V3 ("a restore epoch the metadata group
+    /// signs").
+    ///
+    /// Caller: the registry glue's restore handler (CHAIN-GLUE, TEAMLOG-APPLY): it calls
+    /// `azlin_chain::reanchor`, then this for the team log of every account of the group; for a NEW
+    /// account after a restore it verifies the group's last restore record again and calls this on the
+    /// empty state before the genesis; the tests.
+    ///
+    /// ```compile_fail
+    /// // A bare epoch cannot raise the floor: only the witness of a verified restore can.
+    /// use azlin_seams::{AccountId, AccountKind, RestoreEpoch};
+    /// let mut state =
+    ///     azlin_teamlog::TeamState::empty(AccountId::from_bytes([1; 16]), AccountKind::Team);
+    /// let _ = state.raise_floor(RestoreEpoch::new(9));
+    /// ```
+    pub fn raise_floor(&mut self, restore: &VerifiedRestore) -> Result<(), RestoreRefusal> {
+        let floor = self.tip.epoch();
+        if restore.epoch() <= floor {
+            return Err(RestoreRefusal::Replayed {
+                record: restore.epoch(),
+                pinned: floor,
+            });
+        }
+        self.tip.raise_floor(restore.epoch());
+        Ok(())
     }
 
     /// The head of the chain: the position and hash of the newest entry; `None` before the genesis.

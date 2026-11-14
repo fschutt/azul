@@ -4,15 +4,17 @@
 //!
 //! [`RawEntry`] is the entry decoded by the glue (azlin-cbor, S5's contract types): the typed fields,
 //! the `preimage` (the byte string every signature of the entry covers: `domain || 0x00 || canonical
-//! bytes`, [`TEAM_LOG_DOMAIN`]) and its `hash` ([`crate::hash::entry_hash`] of the preimage). The glue
-//! decodes strictly and keeps the signed bytes as the preimage, so the typed fields ARE the signed
-//! content: this crate never parses a preimage and never builds one. A signature over the preimage is a
-//! signature over the entry hash, because `verify_signatures` first checks that the hash is the hash of
-//! the preimage.
+//! bytes`, [`TEAM_LOG_DOMAIN`]) and its `hash` ([`crate::hash::entry_hash`] of the preimage). The typed
+//! fields are what `admit` reads, the preimage is what the signatures cover, and nothing in a `RawEntry`
+//! ties the two: `verify_signatures` does, through the [`EntryDecoder`](crate::decode::EntryDecoder)
+//! seam (it decodes the preimage itself and refuses an entry any of whose typed fields differs from the
+//! signed bytes: X-DELTA-W1S47A-1). A signature over the preimage is a signature over the entry hash,
+//! because `verify_signatures` first checks that the hash is the hash of the preimage.
 //!
 //! [`Proposal`] is a witness: its fields are private, it has no `Clone`, `Default` or `From`, and the
 //! only function that makes one is `verify_signatures`. `admit` takes a `Proposal`, never a `RawEntry`,
-//! so an entry whose signatures were not checked cannot be admitted.
+//! so an entry whose signatures were not checked, or whose typed fields are not the signed ones, cannot
+//! be admitted.
 
 use azlin_seams::{
     AccountId, ByteCount, ChainSeq, DeviceId, Domain, Hash32, KeyId, RestoreEpoch, Stamp,
@@ -115,7 +117,11 @@ impl AssertionVerdict {
 }
 
 /// One entry of the team log as it arrives (planning/architecture.md section 5.9, the table of
-/// fields). Every field is plain data: nothing in it has been checked.
+/// fields). Every field is plain data: nothing in it has been checked. The account, the position, `at`,
+/// the restore epoch, the signer and the op are SIGNED fields: `verify_signatures` checks each against
+/// the decode of `preimage`. `sig`, `cosigs` and `assertions` are not part of the signed bytes (they sign
+/// or vouch for them); `sealed` is bound to them by its authentication tag instead (its associated
+/// data is the entry hash), so it is outside the preimage.
 ///
 /// `at` is informational (the authority table v0: time is the leader's stamp, section 2.4); `epoch` is
 /// the restore epoch the entry was written in (drift row X-DELTA-W1S17A-3); `pq_sig` is not carried:

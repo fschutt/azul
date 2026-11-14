@@ -12,8 +12,9 @@
 //!
 //! THE ORDER OF THE CHECKS (the first that fails is the reason; the matrix test fixes it):
 //!
-//! 1. the chain: the account, the position, `prev`, the leader's stamp, the restore epoch
-//!    (`Refusal::Chain`); the first entry is a genesis and nothing but the first entry is;
+//! 1. the chain: the account, the position, `prev`, the leader's stamp, the restore epoch (below the
+//!    floor: `Refusal::Chain`; above it: `Refusal::EpochNotAnnounced`, only an announced restore moves
+//!    the floor); the first entry is a genesis and nothing but the first entry is;
 //! 2. the signer: its device exists and is Active (or Pending with its hold over) and its member is
 //!    Active (`SignerUnknown`, `SignerNotActive`, `MemberNotActive`); a delegate key has a live
 //!    delegation that names the op (`DelegationDoesNotCover`, `DelegationExpired`); the payments key
@@ -26,12 +27,14 @@
 //! The table of who may sign what is `authority.rs` (data); this file is the procedure that reads it and
 //! the conditions no row can say. Every function below quotes the row of the table it implements.
 
-use azlin_chain::{ChainRefusal, Placement};
+use azlin_chain::{ChainRefusal, Placement, RefusalClass};
 use azlin_policy::{
-    apply as apply_patch, check_tightens, next_epoch, quorum_met, DeviceApproval, Loosened,
-    PolicyPatch, QuorumClass, Signatory,
+    apply as apply_patch, check_tightens, effective, next_epoch, quorum_met, DeviceApproval,
+    Loosened, PolicyPatch, QuorumClass, Signatory,
 };
-use azlin_seams::{mutant, ByteCount, DeviceId, GroupId, MemberId, MemberKind, Stamp};
+use azlin_seams::{
+    mutant, ByteCount, DeviceId, GroupId, MemberId, MemberKind, RestoreEpoch, Stamp,
+};
 
 use crate::apply::{Actor, Admitted, EntryMeta, Link};
 use crate::authority::{role_assignable, role_touchable, row, Grant, QuorumFacts, Reach, Row};
@@ -97,7 +100,9 @@ pub const MUTANT_IDS: [&str; 12] = [
 /// Caller: `Refusal::PolicyForbids`.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PolicyReason {
-    /// A group's policy must tighten and these fields do not.
+    /// A group's policy must tighten and these fields do not: a `policy_set` of a group that loosens what
+    /// it inherits, or a `group_move` that makes the effective policy of a group of the moved subtree
+    /// looser, signed by a group admin (X-DELTA-W1S47A-2).
     #[error("a group's policy must tighten: {} field(s) do not", .0.len())]
     Loosens(Vec<Loosened>),
     /// `device_approval` is `self`: a quorum of admins cannot enrol a device.
@@ -164,20 +169,39 @@ fn role_word(role: &Option<Role>) -> &'static str {
 
 /// Why an entry is refused (planning/architecture.md section 5.9: "The metadata group rejects an entry
 /// with a reason"). The variants of the brief are the first seventeen; `ConsentMissing` and `Invalid`
-/// are added for the reasons the table gives no word for (drift row of lane W1-S17c).
+/// are added for the reasons the table gives no word for (drift row of lane W1-S17c), and
+/// `EpochNotAnnounced` by lane W1-S17c3 (X-DELTA-W1S47A-3).
 ///
 /// Implements planning/architecture.md section 5.9 and section 12 E1.
 ///
 /// Caller: `admit`, `verify::verify_signatures`, `replay`; the registry glue maps it to a status (the
-/// reason words of `azlin-regbase`); lane S47a maps it to its classes.
+/// reason words of `azlin-regbase`) and reacts by `Refusal::class`; lane S47a maps it to its classes.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
     /// The entry does not continue the chain (a wrong `prev`, a gap, a fork, a stamp that runs
     /// backwards, an entry of the lost timeline of a restore, a second genesis).
     #[error("the entry does not continue the chain: {0}")]
     Chain(ChainRefusal),
-    /// A signature of the entry does not verify.
-    #[error("a signature of the entry does not verify")]
+    /// The entry claims a restore epoch the chain does not stand in. Only a restore the metadata group
+    /// announced (a verified restore record: `TeamState::raise_floor`) moves the epoch, and every entry
+    /// carries exactly the floor, so no entry of a device can raise it: an entry that did would make
+    /// every honest entry that still claims the old epoch a `BelowRestoreEpoch` alarm, and would use up
+    /// the epochs for ever (`RestoreEpoch::next` of the largest is `None`: no later restore could be
+    /// announced). An entry BELOW the floor is `Chain(BelowRestoreEpoch)`, the lost timeline of a
+    /// restore. An alarm (X-DELTA-W1S47A-3).
+    #[error(
+        "the entry claims restore epoch {got} and the chain stands in {floor}: only an announced restore moves it"
+    )]
+    EpochNotAnnounced {
+        /// The restore epoch the entry carries.
+        got: RestoreEpoch,
+        /// The restore epoch the chain stands in: the entry's must be exactly this.
+        floor: RestoreEpoch,
+    },
+    /// A signature of the entry does not verify, or the entry is not what was signed: its preimage is
+    /// not a team-log entry's bytes, or a typed field (the account, the position, the claimed time, the
+    /// restore epoch, the signer, the op) differs from what the signed bytes say (X-DELTA-W1S47A-1).
+    #[error("a signature of the entry does not verify, or the entry is not what was signed")]
     BadSignature,
     /// The signer is no device of this account.
     #[error("the signer is no device of this account")]
@@ -253,6 +277,44 @@ pub enum Refusal {
     /// The entry cannot be applied for a reason no role or quorum changes.
     #[error("{0}")]
     Invalid(Invalid),
+}
+
+impl Refusal {
+    /// What to do about the refusal, in the words of `azlin-chain`: refuse the entry and say why; refuse
+    /// it and raise an alarm (a fork, a second genesis, the lost timeline of a restore, a restore epoch
+    /// nobody announced); or fetch the entry again from another voter (a copy whose hash or signature
+    /// does not hold, or that is not what was signed). Every variant is named: a new reason does not
+    /// compile until it is classified.
+    ///
+    /// Implements planning/architecture.md section 5.9 ("refused; refused and alarmed; fetched again from
+    /// another voter") and X-DELTA-W1S47A-3 ("a typed class, Alarm").
+    ///
+    /// Caller: the registry glue (the reaction to a refused entry), the sync client, lane S47a's
+    /// classes, the tests.
+    pub fn class(&self) -> RefusalClass {
+        match self {
+            Refusal::Chain(why) => why.class(),
+            Refusal::EpochNotAnnounced { .. } => RefusalClass::Alarm,
+            Refusal::BadSignature => RefusalClass::Refetch,
+            Refusal::SignerUnknown
+            | Refusal::SignerNotActive { .. }
+            | Refusal::MemberNotActive { .. }
+            | Refusal::RoleMaySignNo { .. }
+            | Refusal::OutOfScope { .. }
+            | Refusal::QuorumShort { .. }
+            | Refusal::AssertionMissing
+            | Refusal::PolicyForbids(_)
+            | Refusal::LastOwner
+            | Refusal::GroupCycle
+            | Refusal::DelegationDoesNotCover { .. }
+            | Refusal::DelegationExpired
+            | Refusal::InviteInvalid
+            | Refusal::UnknownOp
+            | Refusal::SubjectUnknown
+            | Refusal::ConsentMissing
+            | Refusal::Invalid(_) => RefusalClass::Refuse,
+        }
+    }
 }
 
 impl From<UnknownOp> for Refusal {
@@ -572,13 +634,25 @@ fn check_keys(keys: &PublicKeys) -> Result<(), Refusal> {
     Ok(())
 }
 
-/// The state the chain stands in against the entry: its place in the chain at the leader's stamp. A
-/// position the chain already holds with the same hash is an entry applied before: it does not extend
-/// the chain, so it is a gap.
+/// The state the chain stands in against the entry: its place in the chain at the leader's stamp, and its
+/// restore epoch. A position the chain already holds with the same hash is an entry applied before: it
+/// does not extend the chain, so it is a gap. An entry of an epoch BELOW the floor is the lost timeline of
+/// a restore (the chain refuses it); an entry of an epoch ABOVE it claims a restore nobody announced
+/// (`EpochNotAnnounced`): only `TeamState::raise_floor`, driven by a verified restore record, moves the
+/// epoch, never an entry (X-DELTA-W1S47A-3).
 fn check_chain(state: &TeamState, meta: &EntryMeta, now: Stamp) -> Result<(), Refusal> {
     let link = Link { meta, stamp: now };
     match state.tip().check(&link) {
-        Ok(Placement::Next) => Ok(()),
+        Ok(Placement::Next) => {
+            let floor = state.tip().epoch();
+            if meta.epoch != floor {
+                return Err(Refusal::EpochNotAnnounced {
+                    got: meta.epoch,
+                    floor,
+                });
+            }
+            Ok(())
+        }
         Ok(Placement::Held { .. }) => match state.tip().next_seq() {
             Some(expected) => Err(Refusal::Chain(ChainRefusal::Gap {
                 expected,
@@ -1169,8 +1243,52 @@ fn group_member(
     Ok(Vec::new())
 }
 
+/// The patches of the groups of a path, from the top down.
+fn patches_of<'a>(c: &Ctx<'a>, path: &[GroupId]) -> Vec<&'a PolicyPatch> {
+    path.iter()
+        .filter_map(|id| c.state.group_patch(id))
+        .collect()
+}
+
+/// The fields that get looser for the first group of the subtree of `group` whose effective policy
+/// would be looser if `group` were moved under `new_parent`: for each group of the subtree, the policy
+/// it has now (`effective`: the account's policy under the patches of its path, each clamped to the
+/// level above) against the policy it would have on the path of the new parent followed by the rest of
+/// its own path (`azlin_policy::check_tightens`: the new one must be at least as tight as the old one).
+/// `None` when no group of the subtree gets looser. A move changes what a group inherits without a
+/// `policy_set`, so it is the one other op by which a policy can be loosened (X-DELTA-W1S47A-2).
+///
+/// Implements planning/architecture.md section 7.2 ("subgroups inherit and may tighten, never
+/// loosen") and section 5.10 ("groups inherit and may only tighten").
+fn move_loosens(
+    c: &Ctx<'_>,
+    group: &GroupId,
+    new_parent: &GroupId,
+) -> Result<Option<Vec<Loosened>>, Refusal> {
+    let damaged = || Refusal::Invalid(Invalid::StateDamaged("a damaged group tree"));
+    let groups = c.state.groups();
+    let above = groups.path_from_top(new_parent).ok_or_else(damaged)?;
+    for member in groups.subtree(group) {
+        let old_path = groups.path_from_top(&member).ok_or_else(damaged)?;
+        let at = old_path
+            .iter()
+            .position(|id| id == group)
+            .ok_or_else(damaged)?;
+        let below = old_path.get(at..).ok_or_else(damaged)?;
+        let new_path: Vec<GroupId> = above.iter().chain(below.iter()).copied().collect();
+        let before = effective(c.state.policy(), &patches_of(c, &old_path));
+        let after = effective(c.state.policy(), &patches_of(c, &new_path));
+        if let Err(fields) = check_tightens(&before, &after) {
+            return Ok(Some(fields));
+        }
+    }
+    Ok(None)
+}
+
 /// `group_move` | admin; group_admin with scope over BOTH the group and the new parent [v0] | no cycle;
-/// the root group never moves | none.
+/// the root group never moves; no group of the moved subtree may get a looser effective policy, except by
+/// an owner or an admin [D-W1S17C3, X-DELTA-W1S47A-2: a move changes what a group inherits, and "subgroups
+/// inherit and may tighten, never loosen"] | PolicyChange (a loosening move only).
 fn group_move(
     c: &Ctx<'_>,
     group: &GroupId,
@@ -1204,7 +1322,19 @@ fn group_move(
             )))
         }
     }
-    Ok(Vec::new())
+    // A move that would loosen the effective policy of a group of the subtree is for an owner or an admin
+    // with the quorum of a policy change: a group admin only tightens.
+    let loosens = move_loosens(c, group, new_parent)?;
+    let facts = QuorumFacts {
+        move_loosens_policy: loosens.is_some(),
+        ..QuorumFacts::default()
+    };
+    if let Some(fields) = loosens {
+        if !matches!(&g, Gate::Role(grant) if grant.reach == Reach::Account) {
+            return Err(Refusal::PolicyForbids(PolicyReason::Loosens(fields)));
+        }
+    }
+    require(c, row(OpName::GroupMove), facts, false)
 }
 
 /// `policy_set` | admin; group_admin for a group of its subtree [plan 'policies in its scope'] | a

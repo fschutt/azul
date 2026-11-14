@@ -1,7 +1,7 @@
 //! `replay`: a device's own check of a run of entries (planning/architecture.md section 5.9 "A new
 //! device verifies from the latest checkpoint whose entries it can check, not from the account's first
 //! entry"; "every device keeps the part of the chain it verified"; section 12 E1 "devices run their own
-//! check, and the test runs both"; build unit S17, lane W1-S17c2).
+//! check, and the test runs both"; build unit S17, lanes W1-S17c2 and W1-S17c3).
 //!
 //! A device does not trust the metadata group's answer: it runs `verify_signatures`, `admit` and `apply`
 //! itself, entry by entry, over the leader's stamps that the log carries (`team_log_get` returns each
@@ -11,12 +11,14 @@
 //!
 //! `start` is the state to begin from: `TeamState::empty` to verify from the first entry, or the state a
 //! verified checkpoint names (a device fetches the registry rows of the checkpoint, builds the state, and
-//! compares `state_hash` with the checkpoint's before it trusts it).
+//! compares `state_hash` with the checkpoint's before it trusts it). A state that stands in a restore
+//! epoch (`TeamState::raise_floor`) checks the entries of that epoch and no other.
 
 use azlin_seams::{SignatureVerifier, Stamp};
 
 use crate::admit::{admit, Invalid, Refusal};
 use crate::apply::apply;
+use crate::decode::EntryDecoder;
 use crate::proposal::{RawEntry, TrustedKeys};
 use crate::state::TeamState;
 use crate::verify::verify_signatures;
@@ -26,6 +28,9 @@ use crate::verify::verify_signatures;
 /// that is refused and why. `stamps` must have one stamp for each entry; otherwise nothing is applied
 /// and the answer is a refusal at the first position that has an entry and no stamp (or a stamp and no
 /// entry).
+///
+/// SIGNATURE CHANGE of lane W1-S17c3 (X-DELTA-W1S47A-1): the `decoder` parameter is new (it goes to
+/// `verify_signatures`, which binds the typed fields of every entry to its signed bytes).
 ///
 /// Implements planning/architecture.md section 5.9 (a device verifies the chain it keeps) and section
 /// 12 E1 (the same pure check on every device).
@@ -37,6 +42,7 @@ pub fn replay(
     entries: &[RawEntry],
     v: &dyn SignatureVerifier,
     trusted: &TrustedKeys,
+    decoder: &dyn EntryDecoder,
     stamps: &[Stamp],
 ) -> Result<TeamState, (usize, Refusal)> {
     if stamps.len() != entries.len() {
@@ -47,7 +53,8 @@ pub fn replay(
     }
     let mut state = start;
     for (index, (entry, stamp)) in entries.iter().zip(stamps.iter()).enumerate() {
-        let proposal = verify_signatures(&state, entry, v, trusted).map_err(|why| (index, why))?;
+        let proposal =
+            verify_signatures(&state, entry, v, trusted, decoder).map_err(|why| (index, why))?;
         let admitted = admit(&state, &proposal, *stamp).map_err(|why| (index, why))?;
         if !apply(&mut state, admitted).applied {
             return Err((

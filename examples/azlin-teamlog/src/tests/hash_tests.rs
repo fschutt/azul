@@ -166,8 +166,11 @@ fn genesis_state_pins_genesis_hash() {
     assert_eq!(first.state, DeviceState::Active);
     assert_eq!(first.enrolled_by, EnrolledBy::Genesis);
     assert_eq!(first.keys, keys(101));
-    // `apply` of the genesis entry makes the very same state.
+    // `apply` of the genesis entry makes the very same state. The chain of an account born after two
+    // restores stands in restore epoch 2 from the start, and its genesis carries exactly that epoch (an
+    // entry never moves the epoch: X-DELTA-W1S47A-3).
     let mut via_apply = TeamState::empty(account(), AccountKind::Team);
+    via_apply.tip.raise_floor(RestoreEpoch::new(2));
     let meta = EntryMeta {
         account: account(),
         seq: ChainSeq::MIN,

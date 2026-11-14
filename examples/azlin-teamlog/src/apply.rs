@@ -210,11 +210,12 @@ impl Out {
 
 /// Applies an admitted entry to the state, once, in order.
 ///
-/// The entry must be the next one of the state's chain (checked again here: an `Admitted` made
-/// against another state is not applied). On success the state holds the op's change and the chain's
-/// head, stamp and restore epoch have moved to the entry; the effects list the registry changes (in
-/// the order to apply them) and the `log_appended` notice. Otherwise the state is untouched and the
-/// effects are empty with `applied == false`.
+/// The entry must be the next one of the state's chain and must carry exactly the restore epoch the
+/// chain stands in (checked again here: an `Admitted` made against another state is not applied; only
+/// `TeamState::raise_floor`, a verified restore record, moves the epoch: X-DELTA-W1S47A-3). On success
+/// the state holds the op's change and the chain's head and stamp have moved to the entry; the effects
+/// list the registry changes (in the order to apply them) and the `log_appended` notice. Otherwise the
+/// state is untouched and the effects are empty with `applied == false`.
 ///
 /// Implements planning/architecture.md section 5.9 ("the metadata group applies each entry once, as
 /// it arrives, into the registry's tables"; "Notices come from the metadata group"), section 5.11 (a
@@ -227,6 +228,11 @@ pub fn apply(state: &mut TeamState, a: Admitted) -> Effects {
         meta: &a.meta,
         stamp: a.stamp,
     };
+    // An entry carries exactly the restore epoch the chain stands in: the chain's epoch is moved by an
+    // announced restore only, never by an entry (`Tip::advance` would take the entry's epoch).
+    if a.meta.epoch != state.tip.epoch() {
+        return Effects::not_applied();
+    }
     // The chain moves with the entry, or the entry is not applied. The new tip is computed first so
     // that nothing can fail after the op changed the state.
     let mut next_tip = state.tip.clone();

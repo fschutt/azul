@@ -1513,6 +1513,11 @@ fn apply_of_a_witness_that_does_not_fit_the_chain_is_not_applied() {
             account: azlin_seams::AccountId::from_bytes([0x11; 16]),
             ..good()
         },
+        // An epoch nobody announced: an entry never moves the restore epoch (X-DELTA-W1S47A-3).
+        crate::apply::EntryMeta {
+            epoch: RestoreEpoch::new(7),
+            ..good()
+        },
     ];
     for (n, meta) in cases.into_iter().enumerate() {
         let effects = apply(

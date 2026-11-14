@@ -6,8 +6,10 @@
 //! The metadata group (S9) and every device (which "runs its own check", section 12 E1) call the same
 //! three functions, in this order, for every entry:
 //!
-//! 1. `verify_signatures(state, entry, verifier, trusted)` makes a `Proposal`: every signature of the
-//!    entry (the signer's and the cosigners') holds over the entry's preimage, and the copy is intact.
+//! 1. `verify_signatures(state, entry, verifier, trusted, decoder)` makes a `Proposal`: every signature
+//!    of the entry (the signer's and the cosigners') holds over the entry's preimage, the copy is
+//!    intact, and the typed fields `admit` reads are the fields of the signed bytes (the `EntryDecoder`
+//!    seam decodes the preimage: an old signed entry cannot be given the position of a new one).
 //! 2. `admit(state, proposal, now)` is THE PERMISSION CHECK: whether the entry may enter the account's
 //!    log, as the authority table says (roles, scopes, group inheritance, delegations, quorum of
 //!    distinct people). It is pure: it never changes the state. `now` is the leader's stamp
@@ -26,15 +28,16 @@
 //! | `TeamState` and its plain `StateView`; the limits | [`state`] | 5.9, 5.3 |
 //! | the canonical `state_hash` and the entry hash | [`hash`] | 5.9 |
 //! | `Effects`, `RegistryDelta`, `Notice` | [`effects`] | 5.9, 5.3 |
-//! | `apply` and the `Admitted` witness | [`apply`] | 5.9 |
+//! | `apply` and the `Admitted` witness | [`apply`](mod@apply) | 5.9 |
 //! | the entry as it arrives, `Proposal`, `TrustedKeys` | [`proposal`] | 5.9 |
+//! | the seam that binds the typed entry to its signed bytes: `EntryDecoder`, `FakeDecoder` | [`decode`] | 5.9, 2.5 |
 //! | `verify_signatures` | [`verify`] | 5.9 |
 //! | the authority table v0 as data | [`authority`] | 5.9, 7.2, 7.3, 7.5 |
-//! | `admit` and `Refusal` | [`admit`] | 5.9, 12 E1 |
+//! | `admit` and `Refusal` | [`admit`](mod@admit) | 5.9, 12 E1 |
 //! | delegations (the identity service) | [`delegate`] | 5.9, 7.3 |
 //! | invitations | [`invite`] | 5.11 |
 //! | sealed fields | [`sealed`] | 5.9, 5.17 |
-//! | `replay` | [`replay`] | 5.9, 12 E1 |
+//! | `replay` | [`replay`](mod@replay) | 5.9, 12 E1 |
 //!
 //! Nothing here does I/O, reads a clock or draws entropy by itself: the stamp, the verifier and the
 //! entropy are parameters. Every collection is ordered, so two replicas that apply the same entries hold
@@ -74,6 +77,7 @@ pub mod state;
 // The check (lane W1-S17c2): declared here with the rest, so that no file is an orphan.
 pub mod admit;
 pub mod authority;
+pub mod decode;
 pub mod delegate;
 pub mod invite;
 pub mod proposal;
@@ -83,6 +87,7 @@ pub mod verify;
 
 pub use admit::{admit, Invalid, PolicyReason, Refusal, MUTANT_IDS};
 pub use apply::{apply, Admitted};
+pub use decode::{canonical_of, DecodedEntry, EntryDecoder, FakeDecoder, NotAnEntry};
 pub use delegate::{delegable_ops, is_delegable};
 pub use devices::{Device, DeviceState, EnrolledBy, PublicKeys};
 pub use effects::{
@@ -124,6 +129,7 @@ mod tests {
     mod admit_tests;
     mod delegate_tests;
     mod determinism_tests;
+    mod escalation_tests;
     mod invite_tests;
     mod matrix_tests;
     mod replay_tests;

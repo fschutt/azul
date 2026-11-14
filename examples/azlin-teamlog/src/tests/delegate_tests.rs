@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use azlin_seams::Stamp;
 
 use super::kit::{at, device, group, hash, key, member};
-use super::signed::{invite_op, universe, SignedKit};
+use super::signed::{invite_op, universe, Shape, SignedKit};
 use crate::admit::{Invalid, Refusal};
 use crate::delegate::{delegable_ops, is_delegable};
 use crate::ops::{AppName, Op, OpName};
@@ -325,8 +325,13 @@ fn delegation_expiry_uses_the_leader_stamp() {
         Err(Refusal::DelegationExpired)
     );
     // The entry's own `at` decides nothing: the leader's stamp does, whatever the signer claims.
-    let mut early = by_delegate(&kit, 40, &[], suspend(24));
-    early.at = at(1);
+    let early = kit.reshape(
+        &by_delegate(&kit, 40, &[], suspend(24)),
+        Shape {
+            at: Some(at(1)),
+            ..Shape::default()
+        },
+    );
     assert_eq!(kit.verdict(&early), Err(Refusal::DelegationExpired));
     let mut fresh = universe();
     let end = at(fresh.stamp().as_secs() + 50);
@@ -335,8 +340,13 @@ fn delegation_expiry_uses_the_leader_stamp() {
         &[4],
         delegate_to(40, &[OpName::MemberSuspend], Some(end)),
     );
-    let mut claims_late = by_delegate(&fresh, 40, &[], suspend(24));
-    claims_late.at = at(u64::MAX);
+    let claims_late = fresh.reshape(
+        &by_delegate(&fresh, 40, &[], suspend(24)),
+        Shape {
+            at: Some(at(u64::MAX)),
+            ..Shape::default()
+        },
+    );
     assert_eq!(fresh.verdict(&claims_late), Ok(()));
     // An expired delegation says so before it says it does not cover: an op it never named is
     // `DelegationExpired` too (the delegation is over, whatever it named).

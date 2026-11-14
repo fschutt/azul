@@ -20,7 +20,11 @@
 //!   general: a lower role must not be able to suspend a higher one with the help of a quorum);
 //! - a group admin takes into its group nobody who belongs to another department (a member in no group,
 //!   or already in the subtree, only);
-//! - an admin's quorum may enrol a device for a member of no higher rank than its own.
+//! - an admin's quorum may enrol a device for a member of no higher rank than its own;
+//! - a `group_move` that would loosen the effective policy of a group of the moved subtree is for an owner
+//!   or an admin with the quorum of a policy change, never for a group admin (plan 7.2: "subgroups inherit
+//!   and may tighten, never loosen": a move changes what a group inherits without a `policy_set`;
+//!   X-DELTA-W1S47A-2).
 
 use azlin_policy::QuorumClass;
 
@@ -76,6 +80,9 @@ pub enum QuorumRule {
     NotOwnDevice(QuorumClass),
     /// For a managed member made private only.
     ManagedToPrivate(QuorumClass),
+    /// When the effective policy of a group of the moved subtree would get looser (a move is the one
+    /// op that changes what a group inherits without a `policy_set`: X-DELTA-W1S47A-2).
+    MoveLoosensPolicy(QuorumClass),
 }
 
 /// The facts of one case that decide whether a [`QuorumRule`] asks for a quorum.
@@ -93,6 +100,8 @@ pub struct QuorumFacts {
     pub own_device: bool,
     /// A managed member is made private.
     pub managed_to_private: bool,
+    /// A `group_move` would make the effective policy of a group of the moved subtree looser.
+    pub move_loosens_policy: bool,
 }
 
 impl QuorumRule {
@@ -112,6 +121,7 @@ impl QuorumRule {
             }
             QuorumRule::NotOwnDevice(class) => (!facts.own_device).then_some(class),
             QuorumRule::ManagedToPrivate(class) => facts.managed_to_private.then_some(class),
+            QuorumRule::MoveLoosensPolicy(class) => facts.move_loosens_policy.then_some(class),
         }
     }
 }
@@ -276,7 +286,7 @@ const GROUP_MOVE: Row = Row {
     signers: ADMINS_AND_GROUP_ADMINS,
     own_member: false,
     delegable: false,
-    quorum: QuorumRule::Never,
+    quorum: QuorumRule::MoveLoosensPolicy(QuorumClass::PolicyChange),
 };
 
 const POLICY_SET: Row = Row {

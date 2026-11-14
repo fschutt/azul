@@ -6,15 +6,26 @@
 //! The convention that makes the keys cheap: device number `n` has the sign key `[n; 32]`, so a device
 //! signs with `FakeScheme::sign(&KeyId::from_bytes([n; 32]), preimage)` and the log knows the same bytes
 //! as its `sign_pub`. A delegate key signs with its own id; the payments key is `PAYMENTS_KEY`.
+//!
+//! The binding of the typed fields to the signed bytes (X-DELTA-W1S47A-1): every entry the kit makes
+//! has CANONICAL BYTES that spell all its signed fields, registered with the kit's `FakeDecoder`, so the
+//! decoder says what the signature covers. A test that wants a validly signed entry at another position,
+//! of another epoch, for another account or with another claimed time asks for it with a [`Shape`]
+//! (`entry_shaped`, `reshape`: the entry is re-encoded and signed again); a test that wants an entry
+//! whose typed field differs from its signed bytes changes the field of the `RawEntry` afterwards.
+
+use std::rc::Rc;
 
 use azlin_policy::AdminQuorum;
 use azlin_seams::{
-    signing_input, AccountKind, ChainSeq, FakeScheme, Hash32, KeyId, MemberKind, Stamp,
+    signing_input, AccountId, AccountKind, ChainSeq, FakeScheme, Hash32, KeyId, MemberKind,
+    RestoreEpoch, Stamp,
 };
 
 use super::kit::{account, at, device, group, key, member};
 use crate::admit::{admit, Refusal};
 use crate::apply::{apply, Admitted};
+use crate::decode::{DecodedEntry, FakeDecoder};
 use crate::devices::PublicKeys;
 use crate::effects::Effects;
 use crate::hash::entry_hash;
@@ -67,6 +78,31 @@ pub(crate) fn join_op(n: u8, secret: u8) -> Op {
     }
 }
 
+/// The signed fields a test wants other than the kit would give: the position, the claimed time, the
+/// restore epoch and the account. `None` keeps the default (`entry_shaped`: the next position of the kit's
+/// chain, its stamp, the chain's floor, this account; `reshape`: the entry's own).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Shape {
+    pub(crate) account: Option<AccountId>,
+    pub(crate) seq: Option<ChainSeq>,
+    pub(crate) prev: Option<Hash32>,
+    pub(crate) at: Option<Stamp>,
+    pub(crate) epoch: Option<RestoreEpoch>,
+}
+
+/// The canonical bytes of the kit's entries: every signed field spelled out (the invite secret too: its
+/// `Debug` is redacted, and two entries must never share bytes).
+fn canonical_bytes_of(signed: &DecodedEntry) -> Vec<u8> {
+    let mut text = format!(
+        "{:?}|{}|{}|{:?}|{}|{:?}|{:?}",
+        signed.account, signed.seq, signed.prev, signed.at, signed.epoch, signed.signer, signed.op
+    );
+    if let Op::MemberJoin { secret, .. } = &signed.op {
+        text.push_str(&format!("|secret={:?}", secret.0));
+    }
+    text.into_bytes()
+}
+
 /// A team log under test.
 #[derive(Clone)]
 pub(crate) struct SignedKit {
@@ -74,6 +110,8 @@ pub(crate) struct SignedKit {
     /// The entries admitted so far, with the leader's stamp of each: what a device replays.
     pub(crate) log: Vec<(RawEntry, Stamp)>,
     now: u64,
+    /// What every entry of the kit (and of its clones) signs: the decoder `verify_signatures` is given.
+    decoder: Rc<FakeDecoder>,
 }
 
 impl SignedKit {
@@ -83,7 +121,13 @@ impl SignedKit {
             state: TeamState::empty(account(), kind),
             log: Vec::new(),
             now: 1_000,
+            decoder: Rc::new(FakeDecoder::new()),
         }
+    }
+
+    /// The decoder of the signed bytes of this kit's entries (shared by its clones).
+    pub(crate) fn decoder(&self) -> &FakeDecoder {
+        &self.decoder
     }
 
     /// An account of this kind with the genesis admitted: the owner is member 1 with device 1.
@@ -119,14 +163,78 @@ impl SignedKit {
         assertions: Vec<AssertionVerdict>,
         sealed: Option<Vec<u8>>,
     ) -> RawEntry {
+        self.entry_shaped(signer, op, cosigners, assertions, sealed, Shape::default())
+    }
+
+    /// An entry signed in every part, with the signed fields of `shape` in place of the kit's defaults
+    /// (the next position, the kit's stamp, the chain's restore epoch, this account): what an honest
+    /// device would have signed, had it believed the chain to be elsewhere.
+    pub(crate) fn entry_shaped(
+        &self,
+        signer: Signer,
+        op: Op,
+        cosigners: &[u8],
+        assertions: Vec<AssertionVerdict>,
+        sealed: Option<Vec<u8>>,
+        shape: Shape,
+    ) -> RawEntry {
         let (seq, prev) = match self.state.head() {
             Some(head) => (head.seq.next().expect("a short log"), head.hash),
             None => (ChainSeq::MIN, Hash32::ZERO),
         };
-        let body = format!("{:?}|{seq}|{prev}|{op:?}", account());
-        let preimage = signing_input(&TEAM_LOG_DOMAIN, body.as_bytes());
+        let signed = DecodedEntry {
+            account: shape.account.unwrap_or_else(account),
+            seq: shape.seq.unwrap_or(seq),
+            prev: shape.prev.unwrap_or(prev),
+            at: shape.at.unwrap_or_else(|| self.stamp()),
+            epoch: shape.epoch.unwrap_or_else(|| self.state.tip().epoch()),
+            signer,
+            op,
+        };
+        self.build(signed, cosigners, assertions, sealed)
+    }
+
+    /// The same entry with other signed fields, signed again by the same signer and cosigners: the
+    /// fields of `shape` replace the entry's own. (The typed fields and the signed bytes agree: this is
+    /// an entry some honest device could have made, not a forgery.)
+    pub(crate) fn reshape(&self, entry: &RawEntry, shape: Shape) -> RawEntry {
+        let cosigners: Vec<u8> = entry
+            .cosigs
+            .iter()
+            .map(|(device, _)| device.as_bytes()[0])
+            .collect();
+        let signed = DecodedEntry {
+            account: shape.account.unwrap_or(entry.account),
+            seq: shape.seq.unwrap_or(entry.seq),
+            prev: shape.prev.unwrap_or(entry.prev),
+            at: shape.at.unwrap_or(entry.at),
+            epoch: shape.epoch.unwrap_or(entry.epoch),
+            signer: entry.signer,
+            op: entry.op.clone(),
+        };
+        self.build(
+            signed,
+            &cosigners,
+            entry.assertions.clone(),
+            entry.sealed.clone(),
+        )
+    }
+
+    /// Encodes the signed fields, registers what the bytes say with the kit's decoder and signs them.
+    fn build(
+        &self,
+        signed: DecodedEntry,
+        cosigners: &[u8],
+        assertions: Vec<AssertionVerdict>,
+        sealed: Option<Vec<u8>>,
+    ) -> RawEntry {
+        let canonical = canonical_bytes_of(&signed);
+        if let Some(before) = self.decoder.register(canonical.clone(), signed.clone()) {
+            assert_eq!(before, signed, "two entries gave the same signed bytes");
+        }
+        let preimage = signing_input(&TEAM_LOG_DOMAIN, &canonical);
         let hash = entry_hash(&preimage);
-        let sig = match signer {
+        let sig = match signed.signer {
             Signer::Device(device) => sign_with([device.as_bytes()[0]; 32], &preimage),
             Signer::DelegateKey(delegate) => FakeScheme::sign(&delegate, &preimage),
             Signer::PaymentsKey => sign_with(PAYMENTS_KEY, &preimage),
@@ -136,14 +244,14 @@ impl SignedKit {
             .map(|n| (device(*n), sign_with([*n; 32], &preimage)))
             .collect();
         RawEntry {
-            account: account(),
-            seq,
-            prev,
+            account: signed.account,
+            seq: signed.seq,
+            prev: signed.prev,
             hash,
-            at: self.stamp(),
-            epoch: self.state.tip().epoch(),
-            signer,
-            op,
+            at: signed.at,
+            epoch: signed.epoch,
+            signer: signed.signer,
+            op: signed.op,
             sig,
             cosigs,
             assertions,
@@ -165,7 +273,8 @@ impl SignedKit {
 
     /// The production check: `verify_signatures` then `admit`, at the next stamp; nothing is applied.
     pub(crate) fn check(&self, entry: &RawEntry) -> Result<Admitted, Refusal> {
-        let proposal = verify_signatures(&self.state, entry, &FakeScheme, &trusted())?;
+        let proposal =
+            verify_signatures(&self.state, entry, &FakeScheme, &trusted(), self.decoder())?;
         admit(&self.state, &proposal, self.stamp())
     }
 

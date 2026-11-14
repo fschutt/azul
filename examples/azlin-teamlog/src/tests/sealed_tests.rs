@@ -214,6 +214,7 @@ fn deleting_the_seal_key_leaves_the_chain_verifying_and_the_fields_unreadable() 
         &entries,
         &FakeScheme,
         &trusted(),
+        kit.decoder(),
         &stamps,
     )
     .expect("the chain verifies without the seal key");

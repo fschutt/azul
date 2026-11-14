@@ -15,10 +15,11 @@ use crate::ops::OpName;
 use crate::roles::Role;
 
 /// Every source file of the crate that is not a test, with its text.
-const SOURCES: [(&str, &str); 18] = [
+const SOURCES: [(&str, &str); 19] = [
     ("admit.rs", include_str!("../admit.rs")),
     ("apply.rs", include_str!("../apply.rs")),
     ("authority.rs", include_str!("../authority.rs")),
+    ("decode.rs", include_str!("../decode.rs")),
     ("delegate.rs", include_str!("../delegate.rs")),
     ("devices.rs", include_str!("../devices.rs")),
     ("effects.rs", include_str!("../effects.rs")),
@@ -37,9 +38,10 @@ const SOURCES: [(&str, &str); 18] = [
 ];
 
 /// The test files of the crate that carry the killers, with their text.
-const TEST_SOURCES: [(&str, &str); 8] = [
+const TEST_SOURCES: [(&str, &str); 9] = [
     ("admit_tests.rs", include_str!("admit_tests.rs")),
     ("delegate_tests.rs", include_str!("delegate_tests.rs")),
+    ("escalation_tests.rs", include_str!("escalation_tests.rs")),
     ("invite_tests.rs", include_str!("invite_tests.rs")),
     ("matrix_tests.rs", include_str!("matrix_tests.rs")),
     ("replay_tests.rs", include_str!("replay_tests.rs")),
@@ -224,6 +226,7 @@ fn describe(row: &Row) -> String {
         QuorumRule::RoleChangeIsAdminClass(class) => format!("role_change_admin:{class}"),
         QuorumRule::NotOwnDevice(class) => format!("not_own_device:{class}"),
         QuorumRule::ManagedToPrivate(class) => format!("managed_to_private:{class}"),
+        QuorumRule::MoveLoosensPolicy(class) => format!("move_loosens_policy:{class}"),
     };
     format!(
         "{} | own:{} | delegable:{} | {}",
@@ -277,9 +280,12 @@ fn the_table_says_what_the_brief_says() {
             OpName::GroupMember,
             "owner admin group_admin@scope | own:false | delegable:false | none",
         ),
+        // The one cell that lane W1-S17c3 added to the brief's table (X-DELTA-W1S47A-2, D-W1S17C3): a move
+        // that would loosen the effective policy of a group of the moved subtree asks the quorum of a
+        // policy change (and is for an owner or an admin: a group admin only tightens).
         (
             OpName::GroupMove,
-            "owner admin group_admin@scope | own:false | delegable:false | none",
+            "owner admin group_admin@scope | own:false | delegable:false | move_loosens_policy:policy_change",
         ),
         (
             OpName::PolicySet,
@@ -338,6 +344,10 @@ fn a_quorum_rule_asks_for_its_class_exactly_when_its_condition_holds() {
         managed_to_private: true,
         ..none
     };
+    let loosens = QuorumFacts {
+        move_loosens_policy: true,
+        ..none
+    };
     let class = QuorumClass::AdminChange;
     assert_eq!(QuorumRule::Never.class(admin), None);
     assert_eq!(QuorumRule::Always(class).class(none), Some(class));
@@ -356,6 +366,12 @@ fn a_quorum_rule_asks_for_its_class_exactly_when_its_condition_holds() {
     assert_eq!(QuorumRule::ManagedToPrivate(class).class(none), None);
     assert_eq!(
         QuorumRule::ManagedToPrivate(class).class(to_private),
+        Some(class)
+    );
+    assert_eq!(QuorumRule::MoveLoosensPolicy(class).class(none), None);
+    assert_eq!(QuorumRule::MoveLoosensPolicy(class).class(own), None);
+    assert_eq!(
+        QuorumRule::MoveLoosensPolicy(class).class(loosens),
         Some(class)
     );
 }

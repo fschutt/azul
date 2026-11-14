@@ -8,7 +8,7 @@ use azlin_policy::{AdminQuorum, PolicyPatch};
 use azlin_seams::{AccountKind, ByteCount, ChainSeq, Span};
 
 use super::kit::{account, at, device, group, hash, key, member};
-use super::signed::{dkeys, invite_op, join_op, sign_with, universe, SignedKit};
+use super::signed::{dkeys, invite_op, join_op, sign_with, universe, Shape, SignedKit};
 use crate::admit::{admit, Invalid, PolicyReason, Refusal};
 use crate::devices::DeviceState;
 use crate::members::MemberState;
@@ -48,6 +48,19 @@ fn why(result: Result<(), Refusal>) -> Refusal {
     result.expect_err("the entry must be refused")
 }
 
+/// The entry an honest device 1 would have signed with the signed fields of `shape`: an app op, validly
+/// signed, whose position, claimed time, restore epoch or account is what the shape says.
+fn shaped(kit: &SignedKit, shape: Shape) -> crate::proposal::RawEntry {
+    kit.entry_shaped(
+        Signer::Device(device(1)),
+        notes(),
+        &[],
+        Vec::new(),
+        None,
+        shape,
+    )
+}
+
 // ---- check 5: the chain, the signatures, the signer ----------------------------------------------
 
 #[test]
@@ -55,8 +68,15 @@ fn wrong_prev_refused_with_reason() {
     let mut kit = team();
     kit.make_group(1, None);
     let head = kit.state.head().expect("a head");
-    let mut entry = kit.entry_by(1, &[], notes());
-    entry.prev = hash(0x99);
+    // (Entries SIGNED with another position: a typed field changed after the signing is not what was
+    // signed and is `BadSignature`, see `escalation_tests`.)
+    let entry = shaped(
+        &kit,
+        Shape {
+            prev: Some(hash(0x99)),
+            ..Shape::default()
+        },
+    );
     assert_eq!(
         kit.verdict(&entry),
         Err(Refusal::Chain(ChainRefusal::WrongPrev {
@@ -65,8 +85,13 @@ fn wrong_prev_refused_with_reason() {
         }))
     );
     // A position that is not the next one: a gap.
-    let mut gap = kit.entry_by(1, &[], notes());
-    gap.seq = ChainSeq::new(head.seq.get() + 5);
+    let gap = shaped(
+        &kit,
+        Shape {
+            seq: Some(ChainSeq::new(head.seq.get() + 5)),
+            ..Shape::default()
+        },
+    );
     assert_eq!(
         kit.verdict(&gap),
         Err(Refusal::Chain(ChainRefusal::Gap {
@@ -85,9 +110,14 @@ fn wrong_prev_refused_with_reason() {
             got: applied.seq,
         }))
     );
-    // An entry of another account does not belong to this log.
-    let mut foreign = kit.entry_by(1, &[], notes());
-    foreign.account = azlin_seams::AccountId::from_bytes([0x44; 16]);
+    // An entry signed for another account does not belong to this log.
+    let foreign = shaped(
+        &kit,
+        Shape {
+            account: Some(azlin_seams::AccountId::from_bytes([0x44; 16])),
+            ..Shape::default()
+        },
+    );
     assert_eq!(
         kit.verdict(&foreign),
         Err(Refusal::Chain(ChainRefusal::WrongChain))
@@ -113,6 +143,7 @@ fn a_stamp_that_runs_backwards_is_refused_whatever_the_entry_says_of_itself() {
         &entry,
         &azlin_seams::FakeScheme,
         &super::signed::trusted(),
+        kit.decoder(),
     )
     .expect("the signatures hold");
     // The leader's stamp of the genesis was 1,010: an earlier stamp is a leader clock fault.
@@ -120,10 +151,15 @@ fn a_stamp_that_runs_backwards_is_refused_whatever_the_entry_says_of_itself() {
         admit(&kit.state, &proposal, at(5)).err(),
         Some(Refusal::Chain(ChainRefusal::StampBackwards))
     );
-    // The entry's own `at` is informational: any value of it is admitted at a good stamp.
+    // The entry's own `at` is informational: any value of it, signed, is admitted at a good stamp.
     for claimed in [0u64, 5, 2_000_000_000] {
-        let mut other = kit.entry_by(1, &[], notes());
-        other.at = at(claimed);
+        let other = shaped(
+            &kit,
+            Shape {
+                at: Some(at(claimed)),
+                ..Shape::default()
+            },
+        );
         assert_eq!(kit.verdict(&other), Ok(()));
     }
 }
@@ -1762,6 +1798,7 @@ fn entitlement_only_by_the_payments_key() {
         &by_payments(&kit, 1),
         &azlin_seams::FakeScheme,
         &crate::proposal::TrustedKeys::none(),
+        kit.decoder(),
     );
     assert_eq!(proposal.err(), Some(Refusal::BadSignature));
     // The payments key signs an entitlement and nothing else.
@@ -1985,14 +2022,28 @@ fn the_first_entry_is_the_genesis_and_only_the_first() {
         "a signature that is not by the key the genesis registers"
     );
     // The seq of a genesis is 0 and its prev is zero.
-    let mut late = empty.entry_by(1, &[], genesis(1, 1));
-    late.seq = ChainSeq::new(1);
+    let signed_with = |shape: Shape| {
+        empty.entry_shaped(
+            Signer::Device(device(1)),
+            genesis(1, 1),
+            &[],
+            Vec::new(),
+            None,
+            shape,
+        )
+    };
+    let late = signed_with(Shape {
+        seq: Some(ChainSeq::new(1)),
+        ..Shape::default()
+    });
     assert_eq!(
         empty.verdict(&late),
         Err(Refusal::Chain(ChainRefusal::NotGenesis))
     );
-    let mut wrong_prev = empty.entry_by(1, &[], genesis(1, 1));
-    wrong_prev.prev = hash(5);
+    let wrong_prev = signed_with(Shape {
+        prev: Some(hash(5)),
+        ..Shape::default()
+    });
     assert_eq!(
         empty.verdict(&wrong_prev),
         Err(Refusal::Chain(ChainRefusal::NotGenesis))
@@ -2018,15 +2069,22 @@ fn admit_returns_the_witness_of_the_entry_it_admitted() {
 #[test]
 fn verify_signatures_alone_refuses_an_entry_of_another_account() {
     let kit = team();
-    let mut foreign = kit.entry_by(1, &[], notes());
-    foreign.account = azlin_seams::AccountId::from_bytes([0x44; 16]);
-    // Everything else about it is in order: the copy is intact and its signature holds.
+    // Signed for another account, in every part: the copy is intact, the typed fields are the signed
+    // ones and the signature holds. Only the account says that it is not this log's.
+    let foreign = shaped(
+        &kit,
+        Shape {
+            account: Some(azlin_seams::AccountId::from_bytes([0x44; 16])),
+            ..Shape::default()
+        },
+    );
     assert!(foreign.is_intact());
     let proposal = verify_signatures(
         &kit.state,
         &foreign,
         &azlin_seams::FakeScheme,
         &super::signed::trusted(),
+        kit.decoder(),
     );
     assert_eq!(
         proposal.err(),
@@ -2163,6 +2221,7 @@ fn a_proposal_is_checked_against_the_device_key_of_the_state_that_admits_it() {
         &entry,
         &azlin_seams::FakeScheme,
         &super::signed::trusted(),
+        kit.decoder(),
     )
     .expect("the signatures hold");
     assert!(admit(&kit.state, &proposal, kit.stamp()).is_ok());

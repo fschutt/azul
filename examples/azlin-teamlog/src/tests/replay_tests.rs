@@ -20,7 +20,7 @@ use azlin_seams::{
 };
 
 use super::kit::{account, at, device, group, hash, key, member};
-use super::signed::{dkeys, invite_op, join_op, trusted, SignedKit};
+use super::signed::{dkeys, invite_op, join_op, trusted, Shape, SignedKit};
 use crate::admit::{Invalid, Refusal};
 use crate::apply::apply;
 use crate::members::{AppSpec, MemberState};
@@ -312,16 +312,40 @@ fn random_entry(rng: &mut Rng, kit: &SignedKit) -> RawEntry {
         signer = Signer::DelegateKey(key(40 + below(rng, 3) as u8));
     }
     let mut entry = kit.entry(signer, op, &cosigners, assertions, None);
-    match below(rng, 50) {
+    match below(rng, 60) {
         0 => entry.sig[0] ^= 1,
-        1 => entry.prev = hash(7),
-        2 => entry.seq = ChainSeq::new(entry.seq.get() + 2),
+        // Signed with another position, or for a restore nobody announced: what an honest device that
+        // believed the chain to be elsewhere would have signed.
+        1 => {
+            let shape = Shape {
+                prev: Some(hash(7)),
+                ..Shape::default()
+            };
+            entry = kit.reshape(&entry, shape);
+        }
+        2 => {
+            let shape = Shape {
+                seq: Some(ChainSeq::new(entry.seq.get() + 2)),
+                ..Shape::default()
+            };
+            entry = kit.reshape(&entry, shape);
+        }
         3 => entry.preimage[0] ^= 1,
         4 => entry.hash = hash(9),
         5 => {
             if let Some(cosig) = entry.cosigs.first_mut() {
                 cosig.1[0] ^= 1;
             }
+        }
+        // A typed field changed after the signing: the entry is not what was signed.
+        6 => entry.prev = hash(7),
+        7 => entry.seq = ChainSeq::new(entry.seq.get() + 2),
+        8 => {
+            let shape = Shape {
+                epoch: Some(RestoreEpoch::new(1 + below(rng, 3))),
+                ..Shape::default()
+            };
+            entry = kit.reshape(&entry, shape);
         }
         _ => {}
     }
@@ -397,6 +421,7 @@ struct Coverage {
 fn word(refusal: &Refusal) -> &'static str {
     match refusal {
         Refusal::Chain(_) => "chain",
+        Refusal::EpochNotAnnounced { .. } => "epoch",
         Refusal::BadSignature => "bad_signature",
         Refusal::SignerUnknown => "signer_unknown",
         Refusal::SignerNotActive { .. } => "signer_not_active",
@@ -441,6 +466,7 @@ fn run_sequence(seed: u64, steps: usize, coverage: &mut Coverage) {
             std::slice::from_ref(&entry),
             &FakeScheme,
             &trusted(),
+            kit.decoder(),
             &[stamp],
         );
         coverage.attempts += 1;
@@ -487,6 +513,7 @@ fn run_sequence(seed: u64, steps: usize, coverage: &mut Coverage) {
         &entries,
         &FakeScheme,
         &trusted(),
+        kit.decoder(),
         &stamps,
     )
     .unwrap_or_else(|(position, why)| {
@@ -636,32 +663,74 @@ fn replay_stops_at_the_first_refusal_and_says_where() {
     let mut entries: Vec<RawEntry> = kit.log.iter().map(|(entry, _)| entry.clone()).collect();
     let stamps: Vec<Stamp> = kit.log.iter().map(|(_, stamp)| *stamp).collect();
     let empty = || TeamState::empty(account(), AccountKind::Team);
-    assert!(replay(empty(), &entries, &FakeScheme, &trusted(), &stamps).is_ok());
+    assert!(replay(
+        empty(),
+        &entries,
+        &FakeScheme,
+        &trusted(),
+        kit.decoder(),
+        &stamps
+    )
+    .is_ok());
     // A damaged signature at position 17: the first 17 are fine, the 18th is where it stops.
     entries[17].sig[0] ^= 1;
-    let answer = replay(empty(), &entries, &FakeScheme, &trusted(), &stamps);
+    let answer = replay(
+        empty(),
+        &entries,
+        &FakeScheme,
+        &trusted(),
+        kit.decoder(),
+        &stamps,
+    );
     assert_eq!(answer.err(), Some((17, Refusal::BadSignature)));
     entries[17].sig[0] ^= 1;
-    // A wrong `prev` at position 5.
-    entries[5].prev = hash(3);
-    let answer = replay(empty(), &entries, &FakeScheme, &trusted(), &stamps);
+    // A wrong `prev` at position 5 (the entry signed with it).
+    entries[5] = kit.reshape(
+        &entries[5],
+        Shape {
+            prev: Some(hash(3)),
+            ..Shape::default()
+        },
+    );
+    let answer = replay(
+        empty(),
+        &entries,
+        &FakeScheme,
+        &trusted(),
+        kit.decoder(),
+        &stamps,
+    );
     match answer {
         Err((5, Refusal::Chain(ChainRefusal::WrongPrev { .. }))) => {}
         other => panic!("a wrong prev at 5 expected, was {:?}", other.map(|_| ())),
     }
-    entries[5].prev = kit.log[4].0.hash;
+    entries[5] = kit.log[5].0.clone();
     // A missing entry is a gap; a stamp that runs backwards is the leader's fault.
     let mut without = entries.clone();
     without.remove(9);
     let mut fewer = stamps.clone();
     fewer.remove(9);
-    match replay(empty(), &without, &FakeScheme, &trusted(), &fewer) {
+    match replay(
+        empty(),
+        &without,
+        &FakeScheme,
+        &trusted(),
+        kit.decoder(),
+        &fewer,
+    ) {
         Err((9, Refusal::Chain(ChainRefusal::Gap { .. }))) => {}
         other => panic!("a gap at 9 expected, was {:?}", other.map(|_| ())),
     }
     let mut backwards = stamps.clone();
     backwards[12] = at(1);
-    match replay(empty(), &entries, &FakeScheme, &trusted(), &backwards) {
+    match replay(
+        empty(),
+        &entries,
+        &FakeScheme,
+        &trusted(),
+        kit.decoder(),
+        &backwards,
+    ) {
         Err((12, Refusal::Chain(ChainRefusal::StampBackwards))) => {}
         other => panic!(
             "a stamp that runs backwards at 12 expected, was {:?}",
@@ -671,14 +740,23 @@ fn replay_stops_at_the_first_refusal_and_says_where() {
     // One stamp for each entry.
     let short = &stamps[..stamps.len() - 1];
     assert_eq!(
-        replay(empty(), &entries, &FakeScheme, &trusted(), short).err(),
+        replay(
+            empty(),
+            &entries,
+            &FakeScheme,
+            &trusted(),
+            kit.decoder(),
+            short
+        )
+        .err(),
         Some((
             short.len(),
             Refusal::Invalid(Invalid::Args("one leader stamp for each entry"))
         ))
     );
     // No entries: the state it started from.
-    let untouched = replay(empty(), &[], &FakeScheme, &trusted(), &[]).expect("nothing to do");
+    let untouched =
+        replay(empty(), &[], &FakeScheme, &trusted(), kit.decoder(), &[]).expect("nothing to do");
     assert_eq!(untouched, empty());
 }
 
@@ -763,8 +841,15 @@ fn replay_from_checkpoint_state_equals_from_genesis() {
     let stamps: Vec<Stamp> = kit.log.iter().map(|(_, stamp)| *stamp).collect();
     assert!(entries.len() > 40, "{} entries", entries.len());
     let empty = || TeamState::empty(account(), AccountKind::Team);
-    let from_genesis =
-        replay(empty(), &entries, &FakeScheme, &trusted(), &stamps).expect("verifies");
+    let from_genesis = replay(
+        empty(),
+        &entries,
+        &FakeScheme,
+        &trusted(),
+        kit.decoder(),
+        &stamps,
+    )
+    .expect("verifies");
     assert_eq!(from_genesis, kit.state);
     // The checkpoint at position k: the head the group signed and the hash of the state the entries up to
     // it produced.
@@ -774,6 +859,7 @@ fn replay_from_checkpoint_state_equals_from_genesis() {
             &entries[..=k],
             &FakeScheme,
             &trusted(),
+            kit.decoder(),
             &stamps[..=k],
         )
         .expect("verifies");
@@ -801,8 +887,15 @@ fn replay_from_checkpoint_state_equals_from_genesis() {
             .expect("the chain continues");
         assert_eq!(Some(end), from_genesis.head());
         // ...and replays them: the same state as from the first entry.
-        let from_checkpoint = replay(fetched, rest, &FakeScheme, &trusted(), &stamps[k + 1..])
-            .expect("the entries after the checkpoint verify");
+        let from_checkpoint = replay(
+            fetched,
+            rest,
+            &FakeScheme,
+            &trusted(),
+            kit.decoder(),
+            &stamps[k + 1..],
+        )
+        .expect("the entries after the checkpoint verify");
         assert_eq!(from_checkpoint, from_genesis, "checkpoint at {k}");
         assert_eq!(from_checkpoint.state_hash(), from_genesis.state_hash());
     }
@@ -824,6 +917,7 @@ fn replay_from_checkpoint_state_equals_from_genesis() {
         &entries[..=10],
         &FakeScheme,
         &trusted(),
+        kit.decoder(),
         &stamps[..=10],
     )
     .expect("verifies");
@@ -843,6 +937,7 @@ fn replay_from_checkpoint_state_equals_from_genesis() {
         &entries[11..],
         &FakeScheme,
         &trusted(),
+        kit.decoder(),
         &stamps[11..],
     );
     assert!(
