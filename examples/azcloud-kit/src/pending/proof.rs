@@ -334,8 +334,16 @@ impl Settled {
     ///
     /// [`CheckoutStatus::Declined`], [`CheckoutStatus::Gone`] and [`CheckoutStatus::HandoverGone`]
     /// are made by [`crate::token::TokenServer::checkout_status`] from those words of the token
-    /// server and from nothing else.
-    pub(super) fn ended_by(status: &CheckoutStatus, checkout_id: &str) -> Option<(Settled, Final)> {
+    /// server and from nothing else. `handover_life_secs` is how long the token server keeps THIS
+    /// buyer's hand-over ([`super::PendingCheckout::handover_life_secs`]: a card buyer's, a cash
+    /// buyer's is four times as long): the days the sentence for a purged one says, and what a
+    /// purged one means for the buyer - a refund of the payment, the product's answer
+    /// (AZDRIVE-INTEGRATION.md) - and not "support can help" (X-DELTA-MONEY11-5).
+    pub(super) fn ended_by(
+        status: &CheckoutStatus,
+        checkout_id: &str,
+        handover_life_secs: i64,
+    ) -> Option<(Settled, Final)> {
         match status {
             CheckoutStatus::Declined(why) => Some((
                 Settled(SettledBy::Declined),
@@ -349,9 +357,9 @@ impl Settled {
                 Settled(SettledBy::Gone),
                 Final::Gone(format!(
                     "it was paid, but the token server keeps its drive's hand-over only {} days \
-                     after the payment and has it no more: support can help with the checkout \
-                     {checkout_id}",
-                    super::HANDOVER_KEPT_SECS / 86_400
+                     after the payment and has it no more, so this checkout can no longer open the \
+                     drive: ask for a refund of the payment (checkout {checkout_id})",
+                    handover_life_secs / 86_400
                 )),
             )),
             CheckoutStatus::Pending
@@ -369,7 +377,7 @@ impl Settled {
 mod tests {
     use azlin_contract::AbandonAnswer;
 
-    use super::{Settled, Verdict};
+    use super::{Final, Settled, Verdict};
 
     /// An abandon's answer ends a checkout only when the token server says it is over for good; a
     /// pending one (a letter of cash in the post), a word this build does not know and a payment
@@ -423,11 +431,36 @@ mod tests {
     fn a_payment_taken_back_ends_nothing_and_a_decline_a_gone_checkout_and_a_purged_hand_over_do() {
         use crate::token::CheckoutStatus;
 
-        let said = |status: CheckoutStatus| Settled::ended_by(&status, "ck_1");
+        let said = |status: CheckoutStatus| {
+            Settled::ended_by(&status, "ck_1", super::super::HANDOVER_KEPT_SECS)
+        };
         assert!(said(CheckoutStatus::Reversed(String::from("a refund"))).is_none());
         assert!(said(CheckoutStatus::Declined(String::from("no funds"))).is_some());
         assert!(said(CheckoutStatus::Gone(String::from("expired"))).is_some());
         assert!(said(CheckoutStatus::HandoverGone).is_some());
         assert!(said(CheckoutStatus::Pending).is_none());
+    }
+
+    /// X-DELTA-MONEY11-5: the sentence for a purged hand-over says the days of the buyer it is for - the life it is given, the contract's
+    /// 30 for a card buyer and its factor of that for a cash buyer - and the refund; no other buyer's number, no "support can help".
+    #[test]
+    fn a_purged_hand_over_is_said_with_the_days_it_is_given_and_the_refund() {
+        use super::super::{CASH_HANDOVER_KEPT_SECS, HANDOVER_KEPT_SECS};
+        use crate::token::CheckoutStatus;
+
+        for (life, days, other_days) in [
+            (HANDOVER_KEPT_SECS, 30, 120),
+            (CASH_HANDOVER_KEPT_SECS, 120, 30),
+        ] {
+            let Some((_, Final::Gone(why))) =
+                Settled::ended_by(&CheckoutStatus::HandoverGone, "ck_1", life)
+            else {
+                panic!("a purged hand-over ends the checkout as gone");
+            };
+            assert!(why.contains(&format!("{days} days")), "{why}");
+            assert!(!why.contains(&format!("{other_days} days")), "{why}");
+            assert!(why.contains("refund") && why.contains("ck_1"), "{why}");
+            assert!(!why.contains("support can help"), "{why}");
+        }
     }
 }

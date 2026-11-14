@@ -1343,7 +1343,9 @@ pub fn poll(
         Err(e) => return Polled::Transient(Transient::Unread(e.to_string())),
     };
     // Declined, gone, the hand-over purged: the token server's own words end it.
-    if let Some((proof, said)) = Settled::ended_by(&status, &checkout.checkout_id) {
+    if let Some((proof, said)) =
+        Settled::ended_by(&status, &checkout.checkout_id, checkout.handover_life_secs())
+    {
         return end(shared, checkout, proof, said);
     }
     // ONE total match over what the token server said, no wildcard arm: a status added to

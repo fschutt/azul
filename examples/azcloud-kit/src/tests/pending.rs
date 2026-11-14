@@ -2002,3 +2002,43 @@ fn x_delta_money7_6_a_grant_with_no_stop_is_local_only_as_before() {
         other => panic!("{other:?}"),
     }
 }
+
+/// X-DELTA-MONEY11-5. Property (planning/architecture.md section 2.4, the account plane, and AZDRIVE-INTEGRATION.md: a paid checkout whose
+/// hand-over is gone is answered with a refund): the sentence for a hand-over that is gone says what is true for THIS buyer - the days the
+/// token server keeps the hand-over of a card buyer (the contract's 30) or of a cash buyer (the contract's factor of it, 120), counted
+/// from the payment - and the product answer, a refund of the payment. It said "support can help", which names no tool, and 30 days to
+/// every buyer. Through the real poll: approved, no sealed sign-up any more.
+#[test]
+fn x_delta_money11_5_a_purged_hand_over_is_said_with_the_buyers_own_days_and_the_refund() {
+    for (cash, days, other_days) in [(false, 30, 120), (true, 120, 30)] {
+        let dir = TempDir::new("azcloud-pending");
+        let (shared, _) = shared(&dir);
+        let claim = ClaimKey::generate().unwrap();
+        let mut entry = checkout("ck_1", &claim);
+        if cash {
+            entry.method = crate::cash::CASH_METHOD.to_string();
+        }
+        pending::add(&shared, &entry).unwrap();
+        let transport = Shared(Fake::new(|_, _| {
+            Ok(json(
+                200,
+                r#"{"checkout_id": "ck_1", "status": "approved"}"#,
+            ))
+        }));
+        let server = TokenServer::new(TOKEN, &transport).unwrap();
+        match pending::poll(&server, &shared, &entry) {
+            Polled::Final(Final::Gone(why)) => {
+                assert!(why.contains(&format!("{days} days")), "cash {cash}: {why}");
+                assert!(
+                    !why.contains(&format!("{other_days} days")),
+                    "cash {cash}: the other buyer's days: {why}"
+                );
+                assert!(why.contains("refund"), "cash {cash}: {why}");
+                assert!(why.contains("ck_1"), "cash {cash}: {why}");
+                assert!(!why.contains("support can help"), "cash {cash}: {why}");
+            }
+            other => panic!("cash {cash}: {other:?}"),
+        }
+        assert!(pending::list(&shared).unwrap().is_empty(), "off the list");
+    }
+}
