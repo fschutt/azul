@@ -6,10 +6,10 @@
 //! `crate::desktop::extra::webtransport` (the codegen memtest checks the native
 //! side; keep the two in sync).
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::webtransport::*;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 mod wasm_stub {
     use core::ffi::c_void;
 
@@ -169,5 +169,5 @@ mod wasm_stub {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 pub use wasm_stub::*;

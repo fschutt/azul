@@ -1,32 +1,32 @@
 //! Unified `Pdf` handle. See [`crate::unified`].
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::dom::Dom;
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::json::Json;
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::U8Vec;
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::pdf::*;
 
 /// wasm stub of the desktop `Pdf` handle (stateless; no printpdf backend).
 /// Identical `#[repr(C)]` layout to the real type (a single reserved byte).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pdf {
     pub _reserved: u8,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for Pdf {
     fn default() -> Self {
         Pdf::new()
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Pdf {
     pub fn new() -> Self {
         Pdf { _reserved: 0 }
@@ -111,7 +111,7 @@ impl Pdf {
 }
 
 /// wasm stub of the desktop `PdfPageSize` (identical `#[repr(C)]` layout).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct PdfPageSize {
@@ -119,7 +119,7 @@ pub struct PdfPageSize {
     pub height_pt: f32,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl PdfPageSize {
     /// The size in CSS px (96 per inch).
     pub fn to_logical_size(&self) -> azul_core::geom::LogicalSize {
@@ -132,7 +132,7 @@ impl PdfPageSize {
 
 /// wasm stub of the desktop `ParsedPdf` (no printpdf backend on wasm): every
 /// handle is empty and not valid. Identical `#[repr(C)]` layout.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug)]
 pub struct ParsedPdf {
@@ -140,14 +140,14 @@ pub struct ParsedPdf {
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for ParsedPdf {
     fn clone(&self) -> Self {
         ParsedPdf::default()
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for ParsedPdf {
     fn default() -> Self {
         ParsedPdf {
@@ -157,12 +157,12 @@ impl Default for ParsedPdf {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for ParsedPdf {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl ParsedPdf {
     /// No PDF backend on wasm: an empty handle.
     pub fn create_from_bytes(_bytes: &[u8]) -> Self {

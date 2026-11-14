@@ -1,12 +1,12 @@
 //! Unified `VideoEncoder` / `VideoDecoder` handles. See [`crate::unified`].
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::video_codec::*;
 
 /// wasm fallback for the `VideoWidget::dom()` shim: no decode worker on wasm, so
 /// render the placeholder DOM directly (the desktop `video_widget_dom`, which
 /// wires the streaming worker, is glob-re-exported above on non-wasm targets).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 pub fn video_widget_dom(widget: azul_layout::widgets::video::VideoWidget) -> azul_core::dom::Dom {
     widget.dom()
 }
@@ -25,7 +25,7 @@ pub fn video_widget_dom(widget: azul_layout::widgets::video::VideoWidget) -> azu
 /// supplies the real `pipeline` only under `cabi_internal + !wasm + video-native`).
 #[cfg(all(
     feature = "cabi_internal",
-    any(target_arch = "wasm32", not(feature = "video-native"))
+    any(target_arch = "wasm32", az_engine_stubs, not(feature = "video-native"))
 ))]
 pub mod pipeline {
     use azul_core::video::VideoFrameVec;
@@ -106,23 +106,23 @@ pub mod pipeline {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use core::ffi::c_void;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::video::{OptionVideoFrame, VideoFrame};
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::{AzString, U8Vec};
 
 /// wasm stub of the desktop `VideoEncoder` handle (no codec backend on wasm).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct VideoEncoder {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for VideoEncoder {
     fn clone(&self) -> Self {
         VideoEncoder {
@@ -131,7 +131,7 @@ impl Clone for VideoEncoder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for VideoEncoder {
     fn default() -> Self {
         VideoEncoder {
@@ -140,12 +140,12 @@ impl Default for VideoEncoder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for VideoEncoder {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl VideoEncoder {
     /// No codec backend on wasm: always returns an invalid handle.
     pub fn open(_width: u32, _height: u32, _h265: bool, _bitrate_kbps: u32) -> VideoEncoder {
@@ -181,13 +181,13 @@ impl VideoEncoder {
 
 /// wasm stub of the desktop `ScreenRecorder` (no subprocess/gstreamer on wasm).
 /// `#[repr(C)]` layout MUST match `video_codec::ScreenRecorder`.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct ScreenRecorder {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for ScreenRecorder {
     fn clone(&self) -> Self {
         ScreenRecorder {
@@ -196,7 +196,7 @@ impl Clone for ScreenRecorder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for ScreenRecorder {
     fn default() -> Self {
         ScreenRecorder {
@@ -205,11 +205,11 @@ impl Default for ScreenRecorder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for ScreenRecorder {
     fn drop(&mut self) {}
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl ScreenRecorder {
     /// No gstreamer on wasm: always returns an invalid handle.
     pub fn start(_path: AzString, _width: u32, _height: u32, _fps: u32) -> ScreenRecorder {
@@ -243,7 +243,7 @@ impl ScreenRecorder {
 }
 
 /// wasm stub of `ScreenRecordingResult`; layout MUST match the desktop type.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenRecordingResult {
@@ -251,7 +251,7 @@ pub struct ScreenRecordingResult {
     pub error: azul_css::corety::OptionString,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 azul_css::impl_option!(
     ScreenRecordingResult,
     OptionScreenRecordingResult,
@@ -259,7 +259,7 @@ azul_css::impl_option!(
     [Debug, Clone, PartialEq, Eq]
 );
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl ScreenRecordingResult {
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionScreenRecordingResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -267,14 +267,14 @@ impl ScreenRecordingResult {
 }
 
 /// wasm stub of the desktop `VideoDecoder` handle (no codec backend on wasm).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct VideoDecoder {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for VideoDecoder {
     fn clone(&self) -> Self {
         VideoDecoder {
@@ -283,7 +283,7 @@ impl Clone for VideoDecoder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for VideoDecoder {
     fn default() -> Self {
         VideoDecoder {
@@ -292,12 +292,12 @@ impl Default for VideoDecoder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for VideoDecoder {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl VideoDecoder {
     /// No codec backend on wasm: always returns an invalid handle.
     pub fn open(_h265: bool) -> VideoDecoder {
@@ -329,16 +329,16 @@ impl VideoDecoder {
 /// kernel provisioning on wasm). `#[repr(C)]` layout MUST match the desktop
 /// `video_codec::provision::{VideoStartupCheck, VideoProvisionOutcome}` because
 /// the C-ABI bindings `transmute` between these and the `Az*` structs.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 pub mod provision {
     use azul_css::AzString;
 
-    // The `#[cfg(target_arch = "wasm32")]` on each item (redundant with the
+    // The `#[cfg(any(target_arch = "wasm32", az_engine_stubs))]` on each item (redundant with the
     // module cfg above) is what the autofix type-indexer's `is_wasm32_only`
     // check looks for — it inspects per-item attrs, so without this it would
     // index these stubs as real types and clobber the canonical desktop
     // `video_codec::provision::*` definitions (which DO have the From impl).
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct VideoProvisionOutcome {
@@ -347,7 +347,7 @@ pub mod provision {
         pub message: AzString,
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct VideoStartupCheck {
@@ -382,7 +382,7 @@ pub mod provision {
 
     /// wasm stub of the desktop `VideoEncodeCheck`. `#[repr(C)]` layout MUST match
     /// `video_codec::provision::VideoEncodeCheck` (the C-ABI bindings `transmute`).
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct VideoEncodeCheck {
@@ -393,7 +393,7 @@ pub mod provision {
         pub detail: AzString,
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
     impl VideoEncodeCheck {
         /// No codec backend on wasm: reports "no encoder available".
         pub fn run() -> VideoEncodeCheck {
@@ -416,14 +416,14 @@ pub mod provision {
 // the desktop handles (the C-ABI bindings `transmute`).
 
 /// wasm stub of the desktop `Mp4Demuxer` handle.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct Mp4Demuxer {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for Mp4Demuxer {
     fn clone(&self) -> Self {
         Mp4Demuxer {
@@ -432,7 +432,7 @@ impl Clone for Mp4Demuxer {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for Mp4Demuxer {
     fn default() -> Self {
         Mp4Demuxer {
@@ -441,12 +441,12 @@ impl Default for Mp4Demuxer {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for Mp4Demuxer {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Mp4Demuxer {
     /// No container engine on wasm: always a handle that did not open.
     pub fn create(_bytes: U8Vec) -> Mp4Demuxer {
@@ -486,14 +486,14 @@ impl Mp4Demuxer {
 }
 
 /// wasm stub of the desktop `Mp4Muxer` handle.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct Mp4Muxer {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for Mp4Muxer {
     fn clone(&self) -> Self {
         Mp4Muxer {
@@ -502,7 +502,7 @@ impl Clone for Mp4Muxer {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for Mp4Muxer {
     fn default() -> Self {
         Mp4Muxer {
@@ -511,12 +511,12 @@ impl Default for Mp4Muxer {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for Mp4Muxer {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Mp4Muxer {
     /// No container engine on wasm: always an invalid handle.
     pub fn create(_width: u32, _height: u32, _fps: f32) -> Mp4Muxer {

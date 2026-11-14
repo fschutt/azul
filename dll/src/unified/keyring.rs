@@ -5,23 +5,23 @@
 //! is no keyring backend: the stub below has the identical `#[repr(C)]` layout
 //! and answers every call `Unavailable`.
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::keyring::{KeyringNamespace, KeyringResult};
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::AzString;
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::keyring::Keyring;
 
 /// wasm stub of the desktop `Keyring` namespace; `#[repr(C)]` layout MUST match.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Keyring {
     pub _reserved: u8,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Keyring {
     pub const fn new() -> Self {
         Self { _reserved: 0 }

@@ -7,20 +7,20 @@
 // transmute to `AzApp` stays valid. There is no platform event loop on wasm —
 // the web backend drives the app — so the lifecycle methods are inert. Defined
 // directly here so the path resolves to `azul_dll::unified::app::App`.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use core::ffi::c_void;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::{refany::RefAny, resources::AppConfig, window::MonitorVec};
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_layout::window_state::WindowCreateOptions;
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::app::*;
 
 /// wasm stub of the desktop `App` handle (no native event loop on wasm; the
 /// web backend owns the application lifecycle).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[derive(Debug)]
 #[repr(C)]
 pub struct App {
@@ -28,7 +28,7 @@ pub struct App {
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for App {
     fn clone(&self) -> Self {
         App {
@@ -38,21 +38,21 @@ impl Clone for App {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for App {
     fn drop(&mut self) {
         self.run_destructor = false;
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for App {
     fn default() -> Self {
         Self::create(RefAny::new(()), AppConfig::default())
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl App {
     /// No native event loop on wasm: returns an inert handle. The supplied
     /// data/config are dropped here (the web backend constructs its own).

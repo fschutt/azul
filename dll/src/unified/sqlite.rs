@@ -6,10 +6,10 @@
 //! layout to transmute through, and every request it receives resolves
 //! honestly (`DbErrorKind::NoEngine` / `Disconnected`) instead of hanging.
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use core::ffi::c_void;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::{
     db::{
         DbConfig, DbError, DbErrorKind, DbKeyRange, DbMergeCallback, DbRows, DbRowsResult, DbScope,
@@ -19,18 +19,18 @@ use azul_core::{
     refany::RefAny,
     task::RequestId,
 };
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::{
     corety::OptionString, impl_option, AzString, StringVec,
 };
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_layout::{callbacks::ResumeCallback, request};
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::sqlite::*;
 
 /// wasm stub of the desktop `Db` handle; `#[repr(C)]` layout MUST match.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug)]
 pub struct Db {
@@ -38,7 +38,7 @@ pub struct Db {
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for Db {
     fn clone(&self) -> Self {
         Db {
@@ -48,7 +48,7 @@ impl Clone for Db {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for Db {
     fn default() -> Self {
         Db {
@@ -58,12 +58,12 @@ impl Default for Db {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for Db {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 azul_css::impl_result!(
     Db,
     DbError,
@@ -74,14 +74,14 @@ azul_css::impl_result!(
 );
 
 /// wasm stub of `DbOpenResult`; layout MUST match the desktop type.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct DbOpenResult {
     pub result: ResultDbDbError,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl_option!(
     DbOpenResult,
     OptionDbOpenResult,
@@ -89,19 +89,19 @@ impl_option!(
     [Debug, Clone]
 );
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl DbOpenResult {
     pub fn downcast(mut result: RefAny) -> OptionDbOpenResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 fn no_engine() -> AzString {
     AzString::from_const_str("no local db engine in this build (the web host serves Db)")
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 fn empty_rows() -> DbRows {
     DbRows {
         columns: StringVec::from_vec(Vec::new()),
@@ -109,7 +109,7 @@ fn empty_rows() -> DbRows {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Db {
     pub fn open(_config: DbConfig, data: RefAny, on_open: ResumeCallback) -> RequestId {
         request::complete(

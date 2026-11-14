@@ -3,24 +3,24 @@
 //! Native re-exports the real engine. wasm shares the plain data and the loadbalancer source and
 //! stubs the endpoint until iroh runs over WebTransport in the browser.
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::iroh::*;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[path = "../desktop/extra/iroh/types.rs"]
 mod types;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[path = "../desktop/extra/iroh/loadbalancer.rs"]
 pub mod loadbalancer;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 pub use self::types::*;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 pub use self::wasm_stub::IrohEndpoint;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 mod wasm_stub {
     use core::ffi::c_void;
 
