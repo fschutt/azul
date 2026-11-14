@@ -1,15 +1,19 @@
 //! The four shared vocabularies of `azlin_seams::vocab` (COMMON-W1R R3b, conflict C-04): strict
-//! words, `Copy`/`Ord`/`Hash`, and the checked `PolicyEpoch`.
+//! words, `Copy`/`Ord`/`Hash`, and the checked `PolicyEpoch`, and the checked `RestoreEpoch` (the
+//! typed counter of restores, X-DELTA-W1S17A-3).
 //!
 //! Implements planning/architecture.md section 5.3 (`reg_account.kind`, `reg_member.kind`,
-//! `reg_member.role`) and section 5.11 (`policy_epoch`).
+//! `reg_member.role`), section 5.11 (`policy_epoch`) and section 6.10 V3 (a restore epoch the
+//! metadata group signs).
 
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::str::FromStr;
 
-use azlin_seams::{AccountKind, AccountRole, IdError, MemberKind, PolicyEpoch, UnknownWord};
+use azlin_seams::{
+    AccountKind, AccountRole, IdError, MemberKind, PolicyEpoch, RestoreEpoch, UnknownWord,
+};
 
 /// The traits every enum of the vocabulary carries, checked at compile time.
 fn assert_traits<T: Copy + Ord + Hash + Debug + Eq + FromStr<Err = UnknownWord> + 'static>() {}
@@ -232,6 +236,63 @@ fn policy_epoch_counts_with_a_checked_next_and_a_strict_decimal_text() {
     for text in ["4294967296", "99999999999", "18446744073709551616"] {
         assert_eq!(
             text.parse::<PolicyEpoch>(),
+            Err(IdError::OutOfRange),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn restore_epoch_counts_with_a_checked_next_and_a_strict_decimal_text() {
+    // The epoch of data never restored, the number of a restore, the order of restores.
+    assert_eq!(RestoreEpoch::ZERO.get(), 0);
+    assert_eq!(RestoreEpoch::new(7).get(), 7);
+    assert_eq!(RestoreEpoch::new(0), RestoreEpoch::ZERO);
+    assert!(RestoreEpoch::new(1) > RestoreEpoch::ZERO);
+    assert!(RestoreEpoch::new(2) > RestoreEpoch::new(1));
+    assert!(RestoreEpoch::new(u64::MAX) > RestoreEpoch::new(u64::MAX - 1));
+    assert_eq!(
+        RestoreEpoch::new(3).max(RestoreEpoch::new(9)),
+        RestoreEpoch::new(9)
+    );
+
+    // The next restore's epoch is checked: a counter never wraps.
+    assert_eq!(RestoreEpoch::ZERO.next(), Some(RestoreEpoch::new(1)));
+    assert_eq!(RestoreEpoch::new(41).next(), Some(RestoreEpoch::new(42)));
+    assert_eq!(
+        RestoreEpoch::new(u64::MAX - 1).next(),
+        Some(RestoreEpoch::new(u64::MAX))
+    );
+    assert_eq!(
+        RestoreEpoch::new(u64::MAX).next(),
+        None,
+        "a counter never wraps"
+    );
+
+    // Decimal text, and strict parsing.
+    assert_eq!(RestoreEpoch::ZERO.to_string(), "0");
+    assert_eq!(
+        RestoreEpoch::new(u64::MAX).to_string(),
+        "18446744073709551615"
+    );
+    assert_eq!(format!("{:?}", RestoreEpoch::new(9)), "RestoreEpoch(9)");
+    for number in [0u64, 1, 9, 10, 99, 100, u64::from(u32::MAX) + 1, u64::MAX] {
+        let epoch = RestoreEpoch::new(number);
+        assert_eq!(epoch.to_string().parse::<RestoreEpoch>(), Ok(epoch));
+    }
+    assert_eq!("".parse::<RestoreEpoch>(), Err(IdError::Length));
+    for text in [
+        "01", "00", "+1", "-1", " 1", "1 ", "1e3", "0x10", "1_000", "\u{663}", "\u{ff11}", "a",
+    ] {
+        assert_eq!(
+            text.parse::<RestoreEpoch>(),
+            Err(IdError::BadDigit),
+            "{text:?}"
+        );
+    }
+    for text in ["18446744073709551616", "99999999999999999999999"] {
+        assert_eq!(
+            text.parse::<RestoreEpoch>(),
             Err(IdError::OutOfRange),
             "{text:?}"
         );

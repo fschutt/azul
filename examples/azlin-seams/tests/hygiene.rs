@@ -442,3 +442,101 @@ fn every_cited_plan_section_exists_in_the_plan() {
         );
     }
 }
+
+/// Each guard of the crate (`mutant!("id")`) with the test that must fail when it is turned off: the
+/// mutation standard (QUALITY rule 12) kept as one table. The mutant hold runs every id with
+/// `AZLIN_MUTANT=<id> cargo test -p azlin-seams --features mutants` and expects a red test.
+const MUTANTS: &[(&str, &str)] = &[
+    (
+        "seams_hash32_ignores_domain",
+        "hash32_is_domain_separated_and_displays_lowercase_hex",
+    ),
+    (
+        "seams_hash32_no_length_frame",
+        "hash32_is_domain_separated_and_displays_lowercase_hex",
+    ),
+    (
+        "seams_byte_count_wraps",
+        "byte_count_checked_arithmetic_never_wraps",
+    ),
+    (
+        "seams_verifier_any_alg",
+        "unsupported_alg_is_an_error_not_a_pass",
+    ),
+    (
+        "seams_fake_scheme_ignores_key",
+        "fake_scheme_verifies_only_its_own_signatures",
+    ),
+    (
+        "seams_rng_below_modulo",
+        "sim_rng_is_reproducible_and_unbiased_below_n",
+    ),
+    (
+        "seams_policy_epoch_wraps",
+        "policy_epoch_counts_with_a_checked_next_and_a_strict_decimal_text",
+    ),
+    (
+        "seams_restore_epoch_wraps",
+        "restore_epoch_counts_with_a_checked_next_and_a_strict_decimal_text",
+    ),
+];
+
+/// The text of every test source of the crate: `tests/*.rs` and `tests/common/mod.rs`.
+fn test_sources() -> String {
+    let mut out = String::new();
+    let mut folders = vec![root().join("tests")];
+    while let Some(folder) = folders.pop() {
+        for entry in fs::read_dir(&folder).expect("tests folder") {
+            let path = entry.expect("a directory entry").path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push_str(&fs::read_to_string(&path).expect("test source"));
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn mutant_guards_in_the_code_are_the_documented_set_and_each_has_a_killer() {
+    let mut in_code = BTreeSet::new();
+    for (name, text) in source_files() {
+        for line in text.lines() {
+            let t = line.trim_start();
+            if t.starts_with("//") {
+                continue;
+            }
+            let mut rest = t;
+            while let Some(at) = rest.find("mutant!(\"") {
+                let after = &rest[at + "mutant!(\"".len()..];
+                let end = after
+                    .find('"')
+                    .unwrap_or_else(|| panic!("src/{name}: an unterminated mutant id: {t}"));
+                in_code.insert(after[..end].to_string());
+                rest = &after[end..];
+            }
+        }
+    }
+    let documented: BTreeSet<String> = MUTANTS.iter().map(|(id, _)| (*id).to_string()).collect();
+    assert_eq!(documented.len(), MUTANTS.len(), "an id twice in the table");
+    assert_eq!(
+        in_code, documented,
+        "the guards in src/ and the table of this test are one set"
+    );
+    let tests = test_sources();
+    for (id, killer) in MUTANTS {
+        assert!(
+            id.starts_with("seams_")
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
+            "{id}: lower-case snake case under the prefix of the crate"
+        );
+        assert!(
+            tests.contains(&format!("fn {killer}()")),
+            "{id}: its killer `{killer}` is no test of this crate"
+        );
+    }
+}

@@ -13,7 +13,7 @@
 //! | `Hash32`, `hash32` | a 32-byte BLAKE3 value, hashed under a domain string; strict hex | [`hash`] |
 //! | `ByteCount` | the one size type: checked arithmetic, `kib`/`mib`/`gib` | [`bytes`] |
 //! | `SignatureVerifier`, `SigAlg`, `VerifyError`, `Ed25519Verifier`, `FakeScheme` | the verifier seam over ALREADY FRAMED preimages | [`verify`] |
-//! | `AccountKind`, `AccountRole`, `MemberKind`, `PolicyEpoch` | the shared enums of the registry, policy, team log and spaces | [`vocab`] |
+//! | `AccountKind`, `AccountRole`, `MemberKind`, `PolicyEpoch`, `RestoreEpoch` | the shared enums and counters of the registry, policy, team log, spaces and restores | [`vocab`] |
 //! | `mutant!` | the mutation guard: false unless the feature `mutants` is on AND `AZLIN_MUTANT` names the id | [`mutants`] |
 //! | `sim::Rng`, `sim::minimize` | the seeded generator and the shrinker of every simulation test | [`sim`] |
 //!
@@ -82,7 +82,7 @@ pub use azlin_keys::{
 pub use bytes::ByteCount;
 pub use hash::{hash32, Hash32};
 pub use verify::{Ed25519Verifier, FakeScheme, SigAlg, SignatureVerifier, VerifyError};
-pub use vocab::{AccountKind, AccountRole, MemberKind, PolicyEpoch, UnknownWord};
+pub use vocab::{AccountKind, AccountRole, MemberKind, PolicyEpoch, RestoreEpoch, UnknownWord};
 
 /// The metadata group's leader stamp: the time the leader writes into an entry (planning/architecture.md
 /// section 2.4 "Time is the leader's stamp, checked"). It is the same type as `UnixTime` (whole

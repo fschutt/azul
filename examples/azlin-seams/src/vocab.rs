@@ -13,6 +13,11 @@
 //!   privilege order: who may do what is the authority table's) and `Hash`.
 //! - `PolicyEpoch` is the `u32` counter of `reg_account.policy_epoch`: a policy change bumps it
 //!   with a CHECKED `next`, and an older credential is refused (section 5.11).
+//! - `RestoreEpoch` is the `u64` counter of restores (section 2.17, 5.13, 6.10 V3): a restore
+//!   raises it by one, the metadata group signs the epoch into every head and every entry written
+//!   after the restore, and a device refuses a head or an entry of an older epoch than the newest
+//!   restore it accepted. It is a typed counter with a CHECKED `next`, never a raw `u64` in a
+//!   public API (decision of the coordinator on X-DELTA-W1S17A-3, 2026-11-14).
 
 use core::fmt;
 use core::str::FromStr;
@@ -222,6 +227,85 @@ impl FromStr for PolicyEpoch {
         }
         match text.parse::<u32>() {
             Ok(number) => Ok(PolicyEpoch(number)),
+            Err(_) => Err(IdError::OutOfRange),
+        }
+    }
+}
+
+/// The restore epoch: how many restores the data has been through. A restore from the off-site copy
+/// (or a point-in-time restore) moves positions back and raises the epoch by one; the metadata group
+/// signs the epoch into every head and every entry it writes afterwards, so a head or an entry of the
+/// lost timeline (an older epoch) is refused once a device has accepted the restore. `ZERO` is data
+/// that was never restored; the epoch of a restore starts at 1. A plain `u64` with a CHECKED
+/// successor: a counter never wraps. Its text is plain decimal.
+///
+/// Implements planning/architecture.md section 6.10 V3 (a restore epoch the metadata group signs),
+/// section 5.13 (a head never goes backwards; the only way back is a restore) and section 2.17
+/// (what a restore re-anchors).
+///
+/// Caller: azlin-chain (`SignedHead::epoch`, `ChainEntry::epoch`, `RestoreRecord::epoch`,
+/// `HeadPin::restore_epoch`), S16a (`HeadRecord::restore_epoch`, `Seen`, `baseline`), S43 (the signed
+/// restore record), S9 (the registry's restore epoch).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RestoreEpoch(u64);
+
+impl RestoreEpoch {
+    /// The epoch of data that was never restored.
+    pub const ZERO: RestoreEpoch = RestoreEpoch(0);
+
+    /// The epoch with this number.
+    pub const fn new(number: u64) -> RestoreEpoch {
+        RestoreEpoch(number)
+    }
+
+    /// The number of the epoch.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The epoch after this one (the epoch of the next restore); `None` at the largest number (a
+    /// counter never wraps).
+    pub fn next(self) -> Option<RestoreEpoch> {
+        if mutant!("seams_restore_epoch_wraps") {
+            return Some(RestoreEpoch(self.0.wrapping_add(1)));
+        }
+        self.0.checked_add(1).map(RestoreEpoch)
+    }
+}
+
+/// Decimal.
+impl fmt::Display for RestoreEpoch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Debug for RestoreEpoch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RestoreEpoch({})", self.0)
+    }
+}
+
+/// Strict decimal: digits only, no sign, no leading zero (but `0` itself), 0 to
+/// 18,446,744,073,709,551,615. The error is `IdError::Length` for the empty text,
+/// `IdError::BadDigit` for a character that is not an ASCII digit or a leading zero, and
+/// `IdError::OutOfRange` above `u64::MAX`.
+impl FromStr for RestoreEpoch {
+    type Err = IdError;
+
+    fn from_str(text: &str) -> Result<RestoreEpoch, IdError> {
+        let digits = text.as_bytes();
+        if digits.is_empty() {
+            return Err(IdError::Length);
+        }
+        if !digits.iter().all(u8::is_ascii_digit) {
+            return Err(IdError::BadDigit);
+        }
+        if digits.len() > 1 && digits.first() == Some(&b'0') {
+            return Err(IdError::BadDigit);
+        }
+        match text.parse::<u64>() {
+            Ok(number) => Ok(RestoreEpoch(number)),
             Err(_) => Err(IdError::OutOfRange),
         }
     }
