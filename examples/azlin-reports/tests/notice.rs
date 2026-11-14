@@ -510,3 +510,84 @@ fn r18_the_notifier_notice_is_strict() {
         assert_eq!(NotifierNotice::decode(&n.encode().unwrap()).unwrap(), n);
     }
 }
+
+#[test]
+fn r22_the_wire_codes_of_the_notices_never_change() {
+    let restrictions: Vec<(Restriction, u8)> =
+        Restriction::ALL.iter().map(|r| (*r, r.code())).collect();
+    assert_eq!(
+        restrictions,
+        vec![
+            (Restriction::NoRestriction, 1),
+            (Restriction::LinkPaused, 2),
+            (Restriction::PublicLinksDisabled, 3),
+            (Restriction::LinkBlocked, 4),
+            (Restriction::AccountReadOnly, 5),
+            (Restriction::AccountBanned, 6),
+            (Restriction::DataKept, 7),
+            (Restriction::Referred, 8),
+        ]
+    );
+    for (restriction, code) in restrictions {
+        assert_eq!(Restriction::from_code(u64::from(code)), Ok(restriction));
+    }
+    assert_eq!(
+        Restriction::from_code(0),
+        Err(BodyError::UnknownRestriction(0))
+    );
+    assert_eq!(
+        Restriction::from_code(9),
+        Err(BodyError::UnknownRestriction(9))
+    );
+    let grounds: Vec<(Ground, u8)> = Ground::ALL.iter().map(|g| (*g, g.code())).collect();
+    assert_eq!(
+        grounds,
+        vec![
+            (Ground::IllegalContent, 1),
+            (Ground::Terms, 2),
+            (Ground::AutomaticSafeguard, 3)
+        ]
+    );
+    for (ground, code) in grounds {
+        assert_eq!(Ground::from_code(u64::from(code)), Ok(ground));
+    }
+    assert_eq!(Ground::from_code(0), Err(BodyError::UnknownGround(0)));
+    assert_eq!(Ground::from_code(4), Err(BodyError::UnknownGround(4)));
+    let outcomes: Vec<(Outcome, u8)> = Outcome::ALL.iter().map(|o| (*o, o.code())).collect();
+    assert_eq!(
+        outcomes,
+        vec![(Outcome::NoAction, 1), (Outcome::ActionTaken, 2)]
+    );
+    assert_eq!(Outcome::from_code(3), Err(BodyError::UnknownOutcome(3)));
+    // The redress word: bit 0 the reply, bit 1 out of court, bit 2 the courts.
+    let reply = Redress {
+        reply_in_app: true,
+        out_of_court: false,
+        courts: false,
+    };
+    let out = Redress {
+        reply_in_app: false,
+        out_of_court: true,
+        courts: false,
+    };
+    let courts = Redress {
+        reply_in_app: false,
+        out_of_court: false,
+        courts: true,
+    };
+    assert_eq!(
+        (
+            reply.bits(),
+            out.bits(),
+            courts.bits(),
+            Redress::STANDARD.bits()
+        ),
+        (1, 2, 4, 5)
+    );
+    for bits in 1..=7u64 {
+        assert_eq!(Redress::from_bits(bits).unwrap().bits(), bits);
+    }
+    assert_eq!(Redress::from_bits(0), Err(BodyError::BadRedress(0)));
+    assert_eq!(Redress::from_bits(8), Err(BodyError::BadRedress(8)));
+    assert_eq!(Redress::from_bits(5), Ok(Redress::STANDARD));
+}

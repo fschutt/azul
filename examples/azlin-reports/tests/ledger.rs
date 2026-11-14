@@ -68,6 +68,24 @@ fn r1_three_different_devices_pause_a_link_two_do_not() {
 }
 
 #[test]
+fn r1_the_default_config_is_the_plans_numbers() {
+    // Planning/architecture.md 3.9: three devices pause a link, five devices within 30 days disable an account's
+    // public links (both est.); the 30-day link window is the answer X-D-27; the limits are the brief's.
+    assert_eq!(
+        Config::default(),
+        Config {
+            link_devices: 3,
+            link_window: Some(Days::new(30)),
+            account_devices: 5,
+            account_window: Days::new(30),
+            max_links: 100_000,
+            max_accounts: 100_000,
+            max_reporters_per_key: 1_024,
+        }
+    );
+}
+
+#[test]
 fn r1_the_threshold_comes_from_the_config() {
     for threshold in 1..=6u32 {
         let mut ledger = Ledger::new(Config {

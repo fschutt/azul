@@ -76,6 +76,8 @@ fn r19_a_blocked_member_cannot_reach_the_blocker() {
 
 #[test]
 fn r19_ten_thousand_blocks_are_the_limit() {
+    assert_eq!(MAX_BLOCKED, 10_000);
+    assert_eq!(azlin_reports::BLOCK_VERSION, 1);
     let mut list = BlockList::new();
     for n in 0..MAX_BLOCKED as u32 {
         list.block(member(n))

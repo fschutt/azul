@@ -549,6 +549,78 @@ fn r11_every_limit_is_exact_at_its_edge() {
     assert_eq!(ReportBody::decode(&over), Err(BodyError::TooLarge));
 }
 
+#[test]
+fn r22_the_stated_limits_and_the_reason_codes_never_change() {
+    use azlin_reports::{BODY_VERSION, MAX_CONTACT, MAX_RECORDS, MAX_REPLY, MAX_TEXT, MAX_URL};
+    // The numbers of the brief's limits (section 4), stated once more where a change would be seen.
+    assert_eq!(MAX_BODY, 128 * 1024);
+    assert_eq!(MAX_TEXT, 2_000);
+    assert_eq!(MAX_CONTACT, 200);
+    assert_eq!(MAX_URL, 2_048);
+    assert_eq!(MAX_RECORDS, 20);
+    assert_eq!(MAX_RECORD, 64 * 1024);
+    assert_eq!(MAX_REPLY, 4_096);
+    assert_eq!(BODY_VERSION, 1);
+    let maxima = [
+        (Field::Text, 2_000),
+        (Field::Contact, 200),
+        (Field::Url, 2_048),
+        (Field::Note, 2_000),
+        (Field::Reply, 4_096),
+        (Field::Record, 64 * 1024),
+    ];
+    for (field, max) in maxima {
+        assert_eq!(field.max(), max, "{field:?}");
+    }
+    // The reason codes are the wire values (3.9's list, in the plan's order).
+    let codes: Vec<(Reason, u8)> = Reason::ALL.iter().map(|r| (*r, r.code())).collect();
+    assert_eq!(
+        codes,
+        vec![
+            (Reason::IllegalContent, 1),
+            (Reason::Csam, 2),
+            (Reason::Terrorism, 3),
+            (Reason::Malware, 4),
+            (Reason::Phishing, 5),
+            (Reason::Copyright, 6),
+            (Reason::Other, 7),
+        ]
+    );
+    for (reason, code) in codes {
+        assert_eq!(Reason::from_code(u64::from(code)), Ok(reason));
+    }
+    assert_eq!(Reason::from_code(0), Err(BodyError::UnknownReason(0)));
+    assert_eq!(Reason::from_code(8), Err(BodyError::UnknownReason(8)));
+    assert_eq!(
+        Reason::from_code(258),
+        Err(BodyError::UnknownReason(258)),
+        "no truncation to a byte"
+    );
+    let urgent: Vec<Reason> = Reason::ALL.into_iter().filter(|r| r.is_urgent()).collect();
+    assert_eq!(urgent, vec![Reason::Csam, Reason::Terrorism]);
+}
+
+#[test]
+fn r11_the_note_of_a_file_is_limited_to_2000_bytes() {
+    use azlin_reports::{Text, MAX_TEXT};
+    let with_note = |note: Text| ReportBody {
+        subject: Subject::File {
+            link: Some(link(1)),
+            note,
+            extras: Extras::default(),
+        },
+        ..link_body(Reason::Other)
+    };
+    let at_the_limit = Text::for_field(&"n".repeat(MAX_TEXT), Field::Note).unwrap();
+    assert_eq!(with_note(at_the_limit).validate(), Ok(()));
+    // A text made for the url field can be longer than a note may be.
+    let over = Text::for_field(&"n".repeat(MAX_TEXT + 1), Field::Url).unwrap();
+    assert_eq!(
+        with_note(over).validate(),
+        Err(BodyError::TooLong(Field::Note))
+    );
+}
+
 // ---------------------------------------------------------------- R12
 
 #[test]
