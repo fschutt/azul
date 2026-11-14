@@ -45,6 +45,33 @@ pub fn share_a_window(a: &[u8], b: &[u8], len: usize) -> bool {
         .any(|window| b.windows(len).any(|other| other == window))
 }
 
+/// SplitMix64: the seeded generator of the property tests (no `rand` in wave-1 crates). A failing
+/// case prints its seed and index, and `SplitMix64::new(seed)` replays it.
+pub struct SplitMix64(u64);
+
+impl SplitMix64 {
+    pub fn new(seed: u64) -> SplitMix64 {
+        SplitMix64(seed)
+    }
+
+    pub fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// A number below `n` (`n > 0`); the modulo bias is irrelevant for tests.
+    pub fn below(&mut self, n: u64) -> u64 {
+        self.next_u64() % n
+    }
+
+    pub fn bytes(&mut self, n: usize) -> Vec<u8> {
+        (0..n).map(|_| self.next_u64().to_le_bytes()[0]).collect()
+    }
+}
+
 /// An entropy source that serves a fixed byte string in order and records the size of each draw:
 /// the known-answer tests pin the ORDER and the SIZES of a construction's draws with it.
 pub struct ScriptedEntropy {

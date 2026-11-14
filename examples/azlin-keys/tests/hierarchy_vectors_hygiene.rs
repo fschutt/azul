@@ -33,7 +33,7 @@ use azlin_keys::{
     DeviceId, Epoch, GroupId, KeyId, MapDirectory, Secret, SignKeypair, SpaceId, VerifyAt,
 };
 use hierarchy_common::vectors::{self, Row};
-use hierarchy_common::{pat, pat16, pat32, to_hex, ScriptedEntropy};
+use hierarchy_common::{pat, pat16, pat32, to_hex, ScriptedEntropy, SplitMix64};
 
 const SPACE_KEYS: &str = "space_keys.json";
 const EPOCH_CHAIN: &str = "epoch_chain.json";
@@ -192,13 +192,13 @@ fn refused_plaintext_rows() -> Vec<(String, Option<Row>)> {
     let space_cases: Vec<(&str, Vec<u8>, &str)> = vec![
         (
             "neg_space_key_67_bytes",
-            pat(0x10, 67),
-            "a space key plaintext one byte short",
+            [pat(0x10, 64), vec![0, 0, 0]].concat(),
+            "a valid key of epoch 3 with the last byte of its dedup epoch missing",
         ),
         (
             "neg_space_key_69_bytes",
-            pat(0x10, 69),
-            "a space key plaintext with one byte too many",
+            [pat(0x10, 64), vec![0, 0, 0, 3], vec![0x99]].concat(),
+            "a valid key of epoch 3 (dedup epoch 3) with one byte too many: only the length is wrong",
         ),
         (
             "neg_space_key_dedup_epoch_zero",
@@ -615,6 +615,115 @@ fn c6_chain_known_answers_and_negative_vectors() {
             r.name,
             r.expect
         );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The three plaintext parsers on many inputs (the fuzz entry of section 1.4 rule 3, on fixed seeds)
+// ---------------------------------------------------------------------------------------------
+
+/// The oracle of a parser of a key plaintext: no panic, and an input is accepted only when it is
+/// exactly the canonical plaintext of the key it makes; everything else is `BadPlaintext`.
+fn check_space_key_bytes(space: &SpaceId, at: u32, bytes: &[u8]) {
+    match SpaceKey::from_plaintext(space, epoch(at), bytes) {
+        Ok(key) => {
+            assert_eq!(key.to_plaintext().expose().as_slice(), bytes);
+            assert_eq!(key.epoch, epoch(at));
+            assert!(key.dedup_epoch() <= epoch(at));
+        }
+        Err(e) => assert_eq!(format!("{e:?}"), "BadPlaintext"),
+    }
+}
+
+/// `SpaceKey::from_plaintext`, `KeyBundle::from_plaintext` and `GroupKey::from_plaintext` on about
+/// ten thousand fixed inputs: random bytes of every length, every valid space key with each of its
+/// 544 bits flipped, every truncation and a few extensions.
+#[test]
+fn the_plaintext_parsers_accept_only_canonical_bytes_and_never_panic() {
+    let space = kat_space();
+    let group = GroupId::from_bytes(pat16(0xa0));
+    let mut rng = SplitMix64::new(0x5eed_0015);
+
+    // Random bytes of length 0 to 200 for the space key (most are the wrong length or have a
+    // dedup epoch out of range) ...
+    for i in 0..4000u64 {
+        let len = rng.below(201) as usize;
+        let bytes = rng.bytes(len);
+        check_space_key_bytes(&space, 1 + (i % 9) as u32, &bytes);
+    }
+    // ... and random 68-byte strings with a dedup epoch in and out of range.
+    let mut accepted = 0;
+    for _ in 0..2000 {
+        let mut bytes = rng.bytes(68);
+        let at = 1 + rng.below(20) as u32;
+        let dedup_epoch = rng.below(30) as u32;
+        bytes.truncate(64);
+        bytes.extend_from_slice(&dedup_epoch.to_be_bytes());
+        check_space_key_bytes(&space, at, &bytes);
+        if SpaceKey::from_plaintext(&space, epoch(at), &bytes).is_ok() {
+            accepted += 1;
+            assert!((1..=at).contains(&dedup_epoch));
+        }
+    }
+    assert!(
+        accepted > 300,
+        "the corpus must exercise the accepted case: {accepted}"
+    );
+
+    // A valid key: every bit flipped, every truncation, a few extensions.
+    let valid = [pat(0x10, 64), 3u32.to_be_bytes().to_vec()].concat();
+    check_space_key_bytes(&space, 5, &valid);
+    for bit in 0..valid.len() * 8 {
+        let mut bytes = valid.clone();
+        if let Some(byte) = bytes.get_mut(bit / 8) {
+            *byte ^= 1 << (bit % 8);
+        }
+        check_space_key_bytes(&space, 5, &bytes);
+    }
+    for len in 0..valid.len() {
+        check_space_key_bytes(&space, 5, valid.get(..len).expect("a prefix"));
+    }
+    for extra in 1..=8usize {
+        let mut bytes = valid.clone();
+        bytes.extend(rng.bytes(extra));
+        check_space_key_bytes(&space, 5, &bytes);
+    }
+
+    // The member key: every 128 bytes are a bundle and round-trip; every other length is refused.
+    for _ in 0..200 {
+        let len = rng.below(260) as usize;
+        let bytes = rng.bytes(len);
+        match KeyBundle::from_plaintext(&bytes) {
+            Ok(bundle) => {
+                assert_eq!(len, 128);
+                assert_eq!(bundle.to_plaintext().expose().as_slice(), bytes.as_slice());
+            }
+            Err(e) => {
+                assert_ne!(len, 128);
+                assert_eq!(format!("{e:?}"), "BadPlaintext");
+            }
+        }
+    }
+    for _ in 0..40 {
+        let bytes = rng.bytes(128);
+        let bundle = KeyBundle::from_plaintext(&bytes).expect("128 bytes");
+        assert_eq!(bundle.to_plaintext().expose().as_slice(), bytes.as_slice());
+    }
+
+    // The group key: every 32 bytes are a key and round-trip; every other length is refused.
+    for _ in 0..2000 {
+        let len = rng.below(80) as usize;
+        let bytes = rng.bytes(len);
+        match GroupKey::from_plaintext(&group, epoch(1), &bytes) {
+            Ok(key) => {
+                assert_eq!(len, 32);
+                assert_eq!(key.to_plaintext().expose().as_slice(), bytes.as_slice());
+            }
+            Err(e) => {
+                assert_ne!(len, 32);
+                assert_eq!(format!("{e:?}"), "BadPlaintext");
+            }
+        }
     }
 }
 

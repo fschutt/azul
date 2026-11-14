@@ -148,6 +148,25 @@ fn a_space_key_plaintext_is_checked() {
             "{len} bytes"
         );
     }
+    // The length alone refuses what the content would accept: a valid key with bytes added (the
+    // dedup epoch of the first 68 bytes is in range, so only the length is wrong) or taken away.
+    for extra in [1usize, 2, 4, 32, 100] {
+        let mut bytes = good.clone();
+        bytes.resize(good.len() + extra, 0);
+        assert_eq!(
+            SpaceKey::from_plaintext(&space, epoch(9), &bytes).unwrap_err(),
+            KeyError::BadPlaintext,
+            "{extra} bytes too many"
+        );
+    }
+    for len in 0..good.len() {
+        let prefix = good.get(..len).expect("a prefix");
+        assert_eq!(
+            SpaceKey::from_plaintext(&space, epoch(9), prefix).unwrap_err(),
+            KeyError::BadPlaintext,
+            "{len} of 68 bytes"
+        );
+    }
     // A dedup epoch of 0, and one above the epoch of the key.
     let zero = [pat(0x10, 32), pat(0x30, 32), vec![0, 0, 0, 0]].concat();
     assert_eq!(
