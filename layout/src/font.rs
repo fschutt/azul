@@ -3948,6 +3948,30 @@ pub mod parsed {
             assert_eq!(glyph.horz_advance, advance);
         }
 
+        /// A glyph of a CID-keyed CFF font (no `glyf`: Noto Sans CJK, Source Han
+        /// Sans) decodes from the `CFF ` table with its outline and that
+        /// outline's box, as a TrueType glyph does - from either constructor.
+        /// printpdf's mock: gid 2 is "A", a rectangle 300 wide and 700 high.
+        #[test]
+        fn a_cid_keyed_cff_glyph_has_its_outlines_box() {
+            const CFF_CID: &[u8] = include_bytes!("../assets/fonts/test/printpdf-mock-cff-cid.otf");
+            let eager = ParsedFont::from_bytes(CFF_CID, 0, &mut Vec::new()).expect("parses");
+            let shared = ParsedFont::from_bytes_shared(
+                Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(CFF_CID.to_vec()))),
+                0,
+                &mut Vec::new(),
+            )
+            .expect("parses");
+            for font in [eager, shared] {
+                let a = font.lookup_glyph_index('A' as u32).expect("A is mapped");
+                let glyph = font.get_or_decode_glyph(a).expect("A decodes");
+                assert!(!glyph.outline.is_empty(), "A has its outline");
+                let b = &glyph.bounding_box;
+                assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (0, 0, 300, 700));
+                assert_eq!(glyph.horz_advance, 300);
+            }
+        }
+
         /// The OS/2 table's line metrics reach `pdf_font_metrics` and the full
         /// `FontMetrics` (`get_full_font_metrics` left them `None`, so an app
         /// that sets lines by `USE_TYPO_METRICS` read the table itself).
