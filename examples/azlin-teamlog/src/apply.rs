@@ -17,7 +17,7 @@
 //! (`Effects::applied == false`, state untouched).
 
 use azlin_chain::{Admitted as ChainAdmitted, ChainEntry, ChainId};
-use azlin_policy::{apply as apply_patch, effective, next_epoch, PolicyPatch};
+use azlin_policy::{apply as apply_patch, next_epoch, PolicyPatch};
 use azlin_seams::{
     AccountId, ChainSeq, DeviceId, Hash32, KeyId, MemberId, MemberKind, RestoreEpoch, Stamp,
 };
@@ -42,8 +42,6 @@ use crate::state::{
 /// Implements planning/architecture.md section 5.9 (the chain fields `v`, `account`, `seq`, `prev`).
 ///
 /// Caller: `Admitted`, `Link`, `admit.rs` (made from a `RawEntry`).
-// Made by `admit.rs` (lane S17c2) and by the tests; the allow goes when `admit.rs` lands.
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct EntryMeta {
     /// The account the entry belongs to.
@@ -64,8 +62,6 @@ pub(crate) struct EntryMeta {
 /// key).
 ///
 /// Caller: `Admitted`, `admit.rs`.
-// Made by `admit.rs` (lane S17c2) and by the tests; the allow goes when `admit.rs` lands.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Actor {
     /// A device of a member (for a `genesis` and a `member_join` the device is the new one).
@@ -157,8 +153,6 @@ pub struct Admitted {
 
 impl Admitted {
     /// Makes the witness. Only `admit` (and the tests of this crate) call it.
-    // Called by `admit.rs` (lane S17c2) and by the tests; the allow goes when `admit.rs` lands.
-    #[allow(dead_code)]
     pub(crate) fn new(
         meta: EntryMeta,
         stamp: Stamp,
@@ -718,24 +712,7 @@ fn policy_set(state: &mut TeamState, scope: &PolicyScope, patch: &PolicyPatch) -
         }
         PolicyScope::Group(group) => {
             let before = state.effective_policy_of(group)?;
-            let after = {
-                let path = state.groups.path_from_top(group)?;
-                let patches: Vec<&PolicyPatch> = path
-                    .iter()
-                    .filter_map(|id| {
-                        if id == group {
-                            if patch.is_empty() {
-                                None
-                            } else {
-                                Some(patch)
-                            }
-                        } else {
-                            state.group_patches.get(id)
-                        }
-                    })
-                    .collect();
-                effective(&state.policy, &patches)
-            };
+            let after = state.effective_with_patch(group, patch)?;
             let epoch = match next_epoch(state.policy_epoch, &before, &after) {
                 Ok(epoch) => epoch,
                 Err(_) => return None,

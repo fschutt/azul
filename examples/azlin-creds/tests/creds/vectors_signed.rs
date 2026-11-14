@@ -70,6 +70,7 @@ fn payments_anchors() -> AnchorSet {
             public: signer(PAYMENTS_SEED).public(),
             not_before: at(0),
             not_after: None,
+            revoked_from: None,
         }],
         operator: Vec::new(),
         identity: Vec::new(),
@@ -195,6 +196,7 @@ fn s9e_14_the_assertion_and_entitlement_vector_files_verify_without_the_code_tha
                     verify_assertion_bytes(
                         &bytes,
                         &anchors,
+                        &placement(),
                         now(ISSUED),
                         &VerifyRules::default(),
                         &account,

@@ -43,6 +43,23 @@
 //! to serve, `App` by the apps. `STRENGTH` is the table; the doc-table tests parse the plan and fail
 //! when a row, a name or a strength differs.
 //!
+//! **Who calls what** (every public item names its caller or the later unit it is a seam of):
+//!
+//! | unit | calls |
+//! |---|---|
+//! | LINKS-NODE (`link_create`, `link_update`, `link_revoke`) | `new_id`, `validate`, `apply_policy`, `LinkRecord::create`, `update`, `rotate`, `pause`, `unpause`, `revoke`, `repoint`; it builds `Actor::Member` from the credential and the space's capabilities |
+//! | S9 (the registry stores `reg_link`) | `LinkRecord::row`, `into_row`, `from_row`, `LinkRow`; the node's unique indexes of ids and slugs are S9's |
+//! | S16c2 (the resolver) | the accessors of `LinkRecord` (`options`, `counters`, `pauses`, `is_paused`, `revoked_at`, `created_at`, `keyed_at`, `grants`, `request_id`, `comment_log`, `wrap_for`, `opaque_record`), the in-crate `counters_mut` and `mark_revoked`, `DeviceToken::seen_by` |
+//! | S16d (URL, share dialog) | `PublicLinkId`, `Slug`, `has_link_id_shape`, `STRENGTH`, `LinkOptions::strengths`, `OptionError::option`, `PolicyViolation::options` |
+//! | S16e (`link_login`), S16f (requests) | `PublicLinkId`; `LinkEnded`, `RequestId`, `Rotated::ended_request` |
+//! | S46 (reports), AzCtl's operator rows | `Actor::Reports` and `Actor::Operator` with `pause`, `unpause`, `revoke` |
+//!
+//! **For lane S16c2**: the idle expiry counts from the last open or, for a link never opened, from
+//! `keyed_at` (the creation or the last rotation, never from `created_at`); an `approval` caller is
+//! approved when its member holds a wrap (`wrap_for`); a `one_time` link is used up by
+//! `mark_revoked`; `devices_seen` holds `DeviceToken::seen_by(link id)`, kept only for a link with
+//! `max_devices`; `LinkRecord::from_row` builds a record in any state for a test.
+//!
 //! ```
 //! use azlin_links::{
 //!     apply_policy, validate, Audience, Facts, Grant, Grants, LinkKind, LinkOptions, LinkRecord,
@@ -212,12 +229,15 @@ pub use validate::{validate, Facts, OptionError, Validated};
 /// | `links_rotate_keeps_old_id` | "a new id, the old URL stops at once" | `rotation_gives_a_new_id_and_the_old_id_stops_at_once` |
 /// | `links_repoint_by_non_writer` | "writers re-point" | `repoint_only_for_folder_live_by_a_writer` |
 /// | `links_repoint_any_kind` | "only a live folder is re-pointed" | `repoint_only_for_folder_live_by_a_writer` |
+/// | `links_wraps_may_name_strangers` | "the wraps of a people link are the named people" | `the_wraps_of_a_people_link_are_the_named_people` |
+/// | `links_frozen_link_changes` | "a link the operator or the reports paused is frozen for its owner" | `a_link_the_operator_or_the_reports_paused_is_frozen_for_its_owner` |
+/// | `links_rotate_reuses_request` | "a rotation brings a new paired request" | `a_rotation_needs_a_new_paired_request` |
 ///
 /// Implements planning/architecture.md section 12 (E5) and section 1.4 rule 1 (the guard reads its
 /// switch as a parameter of the process).
 ///
 /// Seam: the mutant hold of lane W1-S16c1; S47d (the escalation lane attacks the same rules).
-pub const MUTANT_GUARDS: [(&str, &str); 22] = [
+pub const MUTANT_GUARDS: [(&str, &str); 25] = [
     (
         "links_slug_without_password_or_name",
         "slug_needs_a_password_or_a_named_audience",
@@ -299,5 +319,17 @@ pub const MUTANT_GUARDS: [(&str, &str); 22] = [
     (
         "links_repoint_any_kind",
         "repoint_only_for_folder_live_by_a_writer",
+    ),
+    (
+        "links_wraps_may_name_strangers",
+        "the_wraps_of_a_people_link_are_the_named_people",
+    ),
+    (
+        "links_frozen_link_changes",
+        "a_link_the_operator_or_the_reports_paused_is_frozen_for_its_owner",
+    ),
+    (
+        "links_rotate_reuses_request",
+        "a_rotation_needs_a_new_paired_request",
     ),
 ];

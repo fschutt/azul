@@ -14,6 +14,7 @@
 //! | [`refresh`] | [`RefreshRequest`] and [`RefreshAnswerWire`]: the frames of a refresh (a token or a key proof; a grant or a refusal) |
 //! | [`scopes`] | [`Scopes`]: what a credential may do at most (only narrows) |
 //! | [`signer`] | [`Signer`], the seam of the key holder; [`SeedSigner`] |
+//! | [`groups`] | [`AccountGroups`], [`InstalledAccount`]: which metadata group an account lives on, a required parameter of the verifiers (D-W1S9E3) |
 //! | [`verify`] | [`VerifierNow`], [`ClockTrust`], [`VerifyRules`]: who judges time (D-12) |
 //! | [`issuer`] | [`CredentialIssuer`], [`AssertionIssuer`]: made only after a probe verified (section 1.4 rule 9) |
 //! | [`error`] | the typed refusals |
@@ -28,7 +29,11 @@
 //! THE CHAIN (section 2.4): the metadata group's long-lived IDENTITY key (named by the cluster map and
 //! carried in the [`AnchorSet`](azlin_regbase::AnchorSet)) certifies each CREDENTIAL key, and every
 //! credential carries that certificate. A node verifies a credential with two signature checks and no
-//! registry read; whether the credential is revoked is the registry's question, asked by S9g.
+//! registry read; whether the credential is revoked is the registry's question, asked by S9g. The chain
+//! alone proves that SOME group of the map vouches for the account, so the verifiers are also GIVEN
+//! where the account lives ([`AccountGroups`], required: a voter of another group is `GroupMismatch`,
+//! an alarm), and an entitlement is refused when its payments key is revoked from its day (the anchors'
+//! `KeyWindow::revoked_from`: `Revoked`, an alarm); decision D-W1S9E3.
 //!
 //! It is the crate the services link: pure (no clock, no file, no network, no randomness of its own: all
 //! come in through seams), no unsafe code, and it builds for `wasm32-unknown-unknown`.
@@ -55,6 +60,7 @@ pub mod claims;
 pub mod credential;
 pub mod entitlement;
 pub mod error;
+pub mod groups;
 pub mod issuer;
 pub mod refresh;
 pub mod scopes;
@@ -82,6 +88,7 @@ pub use error::{
     AssertError, CanonicalError, CertError, CredError, EntitlementError, IssueError, IssuerError,
     ProbeFailure, WireError,
 };
+pub use groups::{AccountGroups, InstalledAccount};
 pub use issuer::{AssertionIssuer, CredentialIssuer};
 pub use refresh::{
     FamilyToken, RefreshAnswerWire, RefreshProof, RefreshRequest, RefreshSubject, CREDENTIAL_MAX,

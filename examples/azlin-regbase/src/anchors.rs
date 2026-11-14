@@ -23,21 +23,34 @@ use crate::time::LeaderTime;
 pub const ANCHOR_WINDOWS_MAX: usize = 64;
 
 /// One trusted public key and when it is trusted: `not_before <= t < not_after`, with `None`
-/// meaning "until it is replaced or revoked". Both times are exact leader stamps.
+/// meaning "until it is replaced". Both times are exact leader stamps. A key that is RETIRED
+/// (`not_after`) is not the same as a key that is REVOKED (`revoked_from`): what a retired key signed on
+/// a day inside its window stays valid, what a revoked key signed from its revocation on does not
+/// (decision D-W1S9E3, drift row X-DELTA-W1S9E-5).
 ///
 /// Implements planning/architecture.md section 2.4 (the identity key certifies each credential key;
 /// the previous key stays valid for one more period) and section 2.11 (anchors).
 ///
 /// Caller: [`AnchorSet`], S9e (certificate and entitlement verification), S9f (the identity key
-/// must be the one the map names), S42b (`anchors_from_map`).
+/// must be the one the map names), S42b (`anchors_from_map`), S9d and S9i (fill `revoked_from` from
+/// their revocation rows).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KeyWindow {
     /// The public key.
     pub public: PublicKey32,
     /// The first second the key is trusted (inclusive).
     pub not_before: LeaderTime,
-    /// The first second it is no longer trusted (exclusive); `None`: until replaced or revoked.
+    /// The first second it is no longer trusted (exclusive); `None`: until replaced.
     pub not_after: Option<LeaderTime>,
+    /// The first second from which what this key signs is NOT trusted any more, because the key is
+    /// revoked (stolen or lost), from the registry's revocation row; `None`: not revoked. A verifier
+    /// refuses what a revoked key signed when the time the signed claim carries (an entitlement's issue
+    /// day) is at or after `revoked_from`, whatever `not_after` says: azlin-creds'
+    /// `verify_entitlement` answers `Revoked`. A claim dated before `revoked_from` is out of this
+    /// field's reach, so the registry sets it to the earliest second the key may have been in other
+    /// hands (the window's `not_before` when that is unknown, which refuses every date of the window).
+    /// [`KeyWindow::contains`] does not read it, and azlin-creds reads it for the payments key only.
+    pub revoked_from: Option<LeaderTime>,
 }
 
 impl KeyWindow {

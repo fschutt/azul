@@ -1,13 +1,15 @@
 //! Helpers the tests share: a seeded generator (SplitMix64, no dependency), hex, the fixture keys and
-//! anchors (`fixture_anchors`, `issue_fixture`), manual signing of hand-made structures (the issuer
-//! refuses what the verifier refuses, so the tests that need those sign them themselves), and the
-//! crafting of raw credentials around an arbitrary payload value.
+//! anchors (`fixture_anchors`, `issue_fixture`), the placement of the fixture's account (`FixedGroups`,
+//! `placement`: the test double of `AccountGroups`, which exists in test support only), manual signing
+//! of hand-made structures (the issuer refuses what the verifier refuses, so the tests that need those
+//! sign them themselves), and the crafting of raw credentials around an arbitrary payload value.
 #![allow(dead_code)]
 
 use azlin_cbor::{encode, IntMapBuilder, Limits, Value};
 use azlin_creds::{
-    Canonical, Certificate, Credential, CredentialClaims, CredentialIssuer, GrantClaims, NodeTime,
-    SeedSigner, Signer, VerifierNow, VerifyRules, CREDENTIAL_CERT_V1, CREDENTIAL_V2,
+    AccountGroups, Canonical, Certificate, Credential, CredentialClaims, CredentialIssuer,
+    GrantClaims, NodeTime, SeedSigner, Signer, VerifierNow, VerifyRules, CREDENTIAL_CERT_V1,
+    CREDENTIAL_V2,
 };
 use azlin_keys::{Secret, Span};
 use azlin_regbase::{
@@ -122,6 +124,7 @@ pub fn fixture_anchors(
                         public: identity.public(),
                         not_before: at(*from),
                         not_after: until.map(at),
+                        revoked_from: None,
                     },
                 )
             })
@@ -152,6 +155,32 @@ pub fn fixture() -> Fixture {
         cert,
         rules: VerifyRules::default(),
     }
+}
+
+/// A placement table of fixed rows: the test double of `AccountGroups` (decision D-W1S9E3: the crate has
+/// no implementation that answers for every account; this one lives in test support). An account that
+/// is not in the table is unknown (`None`).
+pub struct FixedGroups(pub Vec<(AccountId, MetaGroupId)>);
+
+impl FixedGroups {
+    /// The table of these rows.
+    pub fn of(rows: &[(AccountId, MetaGroupId)]) -> FixedGroups {
+        FixedGroups(rows.to_vec())
+    }
+}
+
+impl AccountGroups for FixedGroups {
+    fn group_of(&self, account: &AccountId) -> Option<MetaGroupId> {
+        self.0
+            .iter()
+            .find(|(known, _)| known == account)
+            .map(|(_, group)| *group)
+    }
+}
+
+/// The placement of the fixture: the account of `grant()` lives on `GROUP`, the group of `fixture()`.
+pub fn placement() -> FixedGroups {
+    FixedGroups::of(&[(grant().account, GROUP)])
 }
 
 /// The claims of a device credential: a device and its family, no scopes.

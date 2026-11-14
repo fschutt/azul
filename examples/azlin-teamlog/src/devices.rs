@@ -36,7 +36,7 @@ impl PublicKeys {
     /// Implements planning/architecture.md section 1.4 rule 4 (everything has a limit, stated up
     /// front) and section 5.3 (`pq_pub`).
     ///
-    /// Caller: `admit.rs` (`Refusal::Malformed` for a longer key).
+    /// Caller: `admit.rs` (`check_keys`: a longer key is `Invalid(Args)`), `invite.rs` (`check_join`).
     pub const PQ_MAX_LEN: usize = 2048;
 
     /// Keys with an Ed25519 and an X25519 key and no post-quantum key.

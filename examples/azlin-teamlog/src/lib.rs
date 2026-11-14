@@ -81,7 +81,9 @@ pub mod replay;
 pub mod sealed;
 pub mod verify;
 
+pub use admit::{admit, Invalid, PolicyReason, Refusal, MUTANT_IDS};
 pub use apply::{apply, Admitted};
+pub use delegate::{delegable_ops, is_delegable};
 pub use devices::{Device, DeviceState, EnrolledBy, PublicKeys};
 pub use effects::{
     subject_of, Audience, Effects, Notice, RegistryDelta, RevocationReason, RevocationSubject,
@@ -89,21 +91,30 @@ pub use effects::{
 };
 pub use groups::{Group, Groups};
 pub use hash::{entry_hash, ENTRY_HASH_DOMAIN, STATE_HASH_DOMAIN};
+pub use invite::{invite_hash, INVITE_HASH_DOMAIN};
 pub use members::{AppSpec, Invite, Member, MemberState};
 pub use ops::{
     AppName, BadAppName, EntitlementState, EntitlementVersion, EscrowReason, InviteSecret, Op,
     OpName, PolicyScope, UnknownOp, APP_BODY_MAX, APP_NAME_MAX_LEN, SEALED_MAX,
 };
+pub use proposal::{
+    AssertionVerdict, Proposal, RawEntry, Signer, TrustedKeys, ASSERTIONS_MAX, COSIGS_MAX,
+    PREIMAGE_MAX, SIG_MAX_LEN, TEAM_LOG_DOMAIN,
+};
+pub use replay::replay;
 pub use roles::{MemberKind, Role};
+pub use sealed::{open_field, seal_field, SealError, SealKey};
 pub use state::{
     Delegation, EntitlementFacts, PendingOpen, StateView, TeamState, MAX_DELEGATIONS, MAX_DEVICES,
     MAX_ESCROW_HOLDERS, MAX_GROUPS, MAX_GROUPS_PER_MEMBER, MAX_GROUP_DEPTH, MAX_MEMBERS,
     MAX_PENDING_ESCROW_OPENS,
 };
+pub use verify::verify_signatures;
 
 #[cfg(test)]
 mod tests {
     mod kit;
+    mod signed;
 
     mod apply_tests;
     mod hash_tests;

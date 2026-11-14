@@ -190,7 +190,7 @@ fn s9e_06_more_than_max_scopes_are_refused_never_truncated() {
         "the strict decoder"
     );
     assert_eq!(
-        verify_credential_bytes(&bytes, &f.anchors, now(ISSUED), &f.rules).err(),
+        verify_credential_bytes(&bytes, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::Malformed)
     );
 }
@@ -232,7 +232,7 @@ fn s9e_06_an_unknown_scope_is_refused_never_read_as_allow_all() {
         let bytes = craft_credential(&f.cred, &f.cert, &payload);
         assert_eq!(Credential::decode(&bytes).err(), Some(expected), "{name}");
         assert_eq!(
-            verify_credential_bytes(&bytes, &f.anchors, now(ISSUED), &f.rules).err(),
+            verify_credential_bytes(&bytes, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
             Some(CredError::UnknownScope),
             "{name}"
         );
@@ -251,7 +251,9 @@ fn s9e_06_an_unknown_scope_is_refused_never_read_as_allow_all() {
         .build()
         .expect("a payload");
     let bytes = craft_credential(&f.cred, &f.cert, &payload);
-    assert!(verify_credential_bytes(&bytes, &f.anchors, now(ISSUED), &f.rules).is_ok());
+    assert!(
+        verify_credential_bytes(&bytes, &f.anchors, &placement(), now(ISSUED), &f.rules).is_ok()
+    );
 }
 
 #[test]
@@ -298,8 +300,8 @@ fn s9e_06_a_scope_list_that_is_not_canonical_is_refused_on_the_wire() {
 #[test]
 fn s9e_06_a_device_credential_has_no_scopes_and_the_verifier_leaves_it_so() {
     let (f, credential) = issue_fixture();
-    let verified =
-        verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).expect("verifies");
+    let verified = verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules)
+        .expect("verifies");
     assert!(
         verified.scopes().is_none(),
         "None stays None: the registry and the grants decide"
@@ -320,7 +322,7 @@ fn s9e_20_an_app_principals_credential_always_narrows() {
     app.family = None;
     app.scopes = Some(scopes.clone());
     let credential = signed_credential(&f.cred, f.cert, app.clone());
-    let verified = verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules)
+    let verified = verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules)
         .expect("an app principal's credential verifies");
     assert_eq!(verified.scopes(), Some(&scopes));
     // device None and no scopes: malformed (it would be unrestricted by anything).
@@ -328,7 +330,7 @@ fn s9e_20_an_app_principals_credential_always_narrows() {
     open.scopes = None;
     let credential = signed_credential(&f.cred, f.cert, open.clone());
     assert_eq!(
-        verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).err(),
+        verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::Malformed)
     );
     // A device credential without its family: malformed.
@@ -336,7 +338,7 @@ fn s9e_20_an_app_principals_credential_always_narrows() {
     device.family = None;
     let credential = signed_credential(&f.cred, f.cert, device);
     assert_eq!(
-        verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).err(),
+        verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::Malformed)
     );
     // Present and empty scopes allow nothing and are no credential either.
@@ -344,7 +346,7 @@ fn s9e_20_an_app_principals_credential_always_narrows() {
     empty.scopes = Some(Scopes::empty());
     let credential = signed_credential(&f.cred, f.cert, empty);
     assert_eq!(
-        verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).err(),
+        verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::Malformed)
     );
     // The issuer refuses all three before it signs.

@@ -19,6 +19,14 @@ fn window(n: u8, from: u64, until: Option<u64>) -> KeyWindow {
         public: key(n),
         not_before: at(from),
         not_after: until.map(at),
+        revoked_from: None,
+    }
+}
+
+fn revoked(n: u8, from: u64, until: Option<u64>, revoked_from: u64) -> KeyWindow {
+    KeyWindow {
+        revoked_from: Some(at(revoked_from)),
+        ..window(n, from, until)
     }
 }
 
@@ -163,4 +171,43 @@ fn s9a_30_the_windows_of_a_list_are_bounded() {
     }
     .check()
     .is_err());
+}
+
+/// D-W1S9E3 (drift row X-DELTA-W1S9E-5): the revocation instant is data of the window. `contains` and
+/// the three lookups do not read it (the VERIFIER does: azlin-creds' `verify_entitlement`), and two
+/// windows that differ only in it are two windows.
+#[test]
+fn s9a_30_the_revocation_instant_is_data_the_lookups_do_not_read() {
+    let retired = window(1, 100, Some(200));
+    let stolen = revoked(1, 100, Some(200), 150);
+    assert_eq!(
+        retired.revoked_from, None,
+        "a window is not revoked unless it says so"
+    );
+    assert_eq!(stolen.revoked_from, Some(at(150)));
+    assert_ne!(
+        retired, stolen,
+        "windows that differ only in the revocation are different"
+    );
+    assert!(
+        retired < stolen,
+        "None orders before Some: the order is total and stable"
+    );
+    // `contains` is the retirement window: before, at and after the revocation instant it answers alike
+    for t in [100, 149, 150, 151, 199] {
+        assert!(stolen.contains(at(t)), "{t} is inside the window");
+    }
+    assert!(!stolen.contains(at(99)) && !stolen.contains(at(200)));
+    // the lookups return the window with its revocation visible; they do not filter it out
+    let set = AnchorSet {
+        payments: vec![stolen],
+        operator: vec![revoked(5, 0, None, 10)],
+        identity: vec![(MetaGroupId::FIRST, revoked(9, 0, None, 10))],
+        map_epoch: 3,
+    };
+    assert_eq!(set.payments_at(at(160)), vec![&stolen]);
+    assert_eq!(set.payments_at(at(160))[0].revoked_from, Some(at(150)));
+    assert_eq!(keys(set.operator_at(at(500))), [5]);
+    assert_eq!(keys(set.identity_at(MetaGroupId::FIRST, at(500))), [9]);
+    assert_eq!(set.check(), Ok(()));
 }

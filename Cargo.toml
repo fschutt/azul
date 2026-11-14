@@ -44,6 +44,7 @@ members = [
     "examples/azlin-merkle", # Azlin Merkle: the RFC 9162 Merkle tree and its inclusion and consistency proofs (W1-S45b)
     "examples/azlin-tlog", # Azlin transparency log: signed checkpoints, witnesses, the release record, proof bundles and the monitor (W1-S45c)
     "examples/azlin-reports", # Azlin reports: content reports, the counting that pauses a link, decisions and their statements of reasons (W1-S46a)
+    "examples/azlin-sim", # Azlin sim: the seeded simulation harness that runs the engine's crates together (W1-SIM)
     "examples/azcloud-kit", # azcloud-kit: the Azlin cloud client of the desktop apps and the azcloud CLI (token server, account, bucket, sync, links)
     "examples/azul-pay", # azul-pay: the checkout's client half - the provider registry, the offer filter, the pills, the surfaces, the navigation bridge, the checkout state machine
     "examples/azul-pay-methods", # azul-pay-methods: the payment methods registry by country (methods, providers, routes, the providers' documented test data); data plus a checked parser

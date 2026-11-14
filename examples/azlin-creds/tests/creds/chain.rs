@@ -17,7 +17,14 @@ fn verdict(
     credential: &azlin_creds::Credential,
     secs: u64,
 ) -> Result<(), CredError> {
-    verify_credential(credential, anchors, now(secs), &VerifyRules::default()).map(|_| ())
+    verify_credential(
+        credential,
+        anchors,
+        &placement(),
+        now(secs),
+        &VerifyRules::default(),
+    )
+    .map(|_| ())
 }
 
 fn claims_at(issued: u64, lifetime: u64) -> azlin_creds::CredentialClaims {
@@ -64,6 +71,7 @@ fn s9e_03_an_identity_key_of_another_group_is_no_identity_key_of_this_one() {
             public: azlin_creds::Signer::public(&k2),
             not_before: at(0),
             not_after: None,
+            revoked_from: None,
         },
     ));
     let cert = signed_cert(
@@ -93,7 +101,24 @@ fn s9e_03_an_identity_key_of_another_group_is_no_identity_key_of_this_one() {
         CERT_FROM + CERT_SPAN,
     );
     let credential2 = signed_credential(&f.cred, cert2, claims_of(grant()));
-    assert_eq!(verdict(&anchors, &credential2, ISSUED), Ok(()));
+    // ... and verifies where the account lives on that group (D-W1S9E3), and only there
+    let on_group2 = FixedGroups::of(&[(grant().account, group2)]);
+    assert_eq!(
+        verify_credential(
+            &credential2,
+            &anchors,
+            &on_group2,
+            now(ISSUED),
+            &VerifyRules::default()
+        )
+        .map(|_| ()),
+        Ok(())
+    );
+    assert_eq!(
+        verdict(&anchors, &credential2, ISSUED),
+        Err(CredError::GroupMismatch),
+        "the account lives on group 1: a certificate of group 2 is no voucher for it"
+    );
 }
 
 #[test]
@@ -275,6 +300,7 @@ fn s9e_16_identity_windows_overlap_during_a_rotation() {
             public: azlin_creds::Signer::public(&k2),
             not_before: at(100),
             not_after: None,
+            revoked_from: None,
         },
     ));
     let cert_by = |who: &azlin_creds::SeedSigner, not_before: u64| {
@@ -306,7 +332,7 @@ fn s9e_16_an_empty_anchor_set_refuses_everything() {
     let (f, credential) = issue_fixture();
     let empty = AnchorSet::empty();
     assert_eq!(
-        verify_credential(&credential, &empty, now(ISSUED), &f.rules).err(),
+        verify_credential(&credential, &empty, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::UnknownIdentity)
     );
     assert_eq!(
@@ -319,6 +345,7 @@ fn s9e_16_an_empty_anchor_set_refuses_everything() {
         public: azlin_creds::Signer::public(&f.identity),
         not_before: at(0),
         not_after: None,
+        revoked_from: None,
     });
     assert_eq!(
         verify_cert(&f.cert, &payments_only),

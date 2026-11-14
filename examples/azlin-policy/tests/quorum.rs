@@ -190,6 +190,8 @@ fn quorum_two_for_business_admin_change() {
 
 #[test]
 fn quorum_one_for_personal_and_family() {
+    // The table says 1 for personal and family; it gives a team none, and the crate reads that as 1
+    // too (the signer alone: drift row X-DELTA-W1S17B-2).
     for kind in [
         AccountKind::Personal,
         AccountKind::Family,

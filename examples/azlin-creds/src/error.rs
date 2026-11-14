@@ -7,6 +7,13 @@
 //! contract (documented at `verify_credential` and `verify_assertion`): a caller maps each refusal to its
 //! own status, and the property test of the crate holds the order against an independent oracle.
 //!
+//! Two refusals are ALARMS (`is_alarm` of the three verifier enums): `GroupMismatch` (the chain of a
+//! credential or an assertion verified, and the group that certified it does not own the account) and
+//! `Revoked` (the signature of a payments key verified, and the key is revoked from the entitlement's
+//! day). Each is raised only AFTER every signature verified, so a forgery cannot raise one: an alarm
+//! says that real key material was used where no honest holder uses it, and the caller counts it and
+//! shows it to the operator, where a plain refusal is answered and forgotten (decision D-W1S9E3).
+//!
 //! | enum | who returns it |
 //! |---|---|
 //! | [`CanonicalError`] | the encoders: a structure that cannot be written as canonical bytes |
@@ -121,12 +128,21 @@ pub(crate) enum Chain {
     Expired,
 }
 
+/// The refusals of the placement check, the last step of the verification of a credential and of an
+/// assertion (crate-internal like [`Chain`]: the public enums carry the same names).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Placement {
+    UnknownAccount,
+    GroupMismatch,
+}
+
 /// Why a credential is refused (planning/architecture.md section 5.11 "Credential v2"; section 2.4).
 ///
 /// The checks run in this order and the first that fails is the answer: `ClockUntrusted`, `Malformed`,
 /// `LifetimeTooLong`, `CertMalformed`, `CertMismatch`, `NotYetValid`, `Expired`, `CertWindow`,
-/// `UnknownIdentity`, `IdentityWindow`, `BadCert`, `BadSignature`. (`UnknownScope` is raised by the decoder, at
-/// the step where `Malformed` is.)
+/// `UnknownIdentity`, `IdentityWindow`, `BadCert`, `BadSignature`, `UnknownAccount`, `GroupMismatch`.
+/// (`UnknownScope` is raised by the decoder, at the step where `Malformed` is.) The last two are the
+/// placement check and run only after both signatures verified.
 ///
 /// Caller: `verify_credential` (S9g maps each to a status of its own).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -170,9 +186,38 @@ pub enum CredError {
     /// The credential key's signature over the claims does not verify.
     #[error("the credential's signature does not verify")]
     BadSignature,
+    /// The chain verified, but this verifier does not know the account (its `AccountGroups` names no
+    /// group for it): a refusal, never a default group. Not an alarm: a node that has not learned the
+    /// account yet answers the same.
+    #[error("the credential's account is not known to this verifier")]
+    UnknownAccount,
+    /// The chain verified, but the group whose identity key certified the credential key is not the
+    /// group the account lives on: a voter of another group vouches for an account that is not its own
+    /// (drift row X-DELTA-W1S9E-3, decision D-W1S9E3). An ALARM.
+    #[error("the credential is certified by a group that does not own the account")]
+    GroupMismatch,
     /// A scope kind this build does not know: refused, never read as "allow all".
     #[error("the credential holds an unknown scope")]
     UnknownScope,
+}
+
+impl CredError {
+    /// Whether the refusal is an ALARM (see the module): `GroupMismatch` only.
+    ///
+    /// Caller: S9g's `check_connection` and the nodes' verb handlers (count it, show it to the
+    /// operator), the tests.
+    pub const fn is_alarm(self) -> bool {
+        matches!(self, CredError::GroupMismatch)
+    }
+}
+
+impl From<Placement> for CredError {
+    fn from(p: Placement) -> CredError {
+        match p {
+            Placement::UnknownAccount => CredError::UnknownAccount,
+            Placement::GroupMismatch => CredError::GroupMismatch,
+        }
+    }
 }
 
 impl From<Chain> for CredError {
@@ -223,7 +268,8 @@ impl From<WireError> for CredError {
 ///
 /// The checks run in this order: `ClockUntrusted`, `Malformed`, `LifetimeTooLong`, `WrongAccount`,
 /// `CertMalformed`, `NotYetValid`, `Expired`, `CertWindow`, `UnknownIdentity`, `IdentityWindow`,
-/// `BadCert`, `BadSignature`.
+/// `BadCert`, `BadSignature`, `UnknownAccount`, `GroupMismatch`. The last two are the placement check and
+/// run only after both signatures verified.
 ///
 /// Caller: `verify_assertion` (the services A2 to A5 map each to their own answer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -265,6 +311,32 @@ pub enum AssertError {
     /// The credential key's signature over the claims does not verify.
     #[error("the assertion's signature does not verify")]
     BadSignature,
+    /// The chain verified, but this verifier does not know the account (its `AccountGroups` names no
+    /// group for it): a refusal, never a default group. Not an alarm.
+    #[error("the assertion's account is not known to this verifier")]
+    UnknownAccount,
+    /// The chain verified, but the group whose identity key certified the credential key is not the
+    /// group the account lives on (drift row X-DELTA-W1S9E-3, decision D-W1S9E3). An ALARM.
+    #[error("the assertion is certified by a group that does not own the account")]
+    GroupMismatch,
+}
+
+impl AssertError {
+    /// Whether the refusal is an ALARM (see the module): `GroupMismatch` only.
+    ///
+    /// Caller: the services A2 to A5 (count it, show it to the operator), the tests.
+    pub const fn is_alarm(self) -> bool {
+        matches!(self, AssertError::GroupMismatch)
+    }
+}
+
+impl From<Placement> for AssertError {
+    fn from(p: Placement) -> AssertError {
+        match p {
+            Placement::UnknownAccount => AssertError::UnknownAccount,
+            Placement::GroupMismatch => AssertError::GroupMismatch,
+        }
+    }
 }
 
 impl From<Chain> for AssertError {
@@ -302,7 +374,8 @@ impl From<WireError> for AssertError {
 /// Why an entitlement was not signed or does not verify (planning/architecture.md section 5.11
 /// "Entitlement v2"; section 2.4: "entitlements signed by the old key stay valid until they expire").
 ///
-/// `verify_entitlement` checks in this order: `UnknownKey`, `KeyWindow`, `NotYetIssued`, `BadSignature`.
+/// `verify_entitlement` checks in this order: `UnknownKey`, `KeyWindow`, `NotYetIssued`, `BadSignature`,
+/// `Revoked` (the last runs only after the signature verified).
 ///
 /// Caller: `verify_entitlement` (S9i's `CredsEntitlementVerifier`), `sign_entitlement` (S13a at N24).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -312,7 +385,8 @@ pub enum EntitlementError {
     #[error("the signing key is no payments key")]
     UnknownKey,
     /// The key is a payments key, but none of its windows covers the entitlement's `issued_at`: a key
-    /// that was not yet active, or was retired or revoked before the entitlement's day.
+    /// that was not yet active, or was retired before the entitlement's day (a REVOKED key is
+    /// `Revoked`, after the signature).
     #[error("the payments key's window does not cover the day the entitlement was issued")]
     KeyWindow,
     /// The entitlement is issued on a day that has not begun at the leader's stamp (beyond the skew):
@@ -322,6 +396,12 @@ pub enum EntitlementError {
     /// The payments key's signature over the claims does not verify.
     #[error("the entitlement's signature does not verify")]
     BadSignature,
+    /// The signature verified, but a window of the payments key says it is REVOKED from a second at or
+    /// before the day the entitlement was issued (`KeyWindow::revoked_from`): a stolen key cannot
+    /// back-date an entitlement into its revocation (drift row X-DELTA-W1S9E-5, decision D-W1S9E3).
+    /// One window that says so is enough, whatever the other windows of the key say. An ALARM.
+    #[error("the payments key is revoked from the day the entitlement was issued")]
+    Revoked,
     /// The signed bytes do not parse (or, from `sign_entitlement`, the claims cannot be encoded).
     #[error("the entitlement is malformed")]
     Malformed,
@@ -331,6 +411,15 @@ pub enum EntitlementError {
     /// `sign_entitlement` only: the signature the holder returned does not verify under its own key.
     #[error("the holder's signature does not verify under its own public key")]
     SignerFault,
+}
+
+impl EntitlementError {
+    /// Whether the refusal is an ALARM (see the module): `Revoked` only.
+    ///
+    /// Caller: S9i's `CredsEntitlementVerifier` and S9d (count it, show it to the operator), the tests.
+    pub const fn is_alarm(self) -> bool {
+        matches!(self, EntitlementError::Revoked)
+    }
 }
 
 impl From<WireError> for EntitlementError {

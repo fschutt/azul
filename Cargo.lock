@@ -1511,6 +1511,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "azlin-sim"
+version = "0.1.0"
+dependencies = [
+ "azlin-chain",
+ "azlin-keys",
+ "azlin-policy",
+ "azlin-seams",
+]
+
+[[package]]
 name = "azlin-spaces"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,10 @@
+[
+  {"name": "huge_1025", "valid": true, "expect": "current", "count": 1025, "total_raw": 1028069, "plaintext_len": 63522, "plaintext_blake3": "05b621969250d203fd96dcb858bbfce2bd73262e5915243e404b00f7957cb3b0", "sealed_len": 63562, "object_name": "6db258b56fd04772f30aa49dea249ecb8449a345fdbb9722c20c0957184a65f8", "sealer": "TSEAL001, tag keyed BLAKE3 key 5e*32", "hex": "a201010299040185582000000000777777777777777777777777777777777777777777777777777777771903e8500000000000000000000000000000000000190411855820010000007777777777777777777777777777777777777777777777"},
+  {"name": "newer_list_version", "valid": false, "expect": "NewerList(2)", "count": 1025, "hex": "a201020280"},
+  {"name": "list_version_0", "valid": false, "expect": "UnsupportedList(0)", "count": 1025, "hex": "a201000280"},
+  {"name": "list_version_missing", "valid": false, "expect": "Shape(Missing(1))", "count": 1025, "hex": "a10280"},
+  {"name": "list_array_missing", "valid": false, "expect": "Shape(Missing(2))", "count": 1025, "hex": "a10101"},
+  {"name": "list_array_wrong_type", "valid": false, "expect": "Shape(WrongType(2))", "count": 1025, "hex": "a20101026141"},
+  {"name": "truncated_list", "valid": false, "expect": "Cbor(Truncated)", "count": 1025, "hex": "a201010299"},
+  {"name": "too_few_chunks", "valid": false, "expect": "ListCount", "count": 1025, "hex": "a201010280"}
+]

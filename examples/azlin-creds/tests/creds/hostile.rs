@@ -23,12 +23,14 @@ fn s9e_18_every_truncation_of_a_credential_is_refused() {
             "a credential cut at {len} decodes"
         );
         assert!(
-            verify_credential_bytes(cut, &f.anchors, now(ISSUED), &f.rules).is_err(),
+            verify_credential_bytes(cut, &f.anchors, &placement(), now(ISSUED), &f.rules).is_err(),
             "a credential cut at {len} verifies"
         );
     }
     // And the whole of it is fine.
-    assert!(verify_credential_bytes(&bytes, &f.anchors, now(ISSUED), &f.rules).is_ok());
+    assert!(
+        verify_credential_bytes(&bytes, &f.anchors, &placement(), now(ISSUED), &f.rules).is_ok()
+    );
 }
 
 #[test]
@@ -41,7 +43,7 @@ fn s9e_18_an_extended_credential_is_refused() {
         Some(WireError::Cbor(DecodeError::TrailingBytes))
     );
     assert_eq!(
-        verify_credential_bytes(&bytes, &f.anchors, now(ISSUED), &f.rules).err(),
+        verify_credential_bytes(&bytes, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::Malformed)
     );
     // A certificate with a byte after it, too.
@@ -61,7 +63,8 @@ fn s9e_18_every_single_byte_flip_is_refused_and_never_panics() {
         for mask in [0x01u8, 0x80, 0xFF] {
             let mut flipped = bytes.clone();
             flipped[position] ^= mask;
-            let verdict = verify_credential_bytes(&flipped, &f.anchors, now(ISSUED), &f.rules);
+            let verdict =
+                verify_credential_bytes(&flipped, &f.anchors, &placement(), now(ISSUED), &f.rules);
             assert!(
                 verdict.is_err(),
                 "byte {position} xor {mask:#x}: a changed credential verifies"
@@ -118,7 +121,7 @@ fn s9e_18_thousands_of_scopes_are_refused_on_every_path() {
     let bytes = craft_credential(&f.cred, &f.cert, &payload);
     assert!(Credential::decode(&bytes).is_err());
     assert_eq!(
-        verify_credential_bytes(&bytes, &f.anchors, now(ISSUED), &f.rules).err(),
+        verify_credential_bytes(&bytes, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::Malformed)
     );
 }
@@ -286,8 +289,8 @@ fn s9e_18_an_unknown_claim_is_ignored_and_the_signature_still_verifies() {
         .expect("a payload");
     let bytes = craft_credential(&f.cred, &f.cert, &payload);
     let credential = Credential::decode(&bytes).expect("an unknown key is ignored");
-    let verified =
-        verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).expect("verifies");
+    let verified = verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules)
+        .expect("verifies");
     assert_eq!(verified.account(), claims.account);
     assert_eq!(
         credential.encode().expect("encodes"),
@@ -312,7 +315,7 @@ fn s9e_18_a_claim_that_crit_lists_and_nobody_understands_is_refused() {
         Some(WireError::Shape(ShapeError::CritUnknown(40)))
     );
     assert_eq!(
-        verify_credential_bytes(&bytes, &f.anchors, now(ISSUED), &f.rules).err(),
+        verify_credential_bytes(&bytes, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::Malformed)
     );
     // `crit` that lists a key this build DOES understand is fine, and the copy keeps it.
@@ -324,7 +327,9 @@ fn s9e_18_a_claim_that_crit_lists_and_nobody_understands_is_refused() {
         bytes,
         "a copy keeps crit (R18)"
     );
-    assert!(verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).is_ok());
+    assert!(
+        verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules).is_ok()
+    );
     // A malformed `crit` is refused.
     let payload = payload_map(&claims).put(0, Value::Array(vec![])).build();
     assert!(payload.is_err(), "the builder refuses key 0 itself");
@@ -339,7 +344,8 @@ fn s9e_18_the_claims_of_a_credential_come_from_the_signed_bytes() {
     let mut other = claims_of(grant());
     other.nonce = azlin_regbase::CredentialNonce::from_bytes([0x99; 16]);
     let signed = signed_credential(&f.cred, f.cert, other.clone());
-    let verified = verify_credential(&signed, &f.anchors, now(ISSUED), &f.rules).expect("verifies");
+    let verified = verify_credential(&signed, &f.anchors, &placement(), now(ISSUED), &f.rules)
+        .expect("verifies");
     assert_eq!(verified.nonce(), other.nonce);
     let decoded: CredentialClaims =
         CredentialClaims::decode_payload(signed.payload()).expect("claims");
@@ -369,7 +375,7 @@ fn s9e_18_an_empty_sso_provider_is_refused_by_the_issuer_as_well_as_by_the_verif
     };
     let credential = signed_credential(&f.cred, f.cert, claims);
     assert_eq!(
-        verify_credential(&credential, &f.anchors, now(ISSUED), &f.rules).err(),
+        verify_credential(&credential, &f.anchors, &placement(), now(ISSUED), &f.rules).err(),
         Some(CredError::Malformed)
     );
 }

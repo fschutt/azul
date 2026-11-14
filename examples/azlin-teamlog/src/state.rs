@@ -426,6 +426,55 @@ impl TeamState {
         Some(effective(&self.policy, &patches))
     }
 
+    /// The policy a group inherits: the account's policy with the patches of the groups ABOVE it (not
+    /// its own), each clamped to the level above; `None` for an unknown group. A group's own patch must
+    /// tighten this (`azlin_policy::check_tightens`).
+    ///
+    /// Implements planning/architecture.md section 5.10 ("groups inherit and may only tighten").
+    ///
+    /// Caller: `admit.rs` (`policy_set` of a group).
+    pub(crate) fn inherited_policy_of(&self, group: &GroupId) -> Option<Policy> {
+        let path = self.groups.path_from_top(group)?;
+        let patches: Vec<&PolicyPatch> = path
+            .iter()
+            .filter(|id| *id != group)
+            .filter_map(|id| self.group_patches.get(id))
+            .collect();
+        Some(effective(&self.policy, &patches))
+    }
+
+    /// The policy that would hold for a group if its own patch were `patch` (an empty patch removes
+    /// the group's patch): the effective policy after a `policy_set` of the group, before it is made.
+    /// `None` for an unknown group.
+    ///
+    /// Implements planning/architecture.md section 5.10 and section 7.2 (the policy epoch moves when
+    /// the effective policy of the subject changes).
+    ///
+    /// Caller: `admit.rs` and `apply.rs` (`policy_set` of a group): the one place the new effective
+    /// policy of a group is computed.
+    pub(crate) fn effective_with_patch(
+        &self,
+        group: &GroupId,
+        patch: &PolicyPatch,
+    ) -> Option<Policy> {
+        let path = self.groups.path_from_top(group)?;
+        let patches: Vec<&PolicyPatch> = path
+            .iter()
+            .filter_map(|id| {
+                if id == group {
+                    if patch.is_empty() {
+                        None
+                    } else {
+                        Some(patch)
+                    }
+                } else {
+                    self.group_patches.get(id)
+                }
+            })
+            .collect();
+        Some(effective(&self.policy, &patches))
+    }
+
     /// The policy epoch: a policy change bumps it and an older credential is refused.
     ///
     /// Implements planning/architecture.md section 5.11 (`policy_epoch`).

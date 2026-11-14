@@ -15,7 +15,9 @@
 //! | [`mod@derive`] | the registry of every BLAKE3 `derive_key` context, `derive`, `derive_public` | S15a |
 //! | [`sign`] | `signing_input`, `sign`, `verify`, `Domain`, `DeviceDirectory`, `VerifyAt`, `MapDirectory` | S15a |
 //! | [`error`] | the typed errors of the modules above | S15a |
-//! | `envelope`, `member`, `group`, `space`, `epoch`, `reg_wrap`, `rekey`, `recovery`, `binding` | stubs: `//! owned by lane W1-S15x` | S15b to S15e |
+//! | `envelope` | envelope v2: the wrap format, algorithms 1 and 2, the signer, the key-less shape and signature checks | S15b |
+//! | `member`, `group`, `space` | the key hierarchy: member and device key bundles, group keys, space keys per epoch (`K_seal`, `K_chunk`), the epoch chain, the history modes | S15c1 |
+//! | `epoch`, `reg_wrap`, `rekey`, `recovery`, `binding` | stubs: `//! owned by lane W1-S15x` | S15c2 to S15e |
 //!
 //! Features: `os-rng` (default: `OsEntropy` over `getrandom`), `pq` (ML-KEM-768, envelope
 //! algorithm 2; NOT default until the owner has reviewed the crate: ARCH29 9.13 decision 3),

@@ -470,7 +470,9 @@ fn s9e_refresh_the_credential_in_an_answer_verifies() {
     let decoded = RefreshAnswerWire::decode(&bytes).expect("decodes");
     let inner = decoded.credential.expect("a credential");
     assert!(Credential::decode(&inner).is_ok());
-    assert!(verify_credential_bytes(&inner, &f.anchors, now(ISSUED), &f.rules).is_ok());
+    assert!(
+        verify_credential_bytes(&inner, &f.anchors, &placement(), now(ISSUED), &f.rules).is_ok()
+    );
 }
 
 #[test]

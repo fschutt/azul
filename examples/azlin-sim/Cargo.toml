@@ -1,0 +1,18 @@
+# W1-SIM skeleton (W1-SIM.md section 0, COMMON-W1R.md R2): the stage 1 manifest. Lanes never edit it: a missing dependency is a drift row.
+# The coordinator appends each later stage's dependency lines in a one-hunk commit at the start of that stage.
+
+[package]
+name = "azlin-sim"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin sim: the seeded simulation harness that runs the engine's crates together (faults of network, clock, disk and process; named invariants of the plan; failing seeds kept as regression tests)"
+publish = false
+
+[dependencies]
+azlin-keys = { path = "../azlin-keys", default-features = false, features = ["test-support"] }
+azlin-seams = { path = "../azlin-seams" }
+azlin-chain = { path = "../azlin-chain" }
+azlin-policy = { path = "../azlin-policy" }

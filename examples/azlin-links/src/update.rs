@@ -147,7 +147,8 @@ pub enum Change {
     Title(Option<Sealed>),
     /// `message`, sealed under the same link key.
     Message(Option<Sealed>),
-    /// `slug` (a password or a named audience only).
+    /// `slug` (a password or a named audience only). Slugs are unique per cluster: the node checks
+    /// its index of slugs before it calls `update`, this crate holds no other link's slug.
     Slug(Option<Slug>),
     /// The paired request of the link, when it has none yet.
     PairRequest(RequestId),
@@ -241,7 +242,8 @@ pub enum UpdateRefusal {
     /// The member holds no wrap of the share key.
     #[error("the member holds no wrap of the share key")]
     NoSuchWrap,
-    /// The link has a paired request or a comment log already: a rotation replaces the request.
+    /// The link has a paired request or a comment log already, or a rotation gives back the request
+    /// that ends with the old id (a rotation brings a new one).
     #[error("the link has this pairing already")]
     AlreadyPaired,
     /// The member holds a wrap of the share key already.
@@ -279,8 +281,10 @@ fn guard_open(r: &LinkRecord) -> Result<(), UpdateRefusal> {
 /// The operator's and the reports' pause freezes the link for its owner.
 fn guard_unfrozen(r: &LinkRecord) -> Result<(), UpdateRefusal> {
     match r.pauses().frozen_by() {
-        Some(by) => Err(UpdateRefusal::Frozen(by)),
-        None => Ok(()),
+        Some(by) if !azlin_seams::mutant!("links_frozen_link_changes") => {
+            Err(UpdateRefusal::Frozen(by))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -472,8 +476,8 @@ pub struct KeyBound {
     pub opaque_record: Option<OpaqueRecord>,
     /// The wraps of the NEW key (one for each person of a `people` audience).
     pub wraps: Vec<Wrap>,
-    /// The new paired request (the old one ends with the old id); `None` for a link that needs
-    /// none.
+    /// The new paired request: the old one ends with the old id (S16f's `end_with_link(Rotated)`),
+    /// so giving the old id back is refused (`AlreadyPaired`); `None` for a link that needs none.
     pub request: Option<RequestId>,
 }
 
@@ -497,10 +501,11 @@ pub struct Rotated {
 
 /// Rotates a link: a new public id and the key-bound parts that come with the new key; "the old URL
 /// stops at once" (the old id answers nothing from now on: [`LinkRecord::answers_to`]). The counters
-/// start again, `keyed_at` is `now`, `created_at`, the comment log and the pauses stay. Who may, the
-/// frozen state, the whole-row check and the policy (for the audience, the password, the kind and
-/// the subfolders) are as for [`update`]. An entropy failure makes no id; on every `Err` the record
-/// is as it was.
+/// start again, `keyed_at` is `now` (never before the creation: a rotation is not refused for a
+/// clock reason), `created_at`, the comment log and the pauses stay. The old paired request ends
+/// and a NEW one comes with the rotation. Who may, the frozen state, the whole-row check and the
+/// policy (for the audience, the password, the kind and the subfolders) are as for [`update`]. An
+/// entropy failure makes no id; on every `Err` the record is as it was.
 ///
 /// Implements planning/architecture.md section 5.12 ("who can decrypt changes only by **rotating**: a
 /// new id and key, after which the old URL stops at once").
@@ -521,6 +526,14 @@ pub fn rotate(
     }
     guard_open(r)?;
     guard_unfrozen(r)?;
+    // A paired request ends with its link (S16f): a rotation brings a NEW request. Giving the old one
+    // back would end a request the link still holds.
+    if to.request.is_some()
+        && to.request.as_ref() == r.request_id()
+        && !azlin_seams::mutant!("links_rotate_reuses_request")
+    {
+        return Err(UpdateRefusal::AlreadyPaired);
+    }
     let old = *r.id();
     let drawn = new_id(entropy).map_err(UpdateRefusal::Entropy)?;
     let new = if azlin_seams::mutant!("links_rotate_keeps_old_id") {
@@ -541,7 +554,9 @@ pub fn rotate(
     let mut next = r.row().clone();
     let ended_request = next.request_id;
     next.id = new;
-    next.keyed_at = now;
+    // A rotation is never refused for a clock reason: a stamp before the creation (a clock that went
+    // back) keys the link at its creation.
+    next.keyed_at = now.max(next.created_at);
     next.options.audience = to.audience;
     next.options.kind = to.kind;
     next.options.subfolders = to.subfolders;
@@ -624,7 +639,8 @@ pub fn unpause(r: &mut LinkRecord, by: &Actor) -> Result<Pauses, UpdateRefusal> 
 }
 
 /// Revokes a link, for good: the creator, a manager or the operator. Nothing changes a revoked link
-/// afterwards (every function here answers `Revoked`), and revoking again keeps the first time.
+/// afterwards (every function here answers `Revoked`), and revoking again keeps the first time. A
+/// revocation is never refused for a clock reason: the stamp is stored as given.
 ///
 /// Implements planning/architecture.md section 5.12 ("`link_revoke` ends it").
 ///

@@ -373,6 +373,7 @@ fn s9e_14_the_vector_files_verify_without_the_code_that_wrote_them() {
                     verify_credential_bytes(
                         &bytes,
                         &anchors,
+                        &placement(),
                         now(ISSUED),
                         &azlin_creds::VerifyRules::default(),
                     )
