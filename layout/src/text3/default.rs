@@ -1746,9 +1746,12 @@ mod autotest_generated {
         assert_eq!(manager.evict_unused(Duration::ZERO), 0);
 
         // Touch the deferred face -> it materialises loca+glyf and stamps last_used.
+        // (A glyph with an outline: the space's is pre-decoded from hmtx and loads
+        // nothing.)
         let parsed = crate::font_ref_to_parsed_font(&deferred);
-        assert!(parsed.get_or_decode_glyph(1).is_some(), "gid 1 must decode");
-        let _ = crate::font_ref_to_parsed_font(&eager).get_or_decode_glyph(1);
+        let a = parsed.lookup_glyph_index('A' as u32).expect("A is mapped");
+        assert!(parsed.get_or_decode_glyph(a).is_some(), "A must decode");
+        let _ = crate::font_ref_to_parsed_font(&eager).get_or_decode_glyph(a);
 
         // A face used microseconds ago is not idle for an hour.
         assert_eq!(manager.evict_unused(Duration::from_secs(3600)), 0);

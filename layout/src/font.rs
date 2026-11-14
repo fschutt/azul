@@ -1222,6 +1222,7 @@ pub mod parsed {
                     font_bytes.to_vec(),
                 ))));
             }
+            font.measure_space();
             Some(font)
         }
 
@@ -1697,7 +1698,7 @@ pub mod parsed {
             font_index.hash(&mut hasher);
             let hash = hasher.finish();
 
-            let mut font = Self {
+            let font = Self {
                 hash,
                 font_metrics,
                 pdf_font_metrics,
@@ -1737,61 +1738,51 @@ pub mod parsed {
                 hint_instance,
             };
 
-            // Calculate space width
-            let space_width = font.get_space_width_internal();
-
-            // Pre-decode the space glyph straight into the lazy
-            // `glyph_cache`. Space typically has no outline, so the
-            // decoder's outline visitor returns nothing useful and
-            // we'd spin re-decoding it every shape — short-circuit
-            // here with a hand-rolled record carrying the hmtx
-            // advance.
-            let _ = (|| {
-                let space_gid = font.lookup_glyph_index(' ' as u32)?;
-                {
-                    // StLock::read() is infallible (Result<_, Infallible>);
-                    // kept in a tight block so the guard drops at scope end.
-                    let Ok(cache) = font.glyph_cache.read();
-                    if cache.contains_key(&space_gid) {
-                        return None;
-                    }
-                }
-                let space_width_val = space_width?;
-                // Only pre-cache when we actually know a non-zero advance. During
-                // `from_bytes_internal` the source bytes are not attached yet, so
-                // `hmtx` is unreadable and `get_space_width_internal` reads back 0;
-                // caching that would pin every space to a 0 advance for the life of
-                // the face. Skip it and let the space decode lazily once bytes are
-                // attached (mock fonts that carry a real space width still cache).
-                if space_width_val == 0 {
-                    return None;
-                }
-                let space_record = OwnedGlyph {
-                    bounding_box: OwnedGlyphBoundingBox {
-                        max_x: 0,
-                        max_y: 0,
-                        min_x: 0,
-                        min_y: 0,
-                    },
-                    horz_advance: space_width_val as u16,
-                    outline: Vec::new(),
-                    phantom_points: None,
-                    raw_points: None,
-                    raw_on_curve: None,
-                    raw_contour_ends: None,
-                    instructions: None,
-                };
-                {
-                    // StLock::write() is infallible (Result<_, Infallible>).
-                    let Ok(mut cache) = font.glyph_cache.write();
-                    cache.insert(space_gid, Arc::new(space_record));
-                }
-                Some(())
-            })();
-
-            font.space_width = space_width;
-
+            // The space's advance is measured by the constructors once the source
+            // bytes are attached (`measure_space`): `hmtx` is read from them, so
+            // here every advance still reads back 0.
             Some(font)
+        }
+
+        /// Measures the space (`space_width`, [`ParsedFont::get_space_width`]) and
+        /// pre-decodes its glyph into the lazy `glyph_cache`, from the `hmtx` of the
+        /// attached source bytes. Every constructor calls it once the bytes are
+        /// attached (and [`ParsedFont::with_source_bytes`] again): measured before,
+        /// in `from_bytes_internal`, every advance read back 0 and every font's
+        /// space was 0 wide.
+        ///
+        /// Space typically has no outline, so the decoder's outline visitor returns
+        /// nothing useful and we'd spin re-decoding it every shape — short-circuit
+        /// with a hand-rolled record carrying the hmtx advance.
+        fn measure_space(&mut self) {
+            let space_width = self.get_space_width_internal();
+            self.space_width = space_width;
+            let Some(space_gid) = self.lookup_glyph_index(' ' as u32) else {
+                return;
+            };
+            // A space of 0 advance (or none) decodes lazily, as any glyph.
+            let Some(space_width_val) = space_width.filter(|w| *w > 0) else {
+                return;
+            };
+            let space_record = OwnedGlyph {
+                bounding_box: OwnedGlyphBoundingBox {
+                    max_x: 0,
+                    max_y: 0,
+                    min_x: 0,
+                    min_y: 0,
+                },
+                horz_advance: u16::try_from(space_width_val).unwrap_or(u16::MAX),
+                outline: Vec::new(),
+                phantom_points: None,
+                raw_points: None,
+                raw_on_curve: None,
+                raw_contour_ends: None,
+                instructions: None,
+            };
+            // StLock::write() is infallible (Result<_, Infallible>). Replaces a record
+            // decoded from the bytes attached before (`with_source_bytes`).
+            let Ok(mut cache) = self.glyph_cache.write();
+            cache.insert(space_gid, Arc::new(space_record));
         }
 
         /// Attach the source font bytes to this `ParsedFont`, enabling
@@ -1806,6 +1797,7 @@ pub mod parsed {
         #[must_use]
         pub fn with_source_bytes(mut self, bytes: Arc<rust_fontconfig::FontBytes>) -> Self {
             self.original_bytes = Some(bytes);
+            self.measure_space();
             self
         }
 
@@ -1844,6 +1836,7 @@ pub mod parsed {
                 font_index,
                 loaded: Arc::new(std::sync::Mutex::new(None)),
             };
+            font.measure_space();
             Some(font)
         }
 
@@ -3755,9 +3748,9 @@ pub mod parsed {
         #[test]
         fn prime_glyph_cache_decodes_every_glyph_and_is_idempotent() {
             let mut font = parse_mock();
-            // the lazy cache starts empty (the space stub is skipped while the source
-            // bytes are still unattached)
-            assert!(font.glyph_cache_snapshot().is_empty());
+            // the lazy cache starts with the space's stub only (`measure_space`)
+            let space = font.lookup_glyph_index(' ' as u32).expect("a space");
+            assert_eq!(font.glyph_cache_snapshot().keys().copied().collect::<Vec<_>>(), [space]);
 
             font.prime_glyph_cache();
             let snap = font.glyph_cache_snapshot();
@@ -3839,9 +3832,13 @@ pub mod parsed {
             assert!(font.source_bytes_for_subset().is_some());
 
             // nothing is loaded until the first decode, so there is nothing to evict yet
+            // (the space's stub comes from hmtx, not from loca+glyf)
             assert!(!font.evict_loca_glyf());
 
-            let g1 = font.get_or_decode_glyph(1).expect("gid 1 must decode");
+            // glyphs with outlines (the space's is pre-decoded: it loads nothing)
+            let a = font.lookup_glyph_index('A' as u32).expect("A is mapped");
+            let b = font.lookup_glyph_index('B' as u32).expect("B is mapped");
+            let g1 = font.get_or_decode_glyph(a).expect("A must decode");
             assert!(
                 font.evict_loca_glyf(),
                 "a loaded Deferred slot is evictable"
@@ -3850,11 +3847,11 @@ pub mod parsed {
 
             // after eviction the face still decodes: it re-parses from the retained bytes
             let g2 = font
-                .get_or_decode_glyph(2)
-                .expect("gid 2 decodes after eviction");
-            assert_eq!(g2.horz_advance, font.get_horizontal_advance(2));
+                .get_or_decode_glyph(b)
+                .expect("B decodes after eviction");
+            assert_eq!(g2.horz_advance, font.get_horizontal_advance(b));
             // and already-decoded glyphs still come from the glyph cache
-            assert!(Arc::ptr_eq(&g1, &font.get_or_decode_glyph(1).unwrap()));
+            assert!(Arc::ptr_eq(&g1, &font.get_or_decode_glyph(a).unwrap()));
         }
 
         #[test]
@@ -3885,6 +3882,32 @@ pub mod parsed {
             assert_eq!(a.bounding_box.min_y, b.bounding_box.min_y);
             assert_eq!(a.bounding_box.max_x, b.bounding_box.max_x);
             assert_eq!(a.bounding_box.max_y, b.bounding_box.max_y);
+        }
+
+        /// `get_space_width` is the space glyph's `hmtx` advance, from every
+        /// constructor: it was measured in `from_bytes_internal`, before the
+        /// source bytes were attached, where every advance reads back 0 - so
+        /// every real font's space was 0 wide (m4p's map labels lost their word
+        /// gaps: "Im Wyl" became "ImWyl").
+        #[test]
+        fn the_space_width_is_the_space_glyphs_advance() {
+            let eager = parse_mock();
+            let space = eager.lookup_glyph_index(' ' as u32).expect("Mock Mono has a space");
+            let advance = eager.get_horizontal_advance(space);
+            assert!(advance > 0, "the space glyph advances the pen in hmtx");
+            assert_eq!(eager.get_space_width(), Some(usize::from(advance)));
+
+            let shared = mock_shared();
+            assert_eq!(shared.get_space_width(), Some(usize::from(advance)));
+
+            let attached = eager.with_source_bytes(Arc::new(rust_fontconfig::FontBytes::Owned(
+                Arc::from(MOCK_MONO.to_vec()),
+            )));
+            assert_eq!(attached.get_space_width(), Some(usize::from(advance)));
+
+            // the pre-decoded space glyph carries the same advance
+            let glyph = shared.get_or_decode_glyph(space).expect("the space decodes");
+            assert_eq!(glyph.horz_advance, advance);
         }
 
         #[test]
