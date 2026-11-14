@@ -9,10 +9,16 @@
 //! Every initial byte is dealt with in the order: break, tag, simple value, indefinite length,
 //! reserved additional information, then the argument (whose shortest form is checked) and the
 //! content.
+//!
+//! One decoder serves `decode` and `decode_secret` (milestone `M-CBOR-SECRET`, decision D-W1S14A):
+//! `Reader<SECRET>` differs in one thing, the guards around what an array, a map or a map key has
+//! decoded so far wipe it when the decode stops early. With `SECRET` unset the guards do nothing,
+//! and `decode` is the decoder it was.
 
 use crate::{
     error::DecodeError,
     limits::Limits,
+    secret::{wipe_tree, Guard},
     value::{Map, Value},
 };
 
@@ -23,24 +29,37 @@ use crate::{
 /// Caller: every format crate that reads a format (azlin-keys, azlin-content, azlin-creds, ...),
 /// INT-WIRE (azlin-proto contract4).
 pub fn decode(bytes: &[u8], l: &Limits) -> Result<Value, DecodeError> {
+    decode_with::<false>(bytes, l)
+}
+
+/// The decoder both entry points share. With `SECRET` set, whatever it has decoded when it refuses
+/// the input is wiped before the error returns; the accepted input and every error are the same.
+pub(crate) fn decode_with<const SECRET: bool>(
+    bytes: &[u8],
+    l: &Limits,
+) -> Result<Value, DecodeError> {
     match u64::try_from(bytes.len()) {
         Ok(n) if n <= u64::from(l.max_input) => {}
         _ => return Err(DecodeError::InputTooLarge),
     }
-    let mut reader = Reader {
+    let mut reader = Reader::<SECRET> {
         rest: bytes,
         l,
         total: 0,
     };
-    let value = reader.item(0)?;
+    let mut value = reader.item(0)?;
     if reader.rest.is_empty() {
         Ok(value)
     } else {
+        // The whole tree is decoded and then refused: for a secret it is wiped too.
+        if SECRET {
+            wipe_tree(&mut value);
+        }
         Err(DecodeError::TrailingBytes)
     }
 }
 
-struct Reader<'a, 'l> {
+struct Reader<'a, 'l, const SECRET: bool> {
     /// The input that is not read yet.
     rest: &'a [u8],
     l: &'l Limits,
@@ -48,7 +67,7 @@ struct Reader<'a, 'l> {
     total: u32,
 }
 
-impl<'a> Reader<'a, '_> {
+impl<'a, const SECRET: bool> Reader<'a, '_, SECRET> {
     /// `n` bytes, or `Truncated`: nothing is copied or reserved before the input is known to hold
     /// them.
     fn take(&mut self, n: usize) -> Result<&'a [u8], DecodeError> {
@@ -189,11 +208,13 @@ impl<'a> Reader<'a, '_> {
         if n > u64::from(self.l.max_items) || n > self.items_left() {
             return Err(DecodeError::TooManyItems);
         }
-        let mut items = Vec::with_capacity(reserve(n, self.rest.len()));
+        let mut items =
+            Guard::<Vec<Value>, SECRET>::new(Vec::with_capacity(reserve(n, self.rest.len())));
         for _ in 0..n {
-            items.push(self.item(inner)?);
+            let item = self.item(inner)?;
+            items.held.push(item);
         }
-        Ok(Value::Array(items))
+        Ok(Value::Array(items.release()))
     }
 
     /// A map of `n` pairs: the keys must be strictly ascending in the bytewise order of their
@@ -206,11 +227,16 @@ impl<'a> Reader<'a, '_> {
             return Err(DecodeError::TooManyItems);
         }
         // Every pair takes at least two bytes.
-        let mut entries: Vec<(Value, Value)> = Vec::with_capacity(reserve(n, self.rest.len() / 2));
+        let mut entries = Guard::<Vec<(Value, Value)>, SECRET>::new(Vec::with_capacity(reserve(
+            n,
+            self.rest.len() / 2,
+        )));
         let mut previous: Option<&'a [u8]> = None;
         for _ in 0..n {
             let before = self.rest;
-            let key = self.item(inner)?;
+            // The key is held by a guard until its pair is complete: the order check and the value
+            // can both fail after it is decoded.
+            let key = Guard::<Value, SECRET>::new(self.item(inner)?);
             let used = before
                 .len()
                 .checked_sub(self.rest.len())
@@ -225,9 +251,9 @@ impl<'a> Reader<'a, '_> {
             }
             previous = Some(encoded);
             let value = self.item(inner)?;
-            entries.push((key, value));
+            entries.held.push((key.release(), value));
         }
-        Ok(Value::Map(Map::from_sorted(entries)))
+        Ok(Value::Map(Map::from_sorted(entries.release())))
     }
 }
 

@@ -1219,6 +1219,9 @@ dependencies = [
 [[package]]
 name = "azlin-cbor"
 version = "0.1.0"
+dependencies = [
+ "zeroize",
+]
 
 [[package]]
 name = "azlin-chain"

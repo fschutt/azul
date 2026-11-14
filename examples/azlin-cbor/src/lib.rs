@@ -12,8 +12,11 @@
 //! RULE: for every `b` that [`decode`] accepts, `encode(decode(b)) == b`; a signature covers
 //! canonical bytes, and whoever copies a structure keeps its unknown fields (see [`IntMap`]).
 //!
-//! No dependencies (std only), no unsafe code, no clock, no randomness, no I/O: a pure codec
-//! (planning/architecture.md section 1.4 rules 3 and 14). It builds for `wasm32-unknown-unknown`.
+//! One dependency, `zeroize` (milestone `M-CBOR-SECRET`, decision D-W1S14A): [`decode_secret`] reads a
+//! format whose bytes are or derive key material into a [`SecretValue`] that wipes its buffers when
+//! it drops, and when the decoder refuses its input half way. Besides that: no unsafe code, no
+//! clock, no randomness, no I/O: a pure codec (planning/architecture.md section 1.4 rules 3 and 14).
+//! It builds for `wasm32-unknown-unknown`.
 //!
 //! ```
 //! use azlin_cbor::{decode, encode, IntMap, IntMapBuilder, Limits, ShapeError, Value};
@@ -60,16 +63,25 @@
 )]
 #![warn(missing_docs)]
 
+// The unit tests of `secret_tests.rs` include `tests/common`, which names this crate `azlin_cbor`.
+#[cfg(test)]
+extern crate self as azlin_cbor;
+
 pub mod dec;
 pub mod enc;
 pub mod error;
 pub mod int_map;
 pub mod limits;
+pub mod secret;
 pub mod value;
+
+#[cfg(test)]
+mod secret_tests;
 
 pub use dec::decode;
 pub use enc::encode;
 pub use error::{DecodeError, EncodeError, MapError, ShapeError};
 pub use int_map::{IntMap, IntMapBuilder};
 pub use limits::Limits;
+pub use secret::{decode_secret, SecretValue};
 pub use value::{Map, Value};

@@ -3,9 +3,10 @@
 //! and an abort in the shipped profile. The file is self-contained (it names only `azlin_cbor`)
 //! because the fuzz targets include it by `#[path]`.
 //!
-//! The oracle is the signature rule: what `decode` accepts, `encode` writes again byte for byte.
+//! The oracle is the signature rule: what `decode` accepts, `encode` writes again byte for byte; and
+//! `decode_secret` is `decode` with a wipe: the same value, or the same error, on every input.
 
-use azlin_cbor::{decode, encode, IntMap, IntMapBuilder, Limits, ShapeError, Value};
+use azlin_cbor::{decode, decode_secret, encode, IntMap, IntMapBuilder, Limits, ShapeError, Value};
 
 /// Limits so small that most inputs reach one of them: they keep the refusal paths in reach.
 pub const TINY: Limits = Limits {
@@ -17,9 +18,15 @@ pub const TINY: Limits = Limits {
 };
 
 /// `decode` under every set of limits; an accepted input must re-encode to itself under the
-/// limits that accepted it, and decode again to the same value.
+/// limits that accepted it, and decode again to the same value. `decode_secret` must say the same
+/// as `decode`, the same value or the same error.
 pub fn decode_entry(data: &[u8]) {
     for l in [&Limits::HEADER, &Limits::LOG_RECORD, &Limits::OBJECT, &TINY] {
+        match (decode(data, l), decode_secret(data, l)) {
+            (Ok(a), Ok(b)) => assert_eq!(&a, b.as_value(), "decode_secret read another value"),
+            (Err(a), Err(b)) => assert_eq!(a, b, "decode_secret refused for another reason"),
+            (a, b) => panic!("decode says {a:?}, decode_secret says {b:?}"),
+        }
         if let Ok(v) = decode(data, l) {
             let again =
                 encode(&v, l).expect("an accepted value encodes under the limits that accepted it");

@@ -164,5 +164,21 @@
   {"name": "size_bytes_over_max_text", "valid": false, "hex": "5a00400001", "expect": "InputTooLarge"},
   {"name": "size_text_over_max_text", "valid": false, "hex": "7a00400001", "expect": "InputTooLarge"},
   {"name": "size_bytes_u64_max", "valid": false, "hex": "5bffffffffffffffff", "expect": "InputTooLarge"},
-  {"name": "size_text_u64_max", "valid": false, "hex": "7bffffffffffffffff", "expect": "InputTooLarge"}
+  {"name": "size_text_u64_max", "valid": false, "hex": "7bffffffffffffffff", "expect": "InputTooLarge"},
+  {"name": "secret_array_leaves_then_truncated", "valid": false, "hex": "8341aa626262", "expect": "Truncated"},
+  {"name": "secret_nested_arrays_then_reserved_head", "valid": false, "hex": "828241aa42bbcc1c", "expect": "DisallowedType"},
+  {"name": "secret_map_duplicate_bytes_key", "valid": false, "hex": "a2410141aa410141bb", "expect": "DuplicateMapKey"},
+  {"name": "secret_map_value_fails_after_key", "valid": false, "hex": "a14102f93c00", "expect": "DisallowedType"},
+  {"name": "secret_map_unsorted_text_keys", "valid": false, "hex": "a262626241aa616141bb", "expect": "UnsortedMapKeys"},
+  {"name": "secret_trailing_after_tree", "valid": false, "hex": "8241aa616200", "expect": "TrailingBytes"},
+  {"name": "secret_utf8_after_leaf", "valid": false, "hex": "8241aa61ff", "expect": "InvalidUtf8"},
+  {"name": "secret_too_many_items_after_leaf", "valid": false, "hex": "8241aa9a00010001", "expect": "TooManyItems"},
+  {"name": "secret_depth_after_leaf", "valid": false, "hex": "8241aa81818181818181818181818180", "expect": "DepthExceeded"},
+  {"name": "secret_size_after_leaf", "valid": false, "hex": "8241aa5a00400001", "expect": "InputTooLarge"},
+  {"name": "secret_indefinite_after_leaf", "valid": false, "hex": "8241aa5f", "expect": "IndefiniteLength"},
+  {"name": "secret_break_after_leaf", "valid": false, "hex": "8241aaff", "expect": "ReservedBreak"},
+  {"name": "secret_not_shortest_after_leaf", "valid": false, "hex": "8241aa1800", "expect": "NotShortest"},
+  {"name": "secret_deep_leaves_then_break", "valid": false, "hex": "8342aabb8263636363a141016164ff", "expect": "ReservedBreak"},
+  {"name": "secret_array_key_leaves_then_reserved_value", "valid": false, "hex": "a18241aa42bbcc1c", "expect": "DisallowedType"},
+  {"name": "secret_second_pair_key_fails_after_a_full_pair", "valid": false, "hex": "a2410141aa1c", "expect": "DisallowedType"}
 ]

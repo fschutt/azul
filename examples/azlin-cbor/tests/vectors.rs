@@ -240,6 +240,7 @@ fn negatives() -> Vec<Vector> {
     use DecodeError::*;
     let deep_arrays = cat(&[&rep("81", 12), "80"]);
     let deep_maps = cat(&[&rep("a100", 12), "a0"]);
+    let deep_after_leaf = cat(&["8241aa", &rep("81", 12), "80"]);
     vec![
         neg("not_shortest_uint_1byte_0", "1800", NotShortest),
         neg("not_shortest_uint_1byte_23", "1817", NotShortest),
@@ -370,6 +371,60 @@ fn negatives() -> Vec<Vector> {
         neg("size_text_over_max_text", "7a00400001", InputTooLarge),
         neg("size_bytes_u64_max", "5bffffffffffffffff", InputTooLarge),
         neg("size_text_u64_max", "7bffffffffffffffff", InputTooLarge),
+        // Refused AFTER byte or text strings were decoded: a secret decoder wipes the partial tree
+        // before the error returns (`decode_secret`, src/secret_tests.rs C17 counts the bytes).
+        neg(
+            "secret_array_leaves_then_truncated",
+            "8341aa626262",
+            Truncated,
+        ),
+        neg(
+            "secret_nested_arrays_then_reserved_head",
+            "828241aa42bbcc1c",
+            DisallowedType,
+        ),
+        neg(
+            "secret_map_duplicate_bytes_key",
+            "a2410141aa410141bb",
+            DuplicateMapKey,
+        ),
+        neg(
+            "secret_map_value_fails_after_key",
+            "a14102f93c00",
+            DisallowedType,
+        ),
+        neg(
+            "secret_map_unsorted_text_keys",
+            "a262626241aa616141bb",
+            UnsortedMapKeys,
+        ),
+        neg("secret_trailing_after_tree", "8241aa616200", TrailingBytes),
+        neg("secret_utf8_after_leaf", "8241aa61ff", InvalidUtf8),
+        neg(
+            "secret_too_many_items_after_leaf",
+            "8241aa9a00010001",
+            TooManyItems,
+        ),
+        neg("secret_depth_after_leaf", &deep_after_leaf, DepthExceeded),
+        neg("secret_size_after_leaf", "8241aa5a00400001", InputTooLarge),
+        neg("secret_indefinite_after_leaf", "8241aa5f", IndefiniteLength),
+        neg("secret_break_after_leaf", "8241aaff", ReservedBreak),
+        neg("secret_not_shortest_after_leaf", "8241aa1800", NotShortest),
+        neg(
+            "secret_deep_leaves_then_break",
+            "8342aabb8263636363a141016164ff",
+            ReservedBreak,
+        ),
+        neg(
+            "secret_array_key_leaves_then_reserved_value",
+            "a18241aa42bbcc1c",
+            DisallowedType,
+        ),
+        neg(
+            "secret_second_pair_key_fails_after_a_full_pair",
+            "a2410141aa1c",
+            DisallowedType,
+        ),
     ]
 }
 
