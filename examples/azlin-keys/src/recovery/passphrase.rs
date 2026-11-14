@@ -309,6 +309,11 @@ pub(crate) fn wrap_code_with_params(
 /// then Argon2id and the cipher (`Auth` for a wrong code or a changed header, parameter or
 /// ciphertext). Nothing is hashed, and no memory is asked for, before the signature has verified.
 ///
+/// `at` is where the wrapping device's key is asked for. A recovery passes the point of the
+/// WRITE of the wrap (the position or time of the registry's row), not `VerifyAt::Now`: the
+/// device that wrapped the key may have been revoked since, and a lost laptop is exactly when a
+/// recovery is needed.
+///
 /// Caller: INT-S15-1 (the recovery screen: the code, typed or recombined from shares).
 pub fn unwrap_with_code(
     env: &Envelope,

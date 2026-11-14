@@ -57,10 +57,24 @@ pub struct OpenedShare {
     pub owner_words: String,
 }
 
-/// The owner's words must be at most `MAX_OWNER_WORDS` bytes without a control character (a
-/// contact's screen shows them).
+/// Whether a character may not appear in the owner's words: a control character, or a format
+/// character that changes how a line reads or breaks (the bidirectional embeddings and overrides
+/// U+202A to U+202E, the isolates U+2066 to U+2069, the line and paragraph separators U+2028 and
+/// U+2029, the byte order mark, the interlinear annotation marks). The joiners U+200C and U+200D and
+/// the direction marks U+200E and U+200F stay: emoji sequences and several scripts need them.
+fn is_refused_in_words(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}' | '\u{fff9}'..='\u{fffb}'
+        )
+}
+
+/// The owner's words must be at most `MAX_OWNER_WORDS` bytes without a character that
+/// `is_refused_in_words` names (a contact's screen shows them, and a contact may act on what they
+/// say: DRIFT X-DELTA-W1S15D-12).
 fn check_words(words: &str) -> Result<(), RecoveryError> {
-    if words.len() > MAX_OWNER_WORDS || words.chars().any(char::is_control) {
+    if words.len() > MAX_OWNER_WORDS || words.chars().any(is_refused_in_words) {
         return Err(RecoveryError::BadWords);
     }
     Ok(())
@@ -313,6 +327,11 @@ fn share_of(env: &Envelope, plaintext: &[u8]) -> Result<OpenedShare, RecoveryErr
 /// the wrapping device through `dir` at `at`, and last the key agreement and the cipher (`Auth`
 /// for a changed header, parameter, words or ciphertext). The share's index, threshold and count
 /// must be those of a share (`BadShare`).
+///
+/// `at` is where the wrapping device's key is asked for. A recovery passes the point of the
+/// WRITE of the wrap (the position or time of the registry's row), not `VerifyAt::Now`: the
+/// device that wrapped the key may have been revoked since, and a lost laptop is exactly when a
+/// recovery is needed.
 ///
 /// Caller: INT-S15-1 (the contact's app opens what the owner sent; the recovering computer opens a
 /// contact's reply with the request key).

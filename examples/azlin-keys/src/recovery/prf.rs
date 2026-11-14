@@ -134,6 +134,11 @@ pub fn prf_inputs(env: &Envelope) -> Result<PrfInputs, RecoveryError> {
 /// device through `dir` at `at`, and last the key derivation and the cipher (`Auth` for a wrong
 /// output or a changed header, salt, credential hash or ciphertext).
 ///
+/// `at` is where the wrapping device's key is asked for. A recovery passes the point of the
+/// WRITE of the wrap (the position or time of the registry's row), not `VerifyAt::Now`: the
+/// device that wrapped the key may have been revoked since, and a lost laptop is exactly when a
+/// recovery is needed.
+///
 /// Caller: INT-S15-1 (the recovery screen: a new phone signed in to the same Apple or Google
 /// account, after the 48 h hold).
 pub fn unwrap_with_prf(

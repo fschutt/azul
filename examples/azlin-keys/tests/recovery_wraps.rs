@@ -19,7 +19,10 @@ use azlin_keys::recovery::{
     wrap_with_prf, KdfFloor, KdfParams, KdfProfile, Kib, PrfInputs, RecoveryCode, RecoveryError,
     MAX_KDF_LANES, MAX_KDF_MEMORY, MAX_KDF_PASSES, MAX_KDF_WORK,
 };
-use azlin_keys::{EntropyError, FailingEntropy, MapDirectory, Secret, SeededEntropy, VerifyAt};
+use azlin_keys::{
+    ChainSeq, DeviceState, DirectoryEntry, EntropyError, FailingEntropy, MapDirectory, Secret,
+    SeededEntropy, UnixTime, VerifyAt,
+};
 use recovery_common::vectors::{self, row};
 use recovery_common::{
     from_hex, kat_code, kat_contact_secret, kat_ctx, kat_device, kat_directory, kat_member,
@@ -793,4 +796,94 @@ fn c5_alg4_binds_salt_credential_and_context() {
         prf_inputs(&alg3),
         Err(RecoveryError::WrongAlg(Alg::Argon2id))
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Where the signer is checked, and hand-built envelopes
+// ---------------------------------------------------------------------------------------------
+
+/// C3: the wrapping device's key is asked for at the point the caller names: a device that was
+/// revoked since it wrapped the key still vouches for its wrap at the position or the time of the
+/// WRITE (a lost laptop is exactly when a recovery is needed) and not at `Now` or after its
+/// revocation; the wraps of the three methods go through the same check.
+#[test]
+fn c3_the_signer_is_checked_at_the_point_of_the_write() {
+    let rows = vectors::read("recovery_wrap.json");
+    let env =
+        Envelope::from_cbor(&from_hex(&row(&rows, "alg4_32_bytes").hex)).expect("an envelope");
+    let ctx = kat_ctx(RecoveryMethod::Prf);
+    let prf = Secret::<32>::from_bytes(pat32(0x40));
+    let mut dir = MapDirectory::new();
+    dir.insert(
+        kat_device(),
+        DirectoryEntry {
+            key: kat_signer().verify_key(),
+            now: DeviceState::Revoked,
+            added_at: UnixTime::EPOCH,
+            removed_at: Some(UnixTime::from_secs(1_000)),
+            added_seq: ChainSeq::MIN,
+            removed_seq: Some(ChainSeq::new(10)),
+        },
+    );
+    let open = |at: VerifyAt| unwrap_with_prf(&env, &prf, &ctx, &dir, at).map(|p| p.to_vec());
+    assert_eq!(
+        open(VerifyAt::ChainSeq(ChainSeq::new(9))).expect("the device was valid at the write"),
+        pat(0x00, 32)
+    );
+    assert_eq!(
+        open(VerifyAt::Time(UnixTime::from_secs(999))).expect("the device was valid then"),
+        pat(0x00, 32)
+    );
+    for at in [
+        VerifyAt::Now,
+        VerifyAt::ChainSeq(ChainSeq::new(10)),
+        VerifyAt::Time(UnixTime::from_secs(1_000)),
+    ] {
+        assert_eq!(
+            open(at),
+            Err(RecoveryError::Open(OpenError::SignerRevoked)),
+            "{at:?}"
+        );
+    }
+}
+
+/// C12: a hand-built envelope that breaks the field rules of its algorithm (the params of another
+/// algorithm, an ephemeral key an algorithm 3 wrap does not have) is `Malformed` before anything
+/// else is looked at.
+#[test]
+fn c12_a_hand_built_envelope_that_breaks_the_rules_of_its_algorithm_is_malformed() {
+    let rows = vectors::read("recovery_wrap.json");
+    let base =
+        Envelope::from_cbor(&from_hex(&row(&rows, "alg3_test_32_bytes").hex)).expect("an envelope");
+    let ctx = kat_ctx(RecoveryMethod::Code);
+    let dir = kat_directory();
+    let mut wrong_kind = base.clone();
+    wrong_kind.params = Params::Prf {
+        salt: [1u8; 32],
+        cred_id_hash: [2u8; 32],
+    };
+    let mut with_epk = base.clone();
+    with_epk.epk = Some([3u8; 32]);
+    let mut with_unknown_crit = base;
+    with_unknown_crit.crit = vec![99];
+    for env in [wrong_kind, with_epk, with_unknown_crit] {
+        let got = unwrap_with_code(&env, &kat_code(), &ctx, &dir, VerifyAt::Now, KdfFloor::TEST)
+            .map(|p| p.to_vec());
+        assert!(
+            matches!(got, Err(RecoveryError::Open(OpenError::Malformed(_)))),
+            "{got:?}"
+        );
+        let prf = unwrap_with_prf(
+            &env,
+            &Secret::<32>::from_bytes(pat32(0x40)),
+            &kat_ctx(RecoveryMethod::Prf),
+            &dir,
+            VerifyAt::Now,
+        )
+        .map(|p| p.to_vec());
+        assert!(
+            matches!(prf, Err(RecoveryError::Open(OpenError::Malformed(_)))),
+            "{prf:?}"
+        );
+    }
 }

@@ -111,7 +111,9 @@ fn text_parsers(text: &str) {
 /// Up to four shares out of the bytes (23 bytes each: x, k, n, split id, y) through `combine`.
 fn shares_from_bytes(data: &[u8]) {
     let shares: Vec<Share> = data
-        .chunks_exact(23)
+        .as_chunks::<23>()
+        .0
+        .iter()
         .take(4)
         .map(|chunk| {
             let mut split_id = [0u8; 4];

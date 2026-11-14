@@ -50,7 +50,7 @@ fn share_bytes(share: &Share) -> Vec<u8> {
     out
 }
 
-fn share_of_bytes(bytes: &[u8]) -> Share {
+fn share_of_bytes(bytes: &[u8; 23]) -> Share {
     Share {
         x: bytes[0],
         k: bytes[1],
@@ -61,7 +61,12 @@ fn share_of_bytes(bytes: &[u8]) -> Share {
 }
 
 fn shares_of_bytes(bytes: &[u8]) -> Vec<Share> {
-    bytes.chunks_exact(23).map(share_of_bytes).collect()
+    bytes
+        .as_chunks::<23>()
+        .0
+        .iter()
+        .map(share_of_bytes)
+        .collect()
 }
 
 fn duplicate(shares: &[Share], picks: &[usize]) -> Vec<Share> {
@@ -965,12 +970,32 @@ fn c8_the_owners_words_are_authenticated_and_limited() {
         "bell\u{7}".to_string(),
         "del\u{7f}".to_string(),
         "nel\u{85}".to_string(),
+        "override\u{202e}txt".to_string(),
+        "embed\u{202a}x\u{202c}".to_string(),
+        "isolate\u{2066}x\u{2069}".to_string(),
+        "line\u{2028}sep".to_string(),
+        "para\u{2029}sep".to_string(),
+        "bom\u{feff}".to_string(),
+        "note\u{fffa}x".to_string(),
     ] {
         assert_eq!(
             seal(&o, 0, &contact, &bad, 3).err(),
             Some(RecoveryError::BadWords),
             "{bad:?}"
         );
+    }
+    // What several scripts and emoji sequences need stays allowed: the joiners, the direction marks,
+    // right to left text, combining marks.
+    for fine in [
+        "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} family",
+        "\u{641}\u{64a}\u{644}\u{64a}\u{643}\u{633}",
+        "\u{928}\u{92e}\u{938}\u{94d}\u{924}\u{947}\u{200c}x",
+        "left\u{200e}right\u{200f}",
+        "e\u{301}",
+        "a\u{202f}b",
+    ] {
+        let sealed = seal(&o, 0, &contact, fine, 4).unwrap_or_else(|e| panic!("{fine:?}: {e:?}"));
+        assert_eq!(open(&o, &sealed, me).expect("opens").owner_words, fine);
     }
 }
 

@@ -169,7 +169,7 @@ fn c1_every_symbol_in_every_position_is_read_where_it_is_written() {
             let mut text = ['0'; 26];
             text[position] = symbol;
             let text: String = text.iter().collect();
-            let padding_zero = position != 25 || value % 4 == 0;
+            let padding_zero = position != 25 || value.is_multiple_of(4);
             match RecoveryCode::parse(&text) {
                 Ok(code) => {
                     assert!(padding_zero, "{text}: the padding bits are not zero");
