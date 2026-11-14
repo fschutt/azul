@@ -1,13 +1,11 @@
 # row: X-DELTA-DRIVEE-6
 # why: `AutoEncrypted::put_if` writes with `put` behind its gate and drops the condition: a drive that holds its key then overwrites what another device saved (every file and every sync document goes through this wrapper)
-# killers: azul-storage+encryption:x_delta_struct4_4_the_encryption_gate_lets_no_write_through_without_its_condition
-#   azul-storage+encryption:a_conditional_write_holds_only_while_the_file_is_unchanged
+# killers: azul-storage+encryption:x_delta_drivee_6_an_admitted_gate_writes_a_file_only_while_it_is_unchanged
 # replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-DRIVEE-6.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
-# note: the row stays OPEN until a test over an admitted gate kills this patch (the replay says which killers stay green)
+# note: the first replay (ARCH31-A, 2026-11-14 01:29, azul 0b5cb9e81) SURVIVED: its two killers, the census row's refusal of a NEW drive (x_delta_struct4_4_the_encryption_gate_lets_no_write_through_without_its_condition) and the EncryptedDrive's own test (a_conditional_write_holds_only_while_the_file_is_unchanged), stayed green with the patch applied, and are no killers of it. The killer above is the fix: the same writes through a gate over an ADMITTED drive, between two devices.
 # mutant: auto_encrypted_put_if_calls_put
-# guard: the condition of a conditional write reaches the drive under the gate (`AutoEncrypted::put_if` -> `drive.put_if(key, bytes, condition)`); the DRIVE-E review (DELTA-DRIVEE.md #6) found no test whose assertion is
-#   about the condition at this wrapper: the census row of `AutoEncrypted` proves the refusal of a NEW drive, the other tests that send a conditional write are refusals, and the test that holds the condition runs on `EncryptedDrive`.
-#   A killer for an ADMITTED gate (setup_new_drive into a MemoryBucket, the key in a MemoryKeyring: the second put_if(Absent) and a stale Matches are Conflict) is the fix of that row: add it to the killers above.
+# guard: the condition of a conditional write reaches the drive under the gate (`AutoEncrypted::put_if` -> `drive.put_if(key, bytes, condition)`): over an admitted gate (setup_new_drive into a MemBucket, the key in a MemoryKeyring, one index shared by two devices) the second put_if(Absent) over a file another device saved and a stale Matches are Conflict, and the answer of a free name is the new version's tag.
+#   The census row of `AutoEncrypted` (tests/drive_coverage.rs, CONDITION_TESTS) names that test; the refusal of a NEW drive is its second row and proves another thing (nothing reaches the bucket), not this guard.
 --- a/examples/azul-storage/src/encrypted.rs
 +++ b/examples/azul-storage/src/encrypted.rs
 @@ -1274,8 +1274,9 @@

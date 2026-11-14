@@ -1297,9 +1297,10 @@ fn x_delta_struct4_4_a_scoped_drive_sends_every_conditional_write_with_its_condi
 }
 
 /// X-DELTA-STRUCT4-4. The encryption's gate over a NEW drive takes no write: every conditional write is refused and no
-/// write of any kind reaches the bucket below it (a gate that let one through without its condition would overwrite
-/// what another device saved). What an encrypted drive does with the condition against what is stored is the other
-/// row's test (`EncryptedDrive`: the write holds only while the file is unchanged).
+/// write of any kind reaches the bucket below it. It is NOT the proof that the gate sends a condition down: a new drive
+/// refuses before the condition is looked at, so a gate that dropped it passed (X-DELTA-DRIVEE-6, replayed from
+/// `mutants/X-DELTA-DRIVEE-6.patch`). That is the other row of `AutoEncrypted`'s: the same writes through a gate over an
+/// admitted drive, between two devices (`x_delta_drivee_6_*` of tests/encrypted.rs).
 #[cfg(feature = "encryption")]
 #[test]
 fn x_delta_struct4_4_the_encryption_gate_lets_no_write_through_without_its_condition() {
@@ -1358,6 +1359,11 @@ const CONDITION_TESTS: &[(&str, &str, &str)] = &[
         "ScopedDrive",
         "azul-storage/src/tests/drive_coverage.rs",
         "x_delta_struct4_4_a_scoped_drive_sends_every_conditional_write_with_its_condition_under_the_scope",
+    ),
+    (
+        "AutoEncrypted",
+        "azul-storage/src/tests/encrypted.rs",
+        "x_delta_drivee_6_an_admitted_gate_writes_a_file_only_while_it_is_unchanged",
     ),
     (
         "AutoEncrypted",

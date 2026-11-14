@@ -13,10 +13,12 @@ use std::{
 
 use super::{
     asked::{enroll, seal_invite},
+    checked_upload::scanned,
     mem_bucket::MemBucket,
     TempDir,
 };
 use crate::{
+    checked::CheckedUpload,
     crypto::{
         azl1::{WriteOptions, HEADER_LEN},
         codec::Compression,
@@ -24,6 +26,7 @@ use crate::{
         keys::RecoveryKdf,
         random_bytes, DriveKey, ObjectId, ShareKey,
     },
+    ctl::Quiet,
     encrypted::{
         open_encrypted, read_shared, AutoEncrypted, EncryptedDrive, IndexProvider, MemoryIndex,
         NameIndex, Recorded, SharedFile,
@@ -31,7 +34,8 @@ use crate::{
     keyring::{KeyringError, KeyringStore, MemoryKeyring},
     ops::list_all,
     trust::{EncState, Via, Why},
-    ByteRange, Drive, DriveError, ListRequest, LocalDrive, Precondition,
+    BatchDelete, BatchMove, BatchPut, BatchStream, ByteRange, Drive, DriveError, ListRequest,
+    LocalDrive, Precondition,
 };
 
 const MIB: usize = 1 << 20;
@@ -904,6 +908,276 @@ fn an_auto_encrypted_drive_opens_an_encrypted_bucket_through_the_index() {
         Err(DriveError::Unsupported(_))
     ));
     assert_eq!(kind(&no_index), None, "tried again on the next call");
+}
+
+/// Two gates over ONE drive that its first device set up (`setup_new_drive` into the bucket, the key in the keyring):
+/// one bucket, one keyring and one index, as two devices of a user are to each other, in one process. The gate ADMITS
+/// the drive (it is encrypted and its key is held), so every call is let through to the encrypted drive below it.
+fn two_gates_over_one_admitted_drive() -> (Arc<MemBucket>, AutoEncrypted, AutoEncrypted) {
+    let mem = Arc::new(MemBucket::new());
+    let keyring = Arc::new(MemoryKeyring::new());
+    let kdf = RecoveryKdf::with_cost(64, 1, 1).unwrap();
+    setup_new_drive(mem.as_ref(), keyring.as_ref(), "d_1", kdf).unwrap();
+    let index: Arc<dyn IndexProvider> = Arc::new(SharedIndex(Arc::new(MemoryIndex::new())));
+    let gate = || AutoEncrypted::new(mem.clone(), "d_1", keyring.clone(), Some(index.clone()));
+    let (first, second) = (gate(), gate());
+    (mem, first, second)
+}
+
+/// The data objects in the bucket: what the index names, not the drive's key files.
+fn data_objects_of(bucket: &MemBucket) -> usize {
+    bucket
+        .keys()
+        .iter()
+        .filter(|key| ObjectId::from_bucket_key(key).is_some())
+        .count()
+}
+
+/// X-DELTA-DRIVEE-6 (the DRIVE-E review's finding 6; the replay of `mutants/X-DELTA-DRIVEE-6.patch`). The gate every Azlin
+/// drive goes through sends a conditional write down WITH its condition: the test of the encrypted drive's own row
+/// (`a_conditional_write_holds_only_while_the_file_is_unchanged`), through `AutoEncrypted` over a drive it ADMITS and between
+/// two devices - the second `put_if(Absent)` and a stale `Matches` are `Conflict`, and what the other device saved stays. The
+/// gate's census row was the refusal of a NEW drive, which stops every write before the condition is looked at, so
+/// `AutoEncrypted::put_if` answering with `put` (the condition dropped: a device that holds the key overwrites what another
+/// device saved, the AZ-M1 / SYNC4-1 class) kept every test of the crate green. RED against that: the first `put_if` of
+/// device B answers `Ok(None)` where the name was taken.
+#[test]
+fn x_delta_drivee_6_an_admitted_gate_writes_a_file_only_while_it_is_unchanged() {
+    let (mem, device_a, device_b): (_, AutoEncrypted, AutoEncrypted) =
+        two_gates_over_one_admitted_drive();
+    // Device A saves a file. Device B took the name for free: it is refused, and the file stays A's.
+    device_a.put("a.txt", b"v1 of A").unwrap();
+    let taken = device_b.put_if("a.txt", b"B over A", &Precondition::Absent);
+    assert!(
+        matches!(taken, Err(DriveError::Conflict { .. })),
+        "a write that asks for a free name, over a file another device saved: {taken:?}"
+    );
+    assert_eq!(device_b.get("a.txt").unwrap(), b"v1 of A");
+    // B saves the next version from the one it read ...
+    let seen = device_b
+        .head("a.txt")
+        .unwrap()
+        .etag
+        .expect("the object id as the tag");
+    let saved = device_b
+        .put_if("a.txt", b"v2 of B", &Precondition::Matches(seen.clone()))
+        .unwrap()
+        .expect("the new version's tag");
+    assert_ne!(saved, seen);
+    // ... and A, which still holds the version it read, is the stale one.
+    let stale = device_a.put_if("a.txt", b"v2 of A", &Precondition::Matches(seen));
+    assert!(
+        matches!(stale, Err(DriveError::Conflict { .. })),
+        "a write from a version another device replaced: {stale:?}"
+    );
+    let junk = device_a.put_if(
+        "a.txt",
+        b"x",
+        &Precondition::Matches(String::from("not an id")),
+    );
+    assert!(
+        matches!(junk, Err(DriveError::Conflict { .. })),
+        "a write from a tag that is no version: {junk:?}"
+    );
+    assert_eq!(device_a.get("a.txt").unwrap(), b"v2 of B");
+    assert_eq!(device_a.head("a.txt").unwrap().etag, Some(saved));
+    // A free name is written, and the answer is the tag of what was written.
+    let fresh = device_a
+        .put_if("fresh.txt", b"new", &Precondition::Absent)
+        .unwrap()
+        .expect("the new file's tag");
+    assert_eq!(device_b.head("fresh.txt").unwrap().etag, Some(fresh));
+    assert_eq!(
+        data_objects_of(&mem),
+        2,
+        "the objects of the writes that lost were taken back"
+    );
+}
+
+/// X-DELTA-DRIVEE-6. The same through the two calls that carry a long body: a streamed body (`put_from_if`) and a file
+/// (`put_file_if`) are written only while the name is what the caller saw, and a name another device took is a `Conflict`.
+/// RED against a gate that sends either with `put_from` / `put_file` (the condition dropped).
+#[test]
+fn x_delta_drivee_6_an_admitted_gate_writes_a_streamed_body_and_a_file_only_while_the_name_is_unchanged(
+) {
+    let (_mem, device_a, device_b): (_, AutoEncrypted, AutoEncrypted) =
+        two_gates_over_one_admitted_drive();
+    // A streamed body.
+    device_a
+        .put_from("stream.txt", &mut &b"v1 of A"[..])
+        .unwrap();
+    let taken = device_b.put_from_if("stream.txt", &mut &b"B over A"[..], &Precondition::Absent);
+    assert!(
+        matches!(taken, Err(DriveError::Conflict { .. })),
+        "a streamed body that asks for a free name, over a file another device saved: {taken:?}"
+    );
+    assert_eq!(device_b.get("stream.txt").unwrap(), b"v1 of A");
+    let seen = device_b
+        .head("stream.txt")
+        .unwrap()
+        .etag
+        .expect("the object id as the tag");
+    let saved = device_b
+        .put_from_if(
+            "stream.txt",
+            &mut &b"v2 of B"[..],
+            &Precondition::Matches(seen.clone()),
+        )
+        .unwrap()
+        .expect("the new version's tag");
+    let stale = device_a.put_from_if(
+        "stream.txt",
+        &mut &b"v2 of A"[..],
+        &Precondition::Matches(seen),
+    );
+    assert!(
+        matches!(stale, Err(DriveError::Conflict { .. })),
+        "a streamed body from a version another device replaced: {stale:?}"
+    );
+    assert_eq!(device_a.get("stream.txt").unwrap(), b"v2 of B");
+    assert_eq!(device_a.head("stream.txt").unwrap().etag, Some(saved));
+    // A file.
+    let dir = TempDir::new("drivee6-file");
+    let file = dir.path().join("film.bin");
+    std::fs::write(&file, b"the file of A").unwrap();
+    device_a.put_file("film.bin", &file, &Quiet).unwrap();
+    let taken = device_b.put_file_if("film.bin", &file, &Precondition::Absent, &Quiet);
+    assert!(
+        matches!(taken, Err(DriveError::Conflict { .. })),
+        "a file that asks for a free name, over a file another device saved: {taken:?}"
+    );
+    let seen = device_b
+        .head("film.bin")
+        .unwrap()
+        .etag
+        .expect("the object id as the tag");
+    std::fs::write(&file, b"the file of B").unwrap();
+    let saved = device_b
+        .put_file_if(
+            "film.bin",
+            &file,
+            &Precondition::Matches(seen.clone()),
+            &Quiet,
+        )
+        .unwrap()
+        .expect("the new version's tag");
+    let stale = device_a.put_file_if("film.bin", &file, &Precondition::Matches(seen), &Quiet);
+    assert!(
+        matches!(stale, Err(DriveError::Conflict { .. })),
+        "a file from a version another device replaced: {stale:?}"
+    );
+    assert_eq!(device_a.get("film.bin").unwrap(), b"the file of B");
+    assert_eq!(device_a.head("film.bin").unwrap().etag, Some(saved));
+}
+
+/// X-DELTA-DRIVEE-6. The same for the items of a batch: the condition of an item of `put_many` and `put_from_many` and the
+/// version of an item of `delete_many` and `move_many` reach the encrypted drive, so the one item another device made stale
+/// is refused alone and nothing of it is overwritten, deleted or moved. RED against a gate that forwards a batch with the
+/// conditions of its items dropped.
+#[test]
+fn x_delta_drivee_6_an_admitted_gate_holds_the_condition_and_the_version_of_every_item_of_a_batch()
+{
+    let (_mem, device_a, device_b): (_, AutoEncrypted, AutoEncrypted) =
+        two_gates_over_one_admitted_drive();
+    for name in ["one.txt", "two.txt", "three.txt"] {
+        device_a.put(name, b"v1 of A").unwrap();
+    }
+    let absent = Precondition::Absent;
+    // put_many: the item that asks for a free name over a file another device saved is refused alone.
+    let answers = device_b.put_many(&[
+        BatchPut::new("one.txt", b"B over A").when(&absent),
+        BatchPut::new("free.txt", b"free").when(&absent),
+    ]);
+    assert!(
+        matches!(answers[0], Err(DriveError::Conflict { .. })),
+        "{answers:?}"
+    );
+    assert!(matches!(answers[1], Ok(Some(_))), "{answers:?}");
+    assert_eq!(device_b.get("one.txt").unwrap(), b"v1 of A");
+    // put_from_many: the same, with bodies that are read once.
+    let (mut over, mut free): (&[u8], &[u8]) = (b"B over A", b"free");
+    let answers = device_b.put_from_many(&mut [
+        BatchStream::new("two.txt", &mut over).when(&absent),
+        BatchStream::new("free-stream.txt", &mut free).when(&absent),
+    ]);
+    assert!(
+        matches!(answers[0], Err(DriveError::Conflict { .. })),
+        "{answers:?}"
+    );
+    assert!(matches!(answers[1], Ok(Some(_))), "{answers:?}");
+    assert_eq!(device_b.get("two.txt").unwrap(), b"v1 of A");
+    // delete_many and move_many: B read the version of three.txt, then A saved it again.
+    let seen = device_b
+        .head("three.txt")
+        .unwrap()
+        .etag
+        .expect("the object id as the tag");
+    device_a.put("three.txt", b"v2 of A").unwrap();
+    let answers = device_b.delete_many(&[BatchDelete::new("three.txt").of_version(&seen)]);
+    assert!(
+        matches!(answers[0], Err(DriveError::Conflict { .. })),
+        "a delete of a version another device replaced: {answers:?}"
+    );
+    assert_eq!(device_b.get("three.txt").unwrap(), b"v2 of A");
+    let answers = device_b.move_many(&[BatchMove::new("three.txt", "moved.txt").of_version(&seen)]);
+    assert!(
+        matches!(answers[0], Err(DriveError::Conflict { .. })),
+        "a move of a version another device replaced: {answers:?}"
+    );
+    assert!(matches!(
+        device_b.head("moved.txt"),
+        Err(DriveError::NotFound { .. })
+    ));
+    assert_eq!(device_b.get("three.txt").unwrap(), b"v2 of A");
+    // The version that is the file's now goes through both.
+    let current = device_b
+        .head("three.txt")
+        .unwrap()
+        .etag
+        .expect("the object id as the tag");
+    let answers =
+        device_b.move_many(&[BatchMove::new("three.txt", "moved.txt").of_version(&current)]);
+    assert!(answers[0].is_ok(), "{answers:?}");
+    assert_eq!(device_b.get("moved.txt").unwrap(), b"v2 of A");
+    let answers = device_b.delete_many(&[BatchDelete::new("moved.txt").of_version(&current)]);
+    assert!(answers[0].is_ok(), "{answers:?}");
+    assert!(matches!(
+        device_b.head("moved.txt"),
+        Err(DriveError::NotFound { .. })
+    ));
+}
+
+/// X-DELTA-DRIVEE-6. A checked upload (`put_file_checked`: a sync names the object by the file's BLAKE3) reaches the encrypted
+/// drive WITH its check: a file that changed since the scan is `Changed` and nothing of it is written, and the file the scan
+/// found is sent. RED against a gate that answers the call with `put_file` (the check dropped: whatever the file has become
+/// is uploaded under the name of what it was).
+#[test]
+fn x_delta_drivee_6_an_admitted_gate_sends_a_checked_upload_with_its_check() {
+    let (mem, device, _other): (_, AutoEncrypted, AutoEncrypted) =
+        two_gates_over_one_admitted_drive();
+    let dir = TempDir::new("drivee6-checked");
+    let path = dir.path().join("scan.bin");
+    std::fs::write(&path, b"as the scan found it").unwrap();
+    let check = scanned(&path, b"as the scan found it");
+    // The file changed after the scan.
+    let now: &[u8] = b"changed after the scan, and longer";
+    std::fs::write(&path, now).unwrap();
+    let answer = device.put_file_checked("scan.bin", &path, &check, &Quiet);
+    assert_eq!(
+        answer.unwrap(),
+        CheckedUpload::Changed,
+        "a file that is not the one the check describes"
+    );
+    assert!(
+        matches!(device.head("scan.bin"), Err(DriveError::NotFound { .. })),
+        "nothing of the changed file was written"
+    );
+    assert_eq!(data_objects_of(&mem), 0);
+    // A scan of the file as it is now: it is sent.
+    let check = scanned(&path, now);
+    let answer = device.put_file_checked("scan.bin", &path, &check, &Quiet);
+    assert_eq!(answer.unwrap(), CheckedUpload::Sent(now.len() as u64));
+    assert_eq!(device.get("scan.bin").unwrap(), now);
 }
 
 /// A bucket that hides its key files from listings (a server trying to turn devices back to
