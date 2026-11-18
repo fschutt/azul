@@ -528,8 +528,8 @@ fn collect_avoid_ranges(
         // Every text item's rect is a line-box fragment; a break through one
         // slices a line (the "baseline-sliced line" artifact). Snap to its top.
         for item in &input.display_list.items {
-            if let crate::solver3::display_list::DisplayListItem::Text { clip_rect, .. } = item {
-                let r = clip_rect.inner();
+            if let crate::solver3::display_list::DisplayListItem::Text { line_box, .. } = item {
+                let r = line_box.inner();
                 if r.size.height > 0.0 {
                     ranges.push(AvoidRange {
                         top: r.origin.y,
@@ -552,13 +552,13 @@ fn collect_paragraph_lines(input: &PageBreakInput<'_>) -> Vec<ParagraphLines> {
     let mut per_node: std::collections::BTreeMap<NodeId, Vec<(f32, f32)>> =
         std::collections::BTreeMap::new();
     for (idx, item) in input.display_list.items.iter().enumerate() {
-        let crate::solver3::display_list::DisplayListItem::Text { clip_rect, .. } = item else {
+        let crate::solver3::display_list::DisplayListItem::Text { line_box, .. } = item else {
             continue;
         };
         let Some(node) = input.display_list.node_mapping.get(idx).copied().flatten() else {
             continue;
         };
-        let r = clip_rect.inner();
+        let r = line_box.inner();
         if r.size.height <= 0.0 {
             continue;
         }
@@ -1156,6 +1156,7 @@ mod tests {
                 a: 255,
             },
             clip_rect: rect(y, h).into(),
+            line_box: rect(y, h).into(),
             source_node_index: None,
         }
     }

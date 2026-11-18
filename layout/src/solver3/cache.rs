@@ -6342,6 +6342,10 @@ mod autotest_generated {
                     pos(0.0, 0.0),
                     size(10.0, 10.0),
                 )),
+                line_box: crate::solver3::display_list::WindowLogicalRect(LogicalRect::new(
+                    pos(0.0, 0.0),
+                    size(10.0, 10.0),
+                )),
                 source_node_index: None,
             });
         let dl_expected = dl.retained_bytes();

@@ -86,16 +86,30 @@ fn a_padded_cells_text_clip_stays_inside_its_row() {
         );
     }
 
-    // And each cell's text clip is content-box tall: the row minus the
-    // vertical padding, never the row itself.
+    // And each cell's text is content-box tall for pagination: the row minus
+    // the vertical padding, never the row itself. That is the run's `line_box`,
+    // which the page breaks read. (It used to be asked of `clip_rect`, when one
+    // rectangle did both jobs; the paint clip is now allowed to be taller than
+    // the lines on a visible axis, so that glyph ink is not cut at the line.)
     let pitch = rows[1].0 - rows[0].0;
     let mut clips = 0;
     for item in &result.display_list.items {
-        if let DisplayListItem::Text { clip_rect, .. } = item {
-            let r = clip_rect.inner();
+        if let DisplayListItem::Text {
+            line_box,
+            clip_rect,
+            ..
+        } = item
+        {
+            let r = line_box.inner();
             assert!(
                 r.size.height <= pitch - 2.0 * PADDING + 0.01,
-                "text clip {r:?} is not content-box tall in a {pitch} px row"
+                "text lines {r:?} are not content-box tall in a {pitch} px row"
+            );
+            let paint = clip_rect.inner();
+            assert!(
+                paint.origin.y <= r.origin.y
+                    && paint.origin.y + paint.size.height >= r.origin.y + r.size.height,
+                "the paint clip {paint:?} covers the lines {r:?}"
             );
             clips += 1;
         }

@@ -7402,6 +7402,7 @@ pub fn render_wrapped_text_to_pixmap(
         font_size_px,
         color: text_color,
         clip_rect,
+        line_box: clip_rect,
         source_node_index: None,
     };
     let dl = DisplayList {
@@ -7686,6 +7687,7 @@ mod text_shadow_tests {
                 a: 255,
             },
             clip_rect,
+            line_box: clip_rect,
             source_node_index: None,
         };
 
@@ -7806,6 +7808,7 @@ mod text_shadow_tests {
                 font_size_px: font_size,
                 color: ColorU { r: 0, g: 0, b: 0, a: 0 },
                 clip_rect,
+                line_box: clip_rect,
                 source_node_index: None,
             };
             let mut p = AzulPixmap::new(w, h).unwrap();
@@ -7923,6 +7926,7 @@ mod text_shadow_tests {
                     a: 0,
                 }, // transparent text: isolate shadow
                 clip_rect,
+                line_box: clip_rect,
                 source_node_index: None,
             };
             let dl = DisplayList {
@@ -8102,6 +8106,7 @@ mod text_shadow_tests {
                         a: 0,
                     },
                     clip_rect,
+                    line_box: clip_rect,
                     source_node_index: None,
                 },
                 DisplayListItem::PopTextShadow,
@@ -10939,6 +10944,7 @@ mod autotest_generated {
                 font_size_px: 16.0,
                 color: BLACK,
                 clip_rect: wrect(0.0, 0.0, 16.0, 16.0),
+                line_box: wrect(0.0, 0.0, 16.0, 16.0),
                 source_node_index: None,
             }],
             ..Default::default()
@@ -10972,6 +10978,7 @@ mod autotest_generated {
                     font_size_px: 16.0,
                     color,
                     clip_rect: wrect(0.0, 0.0, 16.0, 16.0),
+                    line_box: wrect(0.0, 0.0, 16.0, 16.0),
                     source_node_index: None,
                 }],
                 ..Default::default()
@@ -12652,6 +12659,7 @@ mod layer_path_text_tests {
                 a: 255,
             },
             clip_rect,
+            line_box: clip_rect,
             source_node_index: None,
         };
         let dl = DisplayList {
@@ -12778,6 +12786,7 @@ mod layer_path_text_tests {
                 font_size_px: 13.0,
                 color: fg,
                 clip_rect: page,
+                line_box: page,
                 source_node_index: None,
             },
             DisplayListItem::PopScrollFrame,
@@ -12862,6 +12871,7 @@ mod damaged_vs_plain_text_tests {
                 a: 255,
             },
             clip_rect,
+            line_box: clip_rect,
             source_node_index: None,
         };
         let dl = DisplayList {

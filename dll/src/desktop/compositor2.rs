@@ -1241,6 +1241,8 @@ pub fn translate_displaylist_to_wr(
                 font_hash,
                 color,
                 clip_rect,
+                // WebRender clips the run to `clip_rect`; the lines are layout's.
+                line_box: _,
                 source_node_index: _,
             } => {
                 log_debug!(

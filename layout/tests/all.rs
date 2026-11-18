@@ -220,6 +220,8 @@ mod drag_selection_scroll;
 mod e2e_pixel_diff;
 #[path = "embedded_font_renders.rs"]
 mod embedded_font_renders;
+#[path = "text_ink_is_not_cut_at_its_line_box.rs"]
+mod text_ink_is_not_cut_at_its_line_box;
 #[path = "empty_cells.rs"]
 mod empty_cells;
 #[path = "flex_intrinsic_text.rs"]

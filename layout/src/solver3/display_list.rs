@@ -1048,13 +1048,17 @@ pub(crate) fn translate_item(mut item: DisplayListItem, delta: LogicalPosition) 
         | I::BoxShadow { bounds, .. }
         | I::HitTestArea { bounds, .. } => shift(bounds),
         I::Text {
-            glyphs, clip_rect, ..
+            glyphs,
+            clip_rect,
+            line_box,
+            ..
         } => {
             for g in glyphs.iter_mut() {
                 g.point.x += delta.x;
                 g.point.y += delta.y;
             }
             shift(clip_rect);
+            shift(line_box);
         }
         // The state items: never spliced into a patched run (`patchable_item`),
         // translated for the damage diff, which asks whether an item is the
@@ -1167,11 +1171,13 @@ pub fn split_text_for_glides(
             font_size_px,
             color,
             clip_rect,
+            line_box,
             source_node_index,
         } = &dl.items[i]
         else {
             continue;
         };
+        let line_box = *line_box;
         let (font_hash, font_size, source_node_index) = (*font_hash, *font_size_px, *source_node_index);
         let margin = font_size.max(1.0);
         let bg = dl.uniform_text_bgs.get(i).copied().flatten();
@@ -1290,6 +1296,8 @@ pub fn split_text_for_glides(
                             font_size_px: font_size,
                             color,
                             clip_rect: clip.into(),
+                            // The pieces share the run's lines.
+                            line_box,
                             source_node_index,
                         },
                         bg,
@@ -2350,7 +2358,18 @@ pub enum DisplayListItem {
         font_hash: FontHash,
         font_size_px: f32,
         color: ColorU,
+        /// What the run is PAINTED under. On an axis that clips (`overflow`
+        /// hidden, scroll or auto) this is the box's content edge. On a visible
+        /// axis it is wider than the lines by an allowance for glyph ink, which
+        /// reaches past the advances and past the line box: a descender under a
+        /// `line-height: 1` line, a side bearing, an italic overhang.
         clip_rect: WindowLogicalRect,
+        /// The lines of the inline formatting context this run belongs to: what
+        /// pagination must not cut through (`atomic_lines`, widows and orphans,
+        /// the avoid-range of the node), and the item's [`Self::bounds`]. Never
+        /// widened for ink, or the ranges of neighbouring lines would overlap
+        /// (azul#478).
+        line_box: WindowLogicalRect,
         /// Layout node index that produced this text run.
         /// Enables patching glyphs without full display list regeneration.
         source_node_index: Option<usize>,
@@ -2796,6 +2815,7 @@ impl DisplayListItem {
                     font_size_px: fs1,
                     color: c1,
                     clip_rect: cr1,
+                    line_box: lb1,
                     ..
                 },
                 Self::Text {
@@ -2804,10 +2824,12 @@ impl DisplayListItem {
                     font_size_px: fs2,
                     color: c2,
                     clip_rect: cr2,
+                    line_box: lb2,
                     ..
                 },
             ) => {
                 cr1 == cr2
+                    && lb1 == lb2
                     && c1 == c2
                     && fh1 == fh2
                     && fs1 == fs2
@@ -3335,8 +3357,9 @@ impl DisplayListItem {
             | Self::SelectionRect { bounds, .. }
             | Self::CursorRect { bounds, .. }
             | Self::Border { bounds, .. }
+            // A text run's box is its lines; `visual_bounds` is its ink.
             | Self::Text {
-                clip_rect: bounds, ..
+                line_box: bounds, ..
             }
             | Self::TextLayout { bounds, .. }
             | Self::Underline { bounds, .. }
@@ -4376,6 +4399,7 @@ impl DisplayListBuilder {
         font_size_px: f32,
         color: ColorU,
         clip_rect: LogicalRect,
+        line_box: LogicalRect,
         source_node_index: Option<usize>,
         uniform_bg: Option<(ColorU, WindowLogicalRect)>,
     ) {
@@ -4398,6 +4422,7 @@ impl DisplayListBuilder {
                 font_size_px,
                 color,
                 clip_rect: clip_rect.into(),
+                line_box: line_box.into(),
                 source_node_index,
             });
         } else {
@@ -9056,6 +9081,9 @@ where
             // actually clips (hidden/scroll/auto) keeps the viewport bound;
             // a visible axis takes the full content extent computed above,
             // which `reshape_text_node` keeps fresh between relayouts.
+            // The lines, for pagination: `viewport_clip_rect` as it leaves the
+            // block below, before the vertical ink allowance.
+            let line_box_rect: LogicalRect;
             {
                 // Per axis: does this box clip its inline content? An
                 // ANONYMOUS box (the wrapper of text beside blocks) has no
@@ -9171,6 +9199,28 @@ where
                         viewport_clip_rect.size.height += hi.y - lo.y;
                     }
                 }
+                // Everything above describes where the LINES are, which is what
+                // the page breaks read off a text item (azul#478).
+                line_box_rect = viewport_clip_rect;
+                // Glyph ink reaches past the line box as well as past the
+                // advances: with `line-height: 1` the descent of most faces lies
+                // below it, and a glyph taller than its line (a display face, a
+                // music symbol, stacked marks) above and below. On a visible y
+                // axis nothing of that may be cut; the CPU renderer cut it at
+                // the line box, the descenders of `g j p q y` first. The same
+                // 1.5em as `visual_bounds` allows above the baseline, on both
+                // sides. This is the PAINT clip only - the lines keep their box.
+                if !clips_y {
+                    let em = cached_layout
+                        .glyph_runs
+                        .iter()
+                        .map(|run| run.font_size_px)
+                        .fold(0.0f32, f32::max);
+                    if em.is_finite() && em > 0.0 {
+                        viewport_clip_rect.origin.y -= em * 1.5;
+                        viewport_clip_rect.size.height += em * 3.0;
+                    }
+                }
             }
 
             // Check for text-shadow and wrap inline content with push/pop shadow
@@ -9223,6 +9273,7 @@ where
                 builder,
                 content_box_rect,
                 viewport_clip_rect,
+                line_box_rect,
                 inline_layout,
                 cached_layout.dense.as_deref(),
                 &cached_layout.payload,
@@ -9502,6 +9553,7 @@ where
                     style.font_size_px,
                     color,
                     content_box,
+                    content_box,
                     None,
                     None,
                 );
@@ -9523,6 +9575,7 @@ where
                 self.run_face(run_hash, style.asks_for_bold()),
                 style.font_size_px,
                 color,
+                content_box,
                 content_box,
                 None,
                 None,
@@ -10308,6 +10361,7 @@ where
                         ellipsis.font_size_px,
                         ellipsis.color,
                         clip_rect,
+                        clip_rect,
                         Some(source_node_index),
                         uniform_bg,
                     );
@@ -10326,6 +10380,7 @@ where
                     self.run_face(run_hash, ellipsis.asks_for_bold),
                     ellipsis.font_size_px,
                     ellipsis.color,
+                    clip_rect,
                     clip_rect,
                     Some(source_node_index),
                     uniform_bg,
@@ -10573,6 +10628,7 @@ where
         builder: &mut DisplayListBuilder,
         container_rect: LogicalRect,
         viewport_clip_rect: LogicalRect,
+        line_box_rect: LogicalRect,
         layout: &Arc<UnifiedLayout>,
         dense_view: Option<&text3::dense::DenseText>,
         payload: &Arc<dyn std::any::Any + Send + Sync>,
@@ -11041,6 +11097,7 @@ where
                             glyph_run.font_size_px,
                             live_color,
                             clip_rect,
+                            line_box_rect,
                             Some(source_node_index),
                             uniform_bg,
                         );
@@ -11053,6 +11110,7 @@ where
                             glyph_run.font_size_px,
                             *selected_color,
                             clip_rect,
+                            line_box_rect,
                             Some(source_node_index),
                             // The proven background under a selected glyph is
                             // the HIGHLIGHT, not the ancestor's colour.
@@ -11067,6 +11125,7 @@ where
                         glyph_run.font_size_px,
                         live_color,
                         clip_rect,
+                        line_box_rect,
                         Some(source_node_index),
                         uniform_bg,
                     );
@@ -12004,6 +12063,7 @@ fn clip_and_offset_display_item(
             font_size_px,
             color,
             clip_rect,
+            line_box,
             ..
         } => clip_text_item(
             glyphs,
@@ -12011,6 +12071,7 @@ fn clip_and_offset_display_item(
             *font_size_px,
             *color,
             clip_rect.into_inner(),
+            line_box.into_inner(),
             page_top,
             page_bottom,
         ),
@@ -12525,10 +12586,13 @@ fn clip_text_item(
     font_size_px: f32,
     color: ColorU,
     clip_rect: LogicalRect,
+    line_box: LogicalRect,
     page_top: f32,
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
-    if !rect_intersects(&clip_rect, page_top, page_bottom) {
+    // By its lines, as before the paint clip was widened for ink: a run is on
+    // the pages its lines are on.
+    if !rect_intersects(&line_box, page_top, page_bottom) {
         return None;
     }
 
@@ -12556,6 +12620,7 @@ fn clip_text_item(
         font_size_px,
         color,
         clip_rect: offset_rect_y(clip_rect, -page_top).into(),
+        line_box: offset_rect_y(line_box, -page_top).into(),
         source_node_index: None,
     })
 }
@@ -13519,6 +13584,7 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             font_size_px,
             color,
             clip_rect,
+            line_box,
             ..
         } => {
             let offset_glyphs: Vec<GlyphInstance> = glyphs
@@ -13538,6 +13604,7 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
                 font_size_px: *font_size_px,
                 color: *color,
                 clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
+                line_box: offset_rect_y(line_box.into_inner(), y_offset).into(),
                 source_node_index: None,
             }
         }
@@ -13894,6 +13961,7 @@ fn generate_text_display_items(
         font_size_px: font_size,
         color,
         clip_rect: bounds.into(),
+        line_box: bounds.into(),
         source_node_index: None,
     }]
 }
@@ -15078,6 +15146,7 @@ mod autotest_generated {
             font_size_px: 16.0,
             color: opaque(),
             clip_rect: clip.into(),
+            line_box: clip.into(),
             source_node_index: src,
         }
     }
@@ -15828,6 +15897,7 @@ mod autotest_generated {
             16.0,
             opaque(),
             clip,
+            clip,
             Some(0),
             None,
         );
@@ -15836,6 +15906,7 @@ mod autotest_generated {
             FontHash::invalid(),
             16.0,
             ColorU::TRANSPARENT,
+            clip,
             clip,
             Some(0),
             None,
@@ -15849,6 +15920,7 @@ mod autotest_generated {
             f32::NAN,
             opaque(),
             clip,
+            clip,
             None,
             None,
         );
@@ -15857,6 +15929,7 @@ mod autotest_generated {
             FontHash::invalid(),
             f32::MAX,
             opaque(),
+            clip,
             clip,
             None,
             None,
@@ -16519,6 +16592,7 @@ mod autotest_generated {
             16.0,
             opaque(),
             clip,
+            clip,
             100.0,
             200.0,
         )
@@ -16557,6 +16631,7 @@ mod autotest_generated {
             16.0,
             opaque(),
             clip,
+            clip,
             100.0,
             200.0
         )
@@ -16568,6 +16643,7 @@ mod autotest_generated {
             FontHash::from_hash(1),
             16.0,
             opaque(),
+            clip,
             clip,
             100.0,
             200.0
@@ -16581,6 +16657,7 @@ mod autotest_generated {
             16.0,
             opaque(),
             rect(0.0, 0.0, 10.0, 10.0),
+            rect(0.0, 0.0, 10.0, 10.0),
             100.0,
             200.0
         )
@@ -16593,6 +16670,7 @@ mod autotest_generated {
             FontHash::from_hash(1),
             16.0,
             opaque(),
+            clip,
             clip,
             100.0,
             200.0

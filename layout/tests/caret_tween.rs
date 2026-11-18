@@ -915,6 +915,7 @@ fn a_band_sliding_in_from_another_line_does_not_split_this_lines_glyphs() {
         font_size_px: 16.0,
         color: white,
         clip_rect: rect(0.0, 0.0, 600.0, 40.0).into(),
+        line_box: rect(0.0, 0.0, 600.0, 40.0).into(),
         source_node_index: Some(1),
     });
     dl.node_mapping.push(None);
