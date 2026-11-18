@@ -179,13 +179,13 @@ proj4rs = { version = "0.1", optional = true }
 # graph. Same gate as `td`.
 geojson = { version = "0.24", optional = true }
 # PDF for AzulDoc (P5), gated by `pdf`. printpdf shares OUR azul-layout (via
-# the root [patch.crates-io] → local printpdf branch + local azul-*), so the
+# the root [patch.crates-io] → local azul-*), so the
 # dll links exactly one azul-layout. The `html` feature pulls in printpdf's
 # html/bridge module — `display_list_to_printpdf_ops_with_margins` walks OUR
 # display lists into PDF ops INCLUDING TEXT (SetFont/ShowText via
 # azul_layout::text3::glyphs::get_glyph_runs_pdf) — which dom_to_bytes uses;
 # without it PDFs contained rectangles only (the textless azul-writer bug).
-printpdf = { version = "0.12.8", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
+printpdf = { version = "0.12.10", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
 
 # Typed multi-flavor clipboard payloads: codecs (RTF/CF_HTML/uri-list/DIB/…)
 # and read/write policy. Deliberately OS-FREE — pure Rust, no system library —
