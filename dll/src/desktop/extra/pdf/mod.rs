@@ -353,6 +353,8 @@ impl Pdf {
             background_color: background,
             first_page,
             page_count,
+            // A page picture is saved, scaled and printed: no subpixel layout.
+            text_aa: azul_layout::cpurender::TextAaSettings::grayscale(),
         };
         match azul_layout::cpurender::render_pages(
             &styled_dom,

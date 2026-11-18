@@ -92,7 +92,13 @@ impl CpuBackend {
         Self {
             last_frame: None,
             compositor: None,
-            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            glyph_cache: {
+                // The one read of the text anti-aliasing variables for this
+                // window, at its start.
+                let mut cache = azul_layout::glyph_cache::GlyphCache::new();
+                cache.set_text_aa(azul_layout::cpurender::TextAaSettings::from_env());
+                cache
+            },
             previous_display_list: None,
             last_consumed_build_seq: 0,
             last_patch_shift_dl: 0,

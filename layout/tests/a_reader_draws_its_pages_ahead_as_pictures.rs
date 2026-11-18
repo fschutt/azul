@@ -55,6 +55,7 @@ fn draw(first_page: usize, page_count: usize, dpi_factor: f32) -> AzulPixmap {
             },
             first_page,
             page_count,
+            text_aa: azul_layout::cpurender::TextAaSettings::default(),
         },
     )
     .expect("the pages are drawn")

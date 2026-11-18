@@ -551,7 +551,13 @@ impl CpuBackend {
             #[cfg(feature = "cpurender")]
             compositor: None,
             #[cfg(feature = "cpurender")]
-            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
+            glyph_cache: {
+                // The one read of the text anti-aliasing variables for this
+                // window, at its start.
+                let mut cache = azul_layout::glyph_cache::GlyphCache::new();
+                cache.set_text_aa(azul_layout::cpurender::TextAaSettings::from_env());
+                cache
+            },
             force_full_repaint: false,
             #[cfg(feature = "cpurender")]
             previous_display_list: None,

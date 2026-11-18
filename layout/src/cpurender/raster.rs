@@ -3968,29 +3968,144 @@ pub const TEXT_AA_DEFAULT: TextAa = TextAa::Lcd;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub const TEXT_AA_DEFAULT: TextAa = TextAa::Grayscale;
 
-/// Text antialiasing mode from `AZ_TEXT_AA` (`lcd` | `legacy` | `grayscale` |
-/// `none`). Unset or unrecognised gives [`TEXT_AA_DEFAULT`]. Read once.
-pub fn text_aa() -> TextAa {
-    static V: std::sync::OnceLock<TextAa> = std::sync::OnceLock::new();
-    *V.get_or_init(|| match std::env::var("AZ_TEXT_AA") {
-        Ok(s) if s.eq_ignore_ascii_case("none") || s == "0" => TextAa::None,
-        Ok(s) if s.eq_ignore_ascii_case("grayscale") || s.eq_ignore_ascii_case("greyscale") => {
-            TextAa::Grayscale
+/// Everything that decides how a text run is anti-aliased, as one value.
+///
+/// The renderer does not read the environment for any of this. Whoever owns a
+/// render target decides - a window's backend once at startup with
+/// [`TextAaSettings::from_env`], a page image by what it is for - and hands the
+/// value to the [`GlyphCache`](crate::glyph_cache::GlyphCache) the target is
+/// drawn with, which every text path already receives.
+#[derive(Clone, Copy)]
+pub struct TextAaSettings {
+    /// Subpixel, grayscale or aliased.
+    pub mode: TextAa,
+    /// The parameters of the linear (colorimetric) LCD blend. `None` selects the
+    /// blend from before it, as [`TextAa::Legacy`] does.
+    pub lcd_blend: Option<agg_rust::pixfmt_lcd::LcdBlendParams>,
+    /// Whether LCD runs over a proven uniform background take the pre-blended
+    /// tile fast path. Off is a diagnostic: it splits "tile content wrong" from
+    /// "sweep wrong".
+    pub lcd_pretile: bool,
+}
+
+/// The linear LCD blend's defaults: stripes physically free, no chroma limit,
+/// coverage gamma 220.
+const LCD_BLEND_DEFAULT: agg_rust::pixfmt_lcd::LcdBlendParams =
+    agg_rust::pixfmt_lcd::LcdBlendParams {
+        contrast: 0,
+        chroma_limit: 0,
+        coverage_gamma: 220,
+    };
+
+impl Default for TextAaSettings {
+    /// [`TEXT_AA_DEFAULT`] with the linear blend and the tile fast path: what a
+    /// target gets when nobody chose.
+    fn default() -> Self {
+        Self {
+            mode: TEXT_AA_DEFAULT,
+            lcd_blend: Some(LCD_BLEND_DEFAULT),
+            lcd_pretile: true,
         }
-        Ok(s) if s.eq_ignore_ascii_case("legacy") => TextAa::Legacy,
-        Ok(s) if s.eq_ignore_ascii_case("lcd") => TextAa::Lcd,
-        _ => TEXT_AA_DEFAULT,
-    })
+    }
 }
 
-/// Whether text takes the RGB LCD subpixel path.
-fn text_lcd_enabled() -> bool {
-    matches!(text_aa(), TextAa::Lcd | TextAa::Legacy)
+impl PartialEq for TextAaSettings {
+    fn eq(&self, other: &Self) -> bool {
+        let blend = |b: &Option<agg_rust::pixfmt_lcd::LcdBlendParams>| {
+            b.map(|p| (p.contrast, p.chroma_limit, p.coverage_gamma))
+        };
+        self.mode == other.mode
+            && self.lcd_pretile == other.lcd_pretile
+            && blend(&self.lcd_blend) == blend(&other.lcd_blend)
+    }
 }
 
-/// Whether glyph coverage is thresholded to 0/255 (see [`TextAa::None`]).
-fn text_aliased() -> bool {
-    text_aa() == TextAa::None
+impl core::fmt::Debug for TextAaSettings {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TextAaSettings")
+            .field("mode", &self.mode)
+            .field(
+                "lcd_blend",
+                &self
+                    .lcd_blend
+                    .map(|p| (p.contrast, p.chroma_limit, p.coverage_gamma)),
+            )
+            .field("lcd_pretile", &self.lcd_pretile)
+            .finish()
+    }
+}
+
+impl TextAaSettings {
+    /// Single grayscale coverage per pixel: for a picture that is not shown
+    /// pixel for pixel on one known panel - a page image, a thumbnail, anything
+    /// that is saved, scaled or printed. Such a picture has no subpixel layout
+    /// for LCD stripes to sit on, and they would show as colour fringes.
+    #[must_use]
+    pub fn grayscale() -> Self {
+        Self {
+            mode: TextAa::Grayscale,
+            ..Self::default()
+        }
+    }
+
+    /// The settings the process environment asks for. The ONE place these
+    /// variables are read; call it once at startup and pass the value on.
+    ///
+    /// * `AZ_TEXT_AA` = `lcd` | `legacy` | `grayscale` | `none`
+    /// * `AZ_LCD_BLEND=legacy`: the older spelling of `AZ_TEXT_AA=legacy`
+    /// * `AZ_LCD_CONTRAST`, `AZ_LCD_CHROMA_LIMIT`, `AZ_LCD_COVERAGE_GAMMA`: 0..=255
+    /// * `AZ_LCD_PRETILE=0` or `AZ_NO_LCD_PRETILE`: no pre-blended tiles
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self::from_vars(|name| std::env::var(name).ok())
+    }
+
+    /// [`Self::from_env`] with the variables looked up by `var`.
+    #[must_use]
+    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Self {
+        let mode = match var("AZ_TEXT_AA") {
+            Some(s) if s.eq_ignore_ascii_case("none") || s == "0" => TextAa::None,
+            Some(s)
+                if s.eq_ignore_ascii_case("grayscale") || s.eq_ignore_ascii_case("greyscale") =>
+            {
+                TextAa::Grayscale
+            }
+            Some(s) if s.eq_ignore_ascii_case("legacy") => TextAa::Legacy,
+            Some(s) if s.eq_ignore_ascii_case("lcd") => TextAa::Lcd,
+            _ => TEXT_AA_DEFAULT,
+        };
+        let legacy_blend = mode == TextAa::Legacy
+            || var("AZ_LCD_BLEND").is_some_and(|v| v.eq_ignore_ascii_case("legacy"));
+        let level = |name: &str, default: u8| {
+            var(name)
+                .and_then(|v| v.parse::<u8>().ok())
+                .unwrap_or(default)
+        };
+        let lcd_blend = (!legacy_blend).then(|| agg_rust::pixfmt_lcd::LcdBlendParams {
+            contrast: level("AZ_LCD_CONTRAST", LCD_BLEND_DEFAULT.contrast),
+            chroma_limit: level("AZ_LCD_CHROMA_LIMIT", LCD_BLEND_DEFAULT.chroma_limit),
+            coverage_gamma: level("AZ_LCD_COVERAGE_GAMMA", LCD_BLEND_DEFAULT.coverage_gamma),
+        });
+        let lcd_pretile = var("AZ_LCD_PRETILE").map_or(true, |v| v.trim() != "0")
+            && var("AZ_NO_LCD_PRETILE").is_none();
+        Self {
+            mode,
+            lcd_blend,
+            lcd_pretile,
+        }
+    }
+
+    /// Whether text takes the RGB LCD subpixel path.
+    #[must_use]
+    pub fn lcd_enabled(&self) -> bool {
+        matches!(self.mode, TextAa::Lcd | TextAa::Legacy)
+    }
+
+    /// Whether glyph coverage is thresholded to 0/255 (see [`TextAa::None`]).
+    #[must_use]
+    pub fn aliased(&self) -> bool {
+        self.mode == TextAa::None
+    }
 }
 
 /// `render_scanlines_aa_solid` with the coverage thresholded at 50%.
@@ -4027,14 +4142,6 @@ fn render_scanlines_aliased_solid<PF: agg_rust::pixfmt_rgba::PixelFormat>(
             ren.blend_solid_hspan(span.x, y, span.len, color, &solid);
         }
     }
-}
-
-/// `AZ_LCD_PRETILE=0` disables the pre-blended LCD tile fast path — the
-/// diagnostic that splits "tile content wrong" from "sweep wrong" in one
-/// run. Read once per process.
-fn lcd_pretile_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("AZ_LCD_PRETILE").map_or(true, |v| v.trim() != "0"))
 }
 
 /// `FreeType` default "light" 5-tap FIR LUT (0x56/0x4D/0x08) - the arguments
@@ -4347,7 +4454,7 @@ fn render_glyphs_lcd(
     // FreeType default "light" 5-tap FIR (see lcd_distribution_lut).
     let lut = lcd_distribution_lut();
     let mut sl = ScanlineU8::new();
-    if let Some(params) = lcd_linear_params() {
+    if let Some(params) = glyph_cache.text_aa().lcd_blend {
         // Colorimetric path (default): per-stripe compositing in LINEAR
         // light against the actual background pixel, with contrast
         // enhancement and an optional chroma budget — text stays legible
@@ -4393,45 +4500,6 @@ fn render_glyphs_lcd(
         }
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     }
-}
-
-/// Parameters for the colorimetric LCD blend, or `None` for the legacy
-/// sRGB-space blend. Defaults to the colorimetric path.
-///
-/// - `AZ_LCD_BLEND=legacy` selects the old sRGB-space blending.
-/// - `AZ_LCD_COVERAGE_GAMMA=<100..255>` tone curve on stripe coverage, x100 (default 220 =
-///   c^(1/2.2)): pure linear compositing renders dark-on-light lighter than Skia/ClearType, which
-///   blend in an intermediate gamma space; this restores conventional stem weight while keeping
-///   linear per-channel mixing.
-/// - `AZ_LCD_CONTRAST=<0..255>` additional skia-style coverage contrast (default 0).
-/// - `AZ_LCD_CHROMA_LIMIT=<0..255>` caps how far a stripe may deviate from the luminance-correct
-///   composite (0 = physically free stripes, the default; 255 = grayscale-equivalent).
-///
-/// Read once.
-fn lcd_linear_params() -> Option<agg_rust::pixfmt_lcd::LcdBlendParams> {
-    use std::sync::OnceLock;
-    static V: OnceLock<Option<agg_rust::pixfmt_lcd::LcdBlendParams>> = OnceLock::new();
-    *V.get_or_init(|| {
-        // `AZ_TEXT_AA=legacy` selects the pre-linear-blend path. The old
-        // `AZ_LCD_BLEND=legacy` spelling is still honoured so existing scripts
-        // and captures keep working.
-        if text_aa() == TextAa::Legacy
-            || std::env::var("AZ_LCD_BLEND").is_ok_and(|v| v.eq_ignore_ascii_case("legacy"))
-        {
-            return None;
-        }
-        let parse = |k: &str, default: u8| {
-            std::env::var(k)
-                .ok()
-                .and_then(|v| v.parse::<u8>().ok())
-                .unwrap_or(default)
-        };
-        Some(agg_rust::pixfmt_lcd::LcdBlendParams {
-            contrast: parse("AZ_LCD_CONTRAST", 0),
-            chroma_limit: parse("AZ_LCD_CHROMA_LIMIT", 0),
-            coverage_gamma: parse("AZ_LCD_COVERAGE_GAMMA", 220),
-        })
-    })
 }
 
 /// A `font_hash` that layout emitted but the `FontManager` that emitted it cannot
@@ -4516,14 +4584,11 @@ fn render_text_with_bg(
     force_grayscale: bool,
     uniform_bg: Option<(ColorU, crate::solver3::display_list::WindowLogicalRect)>,
 ) {
-    let pretile_disabled = {
-        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var_os("AZ_NO_LCD_PRETILE").is_some())
-    };
+    let aa = glyph_cache.text_aa();
     if let Some((bg, proven_rect)) = uniform_bg {
-        if text_lcd_enabled() && !force_grayscale && !pretile_disabled {
-            if let Some(params) = lcd_linear_params() {
-                if lcd_pretile_enabled()
+        if aa.lcd_enabled() && !force_grayscale {
+            if let Some(params) = aa.lcd_blend {
+                if aa.lcd_pretile
                     && render_text_prerendered_lcd(
                         glyphs,
                         font_hash,
@@ -4917,7 +4982,7 @@ pub(super) fn render_text(
     // RGB LCD subpixel-AA path (opt-in, `AZ_TEXT_LCD=1`; off by default). Renders
     // at 3× horizontal resolution with a 5-tap FIR + per-channel blend. The
     // grayscale path below is left byte-for-byte identical when the flag is off.
-    if text_lcd_enabled() && !force_grayscale {
+    if glyph_cache.text_aa().lcd_enabled() && !force_grayscale {
         render_glyphs_lcd(
             pixmap,
             clip,
@@ -5014,7 +5079,7 @@ pub(super) fn render_text(
 
     // Single render pass for all glyphs in this text run
     let mut sl = ScanlineU8::new();
-    if text_aliased() {
+    if glyph_cache.text_aa().aliased() {
         render_scanlines_aliased_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     } else {
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
@@ -6974,6 +7039,10 @@ pub struct PageRenderOptions {
     pub first_page: usize,
     /// How many pages are drawn at most; fewer past the document's end.
     pub page_count: usize,
+    /// How the text is anti-aliased. A picture that is saved, scaled or printed
+    /// wants [`TextAaSettings::grayscale`]; one shown pixel for pixel in a
+    /// window can take the window's settings.
+    pub text_aa: TextAaSettings,
 }
 
 /// Lays `styled_dom` out on pages with the break `policy` - the pages
@@ -7069,6 +7138,7 @@ pub fn render_pages(
     let mut picture = AzulPixmap::new(page_w, total_h)
         .ok_or_else(|| format!("cannot create a picture of {page_w} x {total_h}"))?;
     let mut glyph_cache = GlyphCache::new();
+    glyph_cache.set_text_aa(opts.text_aa);
     let state = CpuRenderState::new(ScrollOffsetMap::new());
     let bg = opts.background_color;
     for (k, display_list) in drawn.into_iter().enumerate() {
@@ -10344,26 +10414,66 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn text_aa_is_read_once_and_stable() {
-        let first = text_aa();
-        assert_eq!(first, text_aa(), "the OnceLock must not flip");
-        if std::env::var("AZ_TEXT_AA").is_err() {
-            assert_eq!(
-                first, TEXT_AA_DEFAULT,
-                "unset env -> the documented default"
-            );
+    fn text_aa_settings_come_from_the_variables_given_and_from_nothing_else() {
+        fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+            let pairs: Vec<(String, String)> = pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect();
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| v.clone())
+            }
         }
-        // The derived predicates must agree with the mode, or a caller can end
-        // up on the LCD path while the blend thinks it is aliased.
+
+        // Nothing set: the documented default, whatever this process's
+        // environment says.
+        let unset = TextAaSettings::from_vars(vars(&[]));
+        assert_eq!(unset, TextAaSettings::default());
+        assert_eq!(unset.mode, TEXT_AA_DEFAULT);
+        assert!(unset.lcd_blend.is_some() && unset.lcd_pretile);
+
+        for (value, mode) in [
+            ("lcd", TextAa::Lcd),
+            ("LEGACY", TextAa::Legacy),
+            ("grayscale", TextAa::Grayscale),
+            ("greyscale", TextAa::Grayscale),
+            ("none", TextAa::None),
+            ("0", TextAa::None),
+            ("nonsense", TEXT_AA_DEFAULT),
+        ] {
+            let got = TextAaSettings::from_vars(vars(&[("AZ_TEXT_AA", value)]));
+            assert_eq!(got.mode, mode, "AZ_TEXT_AA={value}");
+            // The derived predicates must agree with the mode, or a caller can
+            // end up on the LCD path while the blend thinks it is aliased.
+            assert_eq!(got.lcd_enabled(), matches!(mode, TextAa::Lcd | TextAa::Legacy));
+            assert_eq!(got.aliased(), mode == TextAa::None);
+            assert_eq!(got.lcd_blend.is_none(), mode == TextAa::Legacy);
+        }
+
+        // Both spellings of the legacy blend, the blend's levels, both spellings
+        // of "no tiles".
+        assert!(TextAaSettings::from_vars(vars(&[("AZ_LCD_BLEND", "Legacy")]))
+            .lcd_blend
+            .is_none());
+        let tuned = TextAaSettings::from_vars(vars(&[
+            ("AZ_LCD_CONTRAST", "7"),
+            ("AZ_LCD_CHROMA_LIMIT", "9"),
+            ("AZ_LCD_COVERAGE_GAMMA", "200"),
+        ]))
+        .lcd_blend
+        .expect("the linear blend");
         assert_eq!(
-            text_lcd_enabled(),
-            matches!(first, TextAa::Lcd | TextAa::Legacy)
+            (tuned.contrast, tuned.chroma_limit, tuned.coverage_gamma),
+            (7, 9, 200)
         );
-        assert_eq!(text_aliased(), first == TextAa::None);
-        assert!(
-            !(text_aliased() && text_lcd_enabled()),
-            "aliased and LCD are mutually exclusive"
-        );
+        assert!(!TextAaSettings::from_vars(vars(&[("AZ_LCD_PRETILE", "0")])).lcd_pretile);
+        assert!(!TextAaSettings::from_vars(vars(&[("AZ_NO_LCD_PRETILE", "")])).lcd_pretile);
+
+        assert_eq!(TextAaSettings::grayscale().mode, TextAa::Grayscale);
+        assert!(!TextAaSettings::grayscale().lcd_enabled());
     }
 
     /// The threshold is the whole point of `TextAa::None`: partial coverage must
@@ -12391,7 +12501,8 @@ pub(super) mod lcd_pretile_tests {
             )),
         );
 
-        if !text_lcd_enabled() || lcd_linear_params().is_none() {
+        let aa = TextAaSettings::default();
+        if !aa.lcd_enabled() || aa.lcd_blend.is_none() {
             // Without the LCD linear pipeline both calls took the same path.
             assert_eq!(slow.data, fast.data);
             return;
@@ -12421,7 +12532,8 @@ pub(super) mod lcd_pretile_tests {
             eprintln!("no system test font — skipping");
             return;
         };
-        if !text_lcd_enabled() || lcd_linear_params().is_none() || !lcd_pretile_enabled() {
+        let aa = TextAaSettings::default();
+        if !aa.lcd_enabled() || aa.lcd_blend.is_none() || !aa.lcd_pretile {
             eprintln!("no LCD tile path in this configuration — skipping");
             return;
         }

@@ -165,6 +165,7 @@ pub struct GlyphCache {
     lcd_tiles: HashMap<LcdTileKey, Option<LcdGlyphTile>>,
     /// LCD stripe order of the panel this cache's window is on.
     lcd_subpixel_order: LcdSubpixelOrder,
+    text_aa: crate::cpurender::TextAaSettings,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -228,6 +229,7 @@ impl GlyphCache {
             cells_prev: HashMap::new(),
             lcd_tiles: HashMap::new(),
             lcd_subpixel_order: LcdSubpixelOrder::Rgb,
+            text_aa: crate::cpurender::TextAaSettings::default(),
         }
     }
 
@@ -243,6 +245,27 @@ impl GlyphCache {
             return false;
         }
         self.lcd_subpixel_order = order;
+        self.lcd_tiles.clear();
+        true
+    }
+
+    /// How text drawn with this cache is anti-aliased.
+    ///
+    /// [`TextAaSettings::default`](crate::cpurender::TextAaSettings::default)
+    /// until the owner of the render target says otherwise: the renderer reads
+    /// no environment variable for it.
+    #[must_use]
+    pub fn text_aa(&self) -> crate::cpurender::TextAaSettings {
+        self.text_aa
+    }
+
+    /// Drops the pre-blended tiles on a change, which were blended with the old
+    /// settings; the caller repaints what is on screen.
+    pub fn set_text_aa(&mut self, settings: crate::cpurender::TextAaSettings) -> bool {
+        if self.text_aa == settings {
+            return false;
+        }
+        self.text_aa = settings;
         self.lcd_tiles.clear();
         true
     }
