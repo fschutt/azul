@@ -185,7 +185,7 @@ geojson = { version = "0.24", optional = true }
 # display lists into PDF ops INCLUDING TEXT (SetFont/ShowText via
 # azul_layout::text3::glyphs::get_glyph_runs_pdf) — which dom_to_bytes uses;
 # without it PDFs contained rectangles only (the textless azul-writer bug).
-printpdf = { version = "0.12.10", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
+printpdf = { version = "0.12.12", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
 
 # Typed multi-flavor clipboard payloads: codecs (RTF/CF_HTML/uri-list/DIB/…)
 # and read/write policy. Deliberately OS-FREE — pure Rust, no system library —

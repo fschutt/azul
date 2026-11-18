@@ -1646,7 +1646,7 @@ dependencies = [
 
 [[package]]
 name = "azul-core"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "azul-css",
  "ed25519-dalek 2.2.0",
@@ -1666,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "azul-css"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "azul-simplecss",
  "libm",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "azul-layout"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "accesskit",
  "accesskit_consumer 0.38.0",
@@ -10661,9 +10661,9 @@ dependencies = [
 
 [[package]]
 name = "printpdf"
-version = "0.12.10"
+version = "0.12.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c5688462dbbc4dd733eb54e6eb9a8e3b8892eee81fbdd1878d0722d26a4174d"
+checksum = "ccbce5ba98f55152e6c0e5ea0fc44ae75d7decd992352f595f9aa645443f4e33"
 dependencies = [
  "allsorts-azul",
  "azul-core",
