@@ -2138,6 +2138,24 @@ impl DisplayList {
 /// space. Each from the shape's own attribute, else from the nearest `<g>` or
 /// `<svg>` above it that sets one (they inherit); else the initial value:
 /// `butt` caps, `miter` joins with a limit of 4, a solid line.
+/// The path an image mask was rasterised from.
+///
+/// A raster mask has the resolution it was made at. A renderer that can clip to
+/// a path - a PDF writer, a vector exporter - uses this instead and gets an edge
+/// that is sharp at any zoom. Mapped into the item's `bounds` exactly as a
+/// [`DisplayListItem::StrokedPath`] is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MaskGeometry {
+    /// The path, in the user space `view_box` describes, with the transforms of
+    /// the shape and its groups applied.
+    pub path: azul_core::svg::SvgMultiPolygon,
+    /// `(min_x, min_y, width, height)` of the enclosing `<svg>`, or `None`
+    /// when the geometry is already in px relative to `bounds`.
+    pub view_box: Option<(f32, f32, f32, f32)>,
+    /// The even-odd fill rule decides what is inside; non-zero otherwise.
+    pub even_odd: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StrokeOutline {
     /// The shape at both ends of an open subpath and of every dash.
@@ -2455,10 +2473,15 @@ pub enum DisplayListItem {
     PushImageMaskClip {
         /// The bounds of the element being clipped
         bounds: WindowLogicalRect,
-        /// The mask image (R8 format)
-        mask_image: ImageRef,
+        /// The mask image (R8 format). `None` when the mask is a path and the
+        /// build has no rasteriser to turn it into an image: a renderer that
+        /// clips to `geometry` still clips, one that needs the image does not.
+        mask_image: Option<ImageRef>,
         /// The rect within which the mask is applied
         mask_rect: WindowLogicalRect,
+        /// The path the mask was made from, for a renderer that clips to paths.
+        /// `None` for a mask that is an image to begin with.
+        geometry: Option<MaskGeometry>,
     },
     /// Pops the current image mask clip from the renderer's clip stack.
     PopImageMaskClip,
@@ -3129,13 +3152,20 @@ impl DisplayListItem {
                     bounds: b1,
                     mask_image: m1,
                     mask_rect: r1,
+                    geometry: g1,
                 },
                 Self::PushImageMaskClip {
                     bounds: b2,
                     mask_image: m2,
                     mask_rect: r2,
+                    geometry: g2,
                 },
-            ) => b1 == b2 && r1 == r2 && m1.get_hash() == m2.get_hash(),
+            ) => {
+                b1 == b2
+                    && r1 == r2
+                    && m1.as_ref().map(ImageRef::get_hash) == m2.as_ref().map(ImageRef::get_hash)
+                    && g1 == g2
+            }
             (Self::PushTextShadow { shadow: s1 }, Self::PushTextShadow { shadow: s2 }) => s1 == s2,
             // For other complex types (Image, gradients, etc.),
             // conservatively assume different
@@ -4130,13 +4160,15 @@ impl DisplayListBuilder {
     pub(crate) fn push_image_mask_clip(
         &mut self,
         bounds: LogicalRect,
-        mask_image: ImageRef,
+        mask_image: Option<ImageRef>,
         mask_rect: LogicalRect,
+        geometry: Option<MaskGeometry>,
     ) {
         self.push_item(DisplayListItem::PushImageMaskClip {
             bounds: bounds.into(),
             mask_image,
             mask_rect: mask_rect.into(),
+            geometry,
         });
     }
     pub(crate) fn pop_image_mask_clip(&mut self) {
@@ -7205,7 +7237,7 @@ where
                 // then needs no notion of repeat at all.
                 let (image, mask_rect) = if clip_mask.repeat { tile_mask(&clip_mask.image, mask_rect, paint_rect)
                 .unwrap_or_else(|| (clip_mask.image.clone(), mask_rect)) } else { (clip_mask.image.clone(), mask_rect) };
-                builder.push_image_mask_clip(paint_rect, image, mask_rect);
+                builder.push_image_mask_clip(paint_rect, Some(image), mask_rect, None);
                 true
             }
             #[cfg(feature = "cpurender")]
@@ -7243,22 +7275,47 @@ where
                     || rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box, even_odd),
                 )
                 .is_some_and(|mask_image| {
-                    builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
+                    builder.push_image_mask_clip(
+                        paint_rect,
+                        Some(mask_image),
+                        paint_rect,
+                        Some(MaskGeometry {
+                            path: svg_clip.clone(),
+                            view_box,
+                            even_odd,
+                        }),
+                    );
                     true
                 })
             }
             #[cfg(not(feature = "cpurender"))]
-            Some(azul_core::dom::SvgNodeData::Path(_)) => {
-                // The DOM asked for an SVG clip mask; without `cpurender` the
-                // clip silently does not clip. Say so once.
-                static ANNOUNCE: std::sync::Once = std::sync::Once::new();
-                ANNOUNCE.call_once(|| {
-                    eprintln!(
-                        "[azul][svg] an SVG clip-path is present, but this build has no \
-                         `cpurender` feature — SVG clips will NOT clip"
-                    );
-                });
-                false
+            Some(azul_core::dom::SvgNodeData::Path(svg_clip)) => {
+                // No rasteriser in this build, so there is no mask image. The
+                // clip is still emitted, with its geometry: a renderer that
+                // clips to a path (PDF) draws the shape; one that needs the
+                // image paints unclipped, as before.
+                let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
+                let view_box = self.enclosing_view_box(dom_id);
+                let user = self.svg_user_transform(dom_id);
+                let path = if user.is_identity() {
+                    svg_clip.clone()
+                } else {
+                    svg_clip.transformed(&user)
+                };
+                let even_odd = node_data
+                    .layout_attribute(azul_core::layout_inputs::LayoutAttribute::SvgFillRule)
+                    .is_some_and(|rule| rule.as_str().trim() == "evenodd");
+                builder.push_image_mask_clip(
+                    paint_rect,
+                    None,
+                    paint_rect,
+                    Some(MaskGeometry {
+                        path,
+                        view_box,
+                        even_odd,
+                    }),
+                );
+                true
             }
             // Other SvgNodeData variants (shapes, gradients, etc.) don't produce clip masks
             Some(_) => false,
@@ -13175,10 +13232,13 @@ fn paginate_pages_impl(
                     bounds,
                     mask_image,
                     mask_rect,
+                    geometry,
                 } => DisplayListItem::PushImageMaskClip {
                     bounds: rebase_band(bounds.0).into(),
                     mask_image: mask_image.clone(),
                     mask_rect: rebase_band(mask_rect.0).into(),
+                    // In the user space of its `<svg>`: moves with `bounds`.
+                    geometry: geometry.clone(),
                 },
                 // PushTextShadow carries only the shadow definition.
                 other => other.clone(),
@@ -13691,10 +13751,13 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             bounds,
             mask_image,
             mask_rect,
+            geometry,
         } => DisplayListItem::PushImageMaskClip {
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             mask_image: mask_image.clone(),
             mask_rect: offset_rect_y(mask_rect.into_inner(), y_offset).into(),
+            // In the user space of its `<svg>`: moves with `bounds`.
+            geometry: geometry.clone(),
         },
         DisplayListItem::PopImageMaskClip => DisplayListItem::PopImageMaskClip,
     }
@@ -16014,8 +16077,9 @@ mod autotest_generated {
         b.pop_scroll_frame();
         b.push_image_mask_clip(
             LogicalRect::zero(),
-            test_image(),
+            Some(test_image()),
             rect(0.0, 0.0, -5.0, -5.0),
+            None,
         );
         b.pop_image_mask_clip();
         b.push_reference_frame(
@@ -18408,6 +18472,26 @@ mod svg_mask_memo_tests {
     /// none of that: its `<path>` had no `SvgNodeData::Path`, so no mask was
     /// ever drawn and the premise below failed.
     fn masks_of(document: &str) -> (Vec<ImageRef>, Vec<Option<ImageRef>>) {
+        let items = items_of(document);
+        let mut clips = Vec::new();
+        let mut strokes = Vec::new();
+        for item in &items {
+            match item {
+                DisplayListItem::PushImageMaskClip {
+                    mask_image: Some(mask_image),
+                    ..
+                } => {
+                    clips.push(mask_image.clone());
+                }
+                DisplayListItem::StrokedPath { mask, .. } => strokes.push(mask.clone()),
+                _ => {}
+            }
+        }
+        (clips, strokes)
+    }
+
+    /// The display list of `document`, laid out as `masks_of` describes.
+    pub(super) fn items_of(document: &str) -> Vec<DisplayListItem> {
         let parsed = crate::xml::parse_xml(document).expect("the document parses");
         let styled = azul_core::styled_dom::StyledDom::create_from_dom(
             crate::xml::dom_from_parsed_xml(parsed),
@@ -18421,22 +18505,49 @@ mod svg_mask_memo_tests {
         let mut dbg = None;
         lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
             .expect("the document lays out");
-        let dl = &lw
-            .get_layout_result(&DomId::ROOT_ID)
+        lw.get_layout_result(&DomId::ROOT_ID)
             .expect("the root DOM is laid out")
-            .display_list;
-        let mut clips = Vec::new();
-        let mut strokes = Vec::new();
-        for item in &dl.items {
-            match item {
-                DisplayListItem::PushImageMaskClip { mask_image, .. } => {
-                    clips.push(mask_image.clone());
-                }
-                DisplayListItem::StrokedPath { mask, .. } => strokes.push(mask.clone()),
-                _ => {}
-            }
-        }
-        (clips, strokes)
+            .display_list
+            .items
+            .clone()
+    }
+
+    /// A mask is a picture at one resolution. A renderer that clips to paths (a
+    /// PDF writer) needs the path the mask was made from, or the fill of an SVG
+    /// shape comes out as its whole box: the clip item of a filled path carries
+    /// that path, the view box it is in and its fill rule.
+    #[test]
+    fn the_clip_of_a_filled_svg_path_carries_its_geometry() {
+        let geometry_of = |document: &str| {
+            items_of(document)
+                .into_iter()
+                .find_map(|item| match item {
+                    DisplayListItem::PushImageMaskClip { geometry, .. } => Some(geometry),
+                    _ => None,
+                })
+                .expect("the filled path paints through a clip")
+                .expect("the clip carries the path it was made from")
+        };
+        let doc = |fill_rule: &str| {
+            format!(
+                "<html><head><style>body {{ margin: 0; }}</style></head><body>\
+                 <svg viewBox=\"0 0 10 10\" width=\"40\" height=\"40\">\
+                 <path d=\"M0 0 L10 0 L10 10 Z\" fill=\"red\"{fill_rule}/></svg></body></html>"
+            )
+        };
+
+        let geometry = geometry_of(&doc(""));
+        assert_eq!(geometry.view_box, Some((0.0, 0.0, 10.0, 10.0)));
+        assert!(!geometry.even_odd, "non-zero unless the shape says otherwise");
+        let rings = geometry.path.rings.as_ref();
+        assert_eq!(rings.len(), 1, "one closed triangle");
+        assert!(
+            rings[0].items.as_ref().len() >= 2,
+            "the triangle's sides, in user units: {:?}",
+            rings[0]
+        );
+
+        assert!(geometry_of(&doc(" fill-rule=\"evenodd\"")).even_odd);
     }
 
     /// Every display-list build rasterised every SVG clip mask and stroke

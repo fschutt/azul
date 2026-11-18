@@ -2369,14 +2369,20 @@ pub fn translate_displaylist_to_wr(
                 bounds,
                 mask_image,
                 mask_rect,
+                // WebRender clips to the mask image, not to the path.
+                geometry: _,
             } => {
                 let current_spatial = current_spatial!();
                 let current_clip = current_clip!();
                 let current_offset = current_offset!();
 
                 // Resolve the mask image to a WebRender ImageKey
-                let image_ref_hash = mask_image.get_hash();
-                if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
+                // A mask without an image (a build with no rasteriser) resolves
+                // to nothing, like a mask whose image is not registered.
+                let resolved_mask = mask_image
+                    .as_ref()
+                    .and_then(|mask| renderer_resources.get_image(&mask.get_hash()));
+                if let Some(resolved_image) = resolved_mask {
                     let wr_image_key = translate_image_key(resolved_image.key);
 
                     // The mask rect in physical pixels
@@ -3363,8 +3369,9 @@ mod image_mask_tests {
             vec![
                 DisplayListItem::PushImageMaskClip {
                     bounds: curve.into(),
-                    mask_image: mask,
+                    mask_image: Some(mask),
                     mask_rect: curve.into(),
+                    geometry: None,
                 },
                 metal(),
                 DisplayListItem::PopImageMaskClip,
@@ -3399,8 +3406,9 @@ mod image_mask_tests {
                 },
                 DisplayListItem::PushImageMaskClip {
                     bounds: curve.into(),
-                    mask_image: mask,
+                    mask_image: Some(mask),
                     mask_rect: curve.into(),
+                    geometry: None,
                 },
                 metal(),
                 DisplayListItem::PopImageMaskClip,
@@ -3430,8 +3438,9 @@ mod image_mask_tests {
             vec![
                 DisplayListItem::PushImageMaskClip {
                     bounds: curve.into(),
-                    mask_image: mask,
+                    mask_image: Some(mask),
                     mask_rect: curve.into(),
+                    geometry: None,
                 },
                 metal(),
                 DisplayListItem::PopImageMaskClip,

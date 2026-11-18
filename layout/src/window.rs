@@ -12943,7 +12943,10 @@ impl LayoutWindow {
             .flat_map(|layout_result| layout_result.display_list.items.iter())
             .filter_map(|item| match item {
                 DisplayListItem::Image { image, .. } => Some(image),
-                DisplayListItem::PushImageMaskClip { mask_image, .. } => Some(mask_image),
+                DisplayListItem::PushImageMaskClip {
+                    mask_image: Some(mask_image),
+                    ..
+                } => Some(mask_image),
                 DisplayListItem::StrokedPath {
                     mask: Some(mask), ..
                 } => Some(mask),

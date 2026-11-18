@@ -3633,6 +3633,9 @@ pub fn render_single_item(
             bounds,
             mask_image,
             mask_rect,
+            // The path the mask was rasterised from, for renderers that clip
+            // to paths. This one composites the mask image.
+            geometry: _,
         } => {
             let mr = &scroll_rect(mask_rect.inner());
             // Both regions below have to COVER every pixel the masked
@@ -3689,7 +3692,14 @@ pub fn render_single_item(
                 let mut mask_data = vec![0u8; (px_w as usize) * (px_h as usize)];
                 let window = mask_window((mask_x, mask_y, mask_w, mask_h), region);
                 if let Some((wx, wy, ww, wh)) = window {
-                    let mask = extract_mask_window(mask_image, mask_w, mask_h, (wx, wy, ww, wh))
+                    // A mask without an image (a build with no rasteriser, which
+                    // this renderer is never part of) hides nothing, as a mask
+                    // whose image cannot be read does.
+                    let mask = mask_image
+                        .as_ref()
+                        .and_then(|image| {
+                            extract_mask_window(image, mask_w, mask_h, (wx, wy, ww, wh))
+                        })
                         .unwrap_or_else(|| vec![255u8; (ww as usize) * (wh as usize)]);
                     // Where the window's first pixel lands in the region: not
                     // negative and inside it, as the window lies in both.
@@ -10707,8 +10717,9 @@ mod autotest_generated {
             items: vec![
                 DisplayListItem::PushImageMaskClip {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
-                    mask_image: mask,
+                    mask_image: Some(mask),
                     mask_rect: wrect(0.0, 0.0, 4.0, 4.0),
+                    geometry: None,
                 },
                 DisplayListItem::Rect {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -10740,8 +10751,9 @@ mod autotest_generated {
             items: vec![
                 DisplayListItem::PushImageMaskClip {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
-                    mask_image: mask,
+                    mask_image: Some(mask),
                     mask_rect: wrect(0.0, 0.0, 2.0, 2.0),
+                    geometry: None,
                 },
                 DisplayListItem::Rect {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -10771,8 +10783,9 @@ mod autotest_generated {
         run_item(
             &DisplayListItem::PushImageMaskClip {
                 bounds: wrect(0.0, 0.0, 8.0, 8.0),
-                mask_image: mask,
+                mask_image: Some(mask),
                 mask_rect: wrect(0.0, 0.0, 0.0, 0.0),
+                geometry: None,
             },
             &mut p,
             &mut st,
