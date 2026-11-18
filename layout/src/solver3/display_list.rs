@@ -7743,8 +7743,26 @@ where
     /// Both were previously handled by asking only "is the parent flex or grid?",
     /// which silently answered "yes, the parent paints it" for a replaced element
     /// — so a `Button` over an `<img>` had its background painted by nobody.
+    ///
+    /// And one kind of BOX is on no line whatever its parent runs: an
+    /// **absolutely positioned** one (`absolute` or `fixed`). It is taken out of
+    /// flow and blockified (CSS Display 3 §2.7), so the parent's inline layout
+    /// never sees it and builds no shape for it. Its specified `display` may
+    /// still say `inline` - `<span style="position: absolute">` - which is what
+    /// this question is asked with, and the answer "the parent paints it" left
+    /// the background and border of every such span painted by nobody.
     fn parent_paints_as_inline_shape(&self, node_index: usize) -> bool {
         let tree = &self.positioned_tree.tree;
+
+        let out_of_flow = tree
+            .get(LayoutNodeId::new(node_index))
+            .and_then(|n| n.dom_node_id)
+            .is_some_and(|dom_id| {
+                crate::solver3::layout_tree::is_out_of_flow_positioned(self.ctx.styled_dom, dom_id)
+            });
+        if out_of_flow {
+            return false;
+        }
 
         let parent_fc = tree
             .warm(LayoutNodeId::new(node_index))
@@ -18575,6 +18593,81 @@ mod svg_mask_memo_tests {
             "the second build reuses the first build's clip mask images"
         );
         assert_eq!(strokes_a, strokes_b, "and its stroke mask images");
+    }
+}
+
+/// Who paints an inline-level box, and what a line without text leaves in the
+/// display list.
+#[cfg(all(test, feature = "cpurender"))]
+mod inline_box_ownership_tests {
+    use azul_css::props::basic::ColorU;
+
+    use super::{svg_mask_memo_tests::items_of, DisplayListItem};
+
+    fn page(body: &str) -> String {
+        format!(
+            "<html><head><style>body {{ margin: 0; }}</style></head><body>{body}</body></html>"
+        )
+    }
+
+    const GREEN: ColorU = ColorU {
+        r: 0,
+        g: 255,
+        b: 0,
+        a: 255,
+    };
+
+    fn paints_green(items: &[DisplayListItem]) -> bool {
+        items
+            .iter()
+            .any(|item| matches!(item, DisplayListItem::Rect { color, .. } if *color == GREEN))
+    }
+
+    /// `<span style="position: absolute">` is taken out of flow and blockified,
+    /// so it is on no line of its parent. Its specified `display` is still
+    /// `inline`, and the background of every such span was left to a parent
+    /// line that never held it: painted by nobody.
+    #[test]
+    fn an_absolutely_positioned_span_paints_its_own_background() {
+        let items = items_of(&page(
+            "<div style=\"position: relative; height: 50px;\">\
+             <span style=\"position: absolute; left: 5px; top: 5px; width: 10px; \
+             height: 10px; background: #00ff00;\"></span></div>",
+        ));
+        assert!(paints_green(&items), "the span's background: {items:#?}");
+    }
+
+    /// The control: the same box as a `div` always painted.
+    #[test]
+    fn an_absolutely_positioned_div_paints_its_own_background() {
+        let items = items_of(&page(
+            "<div style=\"position: relative; height: 50px;\">\
+             <div style=\"position: absolute; left: 5px; top: 5px; width: 10px; \
+             height: 10px; background: #00ff00;\"></div></div>",
+        ));
+        assert!(paints_green(&items));
+    }
+
+    /// A line that holds only a box has no text and no font, and the display
+    /// list has no `TextLayout` for it.
+    ///
+    /// This pins the outcome, not the path to it: before, the item was built
+    /// with `FontHash::invalid()` and `push_item` dropped it again, reporting a
+    /// font that never resolved. The list was the same; only the false report
+    /// is gone, which a test of the list cannot see.
+    #[test]
+    fn a_line_of_boxes_only_builds_no_text_layout() {
+        let items = items_of(&page(
+            "<div><span style=\"display: inline-block; width: 10px; height: 10px; \
+             background: #00ff00;\"></span></div>",
+        ));
+        assert!(paints_green(&items), "the inline-block is still painted");
+        assert!(
+            !items
+                .iter()
+                .any(|item| matches!(item, DisplayListItem::TextLayout { .. })),
+            "no text, so no text layout"
+        );
     }
 }
 
