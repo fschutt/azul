@@ -10777,23 +10777,32 @@ where
             } else {
                 (payload.clone(), actual_bounds)
             };
-            builder.push_text_layout(
-                // (d5) The CACHED payload Arc — TextPayload{dense,sparse}
-                // when the dense view is retained, the bare layout Arc
-                // otherwise. Cloned from the cache entry, so ptr_eq damage
-                // diffing sees the same allocation across paints exactly
-                // as before.
-                text_payload,
-                text_bounds,
-                FontHash::from_hash(primary_hash),
-                primary_size,
-                ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                }, // Default color
-            );
+            // A line box that holds only boxes (an inline-block, an inline
+            // `<svg>`, an image) has no text and so no font: there is nothing
+            // for a `TextLayout` to describe. It used to be built with
+            // `FontHash::invalid()` and dropped by `push_item` as "its font
+            // never resolved", which read as a font failure in every document
+            // with an inline box on a line of its own. Text whose font really
+            // did not resolve still has glyph runs and is still reported.
+            if !glyph_runs.is_empty() {
+                builder.push_text_layout(
+                    // (d5) The CACHED payload Arc — TextPayload{dense,sparse}
+                    // when the dense view is retained, the bare layout Arc
+                    // otherwise. Cloned from the cache entry, so ptr_eq damage
+                    // diffing sees the same allocation across paints exactly
+                    // as before.
+                    text_payload,
+                    text_bounds,
+                    FontHash::from_hash(primary_hash),
+                    primary_size,
+                    ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    }, // Default color
+                );
+            }
         }
 
         // Precomputed at CachedInlineLayout store time — the run-grouping
