@@ -1136,6 +1136,12 @@ pub struct AppConfig {
     /// Determines what happens when all windows are closed.
     /// Default: `EndProcess` (terminate when last window closes).
     pub termination_behavior: AppTerminationBehavior,
+    /// How the text of every window of the app is anti-aliased by the CPU
+    /// renderer. [`AppConfig::create`] fills it from the environment
+    /// ([`TextAntialiasing::from_env`]: `AZ_TEXT_AA` and the `AZ_LCD_*`
+    /// variables), which is the one time those are read; an app that sets it
+    /// decides for itself.
+    pub text_antialiasing: TextAntialiasing,
     /// Configuration for the debug server and remote control capabilities.
     pub remote_control: RemoteControlConfig,
     /// If the app crashes / panics, a window with a message box pops up.
@@ -1271,6 +1277,19 @@ impl AppConfig {
         self.mode = mode;
     }
 
+    /// Returns the config whose windows anti-alias their text as `settings` say
+    /// (see [`Self::text_antialiasing`]).
+    #[must_use]
+    pub fn with_text_antialiasing(mut self, settings: TextAntialiasing) -> Self {
+        self.set_text_antialiasing(settings);
+        self
+    }
+
+    /// In-place [`Self::with_text_antialiasing`].
+    pub fn set_text_antialiasing(&mut self, settings: TextAntialiasing) {
+        self.text_antialiasing = settings;
+    }
+
     /// Start the app in the theme `name` (`"flat"`, `"flora"`, ...): every
     /// window's `@theme(<name>)` blocks apply, the other themes' are inert.
     /// See [`Self::theme`]; switch it later with `CallbackInfo::set_theme`.
@@ -1373,6 +1392,7 @@ impl AppConfig {
             enable_visual_panic_hook: true,
             enable_logging_on_panic: true,
             termination_behavior: AppTerminationBehavior::default(),
+            text_antialiasing: TextAntialiasing::from_env(),
             icon_provider,
             bundled_fonts,
             font_loading,
@@ -1629,6 +1649,130 @@ impl AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self::create()
+    }
+}
+
+/// How glyph coverage becomes pixels (see [`TextAntialiasing`]).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum TextAntialiasMode {
+    /// What the platform's own text does: LCD subpixel on a desktop, grayscale
+    /// on a phone or tablet, whose panel rotates and often has no RGB stripes.
+    PlatformDefault,
+    /// RGB subpixel anti-aliasing, the stripes blended in linear light.
+    Lcd,
+    /// RGB subpixel anti-aliasing with the blend from before the linear one,
+    /// kept so that a rendering difference can be told apart from the blend.
+    LcdLegacy,
+    /// One coverage value per pixel: no colour fringes, and the right choice
+    /// for a picture that is saved, scaled or printed.
+    Grayscale,
+    /// No anti-aliasing: coverage is cut at one half. For comparing a layout
+    /// with another renderer's, not for showing to users.
+    Aliased,
+}
+
+/// How the CPU renderer anti-aliases text: [`AppConfig::text_antialiasing`].
+///
+/// These used to be environment variables that the rasteriser looked up when
+/// it first drew text. They are read in one place now, [`Self::from_env`], by
+/// [`AppConfig::create`], and passed down from the config to each window.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct TextAntialiasing {
+    /// Subpixel, grayscale or aliased.
+    pub mode: TextAntialiasMode,
+    /// Linear LCD blend: how far the stripes of a pixel are pulled together,
+    /// 0 (free, the default) to 255 (as good as grayscale).
+    pub lcd_contrast: u8,
+    /// Linear LCD blend: the limit on how far a stripe may differ from its
+    /// neighbours, 0 for none (the default).
+    pub lcd_chroma_limit: u8,
+    /// Linear LCD blend: the gamma applied to coverage, 220 by default.
+    pub lcd_coverage_gamma: u8,
+    /// Whether LCD text over a uniform background is drawn from pre-blended
+    /// glyph tiles. `false` is a diagnostic that takes the slow path always.
+    pub lcd_pretile: bool,
+}
+
+impl Default for TextAntialiasing {
+    /// The platform's default mode with the default blend: what an app gets
+    /// when neither it nor the environment says anything.
+    fn default() -> Self {
+        Self {
+            mode: TextAntialiasMode::PlatformDefault,
+            lcd_contrast: 0,
+            lcd_chroma_limit: 0,
+            lcd_coverage_gamma: 220,
+            lcd_pretile: true,
+        }
+    }
+}
+
+impl TextAntialiasing {
+    /// Grayscale text with the default blend.
+    #[must_use]
+    pub fn grayscale() -> Self {
+        Self {
+            mode: TextAntialiasMode::Grayscale,
+            ..Self::default()
+        }
+    }
+
+    /// The settings the process environment asks for, or the default where it
+    /// says nothing (and in a build without `std`, which has no environment).
+    ///
+    /// * `AZ_TEXT_AA` = `lcd` | `legacy` | `grayscale` | `none`
+    /// * `AZ_LCD_BLEND=legacy`: the older spelling of `AZ_TEXT_AA=legacy`,
+    ///   honoured where `AZ_TEXT_AA` is unset or `lcd`
+    /// * `AZ_LCD_CONTRAST`, `AZ_LCD_CHROMA_LIMIT`, `AZ_LCD_COVERAGE_GAMMA`: 0..=255
+    /// * `AZ_LCD_PRETILE=0` or `AZ_NO_LCD_PRETILE`: no pre-blended tiles
+    #[must_use]
+    pub fn from_env() -> Self {
+        #[cfg(feature = "std")]
+        {
+            Self::from_vars(|name| std::env::var(name).ok())
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            Self::default()
+        }
+    }
+
+    /// [`Self::from_env`] with the variables looked up by `var`.
+    #[must_use]
+    pub fn from_vars(var: impl Fn(&str) -> Option<alloc::string::String>) -> Self {
+        let default = Self::default();
+        let asked = var("AZ_TEXT_AA");
+        let mut mode = match asked.as_deref() {
+            Some(s) if s.eq_ignore_ascii_case("none") || s == "0" => TextAntialiasMode::Aliased,
+            Some(s)
+                if s.eq_ignore_ascii_case("grayscale") || s.eq_ignore_ascii_case("greyscale") =>
+            {
+                TextAntialiasMode::Grayscale
+            }
+            Some(s) if s.eq_ignore_ascii_case("legacy") => TextAntialiasMode::LcdLegacy,
+            Some(s) if s.eq_ignore_ascii_case("lcd") => TextAntialiasMode::Lcd,
+            _ => TextAntialiasMode::PlatformDefault,
+        };
+        if matches!(mode, TextAntialiasMode::PlatformDefault | TextAntialiasMode::Lcd)
+            && var("AZ_LCD_BLEND").is_some_and(|v| v.eq_ignore_ascii_case("legacy"))
+        {
+            mode = TextAntialiasMode::LcdLegacy;
+        }
+        let level = |name: &str, default: u8| {
+            var(name)
+                .and_then(|v| v.parse::<u8>().ok())
+                .unwrap_or(default)
+        };
+        Self {
+            mode,
+            lcd_contrast: level("AZ_LCD_CONTRAST", default.lcd_contrast),
+            lcd_chroma_limit: level("AZ_LCD_CHROMA_LIMIT", default.lcd_chroma_limit),
+            lcd_coverage_gamma: level("AZ_LCD_COVERAGE_GAMMA", default.lcd_coverage_gamma),
+            lcd_pretile: var("AZ_LCD_PRETILE").map_or(true, |v| v.trim() != "0")
+                && var("AZ_NO_LCD_PRETILE").is_none(),
+        }
     }
 }
 

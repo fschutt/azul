@@ -192274,6 +192274,9 @@
                                 "termination_behavior": {
                                     "type": "AppTerminationBehavior"
                                 },
+                                "text_antialiasing": {
+                                    "type": "TextAntialiasing"
+                                },
                                 "remote_control": {
                                     "type": "RemoteControlConfig"
                                 },
@@ -192452,6 +192455,38 @@
                                     "type": "AppConfig"
                                 },
                                 "fn_body": "object.with_theme(name)"
+                            },
+                            "with_text_antialiasing": {
+                                "doc": [
+                                    "Returns the config whose windows anti-alias their text as `settings` say",
+                                    "(see [`Self::text_antialiasing`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "settings": "TextAntialiasing"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AppConfig"
+                                },
+                                "fn_body": "object.with_text_antialiasing(settings)"
+                            },
+                            "set_text_antialiasing": {
+                                "doc": [
+                                    "In-place [`Self::with_text_antialiasing`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "settings": "TextAntialiasing"
+                                    }
+                                ],
+                                "fn_body": "object.set_text_antialiasing(settings)"
                             },
                             "with_mode": {
                                 "doc": [
@@ -192893,6 +192928,71 @@
                                 "Info": {},
                                 "Debug": {},
                                 "Trace": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextAntialiasMode": {
+                        "doc": [
+                            "How glyph coverage becomes pixels (see `TextAntialiasing`)."
+                        ],
+                        "external": "azul_core::resources::TextAntialiasMode",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PlatformDefault": {},
+                                "Lcd": {},
+                                "LcdLegacy": {},
+                                "Grayscale": {},
+                                "Aliased": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextAntialiasing": {
+                        "doc": [
+                            "How the CPU renderer anti-aliases text: `AppConfig::text_antialiasing`."
+                        ],
+                        "external": "azul_core::resources::TextAntialiasing",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "mode": {
+                                    "type": "TextAntialiasMode"
+                                },
+                                "lcd_contrast": {
+                                    "type": "u8"
+                                },
+                                "lcd_chroma_limit": {
+                                    "type": "u8"
+                                },
+                                "lcd_coverage_gamma": {
+                                    "type": "u8"
+                                },
+                                "lcd_pretile": {
+                                    "type": "bool"
+                                }
                             }
                         ],
                         "repr": "C"

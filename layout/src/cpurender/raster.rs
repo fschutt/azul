@@ -4035,6 +4035,30 @@ impl core::fmt::Debug for TextAaSettings {
     }
 }
 
+impl From<azul_core::resources::TextAntialiasing> for TextAaSettings {
+    /// The app's setting as the rasteriser uses it: the platform default
+    /// resolved for this target, and the blend levels as its parameters.
+    fn from(config: azul_core::resources::TextAntialiasing) -> Self {
+        use azul_core::resources::TextAntialiasMode;
+        let mode = match config.mode {
+            TextAntialiasMode::PlatformDefault => TEXT_AA_DEFAULT,
+            TextAntialiasMode::Lcd => TextAa::Lcd,
+            TextAntialiasMode::LcdLegacy => TextAa::Legacy,
+            TextAntialiasMode::Grayscale => TextAa::Grayscale,
+            TextAntialiasMode::Aliased => TextAa::None,
+        };
+        Self {
+            mode,
+            lcd_blend: (mode != TextAa::Legacy).then(|| agg_rust::pixfmt_lcd::LcdBlendParams {
+                contrast: config.lcd_contrast,
+                chroma_limit: config.lcd_chroma_limit,
+                coverage_gamma: config.lcd_coverage_gamma,
+            }),
+            lcd_pretile: config.lcd_pretile,
+        }
+    }
+}
+
 impl TextAaSettings {
     /// Single grayscale coverage per pixel: for a picture that is not shown
     /// pixel for pixel on one known panel - a page image, a thumbnail, anything
@@ -4048,51 +4072,20 @@ impl TextAaSettings {
         }
     }
 
-    /// The settings the process environment asks for. The ONE place these
-    /// variables are read; call it once at startup and pass the value on.
-    ///
-    /// * `AZ_TEXT_AA` = `lcd` | `legacy` | `grayscale` | `none`
-    /// * `AZ_LCD_BLEND=legacy`: the older spelling of `AZ_TEXT_AA=legacy`
-    /// * `AZ_LCD_CONTRAST`, `AZ_LCD_CHROMA_LIMIT`, `AZ_LCD_COVERAGE_GAMMA`: 0..=255
-    /// * `AZ_LCD_PRETILE=0` or `AZ_NO_LCD_PRETILE`: no pre-blended tiles
+    /// The settings the process environment asks for: the reading is
+    /// [`TextAntialiasing::from_env`](azul_core::resources::TextAntialiasing::from_env),
+    /// the one place these variables are looked up. A window does not call
+    /// this; it takes [`AppConfig::text_antialiasing`](azul_core::resources::AppConfig),
+    /// which `AppConfig::create` filled the same way, once.
     #[must_use]
     pub fn from_env() -> Self {
-        Self::from_vars(|name| std::env::var(name).ok())
+        azul_core::resources::TextAntialiasing::from_env().into()
     }
 
     /// [`Self::from_env`] with the variables looked up by `var`.
     #[must_use]
     pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Self {
-        let mode = match var("AZ_TEXT_AA") {
-            Some(s) if s.eq_ignore_ascii_case("none") || s == "0" => TextAa::None,
-            Some(s)
-                if s.eq_ignore_ascii_case("grayscale") || s.eq_ignore_ascii_case("greyscale") =>
-            {
-                TextAa::Grayscale
-            }
-            Some(s) if s.eq_ignore_ascii_case("legacy") => TextAa::Legacy,
-            Some(s) if s.eq_ignore_ascii_case("lcd") => TextAa::Lcd,
-            _ => TEXT_AA_DEFAULT,
-        };
-        let legacy_blend = mode == TextAa::Legacy
-            || var("AZ_LCD_BLEND").is_some_and(|v| v.eq_ignore_ascii_case("legacy"));
-        let level = |name: &str, default: u8| {
-            var(name)
-                .and_then(|v| v.parse::<u8>().ok())
-                .unwrap_or(default)
-        };
-        let lcd_blend = (!legacy_blend).then(|| agg_rust::pixfmt_lcd::LcdBlendParams {
-            contrast: level("AZ_LCD_CONTRAST", LCD_BLEND_DEFAULT.contrast),
-            chroma_limit: level("AZ_LCD_CHROMA_LIMIT", LCD_BLEND_DEFAULT.chroma_limit),
-            coverage_gamma: level("AZ_LCD_COVERAGE_GAMMA", LCD_BLEND_DEFAULT.coverage_gamma),
-        });
-        let lcd_pretile = var("AZ_LCD_PRETILE").map_or(true, |v| v.trim() != "0")
-            && var("AZ_NO_LCD_PRETILE").is_none();
-        Self {
-            mode,
-            lcd_blend,
-            lcd_pretile,
-        }
+        azul_core::resources::TextAntialiasing::from_vars(var).into()
     }
 
     /// Whether text takes the RGB LCD subpixel path.

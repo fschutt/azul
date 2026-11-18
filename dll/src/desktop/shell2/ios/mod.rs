@@ -1815,7 +1815,7 @@ impl IOSWindow {
 
         Ok(Self {
             common,
-            cpu_backend: CpuBackend::new(),
+            cpu_backend: CpuBackend::for_config(&config),
             needs_rerender: false,
             ui_window,
             ui_view,

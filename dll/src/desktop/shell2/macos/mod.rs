@@ -6875,7 +6875,7 @@ impl MacOSWindow {
             gl_functions,
             cpu_view,
             #[cfg(feature = "cpurender")]
-            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::for_config(&config),
             is_open: true,
             child_of: if is_popup_child || is_dialog_child {
                 options.parent_window_id

@@ -2479,7 +2479,7 @@ impl WaylandWindow {
             // CPU rendering state will be initialized after receiving wl_shm from registry
             render_mode: RenderMode::Cpu(None),
             #[cfg(feature = "cpurender")]
-            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::for_config(&resources.config),
             os_present_requested: true, // first present must be full
             // 25 chars/s after 400ms — the common compositor default; a
             // wl_keyboard.repeat_info event (seat v4+) overrides both.
@@ -10104,7 +10104,7 @@ impl WaylandPopup {
             needs_repaint: false,
             child: None,
             #[cfg(feature = "cpurender")]
-            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::for_config(&parent.resources.config),
         })
     }
 

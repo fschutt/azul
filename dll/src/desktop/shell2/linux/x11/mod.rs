@@ -4455,7 +4455,7 @@ impl X11Window {
                 ctx
             },
             #[cfg(feature = "cpurender")]
-            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::for_config(&resources.config),
             #[cfg(feature = "cpurender")]
             bgra_buffer: Vec::new(),
             shm_upload: None,

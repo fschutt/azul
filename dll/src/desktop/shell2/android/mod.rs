@@ -262,7 +262,7 @@ impl AndroidWindow {
 
         Ok(Self {
             common,
-            cpu_backend: CpuBackend::new(),
+            cpu_backend: CpuBackend::for_config(&config),
             #[cfg(feature = "ndk")]
             native_window: None,
             backend: RenderBackend::Cpu,

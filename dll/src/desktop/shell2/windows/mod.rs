@@ -850,7 +850,7 @@ impl Win32Window {
             gl_functions,
             new_frame_ready,
             #[cfg(feature = "cpurender")]
-            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::for_config(&config),
             #[cfg(feature = "cpurender")]
             panel_monitor: 0,
             #[cfg(feature = "cpurender")]

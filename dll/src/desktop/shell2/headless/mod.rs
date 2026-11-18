@@ -535,6 +535,21 @@ impl Default for CpuBackend {
 }
 
 impl CpuBackend {
+    /// The backend of a window of the app `config` describes: its text is
+    /// anti-aliased as the app says (`AppConfig::text_antialiasing`, which
+    /// `AppConfig::create` read from the environment once). `new()` is the
+    /// backend of a window that belongs to no app - a test, a tool - and
+    /// keeps the platform's default.
+    pub fn for_config(config: &azul_core::resources::AppConfig) -> Self {
+        #[allow(unused_mut)]
+        let mut backend = Self::new();
+        #[cfg(feature = "cpurender")]
+        backend
+            .glyph_cache
+            .set_text_aa(config.text_antialiasing.into());
+        backend
+    }
+
     pub fn new() -> Self {
         Self {
             hit_tester: azul_layout::headless::CpuHitTester::new(),
@@ -551,13 +566,7 @@ impl CpuBackend {
             #[cfg(feature = "cpurender")]
             compositor: None,
             #[cfg(feature = "cpurender")]
-            glyph_cache: {
-                // The one read of the text anti-aliasing variables for this
-                // window, at its start.
-                let mut cache = azul_layout::glyph_cache::GlyphCache::new();
-                cache.set_text_aa(azul_layout::cpurender::TextAaSettings::from_env());
-                cache
-            },
+            glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             force_full_repaint: false,
             #[cfg(feature = "cpurender")]
             previous_display_list: None,
@@ -1862,7 +1871,7 @@ impl HeadlessWindow {
                 // Offscreen output must be reproducible, so it keeps the plain
                 // white canvas rather than the host desktop's colour.
                 follow_system_background: false,
-                ..CpuBackend::new()
+                ..CpuBackend::for_config(&config)
             },
             is_open: true,
             event_queue: VecDeque::new(),
