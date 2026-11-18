@@ -1405,5 +1405,7 @@ mod a_toggled_class_keeps_the_nodes_state_and_focus;
 mod a_class_swap_applies_the_rules_of_the_new_class;
 #[path = "a_scrollbar_fades_by_the_fade_css_of_its_box.rs"]
 mod a_scrollbar_fades_by_the_fade_css_of_its_box;
+#[path = "a_line_before_a_forced_break_is_not_justified.rs"]
+mod a_line_before_a_forced_break_is_not_justified;
 #[path = "ignored_tests_are_on_the_ledger.rs"]
 mod ignored_tests_are_on_the_ledger;

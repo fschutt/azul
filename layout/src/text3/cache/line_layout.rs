@@ -2146,7 +2146,14 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
 
     for piece in segment_lines {
         let segment = &piece.segment;
-        let is_last_line = piece.is_last_line;
+        // CSS Text 3 §6.3: the last line of a paragraph and a line that a forced break ends
+        // take `text-align-last`, so `justify` leaves them unjustified. `piece.text_align` is
+        // the line's own alignment with that already resolved; the paragraph's `text-align`
+        // alone would spread a line before a `<br>` to the full width.
+        let unjustified = !matches!(
+            piece.text_align,
+            TextAlign::Justify | TextAlign::JustifyAll
+        );
         // +spec:text-alignment-spacing:13b72d - line box start/end determined by inline base
         // direction +spec:text-alignment-spacing:d497af - line box inline base direction
         // affects text-align resolution +spec:text-alignment-spacing:68332e - bidi direction
@@ -2162,7 +2169,7 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
 
         // 2. Kashida justification needs to be segment-aware if used.
         let justified_segment_items = if constraints.text_justify == JustifyContent::Kashida
-            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
+            && !unjustified
         {
             let segment_line_constraints = LineConstraints {
                 segments: vec![*segment],
@@ -2287,11 +2294,8 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         // text-align is justify CSS Text 3 §6: text-justify controls HOW to justify, but
         // only applies when text-align is justify/justify-all. Without this check, ALL text
         // gets justified because text-justify defaults to auto (→ InterWord).
-        let (extra_word_spacing, extra_char_spacing) = if (constraints.text_align
-            == TextAlign::Justify
-            || constraints.text_align == TextAlign::JustifyAll)
+        let (extra_word_spacing, extra_char_spacing) = if !unjustified
             && constraints.text_justify != JustifyContent::None
-            && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
             && constraints.text_justify != JustifyContent::Kashida
         {
             calculate_justification_spacing(
