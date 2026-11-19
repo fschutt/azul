@@ -967,6 +967,14 @@ fn walk_counters(
         } else {
             None
         };
+        // The `footnote` counter is PREDEFINED (CSS Generated Content for
+        // Paged Media, "The Footnote Counter"): it is there for the whole
+        // document, as if the root element reset it. Made by the first
+        // footnote instead, it would be that footnote's parent's, and the
+        // notes of every paragraph would start at 1.
+        if parent.is_none() && reset.is_none_or(|r| !r.names("footnote")) {
+            counters.reset("footnote", 0, i, parent);
+        }
         // A counter the list names twice is made once with its last value:
         // a reset replaces the counter the same element made.
         for c in reset.iter().flat_map(|r| r.counters.iter()) {

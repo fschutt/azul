@@ -191,3 +191,18 @@ fn the_call_of_a_block_level_note_is_a_line_of_its_own_between_the_blocks() {
     let call_top = lines(&result.pages[0])[0].0;
     assert!((40.0..60.0).contains(&call_top), "between the blocks: {call_top}");
 }
+
+#[test]
+fn the_footnote_counter_counts_through_the_whole_document() {
+    // "The footnote counter is a predefined counter": it is the
+    // document's, not that of the paragraph the first footnote is in.
+    let (result, _, _) = pages(&html(
+        "",
+        "<p>one<span class=\"fn\">a</span></p><div><p>two<span class=\"fn\">b</span></p></div>\
+         <p>three<span class=\"fn\">c</span></p>",
+    ));
+    assert_eq!(
+        texts(&result.pages[0]),
+        vec!["one1", "two2", "three3", "1. a", "2. b", "3. c"]
+    );
+}
