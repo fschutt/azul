@@ -10401,9 +10401,19 @@ where
             .get(text)
             .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         while let Some(n) = node {
+            // An absolutely positioned element is a block whatever
+            // `display` it was specified with (CSS 2.1 9.7): its box paints
+            // its background, it is no inline box around its text. Taken
+            // for one, an absolutely positioned `<span>` whose text stands
+            // in an anonymous box (beside a `display: none` child) painted
+            // its background a second time under that text.
             if Some(n) == root
                 || !super::getters::is_inline_box_display(
                     get_display_property(self.ctx.styled_dom, Some(n)).unwrap_or_default(),
+                )
+                || matches!(
+                    get_position_type(self.ctx.styled_dom, Some(n)),
+                    LayoutPosition::Absolute | LayoutPosition::Fixed
                 )
             {
                 break;

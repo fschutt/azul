@@ -1204,6 +1204,15 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let child_display =
             get_display_property(ctx.styled_dom, Some(child_dom_id)).unwrap_or_default();
 
+        // CSS 2.1 9.2.4: `display: none` - "The element and its content
+        // generates no boxes at all". The arms below take every display
+        // they do not name for a box to inlinify, and collected the text of
+        // a hidden child of an inline box with the rest: `<span>a<b
+        // style="display: none">b</b></span>` showed "ab".
+        if child_display == LayoutDisplay::None {
+            continue;
+        }
+
         // Find the corresponding layout tree node: a layout child of the span.
         let child_index = span_layout_children
             .iter()

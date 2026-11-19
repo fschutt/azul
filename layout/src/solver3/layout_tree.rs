@@ -4284,6 +4284,14 @@ pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) 
         children = crate::solver3::regions::flow_children(styled_dom, node_id, children);
     }
 
+    // A `display: none` child generates no box (CSS 2.1 9.2.4: "The element
+    // and its content generates no boxes at all"): it is no child here, as
+    // it is none for `process_block_children`. Counted as "not inline", a
+    // hidden child beside a paragraph's text (a `::before` with `content:
+    // none`, a footnote mark that is turned off) made the paragraph a
+    // container of blocks, its text an anonymous block inside it.
+    children.retain(|&child| get_display_type(styled_dom, child) != LayoutDisplay::None);
+
     // If there are no children, it's not an IFC (it's empty)
     if children.is_empty() {
         return false;
