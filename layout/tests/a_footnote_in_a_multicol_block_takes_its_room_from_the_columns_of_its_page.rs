@@ -372,3 +372,36 @@ fn every_page_of_a_long_container_makes_room_for_its_own_notes() {
     }
     assert_eq!(notes_drawn, 8, "every note is drawn once");
 }
+
+#[test]
+fn a_note_that_fits_no_page_takes_the_footnote_area_of_the_pages_of_the_columns_it_crosses() {
+    // Eight boxes at the top of the page, a note of fifteen 20px lines
+    // (300px) written in the second. A page gives its footnote area 160px
+    // at the most: the first page has 40px for its columns, a box each,
+    // above eight lines of the note; the second 60px, a box each again,
+    // above the other seven; the last four boxes are balanced on the third.
+    let lines: Vec<String> = (0..15).map(|i| format!("l{i}")).collect();
+    let long = format!(
+        "<span class=\"fn\" style=\"height: auto; line-height: 20px\">{}</span>",
+        lines.join("<br/>")
+    );
+    let boxes: String = (0..8)
+        .map(|i| {
+            let note = if i == 1 { long.as_str() } else { "" };
+            format!("<div id=\"b{i}\" class=\"b\">{note}</div>")
+        })
+        .collect();
+    let (result, cache, dom) = pages(&html(&format!("<div class=\"cols\">{boxes}</div>")));
+    let pos = |i: usize| at(&cache, &dom, &format!("b{i}"));
+    assert_eq!((pos(0), pos(1)), ((0.0, 0.0), (220.0, 0.0)));
+    assert_eq!((pos(2), pos(3)), ((0.0, 40.0), (220.0, 40.0)));
+    assert_eq!(
+        (pos(4), pos(5), pos(6), pos(7)),
+        ((0.0, 100.0), (0.0, 140.0), (220.0, 100.0), (220.0, 140.0))
+    );
+    assert_eq!(break_ys(&result), vec![40.0, 100.0]);
+    assert_eq!(result.pages.len(), 3);
+    assert_eq!(note_on(&result.pages[0]), vec![(40.0, 200.0)]);
+    assert_eq!(note_on(&result.pages[1]), vec![(60.0, 200.0)]);
+    assert_eq!(note_on(&result.pages[2]), vec![]);
+}

@@ -36,11 +36,12 @@
 //! the user agent. A page that carries flow gives its footnote area at most
 //! [`FOOTNOTE_AREA_MAX_SHARE`] of its height (the draft's "user agents may
 //! set a default max-height value on the footnote area"); what is left
-//! over at the end of the document gets pages of footnotes only. Limits:
-//! the columns of a multi-column container count a note whole
-//! (`multicol::plan_paged_columns`), so one that is split there is not
-//! followed by the rows; and the pages of footnotes only are made by the
-//! slicer, `PaginationInfo::page_count` does not count them.
+//! over at the end of the document gets pages of footnotes only. The rows
+//! of a multi-column container follow a note that is split in it
+//! (`multicol::plan_row`). Limits: a note that starts BEFORE a container
+//! and goes on into the pages of its later rows is not counted by those
+//! rows; and the pages of footnotes only are made by the slicer,
+//! `PaginationInfo::page_count` does not count them.
 //!
 //! `footnote-policy` (same draft): this user agent's `auto` is the behaviour
 //! of `line` - a line whose note does not fit under it on the page goes to
@@ -333,9 +334,10 @@ impl Footnotes {
     /// "the user agent chooses how to render footnotes, and may place the
     /// footnote body on a later page than the footnote reference". Choices:
     /// a note that fits a page is never split; a split note starts on the
-    /// page of its line; where the area is full of what goes on from the
-    /// pages before, the first line of a page keeps its place and its note
-    /// starts on the next page.
+    /// page of its line, where the whole footnote area is free under that
+    /// line - else the line goes to the next page first; where the area is
+    /// full of what goes on from the pages before, the first line of a page
+    /// keeps its place and its note starts on the next page.
     #[must_use]
     pub fn room_for_page(
         &self,
@@ -375,8 +377,18 @@ impl Footnotes {
                 continue;
             }
             // How much of it fits under its line, cut between two lines.
+            // It starts where the whole footnote area is free under its
+            // line (the columns of a multi-column container are planned by
+            // that: `multicol::plan_row`); the first line of a page cannot
+            // move, there it takes what is under it.
             let part = if left.is_empty() && !fits_a_page {
-                let space = (bottom - reserved - line_end).min(area_max - reserved);
+                let space = if first_line {
+                    (bottom - reserved - line_end).min(area_max - reserved)
+                } else if line_end <= bottom - area_max + EPS {
+                    area_max - reserved
+                } else {
+                    0.0
+                };
                 self.cut_before(index, 0.0, space.max(0.0))
             } else {
                 0.0

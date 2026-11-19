@@ -567,10 +567,23 @@ fn notes_of(atoms: &[Atom]) -> f32 {
 /// flow whose note does not fit starts the next row, with its note: piece
 /// and note stay on one page (the behaviour of `footnote-policy: line`).
 ///
+/// A note that fits no page (taller than `area_max`, the most a page gives
+/// its footnote area) is split over the pages, as the break analysis does
+/// it (`footnotes::Footnotes::room_for_page`): the row it starts in gives
+/// it the whole footnote area, and what is left of it (`carry_in`) takes
+/// its room from the rows after.
+///
 /// Without notes in reach the row is `room` tall and ends where its
 /// `count`-th column does. A first piece whose own note leaves it no room
 /// is taken anyway (a monolith overflows, never loops).
-fn plan_row(atoms: &[Atom], from: usize, count: usize, room: f32) -> (usize, f32) {
+fn plan_row(
+    atoms: &[Atom],
+    from: usize,
+    count: usize,
+    room: f32,
+    area_max: f32,
+    carry_in: f32,
+) -> RowPlan {
     // The atom after the `count` columns filled `height` tall from `from`,
     // looking no further than `end`.
     let reach = |end: usize, height: f32| {
@@ -579,17 +592,39 @@ fn plan_row(atoms: &[Atom], from: usize, count: usize, room: f32) -> (usize, f32
             .copied()
             .unwrap_or(end)
     };
+    // What the notes of the row up to `end` ask of its page, and what the
+    // page gives them: all of it - or, when a note that fits no page is
+    // among them (or goes on from the row before), the whole footnote area.
+    let asked = |end: usize| carry_in + notes_of(&atoms[from..end]);
+    let splits = |end: usize| {
+        carry_in > 0.0 || atoms[from..end].iter().any(|a| a.notes > area_max + FIT_EPS)
+    };
+    let done = |end: usize, height: f32| {
+        let asked = asked(end);
+        let notes = if splits(end) { asked.min(area_max) } else { asked };
+        RowPlan {
+            next: end,
+            height,
+            notes,
+            rest: (asked - notes).max(0.0),
+        }
+    };
     let mut end = reach(atoms.len(), room);
     // Every round takes a note-bearing atom out of the row.
     for _ in 0..=atoms.len() {
-        let notes = notes_of(&atoms[from..end]);
-        if notes <= 0.0 {
-            return (end, room);
+        let asked_here = asked(end);
+        if asked_here <= 0.0 {
+            return done(end, room);
         }
+        let split = splits(end);
+        let notes = if split { asked_here.min(area_max) } else { asked_here };
         let height = (room - notes).max(0.0);
         let fits = reach(end, height);
-        if fits >= end {
-            return (end, height);
+        // Notes that are not split fit the footnote area whole, or one of
+        // their pieces starts the next row.
+        let area_holds = split || asked_here <= area_max + FIT_EPS;
+        if fits >= end && area_holds {
+            return done(end, height);
         }
         // The last atom of the row with a note: the atoms after it change
         // nothing about the row's room. If the columns reach past it, they
@@ -597,18 +632,32 @@ fn plan_row(atoms: &[Atom], from: usize, count: usize, room: f32) -> (usize, f32
         // opportunity at or before it), and the row is tried without it.
         let last_note = (from..end).rev().find(|&i| atoms[i].notes > 0.0);
         match last_note {
-            Some(last) if fits > last => return (fits, height),
+            Some(last) if fits > last && area_holds => return done(fits, height),
             Some(last) => {
                 let cut = (from + 1..=last).rev().find(|&i| atoms[i].break_at.is_some());
                 match cut {
                     Some(cut) => end = cut,
-                    None => return (fits.max(from + 1), height),
+                    None => return done(fits.max(from + 1), height),
                 }
             }
-            None => return (end, room),
+            // Only what goes on from the row before: the row is as tall as
+            // that leaves it.
+            None => return done(fits.max(from + 1), height),
         }
     }
-    (end, room)
+    done(end, room)
+}
+
+/// One row of a paged multi-column container ([`plan_row`]).
+struct RowPlan {
+    /// The atom the next row starts with (`atoms.len()`: this is the last).
+    next: usize,
+    /// How tall the row's columns may be.
+    height: f32,
+    /// The room the footnotes take at the bottom of the row's page.
+    notes: f32,
+    /// What is left of footnotes that fit no page for the next row's page.
+    rest: f32,
 }
 
 /// The columns that start with the atoms `firsts`, on `lanes` / `row_tops`.
@@ -742,24 +791,32 @@ pub fn plan_paged_columns(boxes: &[FlowBox], count: u32, room: PageRoom) -> Colu
         return empty_plan();
     }
     let count = count.max(1) as usize;
-    let (first_room, lead) =
-        if atoms[0].bottom + atoms[0].notes > room.first + FIT_EPS && room.first < room.rest {
-            (room.rest, room.first)
-        } else {
-            (room.first, 0.0)
-        };
+    // The most a page gives its footnote area (`footnotes`): a note taller
+    // than that is split over the pages.
+    let area_max = room.rest * crate::solver3::footnotes::FOOTNOTE_AREA_MAX_SHARE;
+    let (first_room, lead) = if atoms[0].bottom + atoms[0].notes.min(area_max)
+        > room.first + FIT_EPS
+        && room.first < room.rest
+    {
+        (room.rest, room.first)
+    } else {
+        (room.first, 0.0)
+    };
     let mut firsts: Vec<usize> = Vec::new();
     let mut row_tops = vec![lead];
     let mut row_notes: Vec<f32> = Vec::new();
     let mut from = 0usize;
+    // What is left of the notes of the rows so far for the next page.
+    let mut carry = 0.0_f32;
     loop {
         let page = if row_notes.is_empty() {
             first_room
         } else {
             room.rest
         };
-        let (next, height) = plan_row(&atoms, from, count, page);
-        let notes = notes_of(&atoms[from..next]);
+        let row = plan_row(&atoms, from, count, page, area_max, carry);
+        let (next, height, notes) = (row.next, row.height, row.notes);
+        carry = row.rest;
         row_notes.push(notes);
         if next >= atoms.len() {
             // The last row: balanced, under what its notes leave it.
@@ -905,16 +962,25 @@ pub fn plan_page_rooms(
         height: f32,
         notes: f32,
         rest: f32,
+        /// What is left of footnotes that fit no page, for the pages after
+        /// this one (`footnotes::Footnotes::room_for_page`).
+        carry: f32,
     }
     impl Page {
         /// Where the page's flow ends on the canvas.
         fn end(&self) -> f32 {
             self.top + self.height - self.notes
         }
+        /// The most the page gives its footnote area.
+        fn area_max(&self) -> f32 {
+            self.height * crate::solver3::footnotes::FOOTNOTE_AREA_MAX_SHARE
+        }
         fn start_at(&mut self, top: f32) {
             self.top = top;
             self.height = self.rest;
-            self.notes = 0.0;
+            // What goes on from the page before comes first.
+            self.notes = self.carry.min(self.area_max());
+            self.carry -= self.notes;
         }
         /// Moves to the page `y` is on; an end (`starts_here` false) on a
         /// boundary is still on the page before it.
@@ -943,6 +1009,7 @@ pub fn plan_page_rooms(
         height: first,
         notes: 0.0,
         rest,
+        carry: 0.0,
     };
     for event in events {
         match *event {
@@ -958,12 +1025,24 @@ pub fn plan_page_rooms(
                 page.advance(y, true);
                 // A line (or place) at the page's top stays with its note
                 // whatever its height (`Footnotes::room_for_page`).
-                if bottom <= page.end() - height + FIT_EPS || y <= page.top + 1.0 {
+                let at_top = y <= page.top + 1.0;
+                if height > page.area_max() + FIT_EPS {
+                    // It fits no page: it is split. It starts where the
+                    // whole footnote area is free under its line (else its
+                    // line starts the next page), and goes on on the pages
+                    // after.
+                    if !at_top && bottom > page.top + page.height - page.area_max() + FIT_EPS {
+                        page.start_at(y);
+                    }
+                    let part = (page.area_max() - page.notes).max(0.0).min(height);
+                    page.notes += part;
+                    page.carry += height - part;
+                } else if bottom <= page.end() - height + FIT_EPS || at_top {
                     page.notes += height;
                 } else {
                     // The line goes to the next page with its note.
                     page.start_at(y);
-                    page.notes = height;
+                    page.notes += height;
                 }
             }
             PageEvent::Container { node, y } => {
@@ -1617,5 +1696,25 @@ mod tests {
         };
         assert!(rooms_of(false).is_empty());
         assert!(near(rooms_of(true)[&NodeId::new(1)], 140.0));
+    }
+
+    #[test]
+    fn a_note_that_fits_no_page_takes_the_footnote_area_of_the_rows_it_crosses() {
+        // Twenty-four boxes on 200px pages, a 300px note in the second. The
+        // footnote area holds 160px: the first row has 40px, one box a
+        // column, and the note's first 160px; the second row the other
+        // 140px and 60px, one box a column again; the rest is balanced.
+        let plan = plan_paged_columns(
+            &boxes_with_note(8, 1, 300.0),
+            2,
+            PageRoom {
+                first: 200.0,
+                rest: 200.0,
+            },
+        );
+        let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
+        assert_eq!(columns, vec![0, 1, 2, 3, 4, 4, 5, 5]);
+        assert_eq!(plan.row_notes, vec![160.0, 140.0, 0.0]);
+        assert_eq!(plan.row_tops, vec![0.0, 40.0, 100.0]);
     }
 }
