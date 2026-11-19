@@ -12404,6 +12404,154 @@ fn clip_image_item(
     })
 }
 
+/// Draws the part `fragment` of a footnote onto a page, its top at `page_y`:
+/// the note's own display items (and, around those drawn, its own clips and
+/// stacking contexts), moved from where the note is parked on the canvas. A
+/// whole note is moved as it is; a part of one that is split over pages is
+/// cut out of it like a page is cut out of the canvas
+/// ([`clip_and_offset_display_item`]): the lines of the part, the slice of
+/// its backgrounds and borders.
+fn push_note_fragment(
+    full_display_list: &DisplayList,
+    footnotes: &crate::solver3::footnotes::Footnotes,
+    fragment: crate::solver3::footnotes::NoteFragment,
+    page_y: f32,
+    page_items: &mut Vec<DisplayListItem>,
+    page_node_mapping: &mut Vec<Option<NodeId>>,
+) {
+    let (Some(note), Some((first, last))) = (
+        footnotes.notes.get(fragment.note),
+        footnotes.item_range(fragment.note),
+    ) else {
+        return;
+    };
+    let whole = fragment.from <= 0.01 && fragment.to >= note.height - 0.01;
+    let (band_start, band_end) = (note.top + fragment.from, note.top + fragment.to);
+    let moved = |item: &DisplayListItem| -> Option<DisplayListItem> {
+        if whole {
+            Some(offset_display_item_y(item, page_y - note.top))
+        } else {
+            clip_and_offset_display_item(item, band_start, band_end)
+                .map(|clipped| offset_display_item_y(&clipped, page_y))
+        }
+    };
+    let moved_marker = |item: &DisplayListItem| -> DisplayListItem {
+        if whole {
+            offset_display_item_y(item, page_y - note.top)
+        } else {
+            rebase_marker_into_band(item, band_start, band_end, page_y)
+        }
+    };
+    let mut open: Vec<(usize, bool)> = Vec::new();
+    for item_idx in first..=last {
+        let Some(item) = full_display_list.items.get(item_idx) else {
+            break;
+        };
+        if item.is_push_marker() {
+            open.push((item_idx, false));
+            continue;
+        }
+        if item.is_pop_marker() {
+            if let Some((_, true)) = open.pop() {
+                page_items.push(item.clone());
+                page_node_mapping.push(None);
+            }
+            continue;
+        }
+        if footnotes.owner(item_idx) != Some(fragment.note) {
+            continue;
+        }
+        let Some(drawn) = moved(item) else {
+            continue;
+        };
+        for (marker_idx, emitted) in &mut open {
+            if !*emitted && footnotes.owner(*marker_idx) == Some(fragment.note) {
+                page_items.push(moved_marker(&full_display_list.items[*marker_idx]));
+                page_node_mapping.push(None);
+                *emitted = true;
+            }
+        }
+        page_items.push(drawn);
+        page_node_mapping.push(
+            full_display_list
+                .node_mapping
+                .get(item_idx)
+                .copied()
+                .flatten(),
+        );
+    }
+    for (marker_idx, emitted) in open.iter().rev() {
+        if *emitted {
+            if let Some(pop) = full_display_list.items[*marker_idx].matching_pop() {
+                page_items.push(pop);
+                page_node_mapping.push(None);
+            }
+        }
+    }
+}
+
+/// A clip, stacking-context or scroll-frame marker cut to the band of the
+/// canvas from `band_start` to `band_end` and moved so that the band's top
+/// stands at `page_y` on the page - what the slicer does with the markers
+/// of a page's own slice, for a part of a footnote.
+fn rebase_marker_into_band(
+    item: &DisplayListItem,
+    band_start: f32,
+    band_end: f32,
+    page_y: f32,
+) -> DisplayListItem {
+    let rebase = |r: LogicalRect| -> LogicalRect {
+        let top = r.origin.y.max(band_start);
+        let bottom = (r.origin.y + r.size.height).min(band_end);
+        LogicalRect {
+            origin: LogicalPosition {
+                x: r.origin.x,
+                y: (top - band_start) + page_y,
+            },
+            size: LogicalSize {
+                width: r.size.width,
+                height: (bottom - top).max(0.0),
+            },
+        }
+    };
+    match item {
+        DisplayListItem::PushClip {
+            bounds,
+            border_radius,
+        } => DisplayListItem::PushClip {
+            bounds: rebase(bounds.0).into(),
+            border_radius: *border_radius,
+        },
+        DisplayListItem::PushStackingContext { z_index, bounds } => {
+            DisplayListItem::PushStackingContext {
+                z_index: *z_index,
+                bounds: rebase(bounds.0).into(),
+            }
+        }
+        DisplayListItem::PushScrollFrame {
+            clip_bounds,
+            content_size,
+            scroll_id,
+        } => DisplayListItem::PushScrollFrame {
+            clip_bounds: rebase(clip_bounds.0).into(),
+            content_size: *content_size,
+            scroll_id: *scroll_id,
+        },
+        DisplayListItem::PushImageMaskClip {
+            bounds,
+            mask_image,
+            mask_rect,
+            geometry,
+        } => DisplayListItem::PushImageMaskClip {
+            bounds: rebase(bounds.0).into(),
+            mask_image: mask_image.clone(),
+            mask_rect: rebase(mask_rect.0).into(),
+            geometry: geometry.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
 /// Puts the text of a page's `TextLayout` item into the form the consumers
 /// of a page read: a bare `UnifiedLayout` holding its shaped items.
 ///
@@ -13151,6 +13299,72 @@ fn paginate_pages_impl(
         page_spans.push((0.0, total_height.max(constraints.first_page_content_height)));
     }
 
+    // How tall the content area of page `page_idx` is: what the break
+    // analysis cut it for.
+    let area_height_of = |page_idx: usize| -> f32 {
+        config.page_sequence.as_ref().map_or_else(
+            || {
+                let constraints = page_breaks::PageConstraints::from_slicer_config(config);
+                if page_idx == 0 {
+                    constraints.first_page_content_height
+                } else {
+                    constraints.normal_page_content_height
+                }
+            },
+            |s| s.setup_for_page(page_idx).content_height(),
+        )
+    };
+
+    // The parts of footnotes every page draws (`Footnotes::fragments_for_page`):
+    // a note that does not fit goes on on the next page, so the pages are
+    // planned in order, whichever of them is asked for. What is left over
+    // after the last page of the flow gets pages of its own - pages of
+    // footnotes only (CSS Generated Content for Paged Media, "Size of the
+    // footnote area": "as may happen on the last page of a document"),
+    // spans of no height at the end of the canvas.
+    let mut note_plan: Vec<Vec<crate::solver3::footnotes::NoteFragment>> = Vec::new();
+    if !config.footnotes.is_empty() {
+        let mut rest = Vec::new();
+        let flow_pages = page_spans.len();
+        for (page_idx, &(start, end)) in page_spans.iter().enumerate() {
+            let heads: f32 = config
+                .table_headers
+                .straddling_tables_for_page(page_idx, start, end)
+                .iter()
+                .map(|t| t.thead_height)
+                .sum();
+            let notes_end = if page_idx + 1 == flow_pages {
+                f32::INFINITY
+            } else {
+                end
+            };
+            note_plan.push(config.footnotes.fragments_for_page(
+                start,
+                notes_end,
+                (end - start + heads).max(0.1),
+                area_height_of(page_idx),
+                &mut rest,
+            ));
+        }
+        // Bounded: a page of footnotes only always takes a piece.
+        while !rest.is_empty() && note_plan.len() < flow_pages + 10_000 {
+            let page_idx = note_plan.len();
+            let before = rest.clone();
+            let fragments = config.footnotes.fragments_for_page(
+                total_height,
+                total_height,
+                0.0,
+                area_height_of(page_idx),
+                &mut rest,
+            );
+            if fragments.is_empty() || rest == before {
+                break;
+            }
+            note_plan.push(fragments);
+            page_spans.push((total_height, total_height));
+        }
+    }
+
     let num_pages = page_spans.len();
 
     // Pages are handed to `on_page` as they are built, so nothing accumulates
@@ -13380,7 +13594,14 @@ fn paginate_pages_impl(
             }
         };
 
-        for (item_idx, item) in full_display_list.items.iter().enumerate() {
+        // A page of footnotes only (a span of no height after the end of
+        // the flow) has no slice of the canvas.
+        let content_items: &[DisplayListItem] = if content_end_y > content_start_y {
+            &full_display_list.items
+        } else {
+            &[]
+        };
+        for (item_idx, item) in content_items.iter().enumerate() {
             // Maintain the live marker stack for EVERY item, retained or not.
             if item.is_push_marker() {
                 marker_stack.push(OpenMarker {
@@ -13455,94 +13676,29 @@ fn paginate_pages_impl(
         }
 
         // 4a. The page's footnotes (CSS Generated Content for Paged Media,
-        // "Footnotes": the footnote area is at the bottom of the page): the
-        // notes whose anchor is on this page, stacked in document order,
-        // the last one ending at the bottom edge of the page's content
-        // area. The break analysis took their heights from the page's flow
-        // (`Footnotes::room_for_page`), so they start where it ends at the
-        // earliest - which is where they start when they are taller than
-        // the page leaves them (a note is not split: it runs past the edge).
-        if !config.footnotes.is_empty() {
-            let is_last_page = page_idx + 1 == num_pages;
-            let notes_end = if is_last_page {
-                f32::INFINITY
-            } else {
-                content_end_y
-            };
-            let page_notes = config.footnotes.on_page(content_start_y, notes_end);
-            if !page_notes.is_empty() {
-                // How tall this page's content area is: what the break
-                // analysis cut it for.
-                let area_height = config.page_sequence.as_ref().map_or_else(
-                    || {
-                        let constraints = page_breaks::PageConstraints::from_slicer_config(config);
-                        if page_idx == 0 {
-                            constraints.first_page_content_height
-                        } else {
-                            constraints.normal_page_content_height
-                        }
-                    },
-                    |s| s.setup_for_page(page_idx).content_height(),
+        // "Footnotes": the footnote area is at the bottom of the page; "The
+        // bottom margin edge of the footnote area is positioned so that it
+        // touches the bottom of the page area"): what goes on from the page
+        // before, then the notes whose anchor is on this page, in document
+        // order, the last one ending at the bottom edge of the page's
+        // content area. The break analysis took their heights from the
+        // page's flow (`Footnotes::room_for_page`), so they start where it
+        // ends at the earliest.
+        if let Some(fragments) = note_plan.get(page_idx).filter(|f| !f.is_empty()) {
+            let notes_height: f32 = fragments.iter().map(|f| f.height()).sum();
+            let flow_bottom = header_space + sum_all_theads + (content_end_y - content_start_y);
+            let mut note_top =
+                (header_space + area_height_of(page_idx) - notes_height).max(flow_bottom);
+            for fragment in fragments {
+                push_note_fragment(
+                    &full_display_list,
+                    &config.footnotes,
+                    *fragment,
+                    note_top,
+                    &mut page_items,
+                    &mut page_node_mapping,
                 );
-                let notes_height: f32 = page_notes.iter().map(|(_, n)| n.height).sum();
-                let flow_bottom = header_space + sum_all_theads + (content_end_y - content_start_y);
-                let mut note_top = (header_space + area_height - notes_height).max(flow_bottom);
-                for (note_idx, note) in page_notes {
-                    let dy = note_top - note.top;
-                    let Some((first, last)) = config.footnotes.item_range(note_idx) else {
-                        note_top += note.height;
-                        continue;
-                    };
-                    // The note's own clips and stacking contexts go with it,
-                    // emitted like the page's: only around an item drawn.
-                    let mut open: Vec<(usize, bool)> = Vec::new();
-                    for item_idx in first..=last {
-                        let Some(item) = full_display_list.items.get(item_idx) else {
-                            break;
-                        };
-                        if item.is_push_marker() {
-                            open.push((item_idx, false));
-                            continue;
-                        }
-                        if item.is_pop_marker() {
-                            if let Some((_, true)) = open.pop() {
-                                page_items.push(item.clone());
-                                page_node_mapping.push(None);
-                            }
-                            continue;
-                        }
-                        if config.footnotes.owner(item_idx) != Some(note_idx) {
-                            continue;
-                        }
-                        for (marker_idx, emitted) in &mut open {
-                            if !*emitted && config.footnotes.owner(*marker_idx) == Some(note_idx) {
-                                page_items.push(offset_display_item_y(
-                                    &full_display_list.items[*marker_idx],
-                                    dy,
-                                ));
-                                page_node_mapping.push(None);
-                                *emitted = true;
-                            }
-                        }
-                        page_items.push(offset_display_item_y(item, dy));
-                        page_node_mapping.push(
-                            full_display_list
-                                .node_mapping
-                                .get(item_idx)
-                                .copied()
-                                .flatten(),
-                        );
-                    }
-                    for (marker_idx, emitted) in open.iter().rev() {
-                        if *emitted {
-                            if let Some(pop) = full_display_list.items[*marker_idx].matching_pop() {
-                                page_items.push(pop);
-                                page_node_mapping.push(None);
-                            }
-                        }
-                    }
-                    note_top += note.height;
-                }
+                note_top += fragment.height();
             }
         }
 

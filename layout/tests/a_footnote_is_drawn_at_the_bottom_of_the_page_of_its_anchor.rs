@@ -524,3 +524,132 @@ fn a_note_inside_an_inline_box_is_anchored_on_the_line_it_is_written_in() {
     assert_eq!(rects(&result.pages[0], RED), vec![]);
     assert_eq!(rects(&result.pages[1], RED), vec![(150.0, 200.0, 0.0, 800.0)]);
 }
+
+/// A note `id` of `lines` 20px lines (a `<br/>` between them).
+fn long_note(id: &str, lines: usize) -> String {
+    let text: Vec<String> = (0..lines).map(|i| format!("l{i}")).collect();
+    format!(
+        "<span id=\"{id}\" class=\"fn\" style=\"line-height: 20px\">{}</span>",
+        text.join("<br/>")
+    )
+}
+
+/// The baselines of the text drawn on `page` at or below `from`,
+/// ascending, each once.
+fn baselines(page: &DisplayList, from: f32) -> Vec<f32> {
+    let mut ys: Vec<f32> = page
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Text { glyphs, .. } => glyphs.first().map(|g| g.point.y),
+            _ => None,
+        })
+        .filter(|y| *y >= from)
+        .collect();
+    ys.sort_by(f32::total_cmp);
+    ys.dedup_by(|a, b| (*a - *b).abs() < 0.5);
+    ys
+}
+
+#[test]
+fn a_note_that_fits_no_page_goes_on_at_the_bottom_of_the_next_page() {
+    // CSS Generated Content for Paged Media has no rule for a note that
+    // does not fit ("We need an algorithm for laying out footnotes"); under
+    // `footnote-policy: auto` the user agent chooses. This one splits the
+    // note between its lines. The note ran past the bottom of its page.
+    //
+    // A paragraph of one line with a note of twelve 20px lines (240px, more
+    // than a page), then 100px of blocks. The first page: the line, then
+    // 160px of the note at the most (the footnote area's default
+    // max-height, four fifths of the page): eight lines, and 20px of the
+    // blocks between them. The other four lines stand at the bottom of the
+    // second page, under the rest of the blocks.
+    let (result, _, _) = pages(&html(&format!(
+        "<p>one{}</p>{}",
+        long_note("n1", 12),
+        blocks(2, 50)
+    )));
+    assert_eq!(break_ys(&result), vec![40.0], "the first page's flow: the line and 20px");
+    assert_eq!(result.pages.len(), 2);
+    assert_eq!(
+        rects(&result.pages[0], RED),
+        vec![(40.0, 200.0, 0.0, 800.0)],
+        "eight lines of the note on the first page"
+    );
+    assert_eq!(
+        rects(&result.pages[1], RED),
+        vec![(120.0, 200.0, 0.0, 800.0)],
+        "its last four lines at the bottom of the second"
+    );
+    // No line is cut: the note's lines stand a line apart on both pages,
+    // eight and four of them, inside the note.
+    for (page, top, lines) in [(0, 40.0, 8), (1, 120.0, 4)] {
+        let ys = baselines(&result.pages[page], top);
+        assert_eq!(ys.len(), lines, "page {page}: {ys:?}");
+        assert!(
+            ys.windows(2).all(|w| (w[1] - w[0] - 20.0).abs() < 0.5) && ys[lines - 1] < PAGE,
+            "page {page}: {ys:?}"
+        );
+    }
+    // The second page's flow ends above what goes on of the note.
+    let flow_bottom = rects(&result.pages[1], BLUE)
+        .into_iter()
+        .map(|(_, bottom, _, _)| bottom)
+        .fold(0.0_f32, f32::max);
+    assert!(flow_bottom <= 120.0, "{flow_bottom}");
+}
+
+#[test]
+fn a_note_of_three_pages_is_followed_by_the_notes_of_the_pages_it_crosses() {
+    // Twenty lines (400px) from the first line on. First page: the line,
+    // eight lines of the note, 20px of the flow between. Second: eight more
+    // lines, 40px of flow. Third: the last four - and under them the short
+    // note of the paragraph that page's flow starts with.
+    let (result, _, _) = pages(&html(&format!(
+        "<p>one{}</p>{}<p>two{}</p>{}",
+        long_note("n1", 20),
+        blocks(1, 60),
+        note("n2", 20),
+        blocks(1, 50)
+    )));
+    assert_eq!(break_ys(&result), vec![40.0, 80.0]);
+    assert_eq!(result.pages.len(), 3, "breaks: {:?}", break_ys(&result));
+    assert_eq!(rects(&result.pages[0], RED), vec![(40.0, 200.0, 0.0, 800.0)]);
+    assert_eq!(rects(&result.pages[1], RED), vec![(40.0, 200.0, 0.0, 800.0)]);
+    let last = rects(&result.pages[2], RED);
+    let second_note = rects(&result.pages[2], GREEN);
+    assert_eq!(last.len(), 1, "{last:?}");
+    assert_eq!(last[0].1 - last[0].0, 80.0, "the last four lines: {last:?}");
+    assert_eq!(second_note.len(), 1, "{second_note:?}");
+    assert_eq!(
+        (last[0].1, second_note[0].1),
+        (second_note[0].0, PAGE),
+        "what goes on stands above the page's own note, which ends at the bottom edge"
+    );
+    assert_eq!(rects(&result.pages[0], GREEN), vec![]);
+    assert_eq!(rects(&result.pages[1], GREEN), vec![]);
+}
+
+#[test]
+fn what_is_left_of_a_note_at_the_end_of_the_document_gets_a_page_of_its_own() {
+    // Twelve lines, and nothing after the paragraph: the first page takes
+    // eight, the other four a page of footnotes only.
+    let (result, _, _) = pages(&html(&format!("<p>one{}</p>", long_note("n1", 12))));
+    assert_eq!(result.pages.len(), 2);
+    assert_eq!(rects(&result.pages[0], RED), vec![(40.0, 200.0, 0.0, 800.0)]);
+    assert_eq!(rects(&result.pages[1], RED), vec![(120.0, 200.0, 0.0, 800.0)]);
+}
+
+#[test]
+fn a_note_that_fits_a_page_is_never_split() {
+    // Seven lines (140px) do not fit under a line at 100..120 of a 200px
+    // page, but they fit a page: line and note go to the next page, whole.
+    let (result, _, _) = pages(&html(&format!(
+        "{}<p>one{}</p>",
+        blocks(2, 50),
+        long_note("n1", 7)
+    )));
+    assert_eq!(break_ys(&result), vec![100.0]);
+    assert_eq!(rects(&result.pages[0], RED), vec![]);
+    assert_eq!(rects(&result.pages[1], RED), vec![(60.0, 200.0, 0.0, 800.0)]);
+}

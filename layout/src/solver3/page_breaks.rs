@@ -409,6 +409,8 @@ fn compute_page_breaks_impl(
     let mut page_height = first;
     let mut page_index: usize = 0;
     let mut forced_iter = forced.into_iter().peekable();
+    // The footnotes that go on from the page before (`footnotes::NoteRest`).
+    let mut note_rest: Vec<crate::solver3::footnotes::NoteRest> = Vec::new();
 
     loop {
         // Per-page setup (classic office suites model): the sequence overrides the height
@@ -429,8 +431,17 @@ fn compute_page_breaks_impl(
         // Generated Content for Paged Media, "Footnotes"; `footnote-policy:
         // line`). Only the anchors before the next forced break are this
         // page's.
+        // What the pages before left over of their notes goes on here
+        // (`note_rest`); what this page leaves over is only known for good
+        // once the page ends (`rest_after`).
+        let mut rest_after = note_rest.clone();
         let note_room = footnotes.map(|f| {
-            f.room_for_page(prev_end, effective_height, forced_iter.peek().map(|fb| fb.y))
+            f.room_for_page(
+                prev_end,
+                effective_height,
+                forced_iter.peek().map(|fb| fb.y),
+                &mut rest_after,
+            )
         });
         let full = prev_end + effective_height;
         let naive = note_room.map_or(full, |room| {
@@ -450,6 +461,7 @@ fn compute_page_breaks_impl(
                     prev_end = fb.y;
                     page_height = normal;
                     page_index += 1;
+                    note_rest = rest_after;
                 }
                 continue;
             }
@@ -485,6 +497,7 @@ fn compute_page_breaks_impl(
         prev_end = adjusted;
         page_height = normal;
         page_index += 1;
+        note_rest = rest_after;
         // `!(x > 0.0)` semantics kept explicitly: a NaN height must also stop
         // the loop, so test `<= 0.0 || is_nan` instead of the negation.
         if sequence.is_none() && (normal <= 0.0 || normal.is_nan()) {

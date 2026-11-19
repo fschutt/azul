@@ -29,6 +29,19 @@
 //! the notes above it on its page leave (`multicol::plan_page_rooms`). The
 //! break analysis then finds the page's flow ending where the row does.
 //!
+//! A NOTE THAT FITS NO PAGE is split between two of its lines and goes on
+//! in the footnote area of the next page, before that page's own notes
+//! ([`Footnotes::room_for_page`], [`Footnotes::fragments_for_page`]). The
+//! draft has no rule for it; `footnote-policy: auto` leaves the rendering to
+//! the user agent. A page that carries flow gives its footnote area at most
+//! [`FOOTNOTE_AREA_MAX_SHARE`] of its height (the draft's "user agents may
+//! set a default max-height value on the footnote area"); what is left
+//! over at the end of the document gets pages of footnotes only. Limits:
+//! the columns of a multi-column container count a note whole
+//! (`multicol::plan_paged_columns`), so one that is split there is not
+//! followed by the rows; and the pages of footnotes only are made by the
+//! slicer, `PaginationInfo::page_count` does not count them.
+//!
 //! `footnote-policy` (same draft): this user agent's `auto` is the behaviour
 //! of `line` - a line whose note does not fit under it on the page goes to
 //! the next page together with the note. The property itself is not
@@ -39,8 +52,6 @@
 //!   call mark in the text and the mark in the note;
 //! - `@page { @footnote { ... } }` (the footnote area cannot be styled or moved), `footnote-display`,
 //!   `footnote-policy`;
-//! - a note is never split: one taller than what its page leaves is drawn from the end of the
-//!   page's flow and runs past the bottom edge;
 //! - the margins of two notes stacked on a page do not collapse;
 //! - a page sequence with pages of different heights is not tested with notes.
 
@@ -113,7 +124,42 @@ pub struct Footnotes {
     owners: Vec<Option<u32>>,
     /// Per note: the first and the last display item that is its.
     ranges: Vec<Option<(usize, usize)>>,
+    /// Per note: the block ranges it cannot be cut in - its lines and its
+    /// images - from its margin box's top, ascending and not overlapping.
+    unbreakable: Vec<Vec<(f32, f32)>>,
 }
+
+/// A part of a footnote that is drawn on one page: the note (its index in
+/// [`Footnotes::notes`]) from `from` to `to` below its margin box's top.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NoteFragment {
+    pub note: usize,
+    pub from: f32,
+    pub to: f32,
+}
+
+impl NoteFragment {
+    #[must_use]
+    pub fn height(&self) -> f32 {
+        (self.to - self.from).max(0.0)
+    }
+}
+
+/// A footnote that goes on on the next page: the note and how much of it
+/// the pages before have drawn (0 = it starts there).
+pub type NoteRest = (usize, f32);
+
+/// How much of a page that also carries flow its footnote area may take at
+/// the most, as a share of the page's content height.
+///
+/// CSS Generated Content for Paged Media, "Size of the footnote area": "The
+/// max-height property on the footnote area limits the size of this area,
+/// unless the page contains only footnotes [...]. Since it is undesirable
+/// for a page to consist only of footnotes, user agents may set a default
+/// max-height value on the footnote area." The value is a choice of this
+/// engine. It is also what lets a note longer than a page go on: every page
+/// keeps a fifth of its height for the flow, so the pages keep coming.
+pub const FOOTNOTE_AREA_MAX_SHARE: f32 = 0.8;
 
 impl Footnotes {
     /// Whether the canvas has no footnotes.
@@ -156,52 +202,208 @@ impl Footnotes {
         on_page
     }
 
-    /// How far the flow of the page that starts at `start` may run when the
-    /// page is `height` tall, with the next forced break at `until`.
-    ///
-    /// The notes are tried in the order of their anchors. A note whose
-    /// anchor starts where the flow still is takes its height from the
-    /// flow, if its line then still ends above the notes - and so do the
-    /// lines of the notes taken before it. The first note that does not fit
-    /// ends the page before its line: line and note go to the next page
-    /// together (`footnote-policy: line`, this user agent's `auto`).
-    ///
-    /// A note that does not fit under the FIRST line of a page can fit on
-    /// no page: it stays with its line, and is drawn from the end of the
-    /// page's flow past the bottom edge (a limit of this implementation:
-    /// notes are not split).
+    /// Where the note `note` can be cut at the latest, at or before `limit`
+    /// below its margin box's top, having been drawn down to `from`: between
+    /// two of its lines, never inside one (nor inside an image). `from`
+    /// when not even its next line fits; its height when all of it does.
     #[must_use]
-    pub fn room_for_page(&self, start: f32, height: f32, until: Option<f32>) -> PageRoom {
+    pub fn cut_before(&self, note: usize, from: f32, limit: f32) -> f32 {
+        let Some(n) = self.notes.get(note) else {
+            return from;
+        };
+        if limit >= n.height - EPS {
+            return n.height;
+        }
+        let mut cut = limit;
+        if let Some(ranges) = self.unbreakable.get(note) {
+            // The lines are ascending: the one `limit` falls in is cut
+            // before; one above it may reach into that one's top.
+            for &(top, bottom) in ranges.iter().rev() {
+                if cut > top + EPS && cut < bottom - EPS {
+                    cut = top;
+                }
+            }
+        }
+        if cut > from + EPS {
+            cut
+        } else {
+            from
+        }
+    }
+
+    /// The end of the line (or image) of `note` that starts at or after
+    /// `from`: what a page takes of a note when nothing of it fits and it
+    /// has to go on (a page of footnotes only).
+    fn next_piece_end(&self, note: usize, from: f32) -> f32 {
+        let height = self.notes.get(note).map_or(from, |n| n.height);
+        self.unbreakable
+            .get(note)
+            .and_then(|ranges| ranges.iter().find(|(_, bottom)| *bottom > from + EPS))
+            .map_or(height, |(_, bottom)| bottom.min(height))
+    }
+
+    /// Fills a footnote area that has `room` with the notes of `queue`, in
+    /// order: each one whole when it fits, else cut between two of its lines
+    /// ([`Self::cut_before`]) - and then it and everything after it goes on
+    /// on the next page, which the returned rest is the queue of. `forced`
+    /// (a page of footnotes only): a first piece that does not fit is taken
+    /// anyway, so the pages end.
+    #[must_use]
+    pub fn fill_area(
+        &self,
+        queue: &[NoteRest],
+        mut room: f32,
+        forced: bool,
+    ) -> (Vec<NoteFragment>, Vec<NoteRest>) {
+        let mut placed: Vec<NoteFragment> = Vec::new();
+        let mut rest: Vec<NoteRest> = Vec::new();
+        for &(note, from) in queue {
+            let Some(n) = self.notes.get(note) else {
+                continue;
+            };
+            if !rest.is_empty() {
+                rest.push((note, from));
+                continue;
+            }
+            let mut to = self.cut_before(note, from, from + room.max(0.0));
+            if to <= from + EPS && forced && placed.is_empty() {
+                to = self.next_piece_end(note, from);
+            }
+            if to > from + EPS {
+                placed.push(NoteFragment { note, from, to });
+                room -= to - from;
+            }
+            if to < n.height - EPS {
+                rest.push((note, to.max(from)));
+            }
+        }
+        (placed, rest)
+    }
+
+    /// The parts of footnotes a page draws: what the pages before left over
+    /// (`rest`, updated to what THIS page leaves over), then the page's own
+    /// notes - those anchored in its flow from `start` to `end` - in
+    /// document order, in the room its flow leaves of its `height`.
+    ///
+    /// A page with flow gives its footnote area no more than
+    /// [`FOOTNOTE_AREA_MAX_SHARE`] of its height; a page without (`start`
+    /// = `end`, after the end of the document) all of it.
+    #[must_use]
+    pub fn fragments_for_page(
+        &self,
+        start: f32,
+        end: f32,
+        flow_height: f32,
+        height: f32,
+        rest: &mut Vec<NoteRest>,
+    ) -> Vec<NoteFragment> {
+        let mut queue = core::mem::take(rest);
+        let only_notes = flow_height <= EPS;
+        if !only_notes {
+            queue.extend(self.on_page(start, end).into_iter().map(|(i, _)| (i, 0.0)));
+        }
+        let room = if only_notes {
+            height
+        } else {
+            (height - flow_height).min(height * FOOTNOTE_AREA_MAX_SHARE)
+        };
+        let (placed, left) = self.fill_area(&queue, room, only_notes);
+        *rest = left;
+        placed
+    }
+
+    /// How far the flow of the page that starts at `start` may run when the
+    /// page is `height` tall, with the next forced break at `until` and the
+    /// footnotes the pages before left over in `rest` (updated to what this
+    /// page leaves over).
+    ///
+    /// First come the notes that go on from the page before, as much of
+    /// them as the footnote area may hold ([`FOOTNOTE_AREA_MAX_SHARE`]).
+    /// Then the page's own notes are tried in the order of their anchors. A
+    /// note whose anchor starts where the flow still is takes its height
+    /// from the flow, if its line then still ends above the notes - and so
+    /// do the lines of the notes taken before it. The first note that does
+    /// not fit ends the page before its line: line and note go to the next
+    /// page together (`footnote-policy: line`, this user agent's `auto`).
+    ///
+    /// A note that fits NO page whole under its line is not moved, it is
+    /// SPLIT: it takes the lines of it that fit under its line, and goes on
+    /// in the footnote area of the next page. The draft has no rule for
+    /// this ("We need an algorithm for laying out footnotes"); under `auto`
+    /// "the user agent chooses how to render footnotes, and may place the
+    /// footnote body on a later page than the footnote reference". Choices:
+    /// a note that fits a page is never split; a split note starts on the
+    /// page of its line; where the area is full of what goes on from the
+    /// pages before, the first line of a page keeps its place and its note
+    /// starts on the next page.
+    #[must_use]
+    pub fn room_for_page(
+        &self,
+        start: f32,
+        height: f32,
+        until: Option<f32>,
+        rest: &mut Vec<NoteRest>,
+    ) -> PageRoom {
         let bottom = start + height;
-        let mut reserved = 0.0_f32;
+        let area_max = height * FOOTNOTE_AREA_MAX_SHARE;
+        let (placed, mut left) = self.fill_area(&core::mem::take(rest), area_max, false);
+        let mut reserved: f32 = placed.iter().map(NoteFragment::height).sum();
         // The lowest line end of the notes taken so far.
         let mut lines_end = start;
-        for note in &self.notes {
+        let mut room = PageRoom {
+            flow_end: bottom,
+            ends_before_a_line: false,
+        };
+        for (index, note) in self.notes.iter().enumerate() {
             if note.anchor_top < start - EPS || until.is_some_and(|u| note.anchor_top >= u) {
                 continue;
             }
             if note.anchor_top >= bottom - reserved - EPS {
                 break; // this note and those after it start below the flow
             }
+            let first_line = note.anchor_top <= start + FIRST_LINE;
             let line_end = lines_end.max(note.anchor_bottom);
-            if line_end <= bottom - reserved - note.height + EPS {
+            let line_height = note.anchor_bottom - note.anchor_top;
+            let fits_here = left.is_empty()
+                && line_end <= bottom - reserved - note.height + EPS
+                && reserved + note.height <= area_max + EPS;
+            let fits_a_page =
+                note.height <= area_max + EPS && line_height + note.height <= height + EPS;
+            if fits_here {
                 reserved += note.height;
                 lines_end = line_end;
-            } else if note.anchor_top <= start + FIRST_LINE {
-                reserved += note.height;
-                lines_end = line_end;
+                continue;
+            }
+            // How much of it fits under its line, cut between two lines.
+            let part = if left.is_empty() && !fits_a_page {
+                let space = (bottom - reserved - line_end).min(area_max - reserved);
+                self.cut_before(index, 0.0, space.max(0.0))
             } else {
-                return PageRoom {
+                0.0
+            };
+            if part > EPS {
+                reserved += part;
+                lines_end = line_end;
+                left.push((index, part));
+            } else if first_line {
+                // Its line cannot move further up: the note starts on the
+                // next page.
+                lines_end = line_end;
+                left.push((index, 0.0));
+            } else {
+                room = PageRoom {
                     flow_end: note.anchor_top,
                     ends_before_a_line: true,
                 };
+                break;
             }
         }
-        PageRoom {
+        *rest = left;
+        if !room.ends_before_a_line {
             // Never above a line whose note is on the page.
-            flow_end: (bottom - reserved).max(lines_end),
-            ends_before_a_line: false,
+            room.flow_end = (bottom - reserved).max(lines_end);
         }
+        room
     }
 }
 
@@ -358,10 +560,89 @@ pub fn collect_footnotes(
         }
     }
 
+    // Where a note cannot be cut: inside one of its lines or one of its
+    // images. The lines are those of the inline formatting contexts inside
+    // the note, each as tall as the items on it (the line boxes themselves
+    // are not kept by the text layout; a text item's `line_box` in the
+    // display list is its whole paragraph).
+    let mut unbreakable: Vec<Vec<(f32, f32)>> = vec![Vec::new(); found.len()];
+    for index in 0..tree.nodes.len() {
+        let has_lines = tree
+            .warm(LayoutNodeId::new(index))
+            .is_some_and(|w| w.inline_layout_result.is_some());
+        if !has_lines {
+            continue;
+        }
+        let Some(o) = owner_of_layout(index).map(|o| o as usize) else {
+            continue;
+        };
+        let (Some(node), Some(pos), Some(layout), Some((_, note))) = (
+            tree.get(LayoutNodeId::new(index)),
+            crate::solver3::pos_get(positions, index),
+            tree.materialized_inline_layout_for_node(index),
+            found.get(o),
+        ) else {
+            continue;
+        };
+        let bp = node.box_props.unpack();
+        let content_top = pos.y + bp.border.top + bp.padding.top - note.top;
+        let mut lines: BTreeMap<usize, (f32, f32)> = BTreeMap::new();
+        for item in &layout.items {
+            let height = item.item.bounds().height;
+            if height.is_nan() || height <= 0.0 {
+                continue;
+            }
+            let (top, bottom) = (
+                content_top + item.position.y,
+                content_top + item.position.y + height,
+            );
+            lines
+                .entry(item.line_index)
+                .and_modify(|(t, b)| {
+                    *t = t.min(top);
+                    *b = b.max(bottom);
+                })
+                .or_insert((top, bottom));
+        }
+        unbreakable[o].extend(lines.into_values());
+    }
+    for (i, owner) in owners.iter().enumerate() {
+        let Some(o) = owner.map(|o| o as usize) else {
+            continue;
+        };
+        let item = &display_list.items[i];
+        if !matches!(
+            item,
+            crate::solver3::display_list::DisplayListItem::Image { .. }
+        ) {
+            continue;
+        }
+        if let (Some(rect), Some((_, note))) = (item.bounds(), found.get(o)) {
+            if rect.size.height > 0.0 {
+                let top = rect.origin.y - note.top;
+                unbreakable[o].push((top, top + rect.size.height));
+            }
+        }
+    }
+    for ranges in &mut unbreakable {
+        ranges.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut merged: Vec<(f32, f32)> = Vec::new();
+        for &(top, bottom) in ranges.iter() {
+            match merged.last_mut() {
+                Some((_, last_bottom)) if top < *last_bottom - EPS => {
+                    *last_bottom = last_bottom.max(bottom);
+                }
+                _ => merged.push((top, bottom)),
+            }
+        }
+        *ranges = merged;
+    }
+
     Footnotes {
         notes: found.into_iter().map(|(_, note)| note).collect(),
         owners,
         ranges,
+        unbreakable,
     }
 }
 
@@ -382,6 +663,7 @@ mod tests {
 
     fn notes(notes: Vec<Footnote>) -> Footnotes {
         Footnotes {
+            unbreakable: vec![Vec::new(); notes.len()],
             notes,
             owners: Vec::new(),
             ranges: Vec::new(),
@@ -392,7 +674,7 @@ mod tests {
     fn a_page_without_an_anchor_keeps_its_height() {
         let f = notes(vec![note(1, (250.0, 270.0), 30.0)]);
         assert_eq!(
-            f.room_for_page(0.0, 200.0, None),
+            f.room_for_page(0.0, 200.0, None, &mut Vec::new()),
             PageRoom {
                 flow_end: 200.0,
                 ends_before_a_line: false
@@ -406,7 +688,7 @@ mod tests {
             note(1, (20.0, 40.0), 30.0),
             note(2, (60.0, 80.0), 25.0),
         ]);
-        assert_eq!(f.room_for_page(0.0, 200.0, None).flow_end, 145.0);
+        assert_eq!(f.room_for_page(0.0, 200.0, None, &mut Vec::new()).flow_end, 145.0);
     }
 
     #[test]
@@ -414,14 +696,14 @@ mod tests {
         // The line 150..170 fits a 200px page, but not above its 40px note.
         let f = notes(vec![note(1, (150.0, 170.0), 40.0)]);
         assert_eq!(
-            f.room_for_page(0.0, 200.0, None),
+            f.room_for_page(0.0, 200.0, None, &mut Vec::new()),
             PageRoom {
                 flow_end: 150.0,
                 ends_before_a_line: true
             }
         );
         // On the next page it is the first line: it fits there.
-        assert_eq!(f.room_for_page(150.0, 200.0, None).flow_end, 310.0);
+        assert_eq!(f.room_for_page(150.0, 200.0, None, &mut Vec::new()).flow_end, 310.0);
     }
 
     #[test]
@@ -432,21 +714,98 @@ mod tests {
             note(1, (130.0, 150.0), 30.0),
             note(2, (135.0, 145.0), 30.0),
         ]);
-        let room = f.room_for_page(0.0, 200.0, None);
+        let room = f.room_for_page(0.0, 200.0, None, &mut Vec::new());
         assert_eq!((room.flow_end, room.ends_before_a_line), (135.0, true));
     }
 
+    /// A note of `lines` 20px lines anchored in the line `anchor`.
+    fn note_of_lines(node: usize, anchor: (f32, f32), lines: usize) -> Footnotes {
+        #[allow(clippy::cast_precision_loss)] // a line count
+        let height = 20.0 * lines as f32;
+        #[allow(clippy::cast_precision_loss)]
+        let ranges = (0..lines)
+            .map(|i| (20.0 * i as f32, 20.0 * (i + 1) as f32))
+            .collect();
+        Footnotes {
+            notes: vec![note(node, anchor, height)],
+            owners: Vec::new(),
+            ranges: Vec::new(),
+            unbreakable: vec![ranges],
+        }
+    }
+
     #[test]
-    fn a_note_taller_than_the_page_stays_with_the_first_line() {
-        let f = notes(vec![note(1, (0.0, 20.0), 500.0)]);
-        let room = f.room_for_page(0.0, 200.0, None);
-        assert_eq!((room.flow_end, room.ends_before_a_line), (20.0, false));
+    fn a_note_that_fits_no_page_is_split_between_its_lines_and_goes_on() {
+        // Fifteen 20px lines (300px) under a line at 0..20 of a 200px page.
+        // The footnote area may take 160px: eight lines. The other seven go
+        // on on the next page, which they leave 60px of flow.
+        let f = note_of_lines(1, (0.0, 20.0), 15);
+        let mut rest = Vec::new();
+        let room = f.room_for_page(0.0, 200.0, None, &mut rest);
+        assert_eq!((room.flow_end, room.ends_before_a_line), (40.0, false));
+        assert_eq!(rest, vec![(0, 160.0)]);
+        let room = f.room_for_page(40.0, 200.0, None, &mut rest);
+        assert_eq!(room.flow_end, 100.0);
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn a_note_is_not_cut_inside_a_line() {
+        // 150px are free under the line at 0..50: seven lines, not seven
+        // and a half.
+        let f = note_of_lines(1, (0.0, 50.0), 15);
+        let mut rest = Vec::new();
+        let room = f.room_for_page(0.0, 200.0, None, &mut rest);
+        assert_eq!(room.flow_end, 60.0);
+        assert_eq!(rest, vec![(0, 140.0)]);
+    }
+
+    #[test]
+    fn a_note_that_fits_a_page_is_moved_with_its_line_not_split() {
+        // Seven lines (140px) do not fit under a line at 100..120 - but
+        // they fit a page: the page ends before the line.
+        let f = note_of_lines(1, (100.0, 120.0), 7);
+        let mut rest = Vec::new();
+        let room = f.room_for_page(0.0, 200.0, None, &mut rest);
+        assert_eq!((room.flow_end, room.ends_before_a_line), (100.0, true));
+        assert!(rest.is_empty());
+        let room = f.room_for_page(100.0, 200.0, None, &mut rest);
+        assert_eq!((room.flow_end, room.ends_before_a_line), (160.0, false));
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn what_goes_on_from_the_page_before_is_drawn_before_the_pages_own_notes() {
+        let mut f = note_of_lines(1, (0.0, 20.0), 15);
+        f.notes.push(note(2, (60.0, 80.0), 20.0));
+        f.unbreakable.push(vec![(0.0, 20.0)]);
+        let mut rest = vec![(0, 160.0)];
+        // The page's flow ends at 80: 200px less the 140 + 20 of its notes.
+        let fragments = f.fragments_for_page(40.0, 80.0, 40.0, 200.0, &mut rest);
+        assert_eq!(
+            fragments,
+            vec![
+                NoteFragment { note: 0, from: 160.0, to: 300.0 },
+                NoteFragment { note: 1, from: 0.0, to: 20.0 },
+            ]
+        );
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn a_page_of_footnotes_only_takes_what_is_left_over() {
+        // After the end of the document: no flow, the whole page.
+        let f = note_of_lines(1, (0.0, 20.0), 30);
+        let mut rest = vec![(0, 160.0)];
+        let fragments = f.fragments_for_page(500.0, 500.0, 0.0, 200.0, &mut rest);
+        assert_eq!(fragments, vec![NoteFragment { note: 0, from: 160.0, to: 360.0 }]);
+        assert_eq!(rest, vec![(0, 360.0)]);
     }
 
     #[test]
     fn anchors_past_the_next_forced_break_are_not_this_pages() {
         let f = notes(vec![note(1, (120.0, 140.0), 30.0)]);
-        assert_eq!(f.room_for_page(0.0, 200.0, Some(100.0)).flow_end, 200.0);
+        assert_eq!(f.room_for_page(0.0, 200.0, Some(100.0), &mut Vec::new()).flow_end, 200.0);
     }
 
     #[test]
