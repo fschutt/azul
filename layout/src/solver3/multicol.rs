@@ -280,6 +280,11 @@ pub struct FlowBox {
     /// of them (a plain inline formatting context), in order; empty for a
     /// box that moves to the next column whole.
     pub lines: Vec<FlowLine>,
+    /// The heights of the footnotes anchored in the box other than in one
+    /// of `lines` (`float: footnote`, paged media): they stand at the
+    /// bottom of the page the box's top lands on, and take their room from
+    /// its columns ([`plan_paged_columns`]). 0 without footnotes.
+    pub notes: f32,
 }
 
 /// One line of a [`FlowBox`]: the extent of its content in the flow.
@@ -291,6 +296,8 @@ pub struct FlowLine {
     pub top: f32,
     /// The bottom of the line's content.
     pub bottom: f32,
+    /// The heights of the footnotes anchored in the line ([`FlowBox::notes`]).
+    pub notes: f32,
 }
 
 /// Where one [`FlowBox`] goes.
@@ -301,6 +308,11 @@ pub struct BoxPlacement {
     /// The line indices at which the box continues at the top of the next
     /// columns, ascending; empty when it sits in one column.
     pub line_breaks: Vec<usize>,
+    /// The column each of `line_breaks` continues in: the next one - or, on
+    /// paged media, the first column of the next row when the row ended
+    /// before its last column (before a piece whose footnote did not fit,
+    /// [`plan_paged_columns`]).
+    pub break_columns: Vec<usize>,
 }
 
 /// The columns a multi-column block container's flow is cut into.
@@ -321,6 +333,10 @@ pub struct ColumnPlan {
     /// The top of every row, from the container's content-box top: `[0]`
     /// for the one row of [`plan_columns`].
     pub row_tops: Vec<f32>,
+    /// The heights of the footnotes anchored in every row
+    /// ([`plan_paged_columns`]); `[0]` for the one row of [`plan_columns`],
+    /// which is not told about footnotes.
+    pub row_notes: Vec<f32>,
 }
 
 impl ColumnPlan {
@@ -364,32 +380,42 @@ struct Atom {
     owner: usize,
     /// The line index the atom opens, for the lines after a box's first.
     line: Option<usize>,
+    /// The heights of the footnotes anchored in the atom.
+    notes: f32,
 }
 
 fn atoms_of(boxes: &[FlowBox]) -> Vec<Atom> {
     let mut atoms: Vec<Atom> = Vec::new();
     let mut last_break = f32::MIN;
-    let mut push =
-        |atoms: &mut Vec<Atom>, at: f32, bottom: f32, owner: usize, line: Option<usize>| {
-            // A break must move the flow forward; one that would not (a line
-            // overlapping the one before it) is no break opportunity.
-            let break_at = (at.is_finite() && at > last_break + FIT_EPS).then_some(at);
-            if let Some(at) = break_at {
-                last_break = at;
-            }
-            atoms.push(Atom {
-                bottom,
-                break_at,
-                owner,
-                line,
-            });
-        };
+    let mut push = |atoms: &mut Vec<Atom>,
+                    at: f32,
+                    bottom: f32,
+                    owner: usize,
+                    line: Option<usize>,
+                    notes: f32| {
+        // A break must move the flow forward; one that would not (a line
+        // overlapping the one before it) is no break opportunity.
+        let break_at = (at.is_finite() && at > last_break + FIT_EPS).then_some(at);
+        if let Some(at) = break_at {
+            last_break = at;
+        }
+        atoms.push(Atom {
+            bottom,
+            break_at,
+            owner,
+            line,
+            notes: if notes.is_finite() { notes.max(0.0) } else { 0.0 },
+        });
+    };
     for (owner, flow_box) in boxes.iter().enumerate() {
         let lines: Vec<&FlowLine> = flow_box
             .lines
             .iter()
             .filter(|l| l.top.is_finite() && l.bottom.is_finite() && l.bottom > l.top)
             .collect();
+        // Every note of the box is some atom's: those of the lines that
+        // open no atom of their own go with the box's first.
+        let line_notes: f32 = flow_box.lines.iter().map(|l| l.notes).sum();
         if lines.len() < 2 {
             push(
                 &mut atoms,
@@ -397,9 +423,11 @@ fn atoms_of(boxes: &[FlowBox]) -> Vec<Atom> {
                 flow_box.bottom.max(flow_box.top),
                 owner,
                 None,
+                flow_box.notes + line_notes,
             );
             continue;
         }
+        let own_atom_notes: f32 = lines[1..].iter().map(|l| l.notes).sum();
         // The box's top (border, padding) goes with its first line, its
         // bottom with its last; a column break between two lines falls
         // where one line box ends and the next begins.
@@ -409,6 +437,7 @@ fn atoms_of(boxes: &[FlowBox]) -> Vec<Atom> {
             lines[0].bottom.max(flow_box.top),
             owner,
             None,
+            flow_box.notes + line_notes - own_atom_notes,
         );
         for j in 1..lines.len() {
             let at = f32::midpoint(lines[j - 1].bottom, lines[j].top).max(flow_box.top);
@@ -417,7 +446,7 @@ fn atoms_of(boxes: &[FlowBox]) -> Vec<Atom> {
             } else {
                 lines[j].bottom
             };
-            push(&mut atoms, at, bottom, owner, Some(lines[j].index));
+            push(&mut atoms, at, bottom, owner, Some(lines[j].index), lines[j].notes);
         }
     }
     // Nothing comes before the first atom to break from.
@@ -441,11 +470,18 @@ fn column_start(atoms: &[Atom], a: usize) -> f32 {
 /// it, and breaks before that one at the last break opportunity whose
 /// preceding content fits. A column that cannot fit even its first piece
 /// takes it anyway and breaks at the first opportunity after it (a
-/// monolith overflows, never loops). Returns the first atom of every column.
-fn fill_columns(atoms: &[Atom], from: usize, height_of: impl Fn(usize) -> f32) -> Vec<usize> {
+/// monolith overflows, never loops). Returns the first atom of every column
+/// - of no more than `limit` columns and the one after them: a caller that
+/// only asks where the first few columns end need not fill the rest.
+fn fill_columns(
+    atoms: &[Atom],
+    from: usize,
+    height_of: impl Fn(usize) -> f32,
+    limit: usize,
+) -> Vec<usize> {
     let mut firsts = vec![from];
     let mut a = from;
-    while a < atoms.len() {
+    while a < atoms.len() && firsts.len() <= limit {
         let limit = column_start(atoms, a) + height_of(firsts.len() - 1) + FIT_EPS;
         let mut content_bottom = atoms[a].bottom;
         let mut fitting_break = None;
@@ -491,7 +527,7 @@ fn balanced_height(atoms: &[Atom], from: usize, count: usize, cap: Option<f32>) 
         .map(|a| a.bottom)
         .fold(start, f32::max)
         - start;
-    let needs = |h: f32| fill_columns(atoms, from, |_| h).len();
+    let needs = |h: f32| fill_columns(atoms, from, |_| h, usize::MAX).len();
     let mut lo = total / count as f32;
     let hi = if needs(lo) <= count {
         lo
@@ -513,6 +549,68 @@ fn balanced_height(atoms: &[Atom], from: usize, count: usize, cap: Option<f32>) 
     cap.map_or(hi, |cap| hi.min(cap))
 }
 
+/// The heights of the footnotes anchored in `atoms`.
+fn notes_of(atoms: &[Atom]) -> f32 {
+    atoms.iter().map(|a| a.notes).sum()
+}
+
+/// The row of `count` columns that starts with atom `from` on a page that
+/// leaves it `room`: the atom the NEXT row starts with (`atoms.len()` when
+/// this row is the last) and how tall its columns may be.
+///
+/// The footnotes anchored in the row stand at the bottom of its page
+/// (`float: footnote`; CSS Generated Content for Paged Media: the footnote
+/// area is at the bottom of the page, as wide as the page area - so it
+/// shortens EVERY column of the page, not only the one a note is anchored
+/// in): a row of the atoms up to `end` has the room less their notes. The
+/// row is the longest that fits what its own notes leave it. A piece of the
+/// flow whose note does not fit starts the next row, with its note: piece
+/// and note stay on one page (the behaviour of `footnote-policy: line`).
+///
+/// Without notes in reach the row is `room` tall and ends where its
+/// `count`-th column does. A first piece whose own note leaves it no room
+/// is taken anyway (a monolith overflows, never loops).
+fn plan_row(atoms: &[Atom], from: usize, count: usize, room: f32) -> (usize, f32) {
+    // The atom after the `count` columns filled `height` tall from `from`,
+    // looking no further than `end`.
+    let reach = |end: usize, height: f32| {
+        fill_columns(&atoms[..end], from, |_| height, count)
+            .get(count)
+            .copied()
+            .unwrap_or(end)
+    };
+    let mut end = reach(atoms.len(), room);
+    // Every round takes a note-bearing atom out of the row.
+    for _ in 0..=atoms.len() {
+        let notes = notes_of(&atoms[from..end]);
+        if notes <= 0.0 {
+            return (end, room);
+        }
+        let height = (room - notes).max(0.0);
+        let fits = reach(end, height);
+        if fits >= end {
+            return (end, height);
+        }
+        // The last atom of the row with a note: the atoms after it change
+        // nothing about the row's room. If the columns reach past it, they
+        // end the row; else it starts the next row (at the last break
+        // opportunity at or before it), and the row is tried without it.
+        let last_note = (from..end).rev().find(|&i| atoms[i].notes > 0.0);
+        match last_note {
+            Some(last) if fits > last => return (fits, height),
+            Some(last) => {
+                let cut = (from + 1..=last).rev().find(|&i| atoms[i].break_at.is_some());
+                match cut {
+                    Some(cut) => end = cut,
+                    None => return (fits.max(from + 1), height),
+                }
+            }
+            None => return (end, room),
+        }
+    }
+    (end, room)
+}
+
 /// The columns that start with the atoms `firsts`, on `lanes` / `row_tops`.
 fn plan_from(
     boxes: &[FlowBox],
@@ -520,6 +618,7 @@ fn plan_from(
     firsts: &[usize],
     lanes: Option<usize>,
     row_tops: Vec<f32>,
+    row_notes: Vec<f32>,
 ) -> ColumnPlan {
     let starts: Vec<f32> = firsts.iter().map(|&a| column_start(atoms, a)).collect();
     let mut placements: Vec<BoxPlacement> = boxes
@@ -527,17 +626,24 @@ fn plan_from(
         .map(|_| BoxPlacement {
             column: 0,
             line_breaks: Vec::new(),
+            break_columns: Vec::new(),
         })
         .collect();
     let mut column = 0usize;
     for (i, atom) in atoms.iter().enumerate() {
-        let opens_column = firsts.get(column + 1) == Some(&i);
-        if opens_column {
+        // The atom opens the next column - the LAST of those that start
+        // with it: a row that ended early left its other columns empty.
+        let mut opens_column = false;
+        while firsts.get(column + 1) == Some(&i) {
             column += 1;
+            opens_column = true;
         }
         match atom.line {
             None => placements[atom.owner].column = column,
-            Some(line) if opens_column => placements[atom.owner].line_breaks.push(line),
+            Some(line) if opens_column => {
+                placements[atom.owner].line_breaks.push(line);
+                placements[atom.owner].break_columns.push(column);
+            }
             Some(_) => {}
         }
     }
@@ -547,6 +653,7 @@ fn plan_from(
         boxes: placements,
         lanes,
         row_tops,
+        row_notes,
     };
     for (k, &first) in firsts.iter().enumerate() {
         let end = firsts.get(k + 1).copied().unwrap_or(atoms.len());
@@ -566,6 +673,7 @@ fn empty_plan() -> ColumnPlan {
         boxes: Vec::new(),
         lanes: None,
         row_tops: vec![0.0],
+        row_notes: vec![0.0],
     }
 }
 
@@ -595,8 +703,8 @@ pub fn plan_columns(
         (ColumnFill::Auto, Some(cap)) => cap,
         _ => balanced_height(&atoms, 0, count, cap),
     };
-    let firsts = fill_columns(&atoms, 0, |_| column_height);
-    plan_from(boxes, &atoms, &firsts, None, vec![0.0])
+    let firsts = fill_columns(&atoms, 0, |_| column_height, usize::MAX);
+    plan_from(boxes, &atoms, &firsts, None, vec![0.0], vec![0.0])
 }
 
 /// The room paged media leaves a multi-column container's columns.
@@ -617,6 +725,16 @@ pub struct PageRoom {
 /// ([`ColumnPlan::lanes`], [`ColumnPlan::row_tops`]). Only the last row is
 /// balanced. A container whose first piece does not fit the room of its
 /// first page starts on the next one.
+///
+/// Footnotes (`float: footnote`, [`FlowBox::notes`]): the notes anchored in
+/// a row stand at the bottom of the row's page, so the row's columns are
+/// only as tall as the page's room less those notes
+/// ([`row_column_height`]). A row that carries notes is that much shorter
+/// on the canvas too: the next row starts where its page's flow ends, which
+/// is where the break analysis ends the page (`page_breaks`: the page's
+/// height less its notes). A note taller than its page leaves no room: its
+/// row holds one piece a column and runs past the page (a limit of this
+/// implementation, notes are not split).
 #[must_use]
 pub fn plan_paged_columns(boxes: &[FlowBox], count: u32, room: PageRoom) -> ColumnPlan {
     let atoms = atoms_of(boxes);
@@ -624,31 +742,56 @@ pub fn plan_paged_columns(boxes: &[FlowBox], count: u32, room: PageRoom) -> Colu
         return empty_plan();
     }
     let count = count.max(1) as usize;
-    let (first_room, lead) = if atoms[0].bottom > room.first + FIT_EPS && room.first < room.rest {
-        (room.rest, room.first)
-    } else {
-        (room.first, 0.0)
-    };
-    let greedy = fill_columns(&atoms, 0, |k| if k < count { first_room } else { room.rest });
-    let last_row = (greedy.len() - 1) / count;
-    let mut firsts: Vec<usize>;
-    if last_row == 0 {
-        let h = balanced_height(&atoms, 0, count, Some(first_room));
-        firsts = fill_columns(&atoms, 0, |_| h);
-    } else {
-        let row_first = greedy[last_row * count];
-        firsts = greedy[..last_row * count].to_vec();
-        let h = balanced_height(&atoms, row_first, count, Some(room.rest));
-        firsts.extend(fill_columns(&atoms, row_first, |_| h));
+    let (first_room, lead) =
+        if atoms[0].bottom + atoms[0].notes > room.first + FIT_EPS && room.first < room.rest {
+            (room.rest, room.first)
+        } else {
+            (room.first, 0.0)
+        };
+    let mut firsts: Vec<usize> = Vec::new();
+    let mut row_tops = vec![lead];
+    let mut row_notes: Vec<f32> = Vec::new();
+    let mut from = 0usize;
+    loop {
+        let page = if row_notes.is_empty() {
+            first_room
+        } else {
+            room.rest
+        };
+        let (next, height) = plan_row(&atoms, from, count, page);
+        let notes = notes_of(&atoms[from..next]);
+        row_notes.push(notes);
+        if next >= atoms.len() {
+            // The last row: balanced, under what its notes leave it.
+            let balanced = balanced_height(&atoms, from, count, Some(height));
+            firsts.extend(fill_columns(&atoms, from, |_| balanced, usize::MAX));
+            break;
+        }
+        // A full row: the next one starts on the next page - where this
+        // page's flow ends, its room less its notes (never above the
+        // row's own content).
+        let filled = fill_columns(&atoms[..next], from, |_| height, usize::MAX);
+        let content = (0..filled.len())
+            .map(|c| {
+                let end = filled.get(c + 1).copied().unwrap_or(next);
+                let start = column_start(&atoms, filled[c]);
+                atoms[filled[c]..end]
+                    .iter()
+                    .map(|a| a.bottom)
+                    .fold(start, f32::max)
+                    - start
+            })
+            .fold(0.0_f32, f32::max);
+        let top = row_tops.last().copied().unwrap_or(lead);
+        row_tops.push(top + (page - notes).max(content));
+        // A row always has `count` columns: the next row's first column is
+        // the one after them (`ColumnPlan::lanes`), also when the row ends
+        // early, before a piece whose note does not fit.
+        firsts.extend(&filled);
+        firsts.extend(core::iter::repeat_n(next, count.saturating_sub(filled.len())));
+        from = next;
     }
-    let rows = (firsts.len() - 1) / count + 1;
-    let row_tops = (0..rows)
-        .map(|r| match r {
-            0 => lead,
-            r => lead + first_room + (r - 1) as f32 * room.rest,
-        })
-        .collect();
-    plan_from(boxes, &atoms, &firsts, Some(count), row_tops)
+    plan_from(boxes, &atoms, &firsts, Some(count), row_tops, row_notes)
 }
 
 // ---------------------------------------------------------------------------
@@ -694,6 +837,13 @@ pub struct ColumnPages {
     /// How often the pages were laid out again for what the break analysis
     /// made of them.
     pub retries: usize,
+    /// The margin-box height of every footnote (`float: footnote`) of the
+    /// last pass, by its element: the room it takes at the bottom of its
+    /// page. A footnote is sized after the flow it was taken out of, so the
+    /// columns of a pass are filled with the heights of the pass before
+    /// ([`FlowBox::notes`]); a footnote is as wide as the page, its height
+    /// does not depend on the columns.
+    pub note_heights: std::collections::BTreeMap<NodeId, f32>,
 }
 
 /// One thing on the canvas that decides where the pages break, in the
@@ -704,12 +854,19 @@ pub enum PageEvent {
     ForcedBreak { y: f32 },
     /// A multi-column container whose content starts at `y`.
     Container { node: NodeId, y: f32 },
+    /// A footnote (`float: footnote`) anchored OUTSIDE every multi-column
+    /// container, in a line (or at a place in the block flow) from `y` to
+    /// `bottom`, `height` tall: it stands at the bottom of its page and
+    /// takes that much from the page's flow - and so from the room of a
+    /// container on the same page. (The notes anchored inside a container
+    /// are in its flow record, [`FlowBox::notes`].)
+    Note { y: f32, bottom: f32, height: f32 },
 }
 
 impl PageEvent {
     const fn y(&self) -> f32 {
         match *self {
-            Self::ForcedBreak { y } | Self::Container { y, .. } => y,
+            Self::ForcedBreak { y } | Self::Container { y, .. } | Self::Note { y, .. } => y,
         }
     }
 }
@@ -725,6 +882,14 @@ impl PageEvent {
 /// than it was, and everything below it moves; the events below it are
 /// seen where they will be. The pages are the same: a forced break below
 /// restarts them.
+///
+/// Footnotes: a page's notes stand at its bottom, and its flow ends where
+/// they begin - the pages are cut from the canvas there
+/// (`footnotes::Footnotes::room_for_page`, which this follows without the
+/// break analysis's own adjustments, like the rest of this function). So a
+/// page of the canvas is its height LESS the notes anchored on it, a note
+/// whose line no longer fits above it starts the next page with its line,
+/// and a container has the room its page's notes leave.
 #[must_use]
 pub fn plan_page_rooms(
     first: f32,
@@ -733,6 +898,38 @@ pub fn plan_page_rooms(
     flows: &std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
     slack: &std::collections::BTreeMap<NodeId, f32>,
 ) -> std::collections::BTreeMap<NodeId, f32> {
+    // The page being filled: where it starts on the canvas, how tall it is
+    // and how much of that its footnotes take so far.
+    struct Page {
+        top: f32,
+        height: f32,
+        notes: f32,
+        rest: f32,
+    }
+    impl Page {
+        /// Where the page's flow ends on the canvas.
+        fn end(&self) -> f32 {
+            self.top + self.height - self.notes
+        }
+        fn start_at(&mut self, top: f32) {
+            self.top = top;
+            self.height = self.rest;
+            self.notes = 0.0;
+        }
+        /// Moves to the page `y` is on; an end (`starts_here` false) on a
+        /// boundary is still on the page before it.
+        fn advance(&mut self, y: f32, starts_here: bool) {
+            // A page its notes fill cannot be moved past: stop there.
+            while self.end() > self.top
+                && ((starts_here && self.end() <= y + FIT_EPS)
+                    || (!starts_here && self.end() < y - FIT_EPS))
+            {
+                let end = self.end();
+                self.start_at(end);
+            }
+        }
+    }
+
     let mut rooms = std::collections::BTreeMap::new();
     if !(first.is_finite() && first > 0.0 && rest.is_finite() && rest > 0.0) {
         return rooms;
@@ -741,27 +938,32 @@ pub fn plan_page_rooms(
     events.sort_by(|a, b| a.y().total_cmp(&b.y()));
 
     let mut shift = 0.0_f32;
-    // The page being filled: where it starts and how tall it is.
-    let mut page_top = 0.0_f32;
-    let mut page_height = first;
-    // Moves to the page `y` is on; an end (`starts_here` false) on a
-    // boundary is still on the page before it.
-    let advance = |page_top: &mut f32, page_height: &mut f32, y: f32, starts_here: bool| {
-        while (starts_here && *page_top + *page_height <= y + FIT_EPS)
-            || (!starts_here && *page_top + *page_height < y - FIT_EPS)
-        {
-            *page_top += *page_height;
-            *page_height = rest;
-        }
+    let mut page = Page {
+        top: 0.0,
+        height: first,
+        notes: 0.0,
+        rest,
     };
     for event in events {
         match *event {
             PageEvent::ForcedBreak { y } => {
                 let y = y + shift;
-                advance(&mut page_top, &mut page_height, y, true);
-                if y > page_top + FIT_EPS {
-                    page_top = y;
-                    page_height = rest;
+                page.advance(y, true);
+                if y > page.top + FIT_EPS {
+                    page.start_at(y);
+                }
+            }
+            PageEvent::Note { y, bottom, height } => {
+                let (y, bottom) = (y + shift, bottom + shift);
+                page.advance(y, true);
+                // A line (or place) at the page's top stays with its note
+                // whatever its height (`Footnotes::room_for_page`).
+                if bottom <= page.end() - height + FIT_EPS || y <= page.top + 1.0 {
+                    page.notes += height;
+                } else {
+                    // The line goes to the next page with its note.
+                    page.start_at(y);
+                    page.notes = height;
                 }
             }
             PageEvent::Container { node, y } => {
@@ -769,26 +971,33 @@ pub fn plan_page_rooms(
                     continue;
                 };
                 let y = y + shift;
-                advance(&mut page_top, &mut page_height, y, true);
-                let room = (page_top + page_height - y - slack.get(&node).copied().unwrap_or(0.0))
-                    .max(0.0);
+                page.advance(y, true);
+                let room = (page.end() - y - slack.get(&node).copied().unwrap_or(0.0)).max(0.0);
                 let unpaged = plan_columns(&flow.boxes, flow.count, None, ColumnFill::Balance);
-                let height = if unpaged.height <= room + FIT_EPS {
+                let notes: f32 = flow
+                    .boxes
+                    .iter()
+                    .map(|b| b.notes + b.lines.iter().map(|l| l.notes).sum::<f32>())
+                    .sum();
+                let height = if unpaged.height + notes <= room + FIT_EPS {
+                    // It fits its page in one row, above its notes.
+                    page.notes += notes;
                     unpaged.height
                 } else {
                     rooms.insert(node, room);
                     let plan =
                         plan_paged_columns(&flow.boxes, flow.count, PageRoom { first: room, rest });
                     // Its rows start pages (forced breaks): the pages after it go on from
-                    // its last row, not from the grid it started on.
+                    // its last row, not from the grid it started on - with the notes of
+                    // that row at the page's bottom.
                     if let Some(&last_row) = plan.row_tops.last() {
-                        page_top = y + last_row;
-                        page_height = rest;
+                        page.start_at(y + last_row);
+                        page.notes = plan.row_notes.last().copied().unwrap_or(0.0);
                     }
                     plan.height
                 };
                 shift += height - flow.height;
-                advance(&mut page_top, &mut page_height, y + height, false);
+                page.advance(y + height, false);
             }
         }
     }
@@ -809,7 +1018,7 @@ pub fn early_page_end(
         .iter()
         .filter_map(|event| match *event {
             PageEvent::Container { node, y } => Some((node, y)),
-            PageEvent::ForcedBreak { .. } => None,
+            PageEvent::ForcedBreak { .. } | PageEvent::Note { .. } => None,
         })
         .collect();
     containers.sort_by(|a, b| a.1.total_cmp(&b.1));
@@ -905,6 +1114,7 @@ mod tests {
             top,
             bottom,
             lines: Vec::new(),
+            notes: 0.0,
         }
     }
 
@@ -919,12 +1129,18 @@ mod tests {
                     index,
                     top: line_top + 0.5,
                     bottom: line_top + 19.5,
+                    notes: 0.0,
                 }
             })
             .collect();
         #[allow(clippy::cast_precision_loss)] // a line count
         let bottom = top + 20.0 * n as f32;
-        FlowBox { top, bottom, lines }
+        FlowBox {
+            top,
+            bottom,
+            lines,
+            notes: 0.0,
+        }
     }
 
     fn columns_of(plan: &ColumnPlan) -> Vec<usize> {
@@ -1254,5 +1470,152 @@ mod tests {
         let second_y = 300.0 + (plan.height - 240.0);
         let expected = last_row_top + 200.0 - second_y;
         assert!(near(rooms[&NodeId::new(2)], expected), "{rooms:?} expected {expected}");
+    }
+
+    // ---- footnotes ----
+
+    /// `n` 40px boxes, the box `with_note` carrying a note `height` tall.
+    fn boxes_with_note(n: usize, with_note: usize, height: f32) -> Vec<FlowBox> {
+        #[allow(clippy::cast_precision_loss)] // a box index
+        (0..n)
+            .map(|i| FlowBox {
+                notes: if i == with_note { height } else { 0.0 },
+                ..block(40.0 * i as f32, 40.0 * (i + 1) as f32)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_note_in_a_row_shortens_every_column_of_the_row() {
+        // 140px for the first row: three boxes a column - but with the 40px
+        // note of the fourth box (in the right column) only 100px, two.
+        let plan = plan_paged_columns(
+            &boxes_with_note(12, 3, 40.0),
+            2,
+            PageRoom {
+                first: 140.0,
+                rest: 200.0,
+            },
+        );
+        let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
+        assert_eq!(columns, vec![0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]);
+        // The next row starts where the first page's flow ends.
+        assert_eq!(plan.row_tops, vec![0.0, 100.0]);
+        assert_eq!(plan.row_notes, vec![40.0, 0.0]);
+        assert!(near(plan.height, 260.0), "{}", plan.height);
+    }
+
+    #[test]
+    fn a_box_goes_to_the_next_page_with_a_note_that_does_not_fit_under_it() {
+        // 140px: three boxes a column would fit, the sixth with its 60px
+        // note does not (120 + 60 > 140). With the note the row may be 80px
+        // tall - but then the sixth box is not in it, and neither is its
+        // note: the row is as tall as it gets without that box, five boxes.
+        let plan = plan_paged_columns(
+            &boxes_with_note(12, 5, 60.0),
+            2,
+            PageRoom {
+                first: 140.0,
+                rest: 200.0,
+            },
+        );
+        let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
+        assert_eq!(columns[..6], [0, 0, 0, 1, 1, 2], "{columns:?}");
+        assert_eq!(plan.row_notes[0], 0.0);
+        assert_eq!(plan.row_tops[1], 140.0);
+        assert_eq!(plan.row_notes[1], 60.0);
+    }
+
+    #[test]
+    fn the_last_row_is_balanced_under_its_notes() {
+        // Eight boxes on a 200px page with an 80px note: 120px are left,
+        // which three boxes a column do not fill evenly - four and four
+        // would, but they are 160px. The row is not the last: three a
+        // column stay, the other two are balanced on the next page.
+        let plan = plan_paged_columns(
+            &boxes_with_note(8, 0, 80.0),
+            2,
+            PageRoom {
+                first: 200.0,
+                rest: 200.0,
+            },
+        );
+        let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
+        assert_eq!(columns, vec![0, 0, 0, 1, 1, 1, 2, 3]);
+        assert_eq!(plan.row_tops, vec![0.0, 120.0]);
+    }
+
+    #[test]
+    fn a_plan_without_notes_is_the_plan_it_was() {
+        // Rows a page apart, the last one balanced (as before footnotes).
+        let plan = plan_paged_columns(
+            &boxes_of(12),
+            2,
+            PageRoom {
+                first: 140.0,
+                rest: 200.0,
+            },
+        );
+        let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
+        assert_eq!(columns, vec![0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]);
+        assert_eq!(plan.row_tops, vec![0.0, 140.0]);
+        assert_eq!(plan.row_notes, vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn a_note_above_a_container_on_its_page_takes_room_from_it() {
+        use std::collections::BTreeMap;
+        let flows: BTreeMap<NodeId, ColumnFlowRecord> = [(
+            NodeId::new(1),
+            ColumnFlowRecord {
+                boxes: boxes_of(12),
+                count: 2,
+                height: 240.0,
+                row_tops: vec![0.0],
+            },
+        )]
+        .into_iter()
+        .collect();
+        let events = [
+            PageEvent::Note {
+                y: 0.0,
+                bottom: 20.0,
+                height: 40.0,
+            },
+            PageEvent::Container {
+                node: NodeId::new(1),
+                y: 60.0,
+            },
+        ];
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default());
+        assert!(near(rooms[&NodeId::new(1)], 100.0), "{rooms:?}");
+    }
+
+    #[test]
+    fn a_container_fits_its_page_only_above_its_notes() {
+        use std::collections::BTreeMap;
+        // Six boxes, three a column: 120px at 60, under the page's 200 -
+        // but not above its own 40px note.
+        let record = |with_note: bool| ColumnFlowRecord {
+            boxes: if with_note {
+                boxes_with_note(6, 1, 40.0)
+            } else {
+                boxes_of(6)
+            },
+            count: 2,
+            height: 120.0,
+            row_tops: vec![0.0],
+        };
+        let events = [PageEvent::Container {
+            node: NodeId::new(1),
+            y: 60.0,
+        }];
+        let rooms_of = |with_note: bool| {
+            let flows: BTreeMap<NodeId, ColumnFlowRecord> =
+                [(NodeId::new(1), record(with_note))].into_iter().collect();
+            plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default())
+        };
+        assert!(rooms_of(false).is_empty());
+        assert!(near(rooms_of(true)[&NodeId::new(1)], 140.0));
     }
 }

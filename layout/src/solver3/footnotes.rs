@@ -21,6 +21,14 @@
 //!    in document order, the last one ending at the bottom edge
 //!    (`display_list::paginate_pages_impl`).
 //!
+//! MULTI-COLUMN containers lay their columns out page by page during the
+//! layout, before any page is cut, so they are told about the notes
+//! themselves: a pass measures the notes (`multicol::ColumnPages::note_heights`),
+//! the next fills the columns of each page only down to the notes anchored
+//! in them (`multicol::plan_paged_columns`) and gives a container the room
+//! the notes above it on its page leave (`multicol::plan_page_rooms`). The
+//! break analysis then finds the page's flow ending where the row does.
+//!
 //! `footnote-policy` (same draft): this user agent's `auto` is the behaviour
 //! of `line` - a line whose note does not fit under it on the page goes to
 //! the next page together with the note. The property itself is not
@@ -199,23 +207,19 @@ impl Footnotes {
     }
 }
 
-/// The footnotes of the canvas `display_list` was made from.
-///
-/// A note's anchor is the line its static position is on when it was taken
-/// out of an inline formatting context (`fc::ifc::inline_static_place_in_tree`),
-/// else the block offset it is parked at.
+/// Every footnote box of the layout in `tree`: its layout index and where
+/// it is parked and anchored, in no particular order. Empty when the layout
+/// was not a paged one with footnotes.
 #[must_use]
-pub fn collect_footnotes(
-    display_list: &DisplayList,
+pub(crate) fn footnote_boxes(
     tree: &LayoutTree,
     positions: &PositionVec,
     styled_dom: &StyledDom,
-) -> Footnotes {
-    if !styled_dom.css_property_cache.ptr.paged_footnotes.get() {
-        return Footnotes::default();
-    }
-    // The notes: (layout index, note).
+) -> Vec<(usize, Footnote)> {
     let mut found: Vec<(usize, Footnote)> = Vec::new();
+    if !styled_dom.css_property_cache.ptr.paged_footnotes.get() {
+        return found;
+    }
     for (&dom_id, indices) in &tree.dom_to_layout {
         if !is_footnote(styled_dom, dom_id) {
             continue;
@@ -256,6 +260,22 @@ pub fn collect_footnotes(
             },
         ));
     }
+    found
+}
+
+/// The footnotes of the canvas `display_list` was made from.
+///
+/// A note's anchor is the line its static position is on when it was taken
+/// out of an inline formatting context (`fc::ifc::inline_static_place_in_tree`),
+/// else the block offset it is parked at.
+#[must_use]
+pub fn collect_footnotes(
+    display_list: &DisplayList,
+    tree: &LayoutTree,
+    positions: &PositionVec,
+    styled_dom: &StyledDom,
+) -> Footnotes {
+    let mut found = footnote_boxes(tree, positions, styled_dom);
     if found.is_empty() {
         return Footnotes::default();
     }

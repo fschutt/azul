@@ -215,6 +215,11 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
             (margin_box.origin.y, margin_box.origin.y + margin_box.size.height)
         })
         .collect();
+    // Paged media with footnotes whose heights the pass before measured
+    // (`multicol::ColumnPages::note_heights`): the columns of a page end
+    // above the notes anchored in them.
+    let paged_notes =
+        columns.page.is_some() && !ctx.cache_map.column_pages.note_heights.is_empty();
     let mut flow: Vec<(usize, FlowBox)> = Vec::new();
     let mut floats: Vec<usize> = Vec::new();
     for &child in children {
@@ -232,10 +237,15 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
         let beside_a_float = float_spans
             .iter()
             .any(|&(top, bottom)| top < pos.y + height && bottom > pos.y);
-        let lines = if beside_a_float {
+        let mut lines = if beside_a_float {
             Vec::new()
         } else {
             splittable_lines(ctx, tree, child, pos.y)
+        };
+        let notes = if paged_notes {
+            anchored_notes(ctx, tree, child, &mut lines)
+        } else {
+            0.0
         };
         flow.push((
             child,
@@ -243,8 +253,34 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
                 top: pos.y,
                 bottom: pos.y + height,
                 lines,
+                notes,
             },
         ));
+    }
+    // A footnote that is a child of the container itself is no box of its
+    // flow: it is anchored at its static position, and goes with the box
+    // that follows that place - the box it would have stood before - or
+    // with the last one. (A choice: the place has no height of its own to
+    // be a piece of the flow.)
+    if paged_notes {
+        for (&child, pos) in static_positions.iter() {
+            let height = tree
+                .get(LayoutNodeId::new(child))
+                .and_then(|n| n.dom_node_id)
+                .filter(|dom| crate::solver3::getters::is_footnote(ctx.styled_dom, *dom))
+                .and_then(|dom| ctx.cache_map.column_pages.note_heights.get(&dom).copied())
+                .unwrap_or(0.0);
+            if height <= 0.0 {
+                continue;
+            }
+            let owner = flow
+                .iter()
+                .position(|(_, b)| b.top >= pos.y - 0.01)
+                .or_else(|| flow.len().checked_sub(1));
+            if let Some((_, flow_box)) = owner.and_then(|o| flow.get_mut(o)) {
+                flow_box.notes += height;
+            }
+        }
     }
 
     let boxes: Vec<FlowBox> = flow.iter().map(|(_, b)| b.clone()).collect();
@@ -296,9 +332,10 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
                     });
             // Where each further column of the paragraph starts, seen from
             // the paragraph's content-box top and first column.
-            let places = (1..=placement.line_breaks.len())
-                .map(|n| {
-                    let j = k + n;
+            let places = placement
+                .break_columns
+                .iter()
+                .map(|&j| {
                     crate::text3::cache::ColumnPlace {
                         dx: column_x(plan.lane(j)) - column_x(plan.lane(k)),
                         top: plan.row_top(j) - plan.row_top(k) + start - content_top,
@@ -350,6 +387,46 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
         height: plan.height,
         width,
     })
+}
+
+/// The heights of the footnotes (`float: footnote`) anchored in the in-flow
+/// child `child` of a multi-column container, as the pass before measured
+/// them: a footnote that is a child of a paragraph with `lines` is added to
+/// the line it is anchored in (`inline_static_place_in_tree`) - it goes to
+/// the column, and so the page, of that line; every other footnote inside
+/// the box is returned, for the box as a whole (it stands at the bottom of
+/// the page the box's top lands on).
+fn anchored_notes<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    child: usize,
+    lines: &mut [crate::solver3::multicol::FlowLine],
+) -> f32 {
+    let heights = &ctx.cache_map.column_pages.note_heights;
+    let mut of_the_box = 0.0_f32;
+    // (box, its parent), depth first; a footnote's own content is not searched.
+    let mut stack: Vec<(usize, usize)> = tree.children(child).iter().map(|&c| (c, child)).collect();
+    while let Some((index, parent)) = stack.pop() {
+        let dom = tree.get(LayoutNodeId::new(index)).and_then(|n| n.dom_node_id);
+        let Some(dom) = dom.filter(|d| crate::solver3::getters::is_footnote(ctx.styled_dom, *d))
+        else {
+            stack.extend(tree.children(index).iter().map(|&c| (c, index)));
+            continue;
+        };
+        let height = heights.get(&dom).copied().unwrap_or(0.0);
+        if height <= 0.0 {
+            continue;
+        }
+        let line = (parent == child && !lines.is_empty())
+            .then(|| inline_static_place_in_tree(tree, child, index))
+            .flatten()
+            .and_then(|place| lines.iter_mut().find(|l| l.index == place.line));
+        match line {
+            Some(line) => line.notes += height,
+            None => of_the_box += height,
+        }
+    }
+    of_the_box
 }
 
 /// The lines of the in-flow child at `child` (its border box at flow
@@ -405,7 +482,12 @@ pub(super) fn splittable_lines<T: ParsedFontTrait>(
     }
     extents
         .into_iter()
-        .map(|(index, (top, bottom))| crate::solver3::multicol::FlowLine { index, top, bottom })
+        .map(|(index, (top, bottom))| crate::solver3::multicol::FlowLine {
+            index,
+            top,
+            bottom,
+            notes: 0.0,
+        })
         .collect()
 }
 

@@ -870,7 +870,7 @@ where
                                  // (one branch per case)
 /// The most layout passes a paged layout makes (see
 /// [`compute_layout_with_fragmentation`]).
-const MAX_COLUMN_PAGE_PASSES: usize = 4;
+const MAX_COLUMN_PAGE_PASSES: usize = 6;
 
 /// How often a paged layout is made again for what the break analysis made of
 /// the pages it laid the multi-column containers out for.
@@ -919,8 +919,20 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         let Some(pages) = pages else {
             return Ok(());
         };
+        // The footnotes of this pass, for the columns of the next: a
+        // multi-column container fills the columns of a page down to the
+        // notes anchored in them, and a note is only sized after the flow
+        // it was taken out of. Only a document with such a container is
+        // laid out again for them.
+        let note_heights = if cache.cache_map.column_pages.flows.is_empty() {
+            BTreeMap::new()
+        } else {
+            footnote_heights(cache, new_dom)
+        };
         let rooms = column_page_rooms(cache, new_dom, viewport.size, pages);
-        if same_rooms(&rooms, &cache.cache_map.column_pages.rooms) || pass == MAX_COLUMN_PAGE_PASSES
+        if (same_rooms(&rooms, &cache.cache_map.column_pages.rooms)
+            && same_rooms(&note_heights, &cache.cache_map.column_pages.note_heights))
+            || pass == MAX_COLUMN_PAGE_PASSES
         {
             return Ok(());
         }
@@ -928,6 +940,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         // new rooms make.
         let mut column_pages = core::mem::take(&mut cache.cache_map.column_pages);
         column_pages.rooms = rooms;
+        column_pages.note_heights = note_heights;
         cache.cache_map = cache::LayoutCacheMap::default();
         cache.cache_map.column_pages = column_pages;
         cache.float_cache.clear();
@@ -987,7 +1000,47 @@ fn canvas_events(
             });
         }
     }
+    // The footnotes anchored outside every multi-column container (those
+    // inside one are in its flow record): each takes its height from the
+    // flow of its page, and so from the room of a container on it.
+    for (index, note) in
+        crate::solver3::footnotes::footnote_boxes(tree, &cache.calculated_positions, styled_dom)
+    {
+        let mut ancestor = tree.get(LayoutNodeId::new(index)).and_then(|n| n.parent);
+        let mut in_a_container = false;
+        // At most one step per box: a malformed parent chain cannot loop.
+        for _ in 0..tree.nodes.len() {
+            let Some(a) = ancestor else { break };
+            let Some(node) = tree.get(LayoutNodeId::new(a)) else {
+                break;
+            };
+            if node.dom_node_id.is_some_and(|d| flows.contains_key(&d)) {
+                in_a_container = true;
+                break;
+            }
+            ancestor = node.parent;
+        }
+        if !in_a_container {
+            events.push(PageEvent::Note {
+                y: note.anchor_top,
+                bottom: note.anchor_bottom,
+                height: note.height,
+            });
+        }
+    }
     events
+}
+
+/// The margin-box height of every footnote of the canvas the last pass left
+/// in `cache`, by its element (`multicol::ColumnPages::note_heights`).
+fn footnote_heights(cache: &LayoutCache, styled_dom: &StyledDom) -> BTreeMap<NodeId, f32> {
+    let Some(tree) = cache.tree.as_deref() else {
+        return BTreeMap::new();
+    };
+    crate::solver3::footnotes::footnote_boxes(tree, &cache.calculated_positions, styled_dom)
+        .into_iter()
+        .map(|(_, note)| (note.node, note.height))
+        .collect()
 }
 
 /// The room every multi-column container that does not fit its first page

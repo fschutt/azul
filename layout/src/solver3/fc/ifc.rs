@@ -389,6 +389,8 @@ pub(crate) struct InlineStaticPlace {
     pub line_bottom: f32,
     /// Whether any content of the context comes before the box.
     pub after_content: bool,
+    /// The index of that line in the context.
+    pub line: usize,
 }
 
 /// The place of the out-of-flow box of DOM node `child` among `items`, the
@@ -459,6 +461,7 @@ pub(crate) fn inline_static_place(
         line_top,
         line_bottom,
         after_content,
+        line: anchor.line_index,
     })
 }
 
