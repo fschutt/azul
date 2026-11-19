@@ -75,6 +75,7 @@ pub use crate::props::property::CssParsingError;
 use crate::{
     corety::{AzString, OptionString},
     css::{
+        footnote_area_path,
         AttributeMatchOp, Css, CssAttributeSelector, CssCustomProperty, CssDeclaration,
         CssNthChildSelector, CssPath,
         CssPathPseudoSelector, CssPathSelector, CssRuleBlock, DynamicCssProperty, NodeTypeTag,
@@ -1772,6 +1773,31 @@ fn new_from_str_inner<'a>(
     let mut pending_at_str_parts: Vec<String> = Vec::new();
     let mut keyframes_capture: Option<KfCapture> = None;
 
+    // `@page` mode state (CSS Paged Media 3, "@page"). While active, all
+    // tokens are routed to it until the rule's own closing brace. Of what an
+    // `@page` rule can hold, ONE thing is honoured: a nested `@footnote`
+    // rule (CSS Generated Content for Paged Media, "The footnote area": "A
+    // page area that can be used to display footnotes is described in the
+    // page context using an @footnote rule"), which becomes an ordinary
+    // rule block under the reserved path [`footnote_area_path`]. Margins
+    // and size declared in the `@page` rule itself, margin boxes
+    // (`@top-center`, ...) and every other nested rule are skipped, as the
+    // whole `@page` rule was before. A rule for a named page (`@page
+    // chapter`) is skipped whole, with a warning; a pseudo-page (`@page
+    // :first`) never gets here, the tokenizer stops at its `:`.
+    struct PageCapture<'a> {
+        /// The rule has a page selector: nothing of it is honoured.
+        ignored: bool,
+        /// How many blocks are open inside the `@page` block.
+        depth: usize,
+        /// The name of the at-rule whose block comes next.
+        pending: Option<&'a str>,
+        /// Inside the `@footnote` block (at depth 1).
+        in_footnote: bool,
+        declarations: BTreeMap<&'a str, (&'a str, ErrorLocationRange)>,
+    }
+    let mut page_capture: Option<PageCapture<'a>> = None;
+
     // Stack for nested selectors
     // Each entry: (parent_paths, declarations, nesting_level)
     // parent_paths: all accumulated paths at this level (for comma-separated selectors)
@@ -1872,6 +1898,70 @@ fn new_from_str_inner<'a>(
             }};
         }
 
+        if let Some(cap) = page_capture.as_mut() {
+            let mut close_page = false;
+            let mut eos = false;
+            match token {
+                Token::AtRule(name) => cap.pending = Some(name),
+                Token::BlockStart => {
+                    block_nesting += 1;
+                    cap.depth += 1;
+                    let footnote = cap.pending.take().is_some_and(|n| n.eq_ignore_ascii_case("footnote"));
+                    if cap.depth == 1 && footnote && !cap.ignored {
+                        cap.in_footnote = true;
+                        cap.declarations.clear();
+                    }
+                }
+                Token::Declaration(key, val) => {
+                    if cap.in_footnote && cap.depth == 1 {
+                        let location = ErrorLocationRange {
+                            start: last_error_location,
+                            end: get_error_location(tokenizer),
+                        };
+                        cap.declarations.insert(key, (val, location));
+                    }
+                }
+                Token::BlockEnd => {
+                    block_nesting = block_nesting.saturating_sub(1);
+                    if cap.depth == 0 {
+                        close_page = true;
+                    } else {
+                        if cap.in_footnote && cap.depth == 1 {
+                            cap.in_footnote = false;
+                            if !cap.declarations.is_empty() {
+                                css_blocks.push(UnparsedCssRuleBlock {
+                                    path: footnote_area_path(),
+                                    declarations: core::mem::take(&mut cap.declarations),
+                                    conditions: Vec::new(),
+                                });
+                            }
+                        }
+                        cap.depth -= 1;
+                    }
+                }
+                Token::EndOfStream => eos = true,
+                // Everything else an `@page` rule can hold is skipped.
+                _ => {}
+            }
+            if close_page {
+                page_capture = None;
+            }
+            if eos {
+                warnings.push(CssParseWarnMsg {
+                    warning: CssParseWarnMsgInner::MalformedStructure {
+                        message: "Unclosed blocks at end of file",
+                    },
+                    location: ErrorLocationRange {
+                        start: last_error_location,
+                        end: get_error_location(tokenizer),
+                    },
+                });
+                break;
+            }
+            last_error_location = get_error_location(tokenizer);
+            continue;
+        }
+
         if keyframes_capture.is_some() {
             let mut close_kf = false;
             let mut eos = false;
@@ -1969,6 +2059,41 @@ fn new_from_str_inner<'a>(
                 // no selector machinery, no condition stack (an ENCLOSING
                 // @media's conditions do not gate keyframes yet; they parse
                 // and join the flat list).
+                if pending_at_rule.is_some_and(|r| r.eq_ignore_ascii_case("page")) {
+                    pending_at_rule = None;
+                    // A page selector (`@page :first`, `@page chapter`):
+                    // not supported, the rule is skipped whole.
+                    let ignored = !pending_at_str_parts.is_empty()
+                        || !last_path.is_empty()
+                        || !current_paths.is_empty()
+                        || selector_invalid;
+                    pending_at_str_parts.clear();
+                    last_path.clear();
+                    current_paths.clear();
+                    selector_invalid = false;
+                    block_nesting += 1;
+                    page_capture = Some(PageCapture {
+                        ignored,
+                        depth: 0,
+                        pending: None,
+                        in_footnote: false,
+                        declarations: BTreeMap::new(),
+                    });
+                    if ignored {
+                        warnings.push(CssParseWarnMsg {
+                            warning: CssParseWarnMsgInner::MalformedStructure {
+                                message: "@page with a page selector is not supported, the rule \
+                                          is skipped",
+                            },
+                            location: ErrorLocationRange {
+                                start: last_error_location,
+                                end: get_error_location(tokenizer),
+                            },
+                        });
+                    }
+                    last_error_location = get_error_location(tokenizer);
+                    continue;
+                }
                 if pending_at_rule.is_some_and(|r| r.eq_ignore_ascii_case("keyframes")) {
                     pending_at_rule = None;
                     let name = pending_at_str_parts.join(" ");
@@ -5050,6 +5175,67 @@ mod autotest_generated {
                 r.unwrap_err()
             );
         }
+    }
+
+    #[test]
+    fn a_footnote_rule_in_a_page_rule_is_kept_under_the_footnote_area_path() {
+        let (css, warnings) = new_from_str(
+            "p { width: 1px; } \
+             @page { margin: 2cm; @footnote { border-top: 1px solid red; padding-top: 4px; \
+             max-height: 100px; } @top-center { content: \"x\"; } } \
+             div { height: 2px; }",
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        // The two ordinary rules, and the footnote area's.
+        assert_eq!(css.rules.len(), 3);
+        let area: Vec<_> = css.footnote_area_declarations().collect();
+        let has = |ty: CssPropertyType| {
+            area.iter().any(|d| matches!(d, CssDeclaration::Static(p) if p.get_type() == ty))
+        };
+        assert!(
+            has(CssPropertyType::BorderTopWidth)
+                && has(CssPropertyType::BorderTopStyle)
+                && has(CssPropertyType::BorderTopColor)
+                && has(CssPropertyType::PaddingTop)
+                && has(CssPropertyType::MaxHeight),
+            "{area:?}"
+        );
+        // Nothing else of the `@page` rule became a declaration of anything.
+        assert!(!has(CssPropertyType::MarginTop) && !has(CssPropertyType::Content));
+        assert_eq!(
+            css.rules.as_slice()[2].path.selectors.as_ref().len(),
+            1,
+            "the rule after the @page rule is parsed as before"
+        );
+    }
+
+    #[test]
+    fn a_page_rule_without_a_footnote_rule_adds_nothing() {
+        // As before `@page` was parsed at all: the rules around it stand, an
+        // unknown at-rule next to it is skipped.
+        let with = new_from_str(
+            "p { width: 1px; } @page { margin: 2cm; size: A4; } \
+             @unknown-rule foo { x { y: z; } } div { height: 2px; }",
+        )
+        .0;
+        let without = new_from_str("p { width: 1px; } div { height: 2px; }").0;
+        assert_eq!(with.rules.len(), 2);
+        assert_eq!(with.rules.as_slice()[0], without.rules.as_slice()[0]);
+        assert_eq!(with.rules.as_slice()[1], without.rules.as_slice()[1]);
+        assert_eq!(with.footnote_area_declarations().count(), 0);
+    }
+
+    #[test]
+    fn a_page_rule_with_a_page_selector_is_skipped_with_a_warning() {
+        // A named page. (`@page :first` does not get this far: the
+        // tokenizer stops at a `:` in an at-rule's prelude, as it did
+        // before `@page` was parsed.)
+        let (css, warnings) = new_from_str(
+            "@page chapter { @footnote { border-top: 1px solid red; } } div { height: 2px; }",
+        );
+        assert_eq!(css.footnote_area_declarations().count(), 0);
+        assert_eq!(css.rules.len(), 1, "the rule after it is parsed: {warnings:?}");
+        assert!(!warnings.is_empty());
     }
 
     #[test]

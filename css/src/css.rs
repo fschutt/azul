@@ -2221,6 +2221,40 @@ impl_vec_partialeq!(CssPathSelector, CssPathSelectorVec);
 impl_vec_eq!(CssPathSelector, CssPathSelectorVec);
 impl_vec_hash!(CssPathSelector, CssPathSelectorVec);
 
+/// The path the declarations of `@page { @footnote { ... } }` are kept
+/// under (CSS Generated Content for Paged Media, "The footnote area": "A
+/// page area that can be used to display footnotes is described in the
+/// page context using an @footnote rule").
+///
+/// The footnote area is no element: no node of a document is selected by
+/// its rule. The stylesheet parser stores the rule as an ordinary rule
+/// block whose path - two class names reserved for it - matches no node,
+/// and the paged layout reads it back from the stylesheet
+/// ([`Css::footnote_area_declarations`]). A document that gives two nested
+/// nodes exactly these classes is styled by the rule too; do not.
+#[must_use]
+pub fn footnote_area_path() -> CssPath {
+    CssPath::new(alloc::vec![
+        CssPathSelector::Class(AzString::from_const_str("-azul-page")),
+        CssPathSelector::DirectChildren,
+        CssPathSelector::Class(AzString::from_const_str("-azul-footnote-area")),
+    ])
+}
+
+impl Css {
+    /// The declarations of every `@page { @footnote { ... } }` rule of the
+    /// stylesheet, in source order: a later one overrides an earlier one
+    /// ([`footnote_area_path`]).
+    pub fn footnote_area_declarations(&self) -> impl Iterator<Item = &CssDeclaration> + '_ {
+        let path = footnote_area_path();
+        self.rules
+            .as_ref()
+            .iter()
+            .filter(move |rule| rule.path == path)
+            .flat_map(|rule| rule.declarations.as_ref().iter())
+    }
+}
+
 impl CssPath {
     #[must_use]
     pub fn new(selectors: Vec<CssPathSelector>) -> Self {
