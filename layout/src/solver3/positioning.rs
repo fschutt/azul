@@ -1067,8 +1067,8 @@ fn margin_note_place(
     )?
     .geometry(content_width);
     let rtl = matches!(
-        super::getters::get_direction_property(styled_dom, container_dom, container_state),
-        super::getters::MultiValue::Exact(azul_css::props::style::StyleDirection::Rtl)
+        get_direction_property(styled_dom, container_dom, container_state),
+        MultiValue::Exact(azul_css::props::style::StyleDirection::Rtl)
     );
     // The column the static position is in: the one whose box, with the
     // gap after it, holds it. (On paged media the columns of every row
@@ -1128,6 +1128,16 @@ fn place_footnote<T: ParsedFontTrait>(
         .and_then(|w| w.intrinsic_sizes)
         .unwrap_or_default();
     let bp = tree.nodes[node_index].box_props.unpack();
+    // The notes stand in the content box of the footnote area: the page's
+    // content area less the area's own horizontal padding.
+    let area = crate::solver3::footnotes::footnote_area(ctx.styled_dom, viewport.size).0;
+    let viewport = LogicalRect::new(
+        LogicalPosition::new(viewport.origin.x + area.padding_left, viewport.origin.y),
+        LogicalSize::new(
+            (viewport.size.width - area.padding_left - area.padding_right).max(0.0),
+            viewport.size.height,
+        ),
+    );
     let Ok(mut size) = crate::solver3::sizing::calculate_used_size_for_node(
         ctx.styled_dom,
         Some(dom_id),

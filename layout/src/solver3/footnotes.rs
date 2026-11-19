@@ -51,14 +51,20 @@
 //! NOT in this version:
 //! - `::footnote-call` and `::footnote-marker` and the `footnote` counter: the author writes the
 //!   call mark in the text and the mark in the note;
-//! - `@page { @footnote { ... } }` (the footnote area cannot be styled or moved), `footnote-display`,
-//!   `footnote-policy`;
+//! - of the footnote area's rule (`@page { @footnote { ... } }`, [`FootnoteArea`]) only
+//!   `margin-top`, `border-top`, the paddings and `max-height` are honoured; the area is
+//!   `float: bottom` and nothing else; `footnote-display` and `footnote-policy` are not
+//!   implemented;
 //! - the margins of two notes stacked on a page do not collapse;
 //! - a page sequence with pages of different heights is not tested with notes.
 
 use std::collections::BTreeMap;
 
-use azul_core::{dom::NodeId, styled_dom::StyledDom};
+use azul_core::{dom::NodeId, geom::LogicalSize, styled_dom::StyledDom};
+use azul_css::{
+    css::CssPropertyValue,
+    props::style::{LayoutBorderTopWidth, StyleBorderTopColor, StyleBorderTopStyle},
+};
 
 use crate::solver3::{
     display_list::DisplayList,
@@ -112,6 +118,178 @@ pub struct PageRoom {
     pub ends_before_a_line: bool,
 }
 
+/// The box of the footnote area, as `@page { @footnote { ... } }` styles it
+/// (CSS Generated Content for Paged Media, "The footnote area": "This rule
+/// defines a box that, if used, will contain all the footnote elements that
+/// appear on that page"; `css::footnote_area_path`). Lengths in px.
+///
+/// Honoured: `margin-top` (between the flow and the area), `border-top`
+/// (the footnote rule: "A horizontal rule is often used to separate the
+/// footnote area from the rest of the page"), the four paddings and
+/// `max-height`. The area is `float: bottom`, its default and only
+/// position ("The bottom margin edge of the footnote area is positioned so
+/// that it touches the bottom of the page area"); every other declaration
+/// of the rule is ignored. The box is there on the pages that have notes
+/// and only on those: "The separator (and the entire footnote area) cannot
+/// be rendered on a page with no footnotes."
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FootnoteArea {
+    pub margin_top: f32,
+    /// The width of the rule above the notes; 0 without one.
+    pub border_top: f32,
+    pub padding_top: f32,
+    pub padding_bottom: f32,
+    pub padding_left: f32,
+    pub padding_right: f32,
+    /// `max-height`: the most the area's content may be tall on a page
+    /// that carries flow ("The max-height property on the footnote area
+    /// limits the size of this area, unless the page contains only
+    /// footnotes"). `None`: this engine's default,
+    /// [`FOOTNOTE_AREA_MAX_SHARE`] of the page for the whole box.
+    pub max_height: Option<f32>,
+}
+
+impl FootnoteArea {
+    /// What stands between the flow and the first note: margin, rule,
+    /// padding.
+    #[must_use]
+    pub fn above(&self) -> f32 {
+        self.margin_top + self.border_top + self.padding_top
+    }
+
+    /// What the area takes of a page besides its notes.
+    #[must_use]
+    pub fn chrome(&self) -> f32 {
+        self.above() + self.padding_bottom
+    }
+
+    /// The most the notes of a page `page_height` tall that carries flow
+    /// may take.
+    #[must_use]
+    pub fn content_max(&self, page_height: f32) -> f32 {
+        self.max_height
+            .unwrap_or(page_height * FOOTNOTE_AREA_MAX_SHARE - self.chrome())
+            .max(0.0)
+    }
+
+    /// What a page gives its footnote area when its notes are `content`
+    /// tall: nothing without notes.
+    #[must_use]
+    pub fn taken(&self, content: f32) -> f32 {
+        if content > EPS {
+            content + self.chrome()
+        } else {
+            0.0
+        }
+    }
+}
+
+/// The `border-top` of the footnote area as its rule declares it, for the
+/// display list.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FootnoteRule {
+    pub width: Option<CssPropertyValue<LayoutBorderTopWidth>>,
+    pub style: Option<CssPropertyValue<StyleBorderTopStyle>>,
+    pub color: Option<CssPropertyValue<StyleBorderTopColor>>,
+}
+
+/// The footnote area of `styled_dom`'s author stylesheet for pages whose
+/// content area is `page_size`: the declarations of its `@page { @footnote
+/// { ... } }` rules, a later one over an earlier one.
+///
+/// Lengths: `em` is the initial font size (the area is no element and has
+/// no font size of its own - a choice), percentages are of the page's
+/// content width (of its height for `max-height`). A `border-top` with a
+/// style other than `none` / `hidden` and no width is `medium`, the
+/// engine's `LayoutBorderTopWidth::default()`.
+#[must_use]
+pub fn footnote_area(styled_dom: &StyledDom, page_size: LogicalSize) -> (FootnoteArea, FootnoteRule) {
+    use azul_css::{
+        css::CssDeclaration,
+        props::{
+            basic::{PhysicalSize, PixelValue, PropertyContext, ResolutionContext},
+            property::CssProperty,
+            style::BorderStyle,
+        },
+    };
+    let mut area = FootnoteArea::default();
+    let mut rule = FootnoteRule::default();
+    let resolve = |px: &PixelValue, containing: f32| -> f32 {
+        let font_size = azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+        px.resolve_with_context(
+            &ResolutionContext {
+                vertical_writing_mode: false,
+                element_font_size: font_size,
+                parent_font_size: font_size,
+                root_font_size: font_size,
+                containing_block_size: PhysicalSize::new(containing, containing),
+                element_size: None,
+                viewport_size: PhysicalSize::new(page_size.width, page_size.height),
+            },
+            PropertyContext::Other,
+        )
+        .max(0.0)
+    };
+    let css = &styled_dom.css_property_cache.ptr.retained_author_css;
+    for declaration in css.footnote_area_declarations() {
+        let CssDeclaration::Static(property) = declaration else {
+            continue;
+        };
+        match property {
+            CssProperty::MarginTop(v) => {
+                if let Some(v) = v.get_property() {
+                    area.margin_top = resolve(&v.inner, page_size.width);
+                }
+            }
+            CssProperty::PaddingTop(v) => {
+                if let Some(v) = v.get_property() {
+                    area.padding_top = resolve(&v.inner, page_size.width);
+                }
+            }
+            CssProperty::PaddingBottom(v) => {
+                if let Some(v) = v.get_property() {
+                    area.padding_bottom = resolve(&v.inner, page_size.width);
+                }
+            }
+            CssProperty::PaddingLeft(v) => {
+                if let Some(v) = v.get_property() {
+                    area.padding_left = resolve(&v.inner, page_size.width);
+                }
+            }
+            CssProperty::PaddingRight(v) => {
+                if let Some(v) = v.get_property() {
+                    area.padding_right = resolve(&v.inner, page_size.width);
+                }
+            }
+            CssProperty::MaxHeight(v) => {
+                area.max_height = v.get_property().map(|v| resolve(&v.inner, page_size.height));
+            }
+            CssProperty::BorderTopWidth(v) => rule.width = Some(*v),
+            CssProperty::BorderTopStyle(v) => rule.style = Some(*v),
+            CssProperty::BorderTopColor(v) => rule.color = Some(*v),
+            _ => {}
+        }
+    }
+    let drawn = rule
+        .style
+        .and_then(|s| s.get_property().copied())
+        .is_some_and(|s| !matches!(s.inner, BorderStyle::None | BorderStyle::Hidden));
+    area.border_top = if drawn {
+        rule.width
+            .and_then(|w| w.get_property().copied())
+            .map_or_else(
+                || resolve(&LayoutBorderTopWidth::default().inner, page_size.width),
+                |w| resolve(&w.inner, page_size.width),
+            )
+    } else {
+        0.0
+    };
+    if !drawn {
+        rule = FootnoteRule::default();
+    }
+    (area, rule)
+}
+
 /// The footnotes of a paged canvas and which display items are theirs.
 ///
 /// Made from ONE display list ([`collect_footnotes`]); `owners` index into
@@ -128,6 +306,10 @@ pub struct Footnotes {
     /// Per note: the block ranges it cannot be cut in - its lines and its
     /// images - from its margin box's top, ascending and not overlapping.
     unbreakable: Vec<Vec<(f32, f32)>>,
+    /// The box of the footnote area ([`footnote_area`]).
+    pub area: FootnoteArea,
+    /// The rule above the notes.
+    pub rule: FootnoteRule,
 }
 
 /// A part of a footnote that is drawn on one page: the note (its index in
@@ -304,9 +486,9 @@ impl Footnotes {
             queue.extend(self.on_page(start, end).into_iter().map(|(i, _)| (i, 0.0)));
         }
         let room = if only_notes {
-            height
+            height - self.area.chrome()
         } else {
-            (height - flow_height).min(height * FOOTNOTE_AREA_MAX_SHARE)
+            (height - flow_height - self.area.chrome()).min(self.area.content_max(height))
         };
         let (placed, left) = self.fill_area(&queue, room, only_notes);
         *rest = left;
@@ -347,7 +529,11 @@ impl Footnotes {
         rest: &mut Vec<NoteRest>,
     ) -> PageRoom {
         let bottom = start + height;
-        let area_max = height * FOOTNOTE_AREA_MAX_SHARE;
+        // The most the notes may take, and what the area takes with them
+        // (its margin, rule and padding - on a page with notes only).
+        let area_max = self.area.content_max(height);
+        let chrome = self.area.chrome();
+        let taken = |notes: f32| self.area.taken(notes);
         let (placed, mut left) = self.fill_area(&core::mem::take(rest), area_max, false);
         let mut reserved: f32 = placed.iter().map(NoteFragment::height).sum();
         // The lowest line end of the notes taken so far.
@@ -360,17 +546,17 @@ impl Footnotes {
             if note.anchor_top < start - EPS || until.is_some_and(|u| note.anchor_top >= u) {
                 continue;
             }
-            if note.anchor_top >= bottom - reserved - EPS {
+            if note.anchor_top >= bottom - taken(reserved) - EPS {
                 break; // this note and those after it start below the flow
             }
             let first_line = note.anchor_top <= start + FIRST_LINE;
             let line_end = lines_end.max(note.anchor_bottom);
             let line_height = note.anchor_bottom - note.anchor_top;
             let fits_here = left.is_empty()
-                && line_end <= bottom - reserved - note.height + EPS
+                && line_end <= bottom - taken(reserved + note.height) + EPS
                 && reserved + note.height <= area_max + EPS;
-            let fits_a_page =
-                note.height <= area_max + EPS && line_height + note.height <= height + EPS;
+            let fits_a_page = note.height <= area_max + EPS
+                && line_height + note.height + chrome <= height + EPS;
             if fits_here {
                 reserved += note.height;
                 lines_end = line_end;
@@ -383,8 +569,8 @@ impl Footnotes {
             // move, there it takes what is under it.
             let part = if left.is_empty() && !fits_a_page {
                 let space = if first_line {
-                    (bottom - reserved - line_end).min(area_max - reserved)
-                } else if line_end <= bottom - area_max + EPS {
+                    (bottom - chrome - reserved - line_end).min(area_max - reserved)
+                } else if line_end <= bottom - chrome - area_max + EPS {
                     area_max - reserved
                 } else {
                     0.0
@@ -413,7 +599,7 @@ impl Footnotes {
         *rest = left;
         if !room.ends_before_a_line {
             // Never above a line whose note is on the page.
-            room.flow_end = (bottom - reserved).max(lines_end);
+            room.flow_end = (bottom - taken(reserved)).max(lines_end);
         }
         room
     }
@@ -488,6 +674,7 @@ pub fn collect_footnotes(
     tree: &LayoutTree,
     positions: &PositionVec,
     styled_dom: &StyledDom,
+    page_size: LogicalSize,
 ) -> Footnotes {
     let mut found = footnote_boxes(tree, positions, styled_dom);
     if found.is_empty() {
@@ -650,11 +837,14 @@ pub fn collect_footnotes(
         *ranges = merged;
     }
 
+    let (area, rule) = footnote_area(styled_dom, page_size);
     Footnotes {
         notes: found.into_iter().map(|(_, note)| note).collect(),
         owners,
         ranges,
         unbreakable,
+        area,
+        rule,
     }
 }
 
@@ -679,6 +869,8 @@ mod tests {
             notes,
             owners: Vec::new(),
             ranges: Vec::new(),
+            area: FootnoteArea::default(),
+            rule: FootnoteRule::default(),
         }
     }
 
@@ -743,6 +935,8 @@ mod tests {
             owners: Vec::new(),
             ranges: Vec::new(),
             unbreakable: vec![ranges],
+            area: FootnoteArea::default(),
+            rule: FootnoteRule::default(),
         }
     }
 

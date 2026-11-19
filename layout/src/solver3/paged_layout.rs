@@ -705,6 +705,7 @@ where
             tree,
             calculated_positions,
             new_dom,
+            viewport.size,
         );
 
         let slicer_config = SlicerConfig {
@@ -900,6 +901,10 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     pages: Option<crate::solver3::page_breaks::PageConstraints>,
 ) -> Result<()> {
     cache.cache_map.column_pages.pages = pages;
+    // The footnote area's box is the stylesheet's (`@page { @footnote }`),
+    // the same in every pass.
+    cache.cache_map.column_pages.note_area =
+        crate::solver3::footnotes::footnote_area(new_dom, viewport.size).0;
     for pass in 1..=MAX_COLUMN_PAGE_PASSES {
         compute_layout_pass(
             cache,
@@ -1058,6 +1063,7 @@ fn column_page_rooms(
         &canvas_events(cache, styled_dom, viewport_size),
         &column_pages.flows,
         &column_pages.slack,
+        column_pages.note_area,
     )
 }
 

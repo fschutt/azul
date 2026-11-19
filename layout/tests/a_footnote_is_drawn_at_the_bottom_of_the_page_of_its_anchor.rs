@@ -45,7 +45,7 @@ const RED: (u8, u8, u8) = (255, 0, 0);
 const GREEN: (u8, u8, u8) = (0, 255, 0);
 const BLUE: (u8, u8, u8) = (0, 0, 255);
 
-const STYLE: &str = "* { margin: 0; padding: 0; } \
+pub(crate) const STYLE: &str = "* { margin: 0; padding: 0; } \
      p { line-height: 20px } \
      .b { background: #0000ff } \
      .fn { float: footnote } \
@@ -56,12 +56,12 @@ fn html(body: &str) -> String {
 }
 
 /// A note `id`, `height` px tall.
-fn note(id: &str, height: u32) -> String {
+pub(crate) fn note(id: &str, height: u32) -> String {
     format!("<span id=\"{id}\" class=\"fn\" style=\"height: {height}px\">note</span>")
 }
 
 /// `n` blue blocks, each `height` px tall.
-fn blocks(n: usize, height: u32) -> String {
+pub(crate) fn blocks(n: usize, height: u32) -> String {
     (0..n)
         .map(|_| format!("<div class=\"b\" style=\"height: {height}px\"></div>"))
         .collect()
@@ -208,7 +208,7 @@ pub(crate) fn rects(page: &DisplayList, (r, g, b): (u8, u8, u8)) -> Vec<(f32, f3
         .collect()
 }
 
-fn break_ys(result: &PagedLayoutResult) -> Vec<f32> {
+pub(crate) fn break_ys(result: &PagedLayoutResult) -> Vec<f32> {
     result.breaks.iter().map(|b| b.y).collect()
 }
 
@@ -526,7 +526,7 @@ fn a_note_inside_an_inline_box_is_anchored_on_the_line_it_is_written_in() {
 }
 
 /// A note `id` of `lines` 20px lines (a `<br/>` between them).
-fn long_note(id: &str, lines: usize) -> String {
+pub(crate) fn long_note(id: &str, lines: usize) -> String {
     let text: Vec<String> = (0..lines).map(|i| format!("l{i}")).collect();
     format!(
         "<span id=\"{id}\" class=\"fn\" style=\"line-height: 20px\">{}</span>",

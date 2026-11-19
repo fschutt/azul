@@ -286,7 +286,15 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
     let boxes: Vec<FlowBox> = flow.iter().map(|(_, b)| b.clone()).collect();
     let plan = match (columns.page, columns.first_room) {
         (Some(rest), Some(first)) => {
-            plan_paged_columns(&boxes, columns.geometry.count, PageRoom { first, rest })
+            plan_paged_columns(
+                &boxes,
+                columns.geometry.count,
+                PageRoom {
+                    first,
+                    rest,
+                    area: ctx.cache_map.column_pages.note_area,
+                },
+            )
         }
         _ => plan_columns(
             &boxes,

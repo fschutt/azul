@@ -2246,11 +2246,14 @@ impl Css {
     /// stylesheet, in source order: a later one overrides an earlier one
     /// ([`footnote_area_path`]).
     pub fn footnote_area_declarations(&self) -> impl Iterator<Item = &CssDeclaration> + '_ {
+        // The END of the rule's path: a stylesheet that came with a node (a
+        // `<style>` element) has its rules scoped to that node's subtree,
+        // by a scope selector in front.
         let path = footnote_area_path();
         self.rules
             .as_ref()
             .iter()
-            .filter(move |rule| rule.path == path)
+            .filter(move |rule| rule.path.selectors.as_ref().ends_with(path.selectors.as_ref()))
             .flat_map(|rule| rule.declarations.as_ref().iter())
     }
 }

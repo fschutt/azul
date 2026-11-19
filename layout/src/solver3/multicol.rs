@@ -582,6 +582,7 @@ fn plan_row(
     count: usize,
     room: f32,
     area_max: f32,
+    area: crate::solver3::footnotes::FootnoteArea,
     carry_in: f32,
 ) -> RowPlan {
     // The atom after the `count` columns filled `height` tall from `from`,
@@ -605,7 +606,7 @@ fn plan_row(
         RowPlan {
             next: end,
             height,
-            notes,
+            notes: area.taken(notes),
             rest: (asked - notes).max(0.0),
         }
     };
@@ -618,7 +619,7 @@ fn plan_row(
         }
         let split = splits(end);
         let notes = if split { asked_here.min(area_max) } else { asked_here };
-        let height = (room - notes).max(0.0);
+        let height = (room - area.taken(notes)).max(0.0);
         let fits = reach(end, height);
         // Notes that are not split fit the footnote area whole, or one of
         // their pieces starts the next row.
@@ -654,7 +655,8 @@ struct RowPlan {
     next: usize,
     /// How tall the row's columns may be.
     height: f32,
-    /// The room the footnotes take at the bottom of the row's page.
+    /// The room the footnote area takes at the bottom of the row's page:
+    /// the notes and the area's own margin, rule and padding.
     notes: f32,
     /// What is left of footnotes that fit no page for the next row's page.
     rest: f32,
@@ -764,6 +766,9 @@ pub struct PageRoom {
     pub first: f32,
     /// The room of every page after it: the page's height.
     pub rest: f32,
+    /// The box of the footnote area (`@page { @footnote }`): what it takes
+    /// of a page besides its notes, and the most its notes may take.
+    pub area: crate::solver3::footnotes::FootnoteArea,
 }
 
 /// CSS Multicol 1 §7 and CSS Fragmentation 3 on paged media: the columns
@@ -793,8 +798,8 @@ pub fn plan_paged_columns(boxes: &[FlowBox], count: u32, room: PageRoom) -> Colu
     let count = count.max(1) as usize;
     // The most a page gives its footnote area (`footnotes`): a note taller
     // than that is split over the pages.
-    let area_max = room.rest * crate::solver3::footnotes::FOOTNOTE_AREA_MAX_SHARE;
-    let (first_room, lead) = if atoms[0].bottom + atoms[0].notes.min(area_max)
+    let area_max = room.area.content_max(room.rest);
+    let (first_room, lead) = if atoms[0].bottom + room.area.taken(atoms[0].notes.min(area_max))
         > room.first + FIT_EPS
         && room.first < room.rest
     {
@@ -814,7 +819,7 @@ pub fn plan_paged_columns(boxes: &[FlowBox], count: u32, room: PageRoom) -> Colu
         } else {
             room.rest
         };
-        let row = plan_row(&atoms, from, count, page, area_max, carry);
+        let row = plan_row(&atoms, from, count, page, area_max, room.area, carry);
         let (next, height, notes) = (row.next, row.height, row.notes);
         carry = row.rest;
         row_notes.push(notes);
@@ -901,6 +906,8 @@ pub struct ColumnPages {
     /// ([`FlowBox::notes`]); a footnote is as wide as the page, its height
     /// does not depend on the columns.
     pub note_heights: std::collections::BTreeMap<NodeId, f32>,
+    /// The box of the footnote area of the document (`@page { @footnote }`).
+    pub note_area: crate::solver3::footnotes::FootnoteArea,
 }
 
 /// One thing on the canvas that decides where the pages break, in the
@@ -954,6 +961,7 @@ pub fn plan_page_rooms(
     events: &[PageEvent],
     flows: &std::collections::BTreeMap<NodeId, ColumnFlowRecord>,
     slack: &std::collections::BTreeMap<NodeId, f32>,
+    area: crate::solver3::footnotes::FootnoteArea,
 ) -> std::collections::BTreeMap<NodeId, f32> {
     // The page being filled: where it starts on the canvas, how tall it is
     // and how much of that its footnotes take so far.
@@ -965,15 +973,16 @@ pub fn plan_page_rooms(
         /// What is left of footnotes that fit no page, for the pages after
         /// this one (`footnotes::Footnotes::room_for_page`).
         carry: f32,
+        area: crate::solver3::footnotes::FootnoteArea,
     }
     impl Page {
         /// Where the page's flow ends on the canvas.
         fn end(&self) -> f32 {
-            self.top + self.height - self.notes
+            self.top + self.height - self.area.taken(self.notes)
         }
         /// The most the page gives its footnote area.
         fn area_max(&self) -> f32 {
-            self.height * crate::solver3::footnotes::FOOTNOTE_AREA_MAX_SHARE
+            self.area.content_max(self.height)
         }
         fn start_at(&mut self, top: f32) {
             self.top = top;
@@ -1010,6 +1019,7 @@ pub fn plan_page_rooms(
         notes: 0.0,
         rest,
         carry: 0.0,
+        area,
     };
     for event in events {
         match *event {
@@ -1031,13 +1041,19 @@ pub fn plan_page_rooms(
                     // whole footnote area is free under its line (else its
                     // line starts the next page), and goes on on the pages
                     // after.
-                    if !at_top && bottom > page.top + page.height - page.area_max() + FIT_EPS {
+                    if !at_top
+                        && bottom
+                            > page.top + page.height - area.chrome() - page.area_max() + FIT_EPS
+                    {
                         page.start_at(y);
                     }
                     let part = (page.area_max() - page.notes).max(0.0).min(height);
                     page.notes += part;
                     page.carry += height - part;
-                } else if bottom <= page.end() - height + FIT_EPS || at_top {
+                } else if bottom
+                    <= page.top + page.height - area.taken(page.notes + height) + FIT_EPS
+                    || at_top
+                {
                     page.notes += height;
                 } else {
                     // The line goes to the next page with its note.
@@ -1058,20 +1074,35 @@ pub fn plan_page_rooms(
                     .iter()
                     .map(|b| b.notes + b.lines.iter().map(|l| l.notes).sum::<f32>())
                     .sum();
-                let height = if unpaged.height + notes <= room + FIT_EPS {
+                let fits = y + unpaged.height
+                    <= page.top + page.height
+                        - area.taken(page.notes + notes)
+                        - slack.get(&node).copied().unwrap_or(0.0)
+                        + FIT_EPS;
+                let height = if fits {
                     // It fits its page in one row, above its notes.
                     page.notes += notes;
                     unpaged.height
                 } else {
                     rooms.insert(node, room);
-                    let plan =
-                        plan_paged_columns(&flow.boxes, flow.count, PageRoom { first: room, rest });
+                    let plan = plan_paged_columns(
+                        &flow.boxes,
+                        flow.count,
+                        PageRoom {
+                            first: room,
+                            rest,
+                            area,
+                        },
+                    );
                     // Its rows start pages (forced breaks): the pages after it go on from
                     // its last row, not from the grid it started on - with the notes of
                     // that row at the page's bottom.
                     if let Some(&last_row) = plan.row_tops.last() {
                         page.start_at(y + last_row);
-                        page.notes = plan.row_notes.last().copied().unwrap_or(0.0);
+                        // (`row_notes` is what the area takes, its own
+                        // margin, rule and padding included.)
+                        let last_notes = plan.row_notes.last().copied().unwrap_or(0.0);
+                        page.notes = (last_notes - area.chrome()).max(0.0);
                     }
                     plan.height
                 };
@@ -1361,6 +1392,7 @@ mod tests {
             PageRoom {
                 first: 140.0,
                 rest: 200.0,
+                area: Default::default(),
             },
         );
         assert_eq!(columns_of(&plan), [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]);
@@ -1379,6 +1411,7 @@ mod tests {
             PageRoom {
                 first: 140.0,
                 rest: 200.0,
+                area: Default::default(),
             },
         );
         assert_eq!(columns_of(&plan), [0, 0, 1, 1]);
@@ -1394,6 +1427,7 @@ mod tests {
             PageRoom {
                 first: 30.0,
                 rest: 200.0,
+                area: Default::default(),
             },
         );
         assert_eq!(plan.row_tops, [30.0]);
@@ -1431,7 +1465,7 @@ mod tests {
                 y: 300.0,
             },
         ];
-        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default());
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default(), Default::default());
         assert_eq!(rooms.len(), 2, "{rooms:?}");
         assert!(near(rooms[&NodeId::new(1)], 140.0), "{rooms:?}");
         assert!(near(rooms[&NodeId::new(2)], 80.0), "{rooms:?}");
@@ -1460,7 +1494,7 @@ mod tests {
                 y: 70.0,
             },
         ];
-        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default());
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default(), Default::default());
         assert!(near(rooms[&NodeId::new(1)], 180.0), "{rooms:?}");
     }
 
@@ -1482,7 +1516,7 @@ mod tests {
             node: NodeId::new(1),
             y: 100.0,
         }];
-        assert!(plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default()).is_empty());
+        assert!(plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default(), Default::default()).is_empty());
     }
     #[test]
     fn a_break_pushed_up_before_the_end_of_the_first_page_is_its_slack() {
@@ -1516,7 +1550,7 @@ mod tests {
             row_tops: vec![0.0],
         };
         let flows12: BTreeMap<NodeId, ColumnFlowRecord> = [(NodeId::new(1), boxes12)].into_iter().collect();
-        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows12, &slack);
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows12, &slack, Default::default());
         assert!(near(rooms[&NodeId::new(1)], 128.0), "{rooms:?}");
     }
     #[test]
@@ -1539,12 +1573,12 @@ mod tests {
             PageEvent::Container { node: NodeId::new(2), y: 300.0 },
         ];
         let slack: BTreeMap<NodeId, f32> = [(NodeId::new(1), 30.0)].into_iter().collect();
-        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &slack);
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &slack, Default::default());
         let first = rooms[&NodeId::new(1)];
         assert!(near(first, 110.0), "{rooms:?}");
         // the first container's rows: [0, 110, 310]: the last row starts at 60 + 310 = 370;
         // the second container, 40px taller below it than it stood (shift), is on that page
-        let plan = plan_paged_columns(&boxes_of(12), 2, PageRoom { first, rest: 200.0 });
+        let plan = plan_paged_columns(&boxes_of(12), 2, PageRoom { first, rest: 200.0, area: Default::default() });
         let last_row_top = 60.0 + plan.row_tops.last().copied().unwrap();
         let second_y = 300.0 + (plan.height - 240.0);
         let expected = last_row_top + 200.0 - second_y;
@@ -1574,6 +1608,7 @@ mod tests {
             PageRoom {
                 first: 140.0,
                 rest: 200.0,
+                area: Default::default(),
             },
         );
         let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
@@ -1596,6 +1631,7 @@ mod tests {
             PageRoom {
                 first: 140.0,
                 rest: 200.0,
+                area: Default::default(),
             },
         );
         let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
@@ -1617,6 +1653,7 @@ mod tests {
             PageRoom {
                 first: 200.0,
                 rest: 200.0,
+                area: Default::default(),
             },
         );
         let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
@@ -1633,6 +1670,7 @@ mod tests {
             PageRoom {
                 first: 140.0,
                 rest: 200.0,
+                area: Default::default(),
             },
         );
         let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();
@@ -1666,7 +1704,7 @@ mod tests {
                 y: 60.0,
             },
         ];
-        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default());
+        let rooms = plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default(), Default::default());
         assert!(near(rooms[&NodeId::new(1)], 100.0), "{rooms:?}");
     }
 
@@ -1692,7 +1730,7 @@ mod tests {
         let rooms_of = |with_note: bool| {
             let flows: BTreeMap<NodeId, ColumnFlowRecord> =
                 [(NodeId::new(1), record(with_note))].into_iter().collect();
-            plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default())
+            plan_page_rooms(200.0, 200.0, &events, &flows, &Default::default(), Default::default())
         };
         assert!(rooms_of(false).is_empty());
         assert!(near(rooms_of(true)[&NodeId::new(1)], 140.0));
@@ -1710,6 +1748,7 @@ mod tests {
             PageRoom {
                 first: 200.0,
                 rest: 200.0,
+                area: Default::default(),
             },
         );
         let columns: Vec<usize> = plan.boxes.iter().map(|b| b.column).collect();

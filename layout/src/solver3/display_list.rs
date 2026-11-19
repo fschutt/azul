@@ -13687,8 +13687,57 @@ fn paginate_pages_impl(
         if let Some(fragments) = note_plan.get(page_idx).filter(|f| !f.is_empty()) {
             let notes_height: f32 = fragments.iter().map(|f| f.height()).sum();
             let flow_bottom = header_space + sum_all_theads + (content_end_y - content_start_y);
-            let mut note_top =
-                (header_space + area_height_of(page_idx) - notes_height).max(flow_bottom);
+            // The footnote area's box (`@page { @footnote }`): its bottom
+            // margin edge at the bottom of the page area, its margin, rule
+            // and padding above the first note - on this page, which has
+            // notes ("The separator (and the entire footnote area) cannot
+            // be rendered on a page with no footnotes").
+            let area = config.footnotes.area;
+            let mut note_top = (header_space + area_height_of(page_idx)
+                - area.padding_bottom
+                - notes_height)
+                .max(flow_bottom + area.above());
+            if area.border_top > 0.0 {
+                let rule = config.footnotes.rule;
+                let rule_top = note_top - area.padding_top - area.border_top;
+                page_items.push(DisplayListItem::Border {
+                    bounds: LogicalRect::new(
+                        LogicalPosition::new(0.0, rule_top),
+                        LogicalSize::new(
+                            config.page_width,
+                            area.border_top + area.padding_top + notes_height + area.padding_bottom,
+                        ),
+                    )
+                    .into(),
+                    widths: StyleBorderWidths {
+                        top: rule.width.or(Some(CssPropertyValue::Exact(
+                            LayoutBorderTopWidth::default(),
+                        ))),
+                        right: None,
+                        bottom: None,
+                        left: None,
+                    },
+                    colors: StyleBorderColors {
+                        top: rule.color,
+                        right: None,
+                        bottom: None,
+                        left: None,
+                    },
+                    styles: StyleBorderStyles {
+                        top: rule.style,
+                        right: None,
+                        bottom: None,
+                        left: None,
+                    },
+                    border_radius: StyleBorderRadius {
+                        top_left: PixelValue::zero(),
+                        top_right: PixelValue::zero(),
+                        bottom_left: PixelValue::zero(),
+                        bottom_right: PixelValue::zero(),
+                    },
+                });
+                page_node_mapping.push(None);
+            }
             for fragment in fragments {
                 push_note_fragment(
                     &full_display_list,
