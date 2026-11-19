@@ -199,8 +199,19 @@ pub fn matches_html_element_in(
 
         match this_combinator {
             DirectChildren => {
-                // Parent must match directly (child combinator `>`)
-                let parent = find_non_anonymous_parent(current_node, node_hierarchy, node_data);
+                // Parent must match directly (child combinator `>`) - or, for
+                // a generated node that stands IN PLACE of its host
+                // (`::footnote-call`, the sibling before its footnote), the
+                // host: the css parser writes every pseudo-element rule as
+                // `host > ::pseudo` (`crate::generated_content`).
+                let parent = if matches!(
+                    node_data[current_node].get_node_type(),
+                    crate::dom::NodeType::FootnoteCall
+                ) {
+                    node_hierarchy[current_node].next_sibling_id()
+                } else {
+                    find_non_anonymous_parent(current_node, node_hierarchy, node_data)
+                };
                 match parent {
                     Some(p)
                         if left_group_matches(

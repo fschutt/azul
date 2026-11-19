@@ -221,7 +221,11 @@ impl Css {
                 matches!(
                     s,
                     CssPathSelector::Type(
-                        NodeTypeTag::Before | NodeTypeTag::After | NodeTypeTag::Marker
+                        NodeTypeTag::Before
+                            | NodeTypeTag::After
+                            | NodeTypeTag::Marker
+                            | NodeTypeTag::FootnoteCall
+                            | NodeTypeTag::FootnoteMarker
                     )
                 )
             })
@@ -1665,6 +1669,13 @@ pub enum NodeTypeTag {
     /// replaced element. CSS tag: `webview`. APPENDED at the end for ABI
     /// stability.
     WebView,
+    /// `::footnote-call` (CSS Generated Content for Paged Media, "The
+    /// footnote-call pseudo-element"): the mark left in the text where a
+    /// footnote was taken out of the flow.
+    FootnoteCall,
+    /// `::footnote-marker` (same draft, "The footnote-marker
+    /// pseudo-element"): the mark at the start of the footnote.
+    FootnoteMarker,
 }
 
 /// Error returned when a CSS tag name string cannot be mapped to a [`NodeTypeTag`].
@@ -1943,6 +1954,8 @@ impl NodeTypeTag {
             "before" | "::before" => Ok(Self::Before),
             "after" | "::after" => Ok(Self::After),
             "marker" | "::marker" => Ok(Self::Marker),
+            "footnote-call" | "::footnote-call" => Ok(Self::FootnoteCall),
+            "footnote-marker" | "::footnote-marker" => Ok(Self::FootnoteMarker),
             "placeholder" | "::placeholder" => Ok(Self::Placeholder),
 
             other => Err(NodeTypeTagParseError::Invalid(other)),
@@ -2179,6 +2192,8 @@ impl fmt::Display for NodeTypeTag {
             Self::Before => write!(f, "::before"),
             Self::After => write!(f, "::after"),
             Self::Marker => write!(f, "::marker"),
+            Self::FootnoteCall => write!(f, "::footnote-call"),
+            Self::FootnoteMarker => write!(f, "::footnote-marker"),
             Self::Placeholder => write!(f, "::placeholder"),
         }
     }
@@ -2335,7 +2350,11 @@ impl CssPath {
                 s,
                 CssPathSelector::DirectChildren
                     | CssPathSelector::Type(
-                        NodeTypeTag::Before | NodeTypeTag::After | NodeTypeTag::Marker
+                        NodeTypeTag::Before
+                            | NodeTypeTag::After
+                            | NodeTypeTag::Marker
+                            | NodeTypeTag::FootnoteCall
+                            | NodeTypeTag::FootnoteMarker
                     )
             )
         };
@@ -2366,7 +2385,11 @@ impl fmt::Display for CssPath {
                 && matches!(
                     selectors.get(i + 1),
                     Some(CssPathSelector::Type(
-                        NodeTypeTag::Before | NodeTypeTag::After | NodeTypeTag::Marker
+                        NodeTypeTag::Before
+                            | NodeTypeTag::After
+                            | NodeTypeTag::Marker
+                            | NodeTypeTag::FootnoteCall
+                            | NodeTypeTag::FootnoteMarker
                     ))
                 );
             if !leads_to_pseudo_element {

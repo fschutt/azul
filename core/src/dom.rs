@@ -682,6 +682,14 @@ pub enum NodeType {
     /// The config rides inline like `TransientWindow`'s. See
     /// `crate::webview`; constructor: [`Dom::create_webview`].
     WebView(crate::webview::WebViewConfig),
+    /// `::footnote-call`: the mark left in the text where a footnote
+    /// (`float: footnote`) was taken out of the flow. Generated content,
+    /// made as the SIBLING before its footnote element
+    /// (`crate::generated_content`). APPENDED at the end for ABI stability.
+    FootnoteCall,
+    /// `::footnote-marker`: the mark at the start of a footnote, its first
+    /// child.
+    FootnoteMarker,
 }
 
 /// Type alias: `BoxOrStatic<ImageRef>` — used by `NodeType::Image` for FFI monomorphization.
@@ -917,6 +925,8 @@ impl NodeType {
             GeolocationProbe(cfg) => GeolocationProbe(*cfg),
             Self::PageBreak => Self::PageBreak,
             Self::WebView(cfg) => Self::WebView(*cfg),
+            Self::FootnoteCall => Self::FootnoteCall,
+            Self::FootnoteMarker => Self::FootnoteMarker,
         }
     }
 
@@ -1142,6 +1152,8 @@ impl NodeType {
             Self::After => NodeTypeTag::After,
             Self::Marker => NodeTypeTag::Marker,
             Self::Placeholder => NodeTypeTag::Placeholder,
+            Self::FootnoteCall => NodeTypeTag::FootnoteCall,
+            Self::FootnoteMarker => NodeTypeTag::FootnoteMarker,
         }
     }
 
@@ -3613,7 +3625,11 @@ impl NodeData {
     pub const fn is_generated_content(&self) -> bool {
         matches!(
             self.node_type,
-            NodeType::Before | NodeType::After | NodeType::Marker
+            NodeType::Before
+                | NodeType::After
+                | NodeType::Marker
+                | NodeType::FootnoteCall
+                | NodeType::FootnoteMarker
         )
     }
 

@@ -463,6 +463,8 @@ pub fn generated_pseudo_element(name: &str) -> Option<NodeTypeTag> {
         "before" => Some(NodeTypeTag::Before),
         "after" => Some(NodeTypeTag::After),
         "marker" => Some(NodeTypeTag::Marker),
+        "footnote-call" => Some(NodeTypeTag::FootnoteCall),
+        "footnote-marker" => Some(NodeTypeTag::FootnoteMarker),
         _ => None,
     }
 }

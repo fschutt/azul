@@ -45,7 +45,8 @@ const STYLE: &str = "* { margin: 0; padding: 0; } \
      #lead { height: 60px; line-height: 20px } \
      .cols { column-count: 2; column-gap: 20px; width: 420px; line-height: 20px } \
      .b { height: 40px } \
-     .fn { float: footnote; height: 40px; background: #ff0000 }";
+     .fn { float: footnote; height: 40px; background: #ff0000 } \
+     .fn::footnote-call { content: none } .fn::footnote-marker { content: none }";
 
 fn html(body: &str) -> String {
     format!("<html><head><style>{STYLE}</style></head><body>{body}</body></html>")

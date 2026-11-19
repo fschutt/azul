@@ -30362,7 +30362,9 @@
                                 "PageBreak": {},
                                 "WebView": {
                                     "type": "WebViewConfig"
-                                }
+                                },
+                                "FootnoteCall": {},
+                                "FootnoteMarker": {}
                             }
                         ],
                         "functions": {
@@ -31785,7 +31787,9 @@
                                 "Marker": {},
                                 "Placeholder": {},
                                 "PageBreak": {},
-                                "WebView": {}
+                                "WebView": {},
+                                "FootnoteCall": {},
+                                "FootnoteMarker": {}
                             }
                         ],
                         "repr": "C"

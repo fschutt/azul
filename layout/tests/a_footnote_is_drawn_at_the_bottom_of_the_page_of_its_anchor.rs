@@ -12,7 +12,10 @@
 //!
 //! Pages are 800 x 200. Every line is 20px (a `<br/>` ends each), every
 //! note has a height of its own and a background colour of its own to find
-//! it by on the page; the flow's blocks are blue.
+//! it by on the page; the flow's blocks are blue. The generated call and
+//! marker are turned off (`content: none`): these documents are about
+//! where a note goes; `a_footnote_has_a_generated_call_and_marker` is
+//! about its marks.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -49,6 +52,7 @@ pub(crate) const STYLE: &str = "* { margin: 0; padding: 0; } \
      p { line-height: 20px } \
      .b { background: #0000ff } \
      .fn { float: footnote } \
+     .fn::footnote-call { content: none } .fn::footnote-marker { content: none } \
      #n1 { background: #ff0000 } #n2 { background: #00ff00 }";
 
 fn html(body: &str) -> String {

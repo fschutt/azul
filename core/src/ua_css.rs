@@ -978,6 +978,15 @@ pub fn get_ua_property(
         (NT::Sub, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Sub, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_SUB),
         (NT::Sub, PT::FontSize) => Some(&FONT_SIZE_SMALLER),
+        // The marks of a footnote (CSS Generated Content for Paged Media).
+        // The draft's default style sheet makes the call a superscript with
+        // `font-variant-position: super` at `font-size: 100%`; this engine
+        // has no `font-variant-position`, so this user agent's default is
+        // the superscript of `<sup>`: raised and smaller.
+        (NT::FootnoteCall, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::FootnoteCall, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_SUPER),
+        (NT::FootnoteCall, PT::FontSize) => Some(&FONT_SIZE_SMALLER),
+        (NT::FootnoteMarker, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Sup, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Sup, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_SUPER),
         (NT::Sup, PT::FontSize) => Some(&FONT_SIZE_SMALLER),

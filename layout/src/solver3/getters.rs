@@ -3863,8 +3863,34 @@ pub fn get_display_property(
     let Some(id) = dom_id else {
         return MultiValue::Exact(LayoutDisplay::Inline);
     };
+    if is_hidden_footnote_mark(styled_dom, id) {
+        return MultiValue::Exact(LayoutDisplay::None);
+    }
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     get_display_property_internal(styled_dom, id, node_state)
+}
+
+/// Whether `node_id` is the `::footnote-call` or `::footnote-marker` of an
+/// element that is no footnote in this layout: the marks are generated for
+/// every element a rule gives `float: footnote`
+/// (`azul_core::generated_content`), but the element is a footnote only on
+/// paged media, and only while that `float` is what the cascade ends with
+/// ([`is_footnote`]). Where it stays in the flow there is nothing to call
+/// and nothing to mark, and the marks make no box.
+#[must_use]
+pub fn is_hidden_footnote_mark(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let node_data = styled_dom.node_data.as_container();
+    let Some(node) = node_data.get(node_id) else {
+        return false;
+    };
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let host = match node.get_node_type() {
+        // The call stands in place of its footnote: the sibling before it.
+        NodeType::FootnoteCall => hierarchy.get(node_id).and_then(|n| n.next_sibling_id()),
+        NodeType::FootnoteMarker => hierarchy.get(node_id).and_then(|n| n.parent_id()),
+        _ => return false,
+    };
+    !host.is_some_and(|host| is_footnote(styled_dom, host))
 }
 
 /// Whether `display` makes an inline BOX - a span its parent's line flows
@@ -4348,7 +4374,6 @@ pub fn get_style_properties_for_state(
         MultiValue::Exact(v) => v,
         _ => LayoutDisplay::Inline,
     };
-
     // For inline and inline-block elements, get background content and border info
     // Block elements have their backgrounds/borders painted by display_list.rs
     let (background_color, background_content, border) =

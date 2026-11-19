@@ -12,6 +12,19 @@
 //! same way, as its first child: a block list item's marker sits outside its
 //! box and the layout makes it, an inline one's starts its inline content.
 //!
+//! A footnote (`float: footnote`, CSS Generated Content for Paged Media)
+//! gets two: its `::footnote-marker` as its first child, and its
+//! `::footnote-call`, which "is inserted in its place" in the flow the
+//! footnote is taken out of - the one generated node that is not a child of
+//! its host but the SIBLING before it. Its rules are still written `host >
+//! ::footnote-call`; the selector matcher takes a call's host for its
+//! parent (`style::matches_html_element_in`). Both show the `footnote`
+//! counter unless a `content` is declared for them, and `content: none`
+//! turns either off. (`::footnote-marker::after`, the draft's default for
+//! the ". " after the marker's number, does not exist here - a
+//! pseudo-element has no pseudo-elements; the ". " is part of the marker's
+//! default content instead.)
+//!
 //! After every cascade, [`fill_generated_text`] writes that text from the
 //! node's `content` (a marker's from its list item's `list-style-type`):
 //! strings, `attr()`, `counter()` / `counters()` and quotes.
@@ -280,6 +293,47 @@ fn generating_hosts(css: &Css) -> (Vec<(bool, CssPath)>, Vec<CssPath>) {
     (rules, marker_rules)
 }
 
+/// Whether a rule makes its subject a footnote (`float: footnote`, CSS
+/// Generated Content for Paged Media), which carries a `::footnote-call`
+/// and a `::footnote-marker` node.
+fn makes_footnote(declarations: &[CssDeclaration]) -> bool {
+    declarations.iter().any(|d| {
+        matches!(
+            d,
+            CssDeclaration::Static(CssProperty::Float(CssPropertyValue::Exact(
+                azul_css::props::layout::LayoutFloat::Footnote
+            )))
+        )
+    })
+}
+
+/// Whether the node's own style makes it a footnote.
+fn footnote_inline(node: &NodeData) -> bool {
+    node.style.iter_inline_properties().any(|(prop, _)| {
+        matches!(
+            prop,
+            CssProperty::Float(CssPropertyValue::Exact(
+                azul_css::props::layout::LayoutFloat::Footnote
+            ))
+        )
+    })
+}
+
+/// The hosts the rules of `css` make footnotes: each gets its
+/// `::footnote-call` and `::footnote-marker` nodes.
+fn footnote_hosts(css: &Css) -> Vec<CssPath> {
+    css.rules
+        .as_ref()
+        .iter()
+        .filter(|rule| {
+            generated_subject(&rule.path).is_none()
+                && marker_subject(&rule.path).is_none()
+                && makes_footnote(rule.declarations.as_ref())
+        })
+        .map(|rule| host_path(&rule.path, rule.path.selectors.as_ref().len()))
+        .collect()
+}
+
 /// Whether the node's own style makes it an inline list item.
 fn inline_list_item_inline(node: &NodeData) -> bool {
     node.style.iter_inline_properties().any(|(prop, _)| {
@@ -293,8 +347,15 @@ fn inline_list_item_inline(node: &NodeData) -> bool {
 #[allow(clippy::too_many_lines)] // one pass over the DOM: each step feeds the next and reads its locals
 pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
     let (rules, marker_rules) = generating_hosts(css);
+    let footnote_rules = footnote_hosts(css);
     let inline_list_items_inline = dom.node_data.internal.iter().any(inline_list_item_inline);
-    if rules.is_empty() && marker_rules.is_empty() && !inline_list_items_inline {
+    let footnotes_inline = dom.node_data.internal.iter().any(footnote_inline);
+    if rules.is_empty()
+        && marker_rules.is_empty()
+        && footnote_rules.is_empty()
+        && !inline_list_items_inline
+        && !footnotes_inline
+    {
         return false;
     }
 
@@ -303,6 +364,10 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
     let mut before = alloc::vec![false; n];
     let mut after = alloc::vec![false; n];
     let mut marker = alloc::vec![false; n];
+    // A footnote element (`float: footnote`): its `::footnote-call` stands
+    // in its place, the sibling before it; its `::footnote-marker` is its
+    // first child.
+    let mut footnote = alloc::vec![false; n];
     {
         let items: Vec<NodeHierarchyItem> = dom
             .node_hierarchy
@@ -344,6 +409,19 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
                     Some(in_any_state),
                 )
             });
+            footnote[i] = dom.node_hierarchy.internal[i].parent.is_some()
+                && (footnote_inline(node)
+                    || footnote_rules.iter().any(|host| {
+                        matches_html_element_in(
+                            host,
+                            id,
+                            &hierarchy,
+                            &data,
+                            &cascade.as_ref(),
+                            None,
+                            Some(in_any_state),
+                        )
+                    }));
             for (is_before, host) in &rules {
                 let slot = if *is_before {
                     &mut before[i]
@@ -370,6 +448,9 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
         .iter()
         .chain(after.iter())
         .chain(marker.iter())
+        // A footnote makes two nodes.
+        .chain(footnote.iter())
+        .chain(footnote.iter())
         .filter(|b| **b)
         .count();
     if generated == 0 {
@@ -406,15 +487,26 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
             }
             new_end[top] = data.len() - 1;
         }
+        let new_parent = old_nodes[i]
+            .parent
+            .filter(|p| p.index() < i)
+            .map(|p| old_to_new[p.index()]);
+        // CSS Generated Content for Paged Media, "Creating footnotes": "The
+        // footnote element is removed from the flow, and a ::footnote-call
+        // pseudo-element is inserted in its place": a child of the
+        // footnote's PARENT, right before the footnote.
+        if let (true, Some(parent)) = (footnote[i], new_parent) {
+            push_generated(NodeType::FootnoteCall, parent, &mut data, &mut parents);
+        }
         let here = data.len();
         old_to_new[i] = here;
-        parents.push(
-            old_nodes[i]
-                .parent
-                .filter(|p| p.index() < i)
-                .map(|p| old_to_new[p.index()]),
-        );
+        parents.push(new_parent);
         data.push(node);
+        // "A ::footnote-marker pseudo-element, identifying the footnote, is
+        // placed at the beginning of the footnote element."
+        if footnote[i] && new_parent.is_some() {
+            push_generated(NodeType::FootnoteMarker, here, &mut data, &mut parents);
+        }
         // CSS Pseudo 4 s3: `::marker` comes first, then `::before`.
         if marker[i] {
             push_generated(NodeType::Marker, here, &mut data, &mut parents);
@@ -519,8 +611,16 @@ impl CssPropertyCache {
                 }
                 continue;
             }
+            let footnote_mark = matches!(
+                node.get_node_type(),
+                NodeType::FootnoteCall | NodeType::FootnoteMarker
+            );
             let add: Vec<(PseudoStateType, CssProperty)> = {
                 let Some(props) = self.css_props.build_get(index) else {
+                    if footnote_mark {
+                        // No rule styles it: it shows its default content.
+                        continue;
+                    }
                     continue;
                 };
                 let last = |state: PseudoStateType, ty: CssPropertyType| {
@@ -530,10 +630,15 @@ impl CssPropertyCache {
                         .find(|p| p.state == state && p.prop_type == ty)
                         .map(|p| &p.property)
                 };
+                // A footnote's call and marker have a default content (the
+                // footnote counter): they show unless a `content` that
+                // makes no box (`none`) is declared for them.
                 let shows = |state: PseudoStateType| {
-                    last(state, CssPropertyType::Content)
-                        .and_then(CssProperty::as_content)
-                        .is_some_and(content_makes_box)
+                    match last(state, CssPropertyType::Content).and_then(CssProperty::as_content)
+                    {
+                        Some(content) => content_makes_box(content),
+                        None => footnote_mark,
+                    }
                 };
                 let resting = shows(PseudoStateType::Normal);
                 let resting_display = last(PseudoStateType::Normal, CssPropertyType::Display)
@@ -896,6 +1001,24 @@ fn walk_counters(
             let step = if counters.counts_down("list-item") { -1 } else { 1 };
             counters.increment("list-item", step, i, parent);
         }
+        // CSS Generated Content for Paged Media, "The Footnote Counter":
+        // "The footnote counter is a predefined counter associated with
+        // the footnote element. [...] It should be incremented for each
+        // footnote." Unless the element's own `counter-increment` names
+        // it, as for a list item's counter.
+        // (The compact cache answers for the resting state without a
+        // cascade lookup, like every compact fast path.)
+        let float = match cache.compact_cache.as_ref() {
+            Some(cc) if state.is_normal() => Some(cc.get_float(i)),
+            _ => cache
+                .get_float(node, &id, &state)
+                .and_then(CssPropertyValue::get_property)
+                .copied(),
+        };
+        let is_footnote = float == Some(azul_css::props::layout::LayoutFloat::Footnote);
+        if is_footnote && increment.is_none_or(|c| !c.names("footnote")) {
+            counters.increment("footnote", 1, i, parent);
+        }
         // `counter-set` comes last (CSS Lists 3 s4.3). HTML's `<li value>`
         // sets the item's number first, so an author's `counter-set` of
         // `list-item` still has the last word, as a declaration beats the
@@ -928,12 +1051,71 @@ fn generated_texts(
 ) -> Vec<(usize, String)> {
     let mut quote_depth = 0_usize;
     let mut out = Vec::new();
+    // A `::footnote-call` stands before its footnote in the document, but
+    // shows the counter as its footnote left it ("the same counter value
+    // must be used for both", GCPM "Resetting the footnote counter"): its
+    // text waits for the footnote, `(footnote, text node, call)`.
+    let mut waiting_call: Option<(usize, usize, usize)> = None;
+    // The `content` of a footnote's call or marker: the declared one, else
+    // the draft's default, the footnote counter - with ". " after it in the
+    // marker (the draft's `::footnote-marker::after { content: '. ' }`,
+    // which this engine has no pseudo-element of a pseudo-element for).
+    let mark_content = |index: usize, node: &NodeData| -> String {
+        cache
+            .get_content(
+                node,
+                &NodeId::new(index),
+                &states.get(index).copied().unwrap_or_default(),
+            )
+            .and_then(CssPropertyValue::get_property)
+            .map_or_else(
+                || {
+                    if matches!(node.get_node_type(), NodeType::FootnoteCall) {
+                        String::from("counter(footnote)")
+                    } else {
+                        String::from("counter(footnote) \". \"")
+                    }
+                },
+                |content| content.inner.as_str().to_string(),
+            )
+    };
     walk_counters(
         node_data,
         hierarchy,
         cache,
         states,
         |i, id, node, parent, counters| {
+            if let Some((footnote, text_node, call)) = waiting_call {
+                if footnote == i {
+                    waiting_call = None;
+                    let value = mark_content(call, &node_data[call]);
+                    let text =
+                        content_text(&value, Some(node), counters, &[], &mut quote_depth);
+                    out.push((text_node, text));
+                } else if i > footnote {
+                    waiting_call = None;
+                }
+            }
+            if matches!(node.get_node_type(), NodeType::FootnoteCall) {
+                if let (Some(text_node), Some(footnote)) =
+                    (hierarchy[i].first_child_id(id), hierarchy[i].next_sibling_id())
+                {
+                    // Until its footnote is counted: nothing (a footnote
+                    // that is `display: none` is never counted).
+                    out.push((text_node.index(), String::new()));
+                    waiting_call = Some((footnote.index(), text_node.index(), i));
+                }
+                return;
+            }
+            if matches!(node.get_node_type(), NodeType::FootnoteMarker) {
+                if let Some(text_node) = hierarchy[i].first_child_id(id) {
+                    let value = mark_content(i, node);
+                    let host = parent.map(|p| &node_data[p]);
+                    let text = content_text(&value, host, counters, &[], &mut quote_depth);
+                    out.push((text_node.index(), text));
+                }
+                return;
+            }
             if matches!(node.get_node_type(), NodeType::Marker) {
                 let Some(text_node) = hierarchy[i].first_child_id(id) else {
                     return;

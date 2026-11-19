@@ -48,9 +48,24 @@
 //! the next page together with the note. The property itself is not
 //! implemented.
 //!
+//! THE MARKS are generated (`azul_core::generated_content`): a
+//! `::footnote-call` in the place the footnote was taken from and a
+//! `::footnote-marker` at the start of the note, both showing the predefined
+//! `footnote` counter, which every footnote element increments ("The
+//! Footnote Counter"). `content: none` on either turns it off - what a
+//! document that writes its own marks sets. They are made only where the
+//! element is a footnote: on paged media (`getters::is_hidden_footnote_mark`).
+//!
 //! NOT in this version:
-//! - `::footnote-call` and `::footnote-marker` and the `footnote` counter: the author writes the
-//!   call mark in the text and the mark in the note;
+//! - the draft's default style of the call is `font-variant-position: super` at `font-size:
+//!   100%`; this engine has no `font-variant-position`, the call is raised and smaller like a
+//!   `<sup>` (`azul_core::ua_css`);
+//! - `::footnote-marker::after` (the draft's `'. '` after the marker): the `". "` is part of the
+//!   marker's default content instead;
+//! - resetting the counter per page (`@page { counter-reset: footnote }`, "The footnote counter
+//!   may be reset on each page"): counters are counted on the document before it is laid out;
+//!   `counter-reset: footnote` on an element restarts the numbering;
+//! - the call of a footnote written between two blocks is a line of its own there;
 //! - of the footnote area's rule (`@page { @footnote { ... } }`, [`FootnoteArea`]) only
 //!   `margin-top`, `border-top`, the paddings and `max-height` are honoured; the area is
 //!   `float: bottom` and nothing else; `footnote-display` and `footnote-policy` are not
