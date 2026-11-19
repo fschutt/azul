@@ -12404,6 +12404,41 @@ fn clip_image_item(
     })
 }
 
+/// Puts the text of a page's `TextLayout` item into the form the consumers
+/// of a page read: a bare `UnifiedLayout` holding its shaped items.
+///
+/// The master display list carries each text block's CACHED payload - under
+/// the dense text model (the default) a `TextPayload` whose sparse half is
+/// the empty sentinel. A page's own slice of the canvas goes through
+/// [`clip_text_layout_item`], which expands it; everything else a page is
+/// given - a repeated table head, a footnote, a fixed-position box - is
+/// copied from the master list as it is, and kept the cached form. A PDF
+/// backend draws a page's text from the `UnifiedLayout` its `TextLayout`
+/// items hold and skips any other payload, so that text was laid out, had
+/// its room on the page, and was in no page of the PDF.
+#[cfg(feature = "text_layout")]
+fn materialize_text_payload(item: &mut DisplayListItem) {
+    let DisplayListItem::TextLayout { layout, .. } = item else {
+        return;
+    };
+    let Some(payload) = layout.downcast_ref::<crate::solver3::layout_tree::TextPayload>() else {
+        return;
+    };
+    let unified: Arc<dyn std::any::Any + Send + Sync> =
+        if payload.sparse.items.is_empty() && !payload.dense.clusters.is_empty() {
+            Arc::new(UnifiedLayout {
+                items: payload.dense.to_unified_items(),
+                overflow: payload.sparse.overflow.clone(),
+            })
+        } else {
+            payload.sparse.clone()
+        };
+    *layout = unified;
+}
+
+#[cfg(not(feature = "text_layout"))]
+fn materialize_text_payload(_: &mut DisplayListItem) {}
+
 /// Clips a text layout block to page bounds, filtering individual text items.
 fn clip_text_layout_item(
     layout: &Arc<dyn std::any::Any + Send + Sync>,
@@ -13571,6 +13606,13 @@ fn paginate_pages_impl(
                     page_node_mapping.push(None);
                 }
             }
+        }
+
+        // What a page gets besides its slice of the canvas - repeated table
+        // heads, footnotes, fixed-position boxes - is copied from the master
+        // list, cached text payload and all.
+        for item in &mut page_items {
+            materialize_text_payload(item);
         }
 
         on_page(DisplayList {

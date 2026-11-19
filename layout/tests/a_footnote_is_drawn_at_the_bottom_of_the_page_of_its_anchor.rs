@@ -28,7 +28,9 @@ use azul_layout::{
     paged::FragmentationContext,
     solver3::{
         display_list::{DisplayList, DisplayListItem},
-        paged_layout::{layout_document_paged_v2, PagedLayoutResult},
+        paged_layout::{
+            layout_document_paged_streaming, layout_document_paged_v2, PagedLayoutResult,
+        },
         pagination::FakePageConfig,
     },
     text3::default::PathLoader,
@@ -68,6 +70,33 @@ fn blocks(n: usize, height: u32) -> String {
 /// `html` laid out on 800 x 200 pages (no page decoration, the plain break
 /// algorithm): the pages, the breaks, the cache and the styled DOM.
 pub(crate) fn pages(html: &str) -> (PagedLayoutResult, Solver3LayoutCache, StyledDom) {
+    pages_with(html, FakePageConfig::new(), false)
+}
+
+/// The page setup of an HTML-to-PDF export: every break rule on
+/// (`break-inside: avoid`, widows and orphans, atomic lines and table rows,
+/// repeated table heads).
+fn export_config() -> FakePageConfig {
+    let mut config = FakePageConfig::new();
+    config.break_policy = azul_layout::solver3::page_breaks::BreakPolicy {
+        honor_break_inside: true,
+        widows_orphans: true,
+        atomic_lines: true,
+        atomic_table_rows: true,
+        repeat_table_headers: true,
+        ..Default::default()
+    };
+    config
+}
+
+/// `html` on 800 x 200 pages under `config`; `streaming` hands each page to
+/// a sink as it is sliced (`layout_document_paged_streaming`, the entry
+/// point of an export) instead of collecting them.
+fn pages_with(
+    html: &str,
+    config: FakePageConfig,
+    streaming: bool,
+) -> (PagedLayoutResult, Solver3LayoutCache, StyledDom) {
     let styled_dom = Dom::from_xml_string(html);
     let mut font_manager = FontManager::new(build_font_cache()).expect("FontManager");
     let mut cache = Solver3LayoutCache {
@@ -94,31 +123,66 @@ pub(crate) fn pages(html: &str) -> (PagedLayoutResult, Solver3LayoutCache, Style
     let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
         loader.load_font_shared(bytes, index)
     };
-    let result = layout_document_paged_v2(
-        &mut cache,
-        &mut text_cache,
-        FragmentationContext::new_paged(content_size),
-        &styled_dom,
-        LogicalRect {
-            origin: LogicalPosition::zero(),
-            size: content_size,
-        },
-        &mut font_manager,
-        &BTreeMap::new(),
-        &mut Some(Vec::new()),
-        None,
-        &RendererResources::default(),
-        azul_core::resources::IdNamespace(0),
-        DomId::ROOT_ID,
-        font_loader,
-        FakePageConfig::new(),
-        &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback {
-            cb: azul_core::task::get_system_time_libstd,
-        },
-        false,
-    )
-    .expect("the document paginates");
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+    let time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    let result = if streaming {
+        let mut pages = Vec::new();
+        let streamed = layout_document_paged_streaming(
+            &mut cache,
+            &mut text_cache,
+            FragmentationContext::new_paged(content_size),
+            &styled_dom,
+            viewport,
+            &mut font_manager,
+            &BTreeMap::new(),
+            &mut Some(Vec::new()),
+            None,
+            &RendererResources::default(),
+            azul_core::resources::IdNamespace(0),
+            DomId::ROOT_ID,
+            font_loader,
+            config,
+            &azul_core::resources::ImageCache::default(),
+            time,
+            false,
+            &mut |page| {
+                pages.push(page);
+                Ok(())
+            },
+        )
+        .expect("the document paginates");
+        PagedLayoutResult {
+            pages,
+            breaks: streamed.breaks,
+            total_content_height: streamed.total_content_height,
+        }
+    } else {
+        layout_document_paged_v2(
+            &mut cache,
+            &mut text_cache,
+            FragmentationContext::new_paged(content_size),
+            &styled_dom,
+            viewport,
+            &mut font_manager,
+            &BTreeMap::new(),
+            &mut Some(Vec::new()),
+            None,
+            &RendererResources::default(),
+            azul_core::resources::IdNamespace(0),
+            DomId::ROOT_ID,
+            font_loader,
+            config,
+            &azul_core::resources::ImageCache::default(),
+            time,
+            false,
+        )
+        .expect("the document paginates")
+    };
     (result, cache, styled_dom)
 }
 
@@ -331,4 +395,115 @@ fn in_a_window_a_footnote_stays_in_the_flow() {
     );
     assert_eq!((n1.origin.y, n1.size.height), (40.0, 30.0));
     assert_eq!(c.origin.y, 70.0);
+}
+
+/// The text blocks of `page` as a PDF backend reads them: the bounds of
+/// every `TextLayout` item and how many shaped items its payload holds as a
+/// `UnifiedLayout` - `None` when the payload is anything else, which such a
+/// backend cannot draw.
+fn text_blocks(page: &DisplayList) -> Vec<(LogicalRect, Option<usize>)> {
+    page.items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::TextLayout { layout, bounds, .. } => Some((
+                *bounds.inner(),
+                layout
+                    .downcast_ref::<azul_layout::text3::cache::UnifiedLayout>()
+                    .map(|l| l.items.len()),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_export_draws_the_note_at_the_bottom_of_its_page_above_nothing() {
+    // The way an HTML-to-PDF export lays a document out: the streaming entry
+    // point, paged media, every break rule on. A PDF is drawn from the
+    // `TextLayout` items of each page, and only from those whose payload is
+    // a `UnifiedLayout` - the note's kept the cached form of the canvas,
+    // and its text was in no page of the PDF.
+    let (result, _, _) = pages_with(
+        &html(&format!(
+            "<p>one<br/>two<span class=\"fn\"><sup>1</sup> A first note</span><br/>three</p>{}",
+            blocks(6, 40)
+        )),
+        export_config(),
+        true,
+    );
+    assert_eq!(result.pages.len(), 2, "breaks: {:?}", break_ys(&result));
+    let flow_end = break_ys(&result)[0];
+    let blocks_of_page = text_blocks(&result.pages[0]);
+    for (bounds, items) in &blocks_of_page {
+        assert!(
+            items.is_some_and(|n| n > 0),
+            "a text block of the page ({bounds:?}) is not in the form a PDF backend draws"
+        );
+    }
+    // The paragraph above, the note below: its 14 characters, from where
+    // the page's flow ends to the bottom edge at the latest.
+    let notes: Vec<&(LogicalRect, Option<usize>)> = blocks_of_page
+        .iter()
+        .filter(|(b, _)| b.origin.y >= flow_end - 0.01)
+        .collect();
+    assert_eq!(notes.len(), 1, "one text block below the flow: {blocks_of_page:?}");
+    let (note, items) = notes[0];
+    assert_eq!(*items, Some(14), "`1 A first note`");
+    assert!(
+        (note.origin.y - flow_end).abs() < 0.01 && note.origin.y + note.size.height <= PAGE + 0.01,
+        "the note stands from the end of the flow ({flow_end}) to the bottom edge: {note:?}"
+    );
+    assert!(flow_end < PAGE - 10.0 && flow_end > 150.0, "room was made for it: {flow_end}");
+    // The flow of the page ends above the note: its blocks ...
+    let blue_bottom = rects(&result.pages[0], BLUE)
+        .into_iter()
+        .map(|(_, bottom, _, _)| bottom)
+        .fold(0.0_f32, f32::max);
+    assert!(blue_bottom <= flow_end + 0.01, "{blue_bottom} > {flow_end}");
+    // ... and its text.
+    assert!(
+        blocks_of_page
+            .iter()
+            .filter(|(b, _)| b.origin.y < flow_end - 0.01)
+            .all(|(b, _)| b.origin.y + b.size.height <= flow_end + 0.01),
+        "{blocks_of_page:?}"
+    );
+    // Nothing of the note on the second page.
+    assert!(text_blocks(&result.pages[1]).is_empty());
+}
+
+#[test]
+fn an_export_draws_a_repeated_table_head_in_the_form_a_pdf_backend_reads() {
+    // The same holds for everything a page gets besides its slice of the
+    // canvas: the table head repeated on a continuation page.
+    let rows: String = (0..12)
+        .map(|i| format!("<tr><td style=\"height: 30px\">row {i}</td></tr>"))
+        .collect();
+    let (result, _, _) = pages_with(
+        &html(&format!(
+            "<table><thead><tr><th style=\"height: 30px\">head</th></tr></thead>\
+             <tbody>{rows}</tbody></table>"
+        )),
+        export_config(),
+        true,
+    );
+    assert!(result.pages.len() >= 2, "breaks: {:?}", break_ys(&result));
+    for (p, page) in result.pages.iter().enumerate() {
+        let blocks_of_page = text_blocks(page);
+        assert!(!blocks_of_page.is_empty(), "page {p} has text");
+        for (bounds, items) in &blocks_of_page {
+            assert!(
+                items.is_some_and(|n| n > 0),
+                "a text block of page {p} ({bounds:?}) is not in the form a PDF backend draws"
+            );
+        }
+    }
+    // The head is on the second page too: `head` at its top.
+    assert!(
+        text_blocks(&result.pages[1])
+            .iter()
+            .any(|(b, items)| b.origin.y < 30.0 && *items == Some(4)),
+        "{:?}",
+        text_blocks(&result.pages[1])
+    );
 }
