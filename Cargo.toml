@@ -134,10 +134,10 @@ azul-css = { path = "css" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
 # agg-rust-azul (our fork) is never [patch]ed: publish the fork, then bump the pin in layout/Cargo.toml.
-# printpdf comes from crates.io (0.12.12 — requires azul-css/core/layout
-# 0.0.19, all published). The azul-* path patches above redirect
+# printpdf comes from crates.io (0.12.13 — requires azul-css/core/layout
+# 0.0.20, all published). The azul-* path patches above redirect
 # printpdf's azul deps to this one workspace copy, so there is a single
-# azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.12.12.)
+# azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.12.13.)
 # rust-fontconfig: use crates.io (the vendored copy was a labelled REVERT; its
 # only functional delta was a web_lift-only hashbrown workaround). core/ and
 # layout/ pin `>=5.0, <5.1` (5.0 = the tiered FontFallbackChain — css groups
