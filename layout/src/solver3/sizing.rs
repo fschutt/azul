@@ -2535,7 +2535,21 @@ pub fn calculate_used_size_for_node(
     let writing_mode = get_writing_mode(styled_dom, id, node_state);
     let display = get_display_property(styled_dom, Some(id));
     let position = get_position_type(styled_dom, dom_id);
-
+    // CSS 2.1 9.7 ("Relationships between 'display', 'position', and
+    // 'float'"): for an absolutely positioned box "display is set according
+    // to the table below" - an inline box becomes a block. Its `width` and
+    // `height` apply (10.3.7, 10.6.4); read as the inline box it was
+    // specified as, an absolutely positioned `<span>` lost both to "the
+    // width property does not apply to inline non-replaced elements" below
+    // and came out 0px tall whatever its `height` said.
+    let display = match display {
+        MultiValue::Exact(d)
+            if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) =>
+        {
+            MultiValue::Exact(super::getters::blockify_display(d))
+        }
+        other => other,
+    };
     // Construct the full WritingModeContext from resolved styles.
     // This determines how logical dimensions (inline/block) map to physical (width/height).
     let wm_ctx = WritingModeContext::new(
