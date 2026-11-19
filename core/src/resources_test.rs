@@ -701,6 +701,7 @@ mod autotest_generated {
             enable_logging_on_panic,
             synthesize_pinch_from_ctrl_wheel,
             expose_system_media_controls,
+            text_antialiasing,
         } = &c;
         let fields = size_of_field(icon_provider)
             + size_of_field(bundled_fonts)
@@ -734,7 +735,8 @@ mod autotest_generated {
             + size_of_field(enable_visual_panic_hook)
             + size_of_field(enable_logging_on_panic)
             + size_of_field(synthesize_pinch_from_ctrl_wheel)
-            + size_of_field(expose_system_media_controls);
+            + size_of_field(expose_system_media_controls)
+            + size_of_field(text_antialiasing);
         assert_eq!(
             core::mem::size_of::<AppConfig>(),
             fields,
