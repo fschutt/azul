@@ -133,3 +133,29 @@ fn outside_a_multicol_block_the_property_does_nothing() {
     let (w1, a) = (rect(&lw, "w1"), rect(&lw, "a"));
     assert!(near(a.origin.x, w1.origin.x + 150.0, 0.5), "{w1:?} {a:?}");
 }
+
+#[test]
+fn on_a_page_a_margin_note_is_drawn_beside_the_container_at_its_anchor() {
+    // The page slicer cuts the canvas in the block direction only: a note
+    // left of a container at the page's left edge is drawn at a negative x,
+    // in the page's margin.
+    use crate::a_footnote_is_drawn_at_the_bottom_of_the_page_of_its_anchor::{pages, rects};
+    let (result, _, _) = pages(&format!(
+        "<html><head><style>* {{ margin: 0; padding: 0; }} \
+         .cols {{ column-count: 2; column-gap: 20px; width: 420px; line-height: 20px }} \
+         .mn {{ position: absolute; width: 50px; height: 10px; background: #ff0000; {OUTSIDE} }}\
+         </style></head><body><div class=\"cols\"><p>{}<br/>{}{}<br/>{}<br/>{}</p></div>\
+         </body></html>",
+        word("w1"),
+        word("w2"),
+        note("a"),
+        word("w3"),
+        word("w4")
+    ));
+    assert_eq!(result.pages.len(), 1);
+    let drawn = rects(&result.pages[0], (255, 0, 0));
+    assert_eq!(drawn.len(), 1, "{drawn:?}");
+    let (top, bottom, left, width) = drawn[0];
+    assert_eq!((left, width), (-62.0, 50.0), "12px left of the container at x 0");
+    assert!((20.0..40.0).contains(&top) && bottom - top == 10.0, "on the second line: {drawn:?}");
+}

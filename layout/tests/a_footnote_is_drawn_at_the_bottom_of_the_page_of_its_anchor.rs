@@ -67,7 +67,7 @@ fn blocks(n: usize, height: u32) -> String {
 
 /// `html` laid out on 800 x 200 pages (no page decoration, the plain break
 /// algorithm): the pages, the breaks, the cache and the styled DOM.
-fn pages(html: &str) -> (PagedLayoutResult, Solver3LayoutCache, StyledDom) {
+pub(crate) fn pages(html: &str) -> (PagedLayoutResult, Solver3LayoutCache, StyledDom) {
     let styled_dom = Dom::from_xml_string(html);
     let mut font_manager = FontManager::new(build_font_cache()).expect("FontManager");
     let mut cache = Solver3LayoutCache {
@@ -124,7 +124,7 @@ fn pages(html: &str) -> (PagedLayoutResult, Solver3LayoutCache, StyledDom) {
 
 /// The rects painted in exactly `color` on `page`, as (top, bottom, left,
 /// width).
-fn rects(page: &DisplayList, (r, g, b): (u8, u8, u8)) -> Vec<(f32, f32, f32, f32)> {
+pub(crate) fn rects(page: &DisplayList, (r, g, b): (u8, u8, u8)) -> Vec<(f32, f32, f32, f32)> {
     page.items
         .iter()
         .filter_map(|item| match item {
