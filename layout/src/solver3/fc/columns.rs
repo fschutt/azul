@@ -177,6 +177,15 @@ pub(super) fn block_columns<T: ParsedFontTrait>(
 /// the column its top falls in. `positions` are the children's positions in
 /// the single column, relative to the container's content box.
 ///
+/// `static_positions` - where the container's out-of-flow children would
+/// have stood in the single column - move the same way. CSS 2.1 10.6.4: the
+/// static position is that of "a hypothetical box that would have been the
+/// first box of the element" in the flow, and the flow of a multi-column
+/// container runs through its columns (CSS Multicol 1): the box would have
+/// stood in the column its place in the flow falls in. They used to stay in
+/// the single column, so an absolute box after the blocks of the second
+/// column stood in the first, below the container.
+///
 /// A paragraph beside a float of the context (`floats`) does not split: its
 /// lines wrapped around the float, and a split must break its lines exactly
 /// as they are. Every other paragraph splits between its lines.
@@ -189,6 +198,7 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
     columns: &BlockColumns,
     children: &[usize],
     positions: &mut BTreeMap<usize, LogicalPosition>,
+    static_positions: &mut BTreeMap<usize, LogicalPosition>,
     floats: &FloatingContext,
     constraints: &LayoutConstraints<'_>,
 ) -> Result<ColumnsExtent> {
@@ -321,6 +331,17 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
             );
         }
     }
+    // The out-of-flow children: each to the column its static position
+    // falls in. (A place exactly where a column starts is that column's
+    // top: a choice, the hypothetical box has no height to decide by.)
+    for pos in static_positions.values_mut() {
+        let k = plan.column_at(pos.y);
+        let start = plan.starts.get(k).copied().unwrap_or(0.0);
+        *pos = LogicalPosition::new(
+            pos.x + column_x(plan.lane(k)),
+            pos.y - start + plan.row_top(k),
+        );
+    }
 
     let width = (0..plan.starts.len())
         .map(|k| column_x(plan.lane(k)) + columns.geometry.width)
@@ -434,8 +455,15 @@ pub(super) fn split_into_columns<T: ParsedFontTrait>(
         &split_constraints,
         float_cache,
     )?;
-    // Its atomic inlines moved with their lines.
-    for (inner, pos) in split.output.positions {
+    // Its atomic inlines moved with their lines - and so did the static
+    // positions of its out-of-flow children (`out_of_flow_static_positions`):
+    // a box anchored in a line that went to the next column stands there.
+    for (inner, pos) in split
+        .output
+        .positions
+        .into_iter()
+        .chain(split.output.static_positions)
+    {
         if let Some(warm) = tree.warm_mut(LayoutNodeId::new(inner)) {
             warm.relative_position = Some(pos);
         }

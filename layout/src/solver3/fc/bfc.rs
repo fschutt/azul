@@ -2339,6 +2339,7 @@ fn bfc_place_children<T: ParsedFontTrait>(
             columns,
             &pos_children,
             &mut output.positions,
+            &mut output.static_positions,
             &float_context,
             constraints,
         )?),
