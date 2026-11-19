@@ -8634,6 +8634,42 @@ pub const fn custom_property_state(
     }
 }
 
+/// The gap of a MARGIN NOTE: `Some` when `node_id` sees the custom property
+/// `--azul-margin-note: outside` (an extension of this engine, see
+/// `positioning::margin_note_place`), with the distance it keeps from the
+/// multi-column container it stands beside - `--azul-margin-note-gap`, a
+/// length in px (`12px`, or the bare number `12`), 12px when that is not set
+/// or anything else (a choice). Custom properties inherit: set on a
+/// container, its absolutely positioned boxes are margin notes.
+#[must_use]
+pub fn margin_note_gap(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<f32> {
+    /// A choice: no specification gives a margin note's distance.
+    const DEFAULT_MARGIN_NOTE_GAP_PX: f32 = 12.0;
+    let envs = &styled_dom.get_css_property_cache().custom_property_envs;
+    if envs.is_empty() {
+        return None;
+    }
+    let map = envs.map_for(node_id.index(), custom_property_state(node_state));
+    if !map
+        .get("azul-margin-note")?
+        .trim()
+        .eq_ignore_ascii_case("outside")
+    {
+        return None;
+    }
+    let gap = map
+        .get("azul-margin-note-gap")
+        .map(str::trim)
+        .and_then(|v| v.strip_suffix("px").unwrap_or(v).trim().parse::<f32>().ok())
+        .filter(|g| g.is_finite() && *g >= 0.0)
+        .unwrap_or(DEFAULT_MARGIN_NOTE_GAP_PX);
+    Some(gap)
+}
+
 /// Which of `node`'s shadows follow the app's light: `--azul-follow-light:
 /// box-shadow`, `text-shadow`, both (`box-shadow text-shadow`, `all`) or
 /// `none` (the default). A custom property, so it inherits: set on an area,

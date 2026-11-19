@@ -886,6 +886,8 @@ mod an_absolute_box_in_a_paragraph_stands_on_the_line_it_was_taken_from;
 mod an_absolutely_positioned_inline_element_takes_its_width_and_height;
 #[path = "an_absolute_box_in_a_multicol_block_stands_in_the_column_of_its_place.rs"]
 mod an_absolute_box_in_a_multicol_block_stands_in_the_column_of_its_place;
+#[path = "a_margin_note_stands_outside_the_multicol_block_beside_its_column.rs"]
+mod a_margin_note_stands_outside_the_multicol_block_beside_its_column;
 #[path = "a_block_inside_an_inline_splits_the_inline_around_it.rs"]
 mod a_block_inside_an_inline_splits_the_inline_around_it;
 #[path = "a_border_box_min_width_bounds_the_border_box.rs"]

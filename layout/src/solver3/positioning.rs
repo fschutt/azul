@@ -178,6 +178,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     viewport: LogicalRect,
 ) {
     use azul_css::props::style::StyleDirection;
+    // The margin notes placed so far (`margin_note_place`), for the ones
+    // after them on the same side of the same container.
+    let mut margin_notes: Vec<PlacedMarginNote> = Vec::new();
     // Returns `()` (not Result<()>): inner fallible calls use skip-on-err (see above), so this fn
     // never propagates Err. Avoids the lift-fragile Result<(),LayoutError> Ok-niche read.
     for node_index in 0..tree.nodes.len() {
@@ -763,6 +766,30 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 }
             }
 
+            // A margin note (`--azul-margin-note: outside`) stands beside
+            // the multi-column container its static position is in, not in
+            // the column (`margin_note_place`).
+            let margin_note = (offsets.top.is_none()
+                && offsets.bottom.is_none()
+                && offsets.left.is_none()
+                && offsets.right.is_none()
+                && position_type == LayoutPosition::Absolute)
+                .then(|| {
+                    margin_note_place(
+                        ctx.styled_dom,
+                        tree,
+                        calculated_positions,
+                        ctx.viewport_size,
+                        node_index,
+                        dom_id,
+                        static_pos,
+                    )
+                })
+                .flatten();
+            if let Some(note) = &margin_note {
+                final_pos.x = note.x;
+            }
+
             super::pos_set(calculated_positions, node_index, final_pos);
 
             // The absolute box is now at its FINAL, definite size (§10.3.7 /
@@ -901,8 +928,172 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     calculated_positions,
                 );
             }
+
+            // Two margin notes on one side of a container do not overlap:
+            // the later one stands below the earlier ones it would cover.
+            // (CSS has no rule for boxes placed like this; a choice of this
+            // engine.) Its height is final only now.
+            if let Some(note) = margin_note {
+                let height = tree.nodes[node_index].used_size.map_or(0.0, |s| s.height);
+                let mut top = final_pos.y;
+                // The notes placed so far, from the top: each one this note
+                // would cover pushes it below itself.
+                let mut earlier: Vec<(f32, f32)> = margin_notes
+                    .iter()
+                    .filter(|m| m.container == note.container && m.left == note.left)
+                    .map(|m| (m.top, m.bottom))
+                    .collect();
+                earlier.sort_by(|a, b| a.0.total_cmp(&b.0));
+                for (earlier_top, earlier_bottom) in earlier {
+                    if top < earlier_bottom && top + height > earlier_top {
+                        top = earlier_bottom;
+                    }
+                }
+                margin_notes.push(PlacedMarginNote {
+                    container: note.container,
+                    left: note.left,
+                    top,
+                    bottom: top + height,
+                });
+                if top != final_pos.y {
+                    final_pos.y = top;
+                    super::pos_set(calculated_positions, node_index, final_pos);
+                    let bp = tree.nodes[node_index].box_props.unpack();
+                    crate::solver3::cache::position_bfc_child_descendants(
+                        tree,
+                        node_index,
+                        LogicalPosition::new(
+                            final_pos.x + bp.border.left + bp.padding.left,
+                            final_pos.y + bp.border.top + bp.padding.top,
+                        ),
+                        calculated_positions,
+                    );
+                }
+            }
         }
     }
+}
+
+/// Where a margin note goes: beside which container, on which side.
+struct MarginNotePlace {
+    /// The multi-column container (its layout index).
+    container: usize,
+    /// On the container's left side (else its right).
+    left: bool,
+    /// The note's border-box left edge.
+    x: f32,
+}
+
+/// A margin note that has its place, for the ones after it.
+struct PlacedMarginNote {
+    container: usize,
+    left: bool,
+    top: f32,
+    bottom: f32,
+}
+
+/// The place of the MARGIN NOTE at `node_index`, if it is one.
+///
+/// An extension of this engine, no CSS (CSS Page Floats has
+/// `float-reference` and floats to the block or inline start or end of a
+/// page or column, nothing that stands outside a multi-column container on
+/// the side of one of its columns): an absolutely positioned box with all
+/// insets `auto` and the custom property `--azul-margin-note: outside`,
+/// whose static position (CSS 2.1 10.3.7 / 10.6.4) lies inside a
+/// multi-column block container, stands OUTSIDE that container, beside the
+/// column its static position is in:
+///
+/// - for a column in the left half of the container its right border edge is `gap` left of the
+///   container's left border edge, for any other column its left border edge is `gap` right of
+///   the container's right border edge. (With two columns: the left column's notes left, the
+///   right column's right. For more than two, and for a middle column, "the half its centre is
+///   in, the middle to the right" is a choice.)
+/// - `gap` is `--azul-margin-note-gap`, a length in px; 12px when it is not set or not a px
+///   length (a choice).
+/// - its block position stays its static position: the line of its anchor.
+///
+/// The container is the nearest multi-column ancestor of the box. A box
+/// whose static position is not inside that container's content box (a box
+/// inside a margin note, which inherits the property) is none.
+fn margin_note_place(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    calculated_positions: &super::PositionVec,
+    viewport_size: LogicalSize,
+    node_index: usize,
+    dom_id: NodeId,
+    static_pos: LogicalPosition,
+) -> Option<MarginNotePlace> {
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let gap = super::getters::margin_note_gap(styled_dom, dom_id, node_state)?;
+
+    // The nearest multi-column ancestor.
+    let mut ancestor = tree.nodes[node_index].parent;
+    let mut container = None;
+    // At most one step per box: a malformed parent chain cannot loop.
+    for _ in 0..tree.nodes.len() {
+        let Some(index) = ancestor else { break };
+        let node = tree.get(LayoutNodeId::new(index))?;
+        if super::multicol::is_multicol_box(styled_dom, node.dom_node_id) {
+            container = Some(index);
+            break;
+        }
+        ancestor = node.parent;
+    }
+    let container = container?;
+    let node = tree.get(LayoutNodeId::new(container))?;
+    let container_dom = node.dom_node_id?;
+    let pos = super::pos_get(calculated_positions, container)?;
+    let size = node.used_size?;
+    let bp = node.box_props.unpack();
+    let content_left = pos.x + bp.border.left + bp.padding.left;
+    let content_width =
+        size.width - bp.border.left - bp.border.right - bp.padding.left - bp.padding.right;
+    let content_top = pos.y + bp.border.top + bp.padding.top;
+    let content_bottom = pos.y + size.height - bp.border.bottom - bp.padding.bottom;
+    if !(static_pos.x >= content_left - 0.01
+        && static_pos.x <= content_left + content_width + 0.01
+        && static_pos.y >= content_top - 0.01
+        && static_pos.y <= content_bottom + 0.01)
+    {
+        return None;
+    }
+    let container_state = &styled_dom.styled_nodes.as_container()[container_dom].styled_node_state;
+    let geometry = super::multicol::column_style(
+        styled_dom,
+        container_dom,
+        container_state,
+        viewport_size,
+    )?
+    .geometry(content_width);
+    let rtl = matches!(
+        super::getters::get_direction_property(styled_dom, container_dom, container_state),
+        super::getters::MultiValue::Exact(azul_css::props::style::StyleDirection::Rtl)
+    );
+    // The column the static position is in: the one whose box, with the
+    // gap after it, holds it. (On paged media the columns of every row
+    // stand at the same places across the container.)
+    let rel_x = static_pos.x - content_left;
+    let column = (0..geometry.count as usize).min_by(|&a, &b| {
+        let distance = |k: usize| {
+            let left = geometry.column_x(k, content_width, rtl);
+            if rel_x < left {
+                left - rel_x
+            } else {
+                (rel_x - (left + geometry.width)).max(0.0)
+            }
+        };
+        distance(a).total_cmp(&distance(b))
+    })?;
+    let column_centre = geometry.column_x(column, content_width, rtl) + geometry.width / 2.0;
+    let left = column_centre < content_width / 2.0 - 0.01;
+    let width = tree.nodes[node_index].used_size.map_or(0.0, |s| s.width);
+    let x = if left {
+        pos.x - gap - width
+    } else {
+        pos.x + size.width + gap
+    };
+    Some(MarginNotePlace { container, left, x })
 }
 
 /// Sizes and lays out the footnote at `node_index` (`getters::is_footnote`)
