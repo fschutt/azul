@@ -2029,7 +2029,7 @@ impl Edges {
 const fn float_wrap(side: LayoutFloat) -> ExclusionWrap {
     match side {
         LayoutFloat::Right => ExclusionWrap::Left,
-        LayoutFloat::Left | LayoutFloat::None => ExclusionWrap::Right,
+        LayoutFloat::Left | LayoutFloat::None | LayoutFloat::Footnote => ExclusionWrap::Right,
     }
 }
 

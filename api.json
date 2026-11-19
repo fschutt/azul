@@ -44073,6 +44073,13 @@
                             },
                             {
                                 "None": {}
+                            },
+                            {
+                                "Footnote": {
+                                    "doc": [
+                                        "`float: footnote` (CSS Generated Content for Paged Media): on paged media the element is placed at the bottom of the page its place in the flow lands on"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"

@@ -194,6 +194,18 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
         // effect of box offsets depends on which properties are auto (non-replaced) or intrinsic
         // dimensions (replaced) +spec:positioning:9020aa - "absolutely positioned" means
         // position:absolute or position:fixed
+        if super::getters::is_footnote(ctx.styled_dom, dom_id) {
+            place_footnote(
+                ctx,
+                tree,
+                text_cache,
+                calculated_positions,
+                viewport,
+                node_index,
+                dom_id,
+            );
+            continue;
+        }
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
             // An absolutely positioned child of a flex or grid container that IS
             // its containing block (the container is positioned) was already
@@ -891,6 +903,117 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             }
         }
     }
+}
+
+/// Sizes and lays out the footnote at `node_index` (`getters::is_footnote`)
+/// and parks it at its anchor.
+///
+/// CSS Generated Content for Paged Media, "Footnotes": the footnote "is
+/// removed from the flow" and goes to the footnote area, which by default
+/// is "at the bottom of the page" and as wide as the page area. So its
+/// containing block is the page's content area - `viewport`, the canvas a
+/// paged layout is made on - and it is a block of it: its width is what the
+/// containing block leaves its margins, borders and padding (CSS 2.1
+/// 10.3.3), its height that of its content.
+///
+/// Which page that is the layout does not know: the pages are cut from the
+/// finished canvas. The box is PARKED at the left edge of the page area, at
+/// the block offset of its static position (CSS 2.1 10.6.4) - the line or
+/// the place in the block flow it was taken out of, its ANCHOR. The page
+/// break analysis and the page slicer (`solver3::footnotes`) take it from
+/// there: the display items of the box are left out where it is parked and
+/// drawn at the bottom of the page its anchor lands on.
+fn place_footnote<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    calculated_positions: &mut super::PositionVec,
+    viewport: LogicalRect,
+    node_index: usize,
+    dom_id: NodeId,
+) {
+    let intrinsic = tree
+        .warm(LayoutNodeId::new(node_index))
+        .and_then(|w| w.intrinsic_sizes)
+        .unwrap_or_default();
+    let bp = tree.nodes[node_index].box_props.unpack();
+    let Ok(mut size) = crate::solver3::sizing::calculate_used_size_for_node(
+        ctx.styled_dom,
+        Some(dom_id),
+        &crate::solver3::geometry::ContainingBlock::definite(viewport.size),
+        intrinsic,
+        &bp,
+        &ctx.viewport_size,
+    ) else {
+        return;
+    };
+    let anchor_y =
+        super::pos_get(calculated_positions, node_index).map_or(viewport.origin.y, |p| p.y);
+    let pos = LogicalPosition::new(viewport.origin.x + bp.margin.left, anchor_y);
+    super::pos_set(calculated_positions, node_index, pos);
+    if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
+        node.used_size = Some(size);
+    }
+    if tree.children(node_index).is_empty() {
+        return;
+    }
+    // Its interior, at its final width (as for an absolute box in
+    // `position_out_of_flow_elements`: the in-flow pass skips the subtree).
+    let inner = tree.nodes[node_index]
+        .box_props
+        .inner_size(size, LayoutWritingMode::HorizontalTb);
+    let constraints = LayoutConstraints {
+        available_size: inner,
+        writing_mode: LayoutWritingMode::HorizontalTb,
+        writing_mode_ctx: super::geometry::WritingModeContext::default(),
+        bfc_state: None,
+        text_align: TextAlign::Start,
+        containing_block_size: inner,
+        available_width_type: crate::text3::cache::AvailableSpace::Definite(inner.width),
+        fragmentainer: None,
+        column_flow: None,
+    };
+    let mut float_cache: std::collections::HashMap<usize, FloatingContext> =
+        std::collections::HashMap::new();
+    let interior = layout_formatting_context(
+        ctx,
+        tree,
+        text_cache,
+        node_index,
+        &constraints,
+        &mut float_cache,
+    );
+    if let Ok(res) = &interior {
+        for (child_idx, child_pos) in &res.output.positions {
+            if let Some(warm) = tree.warm_mut(LayoutNodeId::new(*child_idx)) {
+                warm.relative_position = Some(*child_pos);
+            }
+        }
+        // `height: auto`: the height of its content (a specified height
+        // stays, `calculate_used_size_for_node` resolved it).
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        let height_is_auto =
+            get_css_height(ctx.styled_dom, dom_id, node_state).is_auto();
+        if height_is_auto {
+            size.height =
+                res.output.overflow_size.height + bp.padding.top + bp.padding.bottom
+                    + bp.border.top
+                    + bp.border.bottom;
+        }
+    }
+    if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
+        node.used_size = Some(size);
+    }
+    let content_pos = LogicalPosition::new(
+        pos.x + bp.border.left + bp.padding.left,
+        pos.y + bp.border.top + bp.padding.top,
+    );
+    crate::solver3::cache::position_bfc_child_descendants(
+        tree,
+        node_index,
+        content_pos,
+        calculated_positions,
+    );
 }
 
 /// The shift `position: relative` gives a box with the resolved insets

@@ -764,6 +764,8 @@ mod content_clipped_by_an_overflow_hidden_box_adds_no_pages;
 mod a_multicol_block_flows_its_children_through_its_columns;
 #[path = "a_multicol_block_breaks_between_its_lines_at_a_page_break.rs"]
 mod a_multicol_block_breaks_between_its_lines_at_a_page_break;
+#[path = "a_footnote_is_drawn_at_the_bottom_of_the_page_of_its_anchor.rs"]
+mod a_footnote_is_drawn_at_the_bottom_of_the_page_of_its_anchor;
 #[path = "a_percent_wide_inline_image_takes_its_share_of_the_line_box_container.rs"]
 mod a_percent_wide_inline_image_takes_its_share_of_the_line_box_container;
 #[path = "the_first_line_of_a_paragraph_starts_text_indent_further_in.rs"]

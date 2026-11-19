@@ -205,7 +205,45 @@ pub fn compute_page_breaks(
     constraints: &PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<PageBreakPosition> {
-    compute_page_breaks_impl(input, *constraints, policy, None, None)
+    compute_page_breaks_impl(input, *constraints, policy, None, None, None)
+}
+
+/// The breaks a paged layout is sliced by: [`compute_page_breaks`] (or
+/// [`compute_page_breaks_with_sequence`] for a slicer with a page sequence)
+/// under `config`'s policy, with the room `config`'s footnotes take from the
+/// pages their anchors land on (`footnotes::Footnotes::room_for_page`).
+#[must_use]
+pub fn compute_page_breaks_for_slicer(
+    input: &PageBreakInput<'_>,
+    config: &SlicerConfig,
+) -> Vec<PageBreakPosition> {
+    let footnotes = (!config.footnotes.is_empty()).then_some(&config.footnotes);
+    match &config.page_sequence {
+        // classic office suites model: every page's height from ITS setup.
+        Some(sequence) => {
+            let _ = sequence.has_uniform_width(); // announce the width degradation once
+            let constraints = PageConstraints {
+                first_page_content_height: sequence.setup_for_page(0).content_height(),
+                normal_page_content_height: sequence.default.content_height(),
+            };
+            compute_page_breaks_impl(
+                input,
+                constraints,
+                &config.break_policy,
+                Some(sequence),
+                None,
+                footnotes,
+            )
+        }
+        None => compute_page_breaks_impl(
+            input,
+            PageConstraints::from_slicer_config(config),
+            &config.break_policy,
+            None,
+            None,
+            footnotes,
+        ),
+    }
 }
 
 /// Why an element could not be kept intact across a page boundary (E21).
@@ -242,7 +280,8 @@ pub fn compute_page_breaks_with_report(
     policy: &BreakPolicy,
 ) -> (Vec<PageBreakPosition>, Vec<MonolithWarning>) {
     let mut warnings = Vec::new();
-    let breaks = compute_page_breaks_impl(input, *constraints, policy, None, Some(&mut warnings));
+    let breaks =
+        compute_page_breaks_impl(input, *constraints, policy, None, Some(&mut warnings), None);
     (breaks, warnings)
 }
 
@@ -266,7 +305,7 @@ pub fn compute_page_breaks_with_sequence(
         first_page_content_height: sequence.setup_for_page(0).content_height(),
         normal_page_content_height: default_h,
     };
-    compute_page_breaks_impl(input, constraints, policy, Some(sequence), None)
+    compute_page_breaks_impl(input, constraints, policy, Some(sequence), None, None)
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
@@ -277,6 +316,7 @@ fn compute_page_breaks_impl(
     policy: &BreakPolicy,
     sequence: Option<&crate::solver3::pagination::PageSequence>,
     mut monolith_report: Option<&mut Vec<MonolithWarning>>,
+    footnotes: Option<&crate::solver3::footnotes::Footnotes>,
 ) -> Vec<PageBreakPosition> {
     let any_awareness = policy.honor_break_inside
         || policy.atomic_lines
@@ -285,12 +325,20 @@ fn compute_page_breaks_impl(
         || policy.repeat_table_headers
         // A page sequence varies heights per page — the forward pass is the
         // only correct evaluator even with all avoid-rules off.
-        || sequence.is_some();
+        || sequence.is_some()
+        // ...and so do footnotes: a page is as much shorter as its notes
+        // are tall, and which notes those are depends on where it starts.
+        || footnotes.is_some();
     if !any_awareness {
         return compute_page_breaks_from_display_list(input.display_list, &constraints);
     }
 
-    let total_height = calculate_display_list_height(input.display_list);
+    // With footnotes the pages are cut from the FLOW: the notes are parked
+    // on the canvas where they were taken out of it.
+    let total_height = footnotes.map_or_else(
+        || calculate_display_list_height(input.display_list),
+        |f| crate::solver3::display_list::paged_flow_height(input.display_list, f),
+    );
     let first = constraints.first_page_content_height;
     let normal = constraints.normal_page_content_height;
     if total_height <= 0.0 || first <= 0.0 {
@@ -376,7 +424,18 @@ fn compute_page_breaks_impl(
             .map(|(_, _, h)| *h)
             .sum();
         let effective_height = (page_height - reserve).max(MERGE_WINDOW_PX);
-        let naive = prev_end + effective_height;
+        // The page's footnotes take their heights from its flow, and a line
+        // whose note no longer fits under it ends the page before it (CSS
+        // Generated Content for Paged Media, "Footnotes"; `footnote-policy:
+        // line`). Only the anchors before the next forced break are this
+        // page's.
+        let note_room = footnotes.map(|f| {
+            f.room_for_page(prev_end, effective_height, forced_iter.peek().map(|fb| fb.y))
+        });
+        let full = prev_end + effective_height;
+        let naive = note_room.map_or(full, |room| {
+            room.flow_end.clamp(prev_end + MERGE_WINDOW_PX, full)
+        });
 
         // A forced break before (or at) the naive position ends the page there.
         if let Some(&fb) = forced_iter.peek() {
@@ -404,10 +463,14 @@ fn compute_page_breaks_impl(
         let floor = (naive - max_push).max(prev_end + MERGE_WINDOW_PX);
         let adjusted = snap_break_up(naive, floor, &avoid_ranges, &paragraphs, policy);
 
-        let kind = if (adjusted - naive).abs() < f32::EPSILON {
-            BreakKind::Interval
-        } else {
+        let kind = if (adjusted - naive).abs() >= f32::EPSILON {
             BreakKind::Avoided(naive)
+        } else if note_room.is_some_and(|room| room.ends_before_a_line) {
+            // The page was full where its notes begin; it ends before the
+            // line whose note did not fit.
+            BreakKind::Avoided(full)
+        } else {
+            BreakKind::Interval
         };
         // A break that no longer moves past the last one (an f32 too large
         // to move by a page) ends the pages: repeating it never would.

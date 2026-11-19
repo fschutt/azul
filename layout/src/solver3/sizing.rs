@@ -2550,6 +2550,16 @@ pub fn calculate_used_size_for_node(
         }
         other => other,
     };
+    // A footnote of paged media is out of the flow like an absolute box,
+    // but it is laid out as a block of the footnote area (CSS Generated
+    // Content for Paged Media, "Footnotes"): as wide as its containing
+    // block leaves it (10.3.3), not shrunk to fit, and not by its insets.
+    let position = if super::getters::is_footnote(styled_dom, id) {
+        LayoutPosition::Static
+    } else {
+        position
+    };
+
     // Construct the full WritingModeContext from resolved styles.
     // This determines how logical dimensions (inline/block) map to physical (width/height).
     let wm_ctx = WritingModeContext::new(

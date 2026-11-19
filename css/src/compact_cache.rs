@@ -292,6 +292,7 @@ pub const fn layout_float_from_u8(v: u8) -> LayoutFloat {
         0 => LayoutFloat::None, // default when bits unset
         1 => LayoutFloat::Left,
         2 => LayoutFloat::Right,
+        3 => LayoutFloat::Footnote,
         _ => LayoutFloat::None,
     }
 }
@@ -304,6 +305,7 @@ pub const fn layout_float_to_u8(v: LayoutFloat) -> u8 {
         LayoutFloat::None => 0,
         LayoutFloat::Left => 1,
         LayoutFloat::Right => 2,
+        LayoutFloat::Footnote => 3,
     }
 }
 
@@ -2887,7 +2889,12 @@ mod tests {
         rt_float,
         layout_float_to_u8,
         layout_float_from_u8,
-        [LayoutFloat::None, LayoutFloat::Left, LayoutFloat::Right,]
+        [
+            LayoutFloat::None,
+            LayoutFloat::Left,
+            LayoutFloat::Right,
+            LayoutFloat::Footnote,
+        ]
     );
 
     roundtrip_all!(
@@ -3569,7 +3576,7 @@ mod autotest_generated {
             5,
             LayoutPosition::Static,
         );
-        assert_u8_fallback("float", layout_float_from_u8, 3, LayoutFloat::None);
+        assert_u8_fallback("float", layout_float_from_u8, 4, LayoutFloat::None);
         assert_u8_fallback(
             "overflow",
             layout_overflow_from_u8,
@@ -3725,7 +3732,12 @@ mod autotest_generated {
         ] {
             fits("position", layout_position_to_u8(v), POSITION_MASK);
         }
-        for v in [LayoutFloat::None, LayoutFloat::Left, LayoutFloat::Right] {
+        for v in [
+            LayoutFloat::None,
+            LayoutFloat::Left,
+            LayoutFloat::Right,
+            LayoutFloat::Footnote,
+        ] {
             fits("float", layout_float_to_u8(v), FLOAT_MASK);
         }
         for v in [
@@ -4115,7 +4127,7 @@ mod autotest_generated {
             T1 {
                 display: LayoutDisplay::Block,                      // 31 → fallback
                 position: LayoutPosition::Static,                   // 7  → fallback
-                float: LayoutFloat::None,                           // 3  → fallback
+                float: LayoutFloat::Footnote,                       // 3  → real variant
                 overflow_x: LayoutOverflow::Visible,                // 7  → fallback
                 overflow_y: LayoutOverflow::Visible,                // 7  → fallback
                 box_sizing: LayoutBoxSizing::BorderBox,             // 1  → real variant

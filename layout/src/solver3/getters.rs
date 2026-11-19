@@ -1696,12 +1696,73 @@ get_css_property!(
 );
 
 get_css_property!(
-    get_float,
+    get_float_declared,
     get_float,
     LayoutFloat,
     CssPropertyType::Float,
     compact = get_float
 );
+
+/// `float` as the float layout of CSS 2.1 9.5 reads it: `left`, `right` or
+/// `none`. `float: footnote` (CSS Generated Content for Paged Media) is none
+/// of its floats - nothing flows around a footnote - so it reads as `none`
+/// here; [`is_footnote`] is the reader of that value.
+#[must_use]
+pub fn get_float(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<LayoutFloat> {
+    match get_float_declared(styled_dom, node_id, node_state) {
+        MultiValue::Exact(LayoutFloat::Footnote) => MultiValue::Exact(LayoutFloat::None),
+        other => other,
+    }
+}
+
+/// Whether `node_id` is a FOOTNOTE: an element with `float: footnote` in a
+/// document that is being laid out on paged media.
+///
+/// CSS Generated Content for Paged Media, "Footnotes": "An element becomes
+/// a footnote by applying `float: footnote` to that element. [...] The
+/// footnote element is removed from the flow". The engine lays such an
+/// element out as an out-of-flow box (see [`get_position`]) that the page
+/// slicer draws at the bottom of the page its place in the flow lands on
+/// (`solver3::footnotes`).
+///
+/// Choices of this implementation, the draft says nothing on them:
+/// - in continuous media (a window) the value behaves as `float: none` and
+///   the element stays in the flow where it is written - that module is for
+///   paged media only;
+/// - an element that is `position: absolute` or `fixed` is positioned by
+///   its insets and is no footnote, and neither is the root element.
+#[must_use]
+pub fn is_footnote(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    if !styled_dom.css_property_cache.ptr.paged_footnotes.get() {
+        return false;
+    }
+    declares_footnote(styled_dom, node_id)
+}
+
+/// [`is_footnote`] without the question whether the media is paged: the
+/// element has `float: footnote`, a parent, and no `position: absolute` or
+/// `fixed` of its own.
+#[must_use]
+pub fn declares_footnote(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let Some(styled) = styled_nodes.get(node_id) else {
+        return false;
+    };
+    let state = &styled.styled_node_state;
+    matches!(
+        get_float_declared(styled_dom, node_id, state),
+        MultiValue::Exact(LayoutFloat::Footnote)
+    ) && !get_position_declared(styled_dom, node_id, state).is_absolute_or_fixed()
+        && styled_dom
+            .node_hierarchy
+            .as_container()
+            .get(node_id)
+            .is_some_and(|n| n.parent_id().is_some())
+}
 
 get_css_property!(
     get_clear,
@@ -1863,12 +1924,39 @@ get_css_property!(
 );
 
 get_css_property!(
-    get_position,
+    get_position_declared,
     get_position,
     LayoutPosition,
     CssPropertyType::Position,
     compact = get_position
 );
+
+/// `position` as the layout reads it: the declared value - and `absolute`
+/// for a footnote of paged media ([`is_footnote`]).
+///
+/// A footnote "is removed from the flow" (CSS Generated Content for Paged
+/// Media, "Footnotes") and placed by where it would have stood in it, which
+/// is what an absolutely positioned box with `auto` insets is (CSS 2.1
+/// 10.6.4, the static position). Reading it as one here makes every part of
+/// the layout that takes absolute boxes out of the flow - the tree's
+/// blockification, the block and inline formatting contexts, the intrinsic
+/// sizes, the paint order - take the footnote out the same way;
+/// `positioning::position_out_of_flow_elements` then sizes and places it as
+/// a footnote, not by its insets.
+#[must_use]
+pub fn get_position(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<LayoutPosition> {
+    let declared = get_position_declared(styled_dom, node_id, node_state);
+    if styled_dom.css_property_cache.ptr.paged_footnotes.get()
+        && declares_footnote(styled_dom, node_id)
+    {
+        return MultiValue::Exact(LayoutPosition::Absolute);
+    }
+    declared
+}
 
 get_css_property!(
     get_css_box_sizing,

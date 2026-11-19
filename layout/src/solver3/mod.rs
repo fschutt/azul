@@ -7,6 +7,7 @@ pub mod calc;
 pub mod counters;
 pub mod display_list;
 pub mod fc;
+pub mod footnotes;
 pub mod geometry;
 pub mod getters;
 pub mod layout_tree;
@@ -669,6 +670,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     virtual_view_sizes: &BTreeMap<(DomId, NodeId), LogicalSize>,
 ) -> Result<std::sync::Arc<DisplayList>> {
     use crate::window::LayoutWindow;
+
+    // Continuous media: `float: footnote` behaves as `float: none` here
+    // (`footnotes::announce`), whatever a paged layout of this document said.
+    footnotes::announce(new_dom, false);
 
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable

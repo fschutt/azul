@@ -12874,6 +12874,11 @@ pub struct SlicerConfig {
     /// office-suite-style per-page setup (default + overrides + parity). `None`
     /// = every page uses `header_footer` / `page_content_height` uniformly.
     pub page_sequence: Option<crate::solver3::pagination::PageSequence>,
+    /// The footnotes of the canvas (`float: footnote`), from the SAME
+    /// display list the pages are sliced from
+    /// (`footnotes::collect_footnotes`): each is drawn at the bottom of the
+    /// page its anchor lands on. Empty = no footnotes.
+    pub footnotes: crate::solver3::footnotes::Footnotes,
 }
 
 impl SlicerConfig {
@@ -12889,6 +12894,7 @@ impl SlicerConfig {
             table_headers: TableHeaderTracker::default(),
             break_policy: BreakPolicy::default(),
             page_sequence: None,
+            footnotes: crate::solver3::footnotes::Footnotes::default(),
         }
     }
 
@@ -12904,6 +12910,7 @@ impl SlicerConfig {
             table_headers: TableHeaderTracker::default(),
             break_policy: BreakPolicy::default(),
             page_sequence: None,
+            footnotes: crate::solver3::footnotes::Footnotes::default(),
         }
     }
 
@@ -13099,7 +13106,8 @@ fn paginate_pages_impl(
         return on_page(full_display_list);
     }
 
-    let total_height = calculate_display_list_height(&full_display_list);
+    // The pages are cut from the flow; the footnotes are drawn onto them.
+    let total_height = paged_flow_height(&full_display_list, &config.footnotes);
     let mut page_spans = page_breaks::page_spans(breaks, total_height);
     if page_spans.is_empty() {
         // An empty/zero-height document still produces one page tall enough
@@ -13364,6 +13372,11 @@ fn paginate_pages_impl(
             if is_fixed {
                 continue;
             }
+            // A footnote's items are not drawn where the note is parked on
+            // the canvas: step 4a draws them at the bottom of its page.
+            if config.footnotes.owner(item_idx).is_some() {
+                continue;
+            }
             if let Some(clipped_item) =
                 clip_and_offset_display_item(item, content_start_y, content_end_y)
             {
@@ -13402,6 +13415,98 @@ fn paginate_pages_impl(
                 if let Some(pop) = full_display_list.items[open.item_idx].matching_pop() {
                     page_items.push(pop);
                     page_node_mapping.push(None);
+                }
+            }
+        }
+
+        // 4a. The page's footnotes (CSS Generated Content for Paged Media,
+        // "Footnotes": the footnote area is at the bottom of the page): the
+        // notes whose anchor is on this page, stacked in document order,
+        // the last one ending at the bottom edge of the page's content
+        // area. The break analysis took their heights from the page's flow
+        // (`Footnotes::room_for_page`), so they start where it ends at the
+        // earliest - which is where they start when they are taller than
+        // the page leaves them (a note is not split: it runs past the edge).
+        if !config.footnotes.is_empty() {
+            let is_last_page = page_idx + 1 == num_pages;
+            let notes_end = if is_last_page {
+                f32::INFINITY
+            } else {
+                content_end_y
+            };
+            let page_notes = config.footnotes.on_page(content_start_y, notes_end);
+            if !page_notes.is_empty() {
+                // How tall this page's content area is: what the break
+                // analysis cut it for.
+                let area_height = config.page_sequence.as_ref().map_or_else(
+                    || {
+                        let constraints = page_breaks::PageConstraints::from_slicer_config(config);
+                        if page_idx == 0 {
+                            constraints.first_page_content_height
+                        } else {
+                            constraints.normal_page_content_height
+                        }
+                    },
+                    |s| s.setup_for_page(page_idx).content_height(),
+                );
+                let notes_height: f32 = page_notes.iter().map(|(_, n)| n.height).sum();
+                let flow_bottom = header_space + sum_all_theads + (content_end_y - content_start_y);
+                let mut note_top = (header_space + area_height - notes_height).max(flow_bottom);
+                for (note_idx, note) in page_notes {
+                    let dy = note_top - note.top;
+                    let Some((first, last)) = config.footnotes.item_range(note_idx) else {
+                        note_top += note.height;
+                        continue;
+                    };
+                    // The note's own clips and stacking contexts go with it,
+                    // emitted like the page's: only around an item drawn.
+                    let mut open: Vec<(usize, bool)> = Vec::new();
+                    for item_idx in first..=last {
+                        let Some(item) = full_display_list.items.get(item_idx) else {
+                            break;
+                        };
+                        if item.is_push_marker() {
+                            open.push((item_idx, false));
+                            continue;
+                        }
+                        if item.is_pop_marker() {
+                            if let Some((_, true)) = open.pop() {
+                                page_items.push(item.clone());
+                                page_node_mapping.push(None);
+                            }
+                            continue;
+                        }
+                        if config.footnotes.owner(item_idx) != Some(note_idx) {
+                            continue;
+                        }
+                        for (marker_idx, emitted) in &mut open {
+                            if !*emitted && config.footnotes.owner(*marker_idx) == Some(note_idx) {
+                                page_items.push(offset_display_item_y(
+                                    &full_display_list.items[*marker_idx],
+                                    dy,
+                                ));
+                                page_node_mapping.push(None);
+                                *emitted = true;
+                            }
+                        }
+                        page_items.push(offset_display_item_y(item, dy));
+                        page_node_mapping.push(
+                            full_display_list
+                                .node_mapping
+                                .get(item_idx)
+                                .copied()
+                                .flatten(),
+                        );
+                    }
+                    for (marker_idx, emitted) in open.iter().rev() {
+                        if *emitted {
+                            if let Some(pop) = full_display_list.items[*marker_idx].matching_pop() {
+                                page_items.push(pop);
+                                page_node_mapping.push(None);
+                            }
+                        }
+                    }
+                    note_top += note.height;
                 }
             }
         }
@@ -13978,12 +14083,34 @@ fn generate_text_display_items(
 /// within the clips around it. Items under 0.1px tall are no visible
 /// content; the result is never negative or NaN.
 pub(crate) fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
+    display_list_height_of(display_list, |_| true)
+}
+
+/// The extent of the FLOW of a paged canvas with `footnotes`: the pages are
+/// cut from it. [`calculate_display_list_height`] without the items of the
+/// footnotes, which are parked on the canvas where they were taken out of
+/// the flow (a note anchored in the last line reaches below it) and drawn
+/// at the bottom of their pages instead.
+#[must_use]
+pub fn paged_flow_height(
+    display_list: &DisplayList,
+    footnotes: &crate::solver3::footnotes::Footnotes,
+) -> f32 {
+    if footnotes.is_empty() {
+        return calculate_display_list_height(display_list);
+    }
+    display_list_height_of(display_list, |i| footnotes.owner(i).is_none())
+}
+
+/// [`calculate_display_list_height`] over the items `counts` says yes to
+/// (by index); the clips of the others still clip.
+fn display_list_height_of(display_list: &DisplayList, counts: impl Fn(usize) -> bool) -> f32 {
     // The clips open at each item: no entry = unclipped, `None` = an empty
     // clip (nothing inside it is painted).
     let mut clips: Vec<Option<LogicalRect>> = Vec::new();
     let mut max_bottom = 0.0f32;
 
-    for item in &display_list.items {
+    for (item_index, item) in display_list.items.iter().enumerate() {
         if matches!(
             item,
             DisplayListItem::PopClip
@@ -14011,7 +14138,7 @@ pub(crate) fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
         let Some(visible) = visible else {
             continue;
         };
-        if visible.size.height < 0.1 {
+        if visible.size.height < 0.1 || !counts(item_index) {
             continue;
         }
         let item_bottom = visible.origin.y + visible.size.height;

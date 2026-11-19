@@ -698,6 +698,15 @@ where
             crate::solver3::pagination::TableHeaderTracker::default()
         };
 
+        // The footnotes of the canvas (`float: footnote`): where each is
+        // parked, where its anchor is, which items are its.
+        let footnotes = crate::solver3::footnotes::collect_footnotes(
+            &full_display_list,
+            tree,
+            calculated_positions,
+            new_dom,
+        );
+
         let slicer_config = SlicerConfig {
             page_content_height,
             page_gap: 0.0,
@@ -707,6 +716,7 @@ where
             table_headers,
             break_policy: page_config.break_policy,
             page_sequence: page_config.page_sequence.clone().into_option(),
+            footnotes,
         };
 
         // Step 3: Analyze the breaks, THEN paginate against them — the analysis
@@ -719,18 +729,11 @@ where
             styled_dom: new_dom,
             table_headers: Some(&slicer_config.table_headers),
         };
-        let breaks = if let Some(sequence) = &slicer_config.page_sequence {
-            // classic office suites model: every page's height from ITS setup.
-            page_breaks::compute_page_breaks_with_sequence(
-                &break_input,
-                sequence,
-                &slicer_config.break_policy,
-            )
-        } else {
-            let constraints = page_breaks::PageConstraints::from_slicer_config(&slicer_config);
-            page_breaks::compute_page_breaks(&break_input, &constraints, &slicer_config.break_policy)
-        };
-        let total_content_height = calculate_display_list_height(&full_display_list);
+        let breaks = page_breaks::compute_page_breaks_for_slicer(&break_input, &slicer_config);
+        // The flow's height: the notes are parked on the canvas, they are
+        // not part of what the pages are cut from.
+        let total_content_height =
+            crate::solver3::display_list::paged_flow_height(&full_display_list, &slicer_config.footnotes);
 
         // The pages as the break analysis cut them: the rows of a paged
         // multi-column container end where it cuts them, but a break it pushed
@@ -1018,6 +1021,10 @@ fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
     _print_timing: bool,
 ) -> Result<()> {
     use crate::{solver3::cache, window::LayoutWindow};
+
+    // Before any style is read: on paged media a `float: footnote` element
+    // is an out-of-flow box, in continuous media it is in the flow.
+    crate::solver3::footnotes::announce(new_dom, fragmentation_context.is_paged());
 
     // Create temporary context without counters for tree generation
     let mut counter_values = std::collections::HashMap::new();

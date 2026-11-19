@@ -204,6 +204,13 @@ pub enum LayoutFloat {
     Right,
     #[default]
     None,
+    /// `float: footnote` (CSS Generated Content for Paged Media, "Footnotes":
+    /// "An element becomes a footnote by applying `float: footnote` to that
+    /// element"): on paged media the element is taken out of the flow and
+    /// placed in the footnote area at the bottom of the page its place in
+    /// the flow lands on. It is no float of CSS 2.1 9.5: nothing flows
+    /// around it. In continuous media it behaves as `none`.
+    Footnote,
 }
 
 impl PrintAsCssValue for LayoutFloat {
@@ -212,6 +219,7 @@ impl PrintAsCssValue for LayoutFloat {
             Self::Left => "left",
             Self::Right => "right",
             Self::None => "none",
+            Self::Footnote => "footnote",
         })
     }
 }
@@ -395,6 +403,7 @@ pub fn parse_layout_float(input: &str) -> Result<LayoutFloat, LayoutFloatParseEr
         "left" => Ok(LayoutFloat::Left),
         "right" => Ok(LayoutFloat::Right),
         "none" => Ok(LayoutFloat::None),
+        "footnote" => Ok(LayoutFloat::Footnote),
         _ => Err(LayoutFloatParseError::InvalidValue(input)),
     }
 }
@@ -499,6 +508,10 @@ mod tests {
         assert_eq!(parse_layout_float("left").unwrap(), LayoutFloat::Left);
         assert_eq!(parse_layout_float("right").unwrap(), LayoutFloat::Right);
         assert_eq!(parse_layout_float("none").unwrap(), LayoutFloat::None);
+        assert_eq!(
+            parse_layout_float("footnote").unwrap(),
+            LayoutFloat::Footnote
+        );
 
         // Whitespace
         assert_eq!(parse_layout_float("  right  ").unwrap(), LayoutFloat::Right);
@@ -544,7 +557,12 @@ mod autotest_generated {
         LayoutDisplay::InlineBlockListItem,
     ];
 
-    const ALL_FLOAT: [LayoutFloat; 3] = [LayoutFloat::Left, LayoutFloat::Right, LayoutFloat::None];
+    const ALL_FLOAT: [LayoutFloat; 4] = [
+        LayoutFloat::Left,
+        LayoutFloat::Right,
+        LayoutFloat::None,
+        LayoutFloat::Footnote,
+    ];
 
     /// Position of each variant inside `ALL_DISPLAY`. The match is deliberately
     /// exhaustive (no `_` arm) so a new `LayoutDisplay` variant is a compile
@@ -992,7 +1010,8 @@ mod autotest_generated {
             "le\0ft",
             "inherit",
             "initial",
-            "footnote",
+            "footnotes",
+            "foot-note",
         ] {
             assert!(
                 parse_layout_float(bad).is_err(),

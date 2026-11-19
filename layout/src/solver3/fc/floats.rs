@@ -128,7 +128,9 @@ impl FloatBox {
             wrap: match self.kind {
                 LayoutFloat::Left => ExclusionWrap::Right,
                 LayoutFloat::Right => ExclusionWrap::Left,
-                LayoutFloat::None => ExclusionWrap::Both,
+                // A footnote is no float (`getters::get_float` reads it as
+                // `none`): it never reaches a float context.
+                LayoutFloat::None | LayoutFloat::Footnote => ExclusionWrap::Both,
             },
         }
     }
@@ -441,7 +443,7 @@ pub(super) fn position_floated_child(
                 // +spec:floats:5cfc93 - float:right positions box at cross-end, content flows on
                 // left
                 LayoutFloat::Right => available_cross_end - child_cross_size,
-                LayoutFloat::None => {
+                LayoutFloat::None | LayoutFloat::Footnote => {
                     return Err(LayoutError::PositioningFailed);
                 }
             };

@@ -1092,10 +1092,56 @@ impl InheritedValues {
 // state (hover, active, focused, normal). This way we don't have to duplicate the CSS properties
 // onto every single node and exchange them when the style changes. Two caches can be appended
 // to each other by simply merging their NodeIds.
+/// Whether the document a [`CssPropertyCache`] styles is being laid out on
+/// PAGED media with footnotes in it (`float: footnote`, CSS Generated
+/// Content for Paged Media): the layout pass says so before it reads any
+/// style, and the readers of `position` and `float` treat a footnote as the
+/// out-of-flow box it is there and as `float: none` everywhere else.
+///
+/// It is a fact about the presentation, not about the cascade, and it is
+/// the layout that knows it - through a shared reference to the document.
+/// Hence the atomic, and why two caches compare equal whatever it says. A
+/// document must not be laid out on paged and on continuous media at the
+/// same time from two threads: the one flag would be right for one of them.
+#[derive(Debug, Default)]
+pub struct PagedFootnotes(core::sync::atomic::AtomicBool);
+
+impl PagedFootnotes {
+    /// Whether the last layout pass was a paged one of a document with
+    /// footnotes.
+    #[inline]
+    #[must_use]
+    pub fn get(&self) -> bool {
+        self.0.load(core::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Set by the layout pass, before it reads any style.
+    #[inline]
+    pub fn set(&self, paged_with_footnotes: bool) {
+        self.0
+            .store(paged_with_footnotes, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl Clone for PagedFootnotes {
+    fn clone(&self) -> Self {
+        Self(core::sync::atomic::AtomicBool::new(self.get()))
+    }
+}
+
+impl PartialEq for PagedFootnotes {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct CssPropertyCache {
     // number of nodes in the current DOM
     pub node_count: usize,
+
+    /// See [`PagedFootnotes`].
+    pub paged_footnotes: PagedFootnotes,
 
     // The author stylesheet this cache was last cascaded with. Retained so nodes
     // inserted at runtime can be re-styled (`StyledDom::restyle_retained`) — the
@@ -3053,6 +3099,7 @@ impl CssPropertyCache {
     pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
+            paged_footnotes: PagedFootnotes::default(),
             retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
             dynamic_context: None,
