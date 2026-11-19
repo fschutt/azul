@@ -824,7 +824,7 @@ impl_enum_fmt!(
     InlineBlockListItem
 );
 
-impl_enum_fmt!(LayoutFloat, Left, Right, None);
+impl_enum_fmt!(LayoutFloat, Left, Right, None, Footnote);
 
 impl_enum_fmt!(LayoutBoxSizing, ContentBox, BorderBox);
 

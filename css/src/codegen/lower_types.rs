@@ -5467,6 +5467,7 @@ impl Lower for crate::props::layout::display::LayoutFloat {
             Self::Left => "Left",
             Self::Right => "Right",
             Self::None => "None",
+            Self::Footnote => "Footnote",
         };
         Expr::unit("LayoutFloat", EnumShape::CLike, variant)
     }
@@ -6113,6 +6114,8 @@ impl Lower for crate::css::NodeTypeTag {
             Self::Placeholder => "Placeholder",
             Self::PageBreak => "PageBreak",
             Self::WebView => "WebView",
+            Self::FootnoteCall => "FootnoteCall",
+            Self::FootnoteMarker => "FootnoteMarker",
         };
         Expr::unit("NodeTypeTag", EnumShape::CLike, variant)
     }
