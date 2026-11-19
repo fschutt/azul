@@ -376,6 +376,193 @@ pub(crate) fn finish_inline_layout(
     output
 }
 
+/// Where a box taken out of an inline formatting context would have stood
+/// in it, in the context's content-box coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct InlineStaticPlace {
+    /// The inline position right after the content before the box - or, for
+    /// a box nothing comes before, at the start of the content after it.
+    pub x: f32,
+    /// The top of the line that content stands on.
+    pub line_top: f32,
+    /// The bottom of that line.
+    pub line_bottom: f32,
+    /// Whether any content of the context comes before the box.
+    pub after_content: bool,
+}
+
+/// The place of the out-of-flow box of DOM node `child` among `items`, the
+/// laid-out content of the inline formatting context it was taken out of:
+/// the end of the content that comes before it in document order, on that
+/// content's line - else the start of the first content after it. `None` for
+/// a context without content.
+///
+/// CSS 2.1 10.3.7 and 10.6.4 define the static position by "a hypothetical
+/// box that would have been the first box of the element" had it been
+/// `position: static` and `float: none`, and allow that "user agents are
+/// free to make a guess at its probable position". The guess made here: an
+/// empty box that follows the last character before it stands on that
+/// character's line (it is not moved to the next line when that character
+/// ends its line), and the line's extent is the extent of the items on it -
+/// the line boxes themselves are not kept by the text layout.
+///
+/// `node_of` names the DOM node an item comes from; DOM node ids are in
+/// document (pre-order) order (`StyledDom`), so "before" is "a lower id".
+pub(crate) fn inline_static_place(
+    items: &[text3::cache::PositionedItem],
+    node_of: impl Fn(&ShapedItem) -> Option<NodeId>,
+    child: NodeId,
+) -> Option<InlineStaticPlace> {
+    let mut before: Option<(usize, usize)> = None; // (node index, item index)
+    let mut after: Option<(usize, usize)> = None;
+    for (i, item) in items.iter().enumerate() {
+        let Some(node) = node_of(&item.item) else {
+            continue;
+        };
+        if node.index() < child.index() {
+            if before.is_none_or(|(n, _)| node.index() >= n) {
+                before = Some((node.index(), i));
+            }
+        } else if after.is_none_or(|(n, _)| node.index() < n) {
+            after = Some((node.index(), i));
+        }
+    }
+    let (anchor, after_content) = match (before, after) {
+        (Some((_, i)), _) => (&items[i], true),
+        (None, Some((_, i))) => (&items[i], false),
+        (None, None) => return None,
+    };
+    let rtl = matches!(
+        &anchor.item,
+        ShapedItem::Cluster(c) if c.direction == text3::cache::BidiDirection::Rtl
+    );
+    let width = anchor.item.bounds().width;
+    // The END edge of the content before the box, the START edge of the
+    // content after it.
+    let x = if after_content == rtl {
+        anchor.position.x
+    } else {
+        anchor.position.x + width
+    };
+    let mut line: Option<(f32, f32)> = None;
+    for item in items.iter().filter(|i| i.line_index == anchor.line_index) {
+        let height = item.item.bounds().height;
+        if height.is_nan() || height <= 0.0 {
+            continue;
+        }
+        let (top, bottom) = (item.position.y, item.position.y + height);
+        line = Some(line.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
+    }
+    let (line_top, line_bottom) = line.unwrap_or((anchor.position.y, anchor.position.y));
+    Some(InlineStaticPlace {
+        x,
+        line_top,
+        line_bottom,
+        after_content,
+    })
+}
+
+/// [`inline_static_place`] for the out-of-flow layout child `child_index`
+/// of the inline formatting context root `ifc_root`, from the layout the
+/// root holds. `None` when the root holds no inline layout or no content.
+pub(crate) fn inline_static_place_in_tree(
+    tree: &LayoutTree,
+    ifc_root: usize,
+    child_index: usize,
+) -> Option<InlineStaticPlace> {
+    let child = tree.get(LayoutNodeId::new(child_index))?.dom_node_id?;
+    let layout = tree.materialized_inline_layout_for_node(ifc_root)?;
+    let child_map = tree
+        .warm(LayoutNodeId::new(ifc_root))
+        .and_then(|w| w.inline_content_cache.as_deref())
+        .map(|c| Arc::clone(&c.child_map));
+    inline_static_place(
+        &layout.items,
+        |item| item_dom_node(tree, child_map.as_deref(), item),
+        child,
+    )
+}
+
+/// The DOM node a laid-out inline item comes from: a cluster's text node,
+/// an atomic inline's element (through `child_map`, the layout child each
+/// object stands for).
+fn item_dom_node(
+    tree: &LayoutTree,
+    child_map: Option<&HashMap<ContentIndex, usize>>,
+    item: &ShapedItem,
+) -> Option<NodeId> {
+    match item {
+        ShapedItem::Cluster(c) => c.source_node_id,
+        ShapedItem::Object { source, .. } => child_map
+            .and_then(|m| m.get(source))
+            .and_then(|&i| tree.get(LayoutNodeId::new(i)))
+            .and_then(|n| n.dom_node_id),
+        _ => None,
+    }
+}
+
+/// The STATIC positions of the out-of-flow (absolute / fixed) children of
+/// the inline formatting context root `node_index`, relative to its content
+/// box, from its laid-out `items` (`LayoutOutput::static_positions`).
+///
+/// CSS 2.1 10.3.7 (`left`) and 10.6.4 (`top`): the static position is where
+/// "a hypothetical box that would have been the first box of the element"
+/// would stand if the element were `position: static`. In an inline
+/// formatting context that box is
+///
+/// - for an inline-level element (its specified `display`, before the
+///   blockification of CSS Display 3 2.7): an inline box on the line, after the content before
+///   it - the line's top, the end of that content ([`inline_static_place`]);
+/// - for a block-level element: a block that ends the line before it - the containing block's
+///   start edge, below the line of the content before it (at the top of the first line when
+///   nothing comes before it).
+///
+/// The context used to record none, and every such box took its parent's
+/// content-box origin: a `position: absolute` span in the third line of a
+/// paragraph stood on the first.
+pub(super) fn out_of_flow_static_positions(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+    items: &[text3::cache::PositionedItem],
+    child_map: &HashMap<ContentIndex, usize>,
+) -> BTreeMap<usize, LogicalPosition> {
+    let mut out = BTreeMap::new();
+    for &child_index in tree.children(node_index) {
+        let Some(child) = tree
+            .get(LayoutNodeId::new(child_index))
+            .and_then(|n| n.dom_node_id)
+        else {
+            continue;
+        };
+        if !matches!(
+            get_position_type(styled_dom, Some(child)),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) || is_marker_box(tree, child_index)
+        {
+            continue;
+        }
+        let Some(place) = inline_static_place(
+            items,
+            |item| item_dom_node(tree, Some(child_map), item),
+            child,
+        ) else {
+            continue;
+        };
+        let display = get_display_property(styled_dom, Some(child)).unwrap_or_default();
+        let inline_level = crate::solver3::getters::blockify_display(display) != display;
+        let pos = if inline_level {
+            LogicalPosition::new(place.x, place.line_top)
+        } else if place.after_content {
+            LogicalPosition::new(0.0, place.line_bottom)
+        } else {
+            LogicalPosition::new(0.0, place.line_top)
+        };
+        out.insert(child_index, pos);
+    }
+    out
+}
+
 pub(super) fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -866,11 +1053,18 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 // `atomic_inline_children_are_laid_out` says the atomic
                 // children it places have sizes (carried by their own
                 // clones), and a re-collection lays them out.
-                let output = finish_inline_layout(
+                let mut output = finish_inline_layout(
                     &main_frag,
                     &text3_constraints,
                     ctx.styled_dom,
                     ifc_root_dom_id,
+                    &child_map,
+                );
+                output.static_positions = out_of_flow_static_positions(
+                    ctx.styled_dom,
+                    tree,
+                    node_index,
+                    &main_frag.items,
                     &child_map,
                 );
                 if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
@@ -954,6 +1148,15 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             });
         }
     };
+    // The out-of-flow children's static positions, from the lines as they
+    // stand now (`out_of_flow_static_positions`).
+    let static_positions = out_of_flow_static_positions(
+        ctx.styled_dom,
+        tree,
+        node_index,
+        &main_frag.items,
+        &child_map,
+    );
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
 
@@ -1117,6 +1320,7 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
         // `finish_inline_layout`: the cache-reuse exit above reports the
         // same, so two layouts of unchanged content agree to the bit.
         output = finished;
+        output.static_positions = static_positions;
         warm_node.baseline = output.baseline;
     }
 

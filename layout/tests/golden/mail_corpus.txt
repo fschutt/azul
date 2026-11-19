@@ -2424,7 +2424,7 @@ n34 p31 d37 Inline @8,166 -x- ic=0/0
 n35 p31 d38 InlineBlock @8,169 10x10 ic=10/10 rel=0,3
 n36 p35 d39 Block { establishes_new_context: true } @8,169 10x10 ic=0/0
 n37 p31 d40 Inline @8,166 -x- ic=0/0
-n38 p31 d41 Inline @8,-9983 172.8125x16 ov=172.79688x16 bl=13 ic=62.40625/172.8125
+n38 p31 d41 Inline @8,-9983 172.8125x16 ov=172.79688x16 bl=13 ic=62.40625/172.8125 rel=0,13
 n39 p38 d42 Inline @8,-9983 -x- ic=62.40625/172.8125
 n40 p31 d43 Inline @8,166 -x- ic=0/0
   dl0 PushStackingContext 0,0 800x182
