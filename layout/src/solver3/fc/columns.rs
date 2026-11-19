@@ -417,9 +417,11 @@ fn anchored_notes<T: ParsedFontTrait>(
         if height <= 0.0 {
             continue;
         }
-        let line = (parent == child && !lines.is_empty())
-            .then(|| inline_static_place_in_tree(tree, child, index))
-            .flatten()
+        let _ = parent;
+        let line = (!lines.is_empty()
+            && inline_context_of(ctx.styled_dom, tree, index) == Some(child))
+        .then(|| inline_static_place_in_tree(tree, child, index))
+        .flatten()
             .and_then(|place| lines.iter_mut().find(|l| l.index == place.line));
         match line {
             Some(line) => line.notes += height,
@@ -540,14 +542,17 @@ pub(super) fn split_into_columns<T: ParsedFontTrait>(
     // Its atomic inlines moved with their lines - and so did the static
     // positions of its out-of-flow children (`out_of_flow_static_positions`):
     // a box anchored in a line that went to the next column stands there.
-    for (inner, pos) in split
-        .output
-        .positions
-        .into_iter()
-        .chain(split.output.static_positions)
-    {
+    for (inner, pos) in split.output.positions {
         if let Some(warm) = tree.warm_mut(LayoutNodeId::new(inner)) {
             warm.relative_position = Some(pos);
+        }
+    }
+    for (inner, pos) in split.output.static_positions {
+        // Recorded from the paragraph's content box; a box inside one of
+        // its inline boxes is positioned from that one's.
+        let parent = inline_parent_offset(tree, child, inner);
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(inner)) {
+            warm.relative_position = Some(LogicalPosition::new(pos.x - parent.x, pos.y - parent.y));
         }
     }
     // Its box is what stays in its first column - and so is its content

@@ -85,3 +85,26 @@ fn an_absolute_box_nothing_comes_before_stands_where_the_first_content_starts() 
         "the box stands where the first word starts {w1:?}: {a:?}"
     );
 }
+
+#[test]
+fn an_absolute_box_inside_nested_inline_boxes_stands_on_its_line_too() {
+    // The content of an inline box is content of the paragraph's lines (CSS
+    // 2.1 9.2.2): a box taken out of `<em><b>..</b></em>` would have stood
+    // on the line the text around it stands on. Only the paragraph's own
+    // children got that line; one inside an inline box stood at the
+    // paragraph's origin.
+    let lw = paragraph(&format!(
+        "{}<br/><em><b>{}<span id=\"a\" class=\"abs\"></span></b></em><br/>{}",
+        word("w1"),
+        word("w2"),
+        word("w3")
+    ));
+    let (w1, w2, a) = (rect(&lw, "w1"), rect(&lw, "w2"), rect(&lw, "a"));
+    assert!(w2.origin.y >= w1.origin.y + 19.0, "{w1:?} {w2:?}");
+    assert!(
+        near(a.origin.x, w2.origin.x + 60.0, 0.5) && near(a.origin.y, w2.origin.y, 0.5),
+        "the box stands at the end of the second word ({}, {}), on its line: {a:?}",
+        w2.origin.x + 60.0,
+        w2.origin.y
+    );
+}

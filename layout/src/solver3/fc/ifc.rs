@@ -504,9 +504,11 @@ fn item_dom_node(
     }
 }
 
-/// The STATIC positions of the out-of-flow (absolute / fixed) children of
-/// the inline formatting context root `node_index`, relative to its content
-/// box, from its laid-out `items` (`LayoutOutput::static_positions`).
+/// The STATIC positions of the out-of-flow (absolute / fixed) boxes taken
+/// out of the inline formatting context of `node_index` - its children and
+/// those of the inline boxes in it, at any depth
+/// ([`out_of_flow_inline_descendants`]) - relative to ITS content box, from
+/// its laid-out `items` (`LayoutOutput::static_positions`).
 ///
 /// CSS 2.1 10.3.7 (`left`) and 10.6.4 (`top`): the static position is where
 /// "a hypothetical box that would have been the first box of the element"
@@ -531,20 +533,13 @@ pub(super) fn out_of_flow_static_positions(
     child_map: &HashMap<ContentIndex, usize>,
 ) -> BTreeMap<usize, LogicalPosition> {
     let mut out = BTreeMap::new();
-    for &child_index in tree.children(node_index) {
+    for child_index in out_of_flow_inline_descendants(styled_dom, tree, node_index) {
         let Some(child) = tree
             .get(LayoutNodeId::new(child_index))
             .and_then(|n| n.dom_node_id)
         else {
             continue;
         };
-        if !matches!(
-            get_position_type(styled_dom, Some(child)),
-            LayoutPosition::Absolute | LayoutPosition::Fixed
-        ) || is_marker_box(tree, child_index)
-        {
-            continue;
-        }
         let Some(place) = inline_static_place(
             items,
             |item| item_dom_node(tree, Some(child_map), item),
@@ -565,6 +560,109 @@ pub(super) fn out_of_flow_static_positions(
     }
     out
 }
+
+/// Whether the layout box `index` is an in-flow INLINE BOX (`<em>`, `<a>`,
+/// a `<span>`): a box the lines of its inline formatting context run
+/// through, its content a part of that context.
+fn is_in_flow_inline_box(styled_dom: &StyledDom, tree: &LayoutTree, index: usize) -> bool {
+    let Some(dom) = tree.get(LayoutNodeId::new(index)).and_then(|n| n.dom_node_id) else {
+        return false;
+    };
+    crate::solver3::getters::is_inline_box_display(
+        get_display_property(styled_dom, Some(dom)).unwrap_or_default(),
+    ) && !matches!(
+        get_position_type(styled_dom, Some(dom)),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) && get_float_property(styled_dom, Some(dom)) == LayoutFloat::None
+        && !is_marker_box(tree, index)
+}
+
+/// The out-of-flow (absolute / fixed) boxes taken out of the inline
+/// formatting context of `ifc_root`: its out-of-flow children and those of
+/// the inline boxes in it, at any depth - `<p>a <em>b <span abs></span></em></p>`.
+/// The content of an inline box is content of the context it is in (CSS 2.1
+/// 9.2.2), so the hypothetical box of an out-of-flow box written in it
+/// (10.3.7, 10.6.4) would have stood on a line of that context.
+pub(crate) fn out_of_flow_inline_descendants(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    ifc_root: usize,
+) -> Vec<usize> {
+    let mut found = Vec::new();
+    let mut stack: Vec<usize> = tree.children(ifc_root).iter().rev().copied().collect();
+    while let Some(index) = stack.pop() {
+        let Some(dom) = tree.get(LayoutNodeId::new(index)).and_then(|n| n.dom_node_id) else {
+            continue;
+        };
+        if is_marker_box(tree, index) {
+            continue;
+        }
+        if matches!(
+            get_position_type(styled_dom, Some(dom)),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) {
+            found.push(index);
+        } else if is_in_flow_inline_box(styled_dom, tree, index) {
+            stack.extend(tree.children(index).iter().rev().copied());
+        }
+    }
+    found
+}
+
+/// The root of the inline formatting context the out-of-flow box `index`
+/// was taken out of: its parent, or the box its parent's chain of inline
+/// boxes stands in. `None` when that box holds no inline layout (the box
+/// was taken out of a block flow).
+pub(crate) fn inline_context_of(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    index: usize,
+) -> Option<usize> {
+    let mut parent = tree.get(LayoutNodeId::new(index))?.parent?;
+    // At most one step per box: a malformed parent chain cannot loop.
+    for _ in 0..tree.nodes.len() {
+        if !is_in_flow_inline_box(styled_dom, tree, parent) {
+            break;
+        }
+        parent = tree.get(LayoutNodeId::new(parent))?.parent?;
+    }
+    tree.warm(LayoutNodeId::new(parent))
+        .is_some_and(|w| w.inline_layout_result.is_some())
+        .then_some(parent)
+}
+
+/// Where the content box of the PARENT of `index` stands, seen from the
+/// content box of `ifc_root`, as the positioning pass derives it
+/// (`cache::position_bfc_child_descendants`): through the inline boxes
+/// between them, each at its stored relative position inside its own
+/// parent's content box, its content box inside its borders and padding.
+/// Zero for a child of `ifc_root` itself.
+///
+/// A static position is recorded relative to the root of the inline
+/// formatting context ([`out_of_flow_static_positions`]); a box is
+/// positioned relative to its parent's content box. This is the difference.
+pub(crate) fn inline_parent_offset(tree: &LayoutTree, ifc_root: usize, index: usize) -> LogicalPosition {
+    let mut offset = LogicalPosition::zero();
+    let mut current = tree.get(LayoutNodeId::new(index)).and_then(|n| n.parent);
+    for _ in 0..tree.nodes.len() {
+        let Some(box_index) = current.filter(|c| *c != ifc_root) else {
+            break;
+        };
+        let Some(node) = tree.get(LayoutNodeId::new(box_index)) else {
+            break;
+        };
+        let bp = node.box_props.unpack();
+        let rel = tree
+            .warm(LayoutNodeId::new(box_index))
+            .and_then(|w| w.relative_position)
+            .unwrap_or_default();
+        offset.x += rel.x + bp.border.left + bp.padding.left;
+        offset.y += rel.y + bp.border.top + bp.padding.top;
+        current = node.parent;
+    }
+    offset
+}
+
 
 pub(super) fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,

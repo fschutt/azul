@@ -159,3 +159,22 @@ fn on_a_page_a_margin_note_is_drawn_beside_the_container_at_its_anchor() {
     assert_eq!((left, width), (-62.0, 50.0), "12px left of the container at x 0");
     assert!((20.0..40.0).contains(&top) && bottom - top == 10.0, "on the second line: {drawn:?}");
 }
+
+#[test]
+fn a_note_anchored_inside_a_span_stands_beside_the_column_of_its_line() {
+    // The anchor is written inside an inline box, in the fourth line (the
+    // right column): its static position is on that line all the same.
+    let lw = page(
+        OUTSIDE,
+        &[
+            word("w1"),
+            word("w2"),
+            word("w3"),
+            format!("<span>{}{}</span>", word("w4"), note("a")),
+        ],
+    );
+    let (w4, a) = (rect(&lw, "w4"), rect(&lw, "a"));
+    assert!(near(w4.origin.x, 320.0, 0.5), "the fourth line is in the right column: {w4:?}");
+    assert!(near(a.origin.x, 532.0, 0.5), "right of the container: {a:?}");
+    assert!(near(a.origin.y, w4.origin.y, 0.5), "on the line of its anchor {w4:?}: {a:?}");
+}

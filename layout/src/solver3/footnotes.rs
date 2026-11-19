@@ -42,8 +42,6 @@
 //! - a note is never split: one taller than what its page leaves is drawn from the end of the
 //!   page's flow and runs past the bottom edge;
 //! - the margins of two notes stacked on a page do not collapse;
-//! - a footnote inside an inline box (`<em>`, `<b>`) is anchored like any out-of-flow box there:
-//!   only the children of the paragraph itself get a line (`fc::ifc::out_of_flow_static_positions`);
 //! - a page sequence with pages of different heights is not tested with notes.
 
 use std::collections::BTreeMap;
@@ -236,7 +234,9 @@ pub(crate) fn footnote_boxes(
         let bp = node.box_props.unpack();
         let size = node.used_size.unwrap_or_default();
         let (mut anchor_top, mut anchor_bottom) = (pos.y, pos.y);
-        if let Some(parent) = node.parent {
+        // The inline formatting context it was taken out of: its parent's,
+        // or the one its parent's inline boxes (`<em>`, `<a>`) stand in.
+        if let Some(parent) = crate::solver3::fc::inline_context_of(styled_dom, tree, index) {
             let place = crate::solver3::fc::inline_static_place_in_tree(tree, parent, index);
             if let (Some(place), Some(parent_node), Some(parent_pos)) = (
                 place,

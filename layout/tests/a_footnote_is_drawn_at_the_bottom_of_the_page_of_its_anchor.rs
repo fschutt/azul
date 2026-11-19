@@ -507,3 +507,20 @@ fn an_export_draws_a_repeated_table_head_in_the_form_a_pdf_backend_reads() {
         text_blocks(&result.pages[1])
     );
 }
+
+#[test]
+fn a_note_inside_an_inline_box_is_anchored_on_the_line_it_is_written_in() {
+    // The paragraph's first line stands at 150..170, its second at
+    // 170..190. The 50px note is written in the second, inside an `<em>`:
+    // that line does not fit above its note, so the page ends before IT -
+    // not before the first line, where a note without a line of its own
+    // (anchored at the paragraph's origin) put the break.
+    let (result, _, _) = pages(&html(&format!(
+        "{}<p>one<br/><em>two{}</em><br/>three</p>",
+        blocks(3, 50),
+        note("n1", 50)
+    )));
+    assert_eq!(break_ys(&result), vec![170.0], "the page ends before the second line");
+    assert_eq!(rects(&result.pages[0], RED), vec![]);
+    assert_eq!(rects(&result.pages[1], RED), vec![(150.0, 200.0, 0.0, 800.0)]);
+}

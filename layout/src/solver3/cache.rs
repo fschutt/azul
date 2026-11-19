@@ -4595,9 +4595,19 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
         let current_node = tree
             .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
+        // Its children - and the boxes taken out of the inline boxes of its
+        // inline formatting context, whose static positions it recorded
+        // too (`fc::out_of_flow_static_positions`): no one else lays those
+        // out, an inline box is not laid out as a subtree of its own.
+        let nested = static_positions
+            .keys()
+            .copied()
+            .filter(|index| !tree.children(node_index).contains(index));
         tree.children(node_index)
             .iter()
-            .filter_map(|&child_index| {
+            .copied()
+            .chain(nested)
+            .filter_map(|child_index| {
                 if super::pos_contains(calculated_positions, child_index) {
                     return None;
                 }
@@ -4644,8 +4654,11 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
         // css/CSS2/tables/height-table-cell-001). Only a recorded one: a
         // flex / grid container's taffy already wrote its children's.
         if let Some(rel) = static_positions.get(&child_index) {
+            // Relative to ITS parent's content box: this node's, or that of
+            // the inline box it stands in.
+            let parent = fc::inline_parent_offset(tree, node_index, child_index);
             if let Some(warm) = tree.warm_mut(LayoutNodeId::new(child_index)) {
-                warm.relative_position = Some(*rel);
+                warm.relative_position = Some(LogicalPosition::new(rel.x - parent.x, rel.y - parent.y));
             }
         }
 
