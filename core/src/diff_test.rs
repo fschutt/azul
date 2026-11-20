@@ -3,7 +3,10 @@ pub use super::*;
 #[cfg(test)]
 mod audit_tests {
     use super::*;
-    use crate::{dom::NodeData, styled_dom::NodeHierarchyItem};
+    use crate::{
+        dom::{IdOrClass, NodeData},
+        styled_dom::NodeHierarchyItem,
+    };
 
     // Build a NodeHierarchyItem from optional 0-based indices (encoded 1-based).
     fn hitem(
@@ -82,6 +85,118 @@ mod audit_tests {
             NodeIdentityConfig::default(),
         );
         let _ = calculate_contenteditable_key(&node_data, &hierarchy, NodeId::new(1));
+    }
+
+    /// A tree as nested `(node, children)`.
+    struct Spec(NodeData, Vec<Spec>);
+
+    /// The tree in the arenas, pre-order: parent, previous and next sibling and last child per node.
+    fn flatten(
+        spec: &Spec,
+        parent: Option<usize>,
+        previous: Option<usize>,
+        nodes: &mut Vec<NodeData>,
+        items: &mut Vec<NodeHierarchyItem>,
+    ) -> usize {
+        let idx = nodes.len();
+        nodes.push(spec.0.clone());
+        items.push(hitem(parent, previous, None, None));
+        let mut before: Option<usize> = None;
+        for child in &spec.1 {
+            let c = flatten(child, Some(idx), before, nodes, items);
+            if let Some(b) = before {
+                items[b].next_sibling = c + 1;
+            }
+            before = Some(c);
+        }
+        if let Some(last) = before {
+            items[idx].last_child = last + 1;
+        }
+        idx
+    }
+
+    /// A tree of every kind of node: divs, texts, keyed nodes and nodes with an id and a class,
+    /// three levels, uneven fan-out.
+    fn mixed_tree() -> Spec {
+        let kind = |i: usize| match i % 4 {
+            0 => NodeData::create_div(),
+            1 => NodeData::create_text_do_not_use_without_block_level_wrapper("text"),
+            2 => NodeData::create_div().with_key(i as u64),
+            _ => NodeData::create_div().with_ids_and_classes(
+                vec![IdOrClass::Id(format!("i{i}").into()), IdOrClass::Class("c".into())].into(),
+            ),
+        };
+        let mut counter = 0usize;
+        let mut next = || {
+            counter += 1;
+            counter
+        };
+        Spec(
+            NodeData::create_div(),
+            (0..7)
+                .map(|a| {
+                    Spec(
+                        kind(next()),
+                        (0..(a % 5 + 2))
+                            .map(|_| {
+                                Spec(
+                                    kind(next()),
+                                    (0..3).map(|_| Spec(kind(next()), Vec::new())).collect(),
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    /// The keys of the whole DOM are the keys of its nodes, one at a time, under every identity
+    /// the app can configure: the one pass hands each node the place and the parent key the
+    /// per-node walk finds by counting siblings.
+    #[test]
+    fn the_keys_of_a_dom_are_the_keys_of_its_nodes_under_every_identity() {
+        let mut nodes = Vec::new();
+        let mut items = Vec::new();
+        flatten(&mixed_tree(), None, None, &mut nodes, &mut items);
+        assert!(nodes.len() > 100, "harness: a tree worth comparing");
+        for siblings_counted in [SiblingsCounted::All, SiblingsCounted::SameType] {
+            for class_change_remounts in [false, true] {
+                for id_is_key in [false, true] {
+                    let identity = NodeIdentityConfig { siblings_counted, class_change_remounts, id_is_key };
+                    let whole = precompute_reconciliation_keys(&nodes, &items, identity);
+                    let one_by_one: Vec<u64> = (0..nodes.len())
+                        .map(|i| calculate_reconciliation_key(&nodes, &items, NodeId::new(i), identity))
+                        .collect();
+                    assert_eq!(whole, one_by_one, "{identity:?}");
+                }
+            }
+        }
+    }
+
+    /// One parent with k children: the keys take a number of steps linear in k. The per-node walk
+    /// counts every earlier sibling of every node: k^2 / 2.
+    #[test]
+    fn the_keys_of_one_parent_with_many_children_take_a_step_per_node() {
+        let work = |k: usize| {
+            let spec = Spec(
+                NodeData::create_div(),
+                (0..k).map(|_| Spec(NodeData::create_div(), Vec::new())).collect(),
+            );
+            let mut nodes = Vec::new();
+            let mut items = Vec::new();
+            flatten(&spec, None, None, &mut nodes, &mut items);
+            KEY_WORK.with(|w| w.set(0));
+            let keys = precompute_reconciliation_keys(&nodes, &items, NodeIdentityConfig::default());
+            assert_eq!(keys.len(), k + 1);
+            KEY_WORK.with(std::cell::Cell::get)
+        };
+        let (small, large) = (work(500), work(2_000));
+        assert!(small >= 500, "harness: the steps were counted ({small})");
+        assert!(
+            large <= small * 5,
+            "four times the children took {large} steps for {small}: more than linear"
+        );
     }
 
     #[test]

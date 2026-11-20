@@ -538,6 +538,22 @@ impl NodeIdentityConfig {
     }
 }
 
+/// How many steps the reconciliation keys took on this thread (a sibling visited, a node placed):
+/// what the size sweep of the tests reads to say the keys are linear in the nodes.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static KEY_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn key_work(steps: usize) {
+    KEY_WORK.with(|work| work.set(work.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn key_work(_steps: usize) {}
+
 /// Calculate the reconciliation key for a node using the priority hierarchy:
 /// 1. Explicit key (set via `.with_key()`)
 /// 2. CSS ID (set via `.with_id("my-id")`), when `identity.id_is_key`
@@ -636,6 +652,7 @@ pub fn calculate_reconciliation_key(
                 .get(parent_id.index())
                 .and_then(|h| h.first_child_id(parent_id));
             while let Some(sibling_id) = current {
+                key_work(1);
                 if sibling_id == nid {
                     break;
                 }
@@ -670,15 +687,97 @@ pub fn calculate_reconciliation_key(
 /// Called once per side (old/new) at the start of `reconcile_dom`. Returns a
 /// vector indexed by node index (`keys[node_id.index()]`) so lookup during
 /// reconciliation is O(1).
+///
+/// ONE top-down pass: a node's key is its terminal key, or its type (and classes), its place
+/// among its siblings and its parent's key, so each parent hands its children their places as it
+/// walks them - O(nodes). [`calculate_reconciliation_key`] answers one node from the root's
+/// chain by walking every earlier sibling at each level, which over a whole DOM is quadratic in
+/// the children of a parent (a map view's 12,470 labels under one root: 78 million steps a side).
 #[must_use]
 pub fn precompute_reconciliation_keys(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
     identity: NodeIdentityConfig,
 ) -> Vec<u64> {
-    (0..node_data.len())
-        .map(|idx| calculate_reconciliation_key(node_data, hierarchy, NodeId::new(idx), identity))
-        .collect()
+    use core::hash::Hasher;
+
+    let n = node_data.len();
+    // A hierarchy that does not cover the nodes (a caller that tracks none): the keys degrade to
+    // the node's type, which the per-node function answers.
+    if hierarchy.len() < n {
+        return (0..n)
+            .map(|idx| calculate_reconciliation_key(node_data, hierarchy, NodeId::new(idx), identity))
+            .collect();
+    }
+    let mut keys = vec![0_u64; n];
+    let mut placed = vec![false; n];
+    // (node, its parent's key, its place among its siblings, whether it has a parent)
+    let mut pending: Vec<(usize, Option<u64>, usize, bool)> = (0..n)
+        .filter(|idx| hierarchy[*idx].parent_id().is_none())
+        .map(|idx| (idx, None, 0, false))
+        .collect();
+    while let Some((idx, parent_key, place, has_parent)) = pending.pop() {
+        if placed[idx] {
+            continue;
+        }
+        placed[idx] = true;
+        key_work(1);
+        let node = &node_data[idx];
+        let key = identity.terminal_key(node).unwrap_or_else(|| {
+            let mut hasher = crate::hash::DefaultHasher::new();
+            core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
+            if identity.class_change_remounts {
+                for attr in node.attributes().as_ref() {
+                    if let Some(class) = attr.as_class() {
+                        class.hash(&mut hasher);
+                    }
+                }
+            }
+            if has_parent {
+                place.hash(&mut hasher);
+                parent_key.unwrap_or(0).hash(&mut hasher);
+            }
+            hasher.finish()
+        });
+        keys[idx] = key;
+        // The children, each with its place: counted as the identity says, the siblings before it.
+        let mut all_before = 0_usize;
+        let mut of_type: Vec<(core::mem::Discriminant<crate::dom::NodeType>, usize)> = Vec::new();
+        let mut child = hierarchy[idx].first_child_id(NodeId::new(idx));
+        let mut walked = 0_usize;
+        while let Some(child_id) = child {
+            // A corrupt sibling chain: stop at the node count, as the per-node walk does.
+            if child_id.index() >= n || walked >= n {
+                break;
+            }
+            walked += 1;
+            key_work(1);
+            let kind = core::mem::discriminant(node_data[child_id.index()].get_node_type());
+            let child_place = match identity.siblings_counted {
+                SiblingsCounted::All => all_before,
+                SiblingsCounted::SameType => {
+                    of_type.iter().find(|(d, _)| *d == kind).map_or(0, |(_, count)| *count)
+                }
+            };
+            all_before += 1;
+            if matches!(identity.siblings_counted, SiblingsCounted::SameType) {
+                match of_type.iter_mut().find(|(d, _)| *d == kind) {
+                    Some((_, count)) => *count += 1,
+                    None => of_type.push((kind, 1)),
+                }
+            }
+            pending.push((child_id.index(), Some(key), child_place, true));
+            child = hierarchy[child_id.index()].next_sibling_id();
+        }
+    }
+    // Whatever no root reaches (a cyclic or corrupt hierarchy): the per-node walk, which stops
+    // at the node count.
+    for idx in 0..n {
+        if !placed[idx] {
+            keys[idx] = calculate_reconciliation_key(node_data, hierarchy, NodeId::new(idx), identity);
+        }
+    }
+    keys
 }
 
 /// Represents a mapping between a node in the old DOM and the new DOM.
