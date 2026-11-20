@@ -4364,9 +4364,26 @@ impl LayoutWindow {
     /// Returns whether anything changed, so the caller can skip the repaint
     /// when the offset is already correct.
     ///
+    /// The list is LOOKED AT first and written only when an item really moves.
+    /// When it is written it is written IN PLACE if nothing else holds it
+    /// besides the two shares this window knows how to step aside for - the
+    /// layout cache's copy of the root's list and the renderer's record of
+    /// what it was sent (a `Weak`) - and the record is renewed for the same
+    /// list. A GPU frame translates no `content_offset` (`WebRender` scrolls
+    /// the child's pipeline by the LIVE offset, `scroll_all_nodes`), so an
+    /// offset that moved is not a list the renderer is owed: the host's list
+    /// stays the one it holds, and a pan costs the frame nothing that grows
+    /// with the window. A list somebody else holds - the CPU backend's last
+    /// frame, whose diff has to see the item move - is copied before it is
+    /// written, as before (`Arc::make_mut` of a shared list copies every item
+    /// of it, and used to be done before the look, so a call that found nothing
+    /// to change cost a window of thousands of items a full copy).
+    ///
     /// NEGATIVE CONTROL: stop calling this on the lightweight scroll path and
     /// a `VirtualView` freezes again while its scrollbar keeps moving.
     pub fn patch_virtual_view_content_offset(&mut self, dom_id: DomId, node_id: NodeId) -> bool {
+        use crate::solver3::display_list::{DisplayList, DisplayListItem};
+
         let Some(child_dom_id) = self.virtual_view_manager.get_nested_dom_id(dom_id, node_id)
         else {
             return false;
@@ -4375,21 +4392,75 @@ impl LayoutWindow {
         let Some(lr) = self.layout_results.get_mut(&dom_id) else {
             return false;
         };
-        let mut changed = false;
-        for item in &mut Arc::make_mut(&mut lr.display_list).items {
-            if let solver3::display_list::DisplayListItem::VirtualView {
-                child_dom_id: item_child,
-                content_offset,
-                ..
-            } = item
-            {
-                if *item_child == child_dom_id && *content_offset != wanted {
-                    *content_offset = wanted;
-                    changed = true;
+        let moved = |item: &DisplayListItem| {
+            matches!(
+                item,
+                DisplayListItem::VirtualView { child_dom_id: item_child, content_offset, .. }
+                    if *item_child == child_dom_id && *content_offset != wanted
+            )
+        };
+        if !lr.display_list.items.iter().any(moved) {
+            return false;
+        }
+        let repoint = |list: &mut DisplayList| {
+            for item in &mut list.items {
+                if let DisplayListItem::VirtualView {
+                    child_dom_id: item_child,
+                    content_offset,
+                    ..
+                } = item
+                {
+                    if *item_child == child_dom_id && *content_offset != wanted {
+                        *content_offset = wanted;
+                    }
                 }
             }
+        };
+
+        // Step aside for the two shares of this very list that are ours: the
+        // layout cache's (the root's list only) and the renderer's record.
+        let list_ptr = Arc::as_ptr(&lr.display_list);
+        let cache_held_it = dom_id == DomId::ROOT_ID
+            && self
+                .layout_cache
+                .cached_display_list
+                .as_mut()
+                .is_some_and(|cached| {
+                    let same = Arc::as_ptr(&cached.5) == list_ptr;
+                    if same {
+                        drop(core::mem::take(&mut cached.5));
+                    }
+                    same
+                });
+        let renderer_held_it = self
+            .gpu_state_manager
+            .submitted_display_lists
+            .get(&dom_id)
+            .is_some_and(|record| record.as_ptr() == list_ptr);
+        if renderer_held_it {
+            self.gpu_state_manager.submitted_display_lists.remove(&dom_id);
         }
-        changed
+
+        let in_place = Arc::get_mut(&mut lr.display_list)
+            .map(|list| repoint(list))
+            .is_some();
+        // The list the shares go back to: the one just written, or - when a
+        // holder of ours forced a copy - the one they knew.
+        let shares = Arc::clone(&lr.display_list);
+        if !in_place {
+            repoint(Arc::make_mut(&mut lr.display_list));
+        }
+        if cache_held_it {
+            if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                cached.5 = Arc::clone(&shares);
+            }
+        }
+        if renderer_held_it {
+            self.gpu_state_manager
+                .submitted_display_lists
+                .insert(dom_id, Arc::downgrade(&shares));
+        }
+        true
     }
 
     /// The stable session key for an editing session anchored on `node_id`.

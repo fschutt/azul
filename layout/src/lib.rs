@@ -770,6 +770,11 @@ pub const fn font_ref_to_parsed_font(font_ref: &azul_css::props::basic::FontRef)
 #[cfg(test)]
 mod gpu_path_tests;
 
+// A pan of a `VirtualView` is a scroll offset: written into the host's display list in place when
+// only the layout cache and the renderer's record hold it, copied first when a backend holds it.
+#[cfg(test)]
+mod virtual_view_pan_tests;
+
 // A scrolled container goes idle after its scrollbar has faded: the time left counts down by the
 // clock, not by frames.
 #[cfg(test)]

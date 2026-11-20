@@ -1682,6 +1682,15 @@ impl CallbackInfo {
     /// corrections: a background exact-pagination writeback fixes the
     /// scrollbar's total extent live while the UI keeps its materialized
     /// window untouched.
+    ///
+    /// It is also the cheap way to PAN a view: `materialized` is where the
+    /// rendered window sits (its `origin` is the pan, its `size` the extent that
+    /// was rendered), and moving it shifts the view's picture - a GPU window
+    /// scrolls the child's pipeline by the new offset, a CPU window re-points the
+    /// view's display-list item - with no callback, no layout and no new list for
+    /// the renderer, however many items the host has. Render the view again
+    /// (`trigger_virtual_view_rerender`) once the picture is about to leave the
+    /// margin the last render drew.
     pub fn update_virtual_view(
         &mut self,
         node_id: DomNodeId,
