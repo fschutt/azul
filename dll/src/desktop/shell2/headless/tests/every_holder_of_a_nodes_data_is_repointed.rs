@@ -31,6 +31,16 @@ const NOT_WALKED: &[(&str, &str, &str)] = &[
     ("layout/src/dialogs/", "*", PAYLOAD),
     ("layout/src/form_controls.rs", "CarriedFormHandlers", PAYLOAD),
     ("layout/src/e2e/", "*", "the end-to-end runner's own state, not an app's"),
+    (
+        "layout/src/solver3/regions.rs",
+        "NamedFlowScope",
+        "a `PhantomData` that borrows the document's type: it holds no data of its own, so there is nothing to repoint",
+    ),
+    (
+        "dll/src/desktop/shell2/macos/headless_gpu.rs",
+        "GpuSession",
+        "a test harness's own layout window and renderer: no shell merges a rebuilt DOM into it",
+    ),
     ("dll/src/web/", "*", APP),
     ("dll/src/desktop/app.rs", "AppInternal", APP),
     ("dll/src/desktop/app_events.rs", "AppEvents", APP),
