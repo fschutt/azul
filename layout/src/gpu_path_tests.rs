@@ -22,7 +22,7 @@
 
 use azul_core::{
     dom::{Dom, DomId, NodeId},
-    geom::LogicalSize,
+    geom::{LogicalPosition, LogicalSize},
     resources::RendererResources,
     styled_dom::StyledDom,
     transform::ComputedTransform3D,
@@ -464,4 +464,75 @@ fn a_hover_on_a_node_without_a_binding_is_left_to_a_rebuild() {
         !lw.publish_gpu_only_restyle(DomId::ROOT_ID, &entered.changed_nodes),
         "nothing to publish under: the shell rebuilds the list"
     );
+}
+
+// ---- a VirtualView's child DOM: the same road, in the child's own caches ----
+
+/// A host holding a view whose child root carries an identity transform (what an app
+/// does to a layer it will scale or move while a gesture runs: the identity gives it the
+/// reference frame the later writes publish under).
+extern "C" fn layer_view(
+    _data: azul_core::refany::RefAny,
+    info: azul_core::callbacks::VirtualViewCallbackInfo,
+) -> azul_core::callbacks::VirtualViewReturn {
+    let dom = Dom::create_div()
+        .with_class("layer".into())
+        .with_css("width: 200px; height: 100px; background: #3366cc; transform: translate(0px, 0px);");
+    let rect = azul_core::geom::LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
+    azul_core::callbacks::VirtualViewReturn::with_dom(dom, rect, rect)
+}
+
+#[test]
+fn a_transform_written_to_a_view_childs_layer_is_a_value_too() {
+    let mut dom = Dom::create_body().with_child(
+        Dom::create_virtual_view(
+            azul_core::refany::RefAny::new(()),
+            azul_core::callbacks::VirtualViewCallback::create(layer_view),
+        )
+        .with_css("width: 300px; height: 200px;"),
+    );
+    let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_new_generation(
+        styled_dom,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's child DOM");
+    let layer = {
+        let nodes = lw.layout_results[&child].styled_dom.node_data.as_container();
+        (0..nodes.len())
+            .map(NodeId::new)
+            .find(|n| nodes[*n].has_class("layer"))
+            .expect("the layer")
+    };
+    let key_of = |lw: &LayoutWindow| {
+        lw.gpu_state_manager
+            .get_cache(child)
+            .and_then(|cache| cache.css_current_transform_values.get(&layer).copied())
+    };
+    assert_eq!(key_of(&lw).map(|m| translation(&m)), Some((0.0, 0.0)), "harness: the layer is bound in the child's cache");
+    lw.frame_report.reset_counters();
+
+    let tier = lw
+        .apply_content_change(ContentChange::NodeCss {
+            dom_id: child,
+            node_id: layer,
+            props: vec![translate(30.0, 12.0)],
+            override_only: false,
+        })
+        .tier;
+    assert_eq!(tier, ContentDirtyTier::Paint, "a value in the child's own cache");
+    assert_eq!(rebuilds(&lw), 0, "no display-list regeneration");
+    assert_eq!(key_of(&lw).map(|m| translation(&m)), Some((30.0, 12.0)));
 }
