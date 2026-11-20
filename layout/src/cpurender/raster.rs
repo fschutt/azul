@@ -2149,7 +2149,7 @@ fn render_display_list_with_state(
                 .get(item_idx)
                 .copied()
                 .flatten(),
-            reference_frame_extent(&display_list.items, item_idx),
+            reference_frame_extent(display_list, item_idx),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -2596,7 +2596,7 @@ pub fn render_display_list_damaged(
                     .get(item_idx)
                     .copied()
                     .flatten(),
-                reference_frame_extent(&display_list.items, item_idx),
+                reference_frame_extent(display_list, item_idx),
                 pixmap,
                 dpi_factor,
                 renderer_resources,
@@ -3414,7 +3414,7 @@ pub fn render_single_item(
                     render_single_item(
                         child_item,
                         child_dl.uniform_text_bgs.get(child_idx).copied().flatten(),
-                        reference_frame_extent(&child_dl.items, child_idx),
+                        reference_frame_extent(&child_dl, child_idx),
                         pixmap,
                         dpi_factor,
                         renderer_resources,

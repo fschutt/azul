@@ -788,6 +788,10 @@ mod virtual_view_rerender_tests;
 #[cfg(test)]
 mod in_flow_probe_tests;
 
+// The reference frames of a display list are found in one walk, kept with the list.
+#[cfg(test)]
+mod frame_index_tests;
+
 // A hover over a label's text is a repaint of that label.
 #[cfg(test)]
 mod hover_text_tests;

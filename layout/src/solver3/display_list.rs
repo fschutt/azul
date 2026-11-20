@@ -806,6 +806,10 @@ pub struct DisplayList {
     /// every ~530 ms. A list of its own, like `color_bindings`, so the
     /// `CursorRect` variant stays unchanged for printpdf.
     pub carets: Vec<(usize, ColorU)>,
+    /// Where the reference frames of the list end and what they paint, found once for the whole
+    /// list ([`FrameIndex`]) and kept with it. Not part of the list's content: a copy starts
+    /// without it, and anything that changes the items drops it ([`Self::insert_item`]).
+    pub frame_index: FrameIndexCell,
 }
 
 impl DisplayList {
@@ -881,6 +885,7 @@ impl DisplayList {
     /// `at` is clamped to the end, so an index computed from a stale view of
     /// the list cannot panic here.
     pub fn insert_item(&mut self, at: usize, item: DisplayListItem, node: Option<NodeId>) {
+        self.frame_index.clear();
         let at = at.min(self.items.len());
         self.items.insert(at, item);
         // The side tables are allowed to be SHORTER than `items` (older code
@@ -957,6 +962,7 @@ impl DisplayList {
         }
         let (items, bgs): (Vec<DisplayListItem>, Vec<Option<(ColorU, WindowLogicalRect)>>) =
             replacement.into_iter().unzip();
+        self.frame_index.clear();
         self.items.splice(at..=at, items);
         self.node_mapping.splice(at..=at, core::iter::repeat_n(node, n));
         self.uniform_text_bgs.splice(at..=at, bgs);
@@ -1552,6 +1558,7 @@ impl DisplayList {
     /// background fade binds the list it patched, so every later frame is a
     /// property value. Returns how many rects were bound.
     pub fn bind_background_color(&mut self, node: NodeId, shown: ColorU, key: ColorKey) -> usize {
+        self.frame_index.clear();
         if self.color_bindings.len() < self.items.len() {
             self.color_bindings.resize(self.items.len(), None);
         }
@@ -1596,6 +1603,7 @@ impl DisplayList {
         to: ColorU,
         slot: PaintColorSlot,
     ) -> Option<LogicalRect> {
+        self.frame_index.clear();
         let patch_text = slot == PaintColorSlot::Text;
         let patch_background = slot == PaintColorSlot::Background;
         let mut damage: Option<LogicalRect> = None;
@@ -1710,6 +1718,7 @@ impl DisplayList {
         from: &[azul_css::props::style::StyleBackgroundContent],
         to: &[azul_css::props::style::StyleBackgroundContent],
     ) -> Option<LogicalRect> {
+        self.frame_index.clear();
         use azul_css::props::style::StyleBackgroundContent as B;
         if from.is_empty() || from.len() != to.len() {
             return None;
@@ -1855,6 +1864,7 @@ impl DisplayList {
         wanted: impl Fn(Option<NodeId>, &ImageRef) -> bool,
         image: &ImageRef,
     ) -> Option<LogicalRect> {
+        self.frame_index.clear();
         let mut damage: Option<LogicalRect> = None;
 
         for (idx, item) in self.items.iter_mut().enumerate() {
@@ -3512,35 +3522,34 @@ fn rect_intersection(a: LogicalRect, b: LogicalRect) -> LogicalRect {
 /// frame counted as its clip, however far its content runs. Hit-test areas
 /// and the structural items paint nothing. `None` when nothing paints.
 fn group_paint_bounds(items: &[DisplayListItem]) -> Option<LogicalRect> {
-    let mut union: Option<LogicalRect> = None;
-    let mut clips: Vec<Option<LogicalRect>> = Vec::new();
-    let mut in_scroll_frames = 0usize;
-    let add = |union: &mut Option<LogicalRect>, clip: Option<LogicalRect>, r: LogicalRect| {
-        let r = clip.map_or(r, |c| rect_intersection(r, c));
-        if r.size.width > 0.0 && r.size.height > 0.0 {
-            *union = Some(union.map_or(r, |u| rect_union(u, r)));
-        }
-    };
+    let mut bounds = GroupBounds::default();
     for item in items {
-        let clip = clips.last().copied().flatten();
+        bounds.step(item, GroupBounds::visual_of(item));
+    }
+    bounds.finish()
+}
+
+/// [`group_paint_bounds`] one item at a time, so the bounds of every group of a list can be
+/// gathered in one walk ([`FrameIndex::of`]): each open group steps over the same items with its
+/// own clips and scroll frames, counted from its first item.
+#[derive(Default)]
+struct GroupBounds {
+    union: Option<LogicalRect>,
+    clips: Vec<Option<LogicalRect>>,
+    in_scroll_frames: usize,
+}
+
+impl GroupBounds {
+    /// The visual bounds `step` wants for `item`: only an item that paints has any.
+    fn visual_of(item: &DisplayListItem) -> Option<LogicalRect> {
         match item {
-            DisplayListItem::PushScrollFrame { clip_bounds, .. } => {
-                if in_scroll_frames == 0 {
-                    add(&mut union, clip, *clip_bounds.inner());
-                }
-                in_scroll_frames += 1;
-            }
-            DisplayListItem::PopScrollFrame => in_scroll_frames = in_scroll_frames.saturating_sub(1),
-            _ if in_scroll_frames > 0 => {}
-            DisplayListItem::PushClip { bounds, .. }
-            | DisplayListItem::PushImageMaskClip { bounds, .. } => {
-                let b = *bounds.inner();
-                clips.push(Some(clip.map_or(b, |c| rect_intersection(b, c))));
-            }
-            DisplayListItem::PopClip | DisplayListItem::PopImageMaskClip => {
-                clips.pop();
-            }
-            DisplayListItem::HitTestArea { .. }
+            DisplayListItem::PushScrollFrame { .. }
+            | DisplayListItem::PopScrollFrame
+            | DisplayListItem::PushClip { .. }
+            | DisplayListItem::PushImageMaskClip { .. }
+            | DisplayListItem::PopClip
+            | DisplayListItem::PopImageMaskClip
+            | DisplayListItem::HitTestArea { .. }
             | DisplayListItem::PushStackingContext { .. }
             | DisplayListItem::PopStackingContext
             | DisplayListItem::PushReferenceFrame { .. }
@@ -3550,15 +3559,51 @@ fn group_paint_bounds(items: &[DisplayListItem]) -> Option<LogicalRect> {
             | DisplayListItem::PushBackdropFilter { .. }
             | DisplayListItem::PopBackdropFilter
             | DisplayListItem::PushOpacity { .. }
-            | DisplayListItem::PopOpacity => {}
-            other => {
-                if let Some(b) = other.visual_bounds() {
-                    add(&mut union, clip, b);
+            | DisplayListItem::PopOpacity => None,
+            other => other.visual_bounds(),
+        }
+    }
+
+    fn add(&mut self, clip: Option<LogicalRect>, r: LogicalRect) {
+        let r = clip.map_or(r, |c| rect_intersection(r, c));
+        if r.size.width > 0.0 && r.size.height > 0.0 {
+            self.union = Some(self.union.map_or(r, |u| rect_union(u, r)));
+        }
+    }
+
+    /// Count `item`; `visual` is [`Self::visual_of`] it.
+    fn step(&mut self, item: &DisplayListItem, visual: Option<LogicalRect>) {
+        let clip = self.clips.last().copied().flatten();
+        match item {
+            DisplayListItem::PushScrollFrame { clip_bounds, .. } => {
+                if self.in_scroll_frames == 0 {
+                    self.add(clip, *clip_bounds.inner());
+                }
+                self.in_scroll_frames += 1;
+            }
+            DisplayListItem::PopScrollFrame => {
+                self.in_scroll_frames = self.in_scroll_frames.saturating_sub(1);
+            }
+            _ if self.in_scroll_frames > 0 => {}
+            DisplayListItem::PushClip { bounds, .. }
+            | DisplayListItem::PushImageMaskClip { bounds, .. } => {
+                let b = *bounds.inner();
+                self.clips.push(Some(clip.map_or(b, |c| rect_intersection(b, c))));
+            }
+            DisplayListItem::PopClip | DisplayListItem::PopImageMaskClip => {
+                self.clips.pop();
+            }
+            _ => {
+                if let Some(b) = visual {
+                    self.add(clip, b);
                 }
             }
         }
     }
-    union
+
+    fn finish(self) -> Option<LogicalRect> {
+        self.union
+    }
 }
 
 /// Where the reference frame pushed at `idx` paints, in its own untransformed
@@ -3566,7 +3611,20 @@ fn group_paint_bounds(items: &[DisplayListItem]) -> Option<LogicalRect> {
 /// ([`group_paint_bounds`]). The rasterizer's surface for the frame and the
 /// compositor's layer for it are this big, and what it damages is this,
 /// moved by its matrix. `None` when `idx` opens no reference frame.
-pub(crate) fn reference_frame_extent(
+///
+/// From the list's [`FrameIndex`]: the first ask of a list walks it once for every frame in it,
+/// the next ones are lookups. (Walking to the pop on every ask took a third of a Berlin zoom
+/// step's scans: the list is asked about every frame several times a frame.)
+pub(crate) fn reference_frame_extent(list: &DisplayList, idx: usize) -> Option<LogicalRect> {
+    if !matches!(list.items.get(idx)?, DisplayListItem::PushReferenceFrame { .. }) {
+        return None;
+    }
+    list.frame_index().extent_of(idx)
+}
+
+/// [`reference_frame_extent`] of one frame by walking `items` from its push to its pop: what
+/// the index must agree with, and the answer for a bare slice.
+pub(crate) fn reference_frame_extent_walked(
     items: &[DisplayListItem],
     idx: usize,
 ) -> Option<LogicalRect> {
@@ -3588,6 +3646,222 @@ pub(crate) fn reference_frame_extent(
     crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, (end - idx) as u64);
     let frame_box = *bounds.inner();
     Some(group_paint_bounds(&items[idx + 1..end]).map_or(frame_box, |c| rect_union(frame_box, c)))
+}
+
+/// One reference frame of a list: where it ends and what it paints.
+#[derive(Debug, Clone, Copy)]
+struct FrameEntry {
+    /// The index of its `PushReferenceFrame`.
+    push: usize,
+    /// The index of its matching `PopReferenceFrame` (the list's length when it has none).
+    end: usize,
+    /// Its box and everything down to the pop, in its own space.
+    extent: LogicalRect,
+}
+
+/// The reference frames of one list, found in one walk: where each ends and what it paints
+/// ([`reference_frame_extent`]). Every ask used to walk from the push to the pop again, and
+/// the rasterizer and the damage producers ask about each frame of the list several times per
+/// frame. Valid for the `items` it was made from (their buffer and length are checked).
+#[derive(Debug)]
+pub(crate) struct FrameIndex {
+    items_ptr: usize,
+    items_len: usize,
+    /// In push order.
+    frames: Vec<FrameEntry>,
+    /// The keys the list binds: a value that changed under a key the list does not bind
+    /// changes none of its pixels (and the walks that look for them can be skipped).
+    transform_keys: std::collections::HashSet<usize>,
+    opacity_keys: std::collections::HashSet<usize>,
+    color_keys: std::collections::HashSet<usize>,
+    /// The `VirtualView` items, in list order.
+    views: Vec<usize>,
+    /// The bounds of the fully opaque, square-cornered rect fills, in list order.
+    opaque_fills: Vec<LogicalRect>,
+}
+
+impl FrameIndex {
+    /// One walk of `items`: every open frame counts each item that follows its push, as
+    /// [`group_paint_bounds`] counts a frame's range, so the extents are the walked ones.
+    fn of(list: &DisplayList) -> Self {
+        let items = &list.items;
+        crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, items.len() as u64);
+        let mut transform_keys = std::collections::HashSet::new();
+        let mut opacity_keys = std::collections::HashSet::new();
+        let mut views = Vec::new();
+        let mut opaque_fills = Vec::new();
+        struct Open {
+            push: usize,
+            frame_box: LogicalRect,
+            bounds: GroupBounds,
+        }
+        let mut open: Vec<Open> = Vec::new();
+        let mut frames: Vec<FrameEntry> = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            match item {
+                DisplayListItem::PushReferenceFrame { transform_key, .. } => {
+                    transform_keys.insert(transform_key.id);
+                }
+                DisplayListItem::PushOpacity { opacity_key: Some(k), .. } => {
+                    opacity_keys.insert(k.id);
+                }
+                DisplayListItem::ScrollBarStyled { info } => {
+                    if let Some(k) = info.thumb_transform_key {
+                        transform_keys.insert(k.id);
+                    }
+                    if let Some(k) = info.opacity_key {
+                        opacity_keys.insert(k.id);
+                    }
+                }
+                DisplayListItem::VirtualView { .. } => views.push(i),
+                DisplayListItem::Rect { bounds, color, border_radius }
+                    if color.a == 255 && border_radius.is_zero() =>
+                {
+                    opaque_fills.push(*bounds.inner());
+                }
+                _ => {}
+            }
+            if let DisplayListItem::PopReferenceFrame = item {
+                // Closes the innermost open frame; the pop is not in that frame's range.
+                if let Some(done) = open.pop() {
+                    let extent = done
+                        .bounds
+                        .finish()
+                        .map_or(done.frame_box, |c| rect_union(done.frame_box, c));
+                    frames.push(FrameEntry { push: done.push, end: i, extent });
+                }
+            }
+            if !open.is_empty() {
+                let visual = GroupBounds::visual_of(item);
+                for frame in &mut open {
+                    frame.bounds.step(item, visual);
+                }
+            }
+            if let DisplayListItem::PushReferenceFrame { bounds, .. } = item {
+                open.push(Open {
+                    push: i,
+                    frame_box: *bounds.inner(),
+                    bounds: GroupBounds::default(),
+                });
+            }
+        }
+        // A frame that is never popped runs to the end of the list.
+        while let Some(done) = open.pop() {
+            let extent = done
+                .bounds
+                .finish()
+                .map_or(done.frame_box, |c| rect_union(done.frame_box, c));
+            frames.push(FrameEntry { push: done.push, end: items.len(), extent });
+        }
+        frames.sort_by_key(|f| f.push);
+        Self {
+            items_ptr: items.as_ptr() as usize,
+            items_len: items.len(),
+            frames,
+            transform_keys,
+            opacity_keys,
+            color_keys: list.color_bindings.iter().flatten().map(|k| k.id).collect(),
+            views,
+            opaque_fills,
+        }
+    }
+
+    /// Does the list bind any of these transform keys (a frame's, a scrollbar thumb's)?
+    pub(crate) fn binds_a_transform_key(&self, keys: &std::collections::HashSet<usize>) -> bool {
+        keys.iter().any(|k| self.transform_keys.contains(k))
+    }
+
+    /// Does the list bind any of these opacity keys (a group's, a scrollbar's)?
+    pub(crate) fn binds_an_opacity_key(&self, keys: &std::collections::HashSet<usize>) -> bool {
+        keys.iter().any(|k| self.opacity_keys.contains(k))
+    }
+
+    /// Does the list bind this colour key to a background?
+    pub(crate) fn binds_a_color_key(&self, key: usize) -> bool {
+        self.color_keys.contains(&key)
+    }
+
+    /// Is any colour key bound in the list?
+    pub(crate) fn has_color_keys(&self) -> bool {
+        !self.color_keys.is_empty()
+    }
+
+    /// The indices of the list's `VirtualView` items.
+    pub(crate) fn views(&self) -> &[usize] {
+        &self.views
+    }
+
+    /// The bounds of the list's opaque, square-cornered rect fills.
+    pub(crate) fn opaque_fills(&self) -> &[LogicalRect] {
+        &self.opaque_fills
+    }
+
+    fn entry(&self, push: usize) -> Option<&FrameEntry> {
+        self.frames
+            .binary_search_by_key(&push, |f| f.push)
+            .ok()
+            .map(|at| &self.frames[at])
+    }
+
+    /// What the frame pushed at `push` paints.
+    pub(crate) fn extent_of(&self, push: usize) -> Option<LogicalRect> {
+        self.entry(push).map(|f| f.extent)
+    }
+
+    /// The index of the pop of the frame pushed at `push`.
+    pub(crate) fn end_of(&self, push: usize) -> Option<usize> {
+        self.entry(push).map(|f| f.end)
+    }
+
+    /// How many frames the list has.
+    pub(crate) fn len(&self) -> usize {
+        self.frames.len()
+    }
+}
+
+/// The [`FrameIndex`] a [`DisplayList`] keeps.
+#[derive(Default)]
+pub struct FrameIndexCell(std::sync::Mutex<Option<std::sync::Arc<FrameIndex>>>);
+
+impl FrameIndexCell {
+    /// Drop the index: the items changed.
+    pub fn clear(&self) {
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = None;
+        }
+    }
+}
+
+/// A copy of a list starts without the index: its items may change before they are asked about.
+impl Clone for FrameIndexCell {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl core::fmt::Debug for FrameIndexCell {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("FrameIndexCell")
+    }
+}
+
+impl DisplayList {
+    /// The list's [`FrameIndex`], made on the first ask (and again when the items were replaced
+    /// behind the list's back: another buffer or length).
+    pub(crate) fn frame_index(&self) -> std::sync::Arc<FrameIndex> {
+        let (ptr, len) = (self.items.as_ptr() as usize, self.items.len());
+        if let Ok(mut slot) = self.frame_index.0.lock() {
+            if let Some(index) = slot.as_ref() {
+                if index.items_ptr == ptr && index.items_len == len {
+                    return std::sync::Arc::clone(index);
+                }
+            }
+            let index = std::sync::Arc::new(FrameIndex::of(self));
+            *slot = Some(std::sync::Arc::clone(&index));
+            return index;
+        }
+        std::sync::Arc::new(FrameIndex::of(self))
+    }
 }
 
 /// Internal builder to accumulate display list items during generation.
@@ -3689,6 +3963,7 @@ impl DisplayListBuilder {
             text_selection_colors: self.text_selection_colors,
             color_bindings: self.color_bindings,
             carets: self.carets,
+            frame_index: FrameIndexCell::default(),
         }
     }
 
@@ -3879,6 +4154,7 @@ impl DisplayListBuilder {
             text_selection_colors: self.text_selection_colors,
             color_bindings: self.color_bindings,
             carets: self.carets,
+            frame_index: FrameIndexCell::default(),
         }
     }
 
@@ -13912,6 +14188,7 @@ fn paginate_pages_impl(
             text_selection_colors: Vec::new(),
             color_bindings: Vec::new(),
             carets: Vec::new(),
+            frame_index: FrameIndexCell::default(),
         })?;
         emitted += 1;
     }

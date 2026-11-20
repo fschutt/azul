@@ -62,7 +62,7 @@ pub fn mat3_affine_part(m: &Mat3) -> TransAffine {
 }
 use crate::{
     solver3::display_list::{
-        reference_frame_extent, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
+        reference_frame_extent, reference_frame_extent_walked, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
     },
     text3::cache::FontManager,
 };
@@ -773,14 +773,17 @@ impl CompositorState {
                     // itself (a shadow under a rounded edge).
                     let translation = if is_identity { None } else { translation_2d(m) };
                     // Record the decision so the matching pop can be exact.
-                    let end = find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
+                    let end = display_list
+                        .frame_index()
+                        .end_of(i)
+                        .unwrap_or(display_list.items.len());
                     // Where the layer's pixels land: what the frame paints
                     // (the layer's extent) through the matrix about the
                     // frame's origin.
                     let live = azul_core::transform::ComputedTransform3D { m: *m };
                     let origin = bounds.inner().origin;
                     let extent = device_pixel_box(
-                        reference_frame_extent(&display_list.items, i)
+                        reference_frame_extent(display_list, i)
                             .unwrap_or_else(|| *bounds.inner()),
                         dpi_factor,
                     );
@@ -1765,7 +1768,7 @@ fn painted_over_later(
                 } else {
                     // Everything it paints, moved - then past its pop.
                     let content =
-                        reference_frame_extent(items, i).unwrap_or_else(|| *bounds.inner());
+                        reference_frame_extent_walked(items, i).unwrap_or_else(|| *bounds.inner());
                     let moved = affine_rect_about(m, bounds.inner().origin, content)
                         .unwrap_or(UNBOUNDED);
                     let seen = later.iter().flatten().next().copied().unwrap_or(moved);
@@ -2784,6 +2787,17 @@ pub fn gpu_value_damage(
     if changed_t.is_empty() && changed_o.is_empty() {
         return out;
     }
+    // A key that changed and that this list does not bind (another DOM's frame, a stale key)
+    // changes none of its pixels: no walk of the list (the keys it binds were found once, with
+    // its index).
+    let index = display_list.frame_index();
+    if !index.binds_a_transform_key(&changed_t) && !index.binds_an_opacity_key(&changed_o) {
+        return out;
+    }
+    crate::cpu_counters::count(
+        crate::cpu_counters::Counter::ScanItems,
+        display_list.items.len() as u64,
+    );
 
     // A moved reference frame damages its CONTENT at both the old and the
     // new position: `reference_frame_extent`, transformed by each matrix
@@ -2841,7 +2855,7 @@ pub fn gpu_value_damage(
                     .unwrap_or(*initial_transform);
                 if changed_t.contains(&transform_key.id) {
                     let content = moved_by(
-                        reference_frame_extent(items, idx).unwrap_or_else(|| *bounds.inner()),
+                        reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner()),
                         scrolled,
                     );
                     let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
@@ -2922,6 +2936,17 @@ pub fn color_value_damage(
     {
         return out;
     }
+    // Only a colour bound to a background of THIS list changes its pixels.
+    let index = display_list.frame_index();
+    let bound_change = new_colors.iter().any(|(k, v)| old_colors.get(k) != Some(v) && index.binds_a_color_key(*k))
+        || old_colors.keys().any(|k| !new_colors.contains_key(k) && index.binds_a_color_key(*k));
+    if !bound_change {
+        return out;
+    }
+    crate::cpu_counters::count(
+        crate::cpu_counters::Counter::ScanItems,
+        display_list.items.len() as u64,
+    );
     let mut stack = ScrollStack::new(scroll_offsets);
     // The reference frames open at the current item, each with the matrix
     // it is painted with now.
@@ -3007,7 +3032,6 @@ fn list_value_damage(
     scroll_offsets: &ScrollOffsetMap,
     depth: usize,
 ) -> GpuValueDamage {
-    crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, list.items.len() as u64);
     let mut out = gpu_value_damage(
         list,
         &old.transforms,
@@ -3022,49 +3046,68 @@ fn list_value_damage(
     if views.is_empty() {
         return out;
     }
+    // What the list of each view owes, found before the walk that places it (the views are found
+    // once for the list, with its index): a frame whose views owe nothing never walks this list.
+    let index = list.frame_index();
+    let mut inners: Vec<(usize, Option<GpuValueDamage>)> = Vec::new();
+    for &at in index.views() {
+        if let DisplayListItem::VirtualView { child_dom_id, .. } = &list.items[at] {
+            if let Some(child) = views.get(child_dom_id) {
+                let inner = (depth < MAX_VIEW_DEPTH)
+                    .then(|| list_value_damage(child, views, old, new, scroll_offsets, depth + 1));
+                inners.push((at, inner));
+            }
+        }
+    }
+    let owes_nothing = |inner: &Option<GpuValueDamage>| {
+        inner.as_ref().is_some_and(|d| d.rects.is_empty() && !d.needs_full)
+    };
+    if inners.iter().all(|(_, inner)| owes_nothing(inner)) {
+        return out;
+    }
+    crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, list.items.len() as u64);
     // The frames around each view item, with the live matrices of this frame: a view
     // inside a turned or scaled frame is painted through it.
     let mut stack = ScrollStack::with_transforms(scroll_offsets, &new.transforms);
-    for item in &list.items {
+    for (idx, item) in list.items.iter().enumerate() {
         if let DisplayListItem::VirtualView {
-            child_dom_id,
             bounds,
             content_offset,
             ..
         } = item
         {
-            if let Some(child) = views.get(child_dom_id) {
-                if depth >= MAX_VIEW_DEPTH {
-                    out.needs_full = true;
-                } else {
-                    let inner = list_value_damage(child, views, old, new, scroll_offsets, depth + 1);
-                    let view_box = *bounds.inner();
-                    let (dx, dy) = (
-                        view_box.origin.x + content_offset.x,
-                        view_box.origin.y + content_offset.y,
-                    );
-                    for r in inner.rects {
-                        let in_list = LogicalRect {
-                            origin: LogicalPosition {
-                                x: r.origin.x + dx,
-                                y: r.origin.y + dy,
-                            },
-                            size: r.size,
-                        };
-                        // Outside the box it is behind the view's clip: not this view's pixels.
-                        let shown = intersect_logical_rects(in_list, view_box);
-                        if shown.size.width <= 0.0 || shown.size.height <= 0.0 {
-                            continue;
+            if let Some((_, inner)) = inners.iter().find(|(at, _)| *at == idx) {
+                match inner {
+                    None => out.needs_full = true,
+                    Some(inner) => {
+                        let view_box = *bounds.inner();
+                        let (dx, dy) = (
+                            view_box.origin.x + content_offset.x,
+                            view_box.origin.y + content_offset.y,
+                        );
+                        for r in &inner.rects {
+                            let in_list = LogicalRect {
+                                origin: LogicalPosition {
+                                    x: r.origin.x + dx,
+                                    y: r.origin.y + dy,
+                                },
+                                size: r.size,
+                            };
+                            // Outside the box it is behind the view's clip: not this view's pixels.
+                            let shown = intersect_logical_rects(in_list, view_box);
+                            if shown.size.width <= 0.0 || shown.size.height <= 0.0 {
+                                continue;
+                            }
+                            match stack.on_screen(shown) {
+                                Some(on_screen) => out.rects.push(on_screen),
+                                None => out.needs_full = true,
+                            }
                         }
-                        match stack.on_screen(shown) {
-                            Some(on_screen) => out.rects.push(on_screen),
-                            None => out.needs_full = true,
-                        }
-                    }
-                    if inner.needs_full {
-                        match stack.on_screen(view_box) {
-                            Some(on_screen) => out.rects.push(on_screen),
-                            None => out.needs_full = true,
+                        if inner.needs_full {
+                            match stack.on_screen(view_box) {
+                                Some(on_screen) => out.rects.push(on_screen),
+                                None => out.needs_full = true,
+                            }
                         }
                     }
                 }
@@ -3146,7 +3189,7 @@ pub fn node_groups_on_screen(
                         .get(&transform_key.id)
                         .unwrap_or(initial_transform);
                     let content =
-                        reference_frame_extent(items, idx).unwrap_or_else(|| *bounds.inner());
+                        reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner());
                     affine_rect_about(m, bounds.inner().origin, content)
                 }
                 DisplayListItem::PushOpacity { bounds, .. } => Some(*bounds.inner()),
@@ -3660,13 +3703,15 @@ pub fn execute_virtual_view_shift(
     // view's origin - the content's scroll offset (`offset`).
     let covered = views.get(child_dom_id).is_some_and(|child| {
         let covered_at = |scroll: (f32, f32)| {
+            // The child's opaque fills are found once for the list (its index), not by
+            // reading the whole child list again on every pan frame.
             let fills: Vec<LogicalRect> = child
-                .items
+                .frame_index()
+                .opaque_fills()
                 .iter()
-                .filter_map(opaque_fill_rect)
                 .map(|r| {
                     moved_by(
-                        r,
+                        *r,
                         (
                             around.0 - bounds.inner().origin.x + scroll.0,
                             around.1 - bounds.inner().origin.y + scroll.1,
@@ -4169,7 +4214,7 @@ fn render_display_list_range(
         render_single_item(
             item,
             display_list.uniform_text_bgs.get(i).copied().flatten(),
-            reference_frame_extent(&display_list.items, i),
+            reference_frame_extent(display_list, i),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -5122,7 +5167,7 @@ fn compute_display_list_damage_impl(
                     // A transform that changed moves the frame's whole
                     // content: damaged where it was and where it is.
                     let content = |items: &[DisplayListItem], b: &LogicalRect, acc: (f32, f32)| {
-                        let c = reference_frame_extent(items, idx).unwrap_or(*b);
+                        let c = reference_frame_extent_walked(items, idx).unwrap_or(*b);
                         LogicalRect {
                             origin: at(c.origin, acc),
                             size: c.size,
@@ -6572,6 +6617,7 @@ mod scroll_shift_tests {
             text_selection_colors: Vec::new(),
             color_bindings: Vec::new(),
             carets: Vec::new(),
+            frame_index: crate::solver3::display_list::FrameIndexCell::default(),
         }
     }
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
@@ -8524,6 +8570,83 @@ mod autotest_generated {
                 "inside the view's box: {r:?}"
             );
         }
+    }
+
+    /// How many list items the damage producers read for one window (the host list holds one view
+    /// whose list holds `n` frames, each around a rect), after the lists' indexes are built.
+    fn items_read_for_a_value(n: usize, moved_key: usize) -> (u64, usize, usize) {
+        let mut child_items = Vec::new();
+        for k in 0..n {
+            child_items.extend(frame_around(
+                100 + k,
+                (0.0, k as f32, 10.0, 10.0),
+                rect_item(0.0, k as f32, 10.0, 10.0, ColorU { r: 255, g: 0, b: 0, a: 255 }),
+            ));
+        }
+        let parent = dlist(vec![view_item(1, 0.0, 0.0, 300.0, 200.0, (0.0, 0.0))]);
+        let child = dlist(child_items);
+        let (parent_len, child_len) = (parent.items.len(), child.items.len());
+        let views = views_of(vec![(1, child)]);
+        let keys: Vec<usize> = (0..n).map(|k| 100 + k).collect();
+        let at = |dx: f32| {
+            let mut t: Vec<(usize, ComputedTransform3D)> =
+                keys.iter().map(|k| (*k, ComputedTransform3D::IDENTITY)).collect();
+            t.push((999, translate(dx, 0.0)));
+            if let Some(slot) = t.iter_mut().find(|(k, _)| *k == moved_key) {
+                slot.1 = translate(dx, 0.0);
+            }
+            values_of(&t)
+        };
+        let (old, new) = (at(0.0), at(25.0));
+        // The first ask builds the indexes of the lists: one read of each.
+        let _ = window_value_damage(&parent, &views, &old, &new, &ScrollOffsetMap::new());
+        crate::cpu_counters::reset();
+        let _ = window_value_damage(&parent, &views, &old, &new, &ScrollOffsetMap::new());
+        (crate::cpu_counters::take().scan_items, parent_len, child_len)
+    }
+
+    /// A value that changed under a key a list does not bind changes none of its pixels: the
+    /// list is not walked. A bound one is walked once, with the host list that places the view -
+    /// and the reads grow with the list, not with its frames or the asks.
+    #[test]
+    fn a_changed_value_walks_only_the_lists_that_bind_its_key() {
+        // A key no list binds: nothing is read.
+        let (read, _, _) = items_read_for_a_value(50, 999_999);
+        assert_eq!(read, 0, "no list binds the key that moved");
+        // A frame of the view's list moves: the view's list is walked once, and the host list once
+        // to place what it found.
+        let (small, parent_len, child_len) = items_read_for_a_value(50, 103);
+        assert_eq!(small, (parent_len + child_len) as u64, "each list once");
+        let (large, parent_len, child_len) = items_read_for_a_value(200, 103);
+        assert_eq!(large, (parent_len + child_len) as u64, "each list once");
+        assert!(large < 6 * small, "the reads grow with the list: {small} then {large}");
+    }
+
+    /// A fading background colour is a value of its key: a list that binds no rect to the key that
+    /// changed reads no item; one that does reads itself once and damages the rect.
+    #[test]
+    fn a_colour_that_changed_under_a_key_the_list_does_not_bind_reads_no_item() {
+        use azul_core::resources::ColorKey;
+        let mut l = dlist((0..40).map(|k| rect_item(0.0, k as f32, 5.0, 5.0, ColorU { r: 255, g: 0, b: 0, a: 255 })).collect());
+        let green = ColorU { r: 0, g: 255, b: 0, a: 255 };
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let (old, new) = (HashMap::from([(7usize, red)]), HashMap::from([(7usize, green)]));
+        let no_frames = HashMap::new();
+        let scrolls = ScrollOffsetMap::new();
+        let _ = l.frame_index();
+        crate::cpu_counters::reset();
+        let d = color_value_damage(&l, &old, &new, &no_frames, &scrolls);
+        assert_eq!(crate::cpu_counters::take().scan_items, 0, "nothing of the list is bound to key 7");
+        assert!(d.rects.is_empty() && !d.needs_full);
+        // Bind the rect at 3 to the key: the list is read once and the rect is damaged.
+        l.color_bindings = vec![None; 40];
+        l.color_bindings[3] = Some(ColorKey { id: 7 });
+        l.frame_index.clear();
+        let _ = l.frame_index();
+        crate::cpu_counters::reset();
+        let d = color_value_damage(&l, &old, &new, &no_frames, &scrolls);
+        assert_eq!(crate::cpu_counters::take().scan_items, 40, "the bound list is read once");
+        assert_eq!(d.rects.len(), 1, "{d:?}");
     }
 
     /// The content of a view that was panned sits at its materialized window's offset: the
