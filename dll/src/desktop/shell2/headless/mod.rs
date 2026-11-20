@@ -7795,18 +7795,25 @@ mod tests {
         (window, hovers)
     }
 
-    /// The addresses of the window's list and of the view's.
-    fn list_addresses(window: &HeadlessWindow) -> (usize, usize) {
+    /// The window's list and the view's, as weak references: they name the lists by their
+    /// allocation, and a weak reference keeps the allocation from being given to a list built
+    /// later (twenty rebuilds one after the other can hand the first one's address back).
+    fn lists_of(
+        window: &HeadlessWindow,
+    ) -> (
+        std::sync::Weak<azul_layout::solver3::display_list::DisplayList>,
+        std::sync::Weak<azul_layout::solver3::display_list::DisplayList>,
+    ) {
         let lw = window.common.layout_window.as_ref().expect("a layout window");
-        let address = |dom: azul_core::dom::DomId| {
-            std::sync::Arc::as_ptr(&lw.layout_results[&dom].display_list) as usize
+        let weak = |dom: azul_core::dom::DomId| {
+            std::sync::Arc::downgrade(&lw.layout_results[&dom].display_list)
         };
         let child = *lw
             .layout_results
             .keys()
             .find(|dom| dom.inner != 0)
             .expect("the view's DOM");
-        (address(azul_core::dom::DomId::ROOT_ID), address(child))
+        (weak(azul_core::dom::DomId::ROOT_ID), weak(child))
     }
 
     /// How many pixels of the box `(x, y, w, h)` of the last frame are the hover colour over
@@ -7840,7 +7847,7 @@ mod tests {
         let (mut window, hovers) = labels_window();
         // The pointer arrives over empty ground; the baseline is taken from there.
         step(&mut window, HeadlessEvent::MouseMove { x: 300.0, y: 290.0 });
-        let (root_before, child_before) = list_addresses(&window);
+        let (root_before, child_before) = lists_of(&window);
         window
             .common
             .layout_window
@@ -7878,13 +7885,13 @@ mod tests {
             "a hover that changes a colour lays nothing out: {report:?}"
         );
         assert_eq!(report.dom_regenerations, 0, "{report:?}");
-        let (root_after, child_after) = list_addresses(&window);
-        assert_eq!(
-            root_after, root_before,
+        let (root_after, child_after) = lists_of(&window);
+        assert!(
+            std::ptr::eq(root_after.as_ptr(), root_before.as_ptr()),
             "the window's list (thousands of items) was not rebuilt for a label's hover"
         );
-        assert_ne!(
-            child_after, child_before,
+        assert!(
+            !std::ptr::eq(child_after.as_ptr(), child_before.as_ptr()),
             "the view's list is what holds the label: it was rebuilt"
         );
         assert!(
