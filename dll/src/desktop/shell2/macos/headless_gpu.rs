@@ -673,3 +673,330 @@ mod document_shown_tests {
         drop(context);
     }
 }
+
+/// A window the GPU draws, frame after frame, without a window: the layout window
+/// (`window`) and WebRender, with every frame read back from the offscreen
+/// framebuffer. A test lays the window out, changes it the way the shells'
+/// events do, and asks for the next frame the way a shell does
+/// ([`Self::present`]) - which is how a retained display list, or a value that
+/// changed without one, is seen where it counts: in the pixels.
+pub(crate) struct GpuSession {
+    /// The layout window the frames are made from.
+    pub(crate) window: LayoutWindow,
+    context: Option<OffscreenContext>,
+    framebuffer: Option<Framebuffer>,
+    renderer: Option<webrender::Renderer>,
+    render_api: webrender::render_api::RenderApi,
+    new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
+    device_size: DeviceIntSize,
+}
+
+impl GpuSession {
+    /// A session of `width` x `height` CSS px at `dpi` device px per CSS px, or
+    /// `None` without an OpenGL context.
+    pub(crate) fn new(width: f32, height: f32, dpi: f32) -> Option<Self> {
+        let context = OffscreenContext::new()?;
+        let gl_functions = GlFunctions::initialize().ok()?;
+        let gl = gl_functions.get_context();
+        let (device_width, device_height) = ((width * dpi) as u32, (height * dpi) as u32);
+        let device_size = DeviceIntSize::new(device_width as i32, device_height as i32);
+        let framebuffer = Framebuffer::new(gl.clone(), device_size.width, device_size.height)?;
+        let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
+        let notifier = Notifier {
+            new_frame_ready: new_frame_ready.clone(),
+            wake: None,
+        };
+        let mut options = default_renderer_options(&WindowCreateOptions::default(), None, None);
+        options.clear_color = webrender::api::ColorF::WHITE;
+        let (renderer, sender) =
+            webrender::create_webrender_instance(gl, Box::new(notifier), options, None).ok()?;
+        let mut render_api = sender.create_api();
+        let mut window = LayoutWindow::new(FcFontCache::build()).ok()?;
+        window.document_id = translate_document_id_wr(render_api.add_document(device_size));
+        window.id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(width, height);
+        state.size.dpi = (96.0 * dpi) as u32;
+        window.current_window_state = state;
+        Some(Self {
+            window,
+            context: Some(context),
+            framebuffer: Some(framebuffer),
+            renderer: Some(renderer),
+            render_api,
+            new_frame_ready,
+            device_size,
+        })
+    }
+
+    /// Lay `dom` out as the window's new page.
+    pub(crate) fn lay_out(&mut self, dom: Dom) -> Option<()> {
+        let state = self.window.current_window_state.clone();
+        self.window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(dom),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut None,
+            )
+            .ok()
+    }
+
+    /// The next frame, the way a shell makes it: `display_list_was_rebuilt` is
+    /// `generate_frame`'s flag - the display lists are translated and sent (the
+    /// ones WebRender does not hold) - and without it the frame is "nothing was
+    /// rebuilt": only the property values, scroll offsets and images go across.
+    /// Returns what the GPU drew, top row first.
+    pub(crate) fn present(&mut self, display_list_was_rebuilt: bool) -> Option<AzulPixmap> {
+        // A notification still on its way from the last frame must not
+        // be taken for this one's.
+        std::thread::sleep(Duration::from_millis(30));
+        *self.new_frame_ready.0.lock().ok()? = false;
+        let mut txn = Transaction::new();
+        generate_frame(
+            &mut txn,
+            &mut self.window,
+            &mut self.render_api,
+            display_list_was_rebuilt,
+            &OptionGlContextPtr::None,
+        );
+        self.render_api
+            .send_transaction(wr_translate_document_id(self.window.document_id), txn);
+        self.render_api.flush_scene_builder();
+        {
+            let (ready, signal) = &*self.new_frame_ready;
+            let mut ready = ready.lock().ok()?;
+            while !*ready {
+                let (next, timeout) = signal.wait_timeout(ready, Duration::from_secs(20)).ok()?;
+                ready = next;
+                if timeout.timed_out() {
+                    return None;
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(30));
+        let framebuffer = self.framebuffer.as_ref()?;
+        framebuffer.bind();
+        let renderer = self.renderer.as_mut()?;
+        renderer.update();
+        renderer.render(self.device_size, 0).ok()?;
+        let (w, h) = (self.device_size.width as u32, self.device_size.height as u32);
+        let mut pixels = AzulPixmap::new(w, h)?;
+        pixels.data_mut().copy_from_slice(&framebuffer.read(w, h));
+        Some(pixels)
+    }
+}
+
+impl Drop for GpuSession {
+    fn drop(&mut self) {
+        drop(self.framebuffer.take());
+        if let Some(renderer) = self.renderer.take() {
+            renderer.deinit();
+        }
+        drop(self.context.take());
+    }
+}
+
+/// The device-pixel box `(x0, y0, x1, y1)` of the pixels of `frame` that are
+/// "red" (a red channel above 200 and the others below 70), or `None`.
+pub(crate) fn red_box(frame: &AzulPixmap) -> Option<(u32, u32, u32, u32)> {
+    let mut found: Option<(u32, u32, u32, u32)> = None;
+    for y in 0..frame.height {
+        for x in 0..frame.width {
+            let i = ((y * frame.width + x) * 4) as usize;
+            let px = &frame.data()[i..i + 4];
+            if px[0] > 200 && px[1] < 70 && px[2] < 70 {
+                found = Some(match found {
+                    Some((a, b, c, d)) => (a.min(x), b.min(y), c.max(x), d.max(y)),
+                    None => (x, y, x, y),
+                });
+            }
+        }
+    }
+    found
+}
+
+#[cfg(test)]
+mod retained_list_tests {
+    //! What WebRender draws when a frame does not send a display list again. A
+    //! `VirtualView` is an iframe of its child DOM's own pipeline and WebRender
+    //! keeps a pipeline's list until another replaces it, so a restyle of the
+    //! host (a hover, the caret) sends the host's list alone and the child's
+    //! rows must still be drawn; and a `transform` written to a node the list
+    //! binds is a property value that reaches the frame with no list at all.
+    //! Checked in the pixels of the real GPU pipeline, offscreen: a machine
+    //! without an OpenGL context passes without checking anything.
+
+    use azul_core::{
+        callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+        dom::{DomId, NodeId},
+        geom::{LogicalPosition, LogicalRect},
+        refany::RefAny,
+    };
+    use azul_css::props::{
+        basic::{PixelValue},
+        property::CssProperty,
+        style::{StyleTransform, StyleTransformTranslate2D},
+    };
+    use azul_layout::overlay::{ContentChange, ContentDirtyTier};
+
+    use super::*;
+
+    /// Forty rows of red and blue, 5 px each.
+    extern "C" fn rows(_data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+        let mut dom = Dom::create_div();
+        for i in 0..40 {
+            dom = dom.with_child(Dom::create_div().with_css(if i % 2 == 0 {
+                "height: 5px; background: #ff0000;"
+            } else {
+                "height: 5px; background: #0000ff;"
+            }));
+        }
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
+        VirtualViewReturn::with_dom(dom, rect, rect)
+    }
+
+    /// A grey bar on top, the view (300 x 160) under it.
+    fn page() -> Dom {
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(
+                Dom::create_div()
+                    .with_class("bar".into())
+                    .with_css("height: 40px; width: 300px; background: #888888;"),
+            )
+            .with_child(
+                Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(rows))
+                    .with_css("width: 300px; height: 160px;"),
+            )
+    }
+
+    fn pixel(frame: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * frame.width + x) * 4) as usize;
+        [frame.data()[i], frame.data()[i + 1], frame.data()[i + 2], frame.data()[i + 3]]
+    }
+
+    fn node_with_class(window: &LayoutWindow, class: &str) -> NodeId {
+        let sd = &window.layout_results[&DomId::ROOT_ID].styled_dom;
+        let nodes = sd.node_data.as_container();
+        (0..nodes.len())
+            .map(NodeId::new)
+            .find(|n| nodes[*n].has_class(class))
+            .expect("the node")
+    }
+
+    #[test]
+    fn a_view_the_frame_does_not_send_again_is_still_drawn() {
+        let Some(mut gpu) = GpuSession::new(300.0, 200.0, 1.0) else {
+            return;
+        };
+        gpu.lay_out(page()).expect("the page lays out");
+        let first = gpu.present(true).expect("the first frame");
+        // The view's rows are drawn: red at its top row, blue under it.
+        assert_eq!(pixel(&first, 100, 42)[..3], [255, 0, 0], "the view's first row");
+        assert_eq!(pixel(&first, 100, 47)[..3], [0, 0, 255], "its second row");
+        assert_eq!(pixel(&first, 100, 10)[..3], [0x88, 0x88, 0x88], "the bar over it");
+
+        // The host restyles (the bar turns dark): the host's list is rebuilt, the
+        // view's is the one WebRender holds.
+        let bar = node_with_class(&gpu.window, "bar");
+        let tier = gpu
+            .window
+            .apply_content_change(ContentChange::NodeCss {
+                dom_id: DomId::ROOT_ID,
+                node_id: bar,
+                props: vec![CssProperty::const_background_content(
+                    azul_css::props::style::StyleBackgroundContentVec::from_vec(vec![
+                        azul_css::props::style::StyleBackgroundContent::Color(
+                            azul_css::props::basic::ColorU::new(0x22, 0x22, 0x22, 255),
+                        ),
+                    ]),
+                )],
+                override_only: false,
+            })
+            .tier;
+        assert_eq!(tier, ContentDirtyTier::RebuildDisplayList, "a colour is a rebuild");
+        let child = *gpu
+            .window
+            .layout_results
+            .keys()
+            .find(|dom| **dom != DomId::ROOT_ID)
+            .expect("the view's DOM");
+        let env = u64::from(gpu.window.current_window_state.size.get_hidpi_factor().inner.get().to_bits());
+        let held = |gpu: &GpuSession, dom: DomId| {
+            gpu.window.gpu_state_manager.display_list_is_held(
+                dom,
+                &gpu.window.layout_results[&dom].display_list,
+                env,
+            )
+        };
+        assert!(!held(&gpu, DomId::ROOT_ID), "the host's list is a new one");
+        assert!(held(&gpu, child), "the view's is the one WebRender holds");
+
+        let second = gpu.present(true).expect("the second frame");
+        assert_eq!(pixel(&second, 100, 10)[..3], [0x22, 0x22, 0x22], "the host's new list is drawn");
+        assert_eq!(
+            pixels_differing(&first, &second, (0, 40, 300, 160), 0).0,
+            0,
+            "the view's rows were not sent again and are drawn exactly as before"
+        );
+    }
+
+    #[test]
+    fn a_transform_written_to_a_bound_node_moves_it_in_the_next_frame_with_no_list() {
+        let Some(mut gpu) = GpuSession::new(300.0, 200.0, 1.0) else {
+            return;
+        };
+        gpu.lay_out(
+            Dom::create_body().with_css("margin: 0px;").with_child(
+                Dom::create_div()
+                    .with_class("mover".into())
+                    .with_css("width: 40px; height: 40px; background: #ff0000; transform: translate(10px, 0px);"),
+            ),
+        )
+        .expect("the page lays out");
+        let before = gpu.present(true).expect("the first frame");
+        let (x0, y0, x1, y1) = red_box(&before).expect("the box is drawn");
+        assert!(
+            (10..=11).contains(&x0) && (49..=50).contains(&x1) && y0 <= 1 && (39..=40).contains(&y1),
+            "harness: the box at translate(10px): {:?}",
+            (x0, y0, x1, y1)
+        );
+
+        gpu.window.frame_report.reset_counters();
+        let mover = node_with_class(&gpu.window, "mover");
+        let tier = gpu
+            .window
+            .apply_content_change(ContentChange::NodeCss {
+                dom_id: DomId::ROOT_ID,
+                node_id: mover,
+                props: vec![CssProperty::transform(
+                    vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                        x: PixelValue::px(60.0),
+                        y: PixelValue::px(0.0),
+                    })]
+                    .into(),
+                )],
+                override_only: false,
+            })
+            .tier;
+        assert_eq!(tier, ContentDirtyTier::Paint, "a value, not a rebuild");
+        assert_eq!(gpu.window.frame_report.dl_rebuilds, 0, "no display-list regeneration");
+        assert!(
+            !gpu.window
+                .gpu_state_manager
+                .display_lists_unsubmitted(&gpu.window.layout_results),
+            "the list is the one WebRender holds"
+        );
+
+        // The frame a shell makes for it: nothing rebuilt, no list sent.
+        let after = gpu.present(false).expect("the next frame");
+        let (a0, b0, a1, b1) = red_box(&after).expect("the box is still drawn");
+        assert_eq!(
+            (a0, a1, b0, b1),
+            (x0 + 50, x1 + 50, y0, y1),
+            "the next frame draws the box 50 px to the right, from the value alone"
+        );
+    }
+}

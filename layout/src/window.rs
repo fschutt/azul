@@ -10532,6 +10532,40 @@ impl LayoutWindow {
                 node.upsert_inline_css_property(prop.clone());
             }
         }
+        // THE GPU PROPERTY PATH. A write of nothing but `transform` and
+        // `opacity` - the properties `RestyleResult::gpu_only_changes` and
+        // `CssPropertyType::is_gpu_only_property` name - to a node whose
+        // reference frame / opacity layer the display list ALREADY has moves
+        // no box and changes no item: only the value the list binds by key,
+        // which both compositors read live from the GPU value cache. So the
+        // value is published under the node's key and nothing else happens:
+        // no cascade rebuild, no layout, no display-list regeneration (a
+        // regeneration re-emits every item of the DOM: 38 000 for a graph
+        // editor whose nodes were dragged with `transform: translate()`, once
+        // per mouse move), and the tier is `Paint`. The classification was
+        // computed by the restyle below and thrown away
+        // (`let _restyle_result`); a node without a binding yet - its first
+        // `transform`, an opacity layer that does not exist - changes the key
+        // POPULATION, which only a display-list build can show: it takes the
+        // path below once, and every later write is a value.
+        //
+        // Not while a declared `animation` seeded a transition for this write:
+        // that holds the node at `from` and walks it, a change of its own.
+        if seeded.is_empty() && self.write_bound_gpu_properties(dom_id, node_id, &props) {
+            return ContentChangeResult {
+                tier: if resolves_already {
+                    ContentDirtyTier::Unchanged
+                } else {
+                    ContentDirtyTier::Paint
+                },
+            };
+        }
+        let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+            return ContentChangeResult {
+                tier: ContentDirtyTier::Unchanged,
+            };
+        };
+
         // The property cache's single write site: the resolver
         // consults user-overridden properties FIRST, so paint changes
         // are visible on the next DL build. Frame 0 of every seeded
@@ -10612,6 +10646,143 @@ impl LayoutWindow {
                 tier: ContentDirtyTier::RebuildDisplayList,
             }
         }
+    }
+
+    /// The GPU property path of a write of `props` (see its use in
+    /// `apply_node_css_change`): when every property is `transform` or
+    /// `opacity` AND the display list already binds `node_id` to a key for it,
+    /// write the values as user overrides through the lean channel and publish
+    /// them under the keys, and report `true`. Reports `false` and changes
+    /// nothing when any property is another one, or the node has no binding
+    /// yet (no reference frame, no opacity layer, nothing laid out, a
+    /// value that is no transform / opacity at all): those change what the list
+    /// holds, and only a display-list build can show that.
+    ///
+    /// The same operations a `transform` / `opacity` tween frame does
+    /// (`tick_animations`), so a write from a callback and a tween frame are
+    /// the same thing for the compositors.
+    fn write_bound_gpu_properties(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        props: &[azul_css::props::property::CssProperty],
+    ) -> bool {
+        use azul_css::props::property::CssProperty;
+
+        if props.is_empty() || !props.iter().all(|p| p.get_type().is_gpu_only_property()) {
+            return false;
+        }
+        let Some(result) = self.layout_results.get_mut(&dom_id) else {
+            return false;
+        };
+        let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) else {
+            return false;
+        };
+        if node_id.index() >= result.styled_dom.node_data.as_ref().len() {
+            return false;
+        }
+        let size = bound_node_size(result, node_id);
+        // Everything is checked before anything is written, so a `false`
+        // leaves the node as it was.
+        for prop in props {
+            let bound = match prop {
+                CssProperty::Transform(value) => {
+                    value.get_property().is_some()
+                        && size.is_some()
+                        && cache.css_transform_keys.contains_key(&node_id)
+                }
+                CssProperty::Opacity(value) => {
+                    value.get_property().is_some() && opacity_layer_is_bound(result, cache, node_id)
+                }
+                _ => false,
+            };
+            if !bound {
+                return false;
+            }
+        }
+        result.styled_dom.set_user_property_override_fast(&node_id, props);
+        for prop in props {
+            match prop {
+                CssProperty::Transform(_) => {
+                    if let Some(size) = size {
+                        let _published =
+                            cache.refresh_transform_value_of(&result.styled_dom, node_id, size);
+                    }
+                }
+                CssProperty::Opacity(value) => {
+                    if cache
+                        .refresh_opacity_value_of(&result.styled_dom, node_id)
+                        .is_some()
+                    {
+                        // The compact cache is where the builder's `get_opacity`
+                        // and `GpuValueCache::synchronize` read opacity: it
+                        // follows the shown value, so a list built after this
+                        // write paints what is on screen.
+                        if let Some(o) = value.get_property() {
+                            patch_compact_opacity(&mut result.styled_dom, node_id, o.inner.normalized());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        true
+    }
+
+    /// After a restyle (a `:hover` / `:focus` / `:active` flip) that changed
+    /// nothing but `transform` and `opacity` (`RestyleResult::gpu_only_changes`):
+    /// publish the values the cascade now resolves to under the keys the
+    /// display list binds, and report `true` - the frame is a repaint, the
+    /// display list stays. Reports `false` when a node has no binding for a
+    /// property it changed (its first `transform`, an opacity layer that is
+    /// not there): the key population changes, only a display-list build shows
+    /// that, and the caller rebuilds.
+    ///
+    /// Before this the classification was only acted on by asking for a plain
+    /// re-render: the new value was never published, and a `:hover { transform:
+    /// scale(1.05) }` showed nothing until some other change rebuilt the list.
+    pub fn publish_gpu_only_restyle(
+        &mut self,
+        dom_id: DomId,
+        changed: &azul_core::events::RestyleNodes,
+    ) -> bool {
+        use azul_css::props::property::CssPropertyType;
+
+        let Some(result) = self.layout_results.get_mut(&dom_id) else {
+            return false;
+        };
+        let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) else {
+            return false;
+        };
+        for (node_id, changes) in changed {
+            if node_id.index() >= result.styled_dom.node_data.as_ref().len() {
+                return false;
+            }
+            let size = bound_node_size(result, *node_id);
+            for change in changes {
+                match change.current_prop.get_type() {
+                    CssPropertyType::Transform => {
+                        let Some(size) = size else {
+                            return false;
+                        };
+                        if !cache.refresh_transform_value_of(&result.styled_dom, *node_id, size) {
+                            return false;
+                        }
+                    }
+                    CssPropertyType::Opacity => {
+                        if !opacity_layer_is_bound(result, cache, *node_id)
+                            || cache
+                                .refresh_opacity_value_of(&result.styled_dom, *node_id)
+                                .is_none()
+                        {
+                            return false;
+                        }
+                    }
+                    _ => return false,
+                }
+            }
+        }
+        true
     }
 
     /// The states `nodes` of `dom_id` are in RIGHT NOW - what a pointer /
@@ -34533,6 +34704,35 @@ fn gpu_cache_for_pass(
     } else {
         manager.caches.get(&dom_id)
     }
+}
+
+/// The border box of `node` as the layout pass left it, `(width, height)` in
+/// logical px: what a `transform`'s percentages resolve against.
+fn bound_node_size(result: &DomLayoutResult, node: NodeId) -> Option<(f32, f32)> {
+    let tree = &result.layout_tree;
+    tree.dom_to_layout
+        .get(&node)
+        .and_then(|boxes| boxes.first())
+        .and_then(|idx| tree.get(*idx))
+        .and_then(|hot| hot.used_size)
+        .map(|s| (s.width, s.height))
+}
+
+/// Whether the display list of `result` opens an opacity layer for `node`
+/// bound to the key `cache` holds for it (`PushOpacity::opacity_key`): its
+/// opacity is then a value under that key.
+fn opacity_layer_is_bound(result: &DomLayoutResult, cache: &GpuValueCache, node: NodeId) -> bool {
+    cache.opacity_keys.get(&node).is_some_and(|key| {
+        result.display_list.items.iter().any(|item| {
+            matches!(
+                item,
+                solver3::display_list::DisplayListItem::PushOpacity {
+                    opacity_key: Some(k),
+                    ..
+                } if k == key
+            )
+        })
+    })
 }
 
 /// The compact cache's opacity byte of `node`, set to `opacity` (encoded as

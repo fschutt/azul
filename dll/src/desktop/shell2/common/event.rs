@@ -648,6 +648,30 @@ fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
     }
 }
 
+/// What a restyle that changed nothing but `transform` and `opacity`
+/// (`RestyleResult::gpu_only_changes`) asks of the shell. Both are values the
+/// display list binds by key (`GpuValueCache`) and both compositors read live,
+/// so the new values are published under the keys and the frame is a repaint:
+/// no display-list rebuild. A node without a binding for a property it
+/// changed (its first `transform`, an opacity layer that does not exist yet)
+/// changes what the list holds: the list is rebuilt here, once.
+///
+/// The classification used to be acted on by asking for a plain re-render with
+/// nothing published: `:hover { transform: scale(1.05) }` showed nothing until
+/// something else rebuilt the list.
+fn gpu_only_restyle_result(
+    layout_window: &mut LayoutWindow,
+    dom_id: DomId,
+    restyle_result: &azul_core::styled_dom::RestyleResult,
+) -> ProcessEventResult {
+    if layout_window.publish_gpu_only_restyle(dom_id, &restyle_result.changed_nodes) {
+        ProcessEventResult::ShouldReRenderCurrentWindow
+    } else {
+        layout_window.regenerate_display_list_for_dom(dom_id);
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+    }
+}
+
 /// `:seat-focus` restyle for a NON-primary seat (9b-ii-a-i-d-iii-a): the node
 /// that lost this seat's focus drops the pseudo-class unless another seat
 /// still focuses it; the node that gained it takes it. Same classification
@@ -679,8 +703,10 @@ fn apply_seat_focus_restyle(
         let restyle_result = layout_result
             .styled_dom
             .restyle_on_seat_focus_change(lost, gained);
-        let r = if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+        let r = if restyle_result.changed_nodes.is_empty() {
             ProcessEventResult::ShouldReRenderCurrentWindow
+        } else if restyle_result.gpu_only_changes {
+            gpu_only_restyle_result(layout_window, dom_id, &restyle_result)
         } else {
             let mut accumulator = ChangeAccumulator::new();
             accumulator.merge_restyle_result(&restyle_result);
@@ -807,7 +833,7 @@ fn apply_focus_restyle_in_dom(
     if restyle_result.needs_layout {
         r = ProcessEventResult::ShouldIncrementalRelayout;
     } else if restyle_result.gpu_only_changes {
-        r = ProcessEventResult::ShouldReRenderCurrentWindow;
+        r = gpu_only_restyle_result(layout_window, dom_id, &restyle_result);
     } else {
         // PAINT-ONLY, AND THEREFORE OURS TO REBUILD. Same law as the
         // no-delta arm above, and the case that actually happens: every
@@ -982,7 +1008,7 @@ fn apply_active_restyle(
         stage_css_dirty(layout_window, dom_id, &restyle_result);
 
         let r = if restyle_result.gpu_only_changes {
-            ProcessEventResult::ShouldReRenderCurrentWindow
+            gpu_only_restyle_result(layout_window, dom_id, &restyle_result)
         } else {
             let mut accumulator = ChangeAccumulator::new();
             accumulator.merge_restyle_result(&restyle_result);
@@ -1046,7 +1072,7 @@ fn apply_hover_restyle(
         // changes avoid relayout, layout-affecting ones take the
         // incremental path (no DOM rebuild — states are already updated).
         let r = if restyle_result.gpu_only_changes {
-            ProcessEventResult::ShouldReRenderCurrentWindow
+            gpu_only_restyle_result(layout_window, dom_id, &restyle_result)
         } else {
             let mut accumulator = ChangeAccumulator::new();
             accumulator.merge_restyle_result(&restyle_result);
