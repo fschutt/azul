@@ -835,7 +835,7 @@ mod retained_list_tests {
         refany::RefAny,
     };
     use azul_css::props::{
-        basic::{PixelValue},
+        basic::PixelValue,
         property::CssProperty,
         style::{StyleTransform, StyleTransformTranslate2D},
     };

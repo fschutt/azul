@@ -3851,11 +3851,11 @@ mod text_halo_tests {
 
         let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
         let start = halos_drawn();
-        let _ = frame(&mut window, labels(0.0, "#333333", "#ffffff", true));
+        drop(frame(&mut window, labels(0.0, "#333333", "#ffffff", true)));
         assert_eq!(halos_drawn() - start, LABELS, "the first frame draws each label's halo");
         for dx in [37.5, 80.0, -20.0] {
             let before = halos_drawn();
-            let _ = frame(&mut window, labels(dx, "#333333", "#ffffff", true));
+            drop(frame(&mut window, labels(dx, "#333333", "#ffffff", true)));
             assert_eq!(
                 halos_drawn() - before,
                 0,

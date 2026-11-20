@@ -19227,9 +19227,7 @@ impl LayoutWindow {
                 .scrollbar_fade_left_ms
                 .insert(dom_id, fade_left_ms);
             // The deadline too: the milliseconds are only as fresh as this frame.
-            let left = azul_core::task::Duration::System(
-                azul_core::task::SystemTimeDiff::from_nanos_u128(fade_left_ns),
-            );
+            let left = Duration::System(SystemTimeDiff::from_nanos_u128(fade_left_ns));
             gpu_state_manager
                 .scrollbar_fade_ends
                 .insert(dom_id, now.add_optional_duration(Some(&left)));

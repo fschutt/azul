@@ -360,7 +360,7 @@ static STDERR_LOGGER: StderrLogger = StderrLogger;
 
 /// One record of the `log` facade as its finished line: the colour codes, the
 /// clock, level, target and message, where it was logged, and the newline.
-fn format_record(record: &log::Record) -> String {
+fn format_record(record: &log::Record<'_>) -> String {
     let us = LOG_START
         .get()
         .map(|s| s.elapsed().as_micros())
@@ -404,7 +404,7 @@ fn format_record(record: &log::Record) -> String {
 /// concurrent threads do not interleave and the unbuffered stderr makes one
 /// `write(2)` per record instead of one per piece of the format string (19 us a
 /// record into a file, 1.5 us this way).
-fn write_record(record: &log::Record) {
+fn write_record(record: &log::Record<'_>) {
     crate::desktop::shell2::common::log_gate::write_stderr_line(&format_record(record));
 }
 

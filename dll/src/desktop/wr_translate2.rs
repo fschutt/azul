@@ -3295,8 +3295,7 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
     layout_window.pending_virtual_view_updates.clear();
 
     // For each VirtualView, rebuild and submit its display list
-    let mut sent: Vec<(DomId, std::sync::Arc<azul_layout::solver3::display_list::DisplayList>)> =
-        Vec::new();
+    let mut sent: Vec<(DomId, Arc<azul_layout::solver3::display_list::DisplayList>)> = Vec::new();
     for (child_dom_id, parent_dom_id, node_id) in child_dom_ids {
         // Get the layout result for the VirtualView's content
         let layout_result = match layout_window.layout_results.get(&child_dom_id) {
@@ -3347,7 +3346,7 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
                     WrEpoch(layout_window.epoch.into_u32()),
                     (pipeline_id, built_display_list),
                 );
-                sent.push((child_dom_id, std::sync::Arc::clone(&layout_result.display_list)));
+                sent.push((child_dom_id, Arc::clone(&layout_result.display_list)));
             }
             Err(e) => {
                 log_debug!(

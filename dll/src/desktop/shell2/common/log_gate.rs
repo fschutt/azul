@@ -343,7 +343,7 @@ pub fn format_record(us: u128, level: LogLevel, category: LogCategory, message: 
 /// lines). A log line is advisory: failing to deliver one must never take the
 /// process down.
 pub fn write_line<W: std::io::Write>(sink: &mut W, line: &str) {
-    let _ = sink.write_all(line.as_bytes());
+    drop(sink.write_all(line.as_bytes()));
 }
 
 /// The one way a record reaches stderr, for the gate's own writer and the `log`
