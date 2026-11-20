@@ -13722,6 +13722,31 @@ mod dilate_disk_tests {
         }
     }
 
+    /// The cost of a solid halo's dilation on a label's buffer (700 x 100 px, a
+    /// tenth of it ink, a radius of 4.5 px: a 1 .. 2 line label at 2x), against the
+    /// gather it replaced. Not an assertion - timings are the machine's - run it
+    /// with `--ignored --nocapture` to see the two.
+    #[test]
+    #[ignore = "a timing, not a check"]
+    fn how_long_a_labels_halo_takes_to_dilate() {
+        let timed = |f: &dyn Fn(&mut AzulPixmap)| {
+            let mut best = std::time::Duration::MAX;
+            for _ in 0..3 {
+                let mut p = sparse(700, 100, 100);
+                let start = std::time::Instant::now();
+                f(&mut p);
+                best = best.min(start.elapsed());
+            }
+            best
+        };
+        let gather = timed(&|p| reference(p, 4.5));
+        let scatter = timed(&|p| dilate_disk(p, 4.5));
+        eprintln!(
+            "dilate 700 x 100 px, 10% ink, radius 4.5: gather {gather:?}, by ink {scatter:?} ({:.1}x)",
+            gather.as_secs_f64() / scatter.as_secs_f64()
+        );
+    }
+
     #[test]
     fn a_radius_that_grows_nothing_changes_nothing() {
         for r in [0.0_f32, -3.0, f32::NAN] {
