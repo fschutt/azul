@@ -3792,6 +3792,9 @@ mod text_halo_tests {
     /// The WebRender list of one frame of `dom` in `window`, at 2x, its fonts
     /// and images registered as a frame registers them.
     fn frame(window: &mut LayoutWindow, dom: Dom) -> BuiltDisplayList {
+        // These tests look at the halos of a frame, not at how a frame spends
+        // its time (`a_frame_draws_only_the_halos_its_budget_allows...` does).
+        crate::desktop::wr_translate2::draw_every_halo_in_this_thread();
         let mut state = FullWindowState::default();
         state.size.dimensions = LogicalSize::new(600.0, 200.0);
         state.size.dpi = 192;

@@ -671,9 +671,37 @@ fn font_key_from_hash(font_hash: u64) -> FontKey {
 
 /// Text halos a frame draws however long they take (see
 /// [`collect_image_resource_updates`]): a frame always makes progress.
-const HALOS_DRAWN_ANYWAY: usize = 8;
+const HALOS_DRAWN_ANYWAY: usize = 2;
 /// How long a frame goes on drawing text halos after those.
 const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
+/// The most frames in a row that are made only to draw the text halos the scan
+/// before them left (a quarter of a minute at 60 frames a second, and every one
+/// draws at least [`HALOS_DRAWN_ANYWAY`]).
+const HALO_FOLLOW_UPS_MAX: u32 = 900;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own halo budget, for the thread it runs on ([`halo_budget`]).
+    static TEST_HALO_BUDGET: std::cell::Cell<Option<(usize, std::time::Duration)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// What a frame may spend on drawing text halos: how many it draws however long
+/// they take, and for how long it goes on after those.
+fn halo_budget() -> (usize, std::time::Duration) {
+    #[cfg(test)]
+    if let Some(budget) = TEST_HALO_BUDGET.with(std::cell::Cell::get) {
+        return budget;
+    }
+    (HALOS_DRAWN_ANYWAY, HALO_FRAME_BUDGET)
+}
+
+/// For a test that looks at the halos of a frame, not at how a frame spends its
+/// time: every frame of this thread draws every halo it finds.
+#[cfg(test)]
+pub(crate) fn draw_every_halo_in_this_thread() {
+    TEST_HALO_BUDGET.with(|b| b.set(Some((usize::MAX, std::time::Duration::from_secs(3600)))));
+}
 
 /// Collects all ImageRefs from display lists and creates AddImage ResourceUpdates
 /// for images that aren't already registered.
@@ -692,6 +720,24 @@ pub fn collect_image_resource_updates(
     // the authoritative "live set" for image GC (a superset of the returned
     // AddImage messages, which only cover *newly*-seen images).
     azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
+) {
+    let (updates, live, _halos_left) =
+        collect_image_resource_updates_and_halos_left(layout_window, renderer_resources);
+    (updates, live)
+}
+
+/// [`collect_image_resource_updates`] and the number of text halos the scan
+/// left for a later frame (its budget ran out).
+fn collect_image_resource_updates_and_halos_left(
+    layout_window: &LayoutWindow,
+    renderer_resources: &azul_core::resources::RendererResources,
+) -> (
+    Vec<(
+        azul_core::resources::ImageRefHash,
+        azul_core::resources::AddImageMsg,
+    )>,
+    azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
+    usize,
 ) {
     use azul_core::{resources::build_add_image_resource_updates, FastBTreeSet};
 
@@ -715,11 +761,13 @@ pub fn collect_image_resource_updates(
     // 5.0 s drawing them on the UI thread before anything else could run: a
     // frame draws HALOS_DRAWN_ANYWAY of them however long they take and then
     // only while HALO_FRAME_BUDGET lasts; a shadow whose halo is left for a
-    // later frame is drawn by WebRender's own blur until then.
+    // later frame is drawn by WebRender's own blur until then - the frames the
+    // platform loop goes on making (`GpuStateManager::halos_owed`) draw the rest.
     let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+    let (free, time) = halo_budget();
     let ((), halos_left) = azul_layout::cpurender::within_halo_budget(
-        HALOS_DRAWN_ANYWAY,
-        HALO_FRAME_BUDGET,
+        free,
+        time,
         || {
             for layout_result in layout_window.layout_results.values() {
                 for halo in azul_layout::cpurender::text_halos(
@@ -775,7 +823,7 @@ pub fn collect_image_resource_updates(
         image_updates.len()
     );
 
-    (image_updates, live_hashes)
+    (image_updates, live_hashes, halos_left)
 }
 
 /// This scans all display lists for Text items, extracts their font_hashes,
@@ -1287,9 +1335,29 @@ pub(crate) fn register_frame_resources(
     // again (the return value).
     let overlay_new_slot = upload_overlay_images(layout_window, txn).new_slot;
 
+    register_image_resources(layout_window, txn);
+
+    overlay_new_slot
+}
+
+/// The images of the display lists: register them with the renderer (a
+/// text halo drawn here included, see [`collect_image_resource_updates`]), add
+/// the ones it does not hold and delete the ones no list names any more.
+/// Records in `GpuStateManager::halos_owed` whether this scan left halos for a
+/// later frame. A scan that starts while halos are owed is a follow-up, and the
+/// chain of them ends after [`HALO_FOLLOW_UPS_MAX`]: for lists that name more
+/// halos than the kept ones can hold each scan would draw the ones the last one
+/// evicted, and the window would never go idle.
+fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+    let follow_up = layout_window.gpu_state_manager.halos_owed;
     // --- Images ---
-    let (image_updates, live_image_hashes) =
-        collect_image_resource_updates(layout_window, &layout_window.renderer_resources);
+    let (image_updates, live_image_hashes, halos_left) =
+        collect_image_resource_updates_and_halos_left(layout_window, &layout_window.renderer_resources);
+    {
+        let state = &mut layout_window.gpu_state_manager;
+        state.halo_follow_ups = if follow_up { state.halo_follow_ups + 1 } else { 0 };
+        state.halos_owed = halos_left > 0 && state.halo_follow_ups < HALO_FOLLOW_UPS_MAX;
+    }
 
     // Update currently_registered_images + the reverse image_key_map lookup so
     // the display-list builder can resolve an ImageRefHash to its ImageKey.
@@ -1348,8 +1416,6 @@ pub(crate) fn register_frame_resources(
             txn.update_resources(wr_image_resources);
         }
     }
-
-    overlay_new_slot
 }
 
 // ==== Video tiles: one renderer image per tile, updated in place ====
@@ -1808,6 +1874,9 @@ pub fn generate_frame(
 
     // Don't render if window is minimized (width/height = 0)
     if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
+        // Nothing is drawn, so no frame is owed for the halos either: the
+        // pass that follows the window's return scans the lists again.
+        layout_window.gpu_state_manager.halos_owed = false;
         return;
     }
 
@@ -1827,7 +1896,12 @@ pub fn generate_frame(
     // time is named by no list WebRender holds: the lists go again.
     let lists_rebuilt = prepare_frame_content_gl(layout_window, gl_context);
     let textures = register_overlay_textures(layout_window, txn);
-    let display_list_was_rebuilt = display_list_was_rebuilt || lists_rebuilt || textures.new_slot;
+    // Text halos a scan left for a later frame are drawn by the scan of this one
+    // (`GpuStateManager::halos_owed`): its lists are translated again with them.
+    let display_list_was_rebuilt = display_list_was_rebuilt
+        || lists_rebuilt
+        || textures.new_slot
+        || layout_window.gpu_state_manager.halos_owed;
 
     // CRITICAL: Build display list FIRST, then set root pipeline (matching upstream WebRender
     // order)
@@ -2746,10 +2820,12 @@ pub(crate) struct DisplayListSubmission {
 }
 
 /// What a display list is translated against besides the list itself: the
-/// renderer's scale (every coordinate is scaled by it). A held list is held
-/// only while this is what it was translated against.
-fn translation_env(layout_window: &LayoutWindow) -> u64 {
-    u64::from(
+/// renderer's scale (every coordinate is scaled by it) and the text halos drawn
+/// so far (a shadow is translated to its picture once it has one, to a blurred
+/// shadow before: a list translated before a halo was drawn does not hold it).
+/// A held list is held only while this is what it was translated against.
+pub(crate) fn translation_env(layout_window: &LayoutWindow) -> u64 {
+    let scale = u64::from(
         layout_window
             .current_window_state
             .size
@@ -2757,7 +2833,8 @@ fn translation_env(layout_window: &LayoutWindow) -> u64 {
             .inner
             .get()
             .to_bits(),
-    )
+    );
+    (scale << 32) ^ azul_layout::cpurender::halos_drawn() as u64
 }
 
 /// Record the lists as the renderer now holds them (see
@@ -2986,6 +3063,15 @@ pub fn build_image_only_transaction(
     let overlay = upload_overlay_images(layout_window, txn);
     let images_changed = textures.changed || overlay.changed;
 
+    // Step 1.6: Text halos. A scan that ran out of its budget left halos for the
+    // frames that follow (`GpuStateManager::halos_owed`, which keeps the platform
+    // loop asking for them): this one scans again and draws the next ones, and the
+    // lists that name them are translated again below (the halos drawn so far are
+    // part of what a translation is made against, `translation_env`).
+    if layout_window.gpu_state_manager.halos_owed {
+        register_image_resources(layout_window, txn);
+    }
+
     // Step 2: Skip scene builder (display lists haven't changed) - unless a
     // slot got its key in this transaction (the display list WebRender holds
     // names the slot's previous image) or the content step built a list
@@ -2999,7 +3085,8 @@ pub fn build_image_only_transaction(
         || layout_window
             .gpu_state_manager
             .display_lists_unsubmitted(&layout_window.layout_results);
-    if overlay.new_slot || textures.new_slot || lists_rebuilt || lists_unsubmitted {
+    let lists_sent = overlay.new_slot || textures.new_slot || lists_rebuilt || lists_unsubmitted;
+    if lists_sent {
         set_display_lists(txn, layout_window, overlay.new_slot || textures.new_slot)?;
         layout_window.epoch.increment();
     } else {
@@ -3064,7 +3151,12 @@ pub fn build_image_only_transaction(
     // touching. Nothing here is a reason to draw unless the images, the scroll
     // offsets or the animated GPU values differ from what the renderer already
     // has.
-    let changed = images_changed || scroll_changed || gpu_values_changed;
+    //
+    // A transaction that carries display lists IS a change: a list patched in place
+    // (the caret's blink, a halo that was drawn) alters no property value, scroll
+    // offset or image, and sent without a frame it was dropped with the rest of the
+    // idle pass - the renderer never drew it, while the lists were recorded as sent.
+    let changed = images_changed || scroll_changed || gpu_values_changed || lists_sent;
     if changed {
         txn.generate_frame(0, webrender::api::RenderReasons::empty());
         layout_window.note_frame_presented();

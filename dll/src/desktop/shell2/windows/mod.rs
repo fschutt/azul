@@ -1626,7 +1626,7 @@ impl Win32Window {
                 .common
                 .layout_window
                 .as_ref()
-                .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                .map(|lw| lw.gpu_state_manager.frames_owed())
                 .unwrap_or(false);
             if needs_fade_frame {
                 self.request_redraw();
@@ -1694,7 +1694,7 @@ impl Win32Window {
                         .common
                         .layout_window
                         .as_ref()
-                        .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                        .map(|lw| lw.gpu_state_manager.frames_owed())
                         .unwrap_or(false);
                     let virtual_view_pending = self
                         .common
@@ -1870,7 +1870,7 @@ impl Win32Window {
                 .common
                 .layout_window
                 .as_ref()
-                .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                .map(|lw| lw.gpu_state_manager.frames_owed())
                 .unwrap_or(false);
             if needs_fade_frame {
                 self.request_redraw();

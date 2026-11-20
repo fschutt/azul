@@ -9562,12 +9562,14 @@ impl MacOSWindow {
         // asynchronous setNeedsDisplay. Every scroll frame therefore hit this
         // early return and the window never visibly scrolled on macOS.
         let redraw_was_requested = std::mem::take(&mut self.redraw_requested);
-        let scrollbar_fade_active = layout_window.gpu_state_manager.scrollbar_fade_active;
+        // The frames the engine itself owes: a fading scrollbar, text halos left
+        // for a later frame.
+        let frames_owed = layout_window.gpu_state_manager.frames_owed();
         let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
         if self.common.display_list_initialized
             && !display_list_needs_rebuild
             && !scroll_needs_repaint
-            && !scrollbar_fade_active
+            && !frames_owed
             && !has_virtual_view_updates
             && !redraw_was_requested
         {
@@ -9816,7 +9818,7 @@ impl MacOSWindow {
                     .common
                     .layout_window
                     .as_ref()
-                    .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                    .map(|lw| lw.gpu_state_manager.frames_owed())
                     .unwrap_or(false);
                 if needs_fade_frame {
                     self.request_redraw();
@@ -9980,7 +9982,7 @@ impl MacOSWindow {
             .common
             .layout_window
             .as_ref()
-            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+            .map(|lw| lw.gpu_state_manager.frames_owed())
             .unwrap_or(false);
         if needs_fade_frame {
             self.request_redraw();

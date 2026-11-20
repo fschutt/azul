@@ -764,6 +764,34 @@ impl GpuSession {
         self.render_api
             .send_transaction(wr_translate_document_id(self.window.document_id), txn);
         self.render_api.flush_scene_builder();
+        self.show()
+    }
+
+    /// The next frame the way the shells make it when the layout was NOT
+    /// regenerated (`submit_lightweight_frame`, the pass X11, Wayland and Win32
+    /// share and macOS follows): the transaction asks for a frame only when
+    /// something on screen changed, and is dropped when nothing did. The outer
+    /// `None` is a harness failure; the inner is a pass that sent nothing.
+    pub(crate) fn present_lightweight(&mut self) -> Option<Option<AzulPixmap>> {
+        std::thread::sleep(Duration::from_millis(30));
+        *self.new_frame_ready.0.lock().ok()? = false;
+        let document_id = self.window.document_id;
+        let sent = crate::desktop::shell2::common::layout::submit_lightweight_frame(
+            &mut self.window,
+            &mut self.render_api,
+            document_id,
+            &OptionGlContextPtr::None,
+            true,
+            "gpu test",
+        );
+        if !sent {
+            return Some(None);
+        }
+        Some(Some(self.show()?))
+    }
+
+    /// Wait for the frame WebRender is building, draw it and read it back.
+    fn show(&mut self) -> Option<AzulPixmap> {
         {
             let (ready, signal) = &*self.new_frame_ready;
             let mut ready = ready.lock().ok()?;
@@ -830,9 +858,10 @@ mod retained_list_tests {
 
     use azul_core::{
         callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
-        dom::{DomId, NodeId},
+        dom::{DomId, DomNodeId, NodeId},
         geom::{LogicalPosition, LogicalRect},
         refany::RefAny,
+        styled_dom::NodeHierarchyItemId,
     };
     use azul_css::props::{
         basic::PixelValue,
@@ -923,7 +952,7 @@ mod retained_list_tests {
             .keys()
             .find(|dom| **dom != DomId::ROOT_ID)
             .expect("the view's DOM");
-        let env = u64::from(gpu.window.current_window_state.size.get_hidpi_factor().inner.get().to_bits());
+        let env = crate::desktop::wr_translate2::translation_env(&gpu.window);
         let held = |gpu: &GpuSession, dom: DomId| {
             gpu.window.gpu_state_manager.display_list_is_held(
                 dom,
@@ -998,5 +1027,229 @@ mod retained_list_tests {
             (x0 + 50, x1 + 50, y0, y1),
             "the next frame draws the box 50 px to the right, from the value alone"
         );
+    }
+    /// How many pixels inside `(x, y, w, h)` differ between two frames of the same size
+    /// (by more than eight in some channel).
+    fn changed_pixels(a: &AzulPixmap, b: &AzulPixmap, (x, y, w, h): (u32, u32, u32, u32)) -> u32 {
+        let mut changed = 0;
+        for py in y..(y + h).min(a.height) {
+            for px in x..(x + w).min(a.width) {
+                let (p, q) = (pixel(a, px, py), pixel(b, px, py));
+                if (0..4).any(|c| p[c].abs_diff(q[c]) > 8) {
+                    changed += 1;
+                }
+            }
+        }
+        changed
+    }
+
+    /// The caret blinks IN PLACE: `apply_caret_visibility_in_place` patches the
+    /// display list's caret and changes no property value, no scroll offset and no
+    /// image. The pass the shells make when the layout was not regenerated sends the
+    /// patched list - and has to ask for a frame with it: a transaction that "changed
+    /// nothing" is dropped, and the caret never went off on screen.
+    #[test]
+    fn a_caret_patched_into_the_list_is_drawn_by_the_lightweight_pass() {
+        let Some(mut gpu) = GpuSession::new(300.0, 60.0, 1.0) else {
+            return;
+        };
+        let mut span = Dom::create_span()
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Ada"));
+        span.set_contenteditable(true);
+        gpu.lay_out(
+            Dom::create_body()
+                .with_css("margin: 0px; font-size: 24px; color: #000000; background: #ffffff;")
+                .with_child(
+                    Dom::create_p()
+                        .with_css("margin: 0px;")
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Name: "))
+                        .with_child(span),
+                ),
+        )
+        .expect("the page lays out");
+        // body(0) > p(1) > ["Name: "(2), span(3) > "Ada"(4)]
+        let span_id = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(3))),
+        };
+        let state = gpu.window.current_window_state.clone();
+        let _ = gpu.window.handle_focus_change_for_cursor_blink(Some(span_id), &state);
+        gpu.window.focus_manager.set_focused_node(Some(span_id));
+        assert!(gpu.window.finalize_pending_focus_changes(), "premise: an editing session opened");
+        gpu.window.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        let caret = gpu.window.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .find_map(|item| match item {
+                azul_layout::solver3::display_list::DisplayListItem::CursorRect { bounds, .. } => {
+                    Some(bounds.0)
+                }
+                _ => None,
+            })
+            .expect("premise: the list has a caret");
+        // The caret's box and a pixel either side of it.
+        let rect = (
+            (caret.origin.x as u32).saturating_sub(1),
+            caret.origin.y as u32,
+            caret.size.width.ceil() as u32 + 3,
+            caret.size.height.ceil() as u32,
+        );
+
+        let shown = gpu.present(true).expect("the first frame");
+
+        // The off phase of the blink, as `ToggleCursorVisibility` makes it.
+        gpu.window.text_edit_manager.blink.set_visibility(false);
+        assert_eq!(gpu.window.apply_caret_visibility_in_place(DomId::ROOT_ID), Some(true));
+        let hidden = gpu
+            .present_lightweight()
+            .expect("the harness")
+            .expect("the patched list is a frame the lightweight pass owes, not a dropped transaction");
+        assert!(
+            changed_pixels(&shown, &hidden, rect) > 0,
+            "the caret is gone from the frame: it changed where the caret was ({rect:?})"
+        );
+
+        // The on phase.
+        gpu.window.text_edit_manager.blink.set_visibility(true);
+        assert_eq!(gpu.window.apply_caret_visibility_in_place(DomId::ROOT_ID), Some(true));
+        let back = gpu.present_lightweight().expect("the harness").expect("a frame");
+        assert_eq!(
+            changed_pixels(&shown, &back, rect),
+            0,
+            "the caret is back as it was"
+        );
+
+        // Nothing patched, nothing changed: the pass sends nothing (an idle window draws no frames).
+        assert!(
+            gpu.present_lightweight().expect("the harness").is_none(),
+            "an idle window asks for no frame"
+        );
+    }
+    /// Ninety-six labels in a halo each, as a map has: the page a frame cannot draw
+    /// every halo of within its budget.
+    fn halo_page() -> Dom {
+        let mut page = Dom::create_div()
+            .with_css("position: relative; width: 600px; height: 340px; background: #4477aa;");
+        for row in 0..16 {
+            for col in 0..6 {
+                page = page.with_child(
+                    Dom::create_p()
+                        .with_css(
+                            format!(
+                                "position: absolute; left: {}px; top: {}px; width: 90px; \
+                                 height: 14px; margin: 0px; font-size: 12px; line-height: 14px; \
+                                 color: #111111; text-align: center; white-space: nowrap; \
+                                 text-shadow: 0px 0px 2px #ffffff;",
+                                10 + 95 * col,
+                                10 + 20 * row
+                            )
+                            .as_str(),
+                        )
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!(
+                            "Street {row}.{col}"
+                        ))),
+                );
+            }
+        }
+        Dom::create_body().with_css("margin: 0px;").with_child(page)
+    }
+
+    /// A frame that finds more new text halos than its budget draws the ones the
+    /// budget allows and leaves the rest to the frames after it - and the platform
+    /// loop is told to go on making them (`frames_owed`), or the labels that did not
+    /// get theirs would be drawn with a blurred shadow until something else rebuilt the
+    /// lists. The pass the shells make when the layout was not regenerated scans again,
+    /// draws the next ones and sends the lists that name them, and ends with the picture
+    /// a frame that drew every halo at once makes.
+    #[test]
+    fn the_text_halos_a_frame_leaves_are_drawn_by_the_frames_that_follow() {
+        let Some(mut gpu) = GpuSession::new(600.0, 340.0, 2.0) else {
+            return;
+        };
+        gpu.lay_out(halo_page()).expect("the page lays out");
+        let first = gpu.present(true).expect("the first frame");
+        assert!(
+            gpu.window.gpu_state_manager.frames_owed(),
+            "premise: ninety-six new halos do not fit the budget of one frame"
+        );
+
+        let mut following = 0;
+        let mut last = None;
+        while gpu.window.gpu_state_manager.frames_owed() {
+            following += 1;
+            assert!(following <= 100, "the halos come: still owed after {following} frames");
+            last = Some(
+                gpu.present_lightweight().expect("the harness").expect(
+                    "a pass that draws halos is a frame, not a transaction dropped as idle",
+                ),
+            );
+        }
+        let last = last.expect("a frame followed");
+        assert!(following > 1, "the budget spread the halos over several frames ({following})");
+        assert!(
+            gpu.present_lightweight().expect("the harness").is_none(),
+            "every halo is drawn: an idle window asks for no frame"
+        );
+
+        // The picture a frame draws when it draws every halo at once: a window of
+        // its own, the halos kept by now.
+        drop(gpu);
+        let mut gpu = GpuSession::new(600.0, 340.0, 2.0).expect("a second session");
+        gpu.lay_out(halo_page()).expect("the page lays out");
+        let reference = gpu.present(true).expect("the reference frame");
+        assert!(
+            !gpu.window.gpu_state_manager.frames_owed(),
+            "the halos are kept: nothing is owed"
+        );
+        let whole = (0, 0, last.width, last.height);
+        assert!(
+            pixels_differing(&first, &last, whole, 0).0 > 0,
+            "the first frame lacked halos, the last one has them"
+        );
+        assert_eq!(
+            pixels_differing(&last, &reference, whole, 0).0,
+            0,
+            "the last frame of the follow-ups is the frame that draws every halo at once"
+        );
+    }
+    /// A node the app reveals by writing `opacity` (the tooltip hides its tip at
+    /// `opacity: 0` and shows it from a `MouseEnter` callback): a value under the key
+    /// the list binds when the list has the layer, a rebuild when it has not - and
+    /// WebRender draws the node in the next frame either way.
+    #[test]
+    fn a_node_revealed_by_a_written_opacity_is_drawn_by_webrender() {
+        let Some(mut gpu) = GpuSession::new(120.0, 80.0, 1.0) else {
+            return;
+        };
+        gpu.lay_out(
+            Dom::create_body().with_css("margin: 0px; background: #ffffff;").with_child(
+                Dom::create_div()
+                    .with_class("tip".into())
+                    .with_css("width: 60px; height: 40px; background: #ff0000; opacity: 0;"),
+            ),
+        )
+        .expect("the page lays out");
+        let hidden = gpu.present(true).expect("the first frame");
+        assert!(red_box(&hidden).is_none(), "premise: at opacity 0 nothing is drawn");
+
+        gpu.window.frame_report.reset_counters();
+        let tip = node_with_class(&gpu.window, "tip");
+        let tier = gpu
+            .window
+            .apply_content_change(ContentChange::NodeCss {
+                dom_id: DomId::ROOT_ID,
+                node_id: tip,
+                props: vec![CssProperty::const_opacity(azul_css::props::style::StyleOpacity::const_new(100))],
+                override_only: false,
+            })
+            .tier;
+        // The frame a shell makes for the tier: a rebuilt list goes across, a value
+        // alone does not.
+        let rebuilt = tier == ContentDirtyTier::RebuildDisplayList;
+        let shown = gpu.present(rebuilt).expect("the next frame");
+        let (x0, y0, x1, y1) = red_box(&shown)
+            .unwrap_or_else(|| panic!("the revealed node is drawn (tier {tier:?}, {} rebuilds)", gpu.window.frame_report.dl_rebuilds));
+        assert!(x0 <= 1 && (58..=60).contains(&x1) && y0 <= 1 && (38..=40).contains(&y1), "its whole box: {:?}", (x0, y0, x1, y1));
     }
 }

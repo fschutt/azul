@@ -8681,7 +8681,7 @@ impl WaylandWindow {
             .common
             .layout_window
             .as_ref()
-            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active || lw.needs_animation_frame())
+            .map(|lw| lw.gpu_state_manager.frames_owed() || lw.needs_animation_frame())
             .unwrap_or(false);
         if needs_anim_frame {
             self.request_redraw();

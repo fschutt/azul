@@ -102,6 +102,18 @@ pub struct GpuStateManager {
     /// one that sees the hold. Set by `LayoutWindow::synchronize_scrollbar_opacity`,
     /// read by the platform render loop.
     pub scrollbar_fade_active: bool,
+    /// Whether the last scan of the display lists for text halos left some of
+    /// them undrawn (a frame draws a bounded number of new ones,
+    /// `cpurender::within_halo_budget`): the lists were translated with a
+    /// blurred shadow where a halo is still to come, so the platform loop has
+    /// to keep generating frames - each of which scans again and draws the next
+    /// ones - until none is left ([`Self::frames_owed`]). Set and cleared by
+    /// the renderer host's scan, once per transaction.
+    pub halos_owed: bool,
+    /// How many scans in a row were made only because the last one left halos
+    /// undrawn ([`Self::halos_owed`]); the chain ends at a limit the host sets, for
+    /// the lists that name more halos than can be kept.
+    pub halo_follow_ups: u32,
     /// How much longer each DOM's overlay scrollbars are still on screen, in
     /// whole milliseconds rounded up: the longest of its painted, unheld bars
     /// has `hold + fade - time since its box last scrolled` left. A DOM with no
@@ -300,6 +312,15 @@ impl GpuStateManager {
             .unwrap_or(0)
     }
 
+    /// Whether the engine itself still owes frames, whatever the app does: a
+    /// scrollbar that is fading (or waiting to) and text halos left for a
+    /// later frame. The platform loop requests another frame while this is
+    /// true.
+    #[must_use]
+    pub const fn frames_owed(&self) -> bool {
+        self.scrollbar_fade_active || self.halos_owed
+    }
+
     /// Creates a new GPU state manager with specified fade timing.
     #[must_use]
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
@@ -308,6 +329,8 @@ impl GpuStateManager {
             fade_delay,
             fade_duration,
             scrollbar_fade_active: false,
+            halos_owed: false,
+            halo_follow_ups: 0,
             scrollbar_fade_left_ms: BTreeMap::new(),
             scrollbar_fade_ends: BTreeMap::new(),
             last_gpu_value_digest: None,
