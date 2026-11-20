@@ -2962,6 +2962,118 @@ pub fn color_value_damage(
     out
 }
 
+/// How deep the views of a window nest (a view whose child holds views of its own) before the
+/// value damage stops following them and asks for a full repaint.
+const MAX_VIEW_DEPTH: usize = 8;
+
+/// What a frame owes for the GPU values that changed since the frame before, in the window's
+/// list AND in the lists of the `VirtualView`s it shows: [`gpu_value_damage`] and
+/// [`color_value_damage`] of each list, the views' rects moved to where the view paints
+/// its content.
+///
+/// A node inside a view that carries a CSS `transform`, `opacity` or a fading background
+/// binds its key in the view's own list; the parent's list holds one `VirtualView` item that
+/// stays byte-identical while the value moves, so the parent's diff finds nothing and the
+/// frame - the picture of a map zoomed by a write of the transform alone - was skipped as idle
+/// (and painted with the matrix the list was built with when it was not).
+///
+/// A view's list is 0-relative and the rasteriser paints it at the item's `bounds.origin +
+/// content_offset` in the space of the list around it (`raster.rs`, the `VirtualView` arm),
+/// clipped to the item's box: a rect found in the child lands there, is cut to the box, and
+/// goes on through the scroll frames and reference frames around the item (`ScrollStack`).
+/// A child's change that cannot be placed (a matrix with perspective) damages the view's whole
+/// box; one around the view damages everything.
+#[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
+#[must_use]
+pub fn window_value_damage(
+    display_list: &DisplayList,
+    views: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    old: &WindowGpuValues,
+    new: &WindowGpuValues,
+    scroll_offsets: &ScrollOffsetMap,
+) -> GpuValueDamage {
+    if old == new {
+        return GpuValueDamage::default();
+    }
+    list_value_damage(display_list, views, old, new, scroll_offsets, 0)
+}
+
+/// [`window_value_damage`] of one list, its rects in the space the list is painted in.
+fn list_value_damage(
+    list: &DisplayList,
+    views: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    old: &WindowGpuValues,
+    new: &WindowGpuValues,
+    scroll_offsets: &ScrollOffsetMap,
+    depth: usize,
+) -> GpuValueDamage {
+    let mut out = gpu_value_damage(
+        list,
+        &old.transforms,
+        &old.opacities,
+        &new.transforms,
+        &new.opacities,
+        scroll_offsets,
+    );
+    let colors = color_value_damage(list, &old.colors, &new.colors, &new.transforms, scroll_offsets);
+    out.rects.extend(colors.rects);
+    out.needs_full |= colors.needs_full;
+    if views.is_empty() {
+        return out;
+    }
+    // The frames around each view item, with the live matrices of this frame: a view
+    // inside a turned or scaled frame is painted through it.
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, &new.transforms);
+    for item in &list.items {
+        if let DisplayListItem::VirtualView {
+            child_dom_id,
+            bounds,
+            content_offset,
+            ..
+        } = item
+        {
+            if let Some(child) = views.get(child_dom_id) {
+                if depth >= MAX_VIEW_DEPTH {
+                    out.needs_full = true;
+                } else {
+                    let inner = list_value_damage(child, views, old, new, scroll_offsets, depth + 1);
+                    let view_box = *bounds.inner();
+                    let (dx, dy) = (
+                        view_box.origin.x + content_offset.x,
+                        view_box.origin.y + content_offset.y,
+                    );
+                    for r in inner.rects {
+                        let in_list = LogicalRect {
+                            origin: LogicalPosition {
+                                x: r.origin.x + dx,
+                                y: r.origin.y + dy,
+                            },
+                            size: r.size,
+                        };
+                        // Outside the box it is behind the view's clip: not this view's pixels.
+                        let shown = intersect_logical_rects(in_list, view_box);
+                        if shown.size.width <= 0.0 || shown.size.height <= 0.0 {
+                            continue;
+                        }
+                        match stack.on_screen(shown) {
+                            Some(on_screen) => out.rects.push(on_screen),
+                            None => out.needs_full = true,
+                        }
+                    }
+                    if inner.needs_full {
+                        match stack.on_screen(view_box) {
+                            Some(on_screen) => out.rects.push(on_screen),
+                            None => out.needs_full = true,
+                        }
+                    }
+                }
+            }
+        }
+        stack.step(item);
+    }
+    out
+}
+
 /// Can the user see any of what `nodes`' animations change, right now?
 ///
 /// A node's GROUP is the reference frame the display list opens for it (or,
@@ -8286,6 +8398,233 @@ mod autotest_generated {
         assert!(
             ys.contains(&50.0),
             "new pixels at y=50 (offset 50), got {ys:?}"
+        );
+    }
+
+    // ============================== window_value_damage ======================
+
+    /// The values of a window with the transforms `t` bound under their key ids.
+    fn values_of(t: &[(usize, ComputedTransform3D)]) -> WindowGpuValues {
+        WindowGpuValues {
+            transforms: t.iter().copied().collect(),
+            ..WindowGpuValues::default()
+        }
+    }
+    fn view_item(child: u32, x: f32, y: f32, w: f32, h: f32, content_offset: (f32, f32)) -> DisplayListItem {
+        DisplayListItem::VirtualView {
+            child_dom_id: DomId { inner: child as usize },
+            bounds: wlr(x, y, w, h),
+            clip_rect: wlr(x, y, w, h),
+            content_offset: LogicalPosition::new(content_offset.0, content_offset.1),
+        }
+    }
+    /// A reference frame of `key` around `inner`, its box at (x, y) w x h.
+    fn frame_around(key: usize, (x, y, w, h): (f32, f32, f32, f32), inner: DisplayListItem) -> Vec<DisplayListItem> {
+        vec![
+            DisplayListItem::PushReferenceFrame {
+                transform_key: TransformKey { id: key },
+                initial_transform: ComputedTransform3D::IDENTITY,
+                bounds: wlr(x, y, w, h),
+            },
+            inner,
+            DisplayListItem::PopReferenceFrame,
+        ]
+    }
+    fn views_of(lists: Vec<(u32, DisplayList)>) -> BTreeMap<DomId, Arc<DisplayList>> {
+        lists
+            .into_iter()
+            .map(|(id, list)| (DomId { inner: id as usize }, Arc::new(list)))
+            .collect()
+    }
+
+    /// A node of a view's list is bound to a key in the VIEW's cache; the window's list holds
+    /// one `VirtualView` item that stays the same while the value moves. The change is
+    /// damaged where the view paints the child: the child's rects at the item's origin.
+    #[test]
+    fn a_value_moved_inside_a_view_damages_the_view_where_it_paints_the_content() {
+        let parent = dlist(vec![view_item(1, 50.0, 40.0, 300.0, 200.0, (0.0, 0.0))]);
+        let child = dlist(frame_around(3, (10.0, 10.0, 40.0, 30.0), rect_item(10.0, 10.0, 40.0, 30.0, ColorU { r: 255, g: 0, b: 0, a: 255 })));
+        let views = views_of(vec![(1, child)]);
+        let old = values_of(&[(3, ComputedTransform3D::IDENTITY)]);
+        let new = values_of(&[(3, translate(40.0, 20.0))]);
+
+        let d = window_value_damage(&parent, &views, &old, &new, &ScrollOffsetMap::new());
+
+        assert!(!d.needs_full, "an affine move of a view's node is no full repaint");
+        // The content (10, 10, 40, 30) in the child, at the old and the new matrix, at the
+        // item's origin (50, 40).
+        let covers = |r: &LogicalRect, x: f32, y: f32, w: f32, h: f32| {
+            r.origin.x <= x + 0.01
+                && r.origin.y <= y + 0.01
+                && r.origin.x + r.size.width >= x + w - 0.01
+                && r.origin.y + r.size.height >= y + h - 0.01
+        };
+        assert!(
+            d.rects.iter().any(|r| covers(r, 60.0, 50.0, 40.0, 30.0)),
+            "the old place on screen: {:?}",
+            d.rects
+        );
+        assert!(
+            d.rects.iter().any(|r| covers(r, 100.0, 70.0, 40.0, 30.0)),
+            "the new place on screen: {:?}",
+            d.rects
+        );
+        for r in &d.rects {
+            assert!(
+                r.origin.x >= 50.0 - 0.01 && r.origin.y >= 40.0 - 0.01
+                    && r.origin.x + r.size.width <= 350.0 + 0.01
+                    && r.origin.y + r.size.height <= 240.0 + 0.01,
+                "inside the view's box: {r:?}"
+            );
+        }
+    }
+
+    /// The content of a view that was panned sits at its materialized window's offset: the
+    /// rasteriser paints the child at `bounds.origin + content_offset`.
+    #[test]
+    fn the_damage_inside_a_panned_view_follows_the_content_offset() {
+        let parent = dlist(vec![view_item(1, 50.0, 40.0, 300.0, 200.0, (-30.0, -10.0))]);
+        let child = dlist(frame_around(3, (100.0, 100.0, 40.0, 30.0), rect_item(100.0, 100.0, 40.0, 30.0, ColorU { r: 255, g: 0, b: 0, a: 255 })));
+        let views = views_of(vec![(1, child)]);
+        let old = values_of(&[(3, ComputedTransform3D::IDENTITY)]);
+        let new = values_of(&[(3, translate(10.0, 0.0))]);
+
+        let d = window_value_damage(&parent, &views, &old, &new, &ScrollOffsetMap::new());
+
+        // (100, 100) in the child is at (50 - 30 + 100, 40 - 10 + 100) = (120, 130).
+        let old_rect = d.rects.iter().find(|r| (r.origin.x - 120.0).abs() < 0.01);
+        let new_rect = d.rects.iter().find(|r| (r.origin.x - 130.0).abs() < 0.01);
+        assert!(
+            old_rect.is_some() && new_rect.is_some(),
+            "the content is painted at origin + content offset: {:?}",
+            d.rects
+        );
+        assert!(d.rects.iter().all(|r| (r.origin.y - 130.0).abs() < 0.01), "{:?}", d.rects);
+    }
+
+    /// A change the view clips away is not this view's pixels.
+    #[test]
+    fn the_damage_inside_a_view_is_cut_to_the_views_box() {
+        let parent = dlist(vec![view_item(1, 50.0, 40.0, 100.0, 60.0, (0.0, 0.0))]);
+        // The node is far below the box.
+        let child = dlist(frame_around(3, (0.0, 500.0, 40.0, 30.0), rect_item(0.0, 500.0, 40.0, 30.0, ColorU { r: 255, g: 0, b: 0, a: 255 })));
+        let views = views_of(vec![(1, child)]);
+        let d = window_value_damage(
+            &parent,
+            &views,
+            &values_of(&[(3, ComputedTransform3D::IDENTITY)]),
+            &values_of(&[(3, translate(10.0, 0.0))]),
+            &ScrollOffsetMap::new(),
+        );
+        assert!(d.rects.is_empty() && !d.needs_full, "nothing to repaint in the box: {:?}", d.rects);
+    }
+
+    /// A matrix whose image is no rect cannot be placed: the whole view repaints - not the
+    /// whole window.
+    #[test]
+    fn a_perspective_matrix_inside_a_view_damages_the_views_box() {
+        let parent = dlist(vec![view_item(1, 50.0, 40.0, 300.0, 200.0, (0.0, 0.0))]);
+        let child = dlist(frame_around(3, (10.0, 10.0, 40.0, 30.0), opaque_rect(10.0, 10.0, 40.0, 30.0)));
+        let views = views_of(vec![(1, child)]);
+        let mut tilted = ComputedTransform3D::IDENTITY;
+        tilted.m[0][3] = 0.01;
+        let d = window_value_damage(
+            &parent,
+            &views,
+            &values_of(&[(3, ComputedTransform3D::IDENTITY)]),
+            &values_of(&[(3, tilted)]),
+            &ScrollOffsetMap::new(),
+        );
+        assert!(!d.needs_full, "a child's matrix is the view's business");
+        assert_eq!(d.rects.len(), 1, "{:?}", d.rects);
+        assert_eq!(
+            (d.rects[0].origin.x, d.rects[0].origin.y, d.rects[0].size.width, d.rects[0].size.height),
+            (50.0, 40.0, 300.0, 200.0),
+            "the view's box"
+        );
+    }
+
+    /// Nothing moved, nothing to damage - the idle frame stays idle; and a key bound in no
+    /// list of the window cannot affect its pixels.
+    #[test]
+    fn unchanged_values_and_unbound_keys_damage_nothing() {
+        let parent = dlist(vec![view_item(1, 50.0, 40.0, 300.0, 200.0, (0.0, 0.0))]);
+        let child = dlist(frame_around(3, (10.0, 10.0, 40.0, 30.0), opaque_rect(10.0, 10.0, 40.0, 30.0)));
+        let views = views_of(vec![(1, child)]);
+        let same = values_of(&[(3, translate(5.0, 5.0))]);
+        let d = window_value_damage(&parent, &views, &same, &same.clone(), &ScrollOffsetMap::new());
+        assert!(d.rects.is_empty() && !d.needs_full);
+
+        let d = window_value_damage(
+            &parent,
+            &views,
+            &values_of(&[(3, translate(5.0, 5.0)), (99, translate(0.0, 0.0))]),
+            &values_of(&[(3, translate(5.0, 5.0)), (99, translate(30.0, 0.0))]),
+            &ScrollOffsetMap::new(),
+        );
+        assert!(d.rects.is_empty() && !d.needs_full, "key 99 is bound nowhere: {:?}", d.rects);
+    }
+
+    /// The view paints through the frames around its item: inside a scrolled box and inside
+    /// a scaled frame the damage is where the view is painted, not where it is laid out.
+    #[test]
+    fn the_damage_inside_a_view_goes_through_the_frames_around_the_view() {
+        let child = dlist(frame_around(3, (0.0, 0.0, 40.0, 30.0), rect_item(0.0, 0.0, 40.0, 30.0, ColorU { r: 255, g: 0, b: 0, a: 255 })));
+        let views = views_of(vec![(1, child)]);
+        let old = values_of(&[(3, ComputedTransform3D::IDENTITY)]);
+        let new = values_of(&[(3, translate(20.0, 0.0))]);
+
+        // A scroll box scrolled by 40 px: the view's content box at y = 140 is painted at y = 100.
+        let scrolled = dlist(vec![
+            push_scroll(7, 0.0, 0.0, 400.0, 300.0),
+            view_item(1, 50.0, 140.0, 300.0, 100.0, (0.0, 0.0)),
+            DisplayListItem::PopScrollFrame,
+        ]);
+        let mut offsets: ScrollOffsetMap = HashMap::new();
+        offsets.insert(7, (0.0, 40.0));
+        let d = window_value_damage(&scrolled, &views, &old, &new, &offsets);
+        assert!(
+            !d.rects.is_empty() && d.rects.iter().all(|r| (r.origin.y - 100.0).abs() < 0.01),
+            "the scroll box moves the view up: {:?}",
+            d.rects
+        );
+
+        // A frame that scales its content by two about its origin (0, 0): the view's content
+        // lands at twice the offset, twice the size.
+        let scaled = dlist(frame_around(9, (0.0, 0.0, 400.0, 300.0), view_item(1, 50.0, 40.0, 300.0, 200.0, (0.0, 0.0))));
+        let old = WindowGpuValues { transforms: [(3, ComputedTransform3D::IDENTITY), (9, scale(2.0))].into_iter().collect(), ..WindowGpuValues::default() };
+        let new = WindowGpuValues { transforms: [(3, translate(20.0, 0.0)), (9, scale(2.0))].into_iter().collect(), ..WindowGpuValues::default() };
+        let d = window_value_damage(&scaled, &views, &old, &new, &ScrollOffsetMap::new());
+        assert!(!d.needs_full);
+        assert!(
+            d.rects.iter().any(|r| (r.origin.x - 100.0).abs() < 0.01
+                && (r.origin.y - 80.0).abs() < 0.01
+                && (r.size.width - 80.0).abs() < 0.01
+                && (r.size.height - 60.0).abs() < 0.01),
+            "the old place, scaled: {:?}",
+            d.rects
+        );
+    }
+
+    /// A view inside a view: the inner one's value reaches the screen through both boxes.
+    #[test]
+    fn a_value_inside_a_view_inside_a_view_is_damaged_through_both() {
+        let parent = dlist(vec![view_item(1, 50.0, 40.0, 300.0, 200.0, (0.0, 0.0))]);
+        let middle = dlist(vec![view_item(2, 20.0, 10.0, 200.0, 100.0, (0.0, 0.0))]);
+        let inner = dlist(frame_around(3, (5.0, 5.0, 40.0, 30.0), rect_item(5.0, 5.0, 40.0, 30.0, ColorU { r: 255, g: 0, b: 0, a: 255 })));
+        let views = views_of(vec![(1, middle), (2, inner)]);
+        let d = window_value_damage(
+            &parent,
+            &views,
+            &values_of(&[(3, ComputedTransform3D::IDENTITY)]),
+            &values_of(&[(3, translate(10.0, 0.0))]),
+            &ScrollOffsetMap::new(),
+        );
+        // (5, 5) in the inner view is at (50 + 20 + 5, 40 + 10 + 5) = (75, 55).
+        assert!(
+            d.rects.iter().any(|r| (r.origin.x - 75.0).abs() < 0.01 && (r.origin.y - 55.0).abs() < 0.01),
+            "{:?}",
+            d.rects
         );
     }
 

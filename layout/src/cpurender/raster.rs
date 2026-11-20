@@ -1941,7 +1941,18 @@ impl CpuRenderState {
         self
     }
 
-    /// Build from a `GpuValueCache` snapshot.
+    /// Paint with `values`: the transforms, opacities and colours of every DOM of the
+    /// window ([`WindowGpuValues`]), whichever list a key is bound in.
+    #[must_use]
+    pub fn with_gpu_values(mut self, values: WindowGpuValues) -> Self {
+        self.transforms = values.transforms;
+        self.opacities = values.opacities;
+        self.colors = values.colors;
+        self
+    }
+
+    /// Build from a `GpuValueCache` snapshot (ONE DOM's: a window paints with
+    /// [`Self::with_gpu_values`]).
     #[must_use]
     pub fn from_gpu_cache(
         gpu_cache: Option<&azul_core::gpu::GpuValueCache>,
@@ -2000,6 +2011,48 @@ pub fn extract_gpu_values(
 
 /// Bound background colours by `ColorKey.id` ([`extract_gpu_colors`]).
 pub type GpuColors = HashMap<usize, ColorU>;
+
+/// The GPU values the display lists of EVERY DOM of a window bind, by key id: what a CPU
+/// frame paints with and what its damage layer diffs from frame to frame.
+///
+/// Each DOM has a value cache of its own (`GpuStateManager::get_cache`), and a `VirtualView`'s
+/// child is a DOM: a node of it that carries a CSS `transform` or `opacity` binds a key in
+/// the CHILD's cache, and a write of the value alone (`set_css_property` on that node) moves
+/// it there and rebuilds no list. `WebRender` reads every DOM's cache
+/// (`synchronize_gpu_values`); the CPU paths read the root's alone, so a value-only write
+/// inside a view drew nothing until the view rendered again. The keys are unique across the
+/// window (one counter for every `TransformKey`, `OpacityKey` and `ColorKey`), so the DOMs'
+/// maps merge without a collision.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WindowGpuValues {
+    /// Transform values by `TransformKey.id`.
+    pub transforms: HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    /// Opacity values by `OpacityKey.id`.
+    pub opacities: HashMap<usize, f32>,
+    /// Background colours by `ColorKey.id`.
+    pub colors: GpuColors,
+}
+
+impl WindowGpuValues {
+    /// The values `doms` bind in `gpu_state`: [`extract_gpu_values`] and
+    /// [`extract_gpu_colors`] of each DOM's cache, merged. A DOM without a cache binds
+    /// nothing.
+    #[must_use]
+    pub fn of_doms(
+        gpu_state: &crate::managers::gpu_state::GpuStateManager,
+        doms: impl IntoIterator<Item = azul_core::dom::DomId>,
+    ) -> Self {
+        let mut values = Self::default();
+        for dom in doms {
+            let cache = gpu_state.get_cache(dom);
+            let (transforms, opacities) = extract_gpu_values(cache, dom);
+            values.transforms.extend(transforms);
+            values.opacities.extend(opacities);
+            values.colors.extend(extract_gpu_colors(cache));
+        }
+        values
+    }
+}
 
 /// The bound background colours of the GPU value cache, `key.id -> colour`
 /// (`GpuValueCache::for_each_bound_color`): what the renderer paints a
@@ -9989,6 +10042,73 @@ mod autotest_generated {
 
         let empty = CpuRenderState::from_gpu_cache(None, DomId::ROOT_ID, &ScrollOffsetMap::new());
         assert!(empty.transforms.is_empty() && empty.opacities.is_empty());
+    }
+
+    /// The GPU values a window paints with are those of EVERY DOM: a node inside a
+    /// `VirtualView` binds its key in the view's own cache. Reading the root's alone
+    /// (what the CPU paths did) left a value-only write inside a view undrawn.
+    #[test]
+    fn window_values_hold_the_values_of_every_dom_a_views_included() {
+        use crate::managers::gpu_state::GpuStateManager;
+        use azul_core::resources::ColorKey;
+
+        let scaled = ComputedTransform3D {
+            m: [
+                [2.0, 0.0, 0.0, 0.0],
+                [0.0, 2.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        };
+        let child = DomId { inner: 1 };
+        let mut gpu = GpuStateManager::default();
+        {
+            let root = gpu.get_or_create_cache(DomId::ROOT_ID);
+            root.css_transform_keys
+                .insert(NodeId::new(1), TransformKey { id: 10 });
+            root.css_current_transform_values
+                .insert(NodeId::new(1), ComputedTransform3D::IDENTITY);
+            // The root's own scrollbar: its fade belongs to the root.
+            root.scrollbar_v_opacity_keys
+                .insert((DomId::ROOT_ID, NodeId::new(0)), OpacityKey { id: 11 });
+            root.scrollbar_v_opacity_values
+                .insert((DomId::ROOT_ID, NodeId::new(0)), 0.75);
+        }
+        {
+            let view = gpu.get_or_create_cache(child);
+            view.css_transform_keys
+                .insert(NodeId::new(4), TransformKey { id: 20 });
+            view.css_current_transform_values
+                .insert(NodeId::new(4), scaled);
+            view.opacity_keys.insert(NodeId::new(4), OpacityKey { id: 21 });
+            view.current_opacity_values.insert(NodeId::new(4), 0.5);
+            view.color_keys.insert(NodeId::new(5), ColorKey { id: 22 });
+            view.current_color_values.insert(NodeId::new(5), BLACK);
+        }
+
+        let window = WindowGpuValues::of_doms(&gpu, [DomId::ROOT_ID, child]);
+        assert_eq!(window.transforms.len(), 2, "the root's and the view's: {:?}", window.transforms);
+        assert_eq!(window.transforms.get(&10).map(|t| t.m), Some(ComputedTransform3D::IDENTITY.m));
+        assert_eq!(window.transforms.get(&20).map(|t| t.m), Some(scaled.m));
+        assert_eq!(window.opacities.get(&21), Some(&0.5), "a view's opacity");
+        assert_eq!(window.opacities.get(&11), Some(&0.75), "the root's scrollbar fade");
+        assert_eq!(window.colors.get(&22), Some(&BLACK), "a view's fading background");
+
+        // The root alone - what a CPU frame read before - holds none of the view's.
+        let root_only = WindowGpuValues::of_doms(&gpu, [DomId::ROOT_ID]);
+        assert!(!root_only.transforms.contains_key(&20));
+        assert!(!root_only.opacities.contains_key(&21));
+        assert!(root_only.colors.is_empty());
+
+        // A DOM without a cache binds nothing.
+        let nothing = WindowGpuValues::of_doms(&gpu, [DomId { inner: 9 }]);
+        assert_eq!(nothing, WindowGpuValues::default());
+
+        // The state a frame paints with carries all of them.
+        let state = CpuRenderState::new(ScrollOffsetMap::new()).with_gpu_values(window.clone());
+        assert_eq!(state.transforms.get(&20).map(|t| t.m), Some(scaled.m));
+        assert_eq!(state.opacities.get(&21), Some(&0.5));
+        assert_eq!(state.colors.get(&22), Some(&BLACK));
     }
 
     // ==================================================================

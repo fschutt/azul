@@ -166,6 +166,12 @@ mod scrollbar_fade_css_tests;
 #[cfg(test)]
 mod class_swap_tests;
 
+// A value written to a node inside a `VirtualView` (the editor's zoom: `translate() scale()` to
+// the map's picture) is painted by the next CPU frame: the frame's values and damage are those
+// of every DOM of the window, not the root's alone.
+#[cfg(test)]
+mod cpu_view_values_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.

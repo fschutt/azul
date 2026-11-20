@@ -71,13 +71,10 @@ pub(super) struct CpuBackend {
     pub(super) previous_zombie_rects: Vec<LogicalRect>,
     /// Previous frame's `VirtualView` child-DOM display lists.
     pub(super) previous_vview_dls: BTreeMap<DomId, Arc<DisplayList>>,
-    /// GPU-animated values of the previous frame, for the frame-to-frame diff.
-    pub(super) previous_gpu_transforms:
-        std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
-    pub(super) previous_gpu_opacities: std::collections::HashMap<usize, f32>,
-    /// Bound background colours of the previous frame (`key.id -> colour`),
-    /// for the same diff: a colour fade changes no item either.
-    pub(super) previous_gpu_colors: crate::cpurender::GpuColors,
+    /// The GPU-animated values of the previous frame, for the frame-to-frame diff: the
+    /// transforms, opacities and bound background colours of EVERY DOM of the window (a
+    /// `VirtualView`'s child binds its own keys), since a value changes no item.
+    pub(super) previous_gpu_values: cpurender::WindowGpuValues,
 }
 
 impl Default for CpuBackend {
@@ -108,9 +105,7 @@ impl CpuBackend {
             previous_scroll_offsets: cpurender::ScrollOffsetMap::new(),
             previous_zombie_rects: Vec::new(),
             previous_vview_dls: BTreeMap::new(),
-            previous_gpu_transforms: std::collections::HashMap::new(),
-            previous_gpu_opacities: std::collections::HashMap::new(),
-            previous_gpu_colors: std::collections::HashMap::new(),
+            previous_gpu_values: cpurender::WindowGpuValues::default(),
         }
     }
 
@@ -215,51 +210,54 @@ impl CpuBackend {
             .scroll_manager
             .build_scroll_offset_map(dom_id, &result.scroll_id_to_node_id);
 
+        // The `VirtualView` child lists: the value diff below reaches into them, the
+        // child-content damage diffs them, and the renderer composites them.
+        let vview_dls: BTreeMap<DomId, Arc<DisplayList>> = layout_window
+            .layout_results
+            .iter()
+            .filter(|(id, _)| id.inner != dom_id.inner)
+            .map(|(id, r)| (*id, r.display_list.clone()))
+            .collect();
+
         // GPU-value diff: thumb position / fade opacity / transforms change
-        // WITHOUT any display-list item changing (items only carry the keys).
-        let gpu_cache_early = layout_window.gpu_state_manager.get_cache(dom_id);
-        let (gpu_transforms, gpu_opacities) =
-            cpurender::extract_gpu_values(gpu_cache_early, dom_id);
+        // WITHOUT any display-list item changing (items only carry the keys). The values
+        // of EVERY DOM: a node inside a view binds its key in the view's own cache, and a
+        // write of the value alone moves it there without a new list.
+        let gpu_values = cpurender::WindowGpuValues::of_doms(
+            &layout_window.gpu_state_manager,
+            layout_window.layout_results.keys().copied(),
+        );
         // In VIEWPORT space, like the shell's: an item inside a scrolled frame
-        // is repainted where the frame paints it.
-        let mut gpu_damage = cpurender::gpu_value_damage(
+        // is repainted where the frame paints it. The colour fade frame (the bound
+        // background rects whose colour moved) and the views' lists are part of it.
+        let gpu_damage = cpurender::window_value_damage(
             display_list,
-            &self.previous_gpu_transforms,
-            &self.previous_gpu_opacities,
-            &gpu_transforms,
-            &gpu_opacities,
+            &vview_dls,
+            &self.previous_gpu_values,
+            &gpu_values,
             &scroll_offsets,
         );
-        // A colour fade frame: the bound background rects whose colour moved.
-        let gpu_colors = cpurender::extract_gpu_colors(gpu_cache_early);
-        let color_damage = cpurender::color_value_damage(
-            display_list,
-            &self.previous_gpu_colors,
-            &gpu_colors,
-            &gpu_transforms,
-            &scroll_offsets,
-        );
-        gpu_damage.rects.extend(color_damage.rects);
-        gpu_damage.needs_full |= color_damage.needs_full;
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         if has_gpu_damage && std::env::var_os("AZ_PATCH_DEBUG").is_some() {
-            let td: Vec<_> = gpu_transforms
+            let td: Vec<_> = gpu_values
+                .transforms
                 .iter()
-                .filter(|(k, v)| self.previous_gpu_transforms.get(k) != Some(v))
+                .filter(|(k, v)| self.previous_gpu_values.transforms.get(k) != Some(v))
                 .map(|(k, v)| (*k, v.m[3][0], v.m[3][1]))
                 .collect();
-            let od: Vec<_> = gpu_opacities
+            let od: Vec<_> = gpu_values
+                .opacities
                 .iter()
-                .filter(|(k, v)| self.previous_gpu_opacities.get(k) != Some(v))
+                .filter(|(k, v)| self.previous_gpu_values.opacities.get(k) != Some(v))
                 .map(|(k, v)| (*k, *v))
                 .collect();
             eprintln!(
                 "[GPUDMG] prev_t={} cur_t={} prev_o={} cur_o={} changed_t={td:?} changed_o={od:?} \
                  rects={:?}",
-                self.previous_gpu_transforms.len(),
-                gpu_transforms.len(),
-                self.previous_gpu_opacities.len(),
-                gpu_opacities.len(),
+                self.previous_gpu_values.transforms.len(),
+                gpu_values.transforms.len(),
+                self.previous_gpu_values.opacities.len(),
+                gpu_values.opacities.len(),
                 gpu_damage.rects,
             );
         }
@@ -283,10 +281,7 @@ impl CpuBackend {
             .collect();
         // The frame before's matrices stay for the list diff below: a change
         // under an animated frame is damaged where each frame painted it.
-        let old_gpu_transforms =
-            core::mem::replace(&mut self.previous_gpu_transforms, gpu_transforms);
-        self.previous_gpu_opacities = gpu_opacities;
-        self.previous_gpu_colors = gpu_colors;
+        let old_gpu_values = core::mem::replace(&mut self.previous_gpu_values, gpu_values);
 
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
@@ -335,8 +330,8 @@ impl CpuBackend {
                     &scroll_offsets,
                     patch_hint.as_ref().map(|(h, _)| h),
                     cpurender::FrameValues {
-                        old: Some(&old_gpu_transforms),
-                        new: Some(&self.previous_gpu_transforms),
+                        old: Some(&old_gpu_values.transforms),
+                        new: Some(&self.previous_gpu_values.transforms),
                     },
                 ) {
                     Some((damage, moved)) => {
@@ -349,14 +344,7 @@ impl CpuBackend {
             _ => None, // first frame, shrink or ref-frame transform → full repaint
         };
 
-        // VirtualView child-DOM damage.
-        let vview_dls: BTreeMap<DomId, Arc<DisplayList>> = layout_window
-            .layout_results
-            .iter()
-            .filter(|(id, _)| id.inner != dom_id.inner)
-            .map(|(id, r)| (*id, r.display_list.clone()))
-            .collect();
-
+        // VirtualView child-DOM damage (the lists were collected above).
         // Scroll: the display list is UNCHANGED on scroll, so the diff above
         // only ever catches the scrollbar. Collect (clip, delta) per frame whose
         // offset changed so the still-visible pixels can be MOVED and only the
@@ -368,7 +356,7 @@ impl CpuBackend {
             &scroll_offsets,
             &self.previous_scroll_offsets,
             // The matrices this frame paints with, kept for the next one.
-            &self.previous_gpu_transforms,
+            &self.previous_gpu_values.transforms,
             dpi_factor,
         );
         let has_scroll = !scroll_shifts.is_empty();
@@ -623,7 +611,7 @@ impl CpuBackend {
                     dpi_factor,
                     // The offsets and matrices the clip was projected with.
                     &scroll_offsets,
-                    &self.previous_gpu_transforms,
+                    &self.previous_gpu_values.transforms,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
@@ -649,7 +637,6 @@ impl CpuBackend {
             cpurender::coalesce_damage_rects(&mut all_damage);
         }
 
-        let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
         // Incremental repaints must raster at the offsets the surrounding
         // (un-repainted) pixels are ALREADY at — the baseline.
         let render_offsets = if is_incremental {
@@ -657,10 +644,12 @@ impl CpuBackend {
         } else {
             &scroll_offsets
         };
-        let render_state =
-            cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, render_offsets)
-                .with_system_style(layout_window.system_style.clone())
-                .with_virtual_view_display_lists(vview_dls);
+        // The values of every DOM paint, a view's child's included: the values this frame's
+        // damage was diffed from, which `previous_gpu_values` holds now.
+        let render_state = cpurender::CpuRenderState::new(render_offsets.clone())
+            .with_gpu_values(self.previous_gpu_values.clone())
+            .with_system_style(layout_window.system_style.clone())
+            .with_virtual_view_display_lists(vview_dls);
 
         // An INCREMENTAL frame paints exactly its damage - and nothing when it
         // has none (the twin of the shell renderer's law: a frame that reports

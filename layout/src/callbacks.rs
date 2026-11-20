@@ -5468,10 +5468,11 @@ impl CallbackInfo {
             .scroll_manager
             .build_scroll_offset_map(dom_id, &layout_result.scroll_id_to_node_id);
 
-        // Build CPU render state from GpuValueCache - provides current
-        // transform values (scrollbar thumb positions) and opacity values
-        // (scrollbar visibility fading) that the GPU path animates dynamically.
-        let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
+        // Build CPU render state from the GpuValueCaches - provides current
+        // transform values (scrollbar thumb positions, CSS transforms) and opacity
+        // values (scrollbar visibility fading) that the GPU path animates dynamically.
+        // Of EVERY DOM: a node inside a `VirtualView` binds its key in the view's
+        // own cache, and its value moves there without a new display list.
         // Virtual-view child DOMs (map tiles, embedded views) render through
         // their OWN display lists composited at the placeholder's position —
         // without them a screenshot showed grey placeholders where the live
@@ -5484,7 +5485,11 @@ impl CallbackInfo {
                 .map(|(id, r)| (*id, r.display_list.clone()))
                 .collect();
 
-        let render_state = CpuRenderState::from_gpu_cache(gpu_cache, dom_id, &scroll_offsets)
+        let render_state = CpuRenderState::new(scroll_offsets.clone())
+            .with_gpu_values(crate::cpurender::WindowGpuValues::of_doms(
+                &layout_window.gpu_state_manager,
+                layout_window.layout_results.keys().copied(),
+            ))
             .with_system_style(layout_window.system_style.clone())
             .with_virtual_view_display_lists(vview_dls);
 
@@ -10523,6 +10528,109 @@ mod autotest_generated {
 
             assert!(info.take_screenshot_base64(DomId::ROOT_ID).is_err());
         });
+    }
+
+    /// The view's child of the screenshot test: a red picture that carries an identity
+    /// transform at build time.
+    #[cfg(feature = "cpurender")]
+    extern "C" fn picture_view(
+        _data: RefAny,
+        info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        use azul_core::dom::Dom;
+        let page = Dom::create_div().with_child(Dom::create_div().with_class("picture".into()).with_css(
+            "position: absolute; left: 40px; top: 30px; width: 40px; height: 30px; \
+             background: #ff0000; transform: translate(0px, 0px) scale(1);",
+        ));
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.get_logical_size());
+        azul_core::callbacks::VirtualViewReturn::with_dom(page, rect, rect)
+    }
+
+    /// A screenshot paints with the GPU values of EVERY DOM, a view's child included: the map
+    /// editor's zoom is a value written to a node of the view's DOM (no list, no render of the
+    /// view), and the screenshot - what the e2e runner and the debug server take - showed the
+    /// picture unscaled, which WebRender never did.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_screenshot_paints_a_value_written_inside_a_view() {
+        use azul_core::dom::Dom;
+        use azul_css::props::{
+            basic::{FloatValue, PixelValue},
+            property::CssProperty,
+            style::{StyleTransform, StyleTransformScale2D, StyleTransformTranslate2D},
+        };
+
+        let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_virtual_view(
+                RefAny::new(()),
+                azul_core::callbacks::VirtualViewCallback::create(picture_view),
+            )
+            .with_css("position: absolute; left: 50px; top: 40px; width: 300px; height: 200px;"),
+        );
+        let styled = azul_core::styled_dom::StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let child = *lw
+            .layout_results
+            .keys()
+            .find(|dom| **dom != DomId::ROOT_ID)
+            .expect("the view's DOM");
+        let nodes = lw.layout_results[&child].styled_dom.node_data.as_container();
+        let picture = (0..nodes.len())
+            .map(NodeId::new)
+            .find(|n| nodes[*n].has_class("picture"))
+            .expect("the picture");
+        // translate(40px, 20px) scale(2) about the centre: 80 x 60 at (60, 35) of the content.
+        let tier = lw
+            .apply_content_change(crate::overlay::ContentChange::NodeCss {
+                dom_id: child,
+                node_id: picture,
+                props: vec![CssProperty::transform(
+                    vec![
+                        StyleTransform::Translate(StyleTransformTranslate2D {
+                            x: PixelValue::px(40.0),
+                            y: PixelValue::px(20.0),
+                        }),
+                        StyleTransform::Scale(StyleTransformScale2D {
+                            x: FloatValue::new(2.0),
+                            y: FloatValue::new(2.0),
+                        }),
+                    ]
+                    .into(),
+                )],
+                override_only: false,
+            })
+            .tier;
+        assert_eq!(tier, crate::overlay::ContentDirtyTier::Paint, "a value: no list");
+
+        let shot = with_info_on(lw, node_none(), |info| info.render_screenshot(DomId::ROOT_ID))
+            .expect("a screenshot");
+        let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+        for y in 0..shot.height() {
+            for x in 0..shot.width() {
+                let i = ((y * shot.width() + x) * 4) as usize;
+                let d = shot.data();
+                if d[i] > 150 && d[i].saturating_sub(d[i + 1].max(d[i + 2])) > 40 {
+                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                }
+            }
+        }
+        // The view's corner is (50, 40): the box is at (110, 75), 80 x 60.
+        assert_eq!(
+            (x0, y0, x1, y1),
+            (110, 75, 189, 134),
+            "the screenshot draws the picture scaled and moved, as the GPU does"
+        );
     }
 
     // ------------------------------------------------------------------
