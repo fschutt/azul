@@ -1187,6 +1187,7 @@ impl ReferenceFrameGroup {
         clip_stack: &mut Vec<Option<AzRect>>,
         real_clip_stack: &mut Vec<Option<AzRect>>,
         scroll_offset_stack: &mut Vec<(f32, f32)>,
+        below: (u32, u32),
     ) -> Self {
         // As the layer builder places the frame: the identity paints where it
         // is laid out, a translation paints moved into the pixels below (the
@@ -1269,8 +1270,21 @@ impl ReferenceFrameGroup {
         // around it: that clip applies where the group lands, at the pop.
         let group_clip = AzRect::from_xywh(0.0, 0.0, width as f32, height as f32)
             .unwrap_or(AzRect::DENY_ALL);
-        clip_stack.push(Some(group_clip));
         real_clip_stack.push(Some(group_clip));
+        // Of that box, only the part that can land in the pixels below is painted: the clip
+        // around the push, mapped back through the matrix (and the walk culls the items outside
+        // it). Where the matrix cannot be inverted, or has a perspective part, all of it.
+        let painted_clip = match group_visible_part(&matrix, outer_clip, below, (width, height)) {
+            None => group_clip,
+            Some((x0, y0, x1, y1)) => AzRect::from_xywh(
+                x0 as f32,
+                y0 as f32,
+                (x1 - x0).max(0) as f32,
+                (y1 - y0).max(0) as f32,
+            )
+            .unwrap_or(AzRect::DENY_ALL),
+        };
+        clip_stack.push(Some(painted_clip));
 
         Self::Isolated(Box::new(TransformGroup {
             width,
@@ -1342,6 +1356,148 @@ impl TransformGroup {
             blit_pixmap_projective_clipped(surface, pixmap, &self.matrix, 1.0, self.outer_clip);
         }
     }
+}
+
+/// How far past the part of a group that can land the walk still paints, in group pixels: the
+/// composite's bilinear taps (two) and what a content's own effects (a blur, a halo) reach into it.
+const GROUP_VISIBLE_MARGIN: i32 = 64;
+
+thread_local! {
+    /// Tests: paint every item of a group, whatever lands (the way groups were painted before
+    /// the walk culled inside them).
+    #[cfg(test)]
+    static GROUP_CULL_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Does the walk cull by the clip it paints under (always, outside tests)?
+fn walk_culls_by_clip() -> bool {
+    #[cfg(test)]
+    {
+        !GROUP_CULL_OFF.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        true
+    }
+}
+
+/// The part of an isolated group's surface that can land in the pixels below it, as a box
+/// `(x0, y0, x1, y1)` of group pixels, half-open, widened by [`GROUP_VISIBLE_MARGIN`] and cut to
+/// the surface of `surface` pixels. `matrix` takes a group pixel to a pixel of the surface below,
+/// `outer` is the clip open around the push in that surface's pixels and `below` its size. The
+/// box is empty when nothing lands. `None` when the matrix has a perspective part or cannot be
+/// inverted: the whole surface is kept.
+#[allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
+fn group_visible_part(
+    matrix: &Mat3,
+    outer: Option<(i32, i32, i32, i32)>,
+    below: (u32, u32),
+    surface: (u32, u32),
+) -> Option<(i32, i32, i32, i32)> {
+    if !walk_culls_by_clip() || !mat3_is_affine(matrix) {
+        return None;
+    }
+    let (a, b, tx, c, d, ty) = (matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
+    let det = a * d - b * c;
+    if !det.is_finite() || det.abs() < 1e-9 || ![tx, ty].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let (below_w, below_h) = (below.0 as i32, below.1 as i32);
+    let (bx0, by0, bx1, by1) = match outer {
+        Some((x0, y0, x1, y1)) => (x0.max(0), y0.max(0), x1.min(below_w), y1.min(below_h)),
+        None => (0, 0, below_w, below_h),
+    };
+    if bx1 <= bx0 || by1 <= by0 {
+        return Some((0, 0, 0, 0));
+    }
+    // The four corners of what lands, back to group pixels.
+    let back = |px: i32, py: i32| {
+        let (dx, dy) = (f64::from(px) - tx, f64::from(py) - ty);
+        ((d * dx - b * dy) / det, (-c * dx + a * dy) / det)
+    };
+    let corners = [back(bx0, by0), back(bx1, by0), back(bx1, by1), back(bx0, by1)];
+    let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
+    let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (x, y) in corners {
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    }
+    if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let margin = f64::from(GROUP_VISIBLE_MARGIN);
+    let clamp = |v: f64, hi: u32| (v.clamp(-1.0e9, 1.0e9) as i32).clamp(0, hi as i32);
+    Some((
+        clamp((x0 - margin).floor(), surface.0),
+        clamp((y0 - margin).floor(), surface.1),
+        clamp((x1 + margin).ceil(), surface.0),
+        clamp((y1 + margin).ceil(), surface.1),
+    ))
+}
+
+/// Does `item` paint nothing under `clip`, the innermost clip the walk paints under (device px
+/// of the surface being painted)? The items of a view or of an isolated group are laid out far
+/// past the pixels they can land on, and every one used to be painted to a clip that cut it.
+/// `scroll_offset` is the walk's offset: items are stored at layout coordinates and paint at
+/// `pos - offset`. State items are never skipped (a push skipped under its pop corrupts the
+/// stacks), nor is anything while a `filter` group is open (a blur reaches in from outside), and
+/// a text shadow widens what an item can paint by its offset, blur and spread.
+fn outside_active_clip(
+    item: &DisplayListItem,
+    text_shadow_stack: &[StyleBoxShadow],
+    scroll_offset: (f32, f32),
+    clip: Option<AzRect>,
+    mask_stack: &[MaskEntry],
+    dpi_factor: f32,
+) -> bool {
+    if !walk_culls_by_clip() || item.is_state_management() || dpi_factor <= 0.0 {
+        return false;
+    }
+    let Some(clip) = clip else {
+        return false;
+    };
+    if mask_stack
+        .iter()
+        .any(|e| matches!(e, MaskEntry::Filter(_) | MaskEntry::ImageMask { .. }))
+    {
+        return false;
+    }
+    let bounds = if text_shadow_stack.is_empty() {
+        item.visual_bounds().or_else(|| item.bounds())
+    } else {
+        item.bounds()
+    };
+    let Some(bounds) = bounds else {
+        return false;
+    };
+    let length = |v: &azul_css::props::basic::pixel::PixelValue| {
+        v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+    };
+    let reach = text_shadow_stack
+        .iter()
+        .map(|sh| {
+            length(&sh.offset_x.inner).abs().max(length(&sh.offset_y.inner).abs())
+                + length(&sh.blur_radius.inner).max(0.0)
+                + length(&sh.spread_radius.inner).max(0.0)
+        })
+        .fold(0.0_f32, f32::max);
+    let on_surface = LogicalRect {
+        origin: LogicalPosition {
+            x: bounds.origin.x - scroll_offset.0 - reach,
+            y: bounds.origin.y - scroll_offset.1 - reach,
+        },
+        size: LogicalSize {
+            width: bounds.size.width + 2.0 * reach,
+            height: bounds.size.height + 2.0 * reach,
+        },
+    };
+    let clip_logical = LogicalRect {
+        origin: LogicalPosition { x: clip.x / dpi_factor, y: clip.y / dpi_factor },
+        size: LogicalSize { width: clip.width / dpi_factor, height: clip.height / dpi_factor },
+    };
+    !rects_overlap_or_adjacent(&on_surface, &clip_logical, 0.0)
 }
 
 /// Is the walk inside an isolated reference frame ([`TransformGroup`])?
@@ -2139,6 +2295,19 @@ fn render_display_list_with_state(
 
     let _p_loop = crate::probe::Probe::span("raster_loop");
     for (item_idx, item) in display_list.items.iter().enumerate() {
+        crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
+        if inside_isolated_transform(&mask_stack)
+            && outside_active_clip(
+                item,
+                &text_shadow_stack,
+                *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+                clip_stack.last().copied().flatten(),
+                &mask_stack,
+                dpi_factor,
+            )
+        {
+            continue;
+        }
         let _p_item = crate::probe::Probe::span(probe_label_for_item(item));
         let bound_item = item_with_bound_color(item, display_list.color_binding(item_idx), render_state);
         let item = &*bound_item;
@@ -2543,6 +2712,23 @@ pub fn render_display_list_damaged(
             // because skipping a Push while processing its matching Pop corrupts stacks.
             // Nor is anything culled inside a turned / scaled reference frame:
             // it paints at its layout place and lands elsewhere at the pop.
+            // Inside a turned or scaled frame the damage rect is not the clip the items paint
+            // under (they paint at their layout place, in the frame's surface): they are culled
+            // by the surface's own clip instead, which is the damage mapped back through the frame.
+            if inside_isolated_transform(&mask_stack) {
+                let (sdx, sdy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
+                if outside_active_clip(
+                    item,
+                    &text_shadow_stack,
+                    (sdx, sdy),
+                    clip_stack.last().copied().flatten(),
+                    &mask_stack,
+                    dpi_factor,
+                ) {
+                    skipped += 1;
+                    continue;
+                }
+            }
             if !item.is_state_management() && !inside_isolated_transform(&mask_stack) {
                 // INK bounds for the cull, not box bounds: `Text.bounds()`
                 // returns the IFC owner's WHOLE content box, so a 3px scroll
@@ -2739,6 +2925,9 @@ pub fn render_single_item(
             // this every damage rect repainted a transformed box at its
             // layout place (mid-slide ghosts; a lasting transform ghosted
             // wherever damage touched its layout box).
+            let below = surfaces
+                .last()
+                .map_or((pixmap.width, pixmap.height), |s| (s.width, s.height));
             let group = ReferenceFrameGroup::begin(
                 m,
                 &scroll_rect(bounds.inner()),
@@ -2748,6 +2937,7 @@ pub fn render_single_item(
                 clip_stack,
                 real_clip_stack,
                 scroll_offset_stack,
+                below,
             );
             mask_stack.push(MaskEntry::Transform(group));
             return Ok(());
@@ -3416,6 +3606,17 @@ pub fn render_single_item(
                 let mut view_surfaces: Vec<AzulPixmap> = Vec::new();
                 for (child_idx, child_item) in child_dl.items.iter().enumerate() {
                     crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
+                    // A view's list is a map or a page far larger than the box it shows.
+                    if outside_active_clip(
+                        child_item,
+                        text_shadow_stack,
+                        scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0)),
+                        clip_stack.last().copied().flatten(),
+                        mask_stack,
+                        dpi_factor,
+                    ) {
+                        continue;
+                    }
                     render_single_item(
                         child_item,
                         child_dl.uniform_text_bgs.get(child_idx).copied().flatten(),
@@ -8730,6 +8931,191 @@ mod text_shadow_tests {
         assert!(made() - made_before >= 9, "without the pool every run makes one: {}", made() - made_before);
         assert_eq!(channel_difference(&first, &unpooled), (0, 0), "the pool changes no pixel");
         assert_eq!(channel_difference(&second, &unpooled_turned), (0, 0), "nor in a group");
+    }
+
+    // ---- culling inside isolated groups and view lists (CPU step 2) ----
+
+    /// `n x n` opaque cells, 10 px apart, each its own colour, from (0, 0): a page far larger than
+    /// what a window shows of it.
+    fn cell_items(n: usize) -> Vec<DisplayListItem> {
+        let mut items = Vec::new();
+        for i in 0..n {
+            for j in 0..n {
+                let bounds: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+                    origin: LogicalPosition { x: (i * 10) as f32, y: (j * 10) as f32 },
+                    size: LogicalSize { width: 9.0, height: 9.0 },
+                }
+                .into();
+                items.push(DisplayListItem::Rect {
+                    bounds,
+                    color: ColorU {
+                        r: ((i * 37 + j * 11) % 251) as u8,
+                        g: ((i * 5 + j * 53) % 241) as u8,
+                        b: ((i * 17 + j * 3 + 90) % 211) as u8,
+                        a: 255,
+                    },
+                    border_radius: BorderRadius::default(),
+                });
+            }
+        }
+        items
+    }
+
+    fn frame_of(key: usize, m: [[f32; 4]; 4], inner: Vec<DisplayListItem>) -> Vec<DisplayListItem> {
+        let page: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 400.0, height: 400.0 },
+        }
+        .into();
+        let mut items = vec![DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: key },
+            initial_transform: azul_core::transform::ComputedTransform3D { m },
+            bounds: page,
+        }];
+        items.extend(inner);
+        items.push(DisplayListItem::PopReferenceFrame);
+        items
+    }
+
+    fn scaled(k: f32, tx: f32, ty: f32) -> [[f32; 4]; 4] {
+        [[k, 0.0, 0.0, 0.0], [0.0, k, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [tx, ty, 0.0, 1.0]]
+    }
+
+    fn turned_and_scaled(degrees: f32, k: f32, tx: f32, ty: f32) -> [[f32; 4]; 4] {
+        let (s, c) = degrees.to_radians().sin_cos();
+        [[k * c, k * s, 0.0, 0.0], [-k * s, k * c, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [tx, ty, 0.0, 1.0]]
+    }
+
+    /// `dl` painted into a 200 x 120 white frame (all of it, or the `strips` of it), with the walk
+    /// culling by the clip or not: the frame and how many items were painted.
+    fn painted_culling(
+        dl: &DisplayList,
+        state: &CpuRenderState,
+        strips: Option<&[LogicalRect]>,
+        culling: bool,
+        dpi: f32,
+    ) -> (AzulPixmap, u64) {
+        let (rr, fm) = (RendererResources::default(), empty_font_manager());
+        let mut pm = AzulPixmap::new(200, 120).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        GROUP_CULL_OFF.with(|c| c.set(!culling));
+        crate::cpu_counters::reset();
+        match strips {
+            Some(strips) => {
+                render_display_list_damaged(dl, &mut pm, dpi, &rr, &fm, &mut gc, state, strips).unwrap();
+            }
+            None => render_display_list_with_state(dl, &mut pm, dpi, &rr, &fm, &mut gc, state).unwrap(),
+        }
+        let painted = crate::cpu_counters::take().items_painted;
+        GROUP_CULL_OFF.with(|c| c.set(false));
+        (pm, painted)
+    }
+
+    /// What a group paints is only what lands: the picture is the one the unculled walk paints,
+    /// pixel for pixel, and far fewer items are painted - through a scale, a turn, two frames in
+    /// one another, and a damaged strip.
+    #[test]
+    fn a_group_paints_only_what_lands_and_the_picture_is_the_unculled_one() {
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let strip = [LogicalRect {
+            origin: LogicalPosition { x: 50.0, y: 20.0 },
+            size: LogicalSize { width: 40.0, height: 30.0 },
+        }];
+        let inner_turned = frame_of(2, turned_and_scaled(13.0, 0.8, 10.0, 5.0), cell_items(60));
+        let cases: Vec<(&str, DisplayList, Option<&[LogicalRect]>)> = vec![
+            ("scaled", DisplayList { items: frame_of(1, scaled(1.5, -60.0, -30.0), cell_items(40)), ..Default::default() }, None),
+            ("scaled, damaged strip", DisplayList { items: frame_of(1, scaled(1.5, -60.0, -30.0), cell_items(40)), ..Default::default() }, Some(&strip)),
+            ("turned and scaled", DisplayList { items: frame_of(1, turned_and_scaled(10.0, 1.3, 20.0, -20.0), cell_items(40)), ..Default::default() }, None),
+            ("turned 45 degrees", DisplayList { items: frame_of(1, turned_and_scaled(45.0, 1.0, 110.0, -40.0), cell_items(40)), ..Default::default() }, None),
+            ("turned 70 degrees, damaged strip", DisplayList { items: frame_of(1, turned_and_scaled(70.0, 0.9, 150.0, -60.0), cell_items(40)), ..Default::default() }, Some(&strip)),
+            ("shrunk", DisplayList { items: frame_of(1, scaled(0.4, 30.0, 10.0), cell_items(40)), ..Default::default() }, None),
+            ("a turned frame in a scaled one", DisplayList { items: frame_of(1, scaled(1.2, -30.0, -10.0), inner_turned), ..Default::default() }, None),
+        ];
+        for (name, dl, strips, dpi) in cases.iter().flat_map(|(n, d, s)| [1.0_f32, 2.0].map(move |dpi| (*n, d, *s, dpi))) {
+            let name = format!("{name} at {dpi}x");
+            let name = name.as_str();
+            let (culled, painted) = painted_culling(dl, &state, strips, true, dpi);
+            let (whole, painted_whole) = painted_culling(dl, &state, strips, false, dpi);
+            assert_eq!(channel_difference(&culled, &whole), (0, 0), "{name}: the picture is the unculled one");
+            let coloured = culled.data().chunks_exact(4).filter(|p| p[..3] != [255, 255, 255]).count();
+            assert!(coloured > 400, "{name}: the picture shows the page ({coloured} px), the equality is not vacuous");
+            // The shrunk page (0.4) lands almost whole in the frame: nothing to cull but the margin.
+            let at_most = match name {
+                n if n.starts_with("shrunk") => painted_whole,
+                n if n.starts_with("a turned frame") => painted_whole * 3 / 4,
+                _ => painted_whole / 2,
+            };
+            assert!(painted <= at_most, "{name}: {painted} of {painted_whole} items painted, at most {at_most}");
+        }
+    }
+
+    /// A matrix that cannot be inverted, or has a perspective part, keeps the whole group; so
+    /// does a clip that is not there; one that lands nowhere keeps none; the box that lands is
+    /// the clip mapped back, widened by the margin.
+    #[test]
+    fn the_part_of_a_group_that_lands_is_the_clip_mapped_back_through_its_matrix() {
+        // p = 2 s + (10, 10)
+        let m: Mat3 = [2.0, 0.0, 10.0, 0.0, 2.0, 10.0, 0.0, 0.0, 1.0];
+        let big = (200, 200);
+        let margin = GROUP_VISIBLE_MARGIN;
+        // the clip (30, 30)-(50, 50) is s in (10, 10)-(20, 20)
+        assert_eq!(
+            group_visible_part(&m, Some((30, 30, 50, 50)), (400, 400), big),
+            Some((0.max(10 - margin), 0.max(10 - margin), 20 + margin, 20 + margin))
+        );
+        // no clip: all of the surface that lands in a 100 x 100 target: s up to 45
+        assert_eq!(
+            group_visible_part(&m, None, (100, 100), big),
+            Some((0, 0, 45 + margin, 45 + margin))
+        );
+        // nothing lands: the clip is outside the target
+        assert_eq!(group_visible_part(&m, Some((500, 500, 600, 600)), (100, 100), big), Some((0, 0, 0, 0)));
+        // singular: kept whole
+        let singular: Mat3 = [0.0, 0.0, 10.0, 0.0, 2.0, 10.0, 0.0, 0.0, 1.0];
+        assert_eq!(group_visible_part(&singular, Some((30, 30, 50, 50)), (400, 400), big), None);
+        // perspective: kept whole
+        let perspective: Mat3 = [2.0, 0.0, 10.0, 0.0, 2.0, 10.0, 0.001, 0.0, 1.0];
+        assert_eq!(group_visible_part(&perspective, Some((30, 30, 50, 50)), (400, 400), big), None);
+        // turned by 90 degrees: s = rotated clip
+        let quarter: Mat3 = [0.0, -1.0, 100.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        let part = group_visible_part(&quarter, Some((40, 30, 60, 50)), (400, 400), big).expect("a box");
+        assert!(part.2 > part.0 && part.3 > part.1, "{part:?}");
+    }
+
+    /// The items of a view far larger than its box: only those that can show are painted, and
+    /// the picture is the unculled one.
+    #[test]
+    fn a_view_paints_only_the_items_of_its_list_that_show_in_its_box() {
+        use azul_core::dom::DomId;
+        let child = DisplayList { items: cell_items(40), ..Default::default() };
+        let child_len = child.items.len() as u64;
+        let view = DisplayListItem::VirtualView {
+            child_dom_id: DomId { inner: 1 },
+            bounds: LogicalRect {
+                origin: LogicalPosition { x: 20.0, y: 10.0 },
+                size: LogicalSize { width: 100.0, height: 60.0 },
+            }
+            .into(),
+            clip_rect: LogicalRect {
+                origin: LogicalPosition { x: 20.0, y: 10.0 },
+                size: LogicalSize { width: 100.0, height: 60.0 },
+            }
+            .into(),
+            content_offset: LogicalPosition { x: 0.0, y: 0.0 },
+        };
+        let host = DisplayList { items: vec![view], ..Default::default() };
+        let state = CpuRenderState::new(ScrollOffsetMap::new())
+            .with_virtual_view_display_lists(
+                [(DomId { inner: 1 }, std::sync::Arc::new(child))].into_iter().collect(),
+            );
+        for dpi in [1.0_f32, 2.0] {
+            let (culled, painted) = painted_culling(&host, &state, None, true, dpi);
+            let (whole, painted_whole) = painted_culling(&host, &state, None, false, dpi);
+            assert_eq!(channel_difference(&culled, &whole), (0, 0), "{dpi}x: the picture is the unculled one");
+            assert!(painted_whole >= child_len, "{dpi}x: without the cull every item is painted: {painted_whole}");
+            assert!(painted < 200, "{dpi}x: the box shows about 60 of {child_len} cells: {painted} painted");
+        }
     }
 }
 
