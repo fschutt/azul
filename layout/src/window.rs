@@ -12000,6 +12000,7 @@ impl LayoutWindow {
         self.scroll_manager = ScrollManager::new();
         // The bars that were still to fade went with their boxes and their scroll stamps.
         self.gpu_state_manager.scrollbar_fade_left_ms.clear();
+        self.gpu_state_manager.scrollbar_fade_ends.clear();
     }
 
     /// Set scroll position for a node
@@ -19220,10 +19221,18 @@ impl LayoutWindow {
         let fade_left_ms = u64::try_from(fade_left_ns.div_ceil(1_000_000)).unwrap_or(u64::MAX);
         if fade_left_ms == 0 {
             gpu_state_manager.scrollbar_fade_left_ms.remove(&dom_id);
+            gpu_state_manager.scrollbar_fade_ends.remove(&dom_id);
         } else {
             gpu_state_manager
                 .scrollbar_fade_left_ms
                 .insert(dom_id, fade_left_ms);
+            // The deadline too: the milliseconds are only as fresh as this frame.
+            let left = azul_core::task::Duration::System(
+                azul_core::task::SystemTimeDiff::from_nanos_u128(fade_left_ns),
+            );
+            gpu_state_manager
+                .scrollbar_fade_ends
+                .insert(dom_id, now.add_optional_duration(Some(&left)));
         }
 
         events
@@ -30119,6 +30128,7 @@ impl LayoutWindow {
             self.remap_node_ids(child, &gone);
             self.gpu_state_manager.caches.remove(&child);
             self.gpu_state_manager.scrollbar_fade_left_ms.remove(&child);
+            self.gpu_state_manager.scrollbar_fade_ends.remove(&child);
             self.gl_texture_cache.solved_textures.remove(&child);
         }
     }

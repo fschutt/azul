@@ -113,6 +113,14 @@ pub struct GpuStateManager {
     /// `LayoutWindow::synchronize_scrollbar_opacity`; a bar with a delay of 0
     /// never fades and counts nothing.
     pub scrollbar_fade_left_ms: BTreeMap<DomId, u64>,
+    /// The instant each DOM's overlay scrollbars run out
+    /// ([`Self::scrollbar_fade_left_ms`] as of the last synchronization, as a
+    /// deadline): what [`Self::scrollbar_fade_left`] counts down to by the
+    /// clock. The milliseconds alone are a snapshot, and only a frame
+    /// refreshes it: a window that has stopped drawing - an idle one, which
+    /// is what a settle wait waits for - held its last answer for ever, so
+    /// `wait_settled` never saw a scrolled list's bar fade.
+    pub scrollbar_fade_ends: BTreeMap<DomId, azul_core::task::Instant>,
     /// Digest of the dynamic properties (scrollbar opacities + transforms)
     /// last handed to the renderer, so an IDENTICAL set can be recognised and
     /// skipped. See [`GpuStateManager::gpu_values_changed`].
@@ -263,12 +271,24 @@ impl GpuStateManager {
     }
 
     /// The longest any DOM's overlay scrollbar still has to be on screen, in
-    /// milliseconds ([`Self::scrollbar_fade_left_ms`]); 0 when none is.
+    /// milliseconds ([`Self::scrollbar_fade_left_ms`]); 0 when none is. Counted
+    /// down by the clock to the deadline the last synchronization set
+    /// ([`Self::scrollbar_fade_ends`]), so it reaches 0 while no frame is drawn.
     #[must_use]
     pub fn scrollbar_fade_left(&self) -> u64 {
+        #[cfg(feature = "std")]
+        let now = azul_core::task::Instant::now();
         self.scrollbar_fade_left_ms
-            .values()
-            .copied()
+            .iter()
+            .map(|(dom, snapshot)| {
+                #[cfg(feature = "std")]
+                if let Some(end) = self.scrollbar_fade_ends.get(dom) {
+                    let left = end.duration_since(&now).as_nanos().div_ceil(1_000_000);
+                    return u64::try_from(left).unwrap_or(u64::MAX).min(*snapshot);
+                }
+                let _ = dom;
+                *snapshot
+            })
             .max()
             .unwrap_or(0)
     }
@@ -282,6 +302,7 @@ impl GpuStateManager {
             fade_duration,
             scrollbar_fade_active: false,
             scrollbar_fade_left_ms: BTreeMap::new(),
+            scrollbar_fade_ends: BTreeMap::new(),
             last_gpu_value_digest: None,
             last_image_digest: None,
             last_scroll_digest: None,
@@ -296,6 +317,7 @@ impl GpuStateManager {
     pub fn note_display_lists_submitted(
         &mut self,
         layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        env: u64,
     ) {
         self.submitted_translation_env = env;
         self.submitted_display_lists = layout_results

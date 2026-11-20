@@ -770,6 +770,11 @@ pub const fn font_ref_to_parsed_font(font_ref: &azul_css::props::basic::FontRef)
 #[cfg(test)]
 mod gpu_path_tests;
 
+// A scrolled container goes idle after its scrollbar has faded: the time left counts down by the
+// clock, not by frames.
+#[cfg(test)]
+mod scrollbar_fade_tests;
+
 // The caret blink is a patch of the display list, not a rebuild of it.
 #[cfg(test)]
 mod caret_blink_tests;
