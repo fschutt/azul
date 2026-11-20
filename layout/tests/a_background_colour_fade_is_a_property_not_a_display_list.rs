@@ -130,7 +130,7 @@ fn submit(lw: &mut LayoutWindow) {
         ref mut gpu_state_manager,
         ..
     } = *lw;
-    gpu_state_manager.note_display_lists_submitted(layout_results);
+    gpu_state_manager.note_display_lists_submitted(layout_results, 0);
 }
 
 fn unsubmitted(lw: &LayoutWindow) -> bool {

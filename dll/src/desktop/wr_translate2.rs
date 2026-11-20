@@ -1199,7 +1199,7 @@ pub(crate) fn register_frame_resources(
     layout_window: &mut LayoutWindow,
     txn: &mut WrTransaction,
     dpi: DpiScaleFactor,
-) {
+) -> bool {
     // --- Fonts ---
     let (font_updates, live_font_hashes) =
         collect_font_resource_updates(layout_window, &layout_window.renderer_resources, dpi);
@@ -1258,9 +1258,10 @@ pub(crate) fn register_frame_resources(
 
     // --- Video tiles: in-place-replaced node images, under their stable keys ---
     // BEFORE the display-list scan, so their frames are found registered and
-    // are not added again under a per-frame key. (This is a full build: the
-    // display lists are resent anyway, so a new slot needs nothing more.)
-    let _ = upload_overlay_images(layout_window, txn);
+    // are not added again under a per-frame key. A slot keyed for the first
+    // time is named by no list WebRender holds: the caller sends the lists
+    // again (the return value).
+    let overlay_new_slot = upload_overlay_images(layout_window, txn).new_slot;
 
     // --- Images ---
     let (image_updates, live_image_hashes) =
@@ -1323,6 +1324,8 @@ pub(crate) fn register_frame_resources(
             txn.update_resources(wr_image_resources);
         }
     }
+
+    overlay_new_slot
 }
 
 // ==== Video tiles: one renderer image per tile, updated in place ====
@@ -1785,7 +1788,9 @@ pub fn generate_frame(
     }
 
     // A full frame rebuilds the scene, so "identical to what I sent last time"
-    // is the wrong question: everything has to go across again regardless.
+    // is the wrong question for the property values, the images and the scroll
+    // offsets: they go across again regardless. (The display lists are another
+    // matter: WebRender keeps the ones it has, `submit_display_lists`.)
     layout_window
         .gpu_state_manager
         .invalidate_submitted_digests();
@@ -1815,66 +1820,26 @@ pub fn generate_frame(
         // Collect + register font and image resources, then add them to the
         // transaction. Shared with build_webrender_transaction.
         let dpi = layout_window.current_window_state.size.get_hidpi_factor();
-        register_frame_resources(layout_window, txn, dpi);
+        let overlay_new_slot = register_frame_resources(layout_window, txn, dpi);
 
-        // Build display lists for all DOMs and add to transaction
-        let viewport_size =
-            DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-
-        for (dom_id, layout_result) in &layout_window.layout_results {
-            let pipeline_id = wr_translate_pipeline_id(PipelineId(
-                dom_id.inner as u32,
-                layout_window.document_id.id,
-            ));
-
-            match crate::desktop::compositor2::translate_displaylist_to_wr(
-                &layout_result.display_list,
-                pipeline_id,
-                viewport_size,
-                &layout_window.renderer_resources,
-                dpi,
-                Vec::new(), // Resources already added above
-                &layout_window.layout_results,
-                layout_window.document_id.id,
-            ) {
-                Ok((_, built_display_list, nested_pipelines)) => {
-                    log_debug!(
-                        LogCategory::Rendering,
-                        "[generate_frame] Adding display list for DOM {} to transaction (with {} \
-                         nested pipelines), display_list_size_in_bytes={}",
-                        dom_id.inner,
-                        nested_pipelines.len(),
-                        built_display_list.size_in_bytes(),
-                    );
-
-                    // Add main pipeline
-                    txn.set_display_list(
-                        webrender::api::Epoch(layout_window.epoch.into_u32()),
-                        (pipeline_id, built_display_list),
-                    );
-
-                    // Add all nested virtualized view pipelines
-                    for (nested_pipeline_id, nested_display_list) in nested_pipelines {
-                        log_debug!(
-                            LogCategory::Rendering,
-                            "[generate_frame] Adding nested pipeline {:?} to transaction",
-                            nested_pipeline_id
-                        );
-                        txn.set_display_list(
-                            webrender::api::Epoch(layout_window.epoch.into_u32()),
-                            (nested_pipeline_id, nested_display_list),
-                        );
-                    }
-                }
-                Err(e) => {
-                    log_debug!(
-                        LogCategory::Rendering,
-                        "[generate_frame] Error building display list for DOM {}: {}",
-                        dom_id.inner,
-                        e
-                    );
-                }
-            }
+        // Translate the DOMs' display lists the renderer does not hold yet and
+        // add them to the transaction (a DOM whose list it holds is neither
+        // translated nor sent: see `submit_display_lists`). A slot keyed for the
+        // first time names an image the held lists do not: they go again.
+        let submission = submit_display_lists(
+            txn,
+            layout_window,
+            textures.new_slot || overlay_new_slot,
+        );
+        log_debug!(
+            LogCategory::Rendering,
+            "[generate_frame] Display lists: {} translated, {} held by the renderer, {} failed",
+            submission.translated.len(),
+            submission.held.len(),
+            submission.failed.len()
+        );
+        if submission.failed.is_empty() {
+            note_display_lists_submitted(layout_window);
         }
 
         // Increment epoch after using it
@@ -2660,7 +2625,7 @@ pub fn build_webrender_transaction(
     layout_window
         .gpu_state_manager
         .invalidate_submitted_digests();
-    let _ = register_overlay_textures(layout_window, txn);
+    let textures = register_overlay_textures(layout_window, txn);
 
     // Step 1: Collect + register font and image resources, then add them to the
     // transaction. Shared with generate_frame.
@@ -2668,7 +2633,7 @@ pub fn build_webrender_transaction(
         LogCategory::Rendering,
         "[build_atomic_txn] Step 1: Collecting + registering font/image resources"
     );
-    register_frame_resources(layout_window, txn, dpi);
+    let overlay_new_slot = register_frame_resources(layout_window, txn, dpi);
 
     // Step 1.7: Pre-populate scrollbar opacity keys in GPU cache BEFORE building
     // display lists. The display list generator reads opacity_key from the GPU cache
@@ -2715,8 +2680,10 @@ pub fn build_webrender_transaction(
         }
     }
 
-    // Step 2: Build and add display lists for all DOMs to transaction
-    set_display_lists(txn, layout_window)?;
+    // Step 2: Build and add the display lists the renderer does not hold to the
+    // transaction. A slot keyed for the first time names an image the held
+    // lists do not: they go again.
+    set_display_lists(txn, layout_window, textures.new_slot || overlay_new_slot)?;
 
     // Step 3: Set root pipeline
     log_debug!(
@@ -2742,53 +2709,97 @@ pub fn build_webrender_transaction(
     build_webrender_transaction_tail(txn, layout_window)
 }
 
-/// Translate every DOM's display list (and its nested virtual-view pipelines)
-/// and put them into `txn` at the current epoch. The display-list half of a
-/// full transaction, and what the lightweight one sends when a video tile got
-/// its stable image key and WebRender's list does not name it yet.
-fn set_display_lists(
-    txn: &mut WrTransaction,
-    layout_window: &mut LayoutWindow,
-) -> Result<(), &'static str> {
-    set_display_lists_of(txn, layout_window)?;
+/// The display lists of a transaction, and what became of each DOM's.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct DisplayListSubmission {
+    /// The DOMs whose list was translated and put into the transaction.
+    pub(crate) translated: Vec<DomId>,
+    /// The DOMs whose list the renderer already holds: neither translated nor
+    /// sent.
+    pub(crate) held: Vec<DomId>,
+    /// The DOMs whose list could not be translated.
+    pub(crate) failed: Vec<DomId>,
+}
+
+/// What a display list is translated against besides the list itself: the
+/// renderer's scale (every coordinate is scaled by it). A held list is held
+/// only while this is what it was translated against.
+fn translation_env(layout_window: &LayoutWindow) -> u64 {
+    u64::from(
+        layout_window
+            .current_window_state
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get()
+            .to_bits(),
+    )
+}
+
+/// Record the lists as the renderer now holds them (see
+/// `GpuStateManager::note_display_lists_submitted`).
+fn note_display_lists_submitted(layout_window: &mut LayoutWindow) {
+    let env = translation_env(layout_window);
     let LayoutWindow {
         ref layout_results,
         ref mut gpu_state_manager,
         ..
     } = *layout_window;
-    gpu_state_manager.note_display_lists_submitted(layout_results);
-    Ok(())
+    gpu_state_manager.note_display_lists_submitted(layout_results, env);
 }
 
-/// Build every DOM's display list into `txn` (see [`set_display_lists`],
-/// which records what was sent).
-fn set_display_lists_of(
+/// Translate the DOMs' display lists and put them into `txn` at the current
+/// epoch, EACH DOM'S LIST ONCE and only if the renderer does not hold it.
+///
+/// `WebRender` keeps every pipeline's list until another replaces it
+/// (`Scene::set_display_list`), and a `VirtualView` is an iframe of the
+/// child DOM's own pipeline. So the list a DOM had when it was last sent is
+/// still what `WebRender` draws, and a frame that changed only the host's list
+/// (a hover, the caret) sends the host's list and leaves the child's where it
+/// is: a map's 5 000-item child was translated TWICE per frame before (once
+/// inline by the host's translation, once as a DOM of its own), and again for a
+/// restyle that did not touch it. `force_all` sends everything (an image a held
+/// list names was keyed anew).
+///
+/// The caller records what was sent ([`note_display_lists_submitted`]) once
+/// the transaction is complete.
+fn submit_display_lists(
     txn: &mut WrTransaction,
     layout_window: &LayoutWindow,
-) -> Result<(), &'static str> {
+    force_all: bool,
+) -> DisplayListSubmission {
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let viewport_size =
         DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
     let dpi = layout_window.current_window_state.size.get_hidpi_factor();
+    let env = translation_env(layout_window);
+    let epoch = webrender::api::Epoch(layout_window.epoch.into_u32());
 
     log_debug!(
         LogCategory::Rendering,
-        "[build_atomic_txn] Step 2: Building display lists for {} DOMs",
-        layout_window.layout_results.len()
+        "[submit_display_lists] {} DOMs, epoch {:?}, force_all={}",
+        layout_window.layout_results.len(),
+        epoch,
+        force_all
     );
 
+    let mut submission = DisplayListSubmission::default();
     for (dom_id, layout_result) in &layout_window.layout_results {
+        if !force_all
+            && layout_window.gpu_state_manager.display_list_is_held(
+                *dom_id,
+                &layout_result.display_list,
+                env,
+            )
+        {
+            submission.held.push(*dom_id);
+            continue;
+        }
+
         let pipeline_id = wr_translate_pipeline_id(PipelineId(
             dom_id.inner as u32,
             layout_window.document_id.id,
         ));
-
-        log_debug!(
-            LogCategory::Rendering,
-            "[build_atomic_txn] Building display list for DOM {}",
-            dom_id.inner
-        );
-
         match crate::desktop::compositor2::translate_displaylist_to_wr(
             &layout_result.display_list,
             pipeline_id,
@@ -2799,44 +2810,48 @@ fn set_display_lists_of(
             &layout_window.layout_results,
             layout_window.document_id.id,
         ) {
-            Ok((_, built_display_list, nested_pipelines)) => {
-                let epoch = webrender::api::Epoch(layout_window.epoch.into_u32());
+            Ok((_, built_display_list)) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[build_atomic_txn] Adding display list for DOM {} (pipeline {:?}, epoch \
-                     {:?}, {} nested)",
+                    "[submit_display_lists] Adding display list for DOM {} (pipeline {:?}, \
+                     epoch {:?}), display_list_size_in_bytes={}",
                     dom_id.inner,
                     pipeline_id,
                     epoch,
-                    nested_pipelines.len()
+                    built_display_list.size_in_bytes(),
                 );
-
-                // Add main pipeline
                 txn.set_display_list(epoch, (pipeline_id, built_display_list));
-
-                // Add all nested virtualized view pipelines
-                for (nested_pipeline_id, nested_display_list) in nested_pipelines {
-                    log_debug!(
-                        LogCategory::Rendering,
-                        "[build_atomic_txn] Adding nested pipeline {:?} (epoch {:?})",
-                        nested_pipeline_id,
-                        epoch
-                    );
-                    txn.set_display_list(epoch, (nested_pipeline_id, nested_display_list));
-                }
+                submission.translated.push(*dom_id);
             }
             Err(e) => {
                 log_debug!(
                     LogCategory::Rendering,
-                    "[build_atomic_txn] Error building display list for DOM {}: {}",
+                    "[submit_display_lists] Error building display list for DOM {}: {}",
                     dom_id.inner,
                     e
                 );
-                return Err("Failed to build display list");
+                submission.failed.push(*dom_id);
             }
         }
     }
-    Ok(())
+    submission
+}
+
+/// Put the display lists the renderer does not hold into `txn` (see
+/// [`submit_display_lists`]) and record what it now holds. The display-list
+/// half of a full transaction, and what the lightweight one sends when a video
+/// tile got its stable image key and WebRender's list does not name it yet.
+fn set_display_lists(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    force_all: bool,
+) -> Result<DisplayListSubmission, &'static str> {
+    let submission = submit_display_lists(txn, layout_window, force_all);
+    if !submission.failed.is_empty() {
+        return Err("Failed to build display list");
+    }
+    note_display_lists_submitted(layout_window);
+    Ok(submission)
 }
 
 /// Steps 5-7 of a full transaction: scroll offsets, scrollbar fades, GPU
@@ -2954,11 +2969,14 @@ pub fn build_image_only_transaction(
     // A list patched in place since the last submission (a colour or a
     // gradient fade, a content patch) goes too: nothing else tells the
     // renderer, which kept drawing the list as it was.
-    let lists_unsubmitted = layout_window
-        .gpu_state_manager
-        .display_lists_unsubmitted(&layout_window.layout_results);
+    let env_changed = layout_window.gpu_state_manager.submitted_translation_env
+        != translation_env(layout_window);
+    let lists_unsubmitted = env_changed
+        || layout_window
+            .gpu_state_manager
+            .display_lists_unsubmitted(&layout_window.layout_results);
     if overlay.new_slot || textures.new_slot || lists_rebuilt || lists_unsubmitted {
-        set_display_lists(txn, layout_window)?;
+        set_display_lists(txn, layout_window, overlay.new_slot || textures.new_slot)?;
         layout_window.epoch.increment();
     } else {
         txn.skip_scene_builder();
@@ -3253,6 +3271,8 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
     layout_window.pending_virtual_view_updates.clear();
 
     // For each VirtualView, rebuild and submit its display list
+    let mut sent: Vec<(DomId, std::sync::Arc<azul_layout::solver3::display_list::DisplayList>)> =
+        Vec::new();
     for (child_dom_id, parent_dom_id, node_id) in child_dom_ids {
         // Get the layout result for the VirtualView's content
         let layout_result = match layout_window.layout_results.get(&child_dom_id) {
@@ -3287,7 +3307,7 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
             &layout_window.layout_results,
             layout_window.document_id.id,
         ) {
-            Ok((_, built_display_list, nested_pipelines)) => {
+            Ok((_, built_display_list)) => {
                 log_debug!(
                     LogCategory::Rendering,
                     "[process_virtual_view_updates] Submitting display list for VirtualView DOM \
@@ -3296,24 +3316,14 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
                     pipeline_id
                 );
 
-                // Submit the updated display list
+                // Submit the updated display list. A VirtualView inside it is
+                // a DOM of its own in `layout_results`, which the caller
+                // submits (or holds) like this one.
                 txn.set_display_list(
                     WrEpoch(layout_window.epoch.into_u32()),
                     (pipeline_id, built_display_list),
                 );
-
-                // Submit any nested pipelines (VirtualViews within VirtualViews)
-                for (nested_pipeline_id, nested_display_list) in nested_pipelines {
-                    log_debug!(
-                        LogCategory::Rendering,
-                        "[process_virtual_view_updates] Submitting nested pipeline {:?}",
-                        nested_pipeline_id
-                    );
-                    txn.set_display_list(
-                        WrEpoch(layout_window.epoch.into_u32()),
-                        (nested_pipeline_id, nested_display_list),
-                    );
-                }
+                sent.push((child_dom_id, std::sync::Arc::clone(&layout_result.display_list)));
             }
             Err(e) => {
                 log_debug!(
@@ -3325,6 +3335,13 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
                 );
             }
         }
+    }
+
+    // The renderer holds these lists now (`GpuStateManager::display_list_is_held`).
+    for (dom_id, list) in sent {
+        layout_window
+            .gpu_state_manager
+            .note_one_display_list_submitted(dom_id, &list);
     }
 }
 
@@ -3699,5 +3716,188 @@ mod gl_texture_lifetime_tests {
             gl_texture_cache::get_texture(&id).is_none(),
             "a texture no display list has drawn for several frames is freed"
         );
+    }
+}
+
+#[cfg(test)]
+mod display_list_submission_tests {
+    //! Which display lists a transaction translates and sends.
+    //!
+    //! A `VirtualView` is an iframe of its child DOM's own pipeline, and
+    //! `WebRender` keeps every pipeline's list until another replaces it. A map
+    //! window is a host list (the sidebars, the toolbar) and a child (the tiles,
+    //! 5 000 items): the child was translated TWICE per frame (inline by the
+    //! host's translation, and as a DOM of its own), and again for every
+    //! restyle of the host that did not touch it (a hover, the caret blink:
+    //! 2.3 s of a 38 000-item window, 0.27 s of a map frame in logging alone).
+
+    use azul_core::{
+        callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+        dom::{Dom, DomId},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        refany::RefAny,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::{note_display_lists_submitted, set_display_lists, submit_display_lists, WrTransaction};
+    use crate::desktop::compositor2::TRANSLATIONS;
+
+    /// Sixty rows of painted boxes: the child's list holds a few hundred items.
+    extern "C" fn rows(_data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+        let mut dom = Dom::create_div();
+        for i in 0..60 {
+            dom = dom.with_child(
+                Dom::create_div().with_css(
+                    if i % 2 == 0 {
+                        "height: 20px; background: #3366cc;"
+                    } else {
+                        "height: 20px; background: #cc6633;"
+                    },
+                ),
+            );
+        }
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
+        VirtualViewReturn::with_dom(dom, rect, rect)
+    }
+
+    /// A host page: a bar, and a view over the rest.
+    fn window() -> LayoutWindow {
+        let mut dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("height: 30px; background: #444444;"))
+            .with_child(
+                Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(rows))
+                    .with_css("width: 300px; height: 200px;"),
+            );
+        let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_new_generation(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the host lays out");
+        lw
+    }
+
+    fn child_of(lw: &LayoutWindow) -> DomId {
+        *lw.layout_results
+            .keys()
+            .find(|dom| **dom != DomId::ROOT_ID)
+            .expect("the view's child DOM is laid out")
+    }
+
+    /// The translations `f` made on this thread, by the counter of the compositor.
+    fn translations_during(f: impl FnOnce()) -> usize {
+        let before = TRANSLATIONS.with(core::cell::Cell::get);
+        f();
+        TRANSLATIONS.with(core::cell::Cell::get) - before
+    }
+
+    #[test]
+    fn every_dom_of_a_window_with_a_view_is_translated_once() {
+        let mut lw = window();
+        let child = child_of(&lw);
+        assert!(
+            lw.layout_results[&child].display_list.items.len() > 20,
+            "the child's list holds the rows"
+        );
+        let mut txn = WrTransaction::new();
+        let mut submission = None;
+        let translations = translations_during(|| {
+            submission = Some(set_display_lists(&mut txn, &mut lw, false).expect("translates"));
+        });
+        let submission = submission.expect("a submission");
+        assert_eq!(
+            submission.translated,
+            vec![DomId::ROOT_ID, child],
+            "the host and its child, each once"
+        );
+        assert!(submission.held.is_empty());
+        assert_eq!(
+            translations, 2,
+            "two lists, two translations: the host's translation named the child's pipeline and \
+             translated the child's list again, inline"
+        );
+    }
+
+    #[test]
+    fn a_second_frame_of_the_same_lists_translates_nothing() {
+        let mut lw = window();
+        let child = child_of(&lw);
+        let mut txn = WrTransaction::new();
+        set_display_lists(&mut txn, &mut lw, false).expect("translates");
+        let mut again = None;
+        let translations = translations_during(|| {
+            again = Some(set_display_lists(&mut WrTransaction::new(), &mut lw, false).expect("ok"));
+        });
+        let again = again.expect("a submission");
+        assert_eq!(translations, 0, "WebRender holds both lists");
+        assert!(again.translated.is_empty());
+        assert_eq!(again.held, vec![DomId::ROOT_ID, child]);
+    }
+
+    /// REGRESSION: a hover or a caret blink rebuilds the HOST's list. The child
+    /// is the same list: it is neither translated nor sent again.
+    #[test]
+    fn a_rebuilt_host_list_sends_the_host_and_holds_the_view() {
+        let mut lw = window();
+        let child = child_of(&lw);
+        set_display_lists(&mut WrTransaction::new(), &mut lw, false).expect("translates");
+        let child_list = std::sync::Arc::clone(&lw.layout_results[&child].display_list);
+
+        lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        assert!(
+            std::sync::Arc::ptr_eq(&child_list, &lw.layout_results[&child].display_list),
+            "the host's restyle did not touch the child's list"
+        );
+        let mut got = None;
+        let translations = translations_during(|| {
+            got = Some(set_display_lists(&mut WrTransaction::new(), &mut lw, false).expect("ok"));
+        });
+        let got = got.expect("a submission");
+        assert_eq!(got.translated, vec![DomId::ROOT_ID], "only the host's list is new");
+        assert_eq!(got.held, vec![child]);
+        assert_eq!(translations, 1, "one list translated, not the child's 60 rows again");
+    }
+
+    #[test]
+    fn a_changed_view_list_is_sent_alone() {
+        let mut lw = window();
+        let child = child_of(&lw);
+        set_display_lists(&mut WrTransaction::new(), &mut lw, false).expect("translates");
+        lw.regenerate_display_list_for_dom(child);
+        let got = set_display_lists(&mut WrTransaction::new(), &mut lw, false).expect("ok");
+        assert_eq!(got.translated, vec![child]);
+        assert_eq!(got.held, vec![DomId::ROOT_ID]);
+    }
+
+    /// Everything the renderer holds was translated against its scale, and a new
+    /// scale (a window moved to another screen) translates it all again - as a
+    /// slot keyed for the first time does (`force_all`).
+    #[test]
+    fn a_new_scale_or_a_new_image_key_sends_every_list_again() {
+        let mut lw = window();
+        set_display_lists(&mut WrTransaction::new(), &mut lw, false).expect("translates");
+
+        let forced = submit_display_lists(&mut WrTransaction::new(), &lw, true);
+        assert_eq!(forced.translated.len(), 2, "force_all");
+        assert!(forced.held.is_empty());
+
+        lw.current_window_state.size.dpi = 192;
+        let rescaled = submit_display_lists(&mut WrTransaction::new(), &lw, false);
+        assert_eq!(rescaled.translated.len(), 2, "a window at 2x: every list translated anew");
+        note_display_lists_submitted(&mut lw);
+        let settled = submit_display_lists(&mut WrTransaction::new(), &lw, false);
+        assert!(settled.translated.is_empty(), "and held again at the new scale");
     }
 }

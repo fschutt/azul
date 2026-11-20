@@ -173,10 +173,7 @@ fn push_text_decoration_rect(
     builder.push_rect(&info, rect, color_f);
 }
 
-/// Translate an Azul DisplayList to WebRender DisplayList and resources
-/// Returns (resources, display_list, nested_pipelines) tuple that can be added to a transaction
-/// by caller. nested_pipelines contains all child virtualized view pipelines that were recursively
-/// built. Whether `AZ_OVERLAY=hit-test` asked for the hit-test overlay.
+/// Whether `AZ_OVERLAY=hit-test` asked for the hit-test overlay.
 ///
 /// Read ONCE per process: the environment cannot change under a running app,
 /// and this is consulted for every `HitTestArea` in every display list, so a
@@ -186,6 +183,23 @@ fn show_hit_test_overlay() -> bool {
     *ON.get_or_init(|| azul_core::window::DebugState::from_az_overlay_env().show_hit_test_areas)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many display lists [`translate_displaylist_to_wr`] has translated on
+    /// this thread: what a test reads to say "this list was translated once".
+    /// Per thread, because the tests run in parallel.
+    pub(crate) static TRANSLATIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Translate ONE Azul `DisplayList` - a DOM's, the window's or a
+/// `VirtualView` child's - to a WebRender display list, to be put into a
+/// transaction as the pipeline `pipeline_id` by the caller.
+///
+/// A `VirtualView` item is only an iframe naming its child's pipeline
+/// (`document_id`, the child's DOM id): the child's own list is a DOM of its
+/// own in `layout_results`, translated by its own call
+/// (`wr_translate2::submit_display_lists`). `layout_results` is read to see
+/// that the child exists.
 pub fn translate_displaylist_to_wr(
     display_list: &DisplayList,
     pipeline_id: PipelineId,
@@ -195,14 +209,9 @@ pub fn translate_displaylist_to_wr(
     wr_resources: Vec<WrResourceUpdate>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     document_id: u32,
-) -> Result<
-    (
-        Vec<WrResourceUpdate>,
-        WrBuiltDisplayList,
-        Vec<(PipelineId, WrBuiltDisplayList)>,
-    ),
-    String,
-> {
+) -> Result<(Vec<WrResourceUpdate>, WrBuiltDisplayList), String> {
+    #[cfg(test)]
+    TRANSLATIONS.with(|count| count.set(count.get() + 1));
     log_debug!(
         LogCategory::DisplayList,
         "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, \
@@ -224,9 +233,6 @@ pub fn translate_displaylist_to_wr(
     // Extract DPI scale factor for converting logical to physical pixels
     // All display list coordinates are in logical CSS pixels
     let dpi_scale = dpi.inner.get();
-
-    // Collect nested virtualized view pipelines as we process them
-    let mut nested_pipelines: Vec<(PipelineId, WrBuiltDisplayList)> = Vec::new();
 
     // Create WebRender display list builder
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
@@ -1584,13 +1590,18 @@ pub fn translate_displaylist_to_wr(
                 // every frame, so a scroll needs no new display list.
                 content_offset: _,
             } => {
-                // VirtualView rendering implementation:
-                // 1. Create PipelineId from child_dom_id
-                // 2. Look up child display list from layout_results
-                // 3. Recursively translate child display list
-                // 4. Store child pipeline for later registration
-                // 5. Push virtualized view to current display list
-
+                // A VirtualView is an iframe of ITS OWN pipeline: the child
+                // DOM's list is translated and submitted as a DOM of its own
+                // (`wr_translate2::submit_display_lists` walks every DOM of
+                // `layout_results`, and sends only the lists WebRender does
+                // not hold), so here the iframe only NAMES the pipeline.
+                //
+                // This arm used to translate the child's whole list again,
+                // inline, and hand it back as a nested pipeline - while the
+                // walk over `layout_results` translated the same list as a DOM
+                // of its own: every frame built a map's 5 000-item child
+                // twice, and a restyle of the host (a hover, the caret) built
+                // it once more although it had not changed.
                 let child_pipeline_id = wr_translate_pipeline_id(AzulPipelineId(
                     child_dom_id.inner as u32,
                     document_id,
@@ -1606,73 +1617,23 @@ pub fn translate_displaylist_to_wr(
                     clip_rect
                 );
 
-                // Look up child layout result
-                if let Some(child_layout_result) = layout_results.get(child_dom_id) {
-                    log_trace!(
-                        LogCategory::DisplayList,
-                        "[compositor2] Found child layout result with {} display list items",
-                        child_layout_result.display_list.items.len()
-                    );
+                if layout_results.contains_key(child_dom_id) {
+                    // Push virtualized view to current display list
+                    let space_and_clip = SpaceAndClipInfo {
+                        spatial_id: current_spatial!(),
+                        clip_chain_id: current_clip!(),
+                    };
 
-                    // Recursively translate child display list
-                    match translate_displaylist_to_wr(
-                        &child_layout_result.display_list,
+                    let wr_bounds = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
+                    let wr_clip_rect = scale_bounds_to_layout_rect(clip_rect.inner(), dpi_scale);
+
+                    builder.push_iframe(
+                        wr_bounds,
+                        wr_clip_rect,
+                        &space_and_clip,
                         child_pipeline_id,
-                        viewport_size,
-                        renderer_resources,
-                        dpi,
-                        Vec::new(), // No resources for child - they're already in parent
-                        layout_results,
-                        document_id,
-                    ) {
-                        Ok((_, child_dl, mut child_nested)) => {
-                            log_trace!(
-                                LogCategory::DisplayList,
-                                "[compositor2] Successfully translated child display list with {} \
-                                 nested pipelines",
-                                child_nested.len()
-                            );
-
-                            // Store this child pipeline
-                            nested_pipelines.push((child_pipeline_id, child_dl));
-
-                            // Store all deeply nested pipelines
-                            nested_pipelines.append(&mut child_nested);
-
-                            // Push virtualized view to current display list
-                            let space_and_clip = SpaceAndClipInfo {
-                                spatial_id: current_spatial!(),
-                                clip_chain_id: current_clip!(),
-                            };
-
-                            let wr_bounds = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                            let wr_clip_rect =
-                                scale_bounds_to_layout_rect(clip_rect.inner(), dpi_scale);
-
-                            builder.push_iframe(
-                                wr_bounds,
-                                wr_clip_rect,
-                                &space_and_clip,
-                                child_pipeline_id,
-                                false, // ignore_missing_pipeline
-                            );
-
-                            log_trace!(
-                                LogCategory::DisplayList,
-                                "[compositor2] Pushed virtualized view for pipeline {:?}",
-                                child_pipeline_id
-                            );
-                        }
-                        Err(e) => {
-                            log_debug!(
-                                LogCategory::DisplayList,
-                                "[compositor2] Error translating child display list for \
-                                 dom_id={:?}: {}",
-                                child_dom_id,
-                                e
-                            );
-                        }
-                    }
+                        false, // ignore_missing_pipeline
+                    );
                 } else {
                     log_debug!(
                         LogCategory::DisplayList,
@@ -2493,10 +2454,8 @@ pub fn translate_displaylist_to_wr(
 
     log_debug!(
         LogCategory::DisplayList,
-        "[compositor2] Builder finished, returning ({} resources, display_list, {} nested \
-         pipelines)",
-        wr_resources.len(),
-        nested_pipelines.len()
+        "[compositor2] Builder finished, returning ({} resources, display_list)",
+        wr_resources.len()
     );
 
     // Print detailed display list summary before returning - at TRACE, and the
@@ -2521,7 +2480,7 @@ pub fn translate_displaylist_to_wr(
         log_trace!(LogCategory::DisplayList, "");
     }
 
-    Ok((wr_resources, dl, nested_pipelines))
+    Ok((wr_resources, dl))
 }
 
 // Helper Functions
@@ -2917,7 +2876,7 @@ mod stacking_context_tests {
             items,
             ..DisplayList::default()
         };
-        let (_, built, _) = translate_displaylist_to_wr(
+        let (_, built) = translate_displaylist_to_wr(
             &list,
             PipelineId(0, 0),
             DeviceIntSize::new(400, 100),
@@ -3854,7 +3813,7 @@ mod text_halo_tests {
             .expect("the root DOM is laid out")
             .display_list
             .clone();
-        let (_, built, _) = translate_displaylist_to_wr(
+        let (_, built) = translate_displaylist_to_wr(
             &list,
             PipelineId(0, 0),
             DeviceIntSize::new(1200, 400),
@@ -4074,7 +4033,7 @@ mod flora_window_tests {
             .expect("the root DOM is laid out")
             .display_list
             .clone();
-        let (_, built, _) = translate_displaylist_to_wr(
+        let (_, built) = translate_displaylist_to_wr(
             &list,
             PipelineId(0, 0),
             DeviceIntSize::new((500.0 * dpi) as i32, (260.0 * dpi) as i32),
@@ -4391,7 +4350,7 @@ mod log_volume_tests {
             ..DisplayList::default()
         };
         let before = records_emitted();
-        let (_, built, _) = translate_displaylist_to_wr(
+        let (_, built) = translate_displaylist_to_wr(
             &list,
             PipelineId(0, 0),
             DeviceIntSize::new(400, 100),

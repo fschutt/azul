@@ -133,6 +133,13 @@ pub struct GpuStateManager {
     /// reuses the address of the one it replaces.
     pub submitted_display_lists:
         BTreeMap<DomId, alloc::sync::Weak<crate::solver3::display_list::DisplayList>>,
+    /// What the lists in [`Self::submitted_display_lists`] were translated
+    /// against besides the lists themselves (the renderer's scale, the kept
+    /// text-halo pictures): an opaque number the renderer's host computes
+    /// ([`Self::note_display_lists_submitted`]). A list is HELD by the renderer
+    /// only while this still equals what a translation would be made against
+    /// ([`Self::display_list_is_held`]).
+    pub submitted_translation_env: u64,
     /// GPU events produced during layout (CSS transform / opacity synchronization,
     /// scrollbar transform / opacity updates) that have not yet been pushed to
     /// the renderer. Drained by the platform render path when a transaction is
@@ -279,19 +286,58 @@ impl GpuStateManager {
             last_image_digest: None,
             last_scroll_digest: None,
             submitted_display_lists: BTreeMap::new(),
+            submitted_translation_env: 0,
             pending_changes: GpuEventChanges::empty(),
         }
     }
 
-    /// `WebRender` received these lists, one per DOM.
+    /// `WebRender` received these lists, one per DOM, translated against
+    /// `env` (see [`Self::submitted_translation_env`]).
     pub fn note_display_lists_submitted(
         &mut self,
         layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
     ) {
+        self.submitted_translation_env = env;
         self.submitted_display_lists = layout_results
             .iter()
             .map(|(dom, r)| (*dom, alloc::sync::Arc::downgrade(&r.display_list)))
             .collect();
+    }
+
+    /// `WebRender` received this one list of `dom` (a `VirtualView` child sent
+    /// alone), translated against the environment of the last full submission.
+    pub fn note_one_display_list_submitted(
+        &mut self,
+        dom: DomId,
+        list: &alloc::sync::Arc<crate::solver3::display_list::DisplayList>,
+    ) {
+        self.submitted_display_lists
+            .insert(dom, alloc::sync::Arc::downgrade(list));
+    }
+
+    /// Does `WebRender` already hold exactly this list of `dom`, translated
+    /// against `env`? Then a transaction need not translate it again or send
+    /// it: `WebRender` keeps every pipeline's list until a new one replaces it
+    /// (`Scene::set_display_list`), which is what lets a `VirtualView`'s child
+    /// be sent alone (`process_virtual_view_updates`).
+    ///
+    /// The identity is the list's allocation: a list rebuilt or patched in
+    /// place is another one (the held `Weak` keeps the old allocation alive, so
+    /// a new list never takes its address, and `Arc::make_mut` moves a patched
+    /// list to a new one). A hover that rebuilt the host's list therefore sends
+    /// the host's list and leaves the 5 000-item child of a map where it is.
+    #[must_use]
+    pub fn display_list_is_held(
+        &self,
+        dom: DomId,
+        list: &alloc::sync::Arc<crate::solver3::display_list::DisplayList>,
+        env: u64,
+    ) -> bool {
+        self.submitted_translation_env == env
+            && self
+                .submitted_display_lists
+                .get(&dom)
+                .is_some_and(|weak| core::ptr::eq(weak.as_ptr(), alloc::sync::Arc::as_ptr(list)))
     }
 
     /// Does any DOM have a display list `WebRender` has not received - one
