@@ -775,6 +775,10 @@ mod gpu_path_tests;
 #[cfg(test)]
 mod virtual_view_pan_tests;
 
+// A hover over a label's text is a repaint of that label.
+#[cfg(test)]
+mod hover_text_tests;
+
 // A scrolled container goes idle after its scrollbar has faded: the time left counts down by the
 // clock, not by frames.
 #[cfg(test)]

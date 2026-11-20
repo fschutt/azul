@@ -7661,6 +7661,265 @@ mod tests {
         assert!(window.common.drain_virtual_view_updates());
     }
 
+    // --- A hover over a label's text is a repaint of the label -------------------------------
+    //
+    // The map editor's labels: spans with a text, placed absolutely in the child DOM of a
+    // `VirtualView`, each with a `:hover { background }` (paint only) and enter / leave
+    // callbacks, in a window whose sidebar holds thousands of items. A plain mouse move over
+    // them - no button, no pan - cost the headless window a layout pass of the WHOLE window for
+    // an enter or a leave (the staged CSS diff of a paint-only restyle was taken for a layout
+    // owed), and macOS a rebuild of the ROOT's list: P's editor scenario counted 1.3 layout
+    // passes and 0.4-0.7 display-list rebuilds a move, under every panel.
+
+    /// What the labels of the view saw: how often the pointer entered and left one.
+    #[derive(Clone)]
+    struct LabelHovers {
+        enters: Arc<std::sync::atomic::AtomicUsize>,
+        leaves: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn label_entered(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        if let Some(h) = data.downcast_ref::<LabelHovers>() {
+            h.enters.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn label_left(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        if let Some(h) = data.downcast_ref::<LabelHovers>() {
+            h.leaves.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    /// Six rows of twelve labels, 36 px apart, 40 px between the rows: the label of row `r`,
+    /// column `c` is in the view at (10 + 36 c, 20 + 40 r), 12 px high.
+    extern "C" fn labels_view_render(
+        mut data: RefAny,
+        info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        use azul_core::{
+            events::{EventFilter, HoverEventFilter},
+            geom::{LogicalPosition, LogicalRect},
+        };
+        let hovers = data
+            .downcast_ref::<LabelHovers>()
+            .map(|h| h.clone())
+            .expect("the view's data");
+        let mut labels = Vec::new();
+        for row in 0..6 {
+            for col in 0..12 {
+                let css = format!(
+                    "position: absolute; left: {}px; top: {}px; transform-origin: 0px 9px; \
+                     transform: rotate(0deg); font-size: 12px; line-height: 1; \
+                     letter-spacing: 0px; color: #222222; font-family: sans-serif; \
+                     white-space: pre; cursor: pointer; text-shadow: 0px 0px 0px 1px #ffffff; \
+                     :hover {{ background: rgba(66, 134, 244, 0.35); }}",
+                    10 + col * 36,
+                    20 + row * 40,
+                );
+                labels.push(
+                    Dom::create_span_with_text(format!("Ab{row}{col}"))
+                        .with_css(&css)
+                        .with_callback(
+                            EventFilter::Hover(HoverEventFilter::MouseEnter),
+                            RefAny::new(hovers.clone()),
+                            label_entered as usize,
+                        )
+                        .with_callback(
+                            EventFilter::Hover(HoverEventFilter::MouseLeave),
+                            RefAny::new(hovers.clone()),
+                            label_left as usize,
+                        ),
+                );
+            }
+        }
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.get_bounds().get_logical_size());
+        azul_core::callbacks::VirtualViewReturn {
+            dom: azul_core::dom::OptionDom::Some(Dom::create_div().with_children(labels.into())),
+            materialized: rect,
+            virtual_rect: rect,
+        }
+    }
+
+    /// A sidebar of fifteen hundred rows (three thousand items in the window's list), the view
+    /// of the labels at (100, 0), 500 x 300.
+    extern "C" fn labels_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let content = data
+            .downcast_ref::<VvAppState>()
+            .map(|s| s.content.clone())
+            .expect("app state");
+        let mut sidebar =
+            Dom::create_div().with_css("width: 100px; height: 300px; overflow: hidden;");
+        for i in 0..1_500 {
+            sidebar = sidebar.with_child(Dom::create_div().with_css(if i % 2 == 0 {
+                "height: 3px; background: #dde6f5; border-bottom: 1px solid #888888;"
+            } else {
+                "height: 3px; background: #f5e6dd; border-bottom: 1px solid #888888;"
+            }));
+        }
+        Dom::create_body()
+            .with_css("margin: 0px; background: #ffffff;")
+            .with_child(sidebar)
+            .with_child(
+                Dom::create_virtual_view(
+                    content,
+                    azul_core::callbacks::VirtualViewCallback::create(labels_view_render),
+                )
+                .with_css("position: absolute; left: 100px; top: 0px; width: 500px; height: 300px;"),
+            )
+    }
+
+    fn labels_window() -> (HeadlessWindow, LabelHovers) {
+        use std::sync::atomic::AtomicUsize;
+
+        let hovers = LabelHovers {
+            enters: Arc::new(AtomicUsize::new(0)),
+            leaves: Arc::new(AtomicUsize::new(0)),
+        };
+        let state = Arc::new(RefCell::new(RefAny::new(VvAppState {
+            content: RefAny::new(hovers.clone()),
+        })));
+        let mut window = make_window_sized(&state, labels_layout, 600.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        window.common.drain_virtual_view_updates();
+        // The request the layouts above left is served by the first frame: not the pointer's.
+        let _ = window.common.take_regeneration();
+        (window, hovers)
+    }
+
+    /// The addresses of the window's list and of the view's.
+    fn list_addresses(window: &HeadlessWindow) -> (usize, usize) {
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let address = |dom: azul_core::dom::DomId| {
+            std::sync::Arc::as_ptr(&lw.layout_results[&dom].display_list) as usize
+        };
+        let child = *lw
+            .layout_results
+            .keys()
+            .find(|dom| dom.inner != 0)
+            .expect("the view's DOM");
+        (address(azul_core::dom::DomId::ROOT_ID), address(child))
+    }
+
+    /// How many pixels of the box `(x, y, w, h)` of the last frame are the hover colour over
+    /// white (`rgba(66, 134, 244, 0.35)`: a blue 60 above the red).
+    fn bluish_pixels(window: &HeadlessWindow, (x, y, w, h): (u32, u32, u32, u32)) -> usize {
+        let frame = window
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("the window has drawn a frame");
+        let mut n = 0;
+        for py in y..y + h {
+            for px in x..x + w {
+                let i = ((py * frame.width() + px) * 4) as usize;
+                let d = frame.data();
+                if d[i + 2] > d[i].saturating_add(40) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    /// 30 plain moves of 12 px along the first row of labels: the pointer enters and leaves
+    /// ten of them. No layout, no DOM, no rebuild of the window's list; the view's list is
+    /// what is rebuilt, at most once a move.
+    #[test]
+    fn a_mouse_move_over_the_text_of_labels_costs_no_layout_and_no_rebuild_of_the_windows_list() {
+        use std::sync::atomic::Ordering;
+
+        let (mut window, hovers) = labels_window();
+        // The pointer arrives over empty ground; the baseline is taken from there.
+        step(&mut window, HeadlessEvent::MouseMove { x: 300.0, y: 290.0 });
+        let (root_before, child_before) = list_addresses(&window);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .frame_report
+            .reset_counters();
+
+        let moves = 30;
+        for i in 0..moves {
+            step(
+                &mut window,
+                HeadlessEvent::MouseMove {
+                    x: 112.0 + 12.0 * i as f32,
+                    y: 26.0,
+                },
+            );
+        }
+
+        let enters = hovers.enters.load(Ordering::SeqCst);
+        let leaves = hovers.leaves.load(Ordering::SeqCst);
+        assert!(
+            enters >= 8 && leaves >= 8,
+            "premise: the pointer went over the labels ({enters} entered, {leaves} left)"
+        );
+        let report = window
+            .common
+            .layout_window
+            .as_ref()
+            .expect("a layout window")
+            .frame_report
+            .clone();
+        assert_eq!(
+            report.layout_passes, 0,
+            "a hover that changes a colour lays nothing out: {report:?}"
+        );
+        assert_eq!(report.dom_regenerations, 0, "{report:?}");
+        let (root_after, child_after) = list_addresses(&window);
+        assert_eq!(
+            root_after, root_before,
+            "the window's list (thousands of items) was not rebuilt for a label's hover"
+        );
+        assert_ne!(
+            child_after, child_before,
+            "the view's list is what holds the label: it was rebuilt"
+        );
+        assert!(
+            (1..=moves).contains(&(report.dl_rebuilds as usize)),
+            "one rebuild of the view's list a move at most, got {}",
+            report.dl_rebuilds
+        );
+    }
+
+    /// The label under the pointer is painted in its hover colour in the frame, and not any
+    /// more once the pointer has left it: the rebuilt list of the view is what the frame draws.
+    #[test]
+    fn the_label_under_the_pointer_is_drawn_with_its_hover_background() {
+        let (mut window, _hovers) = labels_window();
+        step(&mut window, HeadlessEvent::MouseMove { x: 300.0, y: 290.0 });
+        // The first label of the first row: (10, 20) in the view, at (110, 20) in the window.
+        let label = (110, 20, 24, 12);
+        // The glyphs' own colour fringes count too: the plain label is the baseline.
+        let plain = bluish_pixels(&window, label);
+
+        step(&mut window, HeadlessEvent::MouseMove { x: 114.0, y: 26.0 });
+        let hovered = bluish_pixels(&window, label);
+        assert!(
+            hovered > plain + 30,
+            "the hovered label is drawn on its background ({hovered} bluish pixels, {plain} plain)"
+        );
+
+        step(&mut window, HeadlessEvent::MouseMove { x: 300.0, y: 290.0 });
+        assert_eq!(
+            bluish_pixels(&window, label),
+            plain,
+            "and is plain again once the pointer has left it"
+        );
+    }
+
     #[test]
     fn an_unchanged_refresh_dom_still_reinvokes_virtual_views() {
         use std::sync::atomic::Ordering;

@@ -4472,15 +4472,22 @@ fn apply_seat_focus_restyle(
         let restyle_result = layout_result
             .styled_dom
             .restyle_on_seat_focus_change(lost, gained);
-        let r = if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+        let r = if restyle_result.changed_nodes.is_empty()
+            && lost.is_none()
+            && gained.is_none()
+        {
+            // A DOM the seat's focus only passes through (the host of a `VirtualView`):
+            // nothing to rebuild, as the shell's twin.
             ProcessEventResult::ShouldReRenderCurrentWindow
+        } else if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+            repaint_restyled_dom(layout_window, dom_id)
         } else {
             let mut accumulator = ChangeAccumulator::new();
             accumulator.merge_restyle_result(&restyle_result);
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                repaint_restyled_dom(layout_window, dom_id)
             } else {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -4488,6 +4495,14 @@ fn apply_seat_focus_restyle(
         result = result.max(r);
     }
     result
+}
+
+/// Port of the DLL's `repaint_restyled_dom`: a restyle that changed paint only rebuilds the
+/// display list of the DOM it touched, here, and the frame is a repaint of it. The root's list
+/// is not what a restyle of a `VirtualView`'s nodes changes.
+fn repaint_restyled_dom(layout_window: &mut LayoutWindow, dom_id: DomId) -> ProcessEventResult {
+    layout_window.regenerate_display_list_for_dom(dom_id);
+    ProcessEventResult::ShouldReRenderCurrentWindow
 }
 
 /// Port of the DLL's `apply_focus_restyle` (`.../common/event.rs`): apply the
@@ -4542,11 +4557,15 @@ fn apply_focus_restyle_in_dom(
     }
     let _faded = layout_window.seed_state_change_transitions(dom_id, &before, &restyle_result.changed_nodes);
 
+    if restyle_result.changed_nodes.is_empty() && old_focus.is_none() && new_focus.is_none() {
+        // A host the focus only passes through (the `VirtualView` around it) paints
+        // neither the caret nor the ring: its list is what it was.
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
     if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
         // Nothing the cascade calls a change, but the caret and the
         // `:focus`-conditional paint are built FROM focus state.
-        layout_window.regenerate_display_list_for_dom(dom_id);
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
+        return repaint_restyled_dom(layout_window, dom_id);
     }
 
     let mut accumulator = ChangeAccumulator::new();
@@ -4559,8 +4578,7 @@ fn apply_focus_restyle_in_dom(
         // asks to present. This copy of the function had the same hole, so
         // `pressing_tab_leaves_a_visible_focus_ring` below could not see the
         // defect it exists to catch - a gate with the wrong premise.
-        layout_window.regenerate_display_list_for_dom(dom_id);
-        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        repaint_restyled_dom(layout_window, dom_id)
     } else {
         ProcessEventResult::ShouldReRenderCurrentWindow
     }
@@ -4653,7 +4671,9 @@ fn apply_hover_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                // The list of the DOM the pointer entered or left (a `VirtualView`'s
+                // child), not the root's.
+                repaint_restyled_dom(layout_window, dom_id)
             } else {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -8119,6 +8139,11 @@ mod virtual_view_events_tests;
 #[cfg(test)]
 #[path = "hover_keys_tests.rs"]
 mod hover_keys_tests;
+
+// ==== what a plain mouse move over the text labels of a `VirtualView` costs ====
+#[cfg(test)]
+#[path = "hover_text_cost_tests.rs"]
+mod hover_text_cost_tests;
 
 // ==== a window times the frames it presents (`get_frame_timings`) ====
 #[cfg(test)]

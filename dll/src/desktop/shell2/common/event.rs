@@ -559,7 +559,8 @@ extern "C" fn auto_scroll_timer_callback(
 /// Apply focus change restyle and determine the ProcessEventResult.
 ///
 /// Uses ChangeAccumulator to classify restyle changes granularly:
-/// - Paint-only changes (e.g. color) → ShouldUpdateDisplayListCurrentWindow
+/// - Paint-only changes (e.g. color) → the DOM's list rebuilt, ShouldReRenderCurrentWindow
+///   (`repaint_restyled_dom`)
 /// - Layout-affecting changes → ShouldIncrementalRelayout (no DOM rebuild!)
 /// - No changes → ShouldReRenderCurrentWindow
 /// Raise or dismiss the on-screen keyboard.
@@ -667,9 +668,34 @@ fn gpu_only_restyle_result(
     if layout_window.publish_gpu_only_restyle(dom_id, &restyle_result.changed_nodes) {
         ProcessEventResult::ShouldReRenderCurrentWindow
     } else {
-        layout_window.regenerate_display_list_for_dom(dom_id);
-        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        repaint_restyled_dom(layout_window, dom_id)
     }
+}
+
+/// What a restyle that changed PAINT only (a `:hover` / `:active` / `:focus` colour,
+/// a border, a shadow) asks of the frame: the display list of the DOM the restyle
+/// touched, rebuilt HERE from the styles as they are now, and a present of it.
+///
+/// A producer of a new list rebuilds it for itself; the tier only asks the shell to
+/// present. The shells do not rebuild for the tier: X11, Wayland and Win32 present the
+/// lists they have, and macOS - the one that does, through `display_list_dirty` -
+/// regenerates the ROOT's list from the layout tree, whatever DOM the restyle was
+/// in. So a paint restyle of the nodes of a `VirtualView` (the map editor's labels,
+/// `:hover { background }`) rebuilt the window's list of thousands of items and left
+/// the view's own list, which holds the label, as it was; and a producer that had
+/// rebuilt the list already (a focus move) was answered with the rebuild of the
+/// root's list again. The headless window took the staged CSS diff
+/// (`pending_css_dirty`: scope `None` for paint) for a layout owed and laid the whole
+/// window out for every enter and leave.
+///
+/// The list is rebuilt for the touched DOM alone - `regenerate_display_list_for_dom`
+/// also serves the paint-only diff staged for it - and the frame is a repaint:
+/// `ShouldReRenderCurrentWindow`. A GPU frame sends the new list in its lightweight
+/// pass (a list the renderer does not hold is a list it is owed), a CPU frame renders
+/// it.
+fn repaint_restyled_dom(layout_window: &mut LayoutWindow, dom_id: DomId) -> ProcessEventResult {
+    layout_window.regenerate_display_list_for_dom(dom_id);
+    ProcessEventResult::ShouldReRenderCurrentWindow
 }
 
 /// `:seat-focus` restyle for a NON-primary seat (9b-ii-a-i-d-iii-a): the node
@@ -704,7 +730,15 @@ fn apply_seat_focus_restyle(
             .styled_dom
             .restyle_on_seat_focus_change(lost, gained);
         let r = if restyle_result.changed_nodes.is_empty() {
-            ProcessEventResult::ShouldReRenderCurrentWindow
+            // The seat's ring is painted by the list's post-pass, not by a
+            // style: a focus that moved without a rule to restyle still owes
+            // the list of the DOM that holds the focused node (see
+            // `apply_focus_restyle_in_dom`).
+            if lost.is_some() || gained.is_some() {
+                repaint_restyled_dom(layout_window, dom_id)
+            } else {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
         } else if restyle_result.gpu_only_changes {
             gpu_only_restyle_result(layout_window, dom_id, &restyle_result)
         } else {
@@ -713,7 +747,7 @@ fn apply_seat_focus_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                repaint_restyled_dom(layout_window, dom_id)
             } else {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -823,17 +857,24 @@ fn apply_focus_restyle_in_dom(
         // frame with no visual change - so a Tab that changed no rule (the
         // focus ring is a display-list post-pass, not a style) moved focus
         // and showed nothing.
-        layout_window.regenerate_display_list_for_dom(dom_id);
-        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+        //
+        // In the DOM that holds the focused node. A DOM the focus only passes
+        // through - the host of a `VirtualView` whose content holds it, where
+        // `:focus-within` moved and no rule followed - paints neither the
+        // caret nor the ring: its list is what it was, and the host of a map
+        // is a window of thousands of items.
+        if old_focus.is_none() && new_focus.is_none() {
+            return ProcessEventResult::ShouldReRenderCurrentWindow;
+        }
+        return repaint_restyled_dom(layout_window, dom_id);
     }
 
     stage_css_dirty(layout_window, dom_id, &restyle_result);
 
-    let mut r = ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
     if restyle_result.needs_layout {
-        r = ProcessEventResult::ShouldIncrementalRelayout;
+        ProcessEventResult::ShouldIncrementalRelayout
     } else if restyle_result.gpu_only_changes {
-        r = gpu_only_restyle_result(layout_window, dom_id, &restyle_result);
+        gpu_only_restyle_result(layout_window, dom_id, &restyle_result)
     } else {
         // PAINT-ONLY, AND THEREFORE OURS TO REBUILD. Same law as the
         // no-delta arm above, and the case that actually happens: every
@@ -852,9 +893,8 @@ fn apply_focus_restyle_in_dom(
         // unrelated edit happened to rebuild the list - "the old field stays
         // highlighted until the next input arrives", and both fields ringed
         // at once whenever a partial rebuild caught only one of them.
-        layout_window.regenerate_display_list_for_dom(dom_id);
+        repaint_restyled_dom(layout_window, dom_id)
     }
-    r
 }
 
 fn stage_css_dirty(
@@ -1015,7 +1055,7 @@ fn apply_active_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                repaint_restyled_dom(layout_window, dom_id)
             } else {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -1033,7 +1073,7 @@ fn apply_active_restyle(
 /// styled DOM's `:hover` flags were only recomputed by a FULL DOM
 /// regeneration — pure-CSS hover styling did nothing on any backend until
 /// something else rebuilt the DOM (`restyle_nodes_hover` was dead code).
-fn apply_hover_restyle(
+pub(crate) fn apply_hover_restyle(
     layout_window: &mut LayoutWindow,
     changes_per_dom: BTreeMap<DomId, azul_core::styled_dom::HoverChange>,
 ) -> ProcessEventResult {
@@ -1069,7 +1109,8 @@ fn apply_hover_restyle(
         stage_css_dirty(layout_window, dom_id, &restyle_result);
 
         // Same granular classification as apply_focus_restyle: paint-only
-        // changes avoid relayout, layout-affecting ones take the
+        // changes avoid relayout (and rebuild the list of THIS DOM, not the
+        // root's: `repaint_restyled_dom`), layout-affecting ones take the
         // incremental path (no DOM rebuild — states are already updated).
         let r = if restyle_result.gpu_only_changes {
             gpu_only_restyle_result(layout_window, dom_id, &restyle_result)
@@ -1079,7 +1120,7 @@ fn apply_hover_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                repaint_restyled_dom(layout_window, dom_id)
             } else {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -9376,8 +9417,7 @@ pub trait PlatformWindow {
                             }
                             layout_window.regenerate_display_list_for_dom(focus_node.dom);
                         }
-                        result =
-                            result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                     }
 
                     Some(timer_action)
@@ -15058,9 +15098,11 @@ mod tests {
             .set_focused_node_with_visibility(Some(target), true);
         let r = apply_focus_restyle(&mut lw, None, Some(target));
 
-        assert!(
-            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
-            "the shell is asked to present the new list, got {r:?}"
+        assert_eq!(
+            r,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            "the list is rebuilt here and the shell is asked to present it - not to rebuild the \
+             root's list again"
         );
         assert!(
             ends_with_ring(&lw),
@@ -15263,9 +15305,11 @@ mod tests {
         lw.focus_manager
             .set_focused_node_with_visibility(Some(first), false);
         let r = apply_focus_restyle(&mut lw, None, Some(first));
-        assert!(
-            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
-            "the shell is asked to present the new list, got {r:?}"
+        assert_eq!(
+            r,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            "the list is rebuilt here and the shell is asked to present it - not to rebuild the \
+             root's list again"
         );
         assert_eq!(
             ringed_borders(&lw),
@@ -15278,9 +15322,11 @@ mod tests {
         lw.focus_manager
             .set_focused_node_with_visibility(Some(second), true);
         let r = apply_focus_restyle(&mut lw, Some(first), Some(second));
-        assert!(
-            r >= ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
-            "the shell is asked to present the new list, got {r:?}"
+        assert_eq!(
+            r,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            "the list is rebuilt here and the shell is asked to present it - not to rebuild the \
+             root's list again"
         );
         assert_eq!(
             ringed_borders(&lw),
@@ -17142,5 +17188,278 @@ mod a11y_regeneration_tests {
             1,
             "one layout pass, one accessibility pass"
         );
+    }
+}
+
+/// A restyle that changed PAINT only rebuilds the display list of the DOM it touched, and
+/// the frame is a repaint of it - not a rebuild of the root's list, and not a layout.
+///
+/// The map editor's labels are the case: spans in the child DOM of a `VirtualView`, each
+/// with a `:hover { background }`, in a window whose sidebar holds thousands of items. The
+/// paint-only restyle of their hover used to rebuild nothing in the event pass and answer
+/// the display-list tier; macOS rebuilt the ROOT's list for it and the headless window laid
+/// the whole window out (the staged CSS diff of a paint-only change took for a layout owed).
+#[cfg(test)]
+mod paint_restyle_tests {
+    use std::{collections::BTreeMap, sync::Arc};
+
+    use azul_core::{
+        callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+        dom::{Dom, DomId, DomNodeId, NodeId},
+        events::ProcessEventResult,
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        refany::RefAny,
+        resources::{RendererResources, SystemAnimations},
+        styled_dom::{HoverChange, NodeHierarchyItemId, StyledDom},
+    };
+    use azul_css::props::basic::color::ColorU;
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks,
+        solver3::display_list::{DisplayList, DisplayListItem},
+        window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+
+    use super::{
+        apply_active_restyle, apply_focus_restyle, apply_hover_restyle, apply_seat_focus_restyle,
+    };
+
+    /// What every state of a label paints: `rgba(66, 134, 244, 0.35)`.
+    const STATE: ColorU = ColorU {
+        r: 66,
+        g: 134,
+        b: 244,
+        a: 89,
+    };
+
+    /// The child DOM's nodes: div 0, then a span and its text for each label.
+    const HOVER_LABEL: usize = 1;
+    const HOVER_TEXT: usize = 2;
+    const ACTIVE_TEXT: usize = 4;
+    const SEAT_LABEL: usize = 5;
+    const FOCUS_LABEL: usize = 7;
+
+    /// Four labels, one for each state that restyles paint: `:hover`, `:active`,
+    /// `:seat-focus` and `:focus`, each a background.
+    extern "C" fn labels(_data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+        let base = "position: absolute; top: 20px; font-size: 12px; line-height: 1; \
+                    white-space: pre;";
+        let state = "{ background: rgba(66, 134, 244, 0.35); }";
+        let mut focus_label = Dom::create_span_with_text("Focus")
+            .with_css(&format!("{base} left: 310px; :focus {state}"));
+        focus_label.set_tab_index(azul_core::dom::TabIndex::Auto);
+        let page = Dom::create_div().with_children(
+            vec![
+                Dom::create_span_with_text("Hover")
+                    .with_css(&format!("{base} left: 10px; :hover {state}")),
+                Dom::create_span_with_text("Active")
+                    .with_css(&format!("{base} left: 110px; :active {state}")),
+                Dom::create_span_with_text("Seat")
+                    .with_css(&format!("{base} left: 210px; :seat-focus {state}")),
+                focus_label,
+            ]
+            .into(),
+        );
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
+        VirtualViewReturn::with_dom(page, rect, rect)
+    }
+
+    /// The window: a sidebar of a thousand rows beside the view of the labels.
+    struct Page {
+        lw: LayoutWindow,
+        child: DomId,
+    }
+
+    fn page() -> Page {
+        let mut sidebar = Dom::create_div().with_css("width: 100px; height: 300px; overflow: hidden;");
+        for i in 0..1_000 {
+            sidebar = sidebar.with_child(Dom::create_div().with_css(if i % 2 == 0 {
+                "height: 3px; background: #dde6f5; border-bottom: 1px solid #888888;"
+            } else {
+                "height: 3px; background: #f5e6dd; border-bottom: 1px solid #888888;"
+            }));
+        }
+        let dom = Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(sidebar)
+            .with_child(
+                Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(labels))
+                    .with_css("position: absolute; left: 100px; top: 0px; width: 400px; height: 300px;"),
+            );
+        let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
+        lw.system_animations_override = Some(SystemAnimations::default());
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(500.0, 300.0);
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let child = *lw
+            .layout_results
+            .keys()
+            .find(|dom| **dom != DomId::ROOT_ID)
+            .expect("the view's DOM");
+        assert!(
+            lw.layout_results[&DomId::ROOT_ID].display_list.items.len() >= 2_000,
+            "harness: the window's list holds thousands of items"
+        );
+        assert!(
+            states_painted(&lw.layout_results[&child].display_list) == 0,
+            "harness: nothing shows a state yet"
+        );
+        lw.frame_report.reset_counters();
+        Page { lw, child }
+    }
+
+    /// How many rectangles of the list are painted in the colour of a state.
+    fn states_painted(list: &DisplayList) -> usize {
+        list.items
+            .iter()
+            .filter(|item| matches!(item, DisplayListItem::Rect { color, .. } if *color == STATE))
+            .count()
+    }
+
+    fn list_of(page: &Page, dom: DomId) -> *const DisplayList {
+        Arc::as_ptr(&page.lw.layout_results[&dom].display_list)
+    }
+
+    fn painted(page: &Page, dom: DomId) -> usize {
+        states_painted(&page.lw.layout_results[&dom].display_list)
+    }
+
+    /// What the restyle of a state costs, as the pass sees it: the tier, the DOMs whose list
+    /// was rebuilt (as the pointers of their lists), and the layout passes it ran.
+    fn assert_a_repaint_of_the_views_list_alone(
+        page: &Page,
+        tier: ProcessEventResult,
+        (root_before, child_before): (*const DisplayList, *const DisplayList),
+        what: &str,
+    ) {
+        assert_eq!(
+            tier,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            "{what}: the list is rebuilt in the pass and the frame is a repaint - not a \
+             display-list tier, which macOS answers by rebuilding the ROOT's list again"
+        );
+        assert_eq!(
+            list_of(page, DomId::ROOT_ID),
+            root_before,
+            "{what}: the window's list of thousands of items was not touched"
+        );
+        assert_ne!(
+            list_of(page, page.child),
+            child_before,
+            "{what}: the list that holds the label was rebuilt"
+        );
+        assert_eq!(page.lw.frame_report.dl_rebuilds, 1, "{what}: one list rebuilt");
+        assert_eq!(page.lw.frame_report.layout_passes, 0, "{what}: no layout");
+        assert!(
+            page.lw.pending_css_dirty.is_none(),
+            "{what}: the CSS diff of a paint-only restyle is served by the rebuild (it is \
+             not a layout owed - the headless frame laid the window out for it)"
+        );
+    }
+
+    #[test]
+    fn a_hover_over_a_label_rebuilds_the_views_list_and_asks_for_a_repaint() {
+        let mut page = page();
+        let before = (
+            list_of(&page, DomId::ROOT_ID),
+            list_of(&page, page.child),
+        );
+
+        // The pointer enters the label's text: the hover manager enters the text and the
+        // span around it.
+        let enter = BTreeMap::from([(
+            page.child,
+            HoverChange {
+                left_nodes: Vec::new(),
+                entered_nodes: vec![NodeId::new(HOVER_TEXT), NodeId::new(HOVER_LABEL)],
+            },
+        )]);
+        let tier = apply_hover_restyle(&mut page.lw, enter);
+        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "enter");
+        assert_eq!(painted(&page, page.child), 1, "the label is painted in its hover colour");
+
+        // And leaves it.
+        let before = (
+            list_of(&page, DomId::ROOT_ID),
+            list_of(&page, page.child),
+        );
+        page.lw.frame_report.reset_counters();
+        let leave = BTreeMap::from([(
+            page.child,
+            HoverChange {
+                left_nodes: vec![NodeId::new(HOVER_TEXT), NodeId::new(HOVER_LABEL)],
+                entered_nodes: Vec::new(),
+            },
+        )]);
+        let tier = apply_hover_restyle(&mut page.lw, leave);
+        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "leave");
+        assert_eq!(painted(&page, page.child), 0, "and loses it");
+    }
+
+    #[test]
+    fn a_press_on_a_label_rebuilds_the_views_list_and_asks_for_a_repaint() {
+        let mut page = page();
+        let before = (
+            list_of(&page, DomId::ROOT_ID),
+            list_of(&page, page.child),
+        );
+        // The press lands on the deepest node, the text; its span is active with it.
+        let press = BTreeMap::from([(page.child, vec![NodeId::new(ACTIVE_TEXT)])]);
+        let tier = apply_active_restyle(&mut page.lw, press, false);
+        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "press");
+        assert_eq!(painted(&page, page.child), 1, "the pressed label is painted active");
+
+        let before = (
+            list_of(&page, DomId::ROOT_ID),
+            list_of(&page, page.child),
+        );
+        page.lw.frame_report.reset_counters();
+        let tier = apply_active_restyle(&mut page.lw, BTreeMap::new(), true);
+        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "release");
+        assert_eq!(painted(&page, page.child), 0, "and is not after the release");
+    }
+
+    #[test]
+    fn a_seat_focus_on_a_label_rebuilds_the_views_list_and_not_the_hosts() {
+        let mut page = page();
+        let before = (
+            list_of(&page, DomId::ROOT_ID),
+            list_of(&page, page.child),
+        );
+        let label = DomNodeId {
+            dom: page.child,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(SEAT_LABEL))),
+        };
+        // `:focus-within` follows the seat's focus to the view's host, which has no rule
+        // for it: the host's DOM is restyled too and has nothing to rebuild.
+        let tier = apply_seat_focus_restyle(&mut page.lw, None, Some(label));
+        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "seat focus");
+        assert_eq!(painted(&page, page.child), 1, "the label is painted in its seat colour");
+    }
+
+    #[test]
+    fn a_focus_on_a_label_rebuilds_the_views_list_and_not_the_hosts() {
+        let mut page = page();
+        let before = (
+            list_of(&page, DomId::ROOT_ID),
+            list_of(&page, page.child),
+        );
+        let label = DomNodeId {
+            dom: page.child,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(FOCUS_LABEL))),
+        };
+        page.lw
+            .focus_manager
+            .set_focused_node_with_visibility(Some(label), false);
+        let tier = apply_focus_restyle(&mut page.lw, None, Some(label));
+        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "focus");
+        assert_eq!(painted(&page, page.child), 1, "the focused label is painted in its colour");
     }
 }
