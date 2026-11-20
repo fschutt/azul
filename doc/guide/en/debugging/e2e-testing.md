@@ -334,7 +334,7 @@ Each binding drives the prebuilt library (built with `--features build-dll,debug
 | **Lua**    | **LuaJIT** (the stock PUC `lua` has no FFI); full E2E runs on **arm64/macOS**, not x86-64 | LuaJIT's `ffi` cannot call a C function that passes an aggregate **by value** on some ABIs: on **x86-64 (SysV)**, `App.create(.., AppConfig)` raises `NYI: cannot call this C function (yet)`. This is a LuaJIT limitation, **not** a version issue (a freshly-built current LuaJIT 2.1 still NYIs) and **not** a binding bug — the same `azul.lua` runs on arm64/macOS, where the struct is passed differently. CI therefore reports lua as `⊘ SKIP` on x86-64 (a toolchain limit, which never gates). |
 | Go     | `go` toolchain + a C compiler (cgo) | — |
 
-`AZ_LOG` is on by default (see [Debugging](..md)), so a binding that builds but exits early will print the platform-layer trace on stderr, which the board captures.
+`AZ_LOG` defaults to errors only (see [Debugging](..md)): a binding that builds but exits early prints its error on stderr, which the board captures; set `AZ_LOG=debug` for the platform-layer trace.
 
 ## Recording a test from the inspector
 
