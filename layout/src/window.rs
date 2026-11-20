@@ -12603,6 +12603,20 @@ impl LayoutWindow {
                     );
                     return Some(child);
                 }
+                // A style the view's last build did not have - a `Dom::with_css`
+                // sheet that moved, which no node's own data shows - is invisible to
+                // the retained tree's per-node fingerprints: a warm pass finds every
+                // node clean and serves the list and the geometry it had, so a
+                // re-render whose only change was a colour or a position showed the
+                // old one. The root's pass is handed the diff of its sheets
+                // (`begin_reconciliation`); this view lays out cold instead.
+                if self
+                    .child_dom_fingerprints
+                    .get(&child)
+                    .is_some_and(|before| before.style_root != fingerprints.style_root)
+                {
+                    self.child_layout_caches.remove(&child);
+                }
                 self.child_dom_fingerprints.insert(child, fingerprints);
                 // Dom → StyledDom through the window's own chokepoint, which
                 // resolves `<icon>` nodes first. Calling `create_from_dom`

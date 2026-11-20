@@ -775,6 +775,11 @@ mod gpu_path_tests;
 #[cfg(test)]
 mod virtual_view_pan_tests;
 
+// A view rendered again shows what its callback drew this time, a style that lives only in a
+// `Dom::with_css` sheet included.
+#[cfg(test)]
+mod virtual_view_rerender_tests;
+
 // A hover over a label's text is a repaint of that label.
 #[cfg(test)]
 mod hover_text_tests;
