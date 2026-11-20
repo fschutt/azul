@@ -859,9 +859,10 @@ mod retained_list_tests {
     use azul_core::{
         callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
         dom::{DomId, DomNodeId, NodeId},
+        events::ProcessEventResult,
         geom::{LogicalPosition, LogicalRect},
         refany::RefAny,
-        styled_dom::NodeHierarchyItemId,
+        styled_dom::{HoverChange, NodeHierarchyItemId},
     };
     use azul_css::props::{
         basic::PixelValue,
@@ -1441,5 +1442,126 @@ mod retained_list_tests {
         // The re-rendered map sits at its materialized origin again.
         assert_eq!(pixel(&frame, 238, 100)[..3], [255, 0, 0], "stripe 0");
         assert_eq!(pixel(&frame, 242, 100)[..3], [0, 0, 255], "stripe 1");
+    }
+    /// The map: a label at (20, 20), 80 x 24, that turns red under the pointer.
+    extern "C" fn one_label(_data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+        let label = Dom::create_span_with_text("Label").with_css(
+            "position: absolute; left: 20px; top: 20px; width: 80px; height: 24px; \
+             font-size: 14px; color: #000000; :hover { background: #ff0000; }",
+        );
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
+        VirtualViewReturn::with_dom(Dom::create_div().with_child(label), rect, rect)
+    }
+
+    /// The hover of a label of the map - a paint-only restyle in the map's own DOM - with the
+    /// style sidebar open (ten thousand items in the window's list): the pass rebuilds the
+    /// MAP's list and asks for a repaint, and the frame the shells make for it - the lightweight
+    /// pass - sends that one list and draws the label on its background. The window's list is
+    /// neither rebuilt (macOS rebuilt it, and translated and sent every item of it, for each
+    /// label the pointer entered or left) nor sent again.
+    #[test]
+    fn the_hover_of_a_label_in_the_map_sends_the_maps_list_alone_and_draws_it() {
+        let Some(mut gpu) = GpuSession::new(600.0, 320.0, 1.0) else {
+            return;
+        };
+        let mut sidebar =
+            Dom::create_div().with_css("width: 200px; height: 320px; overflow: hidden;");
+        for i in 0..6_000 {
+            sidebar = sidebar.with_child(Dom::create_div().with_css(if i % 2 == 0 {
+                "height: 3px; background: #dde6f5; border-bottom: 1px solid #888888;"
+            } else {
+                "height: 3px; background: #f5e6dd; border-bottom: 1px solid #888888;"
+            }));
+        }
+        gpu.lay_out(
+            Dom::create_body()
+                .with_css("margin: 0px;")
+                .with_child(sidebar)
+                .with_child(
+                    Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(one_label))
+                        .with_css("position: absolute; left: 200px; top: 0px; width: 300px; height: 300px;"),
+                ),
+        )
+        .expect("the page lays out");
+        let items = gpu.window.layout_results[&DomId::ROOT_ID].display_list.items.len();
+        assert!(items >= 10_000, "harness: the window's list holds {items} items");
+        let first = gpu.present(true).expect("the first frame");
+        assert!(red_box(&first).is_none(), "harness: nothing is red yet");
+
+        let (host_dom, view) = gpu.window.virtual_view_manager.all_view_keys()[0];
+        let child = gpu
+            .window
+            .virtual_view_manager
+            .get_nested_dom_id(host_dom, view)
+            .expect("the map's DOM");
+        let host_before = Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list);
+        let translated_before = translated();
+        gpu.window.frame_report.reset_counters();
+
+        // The pointer enters the label's text (the span is node 1 of the map's DOM, its text 2).
+        let tier = crate::desktop::shell2::common::event::apply_hover_restyle(
+            &mut gpu.window,
+            BTreeMap::from([(
+                child,
+                HoverChange {
+                    left_nodes: Vec::new(),
+                    entered_nodes: vec![NodeId::new(2), NodeId::new(1)],
+                },
+            )]),
+        );
+        assert_eq!(
+            tier,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            "a repaint: the list is rebuilt in the pass"
+        );
+        let frame = gpu
+            .present_lightweight()
+            .expect("the harness")
+            .expect("the rebuilt list of the map is a frame the lightweight pass owes");
+        let (x0, y0, x1, y1) = red_box(&frame).expect("the hovered label is drawn on its background");
+        assert!(
+            (219..=222).contains(&x0) && (298..=301).contains(&x1) && (19..=22).contains(&y0)
+                && (42..=45).contains(&y1),
+            "its box (200 + 20, 20, 80 x 24): {:?}",
+            (x0, y0, x1, y1)
+        );
+        assert_eq!(translated() - translated_before, 1, "the map's list alone was sent");
+        assert_eq!(
+            Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list),
+            host_before,
+            "the window's list was not rebuilt"
+        );
+        assert!(
+            !gpu.window
+                .gpu_state_manager
+                .display_lists_unsubmitted(&gpu.window.layout_results),
+            "nothing is owed to the renderer after the frame"
+        );
+        assert_eq!(gpu.window.frame_report.dl_rebuilds, 1, "one list rebuilt: the map's");
+        assert_eq!(gpu.window.frame_report.layout_passes, 0, "no layout ran");
+
+        // And the pointer leaves it.
+        let tier = crate::desktop::shell2::common::event::apply_hover_restyle(
+            &mut gpu.window,
+            BTreeMap::from([(
+                child,
+                HoverChange {
+                    left_nodes: vec![NodeId::new(2), NodeId::new(1)],
+                    entered_nodes: Vec::new(),
+                },
+            )]),
+        );
+        assert_eq!(tier, ProcessEventResult::ShouldReRenderCurrentWindow);
+        let frame = gpu
+            .present_lightweight()
+            .expect("the harness")
+            .expect("a frame");
+        assert!(red_box(&frame).is_none(), "the label is plain again");
+        assert_eq!(translated() - translated_before, 2, "the map's list again, and only it");
+        assert_eq!(
+            Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list),
+            host_before,
+            "the window's list is still the one the renderer holds"
+        );
     }
 }
