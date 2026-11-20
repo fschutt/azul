@@ -3076,7 +3076,12 @@ pub fn render_single_item(
             let run = item
                 .visual_bounds()
                 .and_then(|ink| text_run_clip(&scroll_rect(&ink), clip, dpi_factor));
-            let grayscale = run.is_some_and(|run| !backdrop_is_opaque(pixmap, run));
+            // Inside a turned or scaled frame the group is resampled where it lands, and LCD
+            // stripes smear into colour fringes there: grayscale coverage is what such a group
+            // wants (and is cheaper). The settled picture is not resampled - its frame is the
+            // identity or a translation, no group - and keeps its LCD text.
+            let grayscale = inside_isolated_transform(mask_stack)
+                || run.is_some_and(|run| !backdrop_is_opaque(pixmap, run));
             // The display list's uniform background is a HINT from the
             // ancestors (`compute_uniform_text_bg`: the first one painting an
             // opaque colour) - but a layer painted between that ancestor and
@@ -4408,8 +4413,8 @@ fn render_glyphs_lcd(
 
     // Accumulate every glyph outline (at 3× horizontal resolution) into one
     // rasterizer, then sweep once — same batching as the grayscale path.
-    let mut ras = RasterizerScanlineAa::new();
-    ras.filling_rule(FillingRule::NonZero);
+    let mut pooled = PooledTextRaster::take();
+    let (ras, sl) = pooled.parts();
 
     let p_outline = crate::probe::Probe::span("glyph_lcd_outline");
     for glyph in glyphs {
@@ -4505,7 +4510,6 @@ fn render_glyphs_lcd(
     let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
     // FreeType default "light" 5-tap FIR (see lcd_distribution_lut).
     let lut = lcd_distribution_lut();
-    let mut sl = ScanlineU8::new();
     if let Some(params) = glyph_cache.text_aa().lcd_blend {
         // Colorimetric path (default): per-stripe compositing in LINEAR
         // light against the actual background pixel, with contrast
@@ -4531,7 +4535,7 @@ fn render_glyphs_lcd(
             // repaint). The stripe clip set above bounds the WRITES instead.
             rb.clip_box_i(0, y1, (w as i32) * 3 - 1, y2);
         }
-        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+        render_scanlines_aa_solid(ras, sl, &mut rb, &agg_color);
     } else {
         // Legacy sRGB-space blending (AZ_LCD_BLEND=legacy).
         let mut pf = PixfmtRgba32Lcd::new(&mut ra, lut);
@@ -4550,7 +4554,7 @@ fn render_glyphs_lcd(
             // repaint). The stripe clip set above bounds the WRITES instead.
             rb.clip_box_i(0, y1, (w as i32) * 3 - 1, y2);
         }
-        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+        render_scanlines_aa_solid(ras, sl, &mut rb, &agg_color);
     }
 }
 
@@ -5082,8 +5086,8 @@ pub(super) fn render_text(
     if let Some((x1, y1, x2, y2)) = clip_box {
         rb.clip_box_i(x1, y1, x2, y2);
     }
-    let mut ras = RasterizerScanlineAa::new();
-    ras.filling_rule(FillingRule::NonZero);
+    let mut pooled = PooledTextRaster::take();
+    let (ras, sl) = pooled.parts();
 
     // Accumulate all glyph cells into one rasterizer, then render once.
     // This amortizes sort_cells cost across all glyphs in the run.
@@ -5132,11 +5136,65 @@ pub(super) fn render_text(
     }
 
     // Single render pass for all glyphs in this text run
-    let mut sl = ScanlineU8::new();
     if glyph_cache.text_aa().aliased() {
-        render_scanlines_aliased_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+        render_scanlines_aliased_solid(ras, sl, &mut rb, &agg_color);
     } else {
-        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
+        render_scanlines_aa_solid(ras, sl, &mut rb, &agg_color);
+    }
+}
+
+/// The rasteriser and scanline a text run sweeps its glyph cells with. Every run used to make
+/// its own (the rasteriser's cell storage, the scanline's span and cover tables, grown from
+/// nothing) and drop them after one sweep; a map draws thousands of runs a frame. A run takes the
+/// thread's pair and its drop hands it back, emptied.
+struct PooledTextRaster {
+    ras: Option<RasterizerScanlineAa>,
+    sl: Option<ScanlineU8>,
+}
+
+thread_local! {
+    static TEXT_RASTER_POOL: std::cell::RefCell<Option<(RasterizerScanlineAa, ScanlineU8)>> =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: how many rasterisers this thread has had to make.
+    #[cfg(test)]
+    static TEXT_RASTERS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Tests: make one per run, as before the pool.
+    #[cfg(test)]
+    static TEXT_RASTER_POOL_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+impl PooledTextRaster {
+    fn take() -> Self {
+        #[cfg(test)]
+        let pooled = if TEXT_RASTER_POOL_OFF.with(std::cell::Cell::get) {
+            None
+        } else {
+            TEXT_RASTER_POOL.with(|p| p.borrow_mut().take())
+        };
+        #[cfg(not(test))]
+        let pooled = TEXT_RASTER_POOL.with(|p| p.borrow_mut().take());
+        let (ras, sl) = pooled.unwrap_or_else(|| {
+            #[cfg(test)]
+            TEXT_RASTERS_MADE.with(|n| n.set(n.get() + 1));
+            (RasterizerScanlineAa::new(), ScanlineU8::new())
+        });
+        Self { ras: Some(ras), sl: Some(sl) }
+    }
+
+    /// The rasteriser (empty, non-zero winding) and the scanline.
+    fn parts(&mut self) -> (&mut RasterizerScanlineAa, &mut ScanlineU8) {
+        let ras = self.ras.as_mut().expect("held until drop");
+        ras.filling_rule(FillingRule::NonZero);
+        (ras, self.sl.as_mut().expect("held until drop"))
+    }
+}
+
+impl Drop for PooledTextRaster {
+    fn drop(&mut self) {
+        if let (Some(mut ras), Some(sl)) = (self.ras.take(), self.sl.take()) {
+            ras.reset();
+            TEXT_RASTER_POOL.with(|p| *p.borrow_mut() = Some((ras, sl)));
+        }
     }
 }
 
@@ -8551,6 +8609,127 @@ mod text_shadow_tests {
             let (most, n) = channel_difference(&frame, &old);
             assert!(most <= 2, "at {at:?}: differs from the drawn halo by {most} in {n} channels");
         }
+    }
+
+    /// Black text on a white page, `count` runs of it, painted into a 260 x 90 frame, the page
+    /// optionally inside a frame turned by `degrees` (an isolated group, resampled where it lands).
+    fn text_page(
+        font: &ParsedFont,
+        resources: &(RendererResources, FontManager<FontRef>, FontHash),
+        count: usize,
+        turned_by: Option<f32>,
+    ) -> AzulPixmap {
+        let (rr, fm, font_hash) = resources;
+        let (w, h) = (260u32, 90u32);
+        let page: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: w as f32, height: h as f32 },
+        }
+        .into();
+        let mut items = Vec::new();
+        if let Some(degrees) = turned_by {
+            let (s, c) = degrees.to_radians().sin_cos();
+            items.push(DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 1 },
+                initial_transform: azul_core::transform::ComputedTransform3D {
+                    m: [[c, s, 0.0, 0.0], [-s, c, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+                },
+                bounds: page,
+            });
+        }
+        items.push(DisplayListItem::Rect {
+            bounds: page,
+            color: ColorU { r: 255, g: 255, b: 255, a: 255 },
+            border_radius: BorderRadius::default(),
+        });
+        for k in 0..count {
+            let (x, y) = (8.0 + (k % 3) as f32 * 80.0, 20.0 + (k / 3) as f32 * 14.0);
+            let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+                origin: LogicalPosition { x: x - 2.0, y: y - 12.0 },
+                size: LogicalSize { width: 78.0, height: 16.0 },
+            }
+            .into();
+            items.push(DisplayListItem::Text {
+                glyphs: shape(font, "Tuebingen", 12.0, x, y),
+                font_hash: *font_hash,
+                font_size_px: 12.0,
+                color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                clip_rect,
+                line_box: clip_rect,
+                source_node_index: None,
+            });
+        }
+        if turned_by.is_some() {
+            items.push(DisplayListItem::PopReferenceFrame);
+        }
+        let dl = DisplayList { items, ..Default::default() };
+        let mut pm = AzulPixmap::new(w, h).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        render_display_list(&dl, &mut pm, 1.0, rr, fm, &mut gc).unwrap();
+        pm
+    }
+
+    /// The most `|r - b|` of any pixel: LCD stripes make it positive at a glyph's edge, grayscale
+    /// coverage over a gray page leaves it 0.
+    fn colour_fringe(pm: &AzulPixmap) -> i32 {
+        pm.data()
+            .chunks_exact(4)
+            .map(|p| (i32::from(p[0]) - i32::from(p[2])).abs())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Text in a group that is resampled is grayscale (LCD stripes would smear into fringes in
+    /// the resample, and cost more); the same text in the settled picture stays LCD.
+    #[test]
+    fn text_inside_a_resampled_group_is_grayscale_and_the_settled_picture_keeps_its_lcd() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let resources = renderer_resources_with(&font);
+        let settled = text_page(&font, &resources, 6, None);
+        assert!(
+            colour_fringe(&settled) > 8,
+            "the settled picture is LCD text (fringe {})",
+            colour_fringe(&settled)
+        );
+        for degrees in [3.0_f32, 20.0] {
+            let turned = text_page(&font, &resources, 6, Some(degrees));
+            assert_eq!(
+                colour_fringe(&turned),
+                0,
+                "the text of a group turned by {degrees} degrees is grayscale"
+            );
+        }
+    }
+
+    /// A run takes the thread's rasteriser and scanline and hands them back: a page of runs makes
+    /// one, however many it draws and however often it is painted, and paints the same pixels as
+    /// a rasteriser made for every run.
+    #[test]
+    fn the_text_runs_of_a_thread_share_one_rasteriser() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let resources = renderer_resources_with(&font);
+        let made = || TEXT_RASTERS_MADE.with(std::cell::Cell::get);
+        let before = made();
+        let first = text_page(&font, &resources, 9, None);
+        let second = text_page(&font, &resources, 9, Some(7.0));
+        let again = text_page(&font, &resources, 9, None);
+        assert!(made() - before <= 1, "one rasteriser for 27 runs: {}", made() - before);
+        assert_eq!(channel_difference(&first, &again), (0, 0), "a reused rasteriser paints the same");
+        TEXT_RASTER_POOL_OFF.with(|c| c.set(true));
+        let made_before = made();
+        let unpooled = text_page(&font, &resources, 9, None);
+        let unpooled_turned = text_page(&font, &resources, 9, Some(7.0));
+        TEXT_RASTER_POOL_OFF.with(|c| c.set(false));
+        assert!(made() - made_before >= 9, "without the pool every run makes one: {}", made() - made_before);
+        assert_eq!(channel_difference(&first, &unpooled), (0, 0), "the pool changes no pixel");
+        assert_eq!(channel_difference(&second, &unpooled_turned), (0, 0), "nor in a group");
     }
 }
 
