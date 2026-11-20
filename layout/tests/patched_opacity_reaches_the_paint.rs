@@ -10,6 +10,12 @@
 //! and the tip never drew. The same hole covers every property the compact
 //! cache serves directly or by a presence bit: border colours and radii,
 //! `background`, `box-shadow`, `transform`, `clip-path`, `text-decoration`.
+//!
+//! The frame is drawn the way the shells draw it: from the display list AND the
+//! live values the GPU cache holds. A write of `opacity` to a node whose list
+//! binds an opacity key is a value under that key, not a new list
+//! (`apply_node_css_change`), so a frame made from the list alone would show
+//! the baked value.
 
 use azul_core::{
     dom::{Dom, DomId, NodeId},
@@ -47,9 +53,20 @@ fn red_pixels(lw: &LayoutWindow, rr: &RendererResources) -> usize {
         height: H,
         dpi_factor: 1.0,
     };
-    let pixmap =
-        cpurender::render_with_font_manager(&dl, rr, &lw.font_manager, opts, &mut glyph_cache)
-            .unwrap();
+    let state = cpurender::CpuRenderState::from_gpu_cache(
+        lw.gpu_state_manager.get_cache(DomId::ROOT_ID),
+        DomId::ROOT_ID,
+        &cpurender::ScrollOffsetMap::new(),
+    );
+    let pixmap = cpurender::render_with_font_manager_and_scroll(
+        &dl,
+        rr,
+        &lw.font_manager,
+        opts,
+        &mut glyph_cache,
+        &state,
+    )
+    .unwrap();
     pixmap
         .data()
         .chunks_exact(4)

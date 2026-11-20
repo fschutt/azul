@@ -281,8 +281,15 @@ impl GpuStateManager {
         self.scrollbar_fade_left_ms
             .iter()
             .map(|(dom, snapshot)| {
+                // Only a deadline on the system clock can be counted down by it: a
+                // window that runs on ticks (a driven clock, a test's) has no
+                // other clock than its frames, and its snapshot is the answer.
                 #[cfg(feature = "std")]
-                if let Some(end) = self.scrollbar_fade_ends.get(dom) {
+                if let Some(end) = self
+                    .scrollbar_fade_ends
+                    .get(dom)
+                    .filter(|end| matches!(end, azul_core::task::Instant::System(_)))
+                {
                     let left = end.duration_since(&now).as_nanos().div_ceil(1_000_000);
                     return u64::try_from(left).unwrap_or(u64::MAX).min(*snapshot);
                 }

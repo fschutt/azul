@@ -166,6 +166,14 @@ const LEDGER: &[Row] = &[
         reason: "known gap: a structural change falls back to FULL damage",
     },
     Row {
+        file: "layout/src/cpurender/raster.rs",
+        test: "how_long_a_labels_halo_takes_to_dilate",
+        kind: Kind::Diagnostic,
+        id: None,
+        owner: "layout/cpurender",
+        reason: "a measurement: cargo test -p azul-layout --lib -- --ignored --nocapture",
+    },
+    Row {
         file: "layout/tests/a_rebuild_of_an_unchanged_page_costs_little.rs",
         test: "a_rebuild_of_an_unchanged_page_costs_little",
         kind: Kind::Diagnostic,
@@ -312,7 +320,8 @@ const COUNTS: &[(Kind, usize)] = &[
     (Kind::Red, 0),
     (Kind::Gap, 2),
     (Kind::Stale, 12),
-    (Kind::Diagnostic, 4),
+    // + the halo dilation's timing (layout/src/cpurender/raster.rs): 4 -> 5.
+    (Kind::Diagnostic, 5),
     (Kind::Hardware, 11),
 ];
 
