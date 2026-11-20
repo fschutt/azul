@@ -7670,7 +7670,12 @@ mod tests {
     struct LabelHovers {
         enters: Arc<std::sync::atomic::AtomicUsize>,
         leaves: Arc<std::sync::atomic::AtomicUsize>,
+        /// What the labels' `:hover` rule declares.
+        hover: &'static str,
     }
+
+    /// The hover of a label that changes PAINT only: a background.
+    const LABEL_HOVER_PAINT: &str = "background: rgba(66, 134, 244, 0.35);";
 
     extern "C" fn label_entered(
         mut data: RefAny,
@@ -7714,9 +7719,10 @@ mod tests {
                      transform: rotate(0deg); font-size: 12px; line-height: 1; \
                      letter-spacing: 0px; color: #222222; font-family: sans-serif; \
                      white-space: pre; cursor: pointer; text-shadow: 0px 0px 0px 1px #ffffff; \
-                     :hover {{ background: rgba(66, 134, 244, 0.35); }}",
+                     :hover {{ {} }}",
                     10 + col * 36,
                     20 + row * 40,
+                    hovers.hover,
                 );
                 labels.push(
                     Dom::create_span_with_text(format!("Ab{row}{col}"))
@@ -7771,11 +7777,17 @@ mod tests {
     }
 
     fn labels_window() -> (HeadlessWindow, LabelHovers) {
+        labels_window_hovering(LABEL_HOVER_PAINT)
+    }
+
+    /// [`labels_window`] with the labels' `:hover` rule declaring `hover`.
+    fn labels_window_hovering(hover: &'static str) -> (HeadlessWindow, LabelHovers) {
         use std::sync::atomic::AtomicUsize;
 
         let hovers = LabelHovers {
             enters: Arc::new(AtomicUsize::new(0)),
             leaves: Arc::new(AtomicUsize::new(0)),
+            hover,
         };
         let state = Arc::new(RefCell::new(RefAny::new(VvAppState {
             content: RefAny::new(hovers.clone()),
@@ -7919,6 +7931,56 @@ mod tests {
             plain,
             "and is plain again once the pointer has left it"
         );
+    }
+
+    /// A hover that moves a `transform` (or an `opacity`) of a node the list already binds by
+    /// key is a value: the new matrix is published under the key, no list is rebuilt and nothing
+    /// is laid out. The restyle STAGES its css diff (`pending_css_dirty`: scope `None`) before it
+    /// classifies the change, and the GPU-only answer left the entry standing - the headless
+    /// window took any staged diff for a layout owed (`service_frame`) and laid the whole window
+    /// out for every enter and leave.
+    #[test]
+    fn a_hover_that_moves_a_transform_costs_no_layout_and_no_rebuild() {
+        let (mut window, hovers) = labels_window_hovering("transform: rotate(8deg);");
+        step(&mut window, HeadlessEvent::MouseMove { x: 300.0, y: 290.0 });
+        let (root_before, child_before) = lists_of(&window);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .frame_report
+            .reset_counters();
+
+        let moves = 30;
+        for i in 0..moves {
+            step(
+                &mut window,
+                HeadlessEvent::MouseMove {
+                    x: 112.0 + 12.0 * i as f32,
+                    y: 26.0,
+                },
+            );
+        }
+        let enters = hovers.enters.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(enters >= 8, "premise: the pointer went over the labels ({enters} entered)");
+
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let report = lw.frame_report.clone();
+        assert_eq!(
+            report.layout_passes, 0,
+            "a hover that moves a bound transform lays nothing out: {report:?}"
+        );
+        assert_eq!(report.dom_regenerations, 0, "{report:?}");
+        assert_eq!(report.dl_rebuilds, 0, "a value: no list is rebuilt: {report:?}");
+        assert!(
+            lw.pending_css_dirty.is_none(),
+            "the diff the restyle staged is served by the values it published: {:?}",
+            lw.pending_css_dirty
+        );
+        let (root_after, child_after) = lists_of(&window);
+        assert!(std::ptr::eq(root_after.as_ptr(), root_before.as_ptr()), "the window's list");
+        assert!(std::ptr::eq(child_after.as_ptr(), child_before.as_ptr()), "the view's list");
     }
 
     #[test]

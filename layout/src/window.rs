@@ -26747,6 +26747,31 @@ impl LayoutWindow {
         Some(true)
     }
 
+    /// The PAINT dirt staged for `dom_id` ([`Self::pending_css_dirty`]: every entry of scope
+    /// `None`) is served by a frame that shows what it describes: a display list built from the
+    /// styles as they are, or the new values of a transform / opacity / colour published under
+    /// the keys the list binds. Dirt that asks for layout (any scope above `None`) stays: a
+    /// layout pass still owes it, and dirt of another DOM is not this one's to serve.
+    ///
+    /// A paint-scope tween frame stages its node and asks for exactly the rebuild that serves
+    /// it; leaving the entry made the dirt grow by one per frame until some layout pass ate it,
+    /// and refused every frame in between the values-only repaint
+    /// (`animation_tick_is_values_only`). A restyle that only moved a bound transform (a
+    /// `:hover { transform }`) staged its diff too and published the value without any list:
+    /// the entry stood, and the headless frame (`service_frame`) took any staged diff for a
+    /// layout owed and laid the whole window out for every enter and leave.
+    pub fn serve_paint_dirt(&mut self, dom_id: DomId) {
+        if matches!(
+            &self.pending_css_dirty,
+            Some((d, list)) if *d == dom_id
+                && list
+                    .iter()
+                    .all(|(_, scope)| *scope == azul_css::props::property::RelayoutScope::None)
+        ) {
+            self.pending_css_dirty = None;
+        }
+    }
+
     /// Regenerate the display list for a specific DOM from the current layout tree.
     ///
     /// This is the critical missing piece for text input: after `update_text_cache_after_edit`
@@ -26968,22 +26993,8 @@ impl LayoutWindow {
                     self.root_display_list_gpu_fingerprint = Some(gpu_fingerprint);
                 }
                 // PAINT dirt staged for this DOM is served: the list was just
-                // built from the styles it describes. A paint-scope tween
-                // frame stages its node here and asks for exactly this
-                // rebuild; leaving the entry made the dirt grow by one per
-                // frame until some layout pass ate it, and refused every
-                // frame in between the values-only repaint
-                // (`animation_tick_is_values_only`). Layout-scope dirt stays:
-                // a layout pass still owes it.
-                if matches!(
-                    &self.pending_css_dirty,
-                    Some((d, list)) if *d == dom_id
-                        && list
-                            .iter()
-                            .all(|(_, scope)| *scope == azul_css::props::property::RelayoutScope::None)
-                ) {
-                    self.pending_css_dirty = None;
-                }
+                // built from the styles it describes (`serve_paint_dirt`).
+                self.serve_paint_dirt(dom_id);
                 // Refresh the solver's structural-identity DL cache with the
                 // SAME list, keyed on the fingerprint of the gpu cache this
                 // regeneration consumed. Without this the two DL authorities

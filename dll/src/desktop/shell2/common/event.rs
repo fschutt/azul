@@ -666,6 +666,10 @@ fn gpu_only_restyle_result(
     restyle_result: &azul_core::styled_dom::RestyleResult,
 ) -> ProcessEventResult {
     if layout_window.publish_gpu_only_restyle(dom_id, &restyle_result.changed_nodes) {
+        // The values are what the restyle owed: the diff it staged for a layout pass (scope
+        // `None`: nothing moves) is served. Left standing, the headless frame took it for a
+        // layout owed (`service_frame`), and the next layout replayed it.
+        layout_window.serve_paint_dirt(dom_id);
         ProcessEventResult::ShouldReRenderCurrentWindow
     } else {
         repaint_restyled_dom(layout_window, dom_id)
