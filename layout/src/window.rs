@@ -27794,13 +27794,63 @@ impl LayoutWindow {
         position: LogicalPosition,
         time_ms: u64,
     ) -> Option<Vec<DomNodeId>> {
+        // The lists the selection is painted in, before the press and after it. A press that
+        // opens a collapsed caret in text nobody can edit paints nothing, and changes nothing
+        // on screen: it owes no list at all (a map editor's labels, a document's body text:
+        // every press on them rebuilt the list of the DOM, thousands of items, and the shells
+        // answered the display-list tier with a second rebuild of the window's own). A
+        // selection the press ends - a highlight, a caret - is owed a rebuild of its list.
+        let painted_before = self.doms_where_the_selection_paints();
+        let list_dirty_before = self.text_edit_manager.display_list_dirty;
         let affected = self.place_selection_at_click(position, time_ms);
         if affected.is_some() {
             // A click puts the caret anew: the typing style is over.
             self.text_edit_manager.typing_style = None;
             self.request_session_reveal();
         }
+        let mut owed = self.doms_where_the_selection_paints();
+        owed.extend(painted_before);
+        if owed.is_empty() {
+            // The repaint the session's opening latched is not owed: nothing was painted.
+            self.text_edit_manager.display_list_dirty = list_dirty_before;
+        }
+        for dom_id in owed {
+            self.regenerate_display_list_for_dom(dom_id);
+        }
         affected
+    }
+
+    /// The DOMs whose display list holds something the selection state paints: a highlight (a
+    /// range of this window's session or of another participant's) or a caret. A collapsed
+    /// cursor paints nothing in text that cannot be edited, and a caret is painted only where
+    /// something can (`DisplayListGenerator::paint_cursor`): a DOM with no editable node has
+    /// none to paint.
+    fn doms_where_the_selection_paints(&self) -> BTreeSet<DomId> {
+        let mut out = BTreeSet::new();
+        for (dom_id, selection) in self.text_edit_manager.build_text_selections_map() {
+            if !selection.is_collapsed() || !selection.remote_ranges.is_empty() {
+                out.insert(dom_id);
+            }
+        }
+        for location in self.text_edit_manager.build_cursor_locations() {
+            let dom_id = location.block.dom();
+            if !location.ends_a_selection
+                && !out.contains(&dom_id)
+                && self.layout_results.get(&dom_id).is_some_and(|result| {
+                    result.styled_dom.node_data.as_ref().iter().any(|node| {
+                        node.is_contenteditable()
+                            || node
+                                .attributes()
+                                .as_ref()
+                                .iter()
+                                .any(|attr| matches!(attr, AttributeType::ContentEditable(_)))
+                    })
+                })
+            {
+                out.insert(dom_id);
+            }
+        }
+        out
     }
 
     /// Whether `node` (of `dom_id`) is the topmost hit or a box it sits in:
@@ -28254,9 +28304,9 @@ impl LayoutWindow {
         }
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
-        // Regenerate display list so cursor appears at the clicked position
-        // (same pattern as handle_cursor_movement and apply_text_changeset)
-        self.regenerate_display_list_for_dom(dom_id);
+        // The display list is the caller's: it rebuilds the lists the selection is painted in
+        // (`process_mouse_click_for_selection`), which a collapsed caret in text that cannot be
+        // edited is not.
 
         // Return the affected node for dirty tracking
         Some(vec![dom_node_id])

@@ -7933,15 +7933,175 @@ mod tests {
         );
     }
 
-    /// A hover that moves a `transform` (or an `opacity`) of a node the list already binds by
-    /// key is a value: the new matrix is published under the key, no list is rebuilt and nothing
-    /// is laid out. The restyle STAGES its css diff (`pending_css_dirty`: scope `None`) before it
-    /// classifies the change, and the GPU-only answer left the entry standing - the headless
-    /// window took any staged diff for a layout owed (`service_frame`) and laid the whole window
-    /// out for every enter and leave.
+    /// How many `SelectionRect` items the view's list holds: the highlight of a selection in it.
+    fn view_selection_rects(window: &HeadlessWindow) -> usize {
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let child = *lw
+            .layout_results
+            .keys()
+            .find(|dom| dom.inner != 0)
+            .expect("the view's DOM");
+        lw.layout_results[&child]
+            .display_list
+            .items
+            .iter()
+            .filter(|item| {
+                matches!(item, azul_layout::solver3::display_list::DisplayListItem::SelectionRect { .. })
+            })
+            .count()
+    }
+
+    /// A press on the text of a label places a collapsed cursor in text nobody can edit: it
+    /// paints nothing and changes nothing on screen, so no list is rebuilt - not the view's
+    /// (thousands of items in the editor) and not the window's. The press rebuilt the list of
+    /// the view where the cursor was placed, and the display-list tier it was answered with
+    /// made the frame rebuild the window's own on top: two rebuilds a press.
     #[test]
-    fn a_hover_that_moves_a_transform_costs_no_layout_and_no_rebuild() {
-        let (mut window, hovers) = labels_window_hovering("transform: rotate(8deg);");
+    fn a_press_on_the_text_of_a_label_rebuilds_no_display_list() {
+        use azul_core::{events::MouseButton, selection::Selection};
+
+        let (mut window, _hovers) = labels_window();
+        // The first label of the first row: (10, 20) in the view, at (110, 20) in the window.
+        step(&mut window, HeadlessEvent::MouseMove { x: 114.0, y: 26.0 });
+        let (root_before, child_before) = lists_of(&window);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .frame_report
+            .reset_counters();
+
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let session = lw
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .expect("premise: the press opened a selection session in the label's text");
+        assert_ne!(session.block.dom().inner, 0, "premise: in the view's DOM, not the window's");
+        assert!(
+            session.selections.iter().all(|s| matches!(s.selection, Selection::Cursor(_))),
+            "premise: a collapsed cursor"
+        );
+        let report = lw.frame_report.clone();
+        let (root_after, child_after) = lists_of(&window);
+        assert!(
+            std::ptr::eq(root_after.as_ptr(), root_before.as_ptr()),
+            "the window's list was rebuilt (the shell asked for it): {report:?}"
+        );
+        assert!(
+            std::ptr::eq(child_after.as_ptr(), child_before.as_ptr()),
+            "the view's list was rebuilt (the press put its cursor there): {report:?}"
+        );
+        assert_eq!(
+            report.dl_rebuilds, 0,
+            "a cursor in text nobody can edit paints nothing: no list is rebuilt: {report:?}"
+        );
+        assert_eq!(report.layout_passes, 0, "{report:?}");
+        assert!(!lw.text_edit_manager.display_list_dirty, "no repaint is owed");
+    }
+
+    /// The press is answered with a repaint, not the display-list tier: the layout window rebuilt
+    /// the lists the press changed itself, and the tier makes macOS rebuild the window's own on top
+    /// (the headless frame does not, so the tier is asked of the system change directly).
+    #[test]
+    fn a_text_selection_press_asks_for_a_repaint_and_not_for_a_rebuild() {
+        use azul_core::events::{ProcessEventResult, SystemChange};
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let (mut window, _hovers) = labels_window();
+        step(&mut window, HeadlessEvent::MouseMove { x: 114.0, y: 26.0 });
+        let pressed = window.apply_system_change(&SystemChange::TextSelectionClick {
+            position: LogicalPosition { x: 114.0, y: 26.0 },
+            timestamp: azul_core::task::Instant::now(),
+        });
+        assert_eq!(
+            pressed,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            "a press that placed a cursor is presented, not answered with a rebuild of the window's list"
+        );
+    }
+
+    /// A drag over the text of a label selects it: the highlight is in the view's list - the
+    /// DOM the selection is in - and the window's own list is not rebuilt for it (the
+    /// display-list tier the drag was answered with rebuilt it on every move).
+    #[test]
+    fn a_drag_over_the_text_of_a_label_paints_its_highlight_in_the_views_list_alone() {
+        use azul_core::events::MouseButton;
+
+        let (mut window, _hovers) = labels_window();
+        step(&mut window, HeadlessEvent::MouseMove { x: 112.0, y: 26.0 });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        let (root_before, _) = lists_of(&window);
+        assert_eq!(view_selection_rects(&window), 0, "premise: nothing is selected yet");
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .frame_report
+            .reset_counters();
+
+        for x in [118.0f32, 124.0, 130.0, 136.0] {
+            step(&mut window, HeadlessEvent::MouseMove { x, y: 26.0 });
+        }
+
+        assert!(
+            view_selection_rects(&window) > 0,
+            "the dragged range is painted in the view's list"
+        );
+        let (root_after, _) = lists_of(&window);
+        assert!(
+            std::ptr::eq(root_after.as_ptr(), root_before.as_ptr()),
+            "the window's list (the selection is in the view's DOM) was not rebuilt"
+        );
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+    }
+
+    /// The caret of an editable field is painted by a press, as ever - the press that paints
+    /// nothing is the one in text nobody can edit.
+    #[test]
+    fn a_press_in_an_editable_field_still_paints_its_caret() {
+        use azul_core::events::MouseButton;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, filled_text_input_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let containers = rects_by_class(&window, "__azul-native-text-input-container");
+        let c = containers[0];
+        step(
+            &mut window,
+            HeadlessEvent::MouseMove {
+                x: c.origin.x + c.size.width * 0.45,
+                y: c.origin.y + c.size.height * 0.5,
+            },
+        );
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .frame_report
+            .reset_counters();
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+
+        assert!(
+            !caret_items(&window).is_empty(),
+            "the press placed a caret and the list the frame shows paints it (no layout between)"
+        );
+    }
+
+    /// 30 plain moves along the first row of labels (the pointer enters and leaves ten of them)
+    /// with labels whose `:hover` rule declares `hover`: no layout, no rebuild of any list, no
+    /// diff left staged, and both lists the allocations they were.
+    fn assert_a_hover_rebuilds_nothing(hover: &'static str) {
+        let (mut window, hovers) = labels_window_hovering(hover);
         step(&mut window, HeadlessEvent::MouseMove { x: 300.0, y: 290.0 });
         let (root_before, child_before) = lists_of(&window);
         window
@@ -7967,20 +8127,37 @@ mod tests {
 
         let lw = window.common.layout_window.as_ref().expect("a layout window");
         let report = lw.frame_report.clone();
-        assert_eq!(
-            report.layout_passes, 0,
-            "a hover that moves a bound transform lays nothing out: {report:?}"
-        );
+        assert_eq!(report.layout_passes, 0, "`{hover}` lays nothing out: {report:?}");
         assert_eq!(report.dom_regenerations, 0, "{report:?}");
-        assert_eq!(report.dl_rebuilds, 0, "a value: no list is rebuilt: {report:?}");
+        assert_eq!(report.dl_rebuilds, 0, "`{hover}` rebuilds no list: {report:?}");
         assert!(
             lw.pending_css_dirty.is_none(),
-            "the diff the restyle staged is served by the values it published: {:?}",
+            "the diff the restyle staged is served: {:?}",
             lw.pending_css_dirty
         );
         let (root_after, child_after) = lists_of(&window);
         assert!(std::ptr::eq(root_after.as_ptr(), root_before.as_ptr()), "the window's list");
         assert!(std::ptr::eq(child_after.as_ptr(), child_before.as_ptr()), "the view's list");
+    }
+
+    /// A hover that moves a `transform` (or an `opacity`) of a node the list already binds by
+    /// key is a value: the new matrix is published under the key, no list is rebuilt and nothing
+    /// is laid out. The restyle STAGES its css diff (`pending_css_dirty`: scope `None`) before it
+    /// classifies the change, and the GPU-only answer left the entry standing - the headless
+    /// window took any staged diff for a layout owed (`service_frame`) and laid the whole window
+    /// out for every enter and leave.
+    #[test]
+    fn a_hover_that_moves_a_transform_costs_no_layout_and_no_rebuild() {
+        assert_a_hover_rebuilds_nothing("transform: rotate(8deg);");
+    }
+
+    /// A hover that only changes the pointer's shape (`cursor`) changes nothing the frame
+    /// draws: the shape is read by the OS, no display list holds it. The restyle asked for the
+    /// rebuild of the DOM's list all the same (a paint-scope change, as any other property that
+    /// is not layout), once per enter and per leave.
+    #[test]
+    fn a_hover_that_only_changes_the_pointer_shape_rebuilds_no_list() {
+        assert_a_hover_rebuilds_nothing("cursor: text;");
     }
 
     #[test]

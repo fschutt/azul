@@ -161,3 +161,43 @@ fn a_plain_move_along_the_text_labels_lays_nothing_out_and_paints_the_label_unde
         .count();
     assert_eq!(painted, 1, "exactly the label under the pointer is painted in its hover colour");
 }
+
+/// A press on the text of a label places a collapsed cursor in text nobody can edit: it paints
+/// nothing, so the runner rebuilds no list for it - the view's (the press rebuilt the list of the DOM
+/// it placed the cursor in) and not the window's (the display-list tier it was answered with was served
+/// with a rebuild of the root's list): two rebuilds a press before.
+#[test]
+fn a_press_on_the_text_of_a_label_rebuilds_no_list_on_the_runner() {
+    let steps = vec![
+        serde_json::json!({ "op": "wait_frame" }),
+        serde_json::json!({ "op": "mouse_move", "x": 14.0, "y": 28.0 }),
+        serde_json::json!({ "op": "wait_frame" }),
+        serde_json::json!({ "op": "wait_frame" }),
+        serde_json::json!({ "op": "reset_frame_counters" }),
+        serde_json::json!({ "op": "click", "x": 14.0, "y": 28.0 }),
+        serde_json::json!({ "op": "wait_frame" }),
+        serde_json::json!({ "op": "get_frame_report" }),
+    ];
+    let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+        "name": "press_text_cost",
+        "setup": { "window_width": 600, "window_height": 400, "dpi": 96 },
+        "steps": steps
+    }))
+    .expect("scenario json");
+    let (result, runner) = run_e2e_test_keeping_runner(&test, Some(map_dom()));
+    assert_eq!(result.status, "pass", "{:#?}", result.steps);
+    let report = result
+        .steps
+        .iter()
+        .rev()
+        .find(|s| s.op == "get_frame_report")
+        .and_then(|s| s.response.as_ref())
+        .and_then(|v| v.get("value"))
+        .expect("the frame report");
+    let rebuilds = report.get("dl_rebuilds").and_then(serde_json::Value::as_u64).expect("dl_rebuilds");
+    assert_eq!(rebuilds, 0, "a press on a label rebuilds no list: {report}");
+    assert!(
+        runner.layout_window.text_edit_manager.multi_cursor.is_some(),
+        "premise: the press opened a selection session"
+    );
+}

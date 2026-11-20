@@ -1061,6 +1061,9 @@ fn apply_active_restyle(
             } else if accumulator.needs_paint_only() {
                 repaint_restyled_dom(layout_window, dom_id)
             } else {
+                // Nothing to lay out and nothing to paint (a pointer shape alone): the diff
+                // the restyle staged owes no pass, and no list is rebuilt.
+                layout_window.serve_paint_dirt(dom_id);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
         };
@@ -1126,6 +1129,9 @@ pub(crate) fn apply_hover_restyle(
             } else if accumulator.needs_paint_only() {
                 repaint_restyled_dom(layout_window, dom_id)
             } else {
+                // Nothing to lay out and nothing to paint (a pointer shape alone): the diff
+                // the restyle staged owes no pass, and no list is rebuilt.
+                layout_window.serve_paint_dirt(dom_id);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
         };
@@ -8770,11 +8776,15 @@ pub trait PlatformWindow {
                     if layout_window.begin_selection_handle_drag(*position) {
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
+                    // The lists the press changed are rebuilt by the layout window itself (and
+                    // none for a caret that paints nothing): the frame only presents them. The
+                    // display-list tier made macOS rebuild the window's own list on top, and
+                    // the runner too - thousands of items for a press on a label of a view.
                     if layout_window
                         .process_mouse_click_for_selection(*position, current_time_ms)
                         .is_some()
                     {
-                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -8812,11 +8822,13 @@ pub trait PlatformWindow {
                             ProcessEventResult::DoNothing
                         };
                     }
+                    // The drag rebuilds the list of the DOM it selects in (the layout window
+                    // does): a present, not a second rebuild of the window's.
                     if layout_window
                         .process_mouse_drag_for_selection(*start_position, *current_position)
                         .is_some()
                     {
-                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
                     }
                 }
                 ProcessEventResult::DoNothing

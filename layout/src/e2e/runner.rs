@@ -1411,8 +1411,8 @@ impl Runner {
                             .process_mouse_click_for_selection(*position, time_ms)
                             .is_some()
                         {
-                            result = result
-                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                            // The layout window rebuilt the lists the press changed: a present.
+                            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                         }
                     }
                     // Port of the DLL's `TextSelectionDrag` arm, including its
@@ -1433,8 +1433,7 @@ impl Runner {
                                 )
                                 .is_some()
                         {
-                            result = result
-                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                         }
                     }
                     // The dll's `UndoTextEdit` / `RedoTextEdit` arms, through

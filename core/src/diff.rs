@@ -2165,6 +2165,14 @@ pub struct ChangeAccumulator {
     pub unmounted_nodes: Vec<NodeId>,
 }
 
+/// Whether no pixel of a window is drawn from a property of this type: its value is read by
+/// the OS (the pointer shape over the node), never by the display list. A restyle that changed
+/// nothing else asks for no repaint and no layout.
+#[must_use]
+pub const fn paints_nothing(ty: CssPropertyType) -> bool {
+    matches!(ty, CssPropertyType::Cursor)
+}
+
 impl ChangeAccumulator {
     #[must_use]
     pub fn new() -> Self {
@@ -2297,6 +2305,12 @@ impl ChangeAccumulator {
         for (node_id, changed_props) in &restyle.changed_nodes {
             for changed in changed_props {
                 let prop_type = changed.current_prop.get_type();
+                // A property no pixel of the window is drawn from - the pointer shape a
+                // `:hover { cursor: pointer }` asks the OS for - changes nothing the frame
+                // shows: it is no paint work, and a hover that only moved it rebuilds no list.
+                if paints_nothing(prop_type) {
+                    continue;
+                }
                 let scope = prop_type.relayout_scope(true); // conservative
                 self.add_css_change(*node_id, prop_type, scope);
             }
