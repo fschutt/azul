@@ -5656,6 +5656,11 @@ mod autotest_generated {
         let per_node = count_nodes(&render_one(&g, N1, (0.0, 0.0), 1.0));
         let whole = count_nodes(&g.clone().dom());
         let culled = count_nodes(&g.dom_in_view(VIEW));
+        // `--nocapture` prints the figures the budget below is read against.
+        eprintln!(
+            "270-node graph in a 1230 x 700 window: {whole} DOM nodes whole, {culled} in view \
+             ({per_node} a node)"
+        );
         assert!(per_node > 20, "a node is a good many DOM nodes ({per_node})");
         assert!(whole > 270 * per_node, "harness: the whole graph is {whole} DOM nodes");
         assert!(
