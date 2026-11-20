@@ -466,7 +466,12 @@ fn a_zoom_step_is_counted_and_a_settled_frame_counts_nothing() {
         step.px_cleared <= 300 * 200,
         "the clear is inside the view's box, not the window: {step:?}"
     );
-    assert_eq!(step.items_painted, first.items_painted, "the view's items, once: {step:?}");
+    // The view's items, once each - less those the zoom moves out of the view (the walk culls
+    // them: only what can land is painted).
+    assert!(
+        step.items_painted <= first.items_painted && step.items_painted + 3 >= first.items_painted,
+        "the view's items, once: {step:?} against {first:?}"
+    );
     assert_eq!(step.retained_hits, 0, "nothing is retained yet");
 
     // A settled window counts nothing.
