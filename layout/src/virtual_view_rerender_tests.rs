@@ -48,7 +48,15 @@ enum Drawing {
     Place,
     /// The same box every time.
     Same,
+    /// A column of `ROWS` boxes, each with a sheet of its own: red every time, but the box
+    /// `RECOLOURED` is green from the second render on.
+    Rows,
 }
+
+/// The boxes of [`Drawing::Rows`].
+const ROWS: usize = 200;
+/// The one that turns green.
+const RECOLOURED: usize = 7;
 
 struct Page(Drawing, Arc<AtomicUsize>);
 
@@ -57,10 +65,24 @@ extern "C" fn drawn(mut data: RefAny, _info: VirtualViewCallbackInfo) -> Virtual
         .downcast_ref::<Page>()
         .map(|page| (page.0, page.1.fetch_add(1, Ordering::SeqCst)))
         .expect("the view's data");
+    if matches!(drawing, Drawing::Rows) {
+        let mut column = Dom::create_div();
+        for row in 0..ROWS {
+            let colour = if call > 0 && row == RECOLOURED { "#00ff00" } else { "#ff0000" };
+            column = column.with_child(Dom::create_div().with_css(&format!(
+                "position: absolute; left: {}px; top: {}px; width: 20px; height: 10px; \
+                 background: {colour};",
+                10 + (row % 10) * 25,
+                10 + (row / 10) * 14,
+            )));
+        }
+        let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(300.0, 300.0));
+        return VirtualViewReturn::with_dom(column, window, window);
+    }
     let (colour, left) = match drawing {
         Drawing::Colour => (if call == 0 { "#ff0000" } else { "#00ff00" }, 10),
         Drawing::Place => ("#ff0000", if call == 0 { 10 } else { 50 }),
-        Drawing::Same => ("#ff0000", 10),
+        Drawing::Same | Drawing::Rows => ("#ff0000", 10),
     };
     // The box is a child of the view's root, as a map's labels are.
     let dom = Dom::create_div().with_child(Dom::create_div().with_css(&format!(
@@ -193,5 +215,30 @@ fn a_view_that_draws_the_same_again_keeps_the_list_it_has() {
         before,
         "nothing moved in what it drew: the view keeps its layout and its list (the renderer \
          keeps its copy)"
+    );
+}
+
+/// A view that renders again with ONE sheet moved - a label turned another colour - keeps the
+/// layout of everything else. The re-render hands the layout pass the CSS diff, as the root's
+/// reconciliation does, so the retained tree re-solves the node whose style moved and clones
+/// the others with what it knows of them. Without the diff the only way to be right was to
+/// throw the view's layout away and lay out every node again: the editor's label view of
+/// twelve thousand nodes, on every render of a tile.
+#[test]
+fn a_view_whose_sheet_moved_keeps_the_layout_of_the_nodes_it_did_not_move() {
+    let mut view = rendered(Drawing::Rows);
+    assert_eq!(view.boxes(RED).len(), ROWS, "harness: every box is red the first time");
+    assert!(view.boxes(GREEN).is_empty(), "harness: no green yet");
+
+    view.render_again();
+
+    assert_eq!(view.boxes(GREEN).len(), 1, "the box whose sheet moved is green in the list");
+    assert_eq!(view.boxes(RED).len(), ROWS - 1, "and the others are as they were");
+    let reused = view.lw.child_layout_caches[&view.child].last_reconcile_reused;
+    assert!(
+        reused >= ROWS,
+        "the retained tree is kept: {reused} of the {} nodes were taken from it, not laid out \
+         again from nothing",
+        ROWS + 2
     );
 }

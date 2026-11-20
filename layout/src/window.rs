@@ -8118,14 +8118,28 @@ impl LayoutWindow {
         DomId,
         Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     )> {
-        let displaced = self.pending_css_dirty.take().filter(|(d, _)| *d != dom_id);
-        self.pending_css_dirty = Some((
+        self.stage_css_dirt_for_pass(
             dom_id,
             stale
                 .into_iter()
                 .map(|n| (n, azul_css::props::property::RelayoutScope::SizingOnly))
                 .collect(),
-        ));
+        )
+    }
+
+    /// Stage `dirt` as the css diff the next pass of `dom_id` takes ([`Self::pending_css_dirty`]
+    /// holds one DOM's diff), returning whatever OTHER dom's diff was staged so the caller can
+    /// put it back after the pass: it is not this pass's to take.
+    fn stage_css_dirt_for_pass(
+        &mut self,
+        dom_id: DomId,
+        dirt: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    ) -> Option<(
+        DomId,
+        Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    )> {
+        let displaced = self.pending_css_dirty.take().filter(|(d, _)| *d != dom_id);
+        self.pending_css_dirty = Some((dom_id, dirt));
         displaced
     }
 
@@ -12566,6 +12580,8 @@ impl LayoutWindow {
             }
         }
 
+        // Whether the styles of the DOM the callback built moved since its last build.
+        let mut styles_moved = false;
         // Get the child Dom from the callback's return value, then convert to StyledDom
         let mut child_styled_dom = match callback_return.dom {
             azul_core::dom::OptionDom::Some(dom) => {
@@ -12609,14 +12625,12 @@ impl LayoutWindow {
                 // node clean and serves the list and the geometry it had, so a
                 // re-render whose only change was a colour or a position showed the
                 // old one. The root's pass is handed the diff of its sheets
-                // (`begin_reconciliation`); this view lays out cold instead.
-                if self
+                // (`begin_reconciliation`); so is this view's, once its DOM is styled
+                // and matched against the one before (below).
+                styles_moved = self
                     .child_dom_fingerprints
                     .get(&child)
-                    .is_some_and(|before| before.style_root != fingerprints.style_root)
-                {
-                    self.child_layout_caches.remove(&child);
-                }
+                    .is_some_and(|before| before.style_root != fingerprints.style_root);
                 self.child_dom_fingerprints.insert(child, fingerprints);
                 // Dom → StyledDom through the window's own chokepoint, which
                 // resolves `<icon>` nodes first. Calling `create_from_dom`
@@ -12697,11 +12711,25 @@ impl LayoutWindow {
         // was purged). Diff old vs new and drive the same exhaustive
         // `remap_node_ids` driver root migration uses, so state follows
         // content and unmatched nodes are GC'd.
-        let entered = self.reconcile_rematerialized_child(
+        let (entered, restyled) = self.reconcile_rematerialized_child(
             child_dom_id,
             &child_styled_dom,
             (system_callbacks.get_system_time_fn.cb)(),
+            styles_moved,
         );
+        // The CSS diff of the re-render, staged for the layout pass below as the root's is
+        // for its own: the retained tree stays warm and re-solves the nodes whose styles
+        // moved. With no cascade to diff against (the old DOM's was set aside) the view
+        // lays out cold.
+        let displaced = match restyled {
+            Some(dirt) => self.stage_css_dirt_for_pass(child_dom_id, dirt),
+            None => {
+                if styles_moved {
+                    self.child_layout_caches.remove(&child_dom_id);
+                }
+                None
+            }
+        };
 
         // Update the VirtualViewManager with the new scroll sizes from the callback
         self.virtual_view_manager.update_virtual_view_info(
@@ -12725,15 +12753,19 @@ impl LayoutWindow {
         // is transferred into `layout_results`. The child's viewport is THIS
         // view's bounds (content space, origin zero): the returned root fills
         // the view and percentage sizes resolve against it, not the window.
-        self.layout_dom_recursive_with_viewport(
+        let laid_out = self.layout_dom_recursive_with_viewport(
             child_styled_dom,
             window_state,
             renderer_resources,
             system_callbacks,
             debug_messages,
             Some(LogicalRect::new(LogicalPosition::zero(), bounds.size)),
-        )
-        .ok()?;
+        );
+        // The diff another DOM had staged waits for its own pass.
+        if self.pending_css_dirty.is_none() {
+            self.pending_css_dirty = displaced;
+        }
+        laid_out.ok()?;
 
         // The funnel's overlay-reapply tail does not run on this path: the
         // child was just laid out from its DOM text, but uncommitted edits
@@ -17191,76 +17223,65 @@ impl LayoutWindow {
                 compared += 1;
 
                 let mut worst = azul_css::props::property::RelayoutScope::None;
-                let mut changed_any = false;
-                let types = types_to_compare(
+                let (compared_here, changed) = changed_styles(
                     old_cache,
                     new_cache,
-                    (old_nd, m.old_node_id.index()),
-                    (new_nd, m.new_node_id.index()),
+                    (old_nd, m.old_node_id, &old_state.styled_node_state),
+                    (new_nd, m.new_node_id, &new_node_state),
                 );
-                compared_properties += types.len();
-                for ty in &types {
-                    let before = old_cache.get_property(
-                        old_nd,
-                        &m.old_node_id,
-                        &old_state.styled_node_state,
-                        ty,
-                    );
-                    let after =
-                        new_cache.get_property(new_nd, &m.new_node_id, &new_node_state, ty);
-                    if before != after {
-                        changed_any = true;
-                        // IFC membership is not known here, so the conservative
-                        // reading is that the node is in one: a text property
-                        // (`word-break`, `text-align`, a font) then lays out the
-                        // inline context again, where the other reading called it
-                        // paint-only and a box that inherits it kept its old lines.
-                        worst = worst.max(ty.relayout_scope(true));
+                compared_properties += compared_here;
+                let changed_any = !changed.is_empty();
+                for (ty, before, after) in changed {
+                    // IFC membership is not known here, so the conservative
+                    // reading is that the node is in one: a text property
+                    // (`word-break`, `text-align`, a font) then lays out the
+                    // inline context again, where the other reading called it
+                    // paint-only and a box that inherits it kept its old lines.
+                    worst = worst.max(ty.relayout_scope(true));
 
-                        // The entry of the OLD tree's `animation` covering
-                        // this property, if any (`declared_animation_for`).
-                        if let Some(anim) =
-                            old_anims.as_ref().and_then(|a| declared_animation_for(a, *ty))
-                        {
-                            use azul_css::dynamic_selector::ResolveSystemColors;
-                            // Endpoints with their `system:` colours resolved,
-                            // each against its own cascade's theme: the frames
-                            // interpolate colours, never keyword tokens.
-                            let value = |v: Option<&azul_css::props::property::CssProperty>| {
-                                v.map_or_else(
-                                    || azul_css::props::property::CssProperty::auto(*ty),
-                                    Clone::clone,
-                                )
-                            };
-                            let to = value(after)
-                                .resolve_system_colors(new_cache.dynamic_context.as_deref());
-                            // A tween already running toward this very value
-                            // is left alone (CSS Transitions 1, s3: its end
-                            // value is the after-change value). `before` reads
-                            // its override - where the node stands mid-way -
-                            // so it differs from `after` on every rebuild that
-                            // lands during the tween, and restarting it from
-                            // there at t = 0 slowed the node to rest and set
-                            // it off again: the Switch knob's 150 ms slide
-                            // began anew whenever the app rebuilt mid-glide.
-                            let running = dom_id == DomId::ROOT_ID
-                                && self.css_transitions.iter().any(|t| {
-                                    t.node == m.old_node_id && t.prop_type == *ty && t.to == to
-                                });
-                            if running {
-                                kept_transitions.push((m.new_node_id, *ty));
-                                continue;
-                            }
-                            captured_transitions.push(CssTransition::declared(
-                                m.new_node_id,
-                                *ty,
-                                value(before)
-                                    .resolve_system_colors(old_cache.dynamic_context.as_deref()),
-                                to,
-                                anim,
-                                false,
-                            ));
+                    // The entry of the OLD tree's `animation` covering
+                    // this property, if any (`declared_animation_for`).
+                    if let Some(anim) =
+                        old_anims.as_ref().and_then(|a| declared_animation_for(a, ty))
+                    {
+                        use azul_css::dynamic_selector::ResolveSystemColors;
+                        // Endpoints with their `system:` colours resolved,
+                        // each against its own cascade's theme: the frames
+                        // interpolate colours, never keyword tokens.
+                        let value = |v: Option<&azul_css::props::property::CssProperty>| {
+                            v.map_or_else(
+                                || azul_css::props::property::CssProperty::auto(ty),
+                                Clone::clone,
+                            )
+                        };
+                        let to = value(after)
+                            .resolve_system_colors(new_cache.dynamic_context.as_deref());
+                        // A tween already running toward this very value
+                        // is left alone (CSS Transitions 1, s3: its end
+                        // value is the after-change value). `before` reads
+                        // its override - where the node stands mid-way -
+                        // so it differs from `after` on every rebuild that
+                        // lands during the tween, and restarting it from
+                        // there at t = 0 slowed the node to rest and set
+                        // it off again: the Switch knob's 150 ms slide
+                        // began anew whenever the app rebuilt mid-glide.
+                        let running = dom_id == DomId::ROOT_ID
+                            && self.css_transitions.iter().any(|t| {
+                                t.node == m.old_node_id && t.prop_type == ty && t.to == to
+                            });
+                        if running {
+                            kept_transitions.push((m.new_node_id, ty));
+                            continue;
                         }
+                        captured_transitions.push(CssTransition::declared(
+                            m.new_node_id,
+                            ty,
+                            value(before)
+                                .resolve_system_colors(old_cache.dynamic_context.as_deref()),
+                            to,
+                            anim,
+                            false,
+                        ));
                     }
                 }
                 // Paint-only changes (worst == None) are recorded too: they
@@ -29614,7 +29635,11 @@ impl LayoutWindow {
         child_dom_id: DomId,
         new_styled_dom: &StyledDom,
         now: Instant,
-    ) -> Vec<NodeId> {
+        styles_moved: bool,
+    ) -> (
+        Vec<NodeId>,
+        Option<Vec<(NodeId, azul_css::props::property::RelayoutScope)>>,
+    ) {
         // The old arena: still live on the programmatic re-invoke path, or
         // stashed by the funnel just before it cleared `layout_results`.
         let old = self.layout_results.get(&child_dom_id).map_or_else(
@@ -29647,6 +29672,15 @@ impl LayoutWindow {
             self.node_identity,
         );
         let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+        // The CSS diff of the nodes the two builds share, when the styles of the DOM moved
+        // and the cascade of the DOM before is still there to compare with.
+        let restyled = if rematerialized && styles_moved {
+            self.layout_results
+                .get(&child_dom_id)
+                .map(|old_result| css_diff_between(&old_result.styled_dom, new_styled_dom, &diff.node_moves))
+        } else {
+            None
+        };
         // A node of the view that entered and asks for focus (`autofocus`) takes it, as
         // in the root DOM: a page that appears in a view takes the keys.
         let matched_new: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.new_node_id).collect();
@@ -29704,7 +29738,7 @@ impl LayoutWindow {
                 self.pending_lifecycle_events.push(event);
             }
         }
-        entered
+        (entered, restyled)
     }
 
     /// Starts the declared `-azul-animation-in` track of every node of `dom` (a view's
@@ -34557,6 +34591,108 @@ fn types_to_compare(
     types.sort_unstable();
     types.dedup();
     types
+}
+
+/// The properties of a matched pair of nodes whose resolved value differs between the old
+/// cascade and the new one: `(type, value before, value after)`, and how many types were
+/// compared. The comparison of the root's reconciliation and of a view's re-render, one
+/// function: a property that was REMOVED counts as a change too, a dropped `width` is every bit
+/// as layout-affecting as a changed one.
+fn changed_styles<'c>(
+    old_cache: &'c azul_core::prop_cache::CssPropertyCache,
+    new_cache: &'c azul_core::prop_cache::CssPropertyCache,
+    (old_nd, old_id, old_state): (
+        &'c azul_core::dom::NodeData,
+        NodeId,
+        &azul_core::styled_dom::StyledNodeState,
+    ),
+    (new_nd, new_id, new_state): (
+        &'c azul_core::dom::NodeData,
+        NodeId,
+        &azul_core::styled_dom::StyledNodeState,
+    ),
+) -> (
+    usize,
+    Vec<(
+        azul_css::props::property::CssPropertyType,
+        Option<&'c azul_css::props::property::CssProperty>,
+        Option<&'c azul_css::props::property::CssProperty>,
+    )>,
+) {
+    let types = types_to_compare(
+        old_cache,
+        new_cache,
+        (old_nd, old_id.index()),
+        (new_nd, new_id.index()),
+    );
+    let compared = types.len();
+    let changed = types
+        .into_iter()
+        .filter_map(|ty| {
+            let before = old_cache.get_property(old_nd, &old_id, old_state, &ty);
+            let after = new_cache.get_property(new_nd, &new_id, new_state, &ty);
+            (before != after).then_some((ty, before, after))
+        })
+        .collect();
+    (compared, changed)
+}
+
+/// The CSS diff of a view that rendered again: for every node of the new DOM the reconcile
+/// matched to one of the old DOM (`node_moves`), the widest `RelayoutScope` of the properties
+/// whose resolved value moved - the nodes whose cascade did not move left out
+/// ([`unchanged_cascades`]). The diff the root's reconciliation stages for its layout pass
+/// ([`LayoutWindow::begin_reconciliation`]), minus the transitions, which only the root's
+/// nodes run. A `Dom::with_css` sheet is selector-matched by the cascade and no field of the
+/// node's own data shows it: the retained layout tree, which finds its dirty nodes by those
+/// fields, calls such a node clean and serves its old geometry and list - unless it is told.
+fn css_diff_between(
+    old: &StyledDom,
+    new: &StyledDom,
+    node_moves: &[azul_core::diff::NodeMove],
+) -> Vec<(NodeId, azul_css::props::property::RelayoutScope)> {
+    let old_cache = &old.css_property_cache.ptr;
+    let new_cache = &new.css_property_cache.ptr;
+    let (old_data, new_data) = (old.node_data.as_ref(), new.node_data.as_ref());
+    let (old_states, new_states) = (old.styled_nodes.as_ref(), new.styled_nodes.as_ref());
+    let unchanged = unchanged_cascades(
+        old_cache,
+        new_cache,
+        (old_data, old.node_hierarchy.as_ref(), old_states),
+        (new_data, new.node_hierarchy.as_ref(), new_states),
+        node_moves,
+    );
+    let mut out = Vec::new();
+    for m in node_moves {
+        let (Some(old_nd), Some(new_nd), Some(old_state), Some(new_state)) = (
+            old_data.get(m.old_node_id.index()),
+            new_data.get(m.new_node_id.index()),
+            old_states.get(m.old_node_id.index()),
+            new_states.get(m.new_node_id.index()),
+        ) else {
+            continue;
+        };
+        if unchanged.get(m.new_node_id.index()).copied().unwrap_or(false) {
+            continue;
+        }
+        // The new node in the interaction states it is about to get back, as the root's diff.
+        let new_node_state =
+            with_interaction_of(new_state.styled_node_state, old_state.styled_node_state);
+        let (_, changed) = changed_styles(
+            old_cache,
+            new_cache,
+            (old_nd, m.old_node_id, &old_state.styled_node_state),
+            (new_nd, m.new_node_id, &new_node_state),
+        );
+        if changed.is_empty() {
+            continue;
+        }
+        let worst = changed.iter().fold(
+            azul_css::props::property::RelayoutScope::None,
+            |worst, (ty, ..)| worst.max(ty.relayout_scope(true)),
+        );
+        out.push((m.new_node_id, worst));
+    }
+    out
 }
 
 /// The motion `animation: move <duration> [timing]` asks a node's moves for
