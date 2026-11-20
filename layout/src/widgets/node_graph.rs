@@ -1055,9 +1055,34 @@ impl NodeGraph {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// The graph as DOM: every node and every connection, whatever the size of
+    /// the box it is shown in. A graph of a few hundred nodes should use
+    /// [`Self::dom_in_view`]: each node is a hundred DOM nodes and more, and
+    /// all of them are laid out and painted whether they are on screen or not.
     #[must_use]
     pub fn dom(self) -> Dom {
+        self.dom_in_view(LogicalSize::zero())
+    }
+
+    /// The graph as DOM, for a box of `view_size` (logical px, the size of the
+    /// area the graph is shown in): only the nodes and connections that touch
+    /// the box, or lie within half its width and height of it, become DOM -
+    /// a graph of 270 nodes in a 1230 x 700 window is the 16 to 31 nodes it
+    /// shows plus a margin, not 41 000 DOM nodes (2.5 s of layout, and a 38 000-item
+    /// display list translated again after every frame). A node that has no DOM
+    /// stays in the graph (`NodeGraph::nodes` is untouched, and the callbacks
+    /// get all of them); it gets its DOM when the graph is built again with an
+    /// `offset` that brings it near the box - so the app builds the graph
+    /// again once a drag has ended (`on_node_graph_dragged` only tells it the
+    /// amount), and a pan within the margin shows the nodes that were just
+    /// off screen without waiting for that.
+    ///
+    /// A `view_size` that is not positive and finite (`0 x 0`) shows
+    /// everything, as [`Self::dom`] does.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use]
+    pub fn dom_in_view(self, view_size: LogicalSize) -> Dom {
+        let view = ViewWindow::new(view_size);
         static NODEGRAPH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("nodegraph"))];
 
         static NODEGRAPH_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Image(
@@ -1107,6 +1132,8 @@ impl NodeGraph {
             active_node_being_dragged: None,
             marker_prefix: marker_prefix.clone(),
             callbacks: self.callbacks.clone(),
+            view_culling: view.is_some(),
+            graph_dragged: false,
         });
 
         let context_menu = Menu::create(
@@ -1173,7 +1200,7 @@ impl NodeGraph {
                     .with_children({
                         vec![
                             // connections
-                            render_connections(&self, connections_marker),
+                            render_connections(&self, connections_marker, view.as_ref()),
                             // nodes
                             self.nodes
                                 .iter()
@@ -1182,6 +1209,20 @@ impl NodeGraph {
                                         .node_types
                                         .iter()
                                         .find(|i| i.node_type_id == node.node_type)?;
+                                    // A node nowhere near the box gets no DOM.
+                                    if let Some(view) = view.as_ref() {
+                                        let (w, h) =
+                                            (NODE_WIDTH, node_height_bound(&node_type_info.node_type_info, node));
+                                        if !view.shows(
+                                            self.offset.x + node.position.x,
+                                            self.offset.y + node.position.y,
+                                            w,
+                                            h,
+                                            self.scale_factor,
+                                        ) {
+                                            return None;
+                                        }
+                                    }
                                     let node_local_dataset = NodeLocalDataset {
                                         node_id: *node_id,
                                         backref: node_graph_local_dataset.clone(),
@@ -1246,6 +1287,12 @@ struct NodeGraphLocalDataset {
     /// datasets of one type existed.
     marker_prefix: AzString,
     callbacks: NodeGraphCallbacks,
+    /// Whether this render culled nodes to the box the graph is shown in
+    /// ([`NodeGraph::dom_in_view`]): the nodes a pan brings near the box have no
+    /// DOM until the graph is built again at the offset the pan ended at.
+    view_culling: bool,
+    /// The graph itself (not a node) was dragged since the button went down.
+    graph_dragged: bool,
 }
 
 struct ContextMenuEntryLocalDataset {
@@ -2895,7 +2942,11 @@ fn render_node(
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
-fn render_connections(node_graph: &NodeGraph, connections_marker: AzString) -> Dom {
+fn render_connections(
+    node_graph: &NodeGraph,
+    connections_marker: AzString,
+    view: Option<&ViewWindow>,
+) -> Dom {
     static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
         AzString::from_const_str("nodegraph-connections-container"),
     )];
@@ -2965,6 +3016,20 @@ fn render_connections(node_graph: &NodeGraph, connections_marker: AzString) -> D
                         let Some((rect, swap_vert, swap_horz)) = get_rect(node_graph, cld) else {
                             continue;
                         };
+
+                        // A connection nowhere near the box gets no DOM: its rect
+                        // is what `get_rect` says, whether its nodes have DOM or not.
+                        if let Some(view) = view {
+                            if !view.shows(
+                                node_graph.offset.x + rect.origin.x,
+                                node_graph.offset.y + rect.origin.y,
+                                rect.size.width,
+                                rect.size.height,
+                                node_graph.scale_factor,
+                            ) {
+                                continue;
+                            }
+                        }
 
                         cld.swap_vert = swap_vert;
                         cld.swap_horz = swap_horz;
@@ -3048,6 +3113,69 @@ const NODE_WIDTH: f32 = 250.0;
 const V_OFFSET: f32 = 71.0;
 const DIST_BETWEEN_NODES: f32 = 10.0;
 const CONNECTION_DOT_HEIGHT: f32 = 15.0;
+/// The most a field's row can be tall, px (a text input, a colour input with its
+/// label and padding): the bound [`node_height_bound`] counts per field.
+const FIELD_HEIGHT_BOUND: f32 = 60.0;
+/// What a node's box has on top of its header (`V_OFFSET`), its ports and its
+/// fields: its padding and the shadow around it.
+const NODE_PADDING_BOUND: f32 = 40.0;
+/// How far from the shown box a node or connection still gets DOM, as a
+/// fraction of the box's width and height: the nodes a short drag brings in.
+const CULL_MARGIN: f32 = 0.5;
+
+/// An upper bound of the height of `node`'s box, px: its header, the port column
+/// that is longer, and the rows of its fields. A node taller than this would
+/// lose its DOM while its lower part is still on screen, so it is generous.
+#[allow(clippy::cast_precision_loss)] // port and field counts are tiny
+fn node_height_bound(info: &NodeTypeInfo, node: &NodeGraphNode) -> f32 {
+    let ports = info.inputs.len().max(info.outputs.len()) as f32;
+    V_OFFSET
+        + (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT) * ports
+        + FIELD_HEIGHT_BOUND * node.fields.len() as f32
+        + NODE_PADDING_BOUND
+}
+
+/// The area of the graph box in which a node or connection gets DOM: the box
+/// at `(0, 0)` of the graph's coordinate space, grown by [`CULL_MARGIN`] of its
+/// size on every side.
+#[derive(Debug, Copy, Clone)]
+struct ViewWindow {
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+}
+
+impl ViewWindow {
+    /// `None` for a size that is not positive and finite: no culling.
+    fn new(view_size: LogicalSize) -> Option<Self> {
+        let (w, h) = (view_size.width, view_size.height);
+        if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+            return None;
+        }
+        Some(Self {
+            x0: -w * CULL_MARGIN,
+            y0: -h * CULL_MARGIN,
+            x1: w * (1.0 + CULL_MARGIN),
+            y1: h * (1.0 + CULL_MARGIN),
+        })
+    }
+
+    /// Whether a box of `w` x `h` whose `translate()` is `(x, y)` - the value
+    /// the node's `transform` carries, graph offset included - can touch the
+    /// window. The transform scales the box about its centre, so the box
+    /// reaches as far as it does at scale 1 or at `scale`, whichever is more.
+    fn shows(&self, x: f32, y: f32, w: f32, h: f32, scale: f32) -> bool {
+        let grow = if scale.is_finite() { scale.max(1.0) } else { 1.0 };
+        let (cx, cy) = (x + w * 0.5, y + h * 0.5);
+        let (half_w, half_h) = (w * 0.5 * grow, h * 0.5 * grow);
+        // A coordinate that is not a number is shown: never lose a node to NaN.
+        if !(cx.is_finite() && cy.is_finite()) {
+            return true;
+        }
+        cx + half_w >= self.x0 && cx - half_w <= self.x1 && cy + half_h >= self.y0 && cy - half_h <= self.y1
+    }
+}
 
 // calculates the rect on which the connection is drawn in the UI
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -3108,6 +3236,14 @@ extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo)
 extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() {
         refany.active_node_being_dragged = None;
+        // A graph dragged while its DOM is culled to the box shows the nodes the
+        // drag brought near the box only once its DOM is built again at the
+        // offset the drag ended at (the drag moved the DOM nodes it has): ask
+        // the app for one rebuild when the button goes up. The app keeps the
+        // offset current in `on_node_graph_dragged`.
+        if core::mem::take(&mut refany.graph_dragged) && refany.view_culling {
+            return Update::RefreshDom;
+        }
     }
     Update::DoNothing
 }
@@ -3294,6 +3430,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
 
             refany.node_graph.offset.x += dx;
             refany.node_graph.offset.y += dy;
+            refany.graph_dragged = true;
 
             // Update the visual node positions
             let Some(node_container) = info.get_first_child(nodegraph_node) else {
@@ -4126,6 +4263,8 @@ mod autotest_generated {
             active_node_being_dragged: None,
             marker_prefix: "azul-nodegraph-test".into(),
             callbacks: g.callbacks.clone(),
+            view_culling: false,
+            graph_dragged: false,
         })
     }
 
@@ -5426,6 +5565,184 @@ mod autotest_generated {
     }
 
     // ==================================================================
+    // 9b. dom_in_view: only what is near the box gets DOM
+    // ==================================================================
+    //
+    // A graph of 270 nodes (the Tuebingen style of the map editor) was 41 000
+    // DOM nodes: 2.5 s of layout, a 38 000-item display list translated again
+    // after every frame. Nodes and connections nowhere near the box the graph is
+    // shown in get no DOM.
+
+    /// A tall, narrow graph like the map editor's: `count` nodes of `TYPE_A` in
+    /// a column at `x`, `step` px apart, each wired to the one before it.
+    fn column(count: u64, x: f32, step: f32) -> NodeGraph {
+        let mut g = NodeGraph {
+            node_types: node_types(),
+            input_output_types: io_types(),
+            ..NodeGraph::default()
+        };
+        for i in 0..count {
+            g.nodes.push(NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: i + 1 },
+                node: mk_node(TYPE_A, x, 200.0 + i as f32 * step),
+            });
+        }
+        for i in 1..count {
+            g.connect_input_output(
+                NodeGraphNodeId { inner: i + 1 },
+                0,
+                NodeGraphNodeId { inner: i },
+                0,
+            )
+            .expect("a node feeds the next");
+        }
+        g
+    }
+
+    /// The graph nodes that have DOM, in order: the `nodegraph` box holds the
+    /// connections container, then the nodes container whose children are the
+    /// nodes (each an absolute box around the node's own box, which carries the
+    /// node's dataset).
+    fn nodes_with_dom(dom: &Dom) -> Vec<u64> {
+        dom.children.as_ref()[0].children.as_ref()[1]
+            .children
+            .iter()
+            .filter_map(|holder| {
+                let mut data = holder.children.as_ref().first()?.root.get_dataset()?.clone();
+                let node = data.downcast_ref::<NodeLocalDataset>()?;
+                Some(node.node_id.inner)
+            })
+            .collect()
+    }
+
+    fn connections_with_dom(dom: &Dom) -> usize {
+        dom.children.as_ref()[0].children.as_ref()[0].children.len()
+    }
+
+    const VIEW: LogicalSize = LogicalSize {
+        width: 1230.0,
+        height: 700.0,
+    };
+
+    #[test]
+    fn a_node_nowhere_near_the_box_gets_no_dom() {
+        let g = column(270, 100.0, 45.0);
+        let all = g.clone().dom();
+        let culled = g.dom_in_view(VIEW);
+        let shown = nodes_with_dom(&culled);
+        assert_eq!(nodes_with_dom(&all).len(), 270, "harness: dom() shows every node");
+        assert!(!shown.is_empty(), "the nodes in the box have DOM");
+        assert!(
+            shown.len() <= 60,
+            "a 1230 x 700 box of a column of nodes 45 px apart: the box (16 nodes) plus half a \
+             box above and below, got {}",
+            shown.len()
+        );
+        assert_eq!(shown.first(), Some(&1), "the nodes at the top of the box are there");
+        assert!(!shown.contains(&270), "the node 12 000 px down is not");
+        assert!(
+            count_nodes(&culled) * 3 < count_nodes(&all),
+            "the DOM is a fraction of the whole graph's: {} of {}",
+            count_nodes(&culled),
+            count_nodes(&all)
+        );
+    }
+
+    /// The map editor's Tuebingen graph: 270 nodes, 41 356 DOM nodes. A fixed
+    /// budget for the box of a 1230 x 700 window.
+    #[test]
+    fn the_dom_of_a_270_node_graph_in_a_window_has_a_budget() {
+        let g = column(270, 100.0, 45.0);
+        let per_node = count_nodes(&render_one(&g, N1, (0.0, 0.0), 1.0));
+        let whole = count_nodes(&g.clone().dom());
+        let culled = count_nodes(&g.dom_in_view(VIEW));
+        assert!(per_node > 20, "a node is a good many DOM nodes ({per_node})");
+        assert!(whole > 270 * per_node, "harness: the whole graph is {whole} DOM nodes");
+        assert!(
+            culled <= 60 * per_node,
+            "the budget is 60 nodes of {per_node} DOM nodes each, got {culled}"
+        );
+    }
+
+    /// Panning: the app builds the graph again with another `offset` and the
+    /// nodes that came near the box have DOM, the ones that left do not.
+    #[test]
+    fn panning_brings_other_nodes_in() {
+        let mut g = column(270, 100.0, 45.0);
+        let at_top = nodes_with_dom(&g.clone().dom_in_view(VIEW));
+        assert!(at_top.contains(&1) && !at_top.contains(&200));
+
+        // node 200 is 8 955 px down: pan the graph up by 8 900 px
+        g.offset = LogicalPosition { x: 0.0, y: -8900.0 };
+        let panned = nodes_with_dom(&g.clone().dom_in_view(VIEW));
+        assert!(panned.contains(&200), "the node that came into the box has DOM");
+        assert!(!panned.contains(&1), "the node that left it has none");
+        assert!(panned.len() <= 60);
+
+        // and back
+        g.offset = LogicalPosition { x: 0.0, y: 0.0 };
+        assert_eq!(nodes_with_dom(&g.dom_in_view(VIEW)), at_top);
+    }
+
+    #[test]
+    fn a_graph_shown_in_an_unknown_box_shows_every_node() {
+        let g = column(40, 100.0, 45.0);
+        for view in [
+            LogicalSize::zero(),
+            LogicalSize { width: -5.0, height: 700.0 },
+            LogicalSize { width: f32::NAN, height: 700.0 },
+            LogicalSize { width: 1230.0, height: f32::INFINITY },
+        ] {
+            assert_eq!(nodes_with_dom(&g.clone().dom_in_view(view)).len(), 40, "{view:?}");
+        }
+        assert_eq!(
+            count_nodes(&g.clone().dom()),
+            count_nodes(&g.dom_in_view(LogicalSize::zero())),
+            "dom() is dom_in_view of no box"
+        );
+    }
+
+    /// A node a scaled graph still shows (zoom is a scale about each node's
+    /// centre) keeps its DOM, as one that is panned out of the box loses it.
+    #[test]
+    fn a_zoomed_graph_keeps_the_nodes_its_scale_still_shows() {
+        let mut g = column(10, 100.0, 300.0);
+        g.scale_factor = 2.0;
+        let shown = nodes_with_dom(&g.dom_in_view(VIEW));
+        assert!(shown.contains(&1) && shown.contains(&2));
+        let none = nodes_with_dom(
+            &NodeGraph {
+                offset: LogicalPosition { x: 50_000.0, y: 0.0 },
+                ..column(10, 100.0, 300.0)
+            }
+            .dom_in_view(VIEW),
+        );
+        assert!(none.is_empty(), "a graph panned 50 000 px away shows nothing: {none:?}");
+    }
+
+    /// A connection whose rect is near the box keeps its DOM even when both its
+    /// nodes are off it; one far from the box has none.
+    #[test]
+    fn a_connection_far_from_the_box_gets_no_dom() {
+        let g = column(270, 100.0, 45.0);
+        let all = connections_with_dom(&g.clone().dom());
+        let culled = connections_with_dom(&g.dom_in_view(VIEW));
+        assert_eq!(all, 269, "harness: dom() draws every wire");
+        assert!(culled > 0 && culled <= 60, "the wires near the box only, got {culled}");
+    }
+
+    /// Culling changes what has DOM, not what the graph is: the callbacks'
+    /// dataset keeps every node.
+    #[test]
+    fn the_callbacks_still_know_every_node() {
+        let g = column(270, 100.0, 45.0);
+        let dom = g.dom_in_view(VIEW);
+        let mut data = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+        let local = data.downcast_ref::<NodeGraphLocalDataset>().expect("the graph's dataset");
+        assert_eq!(local.node_graph.nodes.len(), 270);
+    }
+
+    // ==================================================================
     // 10. render_connections
     // ==================================================================
 
@@ -5435,7 +5752,7 @@ mod autotest_generated {
 
     #[test]
     fn render_connections_of_an_unwired_graph_has_no_children() {
-        let dom = render_connections(&graph(), marker());
+        let dom = render_connections(&graph(), marker(), None);
         assert_eq!(dom.children.len(), 0);
         assert!(
             dom.root.get_marker().is_some(),
@@ -5447,20 +5764,20 @@ mod autotest_generated {
     fn render_connections_emits_exactly_one_child_per_wire() {
         let mut g = graph();
         g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
-        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+        assert_eq!(render_connections(&g, marker(), None).children.len(), 1);
 
         g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
-        assert_eq!(render_connections(&g, marker()).children.len(), 2);
+        assert_eq!(render_connections(&g, marker(), None).children.len(), 2);
 
         g.connect_input_output(N4, 0, N3, 0).expect("N3 -> N4");
-        assert_eq!(render_connections(&g, marker()).children.len(), 3);
+        assert_eq!(render_connections(&g, marker(), None).children.len(), 3);
     }
 
     #[test]
     fn render_connections_skips_a_wire_to_a_node_that_no_longer_exists() {
         // `get_rect` returns `None`; the renderer must drop the wire, not unwrap it.
         let g = force_out_connection(graph(), N1, 0, MISSING, 0);
-        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+        assert_eq!(render_connections(&g, marker(), None).children.len(), 0);
     }
 
     #[test]
@@ -5468,7 +5785,7 @@ mod autotest_generated {
         for out_idx in [1_usize, 99, usize::MAX] {
             let g = force_out_connection(graph(), N1, out_idx, N3, 0);
             assert_eq!(
-                render_connections(&g, marker()).children.len(),
+                render_connections(&g, marker(), None).children.len(),
                 0,
                 "output index {out_idx} must be skipped",
             );
@@ -5483,7 +5800,7 @@ mod autotest_generated {
             node: mk_node(TYPE_UNREGISTERED, 0.0, 0.0),
         });
         let g = force_out_connection(g, NodeGraphNodeId { inner: 50 }, 0, N3, 0);
-        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+        assert_eq!(render_connections(&g, marker(), None).children.len(), 0);
     }
 
     #[test]
@@ -5491,7 +5808,7 @@ mod autotest_generated {
         let mut g = graph();
         g.node_types.as_mut()[0].node_type_info.outputs = vec![IO_COLORLESS].into();
         let g = force_out_connection(g, N1, 0, N3, 0);
-        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+        assert_eq!(render_connections(&g, marker(), None).children.len(), 0);
     }
 
     #[test]
@@ -5507,14 +5824,14 @@ mod autotest_generated {
             y: f32::NAN,
         };
         g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
-        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+        assert_eq!(render_connections(&g, marker(), None).children.len(), 1);
     }
 
     #[test]
     fn render_connections_renders_a_self_loop() {
         let mut g = graph();
         g.connect_input_output(N1, 0, N1, 0).expect("self loop");
-        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+        assert_eq!(render_connections(&g, marker(), None).children.len(), 1);
     }
 
     // ==================================================================
@@ -5761,6 +6078,44 @@ mod autotest_generated {
             fire(|info| nodegraph_unset_active_node(RefAny::new(0_i8), info)),
             Update::DoNothing,
         );
+    }
+
+    /// With culling on, a pan that ended asks the app for one rebuild, so the
+    /// nodes the pan brought near the box get their DOM; a graph shown
+    /// whole, a node drag, or a release that dragged nothing asks for none.
+    #[test]
+    fn the_end_of_a_pan_rebuilds_a_culled_graph_once() {
+        let g = graph();
+        let dataset = |culling: bool, graph_dragged: bool| {
+            RefAny::new(NodeGraphLocalDataset {
+                node_graph: g.clone(),
+                last_input_or_output_clicked: None,
+                active_node_being_dragged: None,
+                marker_prefix: "azul-nodegraph-test".into(),
+                callbacks: g.callbacks.clone(),
+                view_culling: culling,
+                graph_dragged,
+            })
+        };
+        let panned = dataset(true, true);
+        assert_eq!(
+            fire(|info| nodegraph_unset_active_node(panned.clone(), info)),
+            Update::RefreshDom,
+            "a culled graph that was panned: build the DOM again at the new offset"
+        );
+        assert_eq!(
+            fire(|info| nodegraph_unset_active_node(panned.clone(), info)),
+            Update::DoNothing,
+            "once: the flag is spent"
+        );
+        for (culling, dragged) in [(true, false), (false, true), (false, false)] {
+            let d = dataset(culling, dragged);
+            assert_eq!(
+                fire(|info| nodegraph_unset_active_node(d.clone(), info)),
+                Update::DoNothing,
+                "culling {culling}, graph dragged {dragged}"
+            );
+        }
     }
 
     // ==================================================================

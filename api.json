@@ -79349,6 +79349,9 @@
                                 "fn_body": "object.swap_with_default()"
                             },
                             "dom": {
+                                "doc": [
+                                    "The graph as DOM: every node and every connection, whatever the size of the box it is shown in. A graph of a few hundred nodes should use `dom_in_view`: each node is a hundred DOM nodes and more, all laid out and painted whether they are on screen or not."
+                                ],
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -79358,6 +79361,23 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "dom_in_view": {
+                                "doc": [
+                                    "The graph as DOM for a box of `view_size` (logical px, the size of the area the graph is shown in): only the nodes and connections that touch the box, or lie within half its width and height of it, become DOM. A node without DOM stays in the graph (the callbacks get all of them); it gets its DOM when the graph is built again with an `offset` that brings it near the box (build the graph again once a drag has ended: `on_node_graph_dragged` tells the app the amount). A `view_size` that is not positive and finite shows everything, as `dom` does."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "view_size": "LogicalSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom_in_view(view_size)"
                             }
                         },
                         "repr": "C"
