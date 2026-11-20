@@ -1703,6 +1703,82 @@ pub fn blit_buffer_sub(
     }
 }
 
+/// A kept halo's `coverage` (one byte a pixel, `cov_w` wide) in `color`, composited over `dst`:
+/// the `w` x `h` region at `(sx, sy)` of the coverage lands with its top-left at `(dx, dy)`. What
+/// [`blit_buffer_sub`] does with the same halo drawn in `color` and premultiplied, to within a
+/// level of 255 (the colour is applied after the blur here, before it there).
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::too_many_arguments,
+    clippy::many_single_char_names
+)] // bounded pixel/coord/colour casts
+pub fn blit_tinted_coverage(
+    dst: &mut AzulPixmap,
+    coverage: &[u8],
+    cov_w: u32,
+    sx: u32,
+    sy: u32,
+    w: u32,
+    h: u32,
+    dx: i32,
+    dy: i32,
+    color: azul_css::props::basic::ColorU,
+) {
+    crate::cpu_counters::count(crate::cpu_counters::Counter::PxBlitted, u64::from(w) * u64::from(h));
+    let (dw, dh) = (dst.width as i32, dst.height as i32);
+    let cov_h = if cov_w == 0 { 0 } else { coverage.len() as u32 / cov_w };
+    let x_end = sx.saturating_add(w).min(cov_w);
+    let y_end = sy.saturating_add(h).min(cov_h);
+    let (cr, cg, cb, ca) = (
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
+    );
+    for py in sy..y_end {
+        let ty = dy.saturating_add((py - sy) as i32);
+        if ty < 0 || ty >= dh {
+            continue;
+        }
+        let row = &coverage[(py * cov_w) as usize..((py + 1) * cov_w) as usize];
+        for px in sx..x_end {
+            let cov = u32::from(row[px as usize]);
+            if cov == 0 {
+                continue;
+            }
+            let tx = dx.saturating_add((px - sx) as i32);
+            if tx < 0 || tx >= dw {
+                continue;
+            }
+            // The premultiplied source: the coverage times the colour's alpha, and the colour
+            // scaled by that.
+            let sa = (cov * ca + 127) / 255;
+            if sa == 0 {
+                continue;
+            }
+            let di = ((ty as u32 * dst.width + tx as u32) * 4) as usize;
+            if di + 3 >= dst.data.len() {
+                continue;
+            }
+            let (sr, sg, sb) = ((cr * sa + 127) / 255, (cg * sa + 127) / 255, (cb * sa + 127) / 255);
+            if sa == 255 {
+                dst.data[di] = sr as u8;
+                dst.data[di + 1] = sg as u8;
+                dst.data[di + 2] = sb as u8;
+                dst.data[di + 3] = 255;
+            } else {
+                let inv = 255 - sa;
+                let over = |s: u32, d: u8| (s + u32::from(d) * inv / 255).min(255) as u8;
+                dst.data[di] = over(sr, dst.data[di]);
+                dst.data[di + 1] = over(sg, dst.data[di + 1]);
+                dst.data[di + 2] = over(sb, dst.data[di + 2]);
+                dst.data[di + 3] = over(sa, dst.data[di + 3]);
+            }
+        }
+    }
+}
+
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx: i32, dy: i32) {

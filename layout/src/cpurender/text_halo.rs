@@ -16,6 +16,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -43,6 +44,69 @@ const MAX_HALO_BYTES: usize = 32 * 1024 * 1024;
 /// The most pixels one halo may cover; a larger shadow (a page of shadowed
 /// text) is left to the renderer's own blur.
 const MAX_HALO_PIXELS: u64 = 1 << 21;
+
+/// The CPU renderer keeps at most this many halos ([`CpuHalo`]) ...
+const MAX_CPU_HALOS: usize = 4096;
+/// ... holding at most this many bytes of coverage (one byte a pixel).
+const MAX_CPU_HALO_BYTES: usize = 32 * 1024 * 1024;
+/// The most pixels one kept CPU halo may cover. A larger shadow (a page of shadowed text) is
+/// drawn as before, over the part that lands, so a repaint of a strip of it stays the strip's cost.
+pub(super) const MAX_CPU_HALO_PIXELS: u64 = 1 << 17;
+
+/// A text shadow's halo as the CPU renderer keeps it: the coverage of the glyphs grown by the
+/// spread and blurred, in white, for the pixel box its glyphs reach. A label that moves by whole
+/// pixels (a pan, a zoom's composite) draws the same halo, so it is tinted with the shadow's colour
+/// and composited, not drawn again.
+#[derive(Debug)]
+pub(super) struct CpuHalo {
+    /// The picture's size in device px.
+    pub(super) width: u32,
+    pub(super) height: u32,
+    /// The picture's top-left corner from the run's anchor (its first glyph's pen, floored to a
+    /// device pixel), in device px.
+    pub(super) offset: (i32, i32),
+    /// The coverage, one byte a pixel, row by row.
+    pub(super) coverage: Vec<u8>,
+}
+
+thread_local! {
+    /// The CPU renderer's halos by what their pixels depend on (`raster::kept_shadow_key`). `None`
+    /// remembers a shadow that cannot be kept (too large), so it is not measured again.
+    static CPU_HALOS: RefCell<ImageMemo<u64, Option<Arc<CpuHalo>>>> =
+        RefCell::new(ImageMemo::new(MAX_CPU_HALOS, MAX_CPU_HALO_BYTES));
+    /// Tests: keep no halo, so a shadow is drawn the way it was before halos were kept.
+    #[cfg(test)]
+    static CPU_HALOS_OFF: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The halo kept under `key`: `Some(None)` for a shadow that is not kept, `None` for one not seen.
+pub(super) fn kept_cpu_halo(key: u64) -> Option<Option<Arc<CpuHalo>>> {
+    CPU_HALOS.with(|halos| halos.borrow_mut().get(&key))
+}
+
+/// Keep `halo` under `key`.
+pub(super) fn keep_cpu_halo(key: u64, halo: Option<Arc<CpuHalo>>) {
+    let bytes = halo.as_ref().map_or(0, |h| h.coverage.len());
+    CPU_HALOS.with(|halos| halos.borrow_mut().insert(key, halo, bytes));
+}
+
+/// Whether this thread keeps the CPU renderer's halos (always, outside tests).
+pub(super) fn cpu_halos_are_kept() -> bool {
+    #[cfg(test)]
+    {
+        !CPU_HALOS_OFF.with(Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        true
+    }
+}
+
+/// Tests: keep (or not) the CPU renderer's halos on this thread.
+#[cfg(test)]
+pub(super) fn keep_cpu_halos(on: bool) {
+    CPU_HALOS_OFF.with(|c| c.set(!on));
+}
 
 thread_local! {
     /// How many halo pictures this thread has DRAWN (not found kept): what a

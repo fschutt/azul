@@ -5292,7 +5292,6 @@ fn render_text_shadow(
     else {
         return;
     };
-    let buffer = boxes.buffer;
     let shifted: Vec<GlyphInstance> = glyphs
         .iter()
         .map(|g| {
@@ -5302,6 +5301,32 @@ fn render_text_shadow(
             g
         })
         .collect();
+    // A halo that was drawn before, at this place or another, is tinted and composited.
+    if super::text_halo::cpu_halos_are_kept()
+        && draw_kept_text_shadow(
+            &shifted,
+            &KeptShadow {
+                color,
+                font_hash,
+                font_size_px,
+                radius,
+                spread,
+                reach,
+                source,
+                shadow_clip_rect,
+                out: boxes.out,
+            },
+            pixmap,
+            renderer_resources,
+            font_manager,
+            dpi_factor,
+            glyph_cache,
+            scroll_offset,
+        )
+    {
+        return;
+    }
+    let buffer = boxes.buffer;
     let run = BufferedRun {
         glyphs: &shifted,
         font_hash,
@@ -5339,6 +5364,182 @@ fn render_text_shadow(
         out.x,
         out.y,
     );
+}
+
+/// What a text shadow's halo is drawn from ([`draw_kept_text_shadow`]).
+struct KeptShadow {
+    /// The shadow's colour: the halo is kept in white and tinted with it.
+    color: ColorU,
+    font_hash: FontHash,
+    font_size_px: f32,
+    /// The blur's radius and the spread, device px; `reach` is their sum, rounded up.
+    radius: u32,
+    spread: f32,
+    reach: u32,
+    /// Where the glyphs can paint (the run's clip rect cut to the ancestors' clips), device px.
+    source: AzRect,
+    /// The run's clip rect, shadow offset included, CSS px.
+    shadow_clip_rect: LogicalRect,
+    /// The part of the halo that lands on the target ([`ShadowBoxes::out`]).
+    out: PixelBox,
+}
+
+/// The halo of a text shadow from the kept pictures: drawn once, in white, for the whole box its
+/// glyphs reach, and tinted and composited wherever the same text stands again. `false` when the
+/// shadow cannot be kept (a box too large, a pen out of range): it is drawn the usual way.
+///
+/// A halo depends on the glyphs relative to each other, their font and size, the clip they paint
+/// under, the spread, the blur and the scale, and on where each glyph falls within its device
+/// pixel (the glyph cache places a glyph in quarter-pixel steps). It does not depend on where the
+/// text stands, but for that: so the key counts every glyph, and the clip, from the first glyph's
+/// pixel, and a run that moves by whole pixels - a pan, a zoom composited from a group drawn at
+/// its layout place - finds its halo kept. A run that moves by a fraction lands in other
+/// quarter-pixel steps and draws its own.
+///
+/// `shifted` are the glyphs with the shadow's offset added.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::too_many_arguments
+)]
+fn draw_kept_text_shadow(
+    shifted: &[GlyphInstance],
+    shadow: &KeptShadow,
+    pixmap: &mut AzulPixmap,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+) -> bool {
+    use std::hash::{Hash, Hasher};
+
+    use super::text_halo::{keep_cpu_halo, kept_cpu_halo, CpuHalo, MAX_CPU_HALO_PIXELS};
+
+    let Some(first) = shifted.first() else {
+        return false;
+    };
+    let device = |g: &GlyphInstance| {
+        (
+            (g.point.x - scroll_offset.0) * dpi_factor,
+            (g.point.y - scroll_offset.1) * dpi_factor,
+        )
+    };
+    let (first_x, first_y) = device(first);
+    let in_range = |v: f32| v.is_finite() && v.abs() < 1.0e6;
+    if !(in_range(first_x) && in_range(first_y)) {
+        return false;
+    }
+    let anchor = (first_x.floor() as i32, first_y.floor() as i32);
+
+    // What the halo's pixels depend on: counted from the anchor, in the glyph cache's quarter
+    // pixels for the glyphs and in whole pixels for the clip (the text paths clip to whole pixels).
+    let quarter = |v: f32, from: i32| (v * 4.0).floor() as i64 - i64::from(from) * 4;
+    let whole = |v: f32, from: i32| v.floor() as i64 - i64::from(from);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    shadow.radius.hash(&mut hasher);
+    shadow.spread.to_bits().hash(&mut hasher);
+    dpi_factor.to_bits().hash(&mut hasher);
+    shadow.font_hash.font_hash.hash(&mut hasher);
+    shadow.font_size_px.to_bits().hash(&mut hasher);
+    let source = shadow.source;
+    whole(source.x, anchor.0).hash(&mut hasher);
+    whole(source.y, anchor.1).hash(&mut hasher);
+    whole(source.x + source.width, anchor.0).hash(&mut hasher);
+    whole(source.y + source.height, anchor.1).hash(&mut hasher);
+    shifted.len().hash(&mut hasher);
+    for glyph in shifted {
+        let (x, y) = device(glyph);
+        glyph.index.hash(&mut hasher);
+        quarter(x, anchor.0).hash(&mut hasher);
+        quarter(y, anchor.1).hash(&mut hasher);
+    }
+    let key = hasher.finish();
+
+    let halo = match kept_cpu_halo(key) {
+        Some(kept) => kept,
+        None => {
+            // The box the glyphs reach: nothing of the halo lies past it. Its edges are the
+            // whole pixels the key counts (the text paths clip to whole pixels), a pixel wider on
+            // the right and below than `text_shadow_boxes` needs when the clip ends on a pixel.
+            let r = shadow.reach.min(i32::MAX as u32) as i32;
+            let x0 = (source.x.floor() as i32).saturating_sub(r);
+            let y0 = (source.y.floor() as i32).saturating_sub(r);
+            let x1 = ((source.x + source.width).floor() as i32).saturating_add(r + 1);
+            let y1 = ((source.y + source.height).floor() as i32).saturating_add(r + 1);
+            let (width, height) = (i64::from(x1) - i64::from(x0), i64::from(y1) - i64::from(y0));
+            let drawn = if width <= 0
+                || height <= 0
+                || (width * height) as u64 > MAX_CPU_HALO_PIXELS
+            {
+                None
+            } else {
+                crate::cpu_counters::count(crate::cpu_counters::Counter::HalosDrawn, 1);
+                let buffer = PixelBox {
+                    x: x0,
+                    y: y0,
+                    width: width as u32,
+                    height: height as u32,
+                };
+                let run = BufferedRun {
+                    glyphs: shifted,
+                    font_hash: shadow.font_hash,
+                    font_size_px: shadow.font_size_px,
+                    clip_rect: shadow.shadow_clip_rect,
+                    clip: source,
+                };
+                blurred_glyphs(
+                    &[run],
+                    ColorU::WHITE,
+                    buffer,
+                    shadow.radius,
+                    shadow.spread,
+                    renderer_resources,
+                    font_manager,
+                    dpi_factor,
+                    glyph_cache,
+                    scroll_offset,
+                )
+                .map(|tmp| {
+                    std::sync::Arc::new(CpuHalo {
+                        width: buffer.width,
+                        height: buffer.height,
+                        offset: (x0 - anchor.0, y0 - anchor.1),
+                        coverage: tmp.data().chunks_exact(4).map(|p| p[3]).collect(),
+                    })
+                })
+            };
+            keep_cpu_halo(key, drawn.clone());
+            drawn
+        }
+    };
+    let Some(halo) = halo else {
+        return false;
+    };
+
+    // Where it lands: the part of the picture inside `out`.
+    let place = (anchor.0 + halo.offset.0, anchor.1 + halo.offset.1);
+    let out = shadow.out;
+    let x0 = out.x.max(place.0);
+    let y0 = out.y.max(place.1);
+    let x1 = (out.x + out.width as i32).min(place.0 + halo.width as i32);
+    let y1 = (out.y + out.height as i32).min(place.1 + halo.height as i32);
+    if x1 > x0 && y1 > y0 {
+        blit_tinted_coverage(
+            pixmap,
+            &halo.coverage,
+            halo.width,
+            (x0 - place.0) as u32,
+            (y0 - place.1) as u32,
+            (x1 - x0) as u32,
+            (y1 - y0) as u32,
+            x0,
+            y0,
+            shadow.color,
+        );
+    }
+    true
 }
 
 /// A shadow's blur radius in device pixels, from its CSS `blur` length:
@@ -8214,6 +8415,142 @@ mod text_shadow_tests {
             touched.first()
         );
         assert!(shadowed > 0, "the shadow paints inside the strip");
+    }
+
+    /// A label under a `text-shadow` of `blur` and `spread` px in `color`, its first pen at
+    /// `(x, y)`, its clip rect its own line box (it moves with the text, as a label's does): the
+    /// frame, and how many halos were drawn for it.
+    #[allow(clippy::too_many_arguments)]
+    fn shadowed_label(
+        font: &ParsedFont,
+        resources: &(RendererResources, FontManager<FontRef>, FontHash),
+        text: &str,
+        (x, y): (f32, f32),
+        (blur, spread): (f32, f32),
+        color: ColorU,
+        glyph_cache: &mut GlyphCache,
+    ) -> (AzulPixmap, u64) {
+        let (rr, fm, font_hash) = resources;
+        let (w, h) = (260u32, 90u32);
+        let glyphs = shape(font, text, 24.0, x, y);
+        let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: x - 4.0, y: y - 28.0 },
+            size: LogicalSize { width: 150.0, height: 40.0 },
+        }
+        .into();
+        let length = |v: f32| PixelValueNoPercent { inner: PixelValue::px(v) };
+        let shadow = StyleBoxShadow {
+            offset_x: length(0.0),
+            offset_y: length(0.0),
+            blur_radius: length(blur),
+            spread_radius: length(spread),
+            color,
+            clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+        };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushTextShadow { shadow },
+                DisplayListItem::Text {
+                    glyphs,
+                    font_hash: *font_hash,
+                    font_size_px: 24.0,
+                    color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                    clip_rect,
+                    line_box: clip_rect,
+                    source_node_index: None,
+                },
+                DisplayListItem::PopTextShadow,
+            ],
+            ..Default::default()
+        };
+        let mut pm = AzulPixmap::new(w, h).unwrap();
+        pm.fill(255, 255, 255, 255);
+        crate::cpu_counters::reset();
+        render_display_list(&dl, &mut pm, 1.0, rr, fm, glyph_cache).unwrap();
+        (pm, crate::cpu_counters::take().halos_drawn)
+    }
+
+    /// The most a channel of `a` differs from `b`, and how many channels differ at all.
+    fn channel_difference(a: &AzulPixmap, b: &AzulPixmap) -> (i32, usize) {
+        a.data().iter().zip(b.data()).fold((0, 0), |(most, n), (p, q)| {
+            let d = (i32::from(*p) - i32::from(*q)).abs();
+            (most.max(d), n + usize::from(d > 0))
+        })
+    }
+
+    /// A label that moves by whole pixels, or is shadowed in another colour, finds its halo
+    /// kept: drawn once, then tinted and composited, and the frame is the one the halo drawn
+    /// afresh gives. A label that moves by a fraction of a pixel falls in other quarter pixels of
+    /// the glyph cache and draws its own.
+    #[test]
+    fn a_text_shadow_is_drawn_once_wherever_the_same_text_stands() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let resources = renderer_resources_with(&font);
+        let red = ColorU { r: 220, g: 20, b: 20, a: 255 };
+        let faint = ColorU { r: 20, g: 60, b: 200, a: 160 };
+        // A blur, the editor's solid spread, and both.
+        for halo in [(4.0, 0.0), (0.0, 2.0), (2.0, 1.5)] {
+            let mut kept = GlyphCache::new();
+            let mut fresh = GlyphCache::new();
+            let tag = format!("halo {halo:?}");
+            // (position, colour, halos it draws)
+            let frames = [
+                ((20.0, 50.0), red, 1),
+                ((61.0, 53.0), red, 0),
+                ((20.0, 50.0), faint, 0),
+                ((33.0, 44.0), faint, 0),
+                ((20.5, 50.0), red, 1),
+                ((20.5, 50.0), red, 0),
+            ];
+            for (at, color, drawn) in frames {
+                let (frame, n) = shadowed_label(&font, &resources, "Tuebingen", at, halo, color, &mut kept);
+                assert_eq!(n, drawn, "{tag}: halos drawn for {at:?} {color:?}");
+                super::super::text_halo::keep_cpu_halos(false);
+                let (old, _) =
+                    shadowed_label(&font, &resources, "Tuebingen", at, halo, color, &mut fresh);
+                super::super::text_halo::keep_cpu_halos(true);
+                let (most, n) = channel_difference(&frame, &old);
+                assert!(
+                    most <= 2,
+                    "{tag}: the kept halo at {at:?} {color:?} is the drawn one within 2/255 \
+                     (differs by {most} in {n} channels)"
+                );
+            }
+        }
+    }
+
+    /// The key is the glyph cache's own quarter pixels: one glyph that moves within its quarter
+    /// keeps its halo (and the frame the halo drawn afresh gives), one that crosses into the next
+    /// quarter, or a whole pixel and a quarter on, is drawn where it falls.
+    #[test]
+    fn a_text_shadow_is_kept_by_the_quarter_pixel_the_glyph_cache_draws_in() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let resources = renderer_resources_with(&font);
+        let red = ColorU { r: 220, g: 20, b: 20, a: 255 };
+        let mut kept = GlyphCache::new();
+        let mut fresh = GlyphCache::new();
+        for (at, drawn) in [
+            ((20.0, 50.0), 1),
+            ((20.2, 50.0), 0),
+            ((20.3, 50.0), 1),
+            ((40.3, 50.0), 0),
+            ((40.5, 50.0), 1),
+            ((40.5, 51.0), 0),
+        ] {
+            let (frame, n) = shadowed_label(&font, &resources, "T", at, (3.0, 1.0), red, &mut kept);
+            assert_eq!(n, drawn, "halos drawn for a glyph at {at:?}");
+            super::super::text_halo::keep_cpu_halos(false);
+            let (old, _) = shadowed_label(&font, &resources, "T", at, (3.0, 1.0), red, &mut fresh);
+            super::super::text_halo::keep_cpu_halos(true);
+            let (most, n) = channel_difference(&frame, &old);
+            assert!(most <= 2, "at {at:?}: differs from the drawn halo by {most} in {n} channels");
+        }
     }
 }
 
