@@ -429,20 +429,15 @@ pub struct CpuBackend {
         azul_core::dom::DomId,
         Arc<azul_layout::solver3::display_list::DisplayList>,
     >,
-    /// GPU-animated values of the previous frame (`key.id → value`), for the
-    /// frame-to-frame GPU-value diff. Scrollbar thumb position/fade opacity
-    /// and drag/CSS transforms live in the GPU value cache — display-list
-    /// items only carry the KEYS, so the item diff can't see them change.
+    /// GPU-animated values of the previous frame (`key.id → value`: transforms,
+    /// opacities and bound background colours), for the frame-to-frame GPU-value
+    /// diff. Scrollbar thumb position/fade opacity and drag/CSS transforms live in
+    /// the GPU value cache — display-list items only carry the KEYS, so the item
+    /// diff can't see them change. The values of EVERY DOM of the window: a node
+    /// inside a `VirtualView` binds its key in the view's own cache, and a write
+    /// of the value alone moves it there without a new list.
     #[cfg(feature = "cpurender")]
-    pub previous_gpu_transforms:
-        std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
-    #[cfg(feature = "cpurender")]
-    pub previous_gpu_opacities: std::collections::HashMap<usize, f32>,
-    /// Bound background colours of the previous frame (`key.id -> colour`),
-    /// for the same diff: a colour fade changes no item either.
-    #[cfg(feature = "cpurender")]
-    pub previous_gpu_colors:
-        azul_layout::cpurender::GpuColors,
+    pub previous_gpu_values: azul_layout::cpurender::WindowGpuValues,
     /// Where zombie exits painted LAST frame (logical px) — see the
     /// zombie-damage computation in `render_frame`.
     pub previous_zombie_rects: Vec<azul_core::geom::LogicalRect>,
@@ -586,12 +581,8 @@ impl CpuBackend {
             #[cfg(feature = "cpurender")]
             previous_vview_dls: BTreeMap::new(),
             #[cfg(feature = "cpurender")]
-            previous_gpu_transforms: std::collections::HashMap::new(),
+            previous_gpu_values: azul_layout::cpurender::WindowGpuValues::default(),
             previous_zombie_rects: Vec::new(),
-            #[cfg(feature = "cpurender")]
-            previous_gpu_opacities: std::collections::HashMap::new(),
-            #[cfg(feature = "cpurender")]
-            previous_gpu_colors: std::collections::HashMap::new(),
         }
     }
 
@@ -786,36 +777,42 @@ impl CpuBackend {
             .scroll_manager
             .build_scroll_offset_map(dom_id, &result.scroll_id_to_node_id);
 
+        // The `VirtualView` child lists (the nested DOMs - e.g. the MapWidget's tile
+        // grid): the GPU-value diff below reaches into them, the child-content damage
+        // diffs them against last frame's, and the renderer composites them.
+        let vview_dls: BTreeMap<
+            DomId,
+            Arc<azul_layout::solver3::display_list::DisplayList>,
+        > = layout_window
+            .layout_results
+            .iter()
+            .filter(|(id, _)| id.inner != dom_id.inner)
+            .map(|(id, r)| (*id, r.display_list.clone()))
+            .collect();
+
         // GPU-value diff: thumb position / fade opacity / drag & CSS
         // transforms change WITHOUT any display-list item changing (items
         // only carry the keys). Diff the cache values against last frame's
         // and damage the bound items — this is what lets ScrollBarStyled
         // compare as visually-equal (skip path reachable for scrollbar'd
-        // windows) without freezing the thumb.
-        let gpu_cache_early = layout_window.gpu_state_manager.get_cache(dom_id);
-        let (gpu_transforms, gpu_opacities) =
-            cpurender::extract_gpu_values(gpu_cache_early, dom_id);
+        // windows) without freezing the thumb. The values of EVERY DOM: a node
+        // inside a view binds its key in the view's own cache, and a write of
+        // the value alone (`set_css_property(transform)` on a map's picture)
+        // moves it there without a new list - the view's list is diffed too.
+        let gpu_values = cpurender::WindowGpuValues::of_doms(
+            &layout_window.gpu_state_manager,
+            layout_window.layout_results.keys().copied(),
+        );
         // In VIEWPORT space: an item inside a scrolled frame (a thumb on a
-        // scrolled page) is repainted where the frame paints it.
-        let mut gpu_damage = cpurender::gpu_value_damage(
+        // scrolled page) is repainted where the frame paints it. A colour fade
+        // frame - the bound background rects whose colour moved - is part of it.
+        let gpu_damage = cpurender::window_value_damage(
             display_list,
-            &self.previous_gpu_transforms,
-            &self.previous_gpu_opacities,
-            &gpu_transforms,
-            &gpu_opacities,
+            &vview_dls,
+            &self.previous_gpu_values,
+            &gpu_values,
             &scroll_offsets,
         );
-        // A colour fade frame: the bound background rects whose colour moved.
-        let gpu_colors = cpurender::extract_gpu_colors(gpu_cache_early);
-        let color_damage = cpurender::color_value_damage(
-            display_list,
-            &self.previous_gpu_colors,
-            &gpu_colors,
-            &gpu_transforms,
-            &scroll_offsets,
-        );
-        gpu_damage.rects.extend(color_damage.rects);
-        gpu_damage.needs_full |= color_damage.needs_full;
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         // Zombie exits repaint every tick with no display-list change — their
         // per-frame contribution is `previous ∪ current` painted rects
@@ -838,9 +835,7 @@ impl CpuBackend {
         // repaints read the CURRENT cache; skip only happens when unchanged).
         // The frame before's matrices stay for the list diff below: a change
         // under an animated frame is damaged where each frame painted it.
-        let old_gpu_transforms = core::mem::replace(&mut self.previous_gpu_transforms, gpu_transforms);
-        self.previous_gpu_opacities = gpu_opacities;
-        self.previous_gpu_colors = gpu_colors;
+        let old_gpu_values = core::mem::replace(&mut self.previous_gpu_values, gpu_values);
 
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
@@ -915,8 +910,8 @@ impl CpuBackend {
                     &scroll_offsets,
                     patch_hint.as_ref().map(|(h, _)| h),
                     cpurender::FrameValues {
-                        old: Some(&old_gpu_transforms),
-                        new: Some(&self.previous_gpu_transforms),
+                        old: Some(&old_gpu_values.transforms),
+                        new: Some(&self.previous_gpu_values.transforms),
                     },
                 )
                 .map(|(rects, moved)| {
@@ -938,16 +933,6 @@ impl CpuBackend {
         // damaged below. This is why the map showed only the placeholder grid on
         // Wayland — which, unlike X11, gets no spurious WM expose/configure events
         // to force a full repaint and mask the bug.
-        let vview_dls: BTreeMap<
-            DomId,
-            Arc<azul_layout::solver3::display_list::DisplayList>,
-        > = layout_window
-            .layout_results
-            .iter()
-            .filter(|(id, _)| id.inner != dom_id.inner)
-            .map(|(id, r)| (*id, r.display_list.clone()))
-            .collect();
-
         // #13/#14: scroll. The display list is UNCHANGED on scroll — content
         // items live at content coords and the scroll is applied at render time
         // via render_state.scroll_offsets — so the diff above only ever catches
@@ -970,7 +955,7 @@ impl CpuBackend {
             &scroll_offsets,
             &self.previous_scroll_offsets,
             // The matrices this frame paints with, kept for the next one.
-            &self.previous_gpu_transforms,
+            &self.previous_gpu_values.transforms,
             dpi_factor,
         );
         let has_scroll = !scroll_shifts.is_empty();
@@ -1357,7 +1342,7 @@ impl CpuBackend {
                     dpi_factor,
                     // The offsets and matrices the clip was projected with.
                     &scroll_offsets,
-                    &self.previous_gpu_transforms,
+                    &self.previous_gpu_values.transforms,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
@@ -1424,11 +1409,10 @@ impl CpuBackend {
             azul_layout::telemetry::record_paint_damage_pixels(px);
         }
 
-        // Build render state from the GPU value cache (opacity/transform) + scroll
-        // offsets — the SAME construction the real X11/Wayland CPU paths use, so
-        // this render_frame is reusable by them. The headless harness has an empty
-        // GPU cache, so this is equivalent to `new(scroll_offsets)` there.
-        let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
+        // Build render state from the GPU value caches (opacity/transform/colour, of
+        // every DOM) + scroll offsets — the SAME construction the real X11/Wayland CPU
+        // paths use, so this render_frame is reusable by them. The headless harness has
+        // empty GPU caches, so this is equivalent to `new(scroll_offsets)` there.
         // `vview_dls` (the nested VirtualView child DOM display lists — e.g. the
         // MapWidget's tile grid) was built earlier for the child-DOM damage diff;
         // it's handed to the renderer here so the CPU `VirtualView` arm can
@@ -1519,11 +1503,13 @@ impl CpuBackend {
         } else {
             &scroll_offsets
         };
-        let render_state =
-            cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, render_offsets)
-                .with_system_style(layout_window.system_style.clone())
-                .with_clear_color(clear_color)
-                .with_virtual_view_display_lists(vview_dls);
+        // The values of every DOM paint, a view's child's included: the values this frame's
+        // damage was diffed from, which `previous_gpu_values` holds now.
+        let render_state = cpurender::CpuRenderState::new(render_offsets.clone())
+            .with_gpu_values(self.previous_gpu_values.clone())
+            .with_system_style(layout_window.system_style.clone())
+            .with_clear_color(clear_color)
+            .with_virtual_view_display_lists(vview_dls);
 
         // An INCREMENTAL frame paints exactly its damage - and nothing when it
         // has none: the target already holds this frame (a scroll step that
@@ -12168,6 +12154,233 @@ mod tests {
                 dpi,
             );
         }
+    }
+
+    // --- A value written INSIDE a view is painted by the next CPU frame ---------------------
+    //
+    // The map editor zooms its map with `set_css_property(transform)` on the picture of the view:
+    // a node of the view's child DOM that carries an identity transform at build time. The value
+    // lands in the CHILD's GPU value cache - no list, no layout, no render of the view - and
+    // every shell's CPU frame (this backend, headless and the desktop shells alike) read the
+    // root's cache alone: the picture stayed unscaled until the view rendered again.
+    //
+    // The reference is hand-computed: a 40 x 30 picture at (40, 30) of the view's content,
+    // scaled by two about its centre and moved by (40, 20), is the 80 x 60 box at (60, 35).
+
+    /// The view's child: a red picture that carries an identity transform at build time and a
+    /// blue veil at opacity 0.8.
+    #[cfg(feature = "cpurender")]
+    extern "C" fn zoom_view_render(
+        _data: RefAny,
+        info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        use azul_core::geom::{LogicalPosition, LogicalRect};
+        let page = Dom::create_div()
+            .with_child(Dom::create_div().with_class("picture".into()).with_css(
+                "position: absolute; left: 40px; top: 30px; width: 40px; height: 30px; \
+                 background: #ff0000; transform: translate(0px, 0px) scale(1);",
+            ))
+            .with_child(Dom::create_div().with_class("veil".into()).with_css(
+                "position: absolute; left: 220px; top: 120px; width: 50px; height: 50px; \
+                 background: #0000ff; opacity: 0.8;",
+            ));
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.get_bounds().get_logical_size());
+        azul_core::callbacks::VirtualViewReturn::with_dom(page, rect, rect)
+    }
+
+    /// The window: the view at (50, 40), 300 x 200.
+    #[cfg(feature = "cpurender")]
+    extern "C" fn zoom_page_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_virtual_view(
+                RefAny::new(()),
+                azul_core::callbacks::VirtualViewCallback::create(zoom_view_render),
+            )
+            .with_css("position: absolute; left: 50px; top: 40px; width: 300px; height: 200px;"),
+        )
+    }
+
+    /// The page laid out and painted once, the view's DOM with its picture and veil.
+    #[cfg(feature = "cpurender")]
+    fn zoom_window() -> (
+        HeadlessWindow,
+        azul_core::dom::DomId,
+        azul_core::dom::NodeId,
+        azul_core::dom::NodeId,
+    ) {
+        use azul_core::dom::NodeId;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, zoom_page_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        window.common.drain_virtual_view_updates();
+        let _ = window.common.take_regeneration();
+        paint_frame(&mut window);
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let child = *lw
+            .layout_results
+            .keys()
+            .find(|dom| dom.inner != 0)
+            .expect("the view's DOM");
+        let nodes = lw.layout_results[&child].styled_dom.node_data.as_container();
+        let with_class = |class: &str| -> NodeId {
+            (0..nodes.len())
+                .map(NodeId::new)
+                .find(|n| nodes[*n].has_class(class))
+                .unwrap_or_else(|| panic!("a node of class {class}"))
+        };
+        let (picture, veil) = (with_class("picture"), with_class("veil"));
+        (window, child, picture, veil)
+    }
+
+    /// What `CallbackInfo::set_css_property` does, and the frame the shell makes for its result.
+    #[cfg(feature = "cpurender")]
+    fn write_in_view(
+        window: &mut HeadlessWindow,
+        child: azul_core::dom::DomId,
+        node: azul_core::dom::NodeId,
+        prop: azul_css::props::property::CssProperty,
+    ) {
+        use azul_layout::callbacks::CallbackChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let result = window.apply_user_change(&CallbackChange::ChangeNodeCssProperties {
+            dom_id: child,
+            node_id: node,
+            properties: vec![prop].into(),
+        });
+        window.service_frame(result);
+    }
+
+    /// `translate(tx, ty) scale(s)`: the editor's zoom.
+    #[cfg(feature = "cpurender")]
+    fn zoom_css(tx: f32, ty: f32, s: f32) -> azul_css::props::property::CssProperty {
+        use azul_css::props::{
+            basic::{FloatValue, PixelValue},
+            style::{StyleTransform, StyleTransformScale2D, StyleTransformTranslate2D},
+        };
+        azul_css::props::property::CssProperty::transform(
+            vec![
+                StyleTransform::Translate(StyleTransformTranslate2D {
+                    x: PixelValue::px(tx),
+                    y: PixelValue::px(ty),
+                }),
+                StyleTransform::Scale(StyleTransformScale2D {
+                    x: FloatValue::new(s),
+                    y: FloatValue::new(s),
+                }),
+            ]
+            .into(),
+        )
+    }
+
+    /// The inclusive pixel box of the red pixels of the window's last frame.
+    #[cfg(feature = "cpurender")]
+    fn red_box_of(window: &HeadlessWindow) -> Option<(u32, u32, u32, u32)> {
+        let frame = window.cpu_backend.last_frame.as_ref()?;
+        let mut found: Option<(u32, u32, u32, u32)> = None;
+        for y in 0..frame.height() {
+            for x in 0..frame.width() {
+                let p = pixel_of(frame, x, y)?;
+                // Red by a clear margin over the other channels: the edge pixels of a scaled
+                // picture, where its surface is resampled, count.
+                if p[0] > 150 && p[0].saturating_sub(p[1].max(p[2])) > 40 {
+                    found = Some(match found {
+                        None => (x, y, x, y),
+                        Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+                    });
+                }
+            }
+        }
+        found
+    }
+
+    /// A transform value written to a node inside a view moves the picture in the very next CPU
+    /// frame - which is the frame of every shell, since they all paint with this backend - with
+    /// no layout and no rebuild of any list; a second write replaces the first, and the frame is
+    /// the one a full repaint paints.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_transform_written_inside_a_view_is_painted_by_the_next_cpu_frame() {
+        let (mut window, child, picture, _veil) = zoom_window();
+        // The view's corner is at (50, 40): the picture is at (90, 70), 40 x 30.
+        assert_eq!(red_box_of(&window), Some((90, 70, 129, 99)), "harness: the picture unscaled");
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .frame_report
+            .reset_counters();
+
+        write_in_view(&mut window, child, picture, zoom_css(40.0, 20.0, 2.0));
+        assert_eq!(
+            red_box_of(&window),
+            Some((110, 75, 189, 134)),
+            "translate(40px, 20px) scale(2) about the centre: 80 x 60 at (60, 35) of the content"
+        );
+        let (differing, first) = incremental_vs_full(&mut window);
+        assert_eq!(differing, 0, "the incremental frame is a full paint's, first diff {first:?}");
+
+        write_in_view(&mut window, child, picture, zoom_css(100.0, 50.0, 2.0));
+        assert_eq!(
+            red_box_of(&window),
+            Some((170, 105, 249, 164)),
+            "a second write replaces the first: 80 x 60 at (120, 65) of the content"
+        );
+        let (differing, first) = incremental_vs_full(&mut window);
+        assert_eq!(differing, 0, "after the second write, first diff {first:?}");
+
+        write_in_view(&mut window, child, picture, zoom_css(0.0, 0.0, 1.0));
+        assert_eq!(red_box_of(&window), Some((90, 70, 129, 99)), "back at the identity");
+
+        let report = window
+            .common
+            .layout_window
+            .as_ref()
+            .expect("a layout window")
+            .frame_report
+            .clone();
+        assert_eq!(report.layout_passes, 0, "no layout: {report:?}");
+        assert_eq!(report.dl_rebuilds, 0, "no display list rebuilt: {report:?}");
+        assert_eq!(report.dom_regenerations, 0, "no DOM regenerated: {report:?}");
+    }
+
+    /// The opacity twin: a node inside a view fades by a value.
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn an_opacity_written_inside_a_view_is_painted_by_the_next_cpu_frame() {
+        use azul_css::props::{
+            basic::PercentageValue, property::CssProperty, style::StyleOpacity,
+        };
+        let opacity = |percent: f32| {
+            CssProperty::opacity(StyleOpacity {
+                inner: PercentageValue::new(percent),
+            })
+        };
+        let (mut window, child, _picture, veil) = zoom_window();
+        // The veil's centre: (50 + 245, 40 + 145).
+        let centre = |w: &HeadlessWindow| sample_px(w, 295, 185).map(|p| [p[0], p[1], p[2]]);
+        let near = |got: Option<[u8; 3]>, want: [u8; 3]| {
+            got.is_some_and(|g| g.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 4))
+        };
+        assert!(near(centre(&window), [51, 51, 255]), "harness: 0.8 blue over white");
+
+        write_in_view(&mut window, child, veil, opacity(40.0));
+        assert!(near(centre(&window), [153, 153, 255]), "0.4 blue over white: {:?}", centre(&window));
+        let (differing, first) = incremental_vs_full(&mut window);
+        assert_eq!(differing, 0, "first diff {first:?}");
+
+        write_in_view(&mut window, child, veil, opacity(60.0));
+        assert!(
+            near(centre(&window), [102, 102, 255]),
+            "replaced, not stacked: 0.6 blue over white: {:?}",
+            centre(&window)
+        );
+        let (differing, first) = incremental_vs_full(&mut window);
+        assert_eq!(differing, 0, "first diff {first:?}");
     }
 
     #[test]

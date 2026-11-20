@@ -1564,4 +1564,145 @@ mod retained_list_tests {
             "the window's list is still the one the renderer holds"
         );
     }
+    /// The editor's zoom page: a view whose child holds a red picture that carries an identity
+    /// transform at build time, and a blue veil at opacity 0.8.
+    extern "C" fn zoom_view(_data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+        let page = Dom::create_div()
+            .with_child(Dom::create_div().with_class("picture".into()).with_css(
+                "position: absolute; left: 40px; top: 30px; width: 40px; height: 30px; \
+                 background: #ff0000; transform: translate(0px, 0px) scale(1);",
+            ))
+            .with_child(Dom::create_div().with_class("veil".into()).with_css(
+                "position: absolute; left: 220px; top: 120px; width: 50px; height: 50px; \
+                 background: #0000ff; opacity: 0.8;",
+            ));
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
+        VirtualViewReturn::with_dom(page, rect, rect)
+    }
+
+    /// The CPU frame of a value written inside a view is the GPU's: WebRender reads every DOM's
+    /// value cache and drew the zoomed picture from the first frame on; the CPU backends - the
+    /// frame of the headless window and of every desktop shell that paints in software - read
+    /// the root's alone and drew it unscaled until the view rendered again. Both frames of the
+    /// same window, after the same two writes, show the picture in the same box and the veil in
+    /// the same colour (within a pixel of resampling at the edges).
+    #[test]
+    fn the_cpu_frame_of_a_value_written_inside_a_view_is_the_gpu_frame() {
+        use azul_css::props::{
+            basic::{FloatValue, PercentageValue, PixelValue},
+            property::CssProperty,
+            style::{StyleOpacity, StyleTransform, StyleTransformScale2D, StyleTransformTranslate2D},
+        };
+
+        let Some(mut gpu) = GpuSession::new(400.0, 300.0, 1.0) else {
+            return;
+        };
+        gpu.lay_out(
+            Dom::create_body().with_css("margin: 0px;").with_child(
+                Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(zoom_view))
+                    .with_css("position: absolute; left: 50px; top: 40px; width: 300px; height: 200px;"),
+            ),
+        )
+        .expect("the page lays out");
+        let child = *gpu
+            .window
+            .layout_results
+            .keys()
+            .find(|dom| **dom != DomId::ROOT_ID)
+            .expect("the view's DOM");
+        let nodes = gpu.window.layout_results[&child].styled_dom.node_data.as_container();
+        let with_class = |class: &str| -> NodeId {
+            (0..nodes.len())
+                .map(NodeId::new)
+                .find(|n| nodes[*n].has_class(class))
+                .unwrap_or_else(|| panic!("a node of class {class}"))
+        };
+        let (picture, veil) = (with_class("picture"), with_class("veil"));
+        let zoom = |tx: f32, ty: f32, s: f32| {
+            CssProperty::transform(
+                vec![
+                    StyleTransform::Translate(StyleTransformTranslate2D {
+                        x: PixelValue::px(tx),
+                        y: PixelValue::px(ty),
+                    }),
+                    StyleTransform::Scale(StyleTransformScale2D {
+                        x: FloatValue::new(s),
+                        y: FloatValue::new(s),
+                    }),
+                ]
+                .into(),
+            )
+        };
+        let write = |gpu: &mut GpuSession, node: NodeId, prop: CssProperty| {
+            let tier = gpu
+                .window
+                .apply_content_change(ContentChange::NodeCss {
+                    dom_id: child,
+                    node_id: node,
+                    props: vec![prop],
+                    override_only: false,
+                })
+                .tier;
+            assert_eq!(tier, ContentDirtyTier::Paint, "a value: no list");
+        };
+        let mut cpu = crate::desktop::shell2::headless::CpuBackend::new();
+        let mut cpu_frame = |gpu: &GpuSession| {
+            cpu.render_frame(&gpu.window, &gpu.window.renderer_resources, 400.0, 300.0, 1.0);
+            cpu.last_frame.as_ref().expect("a CPU frame").clone_pixmap()
+        };
+        let near_box = |a: Option<(u32, u32, u32, u32)>, b: Option<(u32, u32, u32, u32)>| match (a, b) {
+            (Some(a), Some(b)) => {
+                a.0.abs_diff(b.0) <= 1 && a.1.abs_diff(b.1) <= 1 && a.2.abs_diff(b.2) <= 1 && a.3.abs_diff(b.3) <= 1
+            }
+            _ => false,
+        };
+        // The veil's centre, (50 + 245, 40 + 145).
+        let veil_of = |frame: &AzulPixmap| {
+            let p = pixel(frame, 295, 185);
+            [p[0], p[1], p[2]]
+        };
+        let close = |a: [u8; 3], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 6);
+
+        let gpu_first = gpu.present(true).expect("the first frame");
+        let cpu_first = cpu_frame(&gpu);
+        assert!(
+            near_box(red_box(&gpu_first), red_box(&cpu_first)),
+            "the identity: GPU {:?}, CPU {:?}",
+            red_box(&gpu_first),
+            red_box(&cpu_first)
+        );
+        assert!(close(veil_of(&gpu_first), veil_of(&cpu_first)), "{:?} {:?}", veil_of(&gpu_first), veil_of(&cpu_first));
+
+        for (tx, ty, s, percent) in [(40.0, 20.0, 2.0, 40.0), (100.0, 50.0, 2.0, 60.0)] {
+            write(&mut gpu, picture, zoom(tx, ty, s));
+            write(
+                &mut gpu,
+                veil,
+                CssProperty::opacity(StyleOpacity {
+                    inner: PercentageValue::new(percent),
+                }),
+            );
+            let gpu_frame = gpu
+                .present_lightweight()
+                .expect("the harness")
+                .expect("a value written inside a view is a frame");
+            let cpu_shown = cpu_frame(&gpu);
+            let want = red_box(&gpu_frame);
+            assert!(
+                want.is_some_and(|b| b.0 > 100),
+                "the GPU moved the picture to the right of its first place: {want:?}"
+            );
+            assert!(
+                near_box(want, red_box(&cpu_shown)),
+                "translate({tx}px, {ty}px) scale({s}): GPU {want:?}, CPU {:?}",
+                red_box(&cpu_shown)
+            );
+            assert!(
+                close(veil_of(&gpu_frame), veil_of(&cpu_shown)),
+                "opacity {percent}%: GPU {:?}, CPU {:?}",
+                veil_of(&gpu_frame),
+                veil_of(&cpu_shown)
+            );
+        }
+    }
 }
