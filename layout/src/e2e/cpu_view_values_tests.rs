@@ -31,7 +31,7 @@ use azul_css::props::{
 };
 use rust_fontconfig::FcFontCache;
 
-use super::cpu_backend::CpuBackend;
+use crate::cpu_backend::CpuBackend;
 use crate::{
     callbacks::ExternalSystemCallbacks,
     cpurender::AzulPixmap,

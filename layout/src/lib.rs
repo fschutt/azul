@@ -488,6 +488,9 @@ pub mod callbacks;
 #[allow(clippy::type_complexity)]
 pub mod cpu_counters;
 pub mod cpurender;
+#[cfg(feature = "cpurender")]
+pub mod cpu_backend;
+pub mod window_background;
 /// Geometry made safe for the AGG rasterizer, for every path that feeds it:
 /// the CPU renderer, the SVG clip and stroke masks, the SVG module.
 #[cfg(any(feature = "cpurender", feature = "svg"))]

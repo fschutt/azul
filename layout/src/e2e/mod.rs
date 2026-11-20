@@ -35,7 +35,6 @@ mod project;
 // "Component → code") and what Export > Code writes.
 mod export;
 
-mod cpu_backend;
 
 // The renderer a host without one does not have, as bookkeeping: the fonts and
 // images the display lists draw, for the renderer-side counters of

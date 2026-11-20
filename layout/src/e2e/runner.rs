@@ -13,7 +13,7 @@
 //! * [`Runner::regenerate_layout`] / [`Runner::relayout_only`] port `regenerate_layout` /
 //!   `incremental_relayout` (`dll/src/desktop/shell2/common/layout.rs`) plus the render + damage
 //!   tail of the headless backend (`dll/src/desktop/shell2/headless/mod.rs`).
-//! * [`super::cpu_backend::CpuBackend`] is the port of that backend's CPU renderer, which is what
+//! * [`crate::cpu_backend::CpuBackend`] is that backend's CPU renderer - the one the shells run - which is what
 //!   fills `LayoutWindow::frame_report` — without it every damage assertion reports "nothing was
 //!   repainted (stale screen)".
 //! * The font pipeline mirrors `AppInternal::create` + the font-snapshot block at the top of
@@ -53,13 +53,12 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 
 use super::{
-    cpu_backend::CpuBackend,
     full::{
         e2e_pump_continuation, process_debug_event, DebugEvent, DebugRequest, DebugResponseData,
         E2eSession, E2eStepResult, E2eTest, E2eTestResult, ResponseData,
     },
 };
-use crate::solver3::layout_tree::LayoutNodeId;
+use crate::{cpu_backend::CpuBackend, solver3::layout_tree::LayoutNodeId};
 use azul_css::system::DarkLightMode;
 
 // ── Headless window scaffolding ──────────────────────────────────────────────
@@ -219,7 +218,11 @@ impl Runner {
             window_state: ws,
             previous_window_state: None,
             cpu_hit_tester: azul_layout::headless::CpuHitTester::new(),
-            cpu_backend: CpuBackend::new(),
+            cpu_backend: CpuBackend {
+                // An offscreen canvas: reproducible, whatever desktop the tests run on.
+                follow_system_background: false,
+                ..CpuBackend::new()
+            },
             app_fc_cache,
             #[cfg(feature = "font_async_registry")]
             font_registry,
