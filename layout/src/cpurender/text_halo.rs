@@ -13,9 +13,10 @@
 //! renderer's halo.
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
+    time::{Duration, Instant},
 };
 
 use azul_core::{
@@ -42,6 +43,79 @@ const MAX_HALO_BYTES: usize = 32 * 1024 * 1024;
 /// The most pixels one halo may cover; a larger shadow (a page of shadowed
 /// text) is left to the renderer's own blur.
 const MAX_HALO_PIXELS: u64 = 1 << 21;
+
+thread_local! {
+    /// How many halo pictures this thread has DRAWN (not found kept): what a
+    /// test reads to say "this frame drew no halo". Per thread because the
+    /// halos are kept per thread ([`HALOS`]) and the tests run in parallel.
+    static DRAWN: Cell<usize> = const { Cell::new(0) };
+}
+
+/// How many halos [`text_halos`] has drawn on this thread.
+#[must_use]
+pub fn halos_drawn() -> usize {
+    DRAWN.with(Cell::get)
+}
+
+thread_local! {
+    /// The budget of the frame being prepared on this thread
+    /// ([`within_halo_budget`]): when its time is up, how many halos it has
+    /// drawn, how many it had to leave.
+    static BUDGET: Cell<Option<Budget>> = const { Cell::new(None) };
+}
+
+#[derive(Copy, Clone)]
+struct Budget {
+    /// Halos drawn however long they take: a frame always makes progress.
+    free: usize,
+    deadline: Instant,
+    drawn: usize,
+    deferred: usize,
+}
+
+/// Runs `f` - a scan of display lists for text halos ([`text_halos`] with fonts)
+/// - with a BUDGET: the first `free` halos it has to draw are drawn, the rest
+/// only while `time` has not run out since this call began, and the others are
+/// left for a later frame (nothing is kept for them: they are found missing,
+/// and the shadow they stand for is drawn by the renderer's own blur, until a
+/// later scan draws the picture). Returns what `f` returned and how many halos it
+/// left.
+///
+/// A halo is a CPU raster of the label's glyphs, a disk dilation and a blur: 25 new
+/// labels of a map that panned were 5.0 s on the UI thread in one frame (1.2 s
+/// for 80 in another, 9.0 s over a session), and nothing in the frame could
+/// run before they were done. A frame that finds more halos than it may draw
+/// draws the rest as the map settles.
+pub fn within_halo_budget<R>(free: usize, time: Duration, f: impl FnOnce() -> R) -> (R, usize) {
+    let outer = BUDGET.with(|b| {
+        b.replace(Some(Budget {
+            free,
+            deadline: Instant::now() + time,
+            drawn: 0,
+            deferred: 0,
+        }))
+    });
+    let result = f();
+    let left = BUDGET.with(|b| b.replace(outer).map_or(0, |b| b.deferred));
+    (result, left)
+}
+
+/// Whether the budget of this thread lets one more halo be drawn, counting it.
+fn may_draw_another() -> bool {
+    BUDGET.with(|cell| {
+        let Some(mut budget) = cell.get() else {
+            return true;
+        };
+        let may = budget.drawn < budget.free || Instant::now() < budget.deadline;
+        if may {
+            budget.drawn += 1;
+        } else {
+            budget.deferred += 1;
+        }
+        cell.set(Some(budget));
+        may
+    })
+}
 
 /// A text shadow drawn as a picture, where its `PushTextShadow` stands.
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +159,12 @@ pub fn text_halos(
             let kept = match (kept, fonts) {
                 (Some(kept), _) => kept,
                 (None, Some((renderer_resources, font_manager))) => {
+                    // Over the frame's budget: not drawn, not kept - found
+                    // missing, and drawn by a later scan.
+                    if !may_draw_another() {
+                        return None;
+                    }
+                    DRAWN.with(|n| n.set(n.get() + 1));
                     let drawn = scope.draw(anchor, dpi, renderer_resources, font_manager);
                     let bytes = drawn.as_ref().map_or(0, |d| d.width as usize * d.height as usize * 4);
                     HALOS.with(|halos| halos.borrow_mut().insert(key, drawn.clone(), bytes));

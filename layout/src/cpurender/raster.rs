@@ -5321,7 +5321,8 @@ pub(super) fn dilate_disk(p: &mut AzulPixmap, r: f32) {
         return;
     }
     let reach = (r + 0.5).ceil() as i32;
-    // The disk's offsets with their weights, the full ones first.
+    // The disk's offsets with their weights, the full ones first. The disk is
+    // symmetric: a tap and its opposite have one weight.
     let mut taps: Vec<(i32, i32, u32)> = Vec::new();
     for dy in -reach..=reach {
         for dx in -reach..=reach {
@@ -5334,28 +5335,42 @@ pub(super) fn dilate_disk(p: &mut AzulPixmap, r: f32) {
     }
     let (w, h) = (p.width as i32, p.height as i32);
     let src = p.data.to_vec();
-    let out = &mut p.data;
+    // Each pixel takes, per channel, the strongest `source * weight` of the
+    // pixels the disk around it reaches. Done from the SOURCE pixels that have
+    // ink to the pixels they reach - the result is the same, since the disk is
+    // symmetric and a pixel without ink reaches nothing - because a text
+    // shadow's buffer is mostly empty: the glyphs are a tenth of it, and the
+    // other way round every pixel of the buffer walked every tap of the disk
+    // (700 x 100 px at 2x: 70 000 pixels x 80 taps, 200 ms per halo on the UI
+    // thread in a frame that drew 25).
+    let mut best = vec![0u32; (w * h * 4) as usize];
     for y in 0..h {
         for x in 0..w {
-            let mut best = [0u32; 4];
-            for &(dx, dy, weight) in &taps {
-                let (sx, sy) = (x + dx, y + dy);
-                if sx < 0 || sy < 0 || sx >= w || sy >= h {
-                    continue;
-                }
-                let i = ((sy * w + sx) * 4) as usize;
-                if src[i + 3] == 0 {
-                    continue;
-                }
-                for c in 0..4 {
-                    best[c] = best[c].max(u32::from(src[i + c]) * weight);
-                }
-            }
             let i = ((y * w + x) * 4) as usize;
-            for c in 0..4 {
-                out[i + c] = ((best[c] + 128) >> 8).min(255) as u8;
+            if src[i + 3] == 0 {
+                continue;
+            }
+            let px = [
+                u32::from(src[i]),
+                u32::from(src[i + 1]),
+                u32::from(src[i + 2]),
+                u32::from(src[i + 3]),
+            ];
+            for &(dx, dy, weight) in &taps {
+                let (ox, oy) = (x + dx, y + dy);
+                if ox < 0 || oy < 0 || ox >= w || oy >= h {
+                    continue;
+                }
+                let o = ((oy * w + ox) * 4) as usize;
+                for c in 0..4 {
+                    best[o + c] = best[o + c].max(px[c] * weight);
+                }
             }
         }
+    }
+    let out = &mut p.data;
+    for (o, b) in best.iter().enumerate() {
+        out[o] = ((b + 128) >> 8).min(255) as u8;
     }
 }
 
@@ -13610,5 +13625,132 @@ mod a_big_rounded_boxs_arcs_stay_within_the_geometry_margin_tests {
              {:?}",
             &different[..different.len().min(20)]
         );
+    }
+}
+
+#[cfg(test)]
+mod dilate_disk_tests {
+    //! `dilate_disk` grows a text shadow's glyphs by a disk. It walked every
+    //! pixel of the shadow's buffer over every tap of the disk; it now walks the
+    //! pixels that have ink. The result must be the same bytes.
+
+    use super::*;
+
+    /// The gather implementation `dilate_disk` replaced, kept as the reference.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    fn reference(p: &mut AzulPixmap, r: f32) {
+        if r.is_nan() || r <= 0.0 {
+            return;
+        }
+        let reach = (r + 0.5).ceil() as i32;
+        let mut taps: Vec<(i32, i32, u32)> = Vec::new();
+        for dy in -reach..=reach {
+            for dx in -reach..=reach {
+                let d = ((dx * dx + dy * dy) as f32).sqrt();
+                let w = (r + 0.5 - d).clamp(0.0, 1.0);
+                if w > 0.0 {
+                    taps.push((dx, dy, (w * 256.0).round() as u32));
+                }
+            }
+        }
+        let (w, h) = (p.width as i32, p.height as i32);
+        let src = p.data.to_vec();
+        let out = &mut p.data;
+        for y in 0..h {
+            for x in 0..w {
+                let mut best = [0u32; 4];
+                for &(dx, dy, weight) in &taps {
+                    let (sx, sy) = (x + dx, y + dy);
+                    if sx < 0 || sy < 0 || sx >= w || sy >= h {
+                        continue;
+                    }
+                    let i = ((sy * w + sx) * 4) as usize;
+                    if src[i + 3] == 0 {
+                        continue;
+                    }
+                    for c in 0..4 {
+                        best[c] = best[c].max(u32::from(src[i + c]) * weight);
+                    }
+                }
+                let i = ((y * w + x) * 4) as usize;
+                for c in 0..4 {
+                    out[i + c] = ((best[c] + 128) >> 8).min(255) as u8;
+                }
+            }
+        }
+    }
+
+    /// A pixmap with `ink` per mille of its pixels set to a random colour, from a
+    /// fixed seed.
+    fn sparse(w: u32, h: u32, ink: u32) -> AzulPixmap {
+        let mut p = AzulPixmap::new(w, h).expect("a pixmap");
+        p.fill(0, 0, 0, 0);
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for i in 0..(w * h) as usize {
+            if (next() % 1000) as u32 >= ink {
+                continue;
+            }
+            let a = (next() % 255) as u8 + 1;
+            // premultiplied-looking: the colour never above the alpha
+            for c in 0..3 {
+                p.data[i * 4 + c] = (next() % (u64::from(a) + 1)) as u8;
+            }
+            p.data[i * 4 + 3] = a;
+        }
+        p
+    }
+
+    #[test]
+    fn a_dilated_buffer_is_the_buffer_the_gather_made() {
+        for (w, h, ink) in [(37, 29, 120), (64, 40, 30), (90, 17, 700), (5, 5, 1000), (1, 40, 500)] {
+            for r in [0.4_f32, 1.0, 2.5, 4.0, 6.3] {
+                let mut fast = sparse(w, h, ink);
+                let mut slow = sparse(w, h, ink);
+                dilate_disk(&mut fast, r);
+                reference(&mut slow, r);
+                assert!(
+                    fast.data.to_vec() == slow.data.to_vec(),
+                    "{w} x {h}, {ink} per mille ink, radius {r}: the dilated bytes differ"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_radius_that_grows_nothing_changes_nothing() {
+        for r in [0.0_f32, -3.0, f32::NAN] {
+            let mut p = sparse(20, 20, 300);
+            let before = p.data.to_vec();
+            dilate_disk(&mut p, r);
+            assert!(p.data.to_vec() == before, "radius {r}");
+        }
+    }
+
+    /// The point of the change: the work follows the ink. An empty buffer costs
+    /// nothing however large it is, and one pixel of ink reaches only its disk.
+    #[test]
+    fn an_empty_buffer_stays_empty_and_one_pixel_grows_to_its_disk() {
+        let mut empty = AzulPixmap::new(300, 200).expect("a pixmap");
+        empty.fill(0, 0, 0, 0);
+        dilate_disk(&mut empty, 5.0);
+        assert!(empty.data.to_vec().iter().all(|b| *b == 0));
+
+        let mut dot = AzulPixmap::new(41, 41).expect("a pixmap");
+        dot.fill(0, 0, 0, 0);
+        let centre = (20 * 41 + 20) * 4;
+        for c in 0..4 {
+            dot.data[centre + c] = 255;
+        }
+        dilate_disk(&mut dot, 4.0);
+        let covered = dot.data.to_vec().chunks(4).filter(|px| px[3] > 0).count();
+        // a disk of radius 4.5 around the dot: between its area (63) and the square's (81)
+        assert!((57..=81).contains(&covered), "{covered} pixels covered");
+        assert_eq!(dot.data[centre + 3], 255, "the dot itself stays");
     }
 }

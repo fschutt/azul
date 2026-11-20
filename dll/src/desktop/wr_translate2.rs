@@ -669,6 +669,12 @@ fn font_key_from_hash(font_hash: u64) -> FontKey {
     }
 }
 
+/// Text halos a frame draws however long they take (see
+/// [`collect_image_resource_updates`]): a frame always makes progress.
+const HALOS_DRAWN_ANYWAY: usize = 8;
+/// How long a frame goes on drawing text halos after those.
+const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
+
 /// Collects all ImageRefs from display lists and creates AddImage ResourceUpdates
 /// for images that aren't already registered.
 ///
@@ -703,17 +709,35 @@ pub fn collect_image_resource_updates(
     let mut images_in_display_list: FastBTreeSet<ImageRef> =
         layout_window.images_in_display_lists().cloned().collect();
 
-    for layout_result in layout_window.layout_results.values() {
-        // The text shadows the compositor paints as kept pictures: drawn here
-        // the first time they are seen, and live while a list holds them.
-        let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
-        for halo in azul_layout::cpurender::text_halos(
-            &layout_result.display_list.items,
-            dpi,
-            Some((renderer_resources, &layout_window.font_manager)),
-        ) {
-            images_in_display_list.insert(halo.image);
-        }
+    // The text shadows the compositor paints as kept pictures: drawn here the
+    // first time they are seen, and live while a list holds them. A halo is a
+    // CPU raster of a label's glyphs, and a frame that found 25 new ones spent
+    // 5.0 s drawing them on the UI thread before anything else could run: a
+    // frame draws HALOS_DRAWN_ANYWAY of them however long they take and then
+    // only while HALO_FRAME_BUDGET lasts; a shadow whose halo is left for a
+    // later frame is drawn by WebRender's own blur until then.
+    let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+    let ((), halos_left) = azul_layout::cpurender::within_halo_budget(
+        HALOS_DRAWN_ANYWAY,
+        HALO_FRAME_BUDGET,
+        || {
+            for layout_result in layout_window.layout_results.values() {
+                for halo in azul_layout::cpurender::text_halos(
+                    &layout_result.display_list.items,
+                    dpi,
+                    Some((renderer_resources, &layout_window.font_manager)),
+                ) {
+                    images_in_display_list.insert(halo.image);
+                }
+            }
+        },
+    );
+    if halos_left > 0 {
+        log_debug!(
+            LogCategory::Rendering,
+            "[collect_image_resource_updates] {} text halo(s) left for a later frame",
+            halos_left
+        );
     }
 
     // The live set as hashes (identity), for the GC diff in the caller.

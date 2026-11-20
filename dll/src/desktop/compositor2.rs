@@ -3841,6 +3841,111 @@ mod text_halo_tests {
         (shadows, images)
     }
 
+    /// A halo is a picture drawn once. The labels of a map move with every pan
+    /// and are laid out again, and a halo that was kept is found, not drawn
+    /// again: `collect_image_resource_updates` draws none for the frames after
+    /// the first.
+    #[test]
+    fn a_halo_is_drawn_once_and_found_kept_by_every_later_frame() {
+        use azul_layout::cpurender::halos_drawn;
+
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let start = halos_drawn();
+        let _ = frame(&mut window, labels(0.0, "#333333", "#ffffff", true));
+        assert_eq!(halos_drawn() - start, LABELS, "the first frame draws each label's halo");
+        for dx in [37.5, 80.0, -20.0] {
+            let before = halos_drawn();
+            let _ = frame(&mut window, labels(dx, "#333333", "#ffffff", true));
+            assert_eq!(
+                halos_drawn() - before,
+                0,
+                "the labels moved by {dx}: their halos are found kept, none is drawn again"
+            );
+        }
+    }
+
+    /// A frame that finds more new halos than its budget leaves the rest for a
+    /// later frame instead of drawing them all on the UI thread (25 new halos were
+    /// 5.0 s in one frame): they are found missing, then drawn by the next
+    /// scans, and once every one is kept a scan draws nothing.
+    #[test]
+    fn a_frame_draws_only_the_halos_its_budget_allows_and_the_rest_come_later() {
+        use azul_layout::cpurender::{halos_drawn, text_halos, within_halo_budget};
+
+        const MANY: usize = 24;
+        let mut grid = Dom::create_div().with_css("position: relative; width: 600px; height: 700px;");
+        for i in 0..MANY {
+            grid = grid.with_child(
+                Dom::create_p()
+                    .with_css(
+                        format!(
+                            "position: absolute; left: 20px; top: {}px; width: 160px; height: 14px; \
+                             margin: 0px; font-size: 12px; color: #333333; white-space: nowrap; \
+                             text-shadow: 0px 0px 2px #ffffff;",
+                            20 * i
+                        )
+                        .as_str(),
+                    )
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!(
+                        "Side Street {i}"
+                    ))),
+            );
+        }
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(600.0, 700.0);
+        state.size.dpi = 192;
+        window.current_window_state = state.clone();
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(Dom::create_body().with_css("margin: 0px;").with_child(grid)),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut None,
+            )
+            .expect("the labels lay out");
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let scan = |free: usize, time: std::time::Duration| {
+            within_halo_budget(free, time, || {
+                text_halos(
+                    &list.items,
+                    2.0,
+                    Some((&window.renderer_resources, &window.font_manager)),
+                )
+                .len()
+            })
+        };
+
+        // No time at all and three halos as of right: three are drawn.
+        let start = halos_drawn();
+        let (kept, left) = scan(3, std::time::Duration::ZERO);
+        assert_eq!(halos_drawn() - start, 3, "a frame draws what its budget allows");
+        assert_eq!((kept, left), (3, MANY - 3), "and leaves the others for later");
+
+        // Each later frame draws three more, finds those kept before.
+        let mut frames = 1;
+        let mut last = (kept, left);
+        while last.1 > 0 {
+            let before = halos_drawn();
+            last = scan(3, std::time::Duration::ZERO);
+            frames += 1;
+            assert!(halos_drawn() - before <= 3, "frame {frames}");
+            assert!(frames <= MANY, "the halos come: {last:?}");
+        }
+        assert_eq!(last.0, MANY, "every label has its halo at last");
+        assert_eq!(frames, MANY / 3, "three a frame");
+
+        // Everything kept: the next scan finds them all and draws none.
+        let before = halos_drawn();
+        assert_eq!(scan(3, std::time::Duration::ZERO), (MANY, 0));
+        assert_eq!(halos_drawn(), before, "no halo is drawn again");
+    }
+
     #[test]
     fn a_panned_maps_label_halos_reach_webrender_as_kept_pictures_not_blurs() {
         let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");

@@ -21,5 +21,5 @@ pub use pixmap::*;
 pub use raster::*;
 pub use shape::*;
 pub use svg::*;
-pub use text_halo::{text_halos, TextHalo};
+pub use text_halo::{halos_drawn, text_halos, within_halo_budget, TextHalo};
 pub use text_raster::*;
