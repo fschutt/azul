@@ -6,6 +6,7 @@
 
 mod blend;
 mod compositor;
+pub use crate::cpu_counters as counters;
 pub mod embolden;
 pub mod hvif;
 pub mod pixmap;

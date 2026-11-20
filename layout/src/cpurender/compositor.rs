@@ -3007,6 +3007,7 @@ fn list_value_damage(
     scroll_offsets: &ScrollOffsetMap,
     depth: usize,
 ) -> GpuValueDamage {
+    crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, list.items.len() as u64);
     let mut out = gpu_value_damage(
         list,
         &old.transforms,

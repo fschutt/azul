@@ -1624,6 +1624,7 @@ pub fn blit_buffer_sub(
     dx: i32,
     dy: i32,
 ) {
+    crate::cpu_counters::count(crate::cpu_counters::Counter::PxBlitted, u64::from(w) * u64::from(h));
     let dw = dst.width as i32;
     let dh = dst.height as i32;
     let x_end = sx.saturating_add(w).min(src_w);

@@ -437,3 +437,43 @@ fn a_colour_written_under_a_zoomed_frame_inside_a_view_is_painted_where_the_zoom
     );
     assert_the_frame_is_what_a_full_paint_gives(&z, &after, "a recolour under a zoomed frame");
 }
+
+/// What the CPU frame just painted, counted ([`crate::cpu_counters`]).
+fn last_frame(z: &Zoomable) -> crate::cpu_counters::CpuFrameCounters {
+    z.lw.cpu_frame_counters().last
+}
+
+#[test]
+fn a_zoom_step_is_counted_and_a_settled_frame_counts_nothing() {
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let _ = z.frame(&mut backend);
+    let first = last_frame(&z);
+    assert_eq!(first.groups_opened, 0, "the page has no transform: no group surface");
+    assert_eq!(first.px_cleared, 0, "a first frame is a full paint, not a clear of damage");
+    assert!(first.items_painted > 0, "and it paints the page: {first:?}");
+
+    // One zoom step: one reference frame opens one group surface, the picture's 40 x 30 box
+    // scaled to 80 x 60 px, composited once; only the view is cleared, and the items of the
+    // view are painted once.
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let _ = z.frame(&mut backend);
+    let step = last_frame(&z);
+    assert_eq!(step.groups_opened, 1, "the zoomed frame is one group: {step:?}");
+    assert_eq!(step.group_px, 40 * 30, "the group is the picture's own box: {step:?}");
+    assert_eq!(step.px_blitted, 80 * 60, "the composite blits the scaled box once: {step:?}");
+    assert!(
+        step.px_cleared <= 300 * 200,
+        "the clear is inside the view's box, not the window: {step:?}"
+    );
+    assert_eq!(step.items_painted, first.items_painted, "the view's items, once: {step:?}");
+    assert_eq!(step.retained_hits, 0, "nothing is retained yet");
+
+    // A settled window counts nothing.
+    let _ = z.frame(&mut backend);
+    assert_eq!(
+        last_frame(&z),
+        crate::cpu_counters::CpuFrameCounters::default(),
+        "an idle frame walks, paints, clears and blits nothing"
+    );
+}

@@ -642,6 +642,8 @@ impl CpuBackend {
         // frame generation moves (the debug server's screenshot cache keys
         // on it).
         layout_window.note_frame_presented();
+        // What this frame does is counted for the window's frame report.
+        let _counted = azul_layout::cpu_counters::FrameScope::begin(layout_window);
 
         // Every early return below must leave `last_frame_damage` /
         // `last_present_damage` describing THIS call ("nothing changed"), not

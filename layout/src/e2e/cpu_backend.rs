@@ -130,6 +130,9 @@ impl CpuBackend {
         #[cfg(feature = "telemetry")]
         let _frame_pump = crate::telemetry::FramePump::begin("present");
 
+        // What this frame does is counted for the window's frame report.
+        let _counted = crate::cpu_counters::FrameScope::begin(layout_window);
+
         let dom_id = DomId { inner: 0 };
         let Some(result) = layout_window.layout_results.get(&dom_id) else {
             return Vec::new();

@@ -1209,6 +1209,8 @@ impl ReferenceFrameGroup {
         let y1 = ((extent.origin.y + extent.size.height) * dpi_factor).ceil() as i32;
         let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
         let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+        crate::cpu_counters::count(crate::cpu_counters::Counter::GroupsOpened, 1);
+        crate::cpu_counters::count(crate::cpu_counters::Counter::GroupPx, u64::from(width) * u64::from(height));
 
         let outer_clip = clip_stack.last().copied().flatten().map(|c| {
             (
@@ -2517,6 +2519,7 @@ pub fn render_display_list_damaged(
             let [r, g, b, a] = render_state.clear_color;
             (r, g, b, a)
         };
+        crate::cpu_counters::count(crate::cpu_counters::Counter::PxCleared, u64::from((sr.x1 - sr.x0) as u32) * u64::from((sr.y1 - sr.y0) as u32));
         pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
 
         let base_clip = AzRect::from_xywh(
@@ -2535,6 +2538,7 @@ pub fn render_display_list_damaged(
         let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
 
         for (item_idx, item) in display_list.items.iter().enumerate() {
+            crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
             // Always process state-management items (Push/Pop) regardless of bounds,
             // because skipping a Push while processing its matching Pop corrupts stacks.
             // Nor is anything culled inside a turned / scaled reference frame:
@@ -2677,6 +2681,7 @@ pub fn render_single_item(
     render_state: &CpuRenderState,
 ) -> Result<(), String> {
     use azul_css::props::style::border::BorderStyle;
+    crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsPainted, 1);
     // Current accumulated scroll offset — applied to all item bounds.
     // Negative because scrolling down (positive offset) moves content up.
     let (scroll_dx, scroll_dy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
@@ -3405,6 +3410,7 @@ pub fn render_single_item(
                 // composite them into what this walk paints into.
                 let mut view_surfaces: Vec<AzulPixmap> = Vec::new();
                 for (child_idx, child_item) in child_dl.items.iter().enumerate() {
+                    crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
                     render_single_item(
                         child_item,
                         child_dl.uniform_text_bgs.get(child_idx).copied().flatten(),
@@ -4630,6 +4636,8 @@ fn render_text_with_bg(
     force_grayscale: bool,
     uniform_bg: Option<(ColorU, crate::solver3::display_list::WindowLogicalRect)>,
 ) {
+    crate::cpu_counters::count(crate::cpu_counters::Counter::TextRuns, 1);
+    crate::cpu_counters::count(crate::cpu_counters::Counter::Glyphs, glyphs.len() as u64);
     let aa = glyph_cache.text_aa();
     if let Some((bg, proven_rect)) = uniform_bg {
         if aa.lcd_enabled() && !force_grayscale {
@@ -5301,6 +5309,7 @@ fn render_text_shadow(
         clip_rect: shadow_clip_rect,
         clip: source,
     };
+    crate::cpu_counters::count(crate::cpu_counters::Counter::HalosDrawn, 1);
     let Some(tmp) = blurred_glyphs(
         &[run],
         color,

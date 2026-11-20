@@ -959,6 +959,13 @@ pub struct FrameReport {
     /// a steady state must pin: a view that reports a different size every
     /// time it is handed the box it asked for would show up here every frame.
     pub virtual_view_size_passes: u32,
+    /// The work of the last CPU frame ([`crate::cpu_counters`]): pixels cleared and blitted, items
+    /// walked and painted, text runs and glyphs rasterised, halos drawn, isolated groups opened
+    /// and their pixels, retained surfaces used, items of the scans of a whole list. Filled in by
+    /// [`LayoutWindow::frame_report_synced`].
+    pub cpu_last: crate::cpu_counters::CpuFrameCounters,
+    /// The sum of the CPU frames' counters since the counters were reset.
+    pub cpu_since_reset: crate::cpu_counters::CpuFrameCounters,
 }
 
 /// Maximum recursion depth for event processing.
@@ -1338,6 +1345,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         skip_gpu_sync: _,
         frame_report: _,
         frame_report_reset_request: _,
+        cpu_counters: _,
         // Bounded by SIZE_QUERY_CAP (256 entries), not by the document.
         recorded_size_queries: _,
         // A six-bit mask, keyed by nothing.
@@ -1817,6 +1825,10 @@ pub struct LayoutWindow {
     /// running scenario's counters, so no scenario that measured frame work
     /// could run in parallel.
     pub frame_report_reset_request: core::sync::atomic::AtomicU64,
+    /// What the CPU frames counted: the last frame's work and the sum since the counters were
+    /// reset ([`crate::cpu_counters`]). Written by the backend that renders the frame, which
+    /// only holds `&LayoutWindow`.
+    pub cpu_counters: std::sync::Mutex<crate::cpu_counters::CpuCounterState>,
     /// Fragmentation context for this window (continuous for screen, paged for print)
     #[cfg(feature = "pdf")]
     pub fragmentation_context: crate::paged::FragmentationContext,
@@ -2914,7 +2926,37 @@ impl LayoutWindow {
     #[must_use]
     pub fn frame_report_synced(&self) -> FrameReport {
         let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
-        self.frame_report.as_of_generation(generation)
+        let mut report = self.frame_report.as_of_generation(generation);
+        let cpu = self.cpu_frame_counters();
+        report.cpu_last = cpu.last;
+        report.cpu_since_reset = cpu.since_reset;
+        report
+    }
+
+    /// Keep the counters of a CPU frame ([`crate::cpu_counters::FrameScope`]): the last frame's,
+    /// and the sum since the counters were last reset.
+    pub fn record_cpu_counters(&self, frame: crate::cpu_counters::CpuFrameCounters) {
+        let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
+        if let Ok(mut state) = self.cpu_counters.lock() {
+            if state.generation != generation {
+                *state = crate::cpu_counters::CpuCounterState { generation, ..Default::default() };
+            }
+            state.last = frame;
+            state.since_reset.add(&frame);
+        }
+    }
+
+    /// The CPU frames' counters as a reader of the frame report sees them: the last frame's, and
+    /// the sum since the counters were reset.
+    #[must_use]
+    pub fn cpu_frame_counters(&self) -> crate::cpu_counters::CpuCounterState {
+        let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
+        let state = self.cpu_counters.lock().map(|s| *s).unwrap_or_default();
+        if state.generation == generation {
+            state
+        } else {
+            crate::cpu_counters::CpuCounterState { generation, ..Default::default() }
+        }
     }
 
     /// A frame of this window went to its renderer (see
@@ -3000,6 +3042,7 @@ impl LayoutWindow {
             rice_generation: azul_css::rice::generation(),
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
+            cpu_counters: std::sync::Mutex::new(crate::cpu_counters::CpuCounterState::default()),
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             animations: azul_core::animation::AnimationManager::new(),
@@ -29898,6 +29941,7 @@ impl LayoutWindow {
             // Exempt: damage rects + frame counters only, keyed by nothing.
             frame_report: _,
             frame_report_reset_request: _,
+        cpu_counters: _,
             // Thresholds + answers, keyed by nothing.
             recorded_size_queries: _,
             // A six-bit mask, keyed by nothing.

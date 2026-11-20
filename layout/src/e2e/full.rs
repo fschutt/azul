@@ -733,6 +733,47 @@ pub struct FrameReportResponse {
     pub terminal_result: u8,
     /// Injectable test-clock offset in ms (advanced by `tick_ms`).
     pub test_clock_offset_ms: u64,
+    /// What the last CPU frame did (pixels cleared / blitted, items walked / painted, text runs,
+    /// glyphs, halos drawn, isolated groups and their pixels, retained surfaces used, items of
+    /// the whole-list scans), and the sum since `reset_frame_counters`.
+    pub cpu_last: CpuCountersJson,
+    pub cpu_since_reset: CpuCountersJson,
+}
+
+/// [`azul_layout::cpu_counters::CpuFrameCounters`] for the E2E API.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct CpuCountersJson {
+    pub px_cleared: u64,
+    pub px_blitted: u64,
+    pub items_walked: u64,
+    pub items_painted: u64,
+    pub text_runs: u64,
+    pub glyphs: u64,
+    pub halos_drawn: u64,
+    pub groups_opened: u64,
+    pub group_px: u64,
+    pub retained_hits: u64,
+    pub scan_items: u64,
+}
+
+#[cfg(feature = "std")]
+impl From<&azul_layout::cpu_counters::CpuFrameCounters> for CpuCountersJson {
+    fn from(c: &azul_layout::cpu_counters::CpuFrameCounters) -> Self {
+        Self {
+            px_cleared: c.px_cleared,
+            px_blitted: c.px_blitted,
+            items_walked: c.items_walked,
+            items_painted: c.items_painted,
+            text_runs: c.text_runs,
+            glyphs: c.glyphs,
+            halos_drawn: c.halos_drawn,
+            groups_opened: c.groups_opened,
+            group_px: c.group_px,
+            retained_hits: c.retained_hits,
+            scan_items: c.scan_items,
+        }
+    }
 }
 
 /// Response for SetNodeCssOverride
@@ -8703,6 +8744,8 @@ fn build_frame_report_response(
         hit_depth_cap: report.hit_depth_cap,
         terminal_result: report.terminal_result,
         test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
+        cpu_last: (&report.cpu_last).into(),
+        cpu_since_reset: (&report.cpu_since_reset).into(),
     }
 }
 

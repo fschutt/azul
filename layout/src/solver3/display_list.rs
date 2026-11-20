@@ -3585,6 +3585,7 @@ pub(crate) fn reference_frame_extent(
             depth == 0
         })
         .map_or(items.len(), |at| idx + at);
+    crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, (end - idx) as u64);
     let frame_box = *bounds.inner();
     Some(group_paint_bounds(&items[idx + 1..end]).map_or(frame_box, |c| rect_union(frame_box, c)))
 }
