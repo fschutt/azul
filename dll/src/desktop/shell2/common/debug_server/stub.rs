@@ -59,13 +59,16 @@ pub fn scripted_run_owns_the_clock() -> bool {
     false
 }
 
-/// Whether the `log_*!` macros should fire in the lean build. Unlike the full
-/// server (which gates on `is_debug_enabled()` to feed its queue), the lean
-/// build forwards messages to the `log` facade, so this follows `AZ_LOG` and is
-/// ON BY DEFAULT — see `desktop::logging::az_log_level`. This is what makes the
-/// 100+ existing `log_*!` platform traces visible in the shipped `.deb`/dylib,
-/// so an app never "just exits with no error". `AZ_LOG=off` returns false here
-/// (and the macro bodies stay dead), so logging can be fully silenced.
+/// Whether the `log_*!` macros may reach a sink in the lean build. Unlike the
+/// full server (which gates on `is_debug_enabled()` to feed its queue), the lean
+/// build forwards messages to the `log` facade, so this is ON unless `AZ_LOG=off`:
+/// it only says a sink exists. WHAT passes is the level, which a run that asked
+/// for nothing keeps at Error (`azul_core::log_filter::level_from_env`, one
+/// reading for the gate and the facade alike) - so an app never "just exits with
+/// no error", and an ordinary run does not print the Debug firehose either (it
+/// printed 3.4 million lines in two minutes of an editor until 2026-11-20).
+/// `AZ_LOG=off` returns false here (and the macro bodies stay dead), so logging
+/// can be fully silenced.
 #[cfg(feature = "std")]
 pub fn log_active() -> bool {
     use std::sync::OnceLock;
@@ -78,7 +81,7 @@ pub fn log_active() -> bool {
             .as_str()
         {
             "0" | "off" | "false" | "none" | "no" | "disable" | "disabled" => false,
-            _ => true, // unset / 1 / true / on / a level name -> ON (testing default)
+            _ => true, // unset / 1 / true / on / a level name: a sink exists (the level decides)
         }
     })
 }

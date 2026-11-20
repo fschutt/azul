@@ -56,6 +56,7 @@ use crate::{
         },
     },
     log_debug,
+    log_trace,
 };
 
 /// Convert logical pixel bounds to physical pixel LayoutRect for WebRender.
@@ -231,12 +232,12 @@ pub fn translate_displaylist_to_wr(
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
 
     // CRITICAL: Begin building the display list before pushing items
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[compositor2] Calling builder.begin()"
     );
     builder.begin();
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[compositor2] Builder started, translating {} items",
         display_list.items.len()
@@ -331,7 +332,7 @@ pub fn translate_displaylist_to_wr(
 
                 let current_clip_chain = current_clip!();
                 let current_spatial = current_spatial!();
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[CLIP DEBUG] Rect: adjusted={:?}, clip_chain={:?}, spatial={:?}",
                     rect,
@@ -339,7 +340,7 @@ pub fn translate_displaylist_to_wr(
                     current_spatial
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] Rect push: rect={:?}, clip_chain_id={:?}, spatial_id={:?}, \
                      clip_stack.len={}, spatial_stack.len={}",
@@ -394,7 +395,7 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
 
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] push_rect (with clip): {:?}",
                         rect
@@ -403,7 +404,7 @@ pub fn translate_displaylist_to_wr(
                     continue;
                 }
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] push_rect: {:?}",
                     rect
@@ -513,7 +514,7 @@ pub fn translate_displaylist_to_wr(
 
                 let color_f = color_u_to_wr(color);
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] ScrollBar: bounds={:?}, rect={:?}",
                     bounds,
@@ -555,7 +556,7 @@ pub fn translate_displaylist_to_wr(
                 let base_clip_chain_id = current_clip!();
                 let current_offset = current_offset!();
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] ScrollBarStyled: bounds={:?}, offset={:?}, track={:?}, \
                      thumb={:?}",
@@ -845,7 +846,7 @@ pub fn translate_displaylist_to_wr(
                 let current_spatial = current_spatial!();
                 let current_clip = current_clip!();
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushClip: bounds={:?} -> rect={:?}, spatial_stack.len={}, \
                      clip_stack.len={}, current_spatial={:?}, current_clip={:?}",
@@ -891,7 +892,7 @@ pub fn translate_displaylist_to_wr(
                         current_clip,
                     );
 
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PushClip (rounded): created new_clip_id={:?}, pushing to \
                          clip_stack",
@@ -910,7 +911,7 @@ pub fn translate_displaylist_to_wr(
                     };
                     let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
 
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PushClip (rect): clip_id={:?}, parent={:?}, \
                          new_clip_chain_id={:?}, pushing to clip_stack",
@@ -922,7 +923,7 @@ pub fn translate_displaylist_to_wr(
                     clip_stack.push(new_clip_chain_id);
                 }
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushClip DONE: clip_stack.len now = {}",
                     clip_stack.len()
@@ -933,7 +934,7 @@ pub fn translate_displaylist_to_wr(
                 let before_len = clip_stack.len();
                 if clip_stack.len() > 1 {
                     let popped = clip_stack.pop();
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PopClip: popped {:?}, clip_stack.len {} -> {}",
                         popped,
@@ -941,7 +942,7 @@ pub fn translate_displaylist_to_wr(
                         clip_stack.len()
                     );
                 } else {
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PopClip: SKIPPED (clip_stack.len={}, would underflow)",
                         before_len
@@ -994,7 +995,7 @@ pub fn translate_displaylist_to_wr(
                     ),
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame START: frame_rect={:?}, content_rect={:?}, \
                      scroll_id={}, parent_space={:?}, current_clip={:?}, spatial_stack.len={}, \
@@ -1008,7 +1009,7 @@ pub fn translate_displaylist_to_wr(
                     clip_stack.len()
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[CLIP DEBUG] PushScrollFrame: frame_rect={:?}, adjusted={:?}, \
                      content_rect={:?}",
@@ -1028,7 +1029,7 @@ pub fn translate_displaylist_to_wr(
                     SpatialTreeItemKey::new(*scroll_id, push_index),
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: defined scroll_spatial_id={:?}",
                     scroll_spatial_id
@@ -1059,7 +1060,7 @@ pub fn translate_displaylist_to_wr(
                 // with the content (wrong).
                 let scroll_clip_id = builder.define_clip_rect(parent_space, adjusted_frame_rect);
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[CLIP DEBUG] PushScrollFrame: scroll_clip_id={:?}, parent_space={:?}, \
                      adjusted_frame_rect={:?}",
@@ -1068,7 +1069,7 @@ pub fn translate_displaylist_to_wr(
                     adjusted_frame_rect
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on \
                      parent_space={:?} with frame_rect={:?}",
@@ -1085,14 +1086,14 @@ pub fn translate_displaylist_to_wr(
                 };
                 let scroll_clip_chain = builder.define_clip_chain(parent_clip, [scroll_clip_id]);
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[CLIP DEBUG] PushScrollFrame: scroll_clip_chain={:?}, parent_clip={:?}",
                     scroll_clip_chain,
                     parent_clip
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: defined scroll_clip_chain={:?} with \
                      parent={:?}",
@@ -1114,7 +1115,7 @@ pub fn translate_displaylist_to_wr(
                     scroll_container_tag,
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: pushed scroll container hit-test tag=({}, \
                      0x{:04x})",
@@ -1122,7 +1123,7 @@ pub fn translate_displaylist_to_wr(
                     TAG_TYPE_SCROLL_CONTAINER
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame DONE: spatial_stack.len={}, clip_stack.len={}",
                     spatial_stack.len(),
@@ -1138,7 +1139,7 @@ pub fn translate_displaylist_to_wr(
                 let popped_clip = clip_stack.pop();
                 let popped_spatial = spatial_stack.pop();
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PopScrollFrame: popped_clip={:?}, popped_spatial={:?}, \
                      spatial_stack {} -> {}, clip_stack {} -> {}",
@@ -1200,7 +1201,7 @@ pub fn translate_displaylist_to_wr(
                     item_tag,
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] HitTestArea: bounds={:?}, tag={:?}",
                     bounds,
@@ -1245,7 +1246,7 @@ pub fn translate_displaylist_to_wr(
                 line_box: _,
                 source_node_index: _,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, \
                      clip_rect={:?}, dpi={}",
@@ -1258,12 +1259,12 @@ pub fn translate_displaylist_to_wr(
 
                 // Log first few glyph positions for debugging
                 if !glyphs.is_empty() {
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] First 3 glyphs (before scaling):"
                     );
                     for (i, g) in glyphs.iter().take(3).enumerate() {
-                        log_debug!(
+                        log_trace!(
                             LogCategory::DisplayList,
                             "  [{}] index={}, pos=({}, {})",
                             i,
@@ -1371,7 +1372,7 @@ pub fn translate_displaylist_to_wr(
                         }
                     };
 
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] push_image: bounds={:?}, key={:?}",
                         bounds,
@@ -1438,7 +1439,7 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::PushStackingContext { z_index, bounds } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushStackingContext: z_index={}, bounds={:?}, dpi={}",
                     z_index,
@@ -1457,20 +1458,20 @@ pub fn translate_displaylist_to_wr(
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] >>>>> push_simple_stacking_context RETURNED <<<<<"
                 );
             }
 
             DisplayListItem::PopStackingContext => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopStackingContext");
-                log_debug!(
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopStackingContext");
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] >>>>> pop_stacking_context <<<<<"
                 );
                 builder.pop_stacking_context();
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] >>>>> pop_stacking_context RETURNED <<<<<"
                 );
@@ -1595,7 +1596,7 @@ pub fn translate_displaylist_to_wr(
                     document_id,
                 ));
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] VirtualView: child_dom_id={:?}, child_pipeline_id={:?}, \
                      bounds={:?}, clip_rect={:?}",
@@ -1607,7 +1608,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Look up child layout result
                 if let Some(child_layout_result) = layout_results.get(child_dom_id) {
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] Found child layout result with {} display list items",
                         child_layout_result.display_list.items.len()
@@ -1625,7 +1626,7 @@ pub fn translate_displaylist_to_wr(
                         document_id,
                     ) {
                         Ok((_, child_dl, mut child_nested)) => {
-                            log_debug!(
+                            log_trace!(
                                 LogCategory::DisplayList,
                                 "[compositor2] Successfully translated child display list with {} \
                                  nested pipelines",
@@ -1656,7 +1657,7 @@ pub fn translate_displaylist_to_wr(
                                 false, // ignore_missing_pipeline
                             );
 
-                            log_debug!(
+                            log_trace!(
                                 LogCategory::DisplayList,
                                 "[compositor2] Pushed virtualized view for pipeline {:?}",
                                 child_pipeline_id
@@ -1698,7 +1699,7 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::TextLayout { .. } => {
                 // TextLayout items are handled elsewhere (via PushCachedTextRuns)
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] TextLayout item (handled via cached text runs)"
                 );
@@ -1710,7 +1711,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] LinearGradient: bounds={:?}",
                     bounds
@@ -1799,7 +1800,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] RadialGradient: bounds={:?}",
                     bounds
@@ -1959,7 +1960,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] ConicGradient: bounds={:?}",
                     bounds
@@ -2051,7 +2052,7 @@ pub fn translate_displaylist_to_wr(
                 shadow,
                 border_radius,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] BoxShadow: bounds={:?}, shadow={:?}",
                     bounds,
@@ -2148,7 +2149,7 @@ pub fn translate_displaylist_to_wr(
 
             // filter effects
             DisplayListItem::PushFilter { bounds, filters } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushFilter: bounds={:?}, {} filters",
                     bounds,
@@ -2167,12 +2168,12 @@ pub fn translate_displaylist_to_wr(
                 );
             }
             DisplayListItem::PopFilter => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopFilter");
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopFilter");
                 builder.pop_stacking_context();
             }
 
             DisplayListItem::PushBackdropFilter { bounds, filters } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushBackdropFilter: bounds={:?}, {} filters",
                     bounds,
@@ -2189,7 +2190,7 @@ pub fn translate_displaylist_to_wr(
                 builder.push_backdrop_filter(&info, &wr_filters, &[], &[]);
             }
             DisplayListItem::PopBackdropFilter => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopBackdropFilter");
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopBackdropFilter");
                 // backdrop_filter doesn't push a stacking context, no pop needed
             }
 
@@ -2199,7 +2200,7 @@ pub fn translate_displaylist_to_wr(
                 opacity_key,
                 mix_blend_mode,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushOpacity: bounds={:?}, opacity={}, key={:?}",
                     bounds,
@@ -2243,11 +2244,11 @@ pub fn translate_displaylist_to_wr(
                 );
             }
             DisplayListItem::PopOpacity => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopOpacity");
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopOpacity");
                 builder.pop_stacking_context();
             }
             DisplayListItem::PushTextShadow { shadow } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushTextShadow: {:?}",
                     shadow
@@ -2313,7 +2314,7 @@ pub fn translate_displaylist_to_wr(
                 wr_shadows.push(true);
             }
             DisplayListItem::PopTextShadow => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopTextShadow");
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopTextShadow");
                 if wr_shadows.pop() == Some(true) {
                     builder.pop_all_shadows();
                 }
@@ -2456,7 +2457,7 @@ pub fn translate_displaylist_to_wr(
                 let before_len = clip_stack.len();
                 if clip_stack.len() > 1 {
                     let popped = clip_stack.pop();
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PopImageMaskClip: popped {:?}, clip_stack.len {} -> {}",
                         popped,
@@ -2464,7 +2465,7 @@ pub fn translate_displaylist_to_wr(
                         clip_stack.len()
                     );
                 } else {
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PopImageMaskClip: SKIPPED (clip_stack.len={}, would \
                          underflow)",
@@ -2479,12 +2480,12 @@ pub fn translate_displaylist_to_wr(
     // The display list now includes PopStackingContext items that match the Push items.
 
     // Finalize and return display list
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[compositor2] >>>>> CALLING builder.end() <<<<<"
     );
     let (_, dl) = builder.end();
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[compositor2] >>>>> builder.end() RETURNED, dl.size_in_bytes()={} <<<<<",
         dl.size_in_bytes()
@@ -2498,19 +2499,27 @@ pub fn translate_displaylist_to_wr(
         nested_pipelines.len()
     );
 
-    // Print detailed display list summary before returning
-    log_debug!(LogCategory::DisplayList, "Display List Summary:");
-    log_debug!(LogCategory::DisplayList, "  Pipeline: {:?}", pipeline_id);
-    log_debug!(LogCategory::DisplayList, "  Viewport: {:?}", viewport_size);
-    log_debug!(
+    // Print detailed display list summary before returning - at TRACE, and the
+    // gate is asked ONCE for the whole dump: one line per item is 5 000 lines for
+    // a map's list (3.4 million lines, 60 s of a 124 s session when this was at
+    // Debug and Debug was the default).
+    if crate::desktop::shell2::common::log_gate::should_log(
         LogCategory::DisplayList,
-        "  Total items in source: {}",
-        display_list.items.len()
-    );
-    for (idx, item) in display_list.items.iter().enumerate() {
-        log_debug!(LogCategory::DisplayList, "    Item {}: {:?}", idx + 1, item);
+        crate::desktop::shell2::common::log_gate::Level::Trace,
+    ) {
+        log_trace!(LogCategory::DisplayList, "Display List Summary:");
+        log_trace!(LogCategory::DisplayList, "  Pipeline: {:?}", pipeline_id);
+        log_trace!(LogCategory::DisplayList, "  Viewport: {:?}", viewport_size);
+        log_trace!(
+            LogCategory::DisplayList,
+            "  Total items in source: {}",
+            display_list.items.len()
+        );
+        for (idx, item) in display_list.items.iter().enumerate() {
+            log_trace!(LogCategory::DisplayList, "    Item {}: {:?}", idx + 1, item);
+        }
+        log_trace!(LogCategory::DisplayList, "");
     }
-    log_debug!(LogCategory::DisplayList, "");
 
     Ok((wr_resources, dl, nested_pipelines))
 }
@@ -2825,7 +2834,7 @@ fn push_text(
         crate::desktop::wr_translate2::wr_translate_font_instance_key(font_instance_key);
     let wr_color = azul_css::props::basic::color::ColorF::from(color);
 
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[push_text] Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, \
          container_origin=({}, {}), dpi={}",
@@ -4327,5 +4336,141 @@ mod material_gpu_tests {
                 worst.1
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod log_volume_tests {
+    //! What building a display list writes to the log. At the default level it
+    //! must write NOTHING, and at Debug a handful of lines however long the
+    //! list is: the translation logged every item at Debug, plus about three
+    //! more lines per item, and Debug was the default - 3.4 million lines
+    //! (612 MB, 60 s of a 124 s session) from a two-minute session of the map
+    //! editor, 15 000 lines (0.27 s) for every frame of a 5 000-item map.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{DpiScaleFactor, RendererResources},
+    };
+    use azul_css::props::basic::color::ColorU;
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem};
+    use webrender::api::{units::DeviceIntSize, PipelineId};
+
+    use super::translate_displaylist_to_wr;
+    use crate::desktop::shell2::common::log_gate::records_emitted;
+
+    /// Items in the list the child translates.
+    const ITEMS: usize = 300;
+
+    /// The child re-runs THIS test; the name has to match `--exact`.
+    const CHILD_TEST: &str =
+        "desktop::compositor2::log_volume_tests::translate_a_list_and_count_its_records";
+
+    /// The child half: translate a list of [`ITEMS`] rects and print how many
+    /// log records that emitted (it prints nothing in the ordinary run).
+    #[test]
+    fn translate_a_list_and_count_its_records() {
+        if std::env::var_os("AZ_TRANSLATE_PROBE_CHILD").is_none() {
+            return;
+        }
+        let items = (0..ITEMS)
+            .map(|i| DisplayListItem::Rect {
+                bounds: LogicalRect::new(
+                    LogicalPosition::new((i % 20) as f32 * 10.0, (i / 20) as f32 * 10.0),
+                    LogicalSize::new(9.0, 9.0),
+                )
+                .into(),
+                color: ColorU::new(30, 60, 170, 255),
+                border_radius: BorderRadius::default(),
+            })
+            .collect();
+        let list = DisplayList {
+            items,
+            ..DisplayList::default()
+        };
+        let before = records_emitted();
+        let (_, built, _) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(400, 100),
+            &RendererResources::default(),
+            DpiScaleFactor::new(1.0),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("a list of rects translates");
+        let emitted = records_emitted() - before;
+        let translated = {
+            let mut iter = built.iter();
+            let mut rects = 0;
+            while let Some(item) = iter.next() {
+                if matches!(item.item(), webrender::api::DisplayItem::Rectangle(_)) {
+                    rects += 1;
+                }
+            }
+            rects
+        };
+        println!("PROBE items={ITEMS} translated={translated} records={emitted}");
+    }
+
+    /// The `records` the child counted under exactly the environment `env`.
+    fn records_under(env: &[(&str, &str)]) -> usize {
+        let out = std::process::Command::new(
+            std::env::current_exe().expect("the test binary must have a path"),
+        )
+        .args([CHILD_TEST, "--exact", "--nocapture", "--test-threads=1"])
+        .env_clear()
+        .env("AZ_TRANSLATE_PROBE_CHILD", "1")
+        .env("NO_COLOR", "1")
+        .envs(env.iter().copied())
+        .output()
+        .expect("re-running the test binary must succeed");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let probe = stdout
+            .lines()
+            .find_map(|line| line.find("PROBE ").map(|at| line[at + 6..].to_string()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "the child printed no PROBE line (filter `{CHILD_TEST}` stale?)\n--- child \
+                     stdout ---\n{stdout}\n--- child stderr ---\n{}",
+                    String::from_utf8_lossy(&out.stderr)
+                )
+            });
+        assert!(
+            probe.starts_with(&format!("items={ITEMS} translated={ITEMS} ")),
+            "the child translated the list: {probe}"
+        );
+        probe
+            .rsplit("records=")
+            .next()
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no record count in {probe:?}"))
+    }
+
+    /// At the default settings (no variable that asks for logs) building a
+    /// display list emits no record at all; at Debug (`AZ_LOG=debug`) a few
+    /// per list, however many items it holds; the per-item dump is Trace's.
+    #[test]
+    fn building_a_display_list_at_the_default_settings_emits_no_record() {
+        assert_eq!(records_under(&[]), 0, "the default settings");
+        assert_eq!(
+            records_under(&[("AZ_PROFILE", "cpu")]),
+            0,
+            "variables that ask for nothing"
+        );
+        assert_eq!(records_under(&[("AZ_LOG", "off")]), 0, "AZ_LOG=off");
+        let debug = records_under(&[("AZ_LOG", "debug")]);
+        assert!(
+            (1..=8).contains(&debug),
+            "AZ_LOG=debug: a few records for a list of {ITEMS} items, got {debug}"
+        );
+        let trace = records_under(&[("AZ_LOG", "trace")]);
+        assert!(
+            trace >= ITEMS,
+            "AZ_LOG=trace keeps the per-item dump: at least {ITEMS} records, got {trace}"
+        );
     }
 }

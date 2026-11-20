@@ -297,32 +297,36 @@ pub(super) fn set_up_panic_hooks() {
 // discarded. That is why a misbehaving app "just exits with no error".
 //
 // This installs a minimal `log::Log` that writes to stderr, controlled by the
-// `AZ_LOG` environment variable and ON BY DEFAULT (we are in a testing phase —
-// the goal is that NOTHING ever quits silently):
+// `AZ_LOG` environment variable. A run that asked for nothing still gets its
+// ERRORS (nothing may ever quit silently), and no more: it printed every Debug
+// record until 2026-11-20, 3.4 million lines in two minutes of an editor.
 //
-//   AZ_LOG unset / 1 / true / on / yes   -> ON at Debug   (the default)
-//   AZ_LOG = trace|debug|info|warn|error -> ON at that level
-//   AZ_LOG = 0 / off / false / none / no -> OFF (no logger installed)
+//   AZ_LOG and the other variables that ask for logs unset -> ON at Error (the default)
+//   AZ_LOG set to 1 / true / on / yes / empty                -> ON at Debug
+//   AZ_LOG = trace|debug|info|warn|error                     -> ON at that level
+//   AZ_LOG = 0 / off / false / none / no                     -> OFF (no logger installed)
 //
 // It never clobbers a logger the host already installed (pyo3-log under Python,
 // android_logger on Android, env_logger in azul-self-test, a user's own logger).
 // ============================================================================
 
-/// Parse `AZ_LOG` into a max level filter. `None` means "logging disabled".
-/// Unset (or any unrecognized truthy value) defaults to `Debug` — verbose but
-/// not the per-frame `Trace` firehose; pass `AZ_LOG=trace` for everything.
+/// The built-in logger's maximum level from the environment. `None` means
+/// "logging disabled".
+///
+/// The SAME reading the shell's gate uses (`azul_core::log_filter::level_from_env`):
+/// the two used to parse `AZ_LOG` separately and disagreed (unset was Debug for
+/// the gate and Error here; `AZ_LOG=1` the other way round), so a process could
+/// not say what its level was. Unset (no variable that asks for logs set) is
+/// Error; `AZ_LOG=trace` prints everything, including the per-frame firehose.
 pub(super) fn az_log_level() -> Option<LevelFilter> {
-    let raw = std::env::var("AZ_LOG").unwrap_or_default();
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "0" | "off" | "false" | "none" | "no" | "disable" | "disabled" => None,
-        "error" => Some(LevelFilter::Error),
-        "warn" | "warning" => Some(LevelFilter::Warn),
-        "info" => Some(LevelFilter::Info),
-        "trace" | "all" => Some(LevelFilter::Trace),
-        "debug" => Some(LevelFilter::Debug),
-        // "", "1", "true", "on", "yes", or anything unknown -> Error.
-        _ => Some(LevelFilter::Error),
-    }
+    use azul_core::log_filter::Level;
+    azul_core::log_filter::level_from_env().map(|level| match level {
+        Level::Trace => LevelFilter::Trace,
+        Level::Debug => LevelFilter::Debug,
+        Level::Info => LevelFilter::Info,
+        Level::Warn => LevelFilter::Warn,
+        Level::Error => LevelFilter::Error,
+    })
 }
 
 // Zero-field unit logger: `log` is built with default-features off, so the
@@ -354,6 +358,56 @@ static BUILTIN_LOGGER_INSTALLED: AtomicBool =
 struct StderrLogger;
 static STDERR_LOGGER: StderrLogger = StderrLogger;
 
+/// One record of the `log` facade as its finished line: the colour codes, the
+/// clock, level, target and message, where it was logged, and the newline.
+fn format_record(record: &log::Record) -> String {
+    let us = LOG_START
+        .get()
+        .map(|s| s.elapsed().as_micros())
+        .unwrap_or(0);
+    let color = LOG_COLOR.load(Ordering::Relaxed);
+    let lvl = record.level();
+    let (col, reset) = if color {
+        let c = match lvl {
+            log::Level::Error => "\x1b[31m", // red
+            log::Level::Warn => "\x1b[33m",  // yellow
+            log::Level::Info => "\x1b[32m",  // green
+            log::Level::Debug => "\x1b[36m", // cyan
+            log::Level::Trace => "\x1b[90m", // bright black
+        };
+        (c, "\x1b[0m")
+    } else {
+        ("", "")
+    };
+    let loc = match (record.file(), record.line()) {
+        (Some(f), Some(l)) => {
+            // Trim workspace-absolute paths to the file name for readability.
+            let short = f.rsplit('/').next().unwrap_or(f);
+            format!("  ({}:{})", short, l)
+        }
+        _ => String::new(),
+    };
+    format!(
+        "{col}[{us:>10}us] [{lvl:<5}] [{target}] {args}{loc}{reset}\n",
+        col = col,
+        us = us,
+        lvl = lvl,
+        target = record.target(),
+        args = record.args(),
+        loc = loc,
+        reset = reset,
+    )
+}
+
+/// Write one record to stderr: the line is formatted FIRST and written with ONE
+/// `write_all` under the stderr lock (`log_gate::write_stderr_line`), so
+/// concurrent threads do not interleave and the unbuffered stderr makes one
+/// `write(2)` per record instead of one per piece of the format string (19 us a
+/// record into a file, 1.5 us this way).
+fn write_record(record: &log::Record) {
+    crate::desktop::shell2::common::log_gate::write_stderr_line(&format_record(record));
+}
+
 impl log::Log for StderrLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
         metadata.level() <= log::max_level()
@@ -363,46 +417,7 @@ impl log::Log for StderrLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        use std::io::Write;
-        let us = LOG_START
-            .get()
-            .map(|s| s.elapsed().as_micros())
-            .unwrap_or(0);
-        let color = LOG_COLOR.load(Ordering::Relaxed);
-        let lvl = record.level();
-        let (col, reset) = if color {
-            let c = match lvl {
-                log::Level::Error => "\x1b[31m", // red
-                log::Level::Warn => "\x1b[33m",  // yellow
-                log::Level::Info => "\x1b[32m",  // green
-                log::Level::Debug => "\x1b[36m", // cyan
-                log::Level::Trace => "\x1b[90m", // bright black
-            };
-            (c, "\x1b[0m")
-        } else {
-            ("", "")
-        };
-        let loc = match (record.file(), record.line()) {
-            (Some(f), Some(l)) => {
-                // Trim workspace-absolute paths to the file name for readability.
-                let short = f.rsplit('/').next().unwrap_or(f);
-                format!("  ({}:{})", short, l)
-            }
-            _ => String::new(),
-        };
-        // Lock stderr once per line so concurrent threads don't interleave.
-        let mut err = std::io::stderr().lock();
-        let _ = writeln!(
-            err,
-            "{col}[{us:>10}us] [{lvl:<5}] [{target}] {args}{loc}{reset}",
-            col = col,
-            us = us,
-            lvl = lvl,
-            target = record.target(),
-            args = record.args(),
-            loc = loc,
-            reset = reset,
-        );
+        write_record(record);
     }
 
     fn flush(&self) {
@@ -462,8 +477,32 @@ pub(super) fn builtin_stderr_logger_prints(level: log::Level) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded_dialog_text, escape_dialog_html, DIALOG_MAX_LINES, DIALOG_MAX_LINE_CHARS,
+        bounded_dialog_text, escape_dialog_html, write_record, DIALOG_MAX_LINES,
+        DIALOG_MAX_LINE_CHARS,
     };
+    use crate::desktop::shell2::common::log_gate::stderr_capture::Capture;
+
+    /// REGRESSION (2026-11-20): the facade's logger wrote a record with a
+    /// `write(2)` per piece of its format string (`writeln!` on the unbuffered
+    /// stderr): ONE line, handed to stderr ONCE, complete.
+    #[test]
+    fn a_facade_record_is_written_as_one_line_with_one_write() {
+        let capture = Capture::start();
+        write_record(
+            &log::Record::builder()
+                .args(format_args!("hello {}", 42))
+                .level(log::Level::Warn)
+                .target("azul::probe")
+                .file(Some("/some/where/file.rs"))
+                .line(Some(7))
+                .build(),
+        );
+        let (writes, text) = capture.seen();
+        assert_eq!(writes, 1, "{text:?}");
+        assert_eq!(text.matches('\n').count(), 1, "{text:?}");
+        assert!(text.ends_with('\n'), "{text:?}");
+        assert!(text.contains("[WARN ] [azul::probe] hello 42  (file.rs:7)"), "{text:?}");
+    }
 
     #[test]
     fn a_short_report_reaches_the_dialog_unchanged() {

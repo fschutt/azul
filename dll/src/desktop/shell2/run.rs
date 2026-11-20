@@ -675,8 +675,8 @@ pub fn run(
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     crate::plog_info!(
-        "[macOS] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, \
-         AZ_LOG=trace for everything)",
+        "[macOS] run() entry — AZ_BACKEND={:?} (errors only unless AZ_LOG says more: AZ_LOG=debug, \
+         AZ_LOG=trace for everything, AZ_LOG=off to silence)",
         std::env::var("AZ_BACKEND").ok()
     );
 
@@ -1744,8 +1744,8 @@ pub fn run(
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     crate::plog_info!(
-        "[Windows] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, \
-         AZ_LOG=trace for everything)",
+        "[Windows] run() entry — AZ_BACKEND={:?} (errors only unless AZ_LOG says more: AZ_LOG=debug, \
+         AZ_LOG=trace for everything, AZ_LOG=off to silence)",
         std::env::var("AZ_BACKEND").ok()
     );
     // Before the first window: when COM started this process for a click on

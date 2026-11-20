@@ -155,8 +155,8 @@ impl App {
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
 
-        // Install azul's built-in stderr logger (default ON; AZ_LOG=off to
-        // silence). The lean `build-dll` library otherwise installs NO logger,
+        // Install azul's built-in stderr logger (errors unless AZ_LOG asks for
+        // more; AZ_LOG=off to silence). The lean `build-dll` library otherwise installs NO logger,
         // so every platform-layer trace is discarded and a failed startup looks
         // like a silent quit. Doing it here means it is live before any window,
         // event-loop or font work runs. No-op if the host already set a logger.
