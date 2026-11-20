@@ -22,9 +22,10 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::props::{
-    basic::{FloatValue, PercentageValue, PixelValue},
+    basic::{color::ColorU, FloatValue, PercentageValue, PixelValue},
     property::CssProperty,
     style::{
+        background::{StyleBackgroundContent, StyleBackgroundContentVec},
         StyleOpacity, StyleTransform, StyleTransformScale2D, StyleTransformTranslate2D,
     },
 };
@@ -363,4 +364,76 @@ fn a_value_written_inside_a_panned_view_is_painted_where_the_view_shows_it() {
     let faded = z.frame(&mut backend);
     assert!(near(z.veil_centre(&faded), [153, 153, 255]), "{:?}", z.veil_centre(&faded));
     assert_the_frame_is_what_a_full_paint_gives(&z, &faded, "a panned view after an opacity");
+}
+
+fn background(r: u8, g: u8, b: u8) -> CssProperty {
+    let layers: StyleBackgroundContentVec =
+        vec![StyleBackgroundContent::Color(ColorU { r, g, b, a: 255 })].into();
+    CssProperty::background_content(layers)
+}
+
+impl Zoomable {
+    /// The colour of the pixel at `(x, y)` of the child's space, on screen.
+    fn child_pixel(&self, frame: &AzulPixmap, x: f32, y: f32) -> [u8; 3] {
+        let p = pixel(frame, (self.origin.0 + x) as u32, (self.origin.1 + y) as u32);
+        [p[0], p[1], p[2]]
+    }
+}
+
+/// A node of a panned view that changes COLOUR - a tile arriving, a label under the pointer -
+/// is a change in the view's own list: the parent's item stays the same, so the frame finds
+/// it by diffing the two lists of the view, and the damage has to land where the panned view
+/// shows the node. The view's content is drawn at the item's origin PLUS its content offset;
+/// the damage was placed at the origin MINUS it, a neighbour's pixels away, and the picture
+/// stayed red on screen while its list said green.
+#[test]
+fn a_colour_written_inside_a_panned_view_is_painted_where_the_view_shows_it() {
+    let mut z = zoomable(Some((-20.0, -15.0)));
+    assert_eq!(z.origin, (30.0, 25.0));
+    let mut backend = CpuBackend::new();
+    let first = z.frame(&mut backend);
+    assert!(
+        near(z.child_pixel(&first, 60.0, 45.0), [255, 0, 0]),
+        "premise: the picture is red, got {:?}",
+        z.child_pixel(&first, 60.0, 45.0)
+    );
+
+    z.write(z.picture, background(0, 255, 0));
+    let after = z.frame(&mut backend);
+    assert!(
+        near(z.child_pixel(&after, 60.0, 45.0), [0, 255, 0]),
+        "the picture turned green where the panned view shows it, got {:?}",
+        z.child_pixel(&after, 60.0, 45.0)
+    );
+    assert_the_frame_is_what_a_full_paint_gives(&z, &after, "a recolour in a panned view");
+    match &backend.last_frame_damage {
+        FrameDamage::Rects(rects) => {
+            let area: f32 = rects.iter().map(|r| r.size.width * r.size.height).sum();
+            assert!(area < 300.0 * 200.0 * 0.5, "the picture's box, not the view: {rects:?}");
+        }
+        other => panic!("an incremental repaint of the picture, not {other:?}"),
+    }
+}
+
+/// The same change under a frame whose live matrix is not the one the list was built with: the
+/// picture of the map is zoomed by a write of its `transform` and then a tile arrives (its
+/// colour changes). The frame paints the picture through the zoom, so does the damage.
+#[test]
+fn a_colour_written_under_a_zoomed_frame_inside_a_view_is_painted_where_the_zoom_shows_it() {
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let _ = z.frame(&mut backend);
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let zoomed = z.frame(&mut backend);
+    assert_eq!(red_box(&zoomed), Some(z.on_screen((60.0, 35.0, 80.0, 60.0))), "premise: zoomed");
+
+    z.write(z.picture, background(0, 255, 0));
+    let after = z.frame(&mut backend);
+    // The centre of the zoomed picture, (100, 65) of the view's content.
+    assert!(
+        near(z.child_pixel(&after, 100.0, 65.0), [0, 255, 0]),
+        "the zoomed picture turned green, got {:?}",
+        z.child_pixel(&after, 100.0, 65.0)
+    );
+    assert_the_frame_is_what_a_full_paint_gives(&z, &after, "a recolour under a zoomed frame");
 }

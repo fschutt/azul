@@ -217,3 +217,78 @@ fn a_scrolled_view_moves_only_the_pixels_of_its_box() {
         previous = current;
     }
 }
+
+/// The child list with its stripe `k` painted `colour`: the view's content changed in place
+/// (a tile that arrived, a caret that went on), the item in the page's list is the same.
+fn child_with(k: usize, colour: azul_css::props::basic::ColorU) -> Arc<DisplayList> {
+    let mut list = (*child()).clone();
+    list.items[k] = fill(rect(40.0 * k as f32, 0.0, 40.0, 60.0), colour);
+    Arc::new(list)
+}
+
+/// What changed inside a view that is scrolled is repainted where the scrolled view shows it.
+///
+/// The child's change is found in the child's 0-relative list; the view paints that list at
+/// its box's corner plus the item's `content_offset` (`window origin - scroll offset`, so -x
+/// for a view scrolled by x). The damage was placed at the corner MINUS the offset: at the
+/// pixels that changed only while the view was not scrolled, and at the mirror image of
+/// them otherwise - a stripe that turned black stayed green on screen.
+#[test]
+fn a_child_that_changes_in_place_inside_a_scrolled_view_is_repainted_where_its_content_is() {
+    let before: BTreeMap<DomId, Arc<DisplayList>> = [(CHILD, child())].into_iter().collect();
+    // Stripe 2 (content x 80..120) turns black: it is in view at every offset below.
+    let after: BTreeMap<DomId, Arc<DisplayList>> =
+        [(CHILD, child_with(2, rgb(0, 0, 0)))].into_iter().collect();
+    let mut raster = Raster::new();
+    let empty = ScrollOffsetMap::new();
+    for x in [0.0f32, 8.0, 24.0, 57.0, 80.0, 112.0, 119.0] {
+        let current = parent(x);
+        let mut frame = raster.full_state(&current, &state(&before));
+        let expected = raster.full_state(&current, &state(&after));
+        assert!(
+            first_difference(&frame, &expected).is_some(),
+            "premise: at x={x} the changed stripe is on screen, so the frame before differs"
+        );
+
+        let damage = cpurender::compute_virtual_view_damage(&current, &after, &before, &empty);
+        raster.repaint_state(&current, &mut frame, &state(&after), &damage);
+        assert_eq!(
+            first_difference(&frame, &expected),
+            None,
+            "the view is scrolled to x={x}: the stripe that turned black is repainted where \
+             the view shows it (damage {damage:?})"
+        );
+    }
+}
+
+/// A view whose item is scrolled AND whose content changes in the same frame: the shift
+/// moves the old pixels and repaints the strip that came in, the child diff repaints the
+/// changed stripe where the new offset shows it, and the frame is the full render.
+#[test]
+fn a_child_that_changes_while_its_view_scrolls_is_painted_at_the_new_offset() {
+    let before: BTreeMap<DomId, Arc<DisplayList>> = [(CHILD, child())].into_iter().collect();
+    let after: BTreeMap<DomId, Arc<DisplayList>> =
+        [(CHILD, child_with(4, rgb(255, 255, 255)))].into_iter().collect();
+    let mut raster = Raster::new();
+    let empty = ScrollOffsetMap::new();
+    for (from, to) in [(0.0f32, 8.0f32), (24.0, 40.0), (57.0, 30.0), (100.0, 119.0)] {
+        let (previous, current) = (parent(from), parent(to));
+        let mut frame = raster.full_state(&previous, &state(&before));
+        let mut damage =
+            cpurender::compute_display_list_damage(&previous, &current, &empty, &empty)
+                .expect("the two lists hold the same items");
+        damage.extend(cpurender::compute_virtual_view_damage(&current, &after, &before, &empty));
+        for shift in cpurender::collect_virtual_view_shifts(&previous, &current, &empty, &empty) {
+            let out =
+                cpurender::execute_virtual_view_shift(&mut frame, &current, &after, &shift, 1.0, &empty);
+            damage.extend(out.damage);
+        }
+        raster.repaint_state(&current, &mut frame, &state(&after), &damage);
+        let expected = raster.full_state(&current, &state(&after));
+        assert_eq!(
+            first_difference(&frame, &expected),
+            None,
+            "scrolled from {from} to {to} while stripe 4 turned white (damage {damage:?})"
+        );
+    }
+}

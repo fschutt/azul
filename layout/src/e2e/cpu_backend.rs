@@ -385,11 +385,16 @@ impl CpuBackend {
         // frame rasterises at `next_scroll_baseline`, and a view inside a
         // scrolled box is painted at its content box minus that offset (same
         // as the shell's `render_frame`).
-        let vview_damage = cpurender::compute_virtual_view_damage(
+        let vview_damage = cpurender::compute_virtual_view_damage_live(
             display_list,
             &vview_dls,
             &self.previous_vview_dls,
+            &self.previous_scroll_offsets,
             &next_scroll_baseline,
+            cpurender::FrameValues {
+                old: Some(&old_gpu_values.transforms),
+                new: Some(&self.previous_gpu_values.transforms),
+            },
         );
         let has_vview_damage = !vview_damage.is_empty();
         self.previous_vview_dls = vview_dls.clone();

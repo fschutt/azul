@@ -5738,8 +5738,8 @@ pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
 /// in place). So `compute_display_list_damage` — which only diffs the parent —
 /// reports "nothing changed", and `render_frame` would skip the frame, freezing
 /// the child content. This compares each `VirtualView`'s child DL against the
-/// previous frame's and returns the on-screen bounds of every one that differs,
-/// so the caller can damage exactly those regions.
+/// previous frame's and returns the on-screen rects of what differs, so the
+/// caller can damage exactly those regions.
 ///
 /// `current` / `previous` are keyed by the child `DomId` (the non-root entries
 /// of `layout_results`). A child that is newly present or newly absent counts
@@ -5752,6 +5752,8 @@ pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
 /// too: at the content position, a view in a scrolled box was damaged a scroll
 /// offset below where it is shown, so an in-place re-render (a video frame, a
 /// map tile) repainted pixels nowhere near it and the view froze on screen.
+///
+/// This is [`compute_virtual_view_damage_live`] with the lists' own matrices.
 #[must_use]
 pub fn compute_virtual_view_damage(
     parent: &DisplayList,
@@ -5759,29 +5761,65 @@ pub fn compute_virtual_view_damage(
     previous: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     scroll_offsets: &ScrollOffsetMap,
 ) -> Vec<LogicalRect> {
+    compute_virtual_view_damage_live(
+        parent,
+        current,
+        previous,
+        scroll_offsets,
+        scroll_offsets,
+        FrameValues::default(),
+    )
+}
+
+/// [`compute_virtual_view_damage`] with the offsets of the frame before and of this one, and
+/// the live matrices of the reference frames in both ([`FrameValues`]) - what the CPU
+/// backends call.
+///
+/// What changed inside a view is found in the view's own list (0-relative: the rasteriser
+/// draws it at the item's `bounds.origin + content_offset` in the space of the list around
+/// it, `raster.rs`, the `VirtualView` arm) and has to reach the screen the way the pixels do:
+///
+/// - the diff of the two child lists is the parent's own diff, under the same offsets and
+///   matrices: a change inside a scroll box of the view, or under an animated frame of the
+///   view, is damaged where that frame paints it;
+/// - the rect is moved to the view's content (`origin + content_offset`: the offset is `window
+///   origin - scroll offset`, so a view scrolled down by 300 px carries -300 and shows what
+///   is 300 px further down), cut to the view's box, and goes on through the scroll frames and
+///   reference frames around the item ([`ScrollStack`], with this frame's live matrices);
+/// - a view inside a view is walked the same way, through both boxes.
+///
+/// A change that cannot be placed (a matrix with perspective) damages everything; a child the
+/// diff cannot pair damages the view's whole box.
+#[must_use]
+pub fn compute_virtual_view_damage_live(
+    parent: &DisplayList,
+    current: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    previous: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    old_offsets: &ScrollOffsetMap,
+    new_offsets: &ScrollOffsetMap,
+    values: FrameValues<'_>,
+) -> Vec<LogicalRect> {
+    view_damage_in_list(parent, current, previous, old_offsets, new_offsets, values, 0)
+}
+
+/// [`compute_virtual_view_damage_live`] of one list: the rects of the views in it, in the
+/// space the list is painted in.
+fn view_damage_in_list(
+    list: &DisplayList,
+    current: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    previous: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    old_offsets: &ScrollOffsetMap,
+    new_offsets: &ScrollOffsetMap,
+    values: FrameValues<'_>,
+    depth: usize,
+) -> Vec<LogicalRect> {
     let mut damage = Vec::new();
-    // Accumulated offset of the scroll frames enclosing the current item, the
-    // same walk the parent-list diff does.
-    let mut offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
-    for item in &parent.items {
-        match item {
-            DisplayListItem::PushScrollFrame { scroll_id, .. } => {
-                let (ax, ay) = *offset_stack.last().unwrap_or(&(0.0, 0.0));
-                let (sx, sy) = scroll_offsets
-                    .get(scroll_id)
-                    .copied()
-                    .unwrap_or((0.0, 0.0));
-                offset_stack.push((ax + sx, ay + sy));
-                continue;
-            }
-            DisplayListItem::PopScrollFrame => {
-                if offset_stack.len() > 1 {
-                    offset_stack.pop();
-                }
-                continue;
-            }
-            _ => {}
-        }
+    // The frames around the current item, this frame's: a view is painted through them.
+    let mut stack = match values.new {
+        Some(live) => ScrollStack::with_transforms(new_offsets, live),
+        None => ScrollStack::new(new_offsets),
+    };
+    for item in &list.items {
         if let DisplayListItem::VirtualView {
             child_dom_id,
             bounds,
@@ -5789,72 +5827,80 @@ pub fn compute_virtual_view_damage(
             ..
         } = item
         {
-            // Where the view is PAINTED this frame: its content box moved by
-            // the scroll of the frames around it.
-            let (ox, oy) = *offset_stack.last().unwrap_or(&(0.0, 0.0));
-            let content_box = *bounds.inner();
-            let view = LogicalRect {
-                origin: LogicalPosition {
-                    x: content_box.origin.x - ox,
-                    y: content_box.origin.y - oy,
-                },
-                size: content_box.size,
+            let view_box = *bounds.inner();
+            // Where the view is PAINTED this frame, for the changes that cannot be pinned
+            // down: the box through the frames around it.
+            let whole = stack.on_screen(view_box).unwrap_or(UNBOUNDED);
+            // A rect of the child's painted space on screen: the child is drawn from
+            // `origin + content_offset`, cut to the view's box, through the frames around.
+            let lift = |r: LogicalRect| -> Option<LogicalRect> {
+                let in_list = LogicalRect {
+                    origin: LogicalPosition {
+                        x: r.origin.x + view_box.origin.x + content_offset.x,
+                        y: r.origin.y + view_box.origin.y + content_offset.y,
+                    },
+                    size: r.size,
+                };
+                let shown = intersect_logical_rects(in_list, view_box);
+                // Scrolled out of sight: behind the view's clip, so those pixels are a
+                // neighbour's, not ours.
+                if shown.size.width <= 0.0 || shown.size.height <= 0.0 {
+                    return None;
+                }
+                Some(stack.on_screen(shown).unwrap_or(UNBOUNDED))
             };
             match (current.get(child_dom_id), previous.get(child_dom_id)) {
                 (Some(c), Some(p)) => {
                     // Same Arc → definitely unchanged (cheap fast-path).
-                    if std::sync::Arc::ptr_eq(c, p) || display_lists_visually_equal(c, p) {
-                        continue;
-                    }
-
-                    // SOMETHING changed - but WHAT. Damaging the whole view
-                    // here is what made a blinking caret cost a full-window
-                    // re-raster plus a full-window blit: AzWriter's document
-                    // body is a VirtualView, the caret lives in its child DOM,
-                    // and every 1200 ms tick reported `render=30ms blit=15ms`
-                    // on an otherwise idle X11/CPU window. The parent list has
-                    // had an item diff all along; the child never got one.
-                    //
-                    // Child lists are 0-relative (see the VirtualView arm in
-                    // raster.rs: the renderer draws at `pos - scroll`, with the
-                    // view origin and content offset pushed as the scroll), so
-                    // a diff rect at content (x, y) lands on screen at
-                    // `origin + (x, y) - content_offset`, clipped to the view.
-                    let empty = ScrollOffsetMap::default();
-                    match compute_display_list_damage(p, c, &empty, &empty) {
-                        // The diff paired every item and found the ones that
-                        // moved: repaint exactly those.
-                        Some(rects) if !rects.is_empty() => {
-                            let dx = view.origin.x - content_offset.x;
-                            let dy = view.origin.y - content_offset.y;
-                            for r in rects {
-                                let on_screen = LogicalRect {
-                                    origin: LogicalPosition {
-                                        x: r.origin.x + dx,
-                                        y: r.origin.y + dy,
-                                    },
-                                    size: r.size,
-                                };
-                                let clipped = intersect_logical_rects(on_screen, view);
-                                // Scrolled out of sight: behind the view's clip,
-                                // so those pixels are a neighbour's, not ours.
-                                if clipped.size.width > 0.0 && clipped.size.height > 0.0 {
-                                    damage.push(clipped);
-                                }
+                    if !(std::sync::Arc::ptr_eq(c, p) || display_lists_visually_equal(c, p)) {
+                        // SOMETHING changed - but WHAT. Damaging the whole view here is what
+                        // made a blinking caret cost a full-window re-raster plus a
+                        // full-window blit: AzWriter's document body is a VirtualView, the
+                        // caret lives in its child DOM, and every 1200 ms tick reported
+                        // `render=30ms blit=15ms` on an otherwise idle X11/CPU window. The
+                        // parent list has had an item diff all along; the child never got
+                        // one.
+                        match compute_display_list_damage_live(
+                            p,
+                            c,
+                            old_offsets,
+                            new_offsets,
+                            None,
+                            values,
+                        ) {
+                            // The diff paired every item and found the ones that moved:
+                            // repaint exactly those.
+                            Some((rects, _)) if !rects.is_empty() => {
+                                damage.extend(rects.into_iter().filter_map(&lift));
                             }
+                            // The two answers disagree (visually different, but the diff
+                            // found nothing to repaint) or the diff gave up on a structural
+                            // change. Precision is an optimisation; correctness is not, so
+                            // fall back to the whole view.
+                            _ => damage.push(whole),
                         }
-                        // The two answers disagree (visually different, but the
-                        // diff found nothing to repaint) or the diff gave up on
-                        // a structural change. Precision is an optimisation;
-                        // correctness is not, so fall back to the whole view.
-                        _ => damage.push(view),
+                    }
+                    // The views inside this one render in place on their own: a tile of a
+                    // map inside a page, a video inside a card.
+                    if depth < MAX_VIEW_DEPTH {
+                        let inner = view_damage_in_list(
+                            c,
+                            current,
+                            previous,
+                            old_offsets,
+                            new_offsets,
+                            values,
+                            depth + 1,
+                        );
+                        damage.extend(inner.into_iter().filter_map(&lift));
                     }
                 }
                 // Appeared or disappeared this frame - nothing to diff against.
-                (Some(_), None) | (None, Some(_)) => damage.push(view),
+                (Some(_), None) | (None, Some(_)) => damage.push(whole),
                 (None, None) => {}
             }
         }
+        stack.step(item);
     }
     damage
 }
@@ -8893,6 +8939,176 @@ mod autotest_generated {
             covers(20.0, 125.0),
             "a view after the frame keeps its own position, got {d:?}"
         );
+    }
+
+    // ---- what changed inside a view is damaged where the view's pixels are painted ----
+    //
+    // `compute_virtual_view_damage` found the damage in the child's own 0-relative space, and
+    // each way a view can be placed was a hole in the move to the screen: the first version
+    // knew no scrolling at all (a caret blinking in an unscrolled document), the second the scroll
+    // frames around the view; the content offset - the view's own scroll, `window origin -
+    // scroll offset` - had the wrong sign, and the frames inside and around the view (a
+    // zoomed map's frame, a sliding card) were read at the matrices they were built with.
+
+    const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
+    const GREEN: ColorU = ColorU { r: 0, g: 255, b: 0, a: 255 };
+
+    /// Whether some rect of `d` is `(x, y, w, h)`.
+    fn has_rect(d: &[LogicalRect], (x, y, w, h): (f32, f32, f32, f32)) -> bool {
+        d.iter().any(|r| {
+            (r.origin.x - x).abs() < 0.01
+                && (r.origin.y - y).abs() < 0.01
+                && (r.size.width - w).abs() < 0.01
+                && (r.size.height - h).abs() < 0.01
+        })
+    }
+
+    /// The two frames of a view: its child `child` before and after.
+    fn child_pair(
+        before: DisplayList,
+        after: DisplayList,
+    ) -> (BTreeMap<DomId, Arc<DisplayList>>, BTreeMap<DomId, Arc<DisplayList>>) {
+        (views_of(vec![(1, after)]), views_of(vec![(1, before)]))
+    }
+
+    /// The content of a view is painted at the box's corner PLUS the item's content offset
+    /// (`raster.rs`, the `VirtualView` arm): a view scrolled to the right by 30 px and down
+    /// by 5 carries (-30, -5), and what is at (100, 50) in its content is at (110 - 30,
+    /// 70 - 5) on screen. The damage of a change in it is there too - with the offset's sign
+    /// the other way it landed `2 x offset` from the pixels that changed, repainted a
+    /// neighbour's and left the old pixels standing.
+    #[test]
+    fn a_change_inside_a_scrolled_view_is_damaged_where_its_content_is_painted() {
+        let before = dlist(vec![opaque_rect(0.0, 0.0, 400.0, 300.0), rect_item(100.0, 50.0, 20.0, 10.0, RED)]);
+        let after = dlist(vec![opaque_rect(0.0, 0.0, 400.0, 300.0), rect_item(100.0, 50.0, 20.0, 10.0, GREEN)]);
+        let (cur, prev) = child_pair(before, after);
+
+        // The view's box is (10, 20) 200 x 100, scrolled by (30, 5).
+        let parent = dlist(vec![view_item(1, 10.0, 20.0, 200.0, 100.0, (-30.0, -5.0))]);
+        let d = compute_virtual_view_damage(&parent, &cur, &prev, &ScrollOffsetMap::new());
+        assert!(
+            has_rect(&d, (80.0, 65.0, 20.0, 10.0)),
+            "(100, 50) of the content is at (10 - 30 + 100, 20 - 5 + 50): {d:?}"
+        );
+
+        // A view whose window starts past the scroll offset (the materialized rows begin at 100,
+        // the scroll is at 40) carries a POSITIVE offset: its content is further right.
+        let parent = dlist(vec![view_item(1, 10.0, 20.0, 200.0, 100.0, (15.0, 4.0))]);
+        let d = compute_virtual_view_damage(&parent, &cur, &prev, &ScrollOffsetMap::new());
+        assert!(
+            has_rect(&d, (125.0, 74.0, 20.0, 10.0)),
+            "(10 + 15 + 100, 20 + 4 + 50): {d:?}"
+        );
+    }
+
+    /// A change the view's scroll put outside its box is behind the view's clip: those pixels
+    /// are a neighbour's, not the view's, and are not damaged.
+    #[test]
+    fn a_change_scrolled_out_of_a_view_is_not_damaged() {
+        let before = dlist(vec![opaque_rect(0.0, 0.0, 400.0, 300.0), rect_item(100.0, 50.0, 20.0, 10.0, RED)]);
+        let after = dlist(vec![opaque_rect(0.0, 0.0, 400.0, 300.0), rect_item(100.0, 50.0, 20.0, 10.0, GREEN)]);
+        let (cur, prev) = child_pair(before, after);
+        let parent = dlist(vec![view_item(1, 10.0, 20.0, 200.0, 100.0, (-150.0, 0.0))]);
+        let d = compute_virtual_view_damage(&parent, &cur, &prev, &ScrollOffsetMap::new());
+        // (100, 50) is at x = 10 - 150 + 100 = -40, left of the box: nothing of it is shown.
+        assert!(d.is_empty(), "the change is left of the view's box: {d:?}");
+    }
+
+    /// A view inside a frame that scales what it paints is painted through the frame's LIVE
+    /// matrix (the list holds the matrix it was built with): a tile that arrives in a map
+    /// shown through a zoomed frame is damaged where the zoom paints it.
+    #[test]
+    fn a_change_inside_a_view_inside_a_scaled_frame_is_damaged_through_the_live_matrix() {
+        let before = dlist(vec![rect_item(10.0, 10.0, 20.0, 10.0, RED)]);
+        let after = dlist(vec![rect_item(10.0, 10.0, 20.0, 10.0, GREEN)]);
+        let (cur, prev) = child_pair(before, after);
+        let parent = dlist(frame_around(9, (0.0, 0.0, 400.0, 300.0), view_item(1, 50.0, 40.0, 100.0, 60.0, (0.0, 0.0))));
+
+        let live: HashMap<usize, ComputedTransform3D> = [(9, scale(2.0))].into_iter().collect();
+        let values = FrameValues { old: Some(&live), new: Some(&live) };
+        let d = compute_virtual_view_damage_live(
+            &parent,
+            &cur,
+            &prev,
+            &ScrollOffsetMap::new(),
+            &ScrollOffsetMap::new(),
+            values,
+        );
+        // (10, 10) of the child is (60, 50) in the window's list, and twice that - (120, 100) - on
+        // screen; 20 x 10 is 40 x 20.
+        assert!(has_rect(&d, (120.0, 100.0, 40.0, 20.0)), "{d:?}");
+    }
+
+    /// A change under a frame INSIDE the view: the frame is painted with its live matrix as
+    /// the view's own list is, so the damage is where the frame paints the change in the frame
+    /// before and in this one.
+    #[test]
+    fn a_change_under_a_live_matrix_inside_a_view_is_damaged_where_the_frame_paints_it() {
+        let inner = |color| dlist(frame_around(3, (0.0, 0.0, 100.0, 100.0), rect_item(10.0, 10.0, 20.0, 10.0, color)));
+        let (cur, prev) = child_pair(inner(RED), inner(GREEN));
+        let parent = dlist(vec![view_item(1, 50.0, 40.0, 300.0, 200.0, (0.0, 0.0))]);
+
+        // The frame is moved by (20, 10) in both frames.
+        let live: HashMap<usize, ComputedTransform3D> = [(3, translate(20.0, 10.0))].into_iter().collect();
+        let d = compute_virtual_view_damage_live(
+            &parent,
+            &cur,
+            &prev,
+            &ScrollOffsetMap::new(),
+            &ScrollOffsetMap::new(),
+            FrameValues { old: Some(&live), new: Some(&live) },
+        );
+        // (10, 10) of the frame is at (30, 20) of the child and at (80, 60) on screen.
+        assert!(has_rect(&d, (80.0, 60.0, 20.0, 10.0)), "{d:?}");
+    }
+
+    /// A scroll box INSIDE the view, scrolled: its items are in the box's content and painted
+    /// at the content minus the offset - in the view's own space, before the view puts it
+    /// on screen.
+    #[test]
+    fn a_change_inside_a_scroll_box_of_a_view_is_damaged_where_the_box_paints_it() {
+        let boxed = |color| {
+            dlist(vec![
+                push_scroll(77, 0.0, 0.0, 100.0, 60.0),
+                rect_item(0.0, 100.0, 50.0, 10.0, color),
+                DisplayListItem::PopScrollFrame,
+            ])
+        };
+        let (cur, prev) = child_pair(boxed(RED), boxed(GREEN));
+        let parent = dlist(vec![view_item(1, 10.0, 20.0, 200.0, 100.0, (0.0, 0.0))]);
+        let mut offsets = ScrollOffsetMap::new();
+        offsets.insert(77, (0.0, 80.0));
+        let d = compute_virtual_view_damage_live(
+            &parent,
+            &cur,
+            &prev,
+            &offsets,
+            &offsets,
+            FrameValues::default(),
+        );
+        // Content y 100 less the offset 80: 20 inside the box, at the view's corner.
+        assert!(has_rect(&d, (10.0, 40.0, 50.0, 10.0)), "{d:?}");
+    }
+
+    /// A view inside a view re-renders in place on its own - the page's list does not change
+    /// and neither does the list of the view that holds it: the change is damaged through
+    /// both boxes.
+    #[test]
+    fn a_view_inside_a_view_that_renders_in_place_is_damaged_through_both_boxes() {
+        let parent = dlist(vec![view_item(1, 50.0, 40.0, 300.0, 200.0, (0.0, 0.0))]);
+        // The middle list is the same list in both frames: only the inner view's content moved.
+        let middle = Arc::new(dlist(vec![view_item(2, 20.0, 10.0, 200.0, 100.0, (-4.0, -6.0))]));
+        let before = Arc::new(dlist(vec![rect_item(30.0, 40.0, 10.0, 10.0, RED)]));
+        let after = Arc::new(dlist(vec![rect_item(30.0, 40.0, 10.0, 10.0, GREEN)]));
+        let prev: BTreeMap<DomId, Arc<DisplayList>> =
+            [(DomId { inner: 1 }, Arc::clone(&middle)), (DomId { inner: 2 }, before)].into_iter().collect();
+        let cur: BTreeMap<DomId, Arc<DisplayList>> =
+            [(DomId { inner: 1 }, middle), (DomId { inner: 2 }, after)].into_iter().collect();
+
+        let d = compute_virtual_view_damage(&parent, &cur, &prev, &ScrollOffsetMap::new());
+        // (30, 40) of the inner view is at (20 - 4 + 30, 10 - 6 + 40) = (46, 44) of the middle
+        // one and at (50 + 46, 40 + 44) = (96, 84) of the window.
+        assert!(has_rect(&d, (96.0, 84.0, 10.0, 10.0)), "{d:?}");
     }
 
     // ============================== apply_layer_filters ======================

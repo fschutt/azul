@@ -991,11 +991,19 @@ impl CpuBackend {
         // page (the AzWidgets Video card) was repainted off-screen on every
         // frame and froze on its first one. The full-repaint path paints
         // everything and ignores these rects.
-        let vview_damage = cpurender::compute_virtual_view_damage(
+        // What changed inside a view is damaged where the view's pixels are painted: through
+        // the item's content offset, the offsets and the live matrices of the frames inside
+        // the view and around it (`compute_virtual_view_damage_live`).
+        let vview_damage = cpurender::compute_virtual_view_damage_live(
             display_list,
             &vview_dls,
             &self.previous_vview_dls,
+            &self.previous_scroll_offsets,
             &next_scroll_baseline,
+            cpurender::FrameValues {
+                old: Some(&old_gpu_values.transforms),
+                new: Some(&self.previous_gpu_values.transforms),
+            },
         );
         let has_vview_damage = !vview_damage.is_empty();
         self.previous_vview_dls = vview_dls.clone();
@@ -12645,6 +12653,12 @@ mod tests {
         _data: RefAny,
         _info: azul_core::callbacks::VirtualViewCallbackInfo,
     ) -> azul_core::callbacks::VirtualViewReturn {
+        stripes_view_return(None)
+    }
+
+    /// The stripes view's content, its third stripe painted `tint` when there is one.
+    #[cfg(feature = "cpurender")]
+    fn stripes_view_return(tint: Option<[u8; 4]>) -> azul_core::callbacks::VirtualViewReturn {
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_css::{
             dynamic_selector::CssPropertyWithConditions,
@@ -12671,14 +12685,13 @@ mod tests {
             ]
             .into(),
         );
-        let row = STRIPE_COLOURS.iter().fold(row, |row, [r, g, b, a]| {
-            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
-                r: *r,
-                g: *g,
-                b: *b,
-                a: *a,
-            })]
-            .into();
+        let row = STRIPE_COLOURS.iter().enumerate().fold(row, |row, (k, [r, g, b, a])| {
+            let [r, g, b, a] = match tint {
+                Some(t) if k == 2 => t,
+                _ => [*r, *g, *b, *a],
+            };
+            let bg: StyleBackgroundContentVec =
+                vec![StyleBackgroundContent::Color(ColorU { r, g, b, a })].into();
             row.with_child(Dom::create_div().with_css_props(
                 vec![
                     CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(40.0))),
@@ -12696,10 +12709,53 @@ mod tests {
         }
     }
 
+    /// The tint the stripes view of [`tinted_stripes_page_layout`] paints its third stripe
+    /// with: a dataset the test changes in place.
+    #[cfg(feature = "cpurender")]
+    struct StripeTint {
+        rgba: Option<[u8; 4]>,
+    }
+
+    /// The app state of the tinted page: the tint's `RefAny`, the same one across builds.
+    #[cfg(feature = "cpurender")]
+    struct TintedStripesPage {
+        tint: RefAny,
+    }
+
+    #[cfg(feature = "cpurender")]
+    extern "C" fn tinted_stripes_view_render(
+        mut data: RefAny,
+        _info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        let tint = data.downcast_ref::<StripeTint>().and_then(|t| t.rgba);
+        stripes_view_return(tint)
+    }
+
     /// `<body>` with the stripes view in a 120x60 box (at 8,8: the body's
     /// margin).
     #[cfg(feature = "cpurender")]
     extern "C" fn stripes_page_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        stripes_page(
+            RefAny::new(()),
+            azul_core::callbacks::VirtualViewCallback::create(stripes_view_render),
+        )
+    }
+
+    /// [`stripes_page_layout`] with the view's dataset the tint of the page's state.
+    #[cfg(feature = "cpurender")]
+    extern "C" fn tinted_stripes_page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let tint = data
+            .downcast_ref::<TintedStripesPage>()
+            .map(|page| page.tint.clone())
+            .expect("page state");
+        stripes_page(
+            tint,
+            azul_core::callbacks::VirtualViewCallback::create(tinted_stripes_view_render),
+        )
+    }
+
+    #[cfg(feature = "cpurender")]
+    fn stripes_page(view_data: RefAny, callback: azul_core::callbacks::VirtualViewCallback) -> Dom {
         use azul_css::{
             dynamic_selector::CssPropertyWithConditions,
             props::{
@@ -12709,11 +12765,7 @@ mod tests {
         };
 
         Dom::create_body().with_child(
-            Dom::create_virtual_view(
-                RefAny::new(()),
-                azul_core::callbacks::VirtualViewCallback::create(stripes_view_render),
-            )
-            .with_css_props(
+            Dom::create_virtual_view(view_data, callback).with_css_props(
                 vec![
                     CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(120.0))),
                     CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(60.0))),
@@ -12879,6 +12931,96 @@ mod tests {
                 window.cpu_backend.last_frame_damage
             );
         }
+    }
+
+    /// A view that renders AGAIN while it is scrolled - a tile that arrives, a frame of a
+    /// video, a caret that goes on - is repainted where its scrolled content is. The page's
+    /// list does not change (the view's item is the same), so the frame finds the change by
+    /// diffing the view's own lists, and the rects it finds are in the list's 0-relative
+    /// space: the view paints it at its box's corner plus the item's `content_offset`
+    /// (`window origin - scroll offset`). The damage was placed at the corner MINUS the
+    /// offset: right while the view stood at its origin, a mirror image away from the changed
+    /// pixels once it was scrolled (a stripe that turned black stayed green on screen).
+    #[test]
+    #[cfg(feature = "cpurender")]
+    fn a_view_that_renders_in_place_while_scrolled_is_repainted_where_its_content_is() {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            events::ProcessEventResult,
+            styled_dom::NodeHierarchyItemId,
+        };
+        use azul_layout::callbacks::CallbackChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let tint = RefAny::new(StripeTint { rgba: None });
+        let state = Arc::new(RefCell::new(RefAny::new(TintedStripesPage { tint: tint.clone() })));
+        let mut window = make_window_sized(&state, tinted_stripes_page_layout, 200.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        window.common.drain_virtual_view_updates();
+        let view = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| {
+                lw.virtual_view_manager
+                    .get_all_virtual_view_infos()
+                    .first()
+                    .map(|info| NodeId::new(info.parent_node_id))
+            })
+            .expect("premise: the page holds one VirtualView");
+
+        // Scrolled by 57 px: the third stripe (content x 80..120) is at x 31..71 of the box,
+        // which starts at x = 8; (50, 38) is inside it.
+        let probe = (50u32, 38u32);
+        let tier = PlatformWindow::apply_user_change(
+            &mut window,
+            &CallbackChange::ScrollTo {
+                dom_id: DomId::ROOT_ID,
+                node_id: NodeHierarchyItemId::from_crate_internal(Some(view)),
+                position: LogicalPosition::new(57.0, 0.0),
+                unclamped: false,
+            },
+        );
+        if tier > ProcessEventResult::DoNothing {
+            window.service_frame(tier);
+        }
+        assert_eq!(
+            sample_px(&window, probe.0, probe.1),
+            Some(STRIPE_COLOURS[2]),
+            "premise: the scrolled view shows its third stripe at the probe"
+        );
+        let (d, f) = incremental_vs_full(&mut window);
+        assert_eq!(d, 0, "premise: the settled frame is a full repaint ({d} px, first at {f:?})");
+
+        // The data behind the view changes in place, the view is queued for a re-render and
+        // the frame path drains the queue and paints.
+        if let Some(mut t) = tint.clone().downcast_mut::<StripeTint>() {
+            t.rgba = Some([0, 0, 0, 255]);
+        }
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("layout window")
+            .queue_all_virtual_view_reinvoke();
+        assert!(
+            window.common.drain_virtual_view_updates(),
+            "harness: the view must render again"
+        );
+        paint_frame(&mut window);
+
+        assert_eq!(
+            sample_px(&window, probe.0, probe.1),
+            Some([0, 0, 0, 255]),
+            "the stripe turned black in the view's list and stayed on screen as it was: the \
+             damage of the view's change must be where the scrolled view shows it (damage {:?})",
+            window.cpu_backend.last_frame_damage
+        );
+        let (d, f) = incremental_vs_full(&mut window);
+        assert_eq!(d, 0, "{d} px differ from a full repaint, first at {f:?}");
     }
 
     /// REGRESSION (swallowed sub-pixel scrolling): high-resolution trackpads
