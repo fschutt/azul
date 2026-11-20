@@ -7936,6 +7936,11 @@ pub trait PlatformWindow {
                         .get_editing_dom_id()
                         .or(lw.text_edit_manager.tween.dom_id);
                     if let Some(dom_id) = dom {
+                        // The carets are shown or hidden in place; a list that
+                        // cannot be patched is rebuilt.
+                        if lw.apply_caret_visibility_in_place(dom_id).is_some() {
+                            return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        }
                         lw.regenerate_display_list_for_dom(dom_id);
                     }
                 }
@@ -7944,6 +7949,7 @@ pub trait PlatformWindow {
 
             CallbackChange::ToggleCursorVisibility => {
                 let mut changed = false;
+                let mut patched = false;
                 if let Some(lw) = self.get_layout_window_mut() {
                     let now = azul_core::task::Instant::now();
                     let before = lw.text_edit_manager.blink.is_visible;
@@ -7960,14 +7966,22 @@ pub trait PlatformWindow {
                     // regeneration (a fresh Arc, so even the damage diff's
                     // ptr_eq skip never fired) for a frame that changed
                     // nothing.
-                    // Future: use GPU opacity animation instead of a rebuild.
+                    // The carets are shown or hidden in the list IN PLACE
+                    // (`apply_caret_visibility_in_place`): the blink is a repaint of
+                    // one rect, not a rebuild of every item of the DOM; a list
+                    // that cannot be patched is rebuilt.
                     if changed {
                         if let Some(dom_id) = lw.text_edit_manager.get_editing_dom_id() {
-                            lw.regenerate_display_list_for_dom(dom_id);
+                            patched = lw.apply_caret_visibility_in_place(dom_id).is_some();
+                            if !patched {
+                                lw.regenerate_display_list_for_dom(dom_id);
+                            }
                         }
                     }
                 }
-                if changed {
+                if changed && patched {
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                } else if changed {
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 } else {
                     ProcessEventResult::DoNothing

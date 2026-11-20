@@ -799,9 +799,64 @@ pub struct DisplayList {
     /// shows while the key has no value. A table on the list, like
     /// `uniform_text_bgs`, so the `Rect` variant stays unchanged.
     pub color_bindings: Vec<Option<ColorKey>>,
+    /// The carets of the list: `(index of its `CursorRect` item, the colour the
+    /// caret is painted in while it shows)`, in list order. The blink flips the
+    /// item's alpha between that colour's and 0 IN PLACE
+    /// ([`Self::set_carets_visible`]) instead of building the whole list again
+    /// every ~530 ms. A list of its own, like `color_bindings`, so the
+    /// `CursorRect` variant stays unchanged for printpdf.
+    pub carets: Vec<(usize, ColorU)>,
 }
 
 impl DisplayList {
+    /// Whether [`Self::set_carets_visible`] would change an item: `Some(true)`
+    /// when some caret is not in the state `visible` names, `Some(false)` when
+    /// all are, `None` when the list cannot be patched (it has no recorded caret,
+    /// or an index no longer holds a `CursorRect`: the caller rebuilds).
+    #[must_use]
+    pub fn caret_patch_needed(&self, visible: bool) -> Option<bool> {
+        if self.carets.is_empty() {
+            return None;
+        }
+        // Every caret item of the list is a recorded one: a list that holds a
+        // `CursorRect` this table does not know (spliced in from another list) is
+        // rebuilt, or that caret would keep its phase.
+        let in_list = self
+            .items
+            .iter()
+            .filter(|item| matches!(item, DisplayListItem::CursorRect { .. }))
+            .count();
+        if in_list != self.carets.len() {
+            return None;
+        }
+        let mut needed = false;
+        for (index, shown) in &self.carets {
+            let Some(DisplayListItem::CursorRect { color, .. }) = self.items.get(*index) else {
+                return None;
+            };
+            let want = if visible { *shown } else { ColorU { a: 0, ..*shown } };
+            needed |= *color != want;
+        }
+        Some(needed)
+    }
+
+    /// Show or hide every caret of the list in place: the blink's whole effect on
+    /// the list. The item stays in the list in both phases (its count is the
+    /// same, so the damage diff is a caret-sized rect). Returns `false` and
+    /// changes nothing when the list cannot be patched
+    /// ([`Self::caret_patch_needed`] is `None`).
+    pub fn set_carets_visible(&mut self, visible: bool) -> bool {
+        if self.caret_patch_needed(visible).is_none() {
+            return false;
+        }
+        for (index, shown) in &self.carets {
+            if let Some(DisplayListItem::CursorRect { color, .. }) = self.items.get_mut(*index) {
+                *color = if visible { *shown } else { ColorU { a: 0, ..*shown } };
+            }
+        }
+        true
+    }
+
     /// The colour key item `index` is bound to (see
     /// [`Self::color_bindings`]).
     #[must_use]
@@ -835,6 +890,11 @@ impl DisplayList {
         Self::insert_parallel(&mut self.text_selection_colors, at, None);
         Self::insert_parallel(&mut self.layout_node_mapping, at, None);
         Self::insert_parallel(&mut self.color_bindings, at, None);
+        for (index, _) in &mut self.carets {
+            if *index >= at {
+                *index += 1;
+            }
+        }
         for (start, end) in &mut self.fixed_position_item_ranges {
             // A range that CONTAINS the insertion point grows; one entirely
             // after it slides. `end` is exclusive, so `at == *end` is "after".
@@ -3565,6 +3625,8 @@ struct DisplayListBuilder {
     /// One-shot: the colour key of the NEXT pushed item.
     next_color_binding: Option<ColorKey>,
     color_bindings: Vec<Option<ColorKey>>,
+    /// The carets pushed so far ([`DisplayList::carets`]).
+    carets: Vec<(usize, ColorU)>,
     /// The indices of the opacity groups open around the next item: each
     /// `PopOpacity` widens its push to what the group painted
     /// ([`group_paint_bounds`]).
@@ -3595,6 +3657,7 @@ impl DisplayListBuilder {
             bound_colors: BTreeMap::new(),
             next_color_binding: None,
             color_bindings: Vec::new(),
+            carets: Vec::new(),
             open_opacity_groups: Vec::new(),
         }
     }
@@ -3624,6 +3687,7 @@ impl DisplayListBuilder {
             uniform_text_bgs: self.uniform_text_bgs,
             text_selection_colors: self.text_selection_colors,
             color_bindings: self.color_bindings,
+            carets: self.carets,
         }
     }
 
@@ -3813,6 +3877,7 @@ impl DisplayListBuilder {
             uniform_text_bgs: self.uniform_text_bgs,
             text_selection_colors: self.text_selection_colors,
             color_bindings: self.color_bindings,
+            carets: self.carets,
         }
     }
 
@@ -4161,11 +4226,15 @@ impl DisplayListBuilder {
         }
     }
 
-    pub(crate) fn push_cursor_rect(&mut self, bounds: LogicalRect, color: ColorU) {
+    /// `color` is the colour the caret is painted in NOW (alpha 0 in the
+    /// blink-off phase), `shown` the one it has while it shows: the blink
+    /// flips between them in place ([`DisplayList::set_carets_visible`]).
+    pub(crate) fn push_cursor_rect(&mut self, bounds: LogicalRect, color: ColorU, shown: ColorU) {
         // Always emit the caret item — even with alpha == 0 in the blink-off phase — so
         // the display-list item COUNT stays stable across blink phases. That lets
         // compute_display_list_damage diff it down to a caret-sized rect instead of
         // falling back to a full-window repaint every ~530ms.
+        self.carets.push((self.items.len(), shown));
         self.push_item(DisplayListItem::CursorRect {
             bounds: bounds.into(),
             color,
@@ -6031,7 +6100,7 @@ where
                     ..owner_color
                 }
             };
-            builder.push_cursor_rect(rect, caret_color);
+            builder.push_cursor_rect(rect, caret_color, owner_color);
 
             // Preedit underline only on the primary cursor for this node
             let is_primary = primary_idx_for_this_node == Some(i);
@@ -13841,6 +13910,7 @@ fn paginate_pages_impl(
             uniform_text_bgs: Vec::new(),
             text_selection_colors: Vec::new(),
             color_bindings: Vec::new(),
+            carets: Vec::new(),
         })?;
         emitted += 1;
     }
@@ -16244,7 +16314,7 @@ mod autotest_generated {
         // Blink-off carets MUST still emit an item so the item count stays stable
         // across blink phases (otherwise damage falls back to a full-window repaint).
         let mut b = DisplayListBuilder::new();
-        b.push_cursor_rect(rect(0.0, 0.0, 1.0, 16.0), ColorU::TRANSPARENT);
+        b.push_cursor_rect(rect(0.0, 0.0, 1.0, 16.0), ColorU::TRANSPARENT, ColorU::TRANSPARENT);
         assert_eq!(b.items.len(), 1);
         assert!(matches!(b.items[0], DisplayListItem::CursorRect { .. }));
     }

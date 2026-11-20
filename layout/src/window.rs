@@ -8622,10 +8622,7 @@ impl LayoutWindow {
         // blinking while the caret / selection is animating (user directive).
         // The other seats' carets (9b-ii-a-i-d-ii-a) blink on the primary's
         // clock while it edits, and are simply shown when there is none.
-        let cursor_is_visible = (self.caret_editable_is_focused()
-            && (self.text_edit_manager.should_draw_cursor()
-                || self.text_edit_manager.tween.is_active()))
-            || self.text_edit_manager.seat_carets_solid();
+        let cursor_is_visible = self.cursor_is_visible_now();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let owner_colors = self.text_edit_manager.owner_colors.clone();
         let seat_focus_rings = self.seat_focus_rings();
@@ -26615,6 +26612,49 @@ impl LayoutWindow {
         out
     }
 
+    /// Whether the carets of the display lists are drawn NOW: the primary's
+    /// while it is in the phase of the blink that shows (or a tween in flight
+    /// holds it solid), the other seats' while they are shown.
+    fn cursor_is_visible_now(&self) -> bool {
+        (self.caret_editable_is_focused()
+            && (self.text_edit_manager.should_draw_cursor()
+                || self.text_edit_manager.tween.is_active()))
+            || self.text_edit_manager.seat_carets_solid()
+    }
+
+    /// The caret blink without a display-list rebuild: the carets of `dom_id`'s
+    /// list are shown or hidden IN PLACE to match the blink
+    /// ([`DisplayList::set_carets_visible`]). Returns `Some(true)` when the list
+    /// was patched (a new list the renderer is owed: a repaint, not a rebuild),
+    /// `Some(false)` when it already showed the phase, and `None` when the list
+    /// cannot be patched (it has no caret it knows of): the caller rebuilds it.
+    ///
+    /// The blink rebuilt the whole window's list every ~530 ms
+    /// (`regenerate_display_list_for_dom`: every item of the DOM, a fresh `Arc`)
+    /// for a frame that changes one rect - a focused text field in an idle
+    /// window kept the editor rebuilding a 38 000-item list twice a second.
+    pub fn apply_caret_visibility_in_place(&mut self, dom_id: DomId) -> Option<bool> {
+        let visible = self.cursor_is_visible_now();
+        let result = self.layout_results.get_mut(&dom_id)?;
+        if !result.display_list.caret_patch_needed(visible)? {
+            return Some(false);
+        }
+        let list = Arc::make_mut(&mut result.display_list);
+        if !list.set_carets_visible(visible) {
+            return None;
+        }
+        // The solver's structural-identity DL cache holds the PRE-PATCH Arc
+        // (`make_mut` cloned): swap in the patched one or the next cache hit
+        // brings back the old phase.
+        if dom_id == DomId::ROOT_ID {
+            let patched = Arc::clone(&result.display_list);
+            if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                cached.5 = patched;
+            }
+        }
+        Some(true)
+    }
+
     /// Regenerate the display list for a specific DOM from the current layout tree.
     ///
     /// This is the critical missing piece for text input: after `update_text_cache_after_edit`
@@ -26701,10 +26741,7 @@ impl LayoutWindow {
         // forces the caret solid (blinking is suppressed while animating).
         // The other seats' carets (9b-ii-a-i-d-ii-a) blink on the primary's
         // clock while it edits, and are simply shown when there is none.
-        let cursor_is_visible = (self.caret_editable_is_focused()
-            && (self.text_edit_manager.should_draw_cursor()
-                || self.text_edit_manager.tween.is_active()))
-            || self.text_edit_manager.seat_carets_solid();
+        let cursor_is_visible = self.cursor_is_visible_now();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let text_selections_map = self.text_edit_manager.build_text_selections_map();
         let seat_focus_rings = self.seat_focus_rings();

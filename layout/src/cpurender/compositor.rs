@@ -6412,6 +6412,7 @@ mod scroll_shift_tests {
             uniform_text_bgs: Vec::new(),
             text_selection_colors: Vec::new(),
             color_bindings: Vec::new(),
+            carets: Vec::new(),
         }
     }
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
