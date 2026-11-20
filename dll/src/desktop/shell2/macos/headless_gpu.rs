@@ -869,6 +869,11 @@ mod retained_list_tests {
         style::{StyleTransform, StyleTransformTranslate2D},
     };
     use azul_layout::overlay::{ContentChange, ContentDirtyTier};
+    use std::{
+        collections::BTreeMap,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+    use azul_core::FastBTreeSet;
 
     use super::*;
 
@@ -1251,5 +1256,190 @@ mod retained_list_tests {
         let (x0, y0, x1, y1) = red_box(&shown)
             .unwrap_or_else(|| panic!("the revealed node is drawn (tier {tier:?}, {} rebuilds)", gpu.window.frame_report.dl_rebuilds));
         assert!(x0 <= 1 && (58..=60).contains(&x1) && y0 <= 1 && (38..=40).contains(&y1), "its whole box: {:?}", (x0, y0, x1, y1));
+    }
+    /// How often the map's callback ran.
+    struct StripeCalls(Arc<AtomicUsize>);
+
+    /// The map: 600 px of 40 px stripes, red and blue, behind a 300 px box (the margin a
+    /// pan shows). Every call draws one stripe more than the call before, past the box: the
+    /// map the app renders again is another list (a view that comes back with the DOM it
+    /// had keeps its list, and the renderer its copy).
+    extern "C" fn counted_stripes(
+        mut data: RefAny,
+        _info: VirtualViewCallbackInfo,
+    ) -> VirtualViewReturn {
+        let call = data
+            .downcast_ref::<StripeCalls>()
+            .map_or(0, |counter| counter.0.fetch_add(1, Ordering::SeqCst));
+        let mut row = Dom::create_div()
+            .with_css("display: flex; flex-direction: row; width: 600px; height: 300px;");
+        for i in 0..15 + call {
+            row = row.with_child(Dom::create_div().with_css(if i % 2 == 0 {
+                "width: 40px; height: 300px; flex-shrink: 0; background: #ff0000;"
+            } else {
+                "width: 40px; height: 300px; flex-shrink: 0; background: #0000ff;"
+            }));
+        }
+        let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 300.0));
+        VirtualViewReturn::with_dom(row, window, window)
+    }
+
+    /// The editor's window with its style sidebar open: thousands of rows (two display-list
+    /// items each), and the map beside them.
+    fn map_beside_a_sidebar(calls: &Arc<AtomicUsize>) -> Dom {
+        let mut sidebar =
+            Dom::create_div().with_css("width: 200px; height: 320px; overflow: hidden;");
+        for i in 0..6_000 {
+            sidebar = sidebar.with_child(Dom::create_div().with_css(if i % 2 == 0 {
+                "height: 3px; background: #dde6f5; border-bottom: 1px solid #888888;"
+            } else {
+                "height: 3px; background: #f5e6dd; border-bottom: 1px solid #888888;"
+            }));
+        }
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(sidebar)
+            .with_child(
+                Dom::create_virtual_view(
+                    RefAny::new(StripeCalls(Arc::clone(calls))),
+                    VirtualViewCallback::create(counted_stripes),
+                )
+                .with_css("position: absolute; left: 200px; top: 0px; width: 300px; height: 300px;"),
+            )
+    }
+
+    /// The display lists translated on this thread so far.
+    fn translated() -> usize {
+        crate::desktop::compositor2::TRANSLATIONS.with(std::cell::Cell::get)
+    }
+
+    /// A pan of the map with the sidebar open: every mouse move is
+    /// `update_virtual_view` with the picture `shift` px along. It used to write the
+    /// shift into the host's display list (a copy of its ten thousand items) and the
+    /// frame translated and sent that list again, for a field WebRender never reads: it
+    /// scrolls the map's pipeline by the live offset. The frame of a move is now that
+    /// scroll offset and nothing else - no list is translated, the host's is the one the
+    /// renderer holds - and the picture moves by exactly the shift.
+    #[test]
+    fn a_pan_inside_the_margin_is_a_scroll_offset_and_nothing_the_host_pays_for() {
+        let Some(mut gpu) = GpuSession::new(600.0, 320.0, 1.0) else {
+            return;
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        gpu.lay_out(map_beside_a_sidebar(&calls)).expect("the page lays out");
+        let items = gpu.window.layout_results[&DomId::ROOT_ID].display_list.items.len();
+        assert!(items >= 10_000, "harness: the host's list holds {items} items");
+        let first = gpu.present(true).expect("the first frame");
+        // The stripes start at the map's left edge (x = 200): red to 240, blue to 280.
+        assert_eq!(pixel(&first, 238, 100)[..3], [255, 0, 0], "stripe 0");
+        assert_eq!(pixel(&first, 242, 100)[..3], [0, 0, 255], "stripe 1");
+
+        let (host_dom, view) = gpu.window.virtual_view_manager.all_view_keys()[0];
+        // The host's list by its address: a holder of it would make the write a copy.
+        let host_before = Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list);
+        let translated_before = translated();
+        let calls_before = calls.load(Ordering::SeqCst);
+        gpu.window.frame_report.reset_counters();
+
+        for step in 1..=10 {
+            let shift = -3.0 * step as f32;
+            gpu.window.apply_virtual_view_geometry(
+                host_dom,
+                view,
+                Some(LogicalRect::new(
+                    LogicalPosition::new(shift, 0.0),
+                    LogicalSize::new(600.0, 300.0),
+                )),
+                None,
+            );
+            let frame = gpu
+                .present_lightweight()
+                .expect("the harness")
+                .expect("a pan is a frame: the scroll offset of the map's pipeline changed");
+            let edge = (240.0 + shift) as u32;
+            assert_eq!(
+                pixel(&frame, edge - 2, 100)[..3],
+                [255, 0, 0],
+                "step {step}: stripe 0 ends at x = {edge}"
+            );
+            assert_eq!(
+                pixel(&frame, edge + 2, 100)[..3],
+                [0, 0, 255],
+                "step {step}: stripe 1 begins there"
+            );
+        }
+
+        assert_eq!(translated() - translated_before, 0, "ten pan frames translated no list");
+        assert_eq!(
+            Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list),
+            host_before,
+            "the host's list is the list WebRender holds: it was written in place"
+        );
+        assert!(
+            !gpu.window
+                .gpu_state_manager
+                .display_lists_unsubmitted(&gpu.window.layout_results),
+            "no list is owed to the renderer"
+        );
+        assert_eq!(gpu.window.frame_report.dl_rebuilds, 0, "no display list was built");
+        assert_eq!(gpu.window.frame_report.layout_passes, 0, "no layout ran");
+        assert_eq!(calls.load(Ordering::SeqCst), calls_before, "the map's callback did not run");
+    }
+
+    /// The pan leaves its margin: the app asks for the map again, and the frame's drain
+    /// runs the callback once. The map's new list is translated - one list - and the
+    /// host's, which the renderer holds, is not.
+    #[test]
+    fn leaving_the_margin_translates_the_map_alone_and_holds_the_host() {
+        let Some(mut gpu) = GpuSession::new(600.0, 320.0, 1.0) else {
+            return;
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        gpu.lay_out(map_beside_a_sidebar(&calls)).expect("the page lays out");
+        let _ = gpu.present(true).expect("the first frame");
+        let (host_dom, view) = gpu.window.virtual_view_manager.all_view_keys()[0];
+        for step in 1..=5 {
+            gpu.window.apply_virtual_view_geometry(
+                host_dom,
+                view,
+                Some(LogicalRect::new(
+                    LogicalPosition::new(-8.0 * step as f32, 0.0),
+                    LogicalSize::new(600.0, 300.0),
+                )),
+                None,
+            );
+            let _ = gpu
+                .present_lightweight()
+                .expect("the harness")
+                .expect("a pan is a frame");
+        }
+        let host_before = Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list);
+        let calls_before = calls.load(Ordering::SeqCst);
+        let translated_before = translated();
+
+        let mut updates = BTreeMap::new();
+        let mut views = FastBTreeSet::new();
+        views.insert(view);
+        updates.insert(host_dom, views);
+        gpu.window.queue_virtual_view_updates(updates);
+        assert!(
+            crate::desktop::shell2::common::layout::drain_virtual_view_updates(
+                &mut gpu.window,
+                None
+            ),
+            "the frame's drain rendered the map again"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), calls_before + 1, "its callback ran once");
+        let frame = gpu.present(true).expect("the frame after the re-render");
+
+        assert_eq!(translated() - translated_before, 1, "the map's new list, and only it");
+        assert_eq!(
+            Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list),
+            host_before,
+            "the host's list was neither built nor copied"
+        );
+        // The re-rendered map sits at its materialized origin again.
+        assert_eq!(pixel(&frame, 238, 100)[..3], [255, 0, 0], "stripe 0");
+        assert_eq!(pixel(&frame, 242, 100)[..3], [0, 0, 255], "stripe 1");
     }
 }
