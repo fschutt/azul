@@ -780,6 +780,10 @@ mod virtual_view_pan_tests;
 #[cfg(test)]
 mod virtual_view_rerender_tests;
 
+// A block of many out-of-flow children is looked at once per child (no k^2 scan for the first in-flow one).
+#[cfg(test)]
+mod in_flow_probe_tests;
+
 // A hover over a label's text is a repaint of that label.
 #[cfg(test)]
 mod hover_text_tests;

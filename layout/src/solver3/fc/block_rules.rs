@@ -505,9 +505,18 @@ pub(super) fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
     true
 }
 
+/// How many boxes [`is_in_flow_box`] was asked about on this thread: what the size sweep of the
+/// tests reads to say a block of many out-of-flow children is looked at once per child.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IN_FLOW_CHECKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Whether the box at `index` is in its parent's flow: not a `::marker`,
 /// not absolutely positioned, not floated. Anonymous boxes are.
 pub(super) fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
+    #[cfg(test)]
+    IN_FLOW_CHECKS.with(|n| n.set(n.get() + 1));
     if is_marker_box(tree, index) {
         return false;
     }
@@ -521,6 +530,33 @@ pub(super) fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: u
         get_position_type(styled_dom, Some(dom_id)),
         LayoutPosition::Absolute | LayoutPosition::Fixed
     ) && get_float_property(styled_dom, Some(dom_id)) == LayoutFloat::None
+}
+
+/// Whether `node` is the first in-flow child box of `parent`: `first_in_flow_child(parent) ==
+/// Some(node)`, answered from `node` and the children before it alone. A node that is not in its
+/// parent's flow is not the first in it - one look, whatever the parent holds - and one that is
+/// looks at its earlier siblings only until the first that is. The question was asked by
+/// scanning the parent's children for the first in-flow one, once for every box that wanted to
+/// know: a block of k absolutely positioned labels, none in flow, was scanned k times in full
+/// (k^2 style lookups: 155 million at the map editor's 12,470 labels).
+pub(super) fn is_first_in_flow_child(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    parent: usize,
+    node: usize,
+) -> bool {
+    if !is_in_flow_box(tree, styled_dom, node) {
+        return false;
+    }
+    for &child in tree.children(parent) {
+        if child == node {
+            return true;
+        }
+        if is_in_flow_box(tree, styled_dom, child) {
+            return false;
+        }
+    }
+    false
 }
 
 /// The first in-flow child box of `index` ([`is_in_flow_box`]).

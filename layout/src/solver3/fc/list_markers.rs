@@ -140,7 +140,7 @@ pub(crate) fn anonymous_block_holds_the_first_line(
 ) -> bool {
     tree.get(LayoutNodeId::new(index))
         .and_then(|n| n.parent)
-        .is_none_or(|parent| first_in_flow_child(tree, styled_dom, parent) == Some(index))
+        .is_none_or(|parent| is_first_in_flow_child(tree, styled_dom, parent, index))
 }
 
 /// The inline formatting context holding a list item's FIRST LINE BOX, the
@@ -229,7 +229,7 @@ pub(super) fn markers_on_first_line(tree: &LayoutTree, styled_dom: &StyledDom, i
             break;
         };
         // The first line of `parent` is here only if `node` starts it.
-        if first_in_flow_child(tree, styled_dom, parent) != Some(node) {
+        if !is_first_in_flow_child(tree, styled_dom, parent, node) {
             break;
         }
         node = parent;
