@@ -227,12 +227,6 @@ pub fn blit_pixmap_affine_clipped(
         return;
     }
 
-    let mut inv = *m;
-    // agg's invert() on a degenerate matrix produces non-finite values; the
-    // finite-check below skips those pixels, so the collapsed-layer case
-    // degrades to "draws nothing" rather than UB or garbage.
-    inv.invert();
-
     // Dest-space bounding box of the four transformed src corners.
     let corners = [
         (0.0, 0.0),
@@ -263,6 +257,44 @@ pub fn blit_pixmap_affine_clipped(
         x1 = x1.min(cx1);
         y1 = y1.min(cy1);
     }
+
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    crate::cpu_counters::count(crate::cpu_counters::Counter::PxBlitted, (x1 - x0) as u64 * (y1 - y0) as u64);
+    // A matrix with no shear - the zoom of a map, a group scaled and moved - is separable.
+    if let Some(scale_translate) = super::blit_scale::scale_translate_of(m) {
+        super::blit_scale::blit_scale_translate(src, dst, scale_translate, op, (x0, y0, x1, y1));
+        return;
+    }
+    blit_pixmap_affine_general(src, dst, m, op, (x0, y0, x1, y1));
+}
+
+/// The general composite of [`blit_pixmap_affine_clipped`]: every pixel of the destination box
+/// `(x0, y0, x1, y1)` mapped back through the inverse of `m`, four texels fetched with clamping,
+/// blended in f32. Any affine matrix; the separable path of a scale and a move
+/// (`blit_scale`) agrees with it to 3/255 and is what the tests compare against.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+// bounded pixel/coord/colour casts
+pub(crate) fn blit_pixmap_affine_general(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    m: &TransAffine,
+    op: u32,
+    (x0, y0, x1, y1): (i32, i32, i32, i32),
+) {
+    let sw = src.width as i32;
+    let sh = src.height as i32;
+    let dw = dst.width as i32;
+    let mut inv = *m;
+    // agg's invert() on a degenerate matrix produces non-finite values; the
+    // finite-check below skips those pixels, so the collapsed-layer case
+    // degrades to "draws nothing" rather than UB or garbage.
+    inv.invert();
 
     for dy in y0..y1 {
         for dx in x0..x1 {

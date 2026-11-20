@@ -5,6 +5,7 @@
 //! flat vector of rendering commands that can be executed sequentially.
 
 mod blend;
+mod blit_scale;
 mod compositor;
 pub use crate::cpu_counters as counters;
 pub mod embolden;
