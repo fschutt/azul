@@ -2654,18 +2654,21 @@ impl Runner {
                 .tier
                 .to_process_event_result(),
 
+            // Mirror of the DLL arms: the queue is drained before the frame
+            // (`render_and_record`), and the view's own list is what changes -
+            // a repaint, not a rebuild of the host's list.
             CallbackChange::UpdateVirtualView { dom_id, node_id } => {
                 let mut updates = BTreeMap::new();
                 let mut set = azul_core::FastBTreeSet::new();
                 set.insert(*node_id);
                 updates.insert(*dom_id, set);
                 self.layout_window.queue_virtual_view_updates(updates);
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
             CallbackChange::UpdateAllVirtualViews => {
                 self.layout_window.queue_all_virtual_view_reinvoke();
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
             // A frame invokes a canvas only when its inputs changed; these are

@@ -7204,6 +7204,15 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            // A re-render of a view is a re-invoke of ITS callback at the next
+            // frame: every shell drains the queue before the frame is built
+            // (`drain_virtual_view_updates`; the GPU shells take the full
+            // transaction while one is pending), and the view's child list is the
+            // one that changes. The HOST's list does not, so the frame is a
+            // repaint: `ShouldUpdateDisplayListCurrentWindow` made macOS
+            // regenerate the root's list from the layout tree again before the
+            // frame, then translate and send it - every item of the window, for
+            // each time a panned map left its margin.
             CallbackChange::UpdateVirtualView { dom_id, node_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let mut updates = BTreeMap::new();
@@ -7212,14 +7221,14 @@ pub trait PlatformWindow {
                     updates.insert(*dom_id, set);
                     lw.queue_virtual_view_updates(updates);
                 }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
             CallbackChange::UpdateAllVirtualViews => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.queue_all_virtual_view_reinvoke();
                 }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
             CallbackChange::ChangeNodeImageMask {

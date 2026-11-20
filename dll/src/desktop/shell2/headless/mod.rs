@@ -7611,6 +7611,56 @@ mod tests {
         );
     }
 
+    /// A view's re-render (`trigger_virtual_view_rerender`, `trigger_all_virtual_view_rerender`)
+    /// queues the view's callback for the frame's drain - every shell drains the queue
+    /// before it builds the frame - and asks for a REPAINT: the view's own list is what
+    /// changes, not the host's. The tier was `ShouldUpdateDisplayListCurrentWindow`, which
+    /// macOS answers by regenerating the root's list from the layout tree before the frame
+    /// and translating and sending it: every item of the window, each time a panned map
+    /// left its margin.
+    #[test]
+    fn a_views_re_render_is_a_repaint_and_not_a_rebuild_of_the_hosts_display_list() {
+        use azul_core::events::ProcessEventResult;
+        use azul_layout::callbacks::CallbackChange;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(VvAppState {
+            content: RefAny::new(VvCounter { value: 0 }),
+        })));
+        let mut window = make_window_sized(&state, counter_view_layout, 300.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        window.common.drain_virtual_view_updates();
+        let (dom_id, node_id) = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.virtual_view_manager.all_view_keys().first().copied())
+            .expect("premise: the page holds a view");
+
+        let one = window.apply_user_change(&CallbackChange::UpdateVirtualView { dom_id, node_id });
+        assert_eq!(
+            one,
+            ProcessEventResult::ShouldReRenderCurrentWindow,
+            "the host's display list does not change: a repaint, not a rebuild"
+        );
+        assert_eq!(
+            pending_virtual_view_updates(&window),
+            1,
+            "the view is queued for the frame's drain"
+        );
+        assert!(
+            window.common.drain_virtual_view_updates(),
+            "and the drain renders it"
+        );
+
+        let all = window.apply_user_change(&CallbackChange::UpdateAllVirtualViews);
+        assert_eq!(all, ProcessEventResult::ShouldReRenderCurrentWindow);
+        assert_eq!(pending_virtual_view_updates(&window), 1);
+        assert!(window.common.drain_virtual_view_updates());
+    }
+
     #[test]
     fn an_unchanged_refresh_dom_still_reinvokes_virtual_views() {
         use std::sync::atomic::Ordering;
