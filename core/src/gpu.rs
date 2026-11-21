@@ -28,11 +28,57 @@ use std::collections::HashMap;
 use azul_css::props::style::StyleTransformOrigin;
 
 use crate::{
-    dom::{DomId, NodeId},
+    dom::{DomId, NodeId, ScrollbarOrientation},
     resources::{ColorKey, OpacityKey, TransformKey},
     styled_dom::StyledDom,
     transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
 };
+
+/// A map of this module keyed by a node (a `HashMap`, or a `BTreeMap` in a
+/// build without `std`).
+pub type NodeMap<V> = HashMap<NodeId, V>;
+/// A map of this module keyed by a DOM and one of its nodes.
+pub type DomNodeMap<V> = HashMap<(DomId, NodeId), V>;
+
+/// The transform channels of a [`GpuValueCache`]: each is a map of keys and
+/// a map of values by node.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum TransformChannel {
+    /// The thumb of a scroll container's vertical scrollbar.
+    ScrollbarVertical,
+    /// The thumb of a scroll container's horizontal scrollbar.
+    ScrollbarHorizontal,
+    /// The node's CSS `transform` (owned by [`GpuValueCache::synchronize`]).
+    Css,
+    /// An engine-driven movement of the painted node: a FLIP slide, an enter
+    /// track, a drag.
+    Animation,
+    /// How far a scroll moved a `position: sticky` box since its layout.
+    Sticky,
+    /// The highlight of a material's sheen layer, moved to the cursor.
+    Sheen,
+}
+
+/// The opacity channels of a [`GpuValueCache`] that are keyed by a node (a
+/// scrollbar's fade is keyed by its DOM and node: `set_scrollbar_opacity`).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum OpacityChannel {
+    /// The node's CSS `opacity` (owned by [`GpuValueCache::synchronize`]).
+    Css,
+    /// An engine-driven fade: an enter or exit, a FLIP's opacity.
+    Animation,
+    /// The eased strength of a material's sheen layer.
+    Sheen,
+}
+
+/// What rewrites the node ids of a [`GpuValueCache`]'s maps after a DOM
+/// rebuild ([`GpuValueCache::rekey_nodes`]): called once per map.
+pub trait RekeyNodes {
+    /// Rewrites the keys of a map keyed by a node.
+    fn node_map<V>(&mut self, map: &mut NodeMap<V>);
+    /// Rewrites the keys of a map keyed by a DOM and a node.
+    fn dom_node_map<V>(&mut self, map: &mut DomNodeMap<V>);
+}
 
 #[cfg(all(test, feature = "std"))]
 std::thread_local! {
@@ -194,6 +240,549 @@ impl GpuValueCache {
     /// that is not one of its own methods.
     pub const fn note_value_write(&mut self) {
         self.value_generation = self.value_generation.wrapping_add(1);
+    }
+
+    // ------------------------------------------------------------------
+    // The write methods: every write of a bound key or value goes through
+    // one of these, and each moves the write generation exactly when it
+    // changed something. (The maps are still public fields; a writer that
+    // uses them directly has to call `note_value_write` itself, see
+    // `audit/A2-gpu.md`, "Integration".)
+    // ------------------------------------------------------------------
+
+    fn transform_maps(
+        &self,
+        channel: TransformChannel,
+    ) -> (&NodeMap<TransformKey>, &NodeMap<ComputedTransform3D>) {
+        match channel {
+            TransformChannel::ScrollbarVertical => {
+                (&self.transform_keys, &self.current_transform_values)
+            }
+            TransformChannel::ScrollbarHorizontal => {
+                (&self.h_transform_keys, &self.h_current_transform_values)
+            }
+            TransformChannel::Css => (&self.css_transform_keys, &self.css_current_transform_values),
+            TransformChannel::Animation => {
+                (&self.anim_transform_keys, &self.anim_current_transform_values)
+            }
+            TransformChannel::Sticky => {
+                (&self.sticky_transform_keys, &self.sticky_current_transform_values)
+            }
+            TransformChannel::Sheen => {
+                (&self.sheen_transform_keys, &self.sheen_current_transform_values)
+            }
+        }
+    }
+
+    fn transform_maps_mut(
+        &mut self,
+        channel: TransformChannel,
+    ) -> (&mut NodeMap<TransformKey>, &mut NodeMap<ComputedTransform3D>) {
+        match channel {
+            TransformChannel::ScrollbarVertical => {
+                (&mut self.transform_keys, &mut self.current_transform_values)
+            }
+            TransformChannel::ScrollbarHorizontal => {
+                (&mut self.h_transform_keys, &mut self.h_current_transform_values)
+            }
+            TransformChannel::Css => {
+                (&mut self.css_transform_keys, &mut self.css_current_transform_values)
+            }
+            TransformChannel::Animation => {
+                (&mut self.anim_transform_keys, &mut self.anim_current_transform_values)
+            }
+            TransformChannel::Sticky => {
+                (&mut self.sticky_transform_keys, &mut self.sticky_current_transform_values)
+            }
+            TransformChannel::Sheen => {
+                (&mut self.sheen_transform_keys, &mut self.sheen_current_transform_values)
+            }
+        }
+    }
+
+    /// What every transform write ends with: a CSS value written this way was
+    /// not resolved from the cascade at a known size (`css_transform_sizes`),
+    /// and a change moves the generation. Returns `changed`.
+    fn wrote_transform(&mut self, channel: TransformChannel, node: NodeId, changed: bool) -> bool {
+        if matches!(channel, TransformChannel::Css) {
+            self.css_transform_sizes.remove(&node);
+        }
+        if changed {
+            self.note_value_write();
+        }
+        changed
+    }
+
+    /// The key `node` has in `channel`.
+    #[must_use]
+    pub fn transform_key(&self, channel: TransformChannel, node: NodeId) -> Option<TransformKey> {
+        self.transform_maps(channel).0.get(&node).copied()
+    }
+
+    /// The value `node` has in `channel` (its own, not the product of its
+    /// channels: that is [`Self::reference_frame_of`]).
+    #[must_use]
+    pub fn transform_value(
+        &self,
+        channel: TransformChannel,
+        node: NodeId,
+    ) -> Option<ComputedTransform3D> {
+        self.transform_maps(channel).1.get(&node).copied()
+    }
+
+    /// Every node that has a key in `channel`, with the key.
+    pub fn transform_keys_of(
+        &self,
+        channel: TransformChannel,
+    ) -> impl Iterator<Item = (NodeId, TransformKey)> + '_ {
+        self.transform_maps(channel)
+            .0
+            .iter()
+            .map(|(node, key)| (*node, *key))
+    }
+
+    /// Binds `node` to `key` in `channel` with `value`, replacing what it
+    /// had. Returns whether the key or the value is another one now.
+    pub fn set_transform(
+        &mut self,
+        channel: TransformChannel,
+        node: NodeId,
+        key: TransformKey,
+        value: ComputedTransform3D,
+    ) -> bool {
+        let (keys, values) = self.transform_maps_mut(channel);
+        let key_changed = keys.insert(node, key) != Some(key);
+        let value_changed = values.insert(node, value) != Some(value);
+        self.wrote_transform(channel, node, key_changed || value_changed)
+    }
+
+    /// [`Self::set_transform`] for a node that has NO key in `channel` yet;
+    /// a node that has one keeps its key and its value. Returns whether the
+    /// node was bound (a display list's key registered for the first time).
+    pub fn register_transform(
+        &mut self,
+        channel: TransformChannel,
+        node: NodeId,
+        key: TransformKey,
+        value: ComputedTransform3D,
+    ) -> bool {
+        let (keys, values) = self.transform_maps_mut(channel);
+        if keys.contains_key(&node) {
+            return false;
+        }
+        keys.insert(node, key);
+        values.insert(node, value);
+        self.wrote_transform(channel, node, true)
+    }
+
+    /// Gives `node` the value `value` in `channel` under the key it has, or
+    /// under a new one: the write of a channel that keys its nodes itself
+    /// (an animation tick, a drag). Returns the key.
+    pub fn key_transform(
+        &mut self,
+        channel: TransformChannel,
+        node: NodeId,
+        value: ComputedTransform3D,
+    ) -> TransformKey {
+        let (keys, values) = self.transform_maps_mut(channel);
+        let mut minted = false;
+        let key = *keys.entry(node).or_insert_with(|| {
+            minted = true;
+            TransformKey::unique()
+        });
+        let value_changed = values.insert(node, value) != Some(value);
+        self.wrote_transform(channel, node, minted || value_changed);
+        key
+    }
+
+    /// Writes `value` for `node` in `channel` and leaves its key alone (a
+    /// value without a key binds nothing). Returns the value it had.
+    pub fn set_transform_value(
+        &mut self,
+        channel: TransformChannel,
+        node: NodeId,
+        value: ComputedTransform3D,
+    ) -> Option<ComputedTransform3D> {
+        let (_, values) = self.transform_maps_mut(channel);
+        let old = values.insert(node, value);
+        self.wrote_transform(channel, node, old != Some(value));
+        old
+    }
+
+    /// Takes `node` out of `channel`, key and value. Returns the key it had.
+    pub fn remove_transform(
+        &mut self,
+        channel: TransformChannel,
+        node: NodeId,
+    ) -> Option<TransformKey> {
+        let (keys, values) = self.transform_maps_mut(channel);
+        let key = keys.remove(&node);
+        let had_value = values.remove(&node).is_some();
+        self.wrote_transform(channel, node, key.is_some() || had_value);
+        key
+    }
+
+    /// Keeps in `channel` the nodes `keep` holds for, keys and values.
+    pub fn retain_transforms(
+        &mut self,
+        channel: TransformChannel,
+        mut keep: impl FnMut(NodeId) -> bool,
+    ) {
+        let (keys, values) = self.transform_maps_mut(channel);
+        let before = keys.len() + values.len();
+        keys.retain(|node, _| keep(*node));
+        values.retain(|node, _| keep(*node));
+        let changed = keys.len() + values.len() != before;
+        if matches!(channel, TransformChannel::Css) {
+            let Self {
+                ref css_current_transform_values,
+                ref mut css_transform_sizes,
+                ..
+            } = *self;
+            css_transform_sizes.retain(|node, _| css_current_transform_values.contains_key(node));
+        }
+        if changed {
+            self.note_value_write();
+        }
+    }
+
+    /// Empties `channel`.
+    pub fn clear_transforms(&mut self, channel: TransformChannel) {
+        self.retain_transforms(channel, |_| false);
+    }
+
+    fn opacity_maps(
+        &self,
+        channel: OpacityChannel,
+    ) -> (&NodeMap<OpacityKey>, &NodeMap<f32>) {
+        match channel {
+            OpacityChannel::Css => (&self.opacity_keys, &self.current_opacity_values),
+            OpacityChannel::Animation => {
+                (&self.anim_opacity_keys, &self.anim_current_opacity_values)
+            }
+            OpacityChannel::Sheen => (&self.sheen_opacity_keys, &self.sheen_current_opacity_values),
+        }
+    }
+
+    fn opacity_maps_mut(
+        &mut self,
+        channel: OpacityChannel,
+    ) -> (&mut NodeMap<OpacityKey>, &mut NodeMap<f32>) {
+        match channel {
+            OpacityChannel::Css => (&mut self.opacity_keys, &mut self.current_opacity_values),
+            OpacityChannel::Animation => {
+                (&mut self.anim_opacity_keys, &mut self.anim_current_opacity_values)
+            }
+            OpacityChannel::Sheen => {
+                (&mut self.sheen_opacity_keys, &mut self.sheen_current_opacity_values)
+            }
+        }
+    }
+
+    /// Moves the generation when `changed`; returns `changed`.
+    fn wrote(&mut self, changed: bool) -> bool {
+        if changed {
+            self.note_value_write();
+        }
+        changed
+    }
+
+    /// The opacity key `node` has in `channel`.
+    #[must_use]
+    pub fn opacity_key(&self, channel: OpacityChannel, node: NodeId) -> Option<OpacityKey> {
+        self.opacity_maps(channel).0.get(&node).copied()
+    }
+
+    /// The opacity `node` has in `channel` (its own, not the product a layer
+    /// is painted at).
+    #[must_use]
+    pub fn opacity_value(&self, channel: OpacityChannel, node: NodeId) -> Option<f32> {
+        self.opacity_maps(channel).1.get(&node).copied()
+    }
+
+    /// Binds `node` to `key` in `channel` with `value`, replacing what it
+    /// had. Returns whether the key or the value is another one now.
+    pub fn set_opacity(
+        &mut self,
+        channel: OpacityChannel,
+        node: NodeId,
+        key: OpacityKey,
+        value: f32,
+    ) -> bool {
+        let (keys, values) = self.opacity_maps_mut(channel);
+        let key_changed = keys.insert(node, key) != Some(key);
+        let value_changed = values.insert(node, value) != Some(value);
+        self.wrote(key_changed || value_changed)
+    }
+
+    /// Gives `node` the opacity `value` in `channel` under the key it has, or
+    /// under a new one. Returns the key.
+    pub fn key_opacity(&mut self, channel: OpacityChannel, node: NodeId, value: f32) -> OpacityKey {
+        let (keys, values) = self.opacity_maps_mut(channel);
+        let mut minted = false;
+        let key = *keys.entry(node).or_insert_with(|| {
+            minted = true;
+            OpacityKey::unique()
+        });
+        let value_changed = values.insert(node, value) != Some(value);
+        self.wrote(minted || value_changed);
+        key
+    }
+
+    /// Writes the opacity `value` for `node` in `channel` and leaves its key
+    /// alone. Returns the value it had.
+    pub fn set_opacity_value(
+        &mut self,
+        channel: OpacityChannel,
+        node: NodeId,
+        value: f32,
+    ) -> Option<f32> {
+        let (_, values) = self.opacity_maps_mut(channel);
+        let old = values.insert(node, value);
+        self.wrote(old != Some(value));
+        old
+    }
+
+    /// Takes `node` out of `channel`, key and value. Returns the key it had.
+    pub fn remove_opacity(&mut self, channel: OpacityChannel, node: NodeId) -> Option<OpacityKey> {
+        let (keys, values) = self.opacity_maps_mut(channel);
+        let key = keys.remove(&node);
+        let had_value = values.remove(&node).is_some();
+        self.wrote(key.is_some() || had_value);
+        key
+    }
+
+    /// Keeps in `channel` the nodes `keep` holds for, keys and values.
+    pub fn retain_opacities(&mut self, channel: OpacityChannel, mut keep: impl FnMut(NodeId) -> bool) {
+        let (keys, values) = self.opacity_maps_mut(channel);
+        let before = keys.len() + values.len();
+        keys.retain(|node, _| keep(*node));
+        values.retain(|node, _| keep(*node));
+        let changed = keys.len() + values.len() != before;
+        self.wrote(changed);
+    }
+
+    /// Empties `channel`.
+    pub fn clear_opacities(&mut self, channel: OpacityChannel) {
+        self.retain_opacities(channel, |_| false);
+    }
+
+    fn scrollbar_opacity_maps_mut(
+        &mut self,
+        orientation: ScrollbarOrientation,
+    ) -> (&mut DomNodeMap<OpacityKey>, &mut DomNodeMap<f32>) {
+        match orientation {
+            ScrollbarOrientation::Vertical => (
+                &mut self.scrollbar_v_opacity_keys,
+                &mut self.scrollbar_v_opacity_values,
+            ),
+            ScrollbarOrientation::Horizontal => (
+                &mut self.scrollbar_h_opacity_keys,
+                &mut self.scrollbar_h_opacity_values,
+            ),
+        }
+    }
+
+    /// The opacity key of the `orientation` scrollbar of `node` in `dom`.
+    #[must_use]
+    pub fn scrollbar_opacity_key(
+        &self,
+        orientation: ScrollbarOrientation,
+        dom: DomId,
+        node: NodeId,
+    ) -> Option<OpacityKey> {
+        let keys = match orientation {
+            ScrollbarOrientation::Vertical => &self.scrollbar_v_opacity_keys,
+            ScrollbarOrientation::Horizontal => &self.scrollbar_h_opacity_keys,
+        };
+        keys.get(&(dom, node)).copied()
+    }
+
+    /// The opacity of the `orientation` scrollbar of `node` in `dom`.
+    #[must_use]
+    pub fn scrollbar_opacity(
+        &self,
+        orientation: ScrollbarOrientation,
+        dom: DomId,
+        node: NodeId,
+    ) -> Option<f32> {
+        let values = match orientation {
+            ScrollbarOrientation::Vertical => &self.scrollbar_v_opacity_values,
+            ScrollbarOrientation::Horizontal => &self.scrollbar_h_opacity_values,
+        };
+        values.get(&(dom, node)).copied()
+    }
+
+    /// Binds the `orientation` scrollbar of `node` in `dom` to `key` at
+    /// `value`, replacing what it had. Returns whether anything changed.
+    pub fn set_scrollbar_opacity(
+        &mut self,
+        orientation: ScrollbarOrientation,
+        dom: DomId,
+        node: NodeId,
+        key: OpacityKey,
+        value: f32,
+    ) -> bool {
+        let (keys, values) = self.scrollbar_opacity_maps_mut(orientation);
+        let key_changed = keys.insert((dom, node), key) != Some(key);
+        let value_changed = values.insert((dom, node), value) != Some(value);
+        self.wrote(key_changed || value_changed)
+    }
+
+    /// [`Self::set_scrollbar_opacity`] for a bar that has NO key yet; a bar
+    /// that has one keeps its key and its value. Returns whether it was bound.
+    pub fn register_scrollbar_opacity(
+        &mut self,
+        orientation: ScrollbarOrientation,
+        dom: DomId,
+        node: NodeId,
+        key: OpacityKey,
+        value: f32,
+    ) -> bool {
+        let (keys, values) = self.scrollbar_opacity_maps_mut(orientation);
+        if keys.contains_key(&(dom, node)) {
+            return false;
+        }
+        keys.insert((dom, node), key);
+        values.insert((dom, node), value);
+        self.wrote(true)
+    }
+
+    /// Writes the opacity of the `orientation` scrollbar of `node` in `dom`
+    /// and leaves its key alone. Returns the value it had.
+    pub fn set_scrollbar_opacity_value(
+        &mut self,
+        orientation: ScrollbarOrientation,
+        dom: DomId,
+        node: NodeId,
+        value: f32,
+    ) -> Option<f32> {
+        let (_, values) = self.scrollbar_opacity_maps_mut(orientation);
+        let old = values.insert((dom, node), value);
+        self.wrote(old != Some(value));
+        old
+    }
+
+    /// Takes the `orientation` scrollbar of `node` in `dom` out, key and
+    /// value. Returns the key it had.
+    pub fn remove_scrollbar_opacity(
+        &mut self,
+        orientation: ScrollbarOrientation,
+        dom: DomId,
+        node: NodeId,
+    ) -> Option<OpacityKey> {
+        let (keys, values) = self.scrollbar_opacity_maps_mut(orientation);
+        let key = keys.remove(&(dom, node));
+        let had_value = values.remove(&(dom, node)).is_some();
+        self.wrote(key.is_some() || had_value);
+        key
+    }
+
+    /// The colour key of `node`'s background.
+    #[must_use]
+    pub fn color_key(&self, node: NodeId) -> Option<ColorKey> {
+        self.color_keys.get(&node).copied()
+    }
+
+    /// The colour `node`'s bound background shows now.
+    #[must_use]
+    pub fn color_value(&self, node: NodeId) -> Option<azul_css::props::basic::ColorU> {
+        self.current_color_values.get(&node).copied()
+    }
+
+    /// Every node whose background is bound to a colour key, with the key.
+    pub fn color_keys_of(&self) -> impl Iterator<Item = (NodeId, ColorKey)> + '_ {
+        self.color_keys.iter().map(|(node, key)| (*node, *key))
+    }
+
+    /// Gives `node`'s background the colour `value` under the key it has, or
+    /// under a new one. Returns the key.
+    pub fn key_color(&mut self, node: NodeId, value: azul_css::props::basic::ColorU) -> ColorKey {
+        let mut minted = false;
+        let key = *self.color_keys.entry(node).or_insert_with(|| {
+            minted = true;
+            ColorKey::unique()
+        });
+        let value_changed = self.current_color_values.insert(node, value) != Some(value);
+        self.wrote(minted || value_changed);
+        key
+    }
+
+    /// Writes the colour of `node`'s background and leaves its key alone.
+    /// Returns the colour it had.
+    pub fn set_color_value(
+        &mut self,
+        node: NodeId,
+        value: azul_css::props::basic::ColorU,
+    ) -> Option<azul_css::props::basic::ColorU> {
+        let old = self.current_color_values.insert(node, value);
+        self.wrote(old != Some(value));
+        old
+    }
+
+    /// Takes `node`'s background out, key and colour. Returns the key it had.
+    pub fn remove_color(&mut self, node: NodeId) -> Option<ColorKey> {
+        let key = self.color_keys.remove(&node);
+        let had_value = self.current_color_values.remove(&node).is_some();
+        self.wrote(key.is_some() || had_value);
+        key
+    }
+
+    /// Keeps the bound backgrounds of the nodes `keep` holds for.
+    pub fn retain_colors(&mut self, mut keep: impl FnMut(NodeId) -> bool) {
+        let before = self.color_keys.len() + self.current_color_values.len();
+        self.color_keys.retain(|node, _| keep(*node));
+        self.current_color_values.retain(|node, _| keep(*node));
+        let changed = self.color_keys.len() + self.current_color_values.len() != before;
+        self.wrote(changed);
+    }
+
+    /// Sets the light the sheens shine in ([`Self::sheen_light`]). Returns
+    /// whether it is another one.
+    pub fn set_sheen_light(&mut self, light: Option<(azul_css::props::basic::ColorU, f32)>) -> bool {
+        let changed = self.sheen_light != light;
+        self.sheen_light = light;
+        self.wrote(changed)
+    }
+
+    /// Drops every key and every value.
+    pub fn clear(&mut self) {
+        let generation = self.value_generation.wrapping_add(1);
+        *self = Self::default();
+        self.value_generation = generation;
+    }
+
+    /// Hands every map of this cache that is keyed by a node to `rekey`, to
+    /// have its node ids rewritten after a DOM rebuild (keys AND values AND
+    /// what belongs to them: a map left out keeps a stranger's value under a
+    /// reused id). The one place that lists the maps for that.
+    pub fn rekey_nodes(&mut self, rekey: &mut impl RekeyNodes) {
+        rekey.node_map(&mut self.transform_keys);
+        rekey.node_map(&mut self.current_transform_values);
+        rekey.node_map(&mut self.h_transform_keys);
+        rekey.node_map(&mut self.h_current_transform_values);
+        rekey.node_map(&mut self.css_transform_keys);
+        rekey.node_map(&mut self.css_current_transform_values);
+        rekey.node_map(&mut self.css_transform_sizes);
+        rekey.node_map(&mut self.anim_transform_keys);
+        rekey.node_map(&mut self.anim_current_transform_values);
+        rekey.node_map(&mut self.sticky_transform_keys);
+        rekey.node_map(&mut self.sticky_current_transform_values);
+        rekey.node_map(&mut self.sheen_transform_keys);
+        rekey.node_map(&mut self.sheen_current_transform_values);
+        rekey.node_map(&mut self.sheen_opacity_keys);
+        rekey.node_map(&mut self.sheen_current_opacity_values);
+        rekey.node_map(&mut self.color_keys);
+        rekey.node_map(&mut self.current_color_values);
+        rekey.node_map(&mut self.anim_opacity_keys);
+        rekey.node_map(&mut self.anim_current_opacity_values);
+        rekey.node_map(&mut self.opacity_keys);
+        rekey.node_map(&mut self.current_opacity_values);
+        rekey.dom_node_map(&mut self.scrollbar_v_opacity_keys);
+        rekey.dom_node_map(&mut self.scrollbar_h_opacity_keys);
+        rekey.dom_node_map(&mut self.scrollbar_v_opacity_values);
+        rekey.dom_node_map(&mut self.scrollbar_h_opacity_values);
+        self.note_value_write();
     }
 
     /// The reference frame the display list opens for `node`, as its key
@@ -653,18 +1242,21 @@ impl GpuValueCache {
         if sticky.is_empty() && self.sticky_transform_keys.is_empty() {
             return;
         }
-        self.sticky_transform_keys.retain(|node, _| sticky.contains(node));
-        self.sticky_current_transform_values
-            .retain(|node, _| sticky.contains(node));
+        // `sticky` is in node order (the loop above): a binary search, where
+        // `Vec::contains` made this quadratic in the sticky boxes. Through
+        // the write methods, so a box that became or stopped being sticky
+        // moves the write generation.
+        self.retain_transforms(TransformChannel::Sticky, |node| {
+            sticky.binary_search(&node).is_ok()
+        });
         for node in sticky {
-            let mut fresh = false;
-            self.sticky_transform_keys.entry(node).or_insert_with(|| {
-                fresh = true;
-                TransformKey::unique()
-            });
-            if fresh {
-                self.sticky_current_transform_values
-                    .insert(node, ComputedTransform3D::IDENTITY);
+            if !self.sticky_transform_keys.contains_key(&node) {
+                self.set_transform(
+                    TransformChannel::Sticky,
+                    node,
+                    TransformKey::unique(),
+                    ComputedTransform3D::IDENTITY,
+                );
             }
         }
     }
@@ -1499,5 +2091,295 @@ mod audit_a2_gpu_tests {
         assert!((layer - 0.2).abs() < 1e-6, "the layer's key carries 0.5 x 0.4: {layer}");
         assert_eq!(opacities.get(&css_key.id), Some(&0.5), "the CSS key: its own value");
         assert_eq!(opacities.get(&fading_key.id), Some(&0.4), "no CSS opacity: the animation's");
+    }
+
+    const TRANSFORM_CHANNELS: [TransformChannel; 6] = [
+        TransformChannel::ScrollbarVertical,
+        TransformChannel::ScrollbarHorizontal,
+        TransformChannel::Css,
+        TransformChannel::Animation,
+        TransformChannel::Sticky,
+        TransformChannel::Sheen,
+    ];
+    const OPACITY_CHANNELS: [OpacityChannel; 3] =
+        [OpacityChannel::Css, OpacityChannel::Animation, OpacityChannel::Sheen];
+
+    /// A2-gpu-13. The write generation is what lets a pan or an idle frame
+    /// skip the copy of the bound values, their comparison and the walk for
+    /// the compositor: it has to move with every write that changes a key or
+    /// a value, and with no other (a thumb written where it is, a `retain`
+    /// that drops nothing).
+    ///
+    /// Mutations: `self.wrote_transform(channel, node, key_changed ||
+    /// value_changed)` -> `..., key_changed)` in `set_transform` fails "a new
+    /// value"; `note_value_write` called unconditionally in `wrote` fails
+    /// "the same value"; two channels sharing a map in `transform_maps_mut`
+    /// fail "each channel is its own pair of maps".
+    #[test]
+    fn a_write_method_moves_the_generation_exactly_when_it_changes_something() {
+        let node = NodeId::new(4);
+        let a = ComputedTransform3D::new_translation(1.0, 2.0, 0.0);
+        let b = ComputedTransform3D::new_translation(3.0, 4.0, 0.0);
+        let mut cache = GpuValueCache::empty();
+        // `moved(&mut generation)`: did the generation move since the last ask?
+        fn moved_since(cache: &GpuValueCache, last: &mut u64) -> bool {
+            let now = cache.value_generation();
+            let moved = now != *last;
+            *last = now;
+            moved
+        }
+        let mut last = cache.value_generation();
+
+        for channel in TRANSFORM_CHANNELS {
+            let key = TransformKey::unique();
+            assert!(cache.set_transform(channel, node, key, a));
+            assert!(moved_since(&cache, &mut last), "{channel:?}: a new key and value");
+            assert!(!cache.set_transform(channel, node, key, a));
+            assert!(!moved_since(&cache, &mut last), "{channel:?}: the same key and value");
+            assert_eq!(cache.set_transform_value(channel, node, a), Some(a));
+            assert!(!moved_since(&cache, &mut last), "{channel:?}: the same value");
+            assert_eq!(cache.set_transform_value(channel, node, b), Some(a));
+            assert!(moved_since(&cache, &mut last), "{channel:?}: a new value");
+            assert_eq!(cache.transform_key(channel, node), Some(key));
+            assert_eq!(cache.transform_value(channel, node), Some(b));
+            assert!(!cache.register_transform(channel, node, TransformKey::unique(), a));
+            assert_eq!(cache.transform_key(channel, node), Some(key), "a bound node keeps its key");
+            assert_eq!(cache.key_transform(channel, node, b), key);
+            cache.retain_transforms(channel, |_| true);
+            assert!(!moved_since(&cache, &mut last), "{channel:?}: nothing registered, keyed or dropped");
+            assert_eq!(cache.remove_transform(channel, node), Some(key));
+            assert!(moved_since(&cache, &mut last), "{channel:?}: the node is gone");
+            assert_eq!(cache.remove_transform(channel, node), None);
+            assert!(!moved_since(&cache, &mut last), "{channel:?}: nothing was left to remove");
+            let minted = cache.key_transform(channel, node, a);
+            assert!(moved_since(&cache, &mut last), "{channel:?}: a key was minted");
+            assert_eq!(cache.transform_keys_of(channel).collect::<Vec<_>>(), vec![(node, minted)]);
+            assert!(cache.register_transform(channel, NodeId::new(5), key, b));
+            assert!(moved_since(&cache, &mut last));
+            cache.clear_transforms(channel);
+            assert!(moved_since(&cache, &mut last), "{channel:?}: emptied");
+            cache.clear_transforms(channel);
+            assert!(!moved_since(&cache, &mut last), "{channel:?}: it was empty");
+        }
+
+        for channel in OPACITY_CHANNELS {
+            let key = OpacityKey::unique();
+            assert!(cache.set_opacity(channel, node, key, 0.5));
+            assert!(moved_since(&cache, &mut last), "{channel:?}");
+            assert!(!cache.set_opacity(channel, node, key, 0.5));
+            assert_eq!(cache.set_opacity_value(channel, node, 0.5), Some(0.5));
+            assert_eq!(cache.key_opacity(channel, node, 0.5), key);
+            cache.retain_opacities(channel, |_| true);
+            assert!(!moved_since(&cache, &mut last), "{channel:?}: the same opacity");
+            assert_eq!(cache.set_opacity_value(channel, node, 0.25), Some(0.5));
+            assert!(moved_since(&cache, &mut last), "{channel:?}: another opacity");
+            assert_eq!(cache.opacity_key(channel, node), Some(key));
+            assert_eq!(cache.opacity_value(channel, node), Some(0.25));
+            assert_eq!(cache.remove_opacity(channel, node), Some(key));
+            assert!(moved_since(&cache, &mut last));
+            assert_eq!(cache.remove_opacity(channel, node), None);
+            assert!(!moved_since(&cache, &mut last));
+            let _ = cache.key_opacity(channel, node, 0.75);
+            assert!(moved_since(&cache, &mut last));
+            cache.clear_opacities(channel);
+            assert!(moved_since(&cache, &mut last));
+        }
+
+        let dom = DomId::ROOT_ID;
+        for orientation in [ScrollbarOrientation::Vertical, ScrollbarOrientation::Horizontal] {
+            let key = OpacityKey::unique();
+            assert!(cache.register_scrollbar_opacity(orientation, dom, node, key, 0.0));
+            assert!(moved_since(&cache, &mut last), "{orientation:?}");
+            assert!(!cache.register_scrollbar_opacity(orientation, dom, node, OpacityKey::unique(), 1.0));
+            assert_eq!(cache.set_scrollbar_opacity_value(orientation, dom, node, 0.0), Some(0.0));
+            assert!(!cache.set_scrollbar_opacity(orientation, dom, node, key, 0.0));
+            assert!(!moved_since(&cache, &mut last), "{orientation:?}: a bar that did not fade");
+            assert_eq!(cache.set_scrollbar_opacity_value(orientation, dom, node, 0.6), Some(0.0));
+            assert!(moved_since(&cache, &mut last), "{orientation:?}: a step of the fade");
+            assert_eq!(cache.scrollbar_opacity_key(orientation, dom, node), Some(key));
+            assert_eq!(cache.scrollbar_opacity(orientation, dom, node), Some(0.6));
+            assert_eq!(cache.remove_scrollbar_opacity(orientation, dom, node), Some(key));
+            assert!(moved_since(&cache, &mut last));
+            assert_eq!(cache.remove_scrollbar_opacity(orientation, dom, node), None);
+            assert!(!moved_since(&cache, &mut last));
+        }
+
+        let red = azul_css::props::basic::ColorU::new(255, 0, 0, 255);
+        let blue = azul_css::props::basic::ColorU::new(0, 0, 255, 255);
+        let color_key = cache.key_color(node, red);
+        assert!(moved_since(&cache, &mut last), "a colour key was minted");
+        assert_eq!(cache.key_color(node, red), color_key);
+        assert_eq!(cache.set_color_value(node, red), Some(red));
+        cache.retain_colors(|_| true);
+        assert!(!moved_since(&cache, &mut last), "the same colour");
+        assert_eq!(cache.set_color_value(node, blue), Some(red));
+        assert!(moved_since(&cache, &mut last), "a step of the fade");
+        assert_eq!((cache.color_key(node), cache.color_value(node)), (Some(color_key), Some(blue)));
+        assert_eq!(cache.color_keys_of().collect::<Vec<_>>(), vec![(node, color_key)]);
+        assert_eq!(cache.remove_color(node), Some(color_key));
+        assert!(moved_since(&cache, &mut last));
+        cache.retain_colors(|_| false);
+        assert!(!moved_since(&cache, &mut last));
+        assert!(cache.set_sheen_light(Some((red, 0.5))));
+        assert!(moved_since(&cache, &mut last));
+        assert!(!cache.set_sheen_light(Some((red, 0.5))));
+        assert!(!moved_since(&cache, &mut last));
+
+        cache.clear();
+        assert!(moved_since(&cache, &mut last), "a cleared cache is another set");
+        assert_eq!(cache.sheen_light, None);
+    }
+
+    /// A2-gpu-13. Each channel is its own pair of maps, and they are the maps
+    /// the renderers read (`for_each_bound_value`): six transforms and three
+    /// opacities written through the methods, one node per channel, come out
+    /// under their keys with their values.
+    #[test]
+    fn each_channel_is_its_own_pair_of_maps_and_the_renderers_read_them() {
+        let mut cache = GpuValueCache::empty();
+        let mut want_transforms = HashMap::new();
+        for (i, channel) in TRANSFORM_CHANNELS.into_iter().enumerate() {
+            let key = TransformKey::unique();
+            let value = ComputedTransform3D::new_translation(i as f32 + 1.0, 0.0, 0.0);
+            cache.set_transform(channel, NodeId::new(10 + i), key, value);
+            want_transforms.insert(key.id, value);
+        }
+        let mut want_opacities = HashMap::new();
+        for (i, channel) in OPACITY_CHANNELS.into_iter().enumerate() {
+            let key = OpacityKey::unique();
+            let value = 0.1 * (i as f32 + 1.0);
+            cache.set_opacity(channel, NodeId::new(20 + i), key, value);
+            want_opacities.insert(key.id, value);
+        }
+        for (i, orientation) in [ScrollbarOrientation::Vertical, ScrollbarOrientation::Horizontal]
+            .into_iter()
+            .enumerate()
+        {
+            let key = OpacityKey::unique();
+            let value = 0.7 + 0.1 * i as f32;
+            cache.set_scrollbar_opacity(orientation, DomId::ROOT_ID, NodeId::new(30), key, value);
+            want_opacities.insert(key.id, value);
+        }
+        let (transforms, opacities) = bound_values(&cache);
+        assert_eq!(transforms, want_transforms);
+        assert_eq!(opacities, want_opacities);
+    }
+
+    /// A2-gpu-13 and A2-gpu-08. A CSS value written through a write method
+    /// was not resolved from the cascade at a known size: the list builds its
+    /// matrix from the cascade again instead of baking what was written.
+    ///
+    /// Mutation: `self.css_transform_sizes.remove(&node)` removed from
+    /// `wrote_transform` makes `reference_frame_at` return the written value
+    /// (a translation by (7, 7)) for the rotation the cascade holds.
+    #[test]
+    fn a_css_value_written_by_hand_is_not_taken_for_the_cascades() {
+        let styled = labels(4);
+        let size = (100.0_f32, 40.0_f32);
+        let mut cache = GpuValueCache::empty();
+        let _ = cache.synchronize_with_sizes(&styled, &|_| Some(size));
+        let node = *cache.css_transform_keys.keys().next().expect("a transformed node");
+        let from_cascade = cache.reference_frame_at(&styled, node, size).expect("a frame").1;
+        let by_hand = ComputedTransform3D::new_translation(7.0, 7.0, 0.0);
+        assert_ne!(from_cascade, by_hand);
+
+        cache.set_transform_value(TransformChannel::Css, node, by_hand);
+        assert_eq!(cache.reference_frame_of(node).map(|f| f.1), Some(by_hand), "the live value");
+        assert_eq!(
+            cache.reference_frame_at(&styled, node, size).map(|f| f.1),
+            Some(from_cascade),
+            "the list's value is the cascade's"
+        );
+    }
+
+    /// Counts the maps `rekey_nodes` hands over.
+    #[derive(Default)]
+    struct CountMaps {
+        node_maps: usize,
+        dom_node_maps: usize,
+    }
+
+    impl RekeyNodes for CountMaps {
+        fn node_map<V>(&mut self, _map: &mut NodeMap<V>) {
+            self.node_maps += 1;
+        }
+        fn dom_node_map<V>(&mut self, _map: &mut DomNodeMap<V>) {
+            self.dom_node_maps += 1;
+        }
+    }
+
+    /// Moves node 1 to node 8 in every map.
+    struct OneToEight;
+
+    impl RekeyNodes for OneToEight {
+        fn node_map<V>(&mut self, map: &mut NodeMap<V>) {
+            if let Some(value) = map.remove(&NodeId::new(1)) {
+                map.insert(NodeId::new(8), value);
+            }
+        }
+        fn dom_node_map<V>(&mut self, map: &mut DomNodeMap<V>) {
+            if let Some(value) = map.remove(&(DomId::ROOT_ID, NodeId::new(1))) {
+                map.insert((DomId::ROOT_ID, NodeId::new(8)), value);
+            }
+        }
+    }
+
+    /// A2-gpu-13. A DOM rebuild renumbers the nodes, and every map keyed by
+    /// a node has to follow: 6 transform channels x 2, the sizes of the CSS
+    /// values, 3 opacity channels x 2, the colour keys and values = 21 maps
+    /// by node, and the 4 scrollbar fade maps by (DOM, node). The layout
+    /// crate's remap named 24 of the 25 one by one and left the colours out;
+    /// the cache lists them now.
+    ///
+    /// Mutation: a `rekey.node_map(..)` line removed from `rekey_nodes` fails
+    /// the count and "<map> follows its node".
+    #[test]
+    fn a_rebuild_rekeys_every_map_of_the_cache() {
+        let mut cache = GpuValueCache::empty();
+        let mut count = CountMaps::default();
+        let before = cache.value_generation();
+        cache.rekey_nodes(&mut count);
+        assert_eq!((count.node_maps, count.dom_node_maps), (21, 4));
+        assert_ne!(cache.value_generation(), before, "renumbered nodes are another set");
+
+        let (old, new) = (NodeId::new(1), NodeId::new(8));
+        let value = ComputedTransform3D::new_translation(5.0, 6.0, 0.0);
+        let red = azul_css::props::basic::ColorU::new(255, 0, 0, 255);
+        let dom = DomId::ROOT_ID;
+        for channel in TRANSFORM_CHANNELS {
+            let _ = cache.key_transform(channel, old, value);
+        }
+        cache.css_transform_sizes.insert(old, (100.0, 40.0));
+        for channel in OPACITY_CHANNELS {
+            let _ = cache.key_opacity(channel, old, 0.5);
+        }
+        let _ = cache.key_color(old, red);
+        for orientation in [ScrollbarOrientation::Vertical, ScrollbarOrientation::Horizontal] {
+            cache.set_scrollbar_opacity(orientation, dom, old, OpacityKey::unique(), 0.5);
+        }
+
+        cache.rekey_nodes(&mut OneToEight);
+
+        for channel in TRANSFORM_CHANNELS {
+            assert!(cache.transform_key(channel, new).is_some(), "{channel:?} keys follow their node");
+            assert_eq!(cache.transform_value(channel, new), Some(value), "{channel:?} values follow");
+            assert_eq!(cache.transform_key(channel, old), None);
+            assert_eq!(cache.transform_value(channel, old), None);
+        }
+        assert_eq!(cache.css_transform_sizes.get(&new), Some(&(100.0, 40.0)), "the size follows");
+        assert!(!cache.css_transform_sizes.contains_key(&old));
+        for channel in OPACITY_CHANNELS {
+            assert!(cache.opacity_key(channel, new).is_some(), "{channel:?} keys follow their node");
+            assert_eq!(cache.opacity_value(channel, new), Some(0.5));
+            assert_eq!(cache.opacity_key(channel, old), None);
+        }
+        assert!(cache.color_key(new).is_some(), "the colour key follows its node");
+        assert_eq!(cache.color_value(new), Some(red));
+        assert_eq!(cache.color_key(old), None);
+        for orientation in [ScrollbarOrientation::Vertical, ScrollbarOrientation::Horizontal] {
+            assert!(cache.scrollbar_opacity_key(orientation, dom, new).is_some());
+            assert_eq!(cache.scrollbar_opacity(orientation, dom, new), Some(0.5));
+            assert_eq!(cache.scrollbar_opacity_key(orientation, dom, old), None);
+        }
     }
 }
