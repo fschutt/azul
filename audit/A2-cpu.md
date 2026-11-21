@@ -17,59 +17,253 @@ function, plus a test directly below it), per RULES.md section 4:
 
 - A1's `layout/src/cpurender/{raster,compositor,pixmap}.rs`: only on top of the tag `audit-A1-structure`, never inside a
   function A1 claims; findings there go to `## For area A1` below.
-- A7-editor's `mapedit3/src/ui/main/map.rs` (m4p): minimal patches, bigger things to `## For area A7-editor
+- A7-editor's `mapedit3/src/ui/main/map.rs` (m4p): minimal patches, bigger things to `## For area A7-editor`.
 
-**A2-cpu-23, the zoom's anchor** (`write_picture_transform`). What must hold: the picture point under the pointer is
-drawn where the pointer is, with the scale the engine DRAWS. All in view px (logical), per axis.
+Tests: `dll/src/desktop/audit_tests/a2_cpu.rs`, `layout/src/audit_tests/a2_cpu.rs`, and `audit_a2_cpu_tests` modules
+directly below the functions whose private items they need.
 
-- exact, from the model (as today): `k = s / s0`, `t = s (pan - pan0)` (`picture_transform`); a picture point `P` is at
-  `k P + t`.
-- the scale the engine draws: three decimals. Quantise in the editor, so that it does not depend on whether the engine
-  cuts or rounds (A2-cpu-24): `n = round(k x 1000)`, `kq = n / 1000`, and hand over `FloatValue::create((n + 0.25) /
-  1000.0)` (x 1000 in the engine is `n + 0.25`: `n` cut, `n` rounded). `snap_transform`'s `|k - 1| < 1e-3 -> 1` stays
-  (`kq = 1`, no `Scale` written).
-- the anchor: the picture point under the pointer of the zoom step, `Pc = (c - t) / k` with `c` = `(cx, cy)` of
-  `zoom_view` (equal to `(at + pan0) x s0`, `at = to_map(cx, cy)`: it does not change while the pointer's map point is
-  kept). Keep `Pc` in `ViewMotion` (new field, cleared by a render); a pan during the zoom keeps it (the point moves
-  with the picture); with no step yet, the picture point at the view's middle, `(size / 2 - t) / k`.
-- the translation to write: **`tq = t + (k - kq) x Pc`** (= `c - kq x Pc`). Then `kq Pc + tq = k Pc + t = c`: the anchor is
-  exact. Any other point is off by `(k - kq) x (P - Pc)`: at most `0.0005 x` its distance from the anchor.
-- `m.zoom = Some((kq, tqx, tqy))`; `picture_covers` with `kq`, `tq`.
+## Spaces
 
-Example: view 2560 x 1440, render scale 6, the picture unshifted, the pointer at `c = (2000, 1200)`, one wheel notch
-(`2^(60 / 240) = 1.1892071`). `k = 1.1892071`, `t = c (1 - k) = (-378.414, -227.049)`, `Pc = (2000, 1200)`.
-Today: the engine draws `1.189`, the anchor lands at `1.189 x 2000 - 378.414 = 1999.586` and `1.189 x 1200 - 227.049 =
-1199.751`: 0.41 px left, 0.25 px up. Corrected: `n = 1189`, `kq = 1.189`, `tq = (2000 - 2378.0, 1200 - 1426.8) =`
-**`(-378.000, -226.800)`** (before: `(-378.414, -227.049)`), the anchor at (2000, 1200). Three notches: `k = 1.6817928`,
-today drawn at 1.681: 1.59 px of slip at x 2000; corrected `kq = 1.682`, `tqx = 2000 - 3364.0 = -1364.000` (before
-`-1363.586`).
+The coordinate spaces of the CPU path. Every space is y-down with its origin at a top-left corner. "Logical px" = CSS px;
+"device px" = logical px x `dpi_factor`. THE factor is `dpi / 96` (`LayoutWindow::frame_dpi_factor()`, what every shell
+hands `CpuBackend::render_frame`), NOT `WindowSize::get_hidpi_factor()`, which is cut to three decimals (A2-cpu-13).
+Read this before writing coordinate code; the conversion rules below are what the rasteriser does today, and what every
+damage / shift / hit-test function has to agree with.
 
-Smaller, by reading (not signs): the first frame of a zoom after a pan sets the view's offset back to zero and writes
-the transform in one frame: the engine moves the view's pixels back (memmove) and then repaints the whole view for the
-value change; a zoom back to exactly the render's scale and pan keeps `motion.zoom = Some((1, 0, 0))`, so the settle
-renders an identical picture once more.
+| # | space | origin | unit | what is stored in it | converts to |
+|---|---|---|---|---|---|
+| L | **list space** of a display list (also called content coords, layout space) | the list's DOM: for the root list the window's top-left, for a `VirtualView` child list the child DOM's (0, 0) | logical px | every `DisplayListItem` rect: `bounds`, `clip_rect`, `line_box`, `GlyphInstance.point`, `PushClip.bounds`, `PushScrollFrame.clip_bounds`, `PushReferenceFrame.bounds`, `VirtualView.bounds`; `reference_frame_extent`; `FrameIndex::opaque_fills`; `visual_bounds()` | P by the walk below |
+| P | **painted space** of a list (called "on screen", "viewport space", "window space" for the root list) | same origin as L of the same list | logical px | where the list's items are painted in the surface the list is painted into. Root list: damage rects (`LogicalRect` in `FrameDamage::Rects`, `render_display_list_damaged`'s `damage_rects`), `ViewShift.clip`, the `clip` of `collect_scroll_shifts`, `present_extra`, `ScrollStack.open[..].2`, `ScrollStack.clips` | D by `x dpi_factor`; a child list's P goes to the PARENT list's L by the view rule |
+| D | **device pixels of the frame** (`AzulPixmap` of the window: `CpuBackend.last_frame` or the native target) | window top-left | device px; pixel `i` covers `[i, i+1)`, its centre is `i + 0.5` | `AzRect` clips of `clip_stack` / `real_clip_stack` (f32, NOT snapped), `SnappedRect.x0..y1`, `TransformGroup.outer_clip`, `PixelBox`, blit clips `(x0, y0, x1, y1)` half-open | present rects (A10) |
+| G | **group surface pixels** of an isolated reference frame (`TransformGroup`) | device pixel `(x, y) = floor(extent_P.origin x dpi)` of the surface below it | device px | the group's `AzulPixmap`, the `AzRect` clips pushed while the group is open, `group_visible_part`'s result | the surface below by `TransformGroup.matrix` |
+| Y | **layer pixels** of the retained compositor (`Layer.pixbuf`; full repaints only) | `layer.bounds.origin + layer.scroll_offset` in L | device px | `Layer.pixbuf`; `Layer.bounds` is L (logical), EXCEPT the root layer's `bounds.size`, which is the pixmap size in device px | output by `composite_layer_recursive` |
 
-## For area A11
+`pixel_w = ceil(width x dpi)`, `pixel_h = ceil(height x dpi)` (`CpuBackend::render_frame`): the frame can be a fraction of
+a device pixel larger than the window's logical size.
 
-**A2-cpu-23, the assertion of `e2e/zoom_labels.json`** (`e2e.rs` `view_picture`). Redefined, not relaxed: the point under
-the pointer stays where it is ON SCREEN, measured with what the engine holds.
+### L -> P: the walk (one rule, `raster.rs` `render_single_item`; mirrored by `compositor.rs` `ScrollStack` + `FrameStack`)
 
-- `view_picture` reads `(kr, txr, tyr)` from the engine (`read_transform`, as today) and has the model's exact
-  `(k, tx, ty)` (`picture_transform`) and the editor's anchor `Pc` (the new `ViewMotion` field; without one, the view's
-  middle as above).
-- new field **`error.anchor_px`** = `max over x, y of |(kr x Pc + tr) - (k x Pc + t)| x dpi`: the drawn position of the
-  anchor against the model's, in device pixels. Assert **`at_most: 0.02`** (the translation keeps three decimals, cut:
-  up to 0.001 px; f32 at coordinates of a few thousand: about 0.001 px; x dpi 2).
-- `error.k` stays (`|kr - k|`, at most 0.001 with the editor's rounding; the scenarios allow 0.003).
-- `error.tx` / `error.ty` (`<= 0.05` against the EXACT model's translation) go: with the fix `txr = tx + (k - kq) Pc`
-  on purpose (0.414 px in the example above). The absolute ranges of `result.read.tx` / `.ty` hold where `k` has three
-  decimals (the pinch of 1.5: `kq = k`, `tq = t`) and move by `(k - kq) x Pc` elsewhere (1.414 steps: `0.0002135 x Pc`,
-  0.13 px at `Pc = 600`): recompute them with the formula or assert `anchor_px` instead.
-- optional second number, to see the cost of three decimals: `error.far_px` = the same expression at the view corner
-  farthest from the anchor; bound `0.0005 x` the view's diagonal in device px (1.5 px at 2560 x 1440, dpi 1).
-- same example as for A7-editor: before the fix `anchor_px = 0.414` (fails), after it `0.000`.
+State: an accumulated offset `acc` (the top of `scroll_offset_stack`; the walk paints at `pos - acc`) and the open
+reference frames.
 
-## For area A10`
+1. **Scroll frame** `PushScrollFrame { scroll_id }` with offset `s = scroll_offsets[scroll_id]` (positive = scrolled
+   down / right): `acc += s`. An item at L position `p` inside it is painted at `p - s`. The frame's own `clip_bounds`
+   and the `PushClip` in front of it are in the space AROUND the frame (not moved by `s`).
+2. **Reference frame** `PushReferenceFrame { bounds, transform_key, initial_transform }`. The matrix is
+   `render_state.transforms[transform_key.id]`, else `initial_transform` (the fallback is `initial_transform`, never the
+   identity). `ComputedTransform3D.m` is a ROW-vector 4x4:
+   `x' = x m[0][0] + y m[1][0] + m[3][0]`, `y' = x m[0][1] + y m[1][1] + m[3][1]`, `w = x m[0][3] + y m[1][3] + m[3][3]`
+   (translation in logical px). `transform-origin` is already folded in by the producer
+   (`core/src/transform.rs` `from_style_transform_vec`: `T(-origin) . M . T(origin)` in the node's own box, last listed
+   function applied first). The matrix acts **about the frame's origin `o = bounds.origin - acc`** (the box's top-left
+   after the scroll frames around it): a point painted at `q` without the frame is painted at `o + M (q - o)`.
+   Three cases (`ReferenceFrameGroup::begin`):
+   - identity within 1e-4 (`is_identity_2d`: the four linear terms and `m[3][0]`, `m[3][1]`): nothing;
+   - translation within 1e-4 (`translation_2d`): `acc -= (tx, ty)` (no resampling, fractional `tx` allowed);
+   - anything else: an isolated group (space G).
+3. **View** `VirtualView { bounds, content_offset, child_dom_id }`: the child list (space L of the child) is walked inline
+   with `acc_child = acc - bounds.origin - content_offset`, clipped to `bounds - acc` (the BOX, not `clip_rect`). So a child
+   point `c` is at parent-L position `bounds.origin + content_offset + c`.
+   `content_offset = materialized_window_origin - scroll_offset`, snapped to whole device pixels
+   (`LayoutWindow::virtual_view_content_offset`): a view scrolled DOWN by 300 px carries `content_offset.y = -300`.
+   As a scroll delta: `delta = old_content_offset - new_content_offset`, `offset = -new_content_offset` (`ViewShift`).
+4. Frames nest in list order. Example: scroll frame S (offset `s`) around frame F (matrix `M`, box origin `o`) around item
+   at `p`: painted at `(o - s) + M (p - o)`. Frame F around scroll frame S around `p`: `o + M (p - s - o)`.
+   NOT `T_total(p - s_total)`: that formula (the comment of `headless::ResolvedChain`) is right only when every matrix is
+   a translation, see A2-cpu-03.
+
+Numeric example (all in logical px, dpi 1): view box at (50, 38) in the root list, `content_offset = (-12, 0)`, picture
+root frame in the child at child-L (0, 0) with `M = scale(1.5) then translate(20, 10)` (the editor's zoom), a label at
+child-L (100, 40). Child P: `0 + 1.5 x 100 + 20 = 170`, `1.5 x 40 + 10 = 70`. Root L = root P = `(50 - 12 + 170, 38 + 70)`
+= **(208, 108)**. Device px at dpi 2: (416, 216).
+
+### P -> D and the rounding rules in force (they are NOT one rule: A2-cpu-06)
+
+| what | near edge | far edge | where |
+|---|---|---|---|
+| damage rect -> cleared / repainted box | `floor(x dpi)` | `ceil((x + w) dpi)`, clamped to the pixmap | `render_display_list_damaged` (`snap_out`) |
+| scroll / view memmove region | `floor` | `ceil`, clamped | `scroll_shift_region_impl` |
+| opaque square rect fill | `round` | `round` | `render_rect` (`round_edge`) |
+| translucent rect, agg paths, borders, text clip, image clip (`AzRect` clip -> pixel box) | `trunc` (`as i32`) | `trunc` | `agg_fill_path_clipped`, `render_rect` (blend_bar), `text_clip_pixel_box`, `render_image` |
+| box-shadow blit clip | `trunc` | `ceil` | `render_box_shadow` (`blit_clipped`) |
+| text-shadow output box, filter group | `floor` | `ceil` | `text_shadow_boxes`, `FilterGroup::begin` |
+| opacity group region | `trunc(x)` | `trunc(x) + trunc(w)` | `PushOpacity` arm |
+| isolated group: surface box | `floor` | `ceil` | `ReferenceFrameGroup::begin` |
+| isolated group: composite clip | `trunc` | `trunc` (`AzRect::pixel_box`, since A2-cpu-06; was `round` / `round`) | `GroupGeometry::of` (`outer_clip`) |
+| layer: composite clip | `round` | `round` | `composite_layer_recursive` (`static_clip`) |
+| layer placement | plain layer: `round((origin - inherited) dpi)`; a reference frame's layer: `(pivot - inherited) dpi`, not rounded (A2-cpu-14) | | `composite_layer_recursive` |
+| scroll shift distance | `round(new dpi) - round(prev dpi)` (not `round(delta dpi)`) | | `scroll_shift_region_impl` |
+
+Rects whose device edges are whole numbers (dpi 1 or 2 with integral layout) agree under every rule; at dpi 1.25 / 1.5
+or with fractional layout positions they differ by one pixel column / row.
+
+### G: the isolated group (`ReferenceFrameGroup::begin`, `TransformGroup`)
+
+- surface box in the pixels below: `x = floor(e.x dpi)`, `x1 = ceil((e.x + e.w) dpi)`, same for y, where
+  `e = reference_frame_extent - acc` (what the frame paints, in its own UNTRANSFORMED space: its box and the visual
+  bounds of every item down to its pop, see A2-cpu-04 for what that leaves out);
+- inside the group the walk paints with `acc_group = acc + (x, y) / dpi`: an item at L `p` lands on group pixel
+  `(p - acc) dpi - (x, y)`;
+- group pixel `g` (continuous, corner coordinates) -> pixel below: `matrix = T(o_d) . Lm . T((x, y) - o_d)` with
+  `o_d = (bounds.origin - acc) dpi` and
+  `Lm = [m00 m10 m30 dpi; m01 m11 m31 dpi; m03 / dpi m13 / dpi m33]` (column-vector `Mat3`, row-major);
+- the composite samples at destination pixel centres: `src = inv(matrix)(d + 0.5) - 0.5`, bilinear, taps outside the
+  surface are transparent (the edge of a group fades over one source texel); a matrix without shear takes the separable
+  fixed-point path (`blit_scale.rs`, 8-bit weights, same sampling points);
+- `group_visible_part` maps the clip open around the push (pixels below, half-open) back through the inverse of the
+  affine `matrix` and widens it by 64 group pixels; the walk paints (and culls) inside that part only.
+
+Example (dpi 1): frame box origin `o = (10, 20)`, extent `(10, 20) 100 x 50`, `M = scale(2)`: surface 100 x 50 at
+`(x, y) = (10, 20)`, `matrix = T(10, 20) . S(2) . T(0, 0)`: group pixel (30, 5) -> (10 + 60, 20 + 10) = (70, 30). With the
+clip `[0, 110) x [0, 60)` below, `group_visible_part` = corners back: `((0 - 10) / 2, (0 - 20) / 2) = (-5, -10)` and
+`((110 - 10) / 2, (60 - 20) / 2) = (50, 20)`, widened by 64 and cut to the surface: `(0, 0, 100, 50)`.
+
+### Who adds, who subtracts (producers against consumers)
+
+| quantity | producer | consumers | agree? |
+|---|---|---|---|
+| scroll offset `s` (paint at `p - s`) | `ScrollManager::build_scroll_offset_map` | raster `scroll_rect`; `ScrollStack::step` / `moved_by`; `compute_display_list_damage_impl` (`offset_stack`); `InPlaceShift::summed_offset` | yes |
+| `content_offset` (child at `bounds.origin + content_offset + c`) | `virtual_view_content_offset` (`window_origin - scroll`, snapped) | raster `VirtualView` arm (`acc - origin - content_offset`); `view_damage_in_list` `lift` (`+ origin + content_offset`); `list_value_damage` (`+`); `headless::resolve_virtual_view_placements` (`+`); `execute_virtual_view_shift` `covered_at` (`- (around - origin + scroll)`, `scroll = -content_offset`); `virtual_view_frame_scroll_offsets` (`-content_offset`, for WebRender's pipeline scroll) | yes (Z1 fixed the one that subtracted) |
+| frame matrix about `o` | `GpuValueCache` / `initial_transform` | raster `ReferenceFrameGroup::begin`; `affine_rect_about`; `FrameStack::map`; layers `composite_layer_recursive` (`pivot`) | yes among these; `headless::resolve_chain` (hit-test, IME, `window_space_offset_of_dom`) applies it about the window origin: A2-cpu-03 |
+| fallback matrix of a key without a value | | raster: `initial_transform`; `ScrollStack`, `FrameValues`, layers, `node_groups_on_screen`: `initial_transform`; `gpu_value_damage` changed-frame extent: identity | no: A2-cpu-01 |
+| frame translation as an offset | `translation_2d` | raster: `acc - t`; `InPlaceShift::Translation`: `(-tx, -ty)`; `ScrollStack::placement`: `scrolled - t` | yes |
+| view shift delta | `collect_virtual_view_shifts`: `old_off - new_off` | `scroll_shift_region_impl`: positive = content moves up / left, strip at the bottom / right | yes, all eight directions (checked: section Shift below) |
+
+## Shift: `scroll_shift_region_impl` and `execute_virtual_view_shift`, all eight directions (A2-cpu-11)
+
+`delta` is a SCROLL delta (`old_content_offset - new_content_offset` for a view): positive x = the content moves LEFT.
+`px_d = round(new_off dpi) - round(prev_off dpi)`, `prev_off = new_off - delta`.
+
+| pan (content_offset grows by) | `px_dx`, `px_dy` | mover | rows / columns copied | exposed strip (logical, dpi 1, view box (48, 40) 304 x 200) |
+|---|---|---|---|---|
+| (+12, 0): content right | -12, 0 | `shift_horizontal_1d`, `px_dx < 0` | `dst[x + 12] = src[x]` (memmove inside the row) | left: (48, 40) 13 x 200 |
+| (-12, 0): content left | +12, 0 | `shift_horizontal_1d`, `px_dx > 0` | `dst[x] = src[x + 12]` | right: x = 48 + 304 - 13 = 339 |
+| (0, +7): content down | 0, -7 | `shift_vertical_1d`, bottom to top | `dst[y] = src[y - 7]` | top: (48, 40) 304 x 8 |
+| (0, -7): content up | 0, +7 | `shift_vertical_1d`, top to bottom | `dst[y] = src[y + 7]` | bottom: y = 40 + 200 - 8 = 232 |
+| four diagonals | both | `shift_diagonal_2d` (one pass, `src_col` / `dst_col` by the sign of `px_dx`, row order by the sign of `px_dy`) | each row copied once from its diagonal source | both strips (an L; they stay two rects through `coalesce_damage_rects`) |
+
+- the strip is `|px| + 1` device pixels (one of over-cover), computed from the CLAMPED region;
+- a delta that is no whole device pixel (gate 1e-3): no move, damage = the clip, `present_extra` empty;
+- `|px| >=` the region's width or height: no move, damage = the clip (`present_extra` = the clip all the same);
+- the delta rounds to zero pixels: no damage at all (see A2-cpu-07 for when that is wrong);
+- negative and positive offsets: only the difference of the two rounded offsets enters;
+- `present_extra` = the view's whole clip whenever pixels moved (the whole box did change on screen); A1 narrows what
+  is PRESENTED, the rect itself is right;
+- overlays painted after the view: repainted at `over` and at `over - delta` (where the move dragged them), same sign as
+  `execute_scroll_shift`'s ghost (`g - delta`).
+
+Guards: `a2_cpu_11_a_pans_strip_is_on_the_side_the_content_came_from_in_all_eight_directions` (the table above, exact) and
+`a2_cpu_11_a_panned_frame_is_a_fresh_renders_at_every_scale_and_for_every_kind_of_pan`.
+
+## Findings
+
+Severity = how often it draws wrongly x how visible (ms where it costs time). Tests are in
+`layout/src/audit_tests/a2_cpu.rs` unless a file is named.
+
+### A2-cpu-01 `gpu_value_damage` mapped a changed frame whose key has no value with the identity; the rasteriser uses `initial_transform`
+- file:line `layout/src/cpurender/compositor.rs:2861-2862` (base) - class: sign/offset - severity: low (needs a key that
+  loses or gains its value while the list stays; then a box-sized stale rect)
+- evidence: a key bound by the list can be missing from the value map (`GpuValueCache::for_each_bound_value` skips a key
+  without a value); the raster then paints with `initial_transform` (`raster.rs`, `PushReferenceFrame` arm). The function
+  computed that fallback (`old_m` / `new_m`) and shadowed it with the identity for the changed frame's own extent.
+  Example: box (10, 20) 100 x 50, built with `translate(100, 0)`, old value `translate(50, 0)`, new: none. Painted now at
+  x 110..210; old damage `[60, 160)` + `[10, 110)`; new and expected `[60, 160)` + `[110, 210)`.
+- test: `a2_cpu_01_a_changed_frame_without_a_live_value_is_damaged_where_its_initial_transform_paints_it`
+- status: fixed `db350dbe6`
+
+### A2-cpu-02 open question 1 of `CPU_RENDERING.md`: why the zoom-out frame at k = 1.000 was an isolated group
+- file:line `css/src/props/basic/length.rs:223` (`FloatValue::new`), `css/src/cast.rs:40`, `compositor.rs:70-84` - class: rounding
+- answer: `FloatValue::new(v)` is `(v * 1000.0) as isize`: it TRUNCATES. A zoom in and out again leaves `k = s / s0` one ulp
+  under 1 (0.99999994): `x 1000 = 999.99994 -> 999 -> 0.999`. `is_identity_2d` wants `|m00 - 1| < 1e-4`, and
+  `|0.999 - 1| = 1e-3`: not the identity, not a translation: `ReferenceFrameGroup::begin` opened an isolated group of the
+  whole picture (5.78 MP) and resampled it at 0.999. A `k` one ulp ABOVE 1 (1.0000001 -> 1000 -> 1.000) was the identity,
+  so the cost hung on the direction of a rounding error; in the measured scenario it fell under 1 every time. The
+  editor's snap (`map.rs` `snap_transform`, `0095bba`: `|k - 1| < 1e-3 -> 1`, and no `Scale` at all for `k == 1`) covers
+  exactly the range the truncation can produce, so the editor side is closed
+  (`a_transform_close_to_the_identity_is_written_as_the_identity` in `map.rs` pins it). The engine side stays: A2-cpu-24.
+- status: answered by reading
+
+### A2-cpu-03 the hit-test / IME chain applies reference-frame matrices about the window origin; the rasteriser applies them about the frame's origin
+- file:line `layout/src/headless.rs:349-382` (`resolve_chain`), `:321-346`, `:728-746` (`nested_dom_window_origin`, which my
+  `window_space_offset_of_dom` returns) - class: sign/offset - severity: high for the editor's turned labels (923 in the
+  Tuebingen view) and for the "press during a zoom" item of the brief
+- evidence: `resolve_chain` sums every scroll offset and composes the raw matrices: `screen = T_total(pos - scroll_total)`.
+  The raster paints `o + M (p - o)`, `o` the frame's box origin after the scroll frames around it (space rule 2); the two
+  agree only for translations (or `o = (0, 0)` with no scroll frame outside a non-translation). Example: a label box at
+  L (300, 200), 100 x 12, `transform-origin: 0 12px; transform: rotate(90deg)`. Its local point (50, 6) is painted at
+  `(300, 200) + (6, 62) = (306, 262)`. The chain maps the screen point (306, 262) back with `M^-1` about (0, 0):
+  `(250, -294)`, outside the box `[300, 400) x [200, 212)`: the press misses. Expected `o + M^-1 (s - o) = (350, 206)`.
+- status: open (A6 claims the functions): see `## For area A6`
+
+### A2-cpu-04 `reference_frame_extent` leaves out what the frames INSIDE a frame move
+- file:line `layout/src/solver3/display_list.rs:3536-3607` (`GroupBounds`), `:3683-3767` (`FrameIndex::of`); consumers
+  `raster.rs` (`GroupGeometry::of`'s `extent`), `compositor.rs:786`, `:2858`, `:5170` - class: wrong-output - severity: medium
+  (any nested transform whose inner frame moves content out of the outer frame's layout box)
+- evidence: `GroupBounds::step` unions the L bounds of every item between push and pop, also of items inside a nested
+  `PushReferenceFrame`, which are painted through that inner matrix. Example: column frame F (box (0, 0) 200 x 400,
+  animated `translateY`), in it a card frame G with `translate(-100, 0)`: the card is painted at x -100..100, F's extent is
+  x 0..200. (a) value damage of F covers x 0..200 moved by F's old and new matrix: the left half of the card leaves a
+  trail; (b) with F an isolated group (scale), its surface is x 0..200: the left half of the card is cut off.
+  In the editor the picture root's extent is the ground rect (256 px around the view), so turned labels are inside it.
+- test: `a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved` (`#[ignore]`)
+- status: open (A1): see `## For area A1`
+
+### A2-cpu-05 a changed `PushTextShadow` damaged nothing in the paired diff
+- file:line `compositor.rs:5607-5624` (base), `display_list.rs:3461` - class: wrong-output (missed damage) - severity: medium
+  (a halo's colour or width changes: idle frame in the window's list; in a view only when something else changed too)
+- fix, in two commits: `f47353dc3` answered `None` for such a pair (the window, or the view's whole box: an 80 ms frame
+  for the map view); `163f54b38` replaces that with the precise damage. The paired walk keeps the text shadows open at
+  the current item; under one that differs between the lists every `Text` item is damaged where the old shadow painted
+  and where the new one paints: `visual_bounds()` widened by `text_shadow_reach` (the larger offset + blur + spread) plus
+  `TEXT_SHADOW_DAMAGE_SLACK` = 3 px (blur radius, spread and the dilation's rim are each rounded up to device pixels when
+  the shadow is drawn: 2.5 device px; plus the run's own fringe). The rects go through the scroll offsets, the frames and
+  a view's content offset like every rect of the diff.
+- example: three labels on the baselines 30, 90, 150, pens at x 20, 32, 44, 24 px, each in its clip `(16, y - 28) 150 x 40`
+  under a halo of 2 px spread; the middle halo turns yellow. Ink of the middle run: x `-4 .. 68`, y `54 .. 108`, cut to
+  the clip: `(16, 62) 52 x 40`; widened by 2 + 3: **(11, 57) 62 x 50**; in a view at (10, 10) with its content at (-6, 4):
+  **(15, 71) 62 x 50**. The first label ends at y 56 on screen, the third starts at 136. (The mutant "no slack" gives
+  `(14, 60) 56 x 44`; the commit message of `163f54b38` names another rect for it by mistake.)
+- tests: `a2_cpu_05_a_changed_text_shadow_damages_the_runs_under_it_by_its_reach_and_no_other_run` (the two rects, exact);
+  `a2_cpu_05_one_labels_halo_changes_colour_in_a_view_and_only_that_label_is_repainted` (`raster.rs`, `text_shadow_tests`:
+  real glyphs; damaged render == full render, every pixel; skipped without a system font)
+- status: fixed `f47353dc3` + `163f54b38`. Left coarse: the WINDOWED (structural) path, where a shadow in the changed
+  window is still a full repaint (lists of different lengths: a view render, not a hover).
+
+### A2-cpu-06 one clip, six ways to round it
+- file:line see the table "P -> D" - class: rounding - severity: low at dpi 1 / 2 (whole device edges), visible at 1.25 / 1.5
+- evidence: at dpi 1.25 a view box at logical x 50, width 300 is the clip 62.5..437.5. Direct paints write columns
+  62..436; the composite of an isolated group was clipped to 63..437: during a zoom column 62 showed the backdrop and
+  column 437 the content. Second example, far edge 1600.5: fills stop at column 1600, the pan's memmove region is
+  `[62, ceil(1600.5)) = [62, 1601)`: a pan to the right copies the view's column over the neighbour's column 1600, and the
+  repainted strip is on the left.
+- test: `a2_cpu_06_a_scaled_group_fills_the_same_columns_of_a_clip_between_pixels_as_a_direct_paint`
+- status: the group's clip fixed `9f2741513` (`AzRect::pixel_box`); the other sites open (A1): see `## For area A1`
+
+### A2-cpu-07 `execute_virtual_view_shift` checks that the DELTA is a whole device pixel but moves by the difference of the two rounded OFFSETS
+- file:line `compositor.rs:3671-3683` (gate), `:3740` -> `:2028-2032` (distance) - class: rounding - severity: none today
+  (`virtual_view_content_offset` snaps both offsets), a pixel of error for any other producer of `content_offset`
+- evidence: `-old_off dpi = 10.4999`, `-new_off dpi = 13.5004`: delta 3.0005 passes the gate, the pixels move
+  `14 - 10 = 4`, a box at child x 10.3 moves 3. And `10.5003 -> 11.4999`: delta 0.9996 passes, distance `11 - 11 = 0`:
+  `strips.is_empty()` returns NO damage for content that moved a pixel.
+- test: `a2_cpu_07_a_pan_between_offsets_off_the_pixel_grid_is_a_fresh_renders_frame` (`#[ignore]`)
+- status: open (A1 claims the function): see `## For area A1`
+
+### A2-cpu-12 a blur wider than 64 device px is cut at the painted part of a group
+- file:line `raster.rs` `GROUP_VISIBLE_MARGIN` / `group_part_within` - class: wrong-output - severity: very low
+- evidence: the walk paints a group only inside the clip mapped back plus 64 group px. A `filter: blur()` or a shadow
+  whose kernel is wider than 64 device px reads transparent pixels past that cut: the visible edge of the blur differs
+  from an unculled render within `radius - 64` px of the damage edge. No content in the editor has such a radius.
+- status: open (note for A1: make the margin `max(64, widest blur of the group)` if a group can hold one)
+
+### A2-cpu-13 a view's content offset was snapped on `get_hidpi_factor()`'s grid, not on the frame's
+- file:line `layout/src/window.rs:4353` (base; mine) - class: rounding / DPI - severity: none at 1, 1.25, 1.5, 1.75, 2; at any
+  other scale (4/3, 1.1: Wayland fractional scaling, custom Windows scaling) every pan / wheel step repainted the whole
+  view (the delta failed the whole-pixel gate), and A2-cpu-07 became reachable
+- evidence: `get_hidpi_factor()` is a `FloatValue` (three decimals, cut off: dpi 128 reads 1.333); every shell renders at
+  `dpi / 96` (1.3333334). Offset -300.3: old `round(-400.2999) / 1.333 = -300.075`, in the frame `-400.1`; new
+  `round(-400.4) / 1.3333334`, in the frame `-400.0`.
+- test: `a2_cpu_13_a_views_content_offset_is_a_whole_device_pixel_of_the_frame_at_four_thirds`
+- status: fixed `8b69ea0a6` (`LayoutWindow::frame_dpi_factor()`); the shells should take the factor from it: `## For area A10`
 
 ### A2-cpu-14 the layered compositor rounded a reference frame's pivot to a device pixel; the flat walk and WebRender do not
 - file:line `compositor.rs:1325-1328` (base) - class: rounding - severity: low at whole device positions, visible at
@@ -294,19 +488,55 @@ scroll and one composed matrix. With the chain outermost first:
 
 ## For area A7-editor
 
-**A2-cpu-23, the zoom's anchor.** In `write_picture_transform`, after `snap_transform_of`: the engine draws
-`kq = floor(k x 1000) / 1000` (until A2-cpu-24 is fixed; `round` after). Write the translation for THAT scale, so that a
-chosen point stays put: with `c` the anchor in view px (the pointer of the step, else the view's middle) and
-`P = (c - t) / k` its picture point, `t_q = c - kq P` per axis. The slip left is `|k - kq| x` the distance from the anchor
-(under 0.3 px over half a 2560 px view with rounding) instead of `x` the distance from the picture's corner (2.5 px).
-`zoom_view` has the pointer; `pan_view` (a pan during a zoom) has none: keep the last step's. The scenarios of
-`e2e/zoom_labels.json` assert `result.error.tx <= 0.05` against `picture_transform` (`e2e.rs` `view_picture`): compare
-against the corrected translation there (A11). Not patched here: it changes what the scenarios read.
+**A2-cpu-23, the zoom's anchor** (`write_picture_transform`). What must hold: the picture point under the pointer is
+drawn where the pointer is, with the scale the engine DRAWS. All in view px (logical), per axis.
+
+- exact, from the model (as today): `k = s / s0`, `t = s (pan - pan0)` (`picture_transform`); a picture point `P` is at
+  `k P + t`.
+- the scale the engine draws: three decimals. Quantise in the editor, so that it does not depend on whether the engine
+  cuts or rounds (A2-cpu-24): `n = round(k x 1000)`, `kq = n / 1000`, and hand over `FloatValue::create((n + 0.25) /
+  1000.0)` (x 1000 in the engine is `n + 0.25`: `n` cut, `n` rounded). `snap_transform`'s `|k - 1| < 1e-3 -> 1` stays
+  (`kq = 1`, no `Scale` written).
+- the anchor: the picture point under the pointer of the zoom step, `Pc = (c - t) / k` with `c` = `(cx, cy)` of
+  `zoom_view` (equal to `(at + pan0) x s0`, `at = to_map(cx, cy)`: it does not change while the pointer's map point is
+  kept). Keep `Pc` in `ViewMotion` (new field, cleared by a render); a pan during the zoom keeps it (the point moves
+  with the picture); with no step yet, the picture point at the view's middle, `(size / 2 - t) / k`.
+- the translation to write: **`tq = t + (k - kq) x Pc`** (= `c - kq x Pc`). Then `kq Pc + tq = k Pc + t = c`: the anchor is
+  exact. Any other point is off by `(k - kq) x (P - Pc)`: at most `0.0005 x` its distance from the anchor.
+- `m.zoom = Some((kq, tqx, tqy))`; `picture_covers` with `kq`, `tq`.
+
+Example: view 2560 x 1440, render scale 6, the picture unshifted, the pointer at `c = (2000, 1200)`, one wheel notch
+(`2^(60 / 240) = 1.1892071`). `k = 1.1892071`, `t = c (1 - k) = (-378.414, -227.049)`, `Pc = (2000, 1200)`.
+Today: the engine draws `1.189`, the anchor lands at `1.189 x 2000 - 378.414 = 1999.586` and `1.189 x 1200 - 227.049 =
+1199.751`: 0.41 px left, 0.25 px up. Corrected: `n = 1189`, `kq = 1.189`, `tq = (2000 - 2378.0, 1200 - 1426.8) =`
+**`(-378.000, -226.800)`** (before: `(-378.414, -227.049)`), the anchor at (2000, 1200). Three notches: `k = 1.6817928`,
+today drawn at 1.681: 1.59 px of slip at x 2000; corrected `kq = 1.682`, `tqx = 2000 - 3364.0 = -1364.000` (before
+`-1363.586`).
 
 Smaller, by reading (not signs): the first frame of a zoom after a pan sets the view's offset back to zero and writes
 the transform in one frame: the engine moves the view's pixels back (memmove) and then repaints the whole view for the
 value change; a zoom back to exactly the render's scale and pan keeps `motion.zoom = Some((1, 0, 0))`, so the settle
 renders an identical picture once more.
+
+## For area A11
+
+**A2-cpu-23, the assertion of `e2e/zoom_labels.json`** (`e2e.rs` `view_picture`). Redefined, not relaxed: the point under
+the pointer stays where it is ON SCREEN, measured with what the engine holds.
+
+- `view_picture` reads `(kr, txr, tyr)` from the engine (`read_transform`, as today) and has the model's exact
+  `(k, tx, ty)` (`picture_transform`) and the editor's anchor `Pc` (the new `ViewMotion` field; without one, the view's
+  middle as above).
+- new field **`error.anchor_px`** = `max over x, y of |(kr x Pc + tr) - (k x Pc + t)| x dpi`: the drawn position of the
+  anchor against the model's, in device pixels. Assert **`at_most: 0.02`** (the translation keeps three decimals, cut:
+  up to 0.001 px; f32 at coordinates of a few thousand: about 0.001 px; x dpi 2).
+- `error.k` stays (`|kr - k|`, at most 0.001 with the editor's rounding; the scenarios allow 0.003).
+- `error.tx` / `error.ty` (`<= 0.05` against the EXACT model's translation) go: with the fix `txr = tx + (k - kq) Pc`
+  on purpose (0.414 px in the example above). The absolute ranges of `result.read.tx` / `.ty` hold where `k` has three
+  decimals (the pinch of 1.5: `kq = k`, `tq = t`) and move by `(k - kq) x Pc` elsewhere (1.414 steps: `0.0002135 x Pc`,
+  0.13 px at `Pc = 600`): recompute them with the formula or assert `anchor_px` instead.
+- optional second number, to see the cost of three decimals: `error.far_px` = the same expression at the view corner
+  farthest from the anchor; bound `0.0005 x` the view's diagonal in device px (1.5 px at 2560 x 1440, dpi 1).
+- same example as for A7-editor: before the fix `anchor_px = 0.414` (fails), after it `0.000`.
 
 ## For area A10
 
