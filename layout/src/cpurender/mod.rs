@@ -13,6 +13,7 @@ pub mod embolden;
 pub mod hvif;
 mod item_grid;
 pub mod pixmap;
+pub mod present_layer;
 mod raster;
 pub mod retained;
 mod shape;
