@@ -2273,6 +2273,13 @@ impl CpuHitTester {
                 .collect();
             drop(sort_span);
 
+            // The viewports as every entry carries them (`compute_node_clips`).
+            let index_clips = dom_clips
+                .iter()
+                .map(|(rect, chain)| (sanitize_clip_rect(*rect), *chain))
+                .collect();
+            self.index
+                .insert(*dom_id, DomIndex::build(&entries, index_clips));
             self.node_rects.insert(*dom_id, entries);
         }
     }
@@ -5391,5 +5398,173 @@ mod audit_a6_tests {
         // Synced again with nothing moved: the same answer.
         tester.sync_view_placements(&results);
         assert!(label(&tester, 209.0, 109.0) && !label(&tester, 239.0, 109.0));
+    }
+
+    // A6-04: what a query costs.
+
+    /// A map's shape: a view over a child whose root (node 0) is zoomed and
+    /// holds `n` label boxes, 80 x 16, laid out 50 to a row on a 90 x 20
+    /// pitch. `turned_every`: every that-many-th label has a frame of its own.
+    fn map_of(n: usize, turned_every: Option<usize>) -> (BTreeMap<DomId, DomLayoutResult>, GpuStateManager) {
+        let rows = n.div_ceil(50);
+        let mut nodes = vec![hot(0, (4600.0, 20.0 * rows as f32 + 20.0), None)];
+        let mut positions = vec![p(0.0, 0.0)];
+        let mut gpu = GpuStateManager::default();
+        set_frame(&mut gpu, dom(1), 0, scaled(1.25, 10.0, 6.0));
+        for i in 0..n {
+            nodes.push(hot(i + 1, (80.0, 16.0), Some(0)));
+            positions.push(p(90.0 * (i % 50) as f32, 20.0 * (i / 50) as f32));
+            if turned_every.is_some_and(|k| i % k == 0) {
+                set_frame(&mut gpu, dom(1), i + 1, turned(10.0, 0.0, 12.0));
+            }
+        }
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout(
+                styled(0),
+                Vec::new(),
+                Vec::new(),
+                vec![view(1, r(40.0, 30.0, 900.0, 600.0), p(0.0, 0.0))],
+            ),
+        );
+        results.insert(dom(1), layout(styled(n), nodes, positions, Vec::new()));
+        (results, gpu)
+    }
+
+    /// One query over `n` labels under one zoomed root tests the boxes of one
+    /// grid cell (and the root, which lies over every cell), not `n`: the
+    /// same budget of 12 holds at `n` and at `4 n`, and the answer is the
+    /// label under the point.
+    /// Mutation: `EntryGrid::build` returning `None` (every box tested)
+    /// makes `entries_tested` `n + 1`.
+    #[test]
+    fn a_query_over_a_zoomed_map_tests_a_cell_of_boxes_not_all_of_them() {
+        for n in [1000_usize, 4000] {
+            let (results, gpu) = map_of(n, None);
+            let mut tester = CpuHitTester::new();
+            tester.rebuild_from_layout_with_gpu(&results, Some(&gpu));
+            // Label 123: row 2, column 23, at child (2070, 40); its centre
+            // (2110, 48) is painted at (40, 30) + 1.25 (2110, 48) + (10, 6):
+            // far right of the view box. Label 53: (270, 20), centre
+            // (310, 28) -> (40 + 387.5 + 10, 30 + 35 + 6) = (437.5, 71).
+            let at = p(437.5, 71.0);
+            let hits = nodes_at(&tester, &gpu, &|_, _| None, at.x, at.y);
+            assert_eq!(
+                hits.iter().map(|(d, node, _)| (*d, *node)).collect::<Vec<_>>(),
+                vec![(dom(1), NodeId::new(54)), (dom(1), NodeId::new(0))],
+                "n = {n}: label 53 (node 54) over the root"
+            );
+            let work =
+                tester.hit_test_work(at, &|_, _| None, &|d, node| gpu.painted_transform_of(d, node));
+            assert!(
+                work.entries_tested <= 12,
+                "n = {n}: {} boxes tested for one point",
+                work.entries_tested
+            );
+            assert_eq!(work.groups_visited, 1, "n = {n}: one chain holds every box");
+            assert_eq!(work.links_resolved, 2, "n = {n}: the view and the root's frame, once");
+        }
+    }
+
+    /// With a frame per label (a turned label is one chain) a query inverts
+    /// one link per chain - the root's frame once, not once per label - and
+    /// tests one box per chain: linear in the turned labels with one cheap
+    /// step each, where it was every box against every clip after every
+    /// chain had been resolved from its first link.
+    /// Mutation: the parent's point not kept (`ChainPoints` resolving a chain
+    /// from the window each time) makes `links_resolved` `3 n`.
+    #[test]
+    fn a_frame_per_label_costs_one_link_each_and_the_shared_frames_once() {
+        let mut links = Vec::new();
+        for n in [500_usize, 2000] {
+            let (results, gpu) = map_of(n, Some(1));
+            let mut tester = CpuHitTester::new();
+            tester.rebuild_from_layout_with_gpu(&results, Some(&gpu));
+            let at = p(437.5, 71.0);
+            let work =
+                tester.hit_test_work(at, &|_, _| None, &|d, node| gpu.painted_transform_of(d, node));
+            assert!(
+                work.links_resolved <= n + 2,
+                "n = {n}: {} links inverted",
+                work.links_resolved
+            );
+            assert!(work.entries_tested <= n + 1, "n = {n}: {}", work.entries_tested);
+            links.push(work.links_resolved);
+        }
+        assert!(
+            (links[1] as f32) < 6.0 * links[0] as f32,
+            "4 n labels, under 6 times the links: {links:?}"
+        );
+    }
+
+    /// A point the view does not show (beside its box) looks at none of the
+    /// child's boxes and inverts none of its frames, however many there are.
+    /// Mutation: the viewport test of `dom_hits` removed tests every chain.
+    #[test]
+    fn a_point_beside_the_view_looks_at_none_of_its_boxes() {
+        for n in [500_usize, 2000] {
+            let (results, gpu) = map_of(n, Some(2));
+            let mut tester = CpuHitTester::new();
+            tester.rebuild_from_layout_with_gpu(&results, Some(&gpu));
+            let work = tester.hit_test_work(
+                p(20.0, 300.0),
+                &|_, _| None,
+                &|d, node| gpu.painted_transform_of(d, node),
+            );
+            assert_eq!(
+                work,
+                HitTestWork::default(),
+                "n = {n}: nothing of the view is at (20, 300)"
+            );
+        }
+    }
+
+    /// The grid answers what a walk over every box answers, in the same
+    /// order: 600 boxes of mixed sizes (points, slivers, boxes over many
+    /// cells, one over everything), 400 points, against the boxes themselves.
+    /// Mutation: a cell computed differently for a rect's edge and for the
+    /// point (`cell_along`), or the hits left unsorted, fails.
+    #[test]
+    fn the_grid_answers_what_a_walk_over_every_box_answers() {
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move |modulo: u32| -> f32 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % u64::from(modulo)) as f32
+        };
+        let n = 600_usize;
+        let mut nodes = vec![hot(0, (1000.0, 800.0), None)];
+        let mut positions = vec![p(0.0, 0.0)];
+        let mut rects = vec![r(0.0, 0.0, 1000.0, 800.0)];
+        for i in 0..n {
+            let size = match i % 7 {
+                0 => (0.0, 0.0),
+                1 => (next(300) + 100.0, next(200) + 100.0),
+                2 => (next(40) + 1.0, 0.5),
+                _ => (next(60) + 4.0, next(24) + 4.0),
+            };
+            let at = p(next(960) * 1.0 + 0.25 * next(4), next(760) + 0.5 * next(2));
+            nodes.push(hot(i + 1, size, Some(0)));
+            positions.push(at);
+            rects.push(r(at.x, at.y, size.0, size.1));
+        }
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), layout(styled(n), nodes, positions, Vec::new()));
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        for _ in 0..400 {
+            let at = p(next(1010) - 5.0 + 0.25 * next(4), next(810) - 5.0 + 0.5 * next(2));
+            let walked: Vec<(DomId, NodeId)> = rects
+                .iter()
+                .enumerate()
+                .rev()
+                .filter(|(_, rect)| point_in_rect(at, rect))
+                .map(|(i, _)| (dom(0), NodeId::new(i)))
+                .collect();
+            assert_eq!(tester.hit_test(at), walked, "at {at:?}");
+        }
     }
 }
