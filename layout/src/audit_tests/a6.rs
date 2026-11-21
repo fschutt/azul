@@ -464,6 +464,82 @@ mod a_drag_that_selects_nothing_new {
         lw
     }
 
+    /// Two paragraphs of one line each, the second right under the first.
+    fn two_paragraphs() -> LayoutWindow {
+        let css_src = "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; } .p { \
+                       display: block; width: 600px; }";
+        let mut body = Dom::create_body();
+        for text in [
+            "the first paragraph the drag starts in",
+            "the second paragraph the drag is taken into",
+        ] {
+            let class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("p".into())].into();
+            body = body.with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(class)
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text)),
+            );
+        }
+        let (css, _) = azul_css::parser2::new_from_str(css_src);
+        let styled_dom = StyledDom::create(&mut body, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut Some(Vec::new()),
+        )
+        .expect("layout must succeed");
+        lw
+    }
+
+    /// The same rule across blocks (A3-window-11's drag): a drag taken from the first
+    /// paragraph into the second sets a cross-block selection; eleven more moves that end on
+    /// the same letter of the second paragraph set the selection it has, and rebuild no list;
+    /// another letter is a change again.
+    /// Mutation: the comparison with the selection before the move taken out answers `Some`
+    /// for the eleven and rebuilds eleven lists.
+    #[test]
+    fn a_cross_block_drag_move_that_selects_nothing_new_rebuilds_no_list() {
+        let anchor_at = LogicalPosition::new(40.0, 8.0);
+        // The second paragraph's line: under the first, whatever the font's line height
+        // between 15 and 30 px is.
+        let over = LogicalPosition::new(200.0, 30.0);
+        let further = LogicalPosition::new(330.0, 30.0);
+
+        let mut lw = two_paragraphs();
+        lw.process_mouse_click_for_selection(anchor_at, 0);
+        assert!(
+            lw.process_mouse_drag_for_selection(anchor_at, over).is_some(),
+            "the drag left the anchor block: the selection changed"
+        );
+        let across = lw
+            .text_edit_manager
+            .get_cross_block_selection()
+            .cloned()
+            .expect("harness: the drag into the second paragraph is a cross-block selection");
+
+        let rebuilds = lw.frame_report.dl_rebuilds;
+        for i in 0..11 {
+            assert!(
+                lw.process_mouse_drag_for_selection(anchor_at, over).is_none(),
+                "move {i}: the same end, nothing to tell"
+            );
+        }
+        assert_eq!(lw.text_edit_manager.get_cross_block_selection(), Some(&across));
+        assert_eq!(
+            lw.frame_report.dl_rebuilds, rebuilds,
+            "eleven moves that selected nothing new rebuilt no list"
+        );
+
+        assert!(lw.process_mouse_drag_for_selection(anchor_at, further).is_some());
+        assert_ne!(lw.text_edit_manager.get_cross_block_selection(), Some(&across));
+    }
+
     /// The primary selection, as the drag left it.
     fn selection(lw: &LayoutWindow) -> Option<Selection> {
         let mc = lw.text_edit_manager.multi_cursor.as_ref()?;

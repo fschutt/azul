@@ -28472,12 +28472,25 @@ impl LayoutWindow {
             let extent = self.selection_extent(block);
             let global_hit = self.hittest_text_block(dom_id, current_position, extent);
             if let Some((hit_block, hit_cursor)) = global_hit {
-                if hit_block != block
-                    && self.set_cross_block_selection(block, anchor, hit_block, hit_cursor)
-                {
-                    self.text_edit_manager.mark_dirty();
-                    self.regenerate_display_list_for_dom(dom_id);
-                    return Some(vec![dom_node_id]);
+                if hit_block != block {
+                    // The selection, and the manager's repaint latch, as they
+                    // are before this move: a move that ends on the caret
+                    // position the drag already ended on sets the selection
+                    // it had, and owes no list and no frame (audit A6-14,
+                    // the cross-block half).
+                    let before = self.text_edit_manager.get_cross_block_selection().cloned();
+                    let list_dirty_before = self.text_edit_manager.display_list_dirty;
+                    if self.set_cross_block_selection(block, anchor, hit_block, hit_cursor) {
+                        if before.is_some()
+                            && self.text_edit_manager.get_cross_block_selection() == before.as_ref()
+                        {
+                            self.text_edit_manager.display_list_dirty = list_dirty_before;
+                            return None;
+                        }
+                        self.text_edit_manager.mark_dirty();
+                        self.regenerate_display_list_for_dom(dom_id);
+                        return Some(vec![dom_node_id]);
+                    }
                 }
             }
         }
