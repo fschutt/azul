@@ -4443,3 +4443,215 @@ mod node_identity {
         assert_eq!(count(&d, EventType::Unmount), 0, "nothing unmounts");
     }
 }
+
+/// Audit A3-window: the shallow tiers of `reconcile_dom` (B2: content hash, B3: structural hash).
+#[cfg(test)]
+mod audit_a3_window_tests {
+    use super::*;
+    use crate::{
+        dom::{IdOrClass, NodeData},
+        styled_dom::NodeHierarchyItem,
+    };
+
+    /// A tree as nested `(node, children)`.
+    struct Spec(NodeData, Vec<Spec>);
+
+    fn hitem(parent: Option<usize>, previous: Option<usize>) -> NodeHierarchyItem {
+        NodeHierarchyItem {
+            parent: parent.map_or(0, |p| p + 1),
+            previous_sibling: previous.map_or(0, |p| p + 1),
+            next_sibling: 0,
+            last_child: 0,
+        }
+    }
+
+    /// The tree in the arenas, pre-order.
+    fn flatten(
+        spec: &Spec,
+        parent: Option<usize>,
+        previous: Option<usize>,
+        nodes: &mut Vec<NodeData>,
+        items: &mut Vec<NodeHierarchyItem>,
+    ) -> usize {
+        let idx = nodes.len();
+        nodes.push(spec.0.clone());
+        items.push(hitem(parent, previous));
+        let mut before: Option<usize> = None;
+        for child in &spec.1 {
+            let c = flatten(child, Some(idx), before, nodes, items);
+            if let Some(b) = before {
+                items[b].next_sibling = c + 1;
+            }
+            before = Some(c);
+        }
+        if let Some(last) = before {
+            items[idx].last_child = last + 1;
+        }
+        idx
+    }
+
+    fn arenas(spec: &Spec) -> (Vec<NodeData>, Vec<NodeHierarchyItem>) {
+        let (mut nodes, mut items) = (Vec::new(), Vec::new());
+        flatten(spec, None, None, &mut nodes, &mut items);
+        (nodes, items)
+    }
+
+    fn diff(old: &Spec, new: &Spec) -> DiffResult {
+        let (old_data, old_hierarchy) = arenas(old);
+        let (new_data, new_hierarchy) = arenas(new);
+        reconcile_dom(
+            &old_data,
+            &new_data,
+            &old_hierarchy,
+            &new_hierarchy,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+            NodeIdentityConfig::default(),
+        )
+    }
+
+    fn old_of(diff: &DiffResult, new_index: usize) -> Option<usize> {
+        diff.node_moves
+            .iter()
+            .find(|m| m.new_node_id == NodeId::new(new_index))
+            .map(|m| m.old_node_id.index())
+    }
+
+    fn div() -> NodeData {
+        NodeData::create_div()
+    }
+
+    fn text(s: &str) -> NodeData {
+        NodeData::create_text_do_not_use_without_block_level_wrapper(s)
+    }
+
+    /// A label as a map view builds it: a classed box around its text.
+    fn label(i: usize) -> Spec {
+        Spec(
+            div().with_ids_and_classes(vec![IdOrClass::Class("t0".into())].into()),
+            vec![Spec(text(&format!("label {i}")), Vec::new())],
+        )
+    }
+
+    /// The structural tier (B3) still finds a text whose content and place both changed, under
+    /// the old node its parent was matched to. Arenas: old `root(0) > text(1)`, new
+    /// `root(0) > div(1), div(2), text(3)`. The new text has no positional twin (no old child at
+    /// place 2), another content hash, the same structural hash: it is the old text.
+    #[test]
+    fn a_moved_and_edited_text_is_matched_by_its_structure_under_the_matched_parent() {
+        let old = Spec(div(), vec![Spec(text("x"), Vec::new())]);
+        let new = Spec(
+            div(),
+            vec![
+                Spec(div(), Vec::new()),
+                Spec(div(), Vec::new()),
+                Spec(text("y"), Vec::new()),
+            ],
+        );
+        let d = diff(&old, &new);
+        assert_eq!(old_of(&d, 0), Some(0), "the roots are one node");
+        assert_eq!(old_of(&d, 3), Some(1), "the text is the old text");
+        assert_eq!(old_of(&d, 2), None, "a div is no text");
+    }
+
+    /// The gate: a node is not taken from under another parent. Old
+    /// `root(0) > A(1, key 1) > text(2); B(3, key 2)`, new
+    /// `root(0) > A(1, key 1); B(2, key 2) > div(3), text(4)`. The new text sits under B, the old
+    /// one under A: no match, although their structural hashes are equal.
+    #[test]
+    fn the_shallow_tiers_take_no_node_from_under_another_parent() {
+        let old = Spec(
+            div(),
+            vec![
+                Spec(div().with_key(1_u64), vec![Spec(text("x"), Vec::new())]),
+                Spec(div().with_key(2_u64), Vec::new()),
+            ],
+        );
+        let new = Spec(
+            div(),
+            vec![
+                Spec(div().with_key(1_u64), Vec::new()),
+                Spec(
+                    div().with_key(2_u64),
+                    vec![Spec(div(), Vec::new()), Spec(text("y"), Vec::new())],
+                ),
+            ],
+        );
+        let d = diff(&old, &new);
+        assert_eq!(old_of(&d, 1), Some(1), "A is A");
+        assert_eq!(old_of(&d, 2), Some(3), "B is B");
+        assert_eq!(old_of(&d, 4), None, "B's text is not A's");
+    }
+
+    /// Document order, and an old node is taken once: old `root(0) > text a(1), b(2), c(3)`, new
+    /// `root(0) > div(1), div(2), div(3), text p(4), text q(5)`. No positional twin for p and q
+    /// (places 3 and 4), so the structural tier hands them the first two old texts in order.
+    #[test]
+    fn the_shallow_tiers_hand_out_the_old_nodes_in_document_order_each_once() {
+        let old = Spec(
+            div(),
+            vec![
+                Spec(text("a"), Vec::new()),
+                Spec(text("b"), Vec::new()),
+                Spec(text("c"), Vec::new()),
+            ],
+        );
+        let new = Spec(
+            div(),
+            vec![
+                Spec(div(), Vec::new()),
+                Spec(div(), Vec::new()),
+                Spec(div(), Vec::new()),
+                Spec(text("p"), Vec::new()),
+                Spec(text("q"), Vec::new()),
+            ],
+        );
+        let d = diff(&old, &new);
+        assert_eq!(old_of(&d, 4), Some(1), "p is a");
+        assert_eq!(old_of(&d, 5), Some(2), "q is b");
+        let taken: Vec<usize> = d.node_moves.iter().map(|m| m.old_node_id.index()).collect();
+        let mut once = taken.clone();
+        once.sort_unstable();
+        once.dedup();
+        assert_eq!(once.len(), taken.len(), "no old node is two new nodes");
+    }
+
+    /// A view that grows: `k` labels under one parent become `2k`, while `k` labels under a
+    /// second parent go. The `k` new labels without a positional twin (2k nodes with their texts)
+    /// reach the shallow tiers; the old labels of the second parent (2k nodes) are what is left
+    /// to claim, under a parent that does not agree. The tiers used to walk the whole queue of
+    /// the structural hash (every old label, every old text) once per new node: (2k)(2k) steps.
+    /// Indexed by (hash, parent) they take a step per old node left and per queue entry popped.
+    #[test]
+    fn the_shallow_tiers_take_a_step_per_node_when_a_view_grows() {
+        let work = |k: usize| {
+            let old = Spec(
+                div(),
+                vec![
+                    Spec(div().with_key(1_u64), (0..k).map(label).collect()),
+                    Spec(div().with_key(2_u64), (0..k).map(|i| label(k + i)).collect()),
+                ],
+            );
+            let new = Spec(
+                div(),
+                vec![Spec(
+                    div().with_key(1_u64),
+                    (0..2 * k).map(|i| label(10 * k + i)).collect(),
+                )],
+            );
+            SHALLOW_WORK.with(|w| w.set(0));
+            let d = diff(&old, &new);
+            // The root, the keyed parent and the k labels (2k nodes) with a positional twin.
+            assert_eq!(d.node_moves.len(), 2 + 2 * k, "harness: who is matched");
+            SHALLOW_WORK.with(std::cell::Cell::get)
+        };
+        let (small, large) = (work(300), work(1_200));
+        assert!(small >= 600, "harness: the steps were counted ({small})");
+        assert!(
+            large <= small * 6,
+            "four times the nodes took {large} steps for {small}: more than linear"
+        );
+    }
+}

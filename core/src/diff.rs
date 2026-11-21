@@ -554,6 +554,113 @@ fn key_work(steps: usize) {
 #[inline(always)]
 const fn key_work(_steps: usize) {}
 
+/// How many steps the shallow tiers of `reconcile_dom` (B2, B3) took on this thread (an old node
+/// indexed, a queue entry popped): what the size sweep of the tests reads to say they are linear.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SHALLOW_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn shallow_work(steps: usize) {
+    SHALLOW_WORK.with(|work| work.set(work.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn shallow_work(_steps: usize) {}
+
+/// What the shallow tiers of [`reconcile_dom`] (B2, B3) ask of an old node's PARENT before a new
+/// node may take it: the gate that keeps a keyless match from carrying focus, scroll or dataset
+/// state across parents.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum ParentGate {
+    /// The new node's parent was matched to this old node: the old node is its child.
+    Node(NodeId),
+    /// The new node's parent is unmatched (or it has none): the old node's parent has this
+    /// reconciliation key (`None`: it has no parent).
+    Key(Option<u64>),
+}
+
+/// The old nodes the shallow tiers of [`reconcile_dom`] (B2: content hash, B3: structural hash)
+/// may still claim, one queue per (hash of the node, gate of its parent), each in document order.
+///
+/// The tiers used to search ONE queue per hash, over every old node of the DOM, for the first
+/// entry that was unconsumed and whose parent agreed - and an entry another pass had consumed
+/// never left its queue. A structural hash ignores a text node's text and every node's inline
+/// style, so all the text nodes of a DOM shared one queue and all the spans of one class
+/// another: each new node no earlier pass had matched walked thousands of consumed entries
+/// (a map view growing from 6,000 to 12,500 nodes: about 20 million steps a settle). Here an
+/// old node is entered only if it is still unconsumed, under the gates it can pass, and a claim
+/// pops the front of one queue: every entry is looked at once.
+#[derive(Default)]
+struct ShallowTiers {
+    content: OrderedMap<(DomNodeHash, ParentGate), VecDeque<NodeId>>,
+    structural: OrderedMap<(DomNodeHash, ParentGate), VecDeque<NodeId>>,
+}
+
+impl ShallowTiers {
+    /// The queues of the old nodes `consumed` does not hold yet.
+    fn of(
+        old_node_data: &[NodeData],
+        old_hierarchy: &[NodeHierarchyItem],
+        old_rec_keys: &[u64],
+        consumed: &[bool],
+    ) -> Self {
+        let mut tiers = Self::default();
+        for (idx, node) in old_node_data.iter().enumerate() {
+            if consumed.get(idx).copied().unwrap_or(false) {
+                continue;
+            }
+            shallow_work(1);
+            let id = NodeId::new(idx);
+            let parent = old_hierarchy
+                .get(idx)
+                .and_then(NodeHierarchyItem::parent_id);
+            let parent_key = parent.and_then(|p| old_rec_keys.get(p.index()).copied());
+            let content = node.calculate_node_data_hash();
+            let structural = node.calculate_structural_hash();
+            // Under its parent's reconciliation key, and - when it has a parent - under the
+            // parent itself: the two things a new node's gate can name.
+            let by_key = ParentGate::Key(parent_key);
+            tiers.content.entry((content, by_key)).or_default().push_back(id);
+            tiers
+                .structural
+                .entry((structural, by_key))
+                .or_default()
+                .push_back(id);
+            if let Some(parent) = parent {
+                let by_node = ParentGate::Node(parent);
+                tiers.content.entry((content, by_node)).or_default().push_back(id);
+                tiers
+                    .structural
+                    .entry((structural, by_node))
+                    .or_default()
+                    .push_back(id);
+            }
+        }
+        tiers
+    }
+
+    /// The first old node of the queue of `(hash, gate)`, in document order, that no pass has
+    /// consumed. The entries before it are consumed for good and leave the queue with it.
+    fn claim(
+        queues: &mut OrderedMap<(DomNodeHash, ParentGate), VecDeque<NodeId>>,
+        hash: DomNodeHash,
+        gate: ParentGate,
+        consumed: &[bool],
+    ) -> Option<NodeId> {
+        let queue = queues.get_mut(&(hash, gate))?;
+        while let Some(old_id) = queue.pop_front() {
+            shallow_work(1);
+            if !consumed.get(old_id.index()).copied().unwrap_or(true) {
+                return Some(old_id);
+            }
+        }
+        None
+    }
+}
+
 /// Calculate the reconciliation key for a node using the priority hierarchy:
 /// 1. Explicit key (set via `.with_key()`)
 /// 2. CSS ID (set via `.with_id("my-id")`), when `identity.id_is_key`
@@ -903,36 +1010,16 @@ pub fn reconcile_dom(
     // up instead of recomputing it per node.
     let new_rec_keys = precompute_reconciliation_keys(new_node_data, new_hierarchy, identity);
 
-    // Reconciliation key of a node's PARENT (`None` for a root or when the
-    // hierarchy is unavailable). Used to keep keyless matches from migrating
-    // focus/scroll/dataset state across different parents.
-    let old_parent_key = |old_id: NodeId| -> Option<u64> {
-        old_hierarchy
-            .get(old_id.index())
-            .and_then(NodeHierarchyItem::parent_id)
-            .map(|p| old_rec_keys[p.index()])
-    };
-
     let mut old_by_rec_key: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
-    let mut old_hashed: OrderedMap<DomNodeHash, VecDeque<NodeId>> = OrderedMap::default();
-    let mut old_structural: OrderedMap<DomNodeHash, VecDeque<NodeId>> = OrderedMap::default();
     let mut old_nodes_consumed = vec![false; old_node_data.len()];
 
-    for (idx, node) in old_node_data.iter().enumerate() {
-        let id = NodeId::new(idx);
+    // Tier 1's queues. The queues of Tiers 2 and 3 are built where those tiers run (passes
+    // B2 / B3), over the old nodes still unconsumed there: see `ShallowTiers`.
+    for idx in 0..old_node_data.len() {
         old_by_rec_key
             .entry(old_rec_keys[idx])
             .or_default()
-            .push_back(id);
-
-        let hash = node.calculate_node_data_hash();
-        old_hashed.entry(hash).or_default().push_back(id);
-
-        let structural_hash = node.calculate_structural_hash();
-        old_structural
-            .entry(structural_hash)
-            .or_default()
-            .push_back(id);
+            .push_back(NodeId::new(idx));
     }
 
     // --- STEP 2: CLAIM MATCHES, STRONG IDENTITY BEFORE POSITIONAL ---
@@ -1179,7 +1266,9 @@ pub fn reconcile_dom(
         }
     }
 
-    // Passes B2/B3: shallow content / structural hash.
+    // Passes B2/B3: shallow content / structural hash. Their queues are built when the first
+    // new node gets here, over the old nodes no pass above consumed (`ShallowTiers`).
+    let mut shallow: Option<ShallowTiers> = None;
     for (new_idx, new_node) in new_node_data.iter().enumerate() {
         if matched[new_idx].is_some() || new_node.get_key().is_some() {
             continue;
@@ -1206,45 +1295,31 @@ pub fn reconcile_dom(
             .get(new_idx)
             .and_then(NodeHierarchyItem::parent_id)
             .and_then(|p| matched.get(p.index()).copied().flatten());
-        let parent_agrees = |old_id: NodeId| -> bool {
-            new_parent_match.map_or_else(
-                || old_parent_key(old_id) == new_parent_key,
-                |expected| {
-                    old_hierarchy
-                        .get(old_id.index())
-                        .and_then(NodeHierarchyItem::parent_id)
-                        == Some(expected)
-                },
-            )
-        };
+        // The gate as the queues are keyed: an old node passes it when its parent IS the
+        // matched one, or - the new node's parent unmatched - when its parent's key is the
+        // new parent's.
+        let gate = new_parent_match.map_or(ParentGate::Key(new_parent_key), ParentGate::Node);
+        let tiers = shallow.get_or_insert_with(|| {
+            ShallowTiers::of(old_node_data, old_hierarchy, &old_rec_keys, &old_nodes_consumed)
+        });
 
         // B2: Content hash (exact match — catches pure reorders)
         let hash = new_node.calculate_node_data_hash();
-        if let Some(queue) = old_hashed.get_mut(&hash) {
-            if let Some(pos) = queue
-                .iter()
-                .position(|&old_id| !old_nodes_consumed[old_id.index()] && parent_agrees(old_id))
-            {
-                if let Some(old_id) = queue.remove(pos) {
-                    old_nodes_consumed[old_id.index()] = true;
-                    matched[new_idx] = Some(old_id);
-                    continue;
-                }
-            }
+        if let Some(old_id) =
+            ShallowTiers::claim(&mut tiers.content, hash, gate, &old_nodes_consumed)
+        {
+            old_nodes_consumed[old_id.index()] = true;
+            matched[new_idx] = Some(old_id);
+            continue;
         }
 
         // B3: Structural hash (text-node fallback — ignores text content)
         let structural_hash = new_node.calculate_structural_hash();
-        if let Some(queue) = old_structural.get_mut(&structural_hash) {
-            if let Some(pos) = queue
-                .iter()
-                .position(|&old_id| !old_nodes_consumed[old_id.index()] && parent_agrees(old_id))
-            {
-                if let Some(old_id) = queue.remove(pos) {
-                    old_nodes_consumed[old_id.index()] = true;
-                    matched[new_idx] = Some(old_id);
-                }
-            }
+        if let Some(old_id) =
+            ShallowTiers::claim(&mut tiers.structural, structural_hash, gate, &old_nodes_consumed)
+        {
+            old_nodes_consumed[old_id.index()] = true;
+            matched[new_idx] = Some(old_id);
         }
     }
 
@@ -1295,11 +1370,13 @@ pub fn reconcile_dom(
             // differs. Tier-2/Tier-3 matches by definition don't carry an Update — a
             // content-hash match is content-identical, and a structural-hash match is
             // a text edit handled by cursor/text reconciliation elsewhere.
-            if matched_by_rec_key {
+            // The handler first: almost no node has one, and the two hashes walk the whole
+            // node (they were computed for every matched node of every rebuild).
+            if matched_by_rec_key && has_update_callback(new_node) {
                 let old_hash = old_node_data[old_id.index()].calculate_node_data_hash();
                 let new_hash = new_node.calculate_node_data_hash();
 
-                if old_hash != new_hash && has_update_callback(new_node) {
+                if old_hash != new_hash {
                     result.events.push(create_lifecycle_event(
                         EventType::Update,
                         new_id,
