@@ -9092,3 +9092,7 @@ mod audit_a3_solver_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "node_graph_layout_test.rs"]
+mod layout_tests;
