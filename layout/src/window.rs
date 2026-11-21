@@ -13203,10 +13203,22 @@ impl LayoutWindow {
         // that is drawn again, a video's next frame): a renderer that keys the slot keeps
         // the key, and the list item it holds for it - same key, same rect - stays right.
         let slot_keeps_its_shape = !image.is_callback()
-            && self
+            && (self
                 .content_overlay
                 .image_for_node(dom_id, node_id)
-                .is_some_and(|shown| !shown.is_callback() && shown.get_size() == image.get_size());
+                .is_some_and(|shown| !shown.is_callback() && shown.get_size() == image.get_size())
+                // Or the node showed a null image of this size (a tile that is being
+                // drawn) and the renderer keyed its PLACE when it took the list
+                // (`RendererResources::node_image_is_replaced_in_place`, A4's `93aeb0a41`):
+                // the first picture that arrives is new pixels under that key too. Without
+                // this every tile of a map sent the view's whole list once when it arrived.
+                || old.as_ref().is_some_and(|shown| {
+                    shown.is_null_image()
+                        && shown.get_size() == image.get_size()
+                        && self
+                            .renderer_resources
+                            .node_image_is_replaced_in_place(dom_id, node_id, shown, image)
+                }));
         self.content_overlay
             .set_image_with_dirty(dom_id, node_id, image.clone(), dirty);
         self.content_journal.record(AppliedChange::Image {

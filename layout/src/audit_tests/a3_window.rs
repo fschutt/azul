@@ -939,6 +939,85 @@ fn an_image_replaced_in_place_leaves_the_list_the_renderer_holds() {
     assert!(!held(&lw), "a change still owed to the renderer is not marked as sent");
 }
 
+/// The FIRST picture that arrives for a node that shows a null image (a map's tile being
+/// drawn) leaves the list the renderer holds too, once the renderer has keyed the node's
+/// place (`reserve_image_places` of the GPU scan, A4's `93aeb0a41`: the slot's key shows
+/// `ImageRefHash::PLACE`): the list names that key before and after. Without a place the
+/// first picture is a change of the list, as before.
+/// Mutation: the null-image alternative of `slot_keeps_its_shape` removed (the list is owed
+/// again after the first arrival).
+#[test]
+fn the_first_picture_on_a_kept_place_leaves_the_list_the_renderer_holds() {
+    use azul_core::resources::{
+        ImageKey, ImageRef, ImageRefHash, ImageSlot, RawImage, RawImageData, RawImageFormat,
+    };
+
+    use crate::overlay::ContentChange;
+
+    let being_drawn = || ImageRef::null_image(4, 4, RawImageFormat::RGBA8, Vec::new());
+    let pixels = |fill: u8| {
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![fill; 4 * 4 * 4].into()),
+            width: 4,
+            height: 4,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::new().into(),
+        })
+        .expect("a picture in memory")
+    };
+    let dom = Dom::create_body()
+        .with_css("margin: 0px;")
+        .with_child(Dom::create_image(being_drawn()).with_css("width: 40px; height: 30px;"))
+        .with_child(Dom::create_image(being_drawn()).with_css("width: 40px; height: 30px;"));
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        StyledDom::create_from_dom(dom),
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let (root, kept, unkept) = (DomId::ROOT_ID, NodeId::new(1), NodeId::new(2));
+    const ENV: u64 = 7;
+    // What the GPU scan does for a node that shows a null image: its slot gets its key, and
+    // the key shows the place.
+    let key = ImageKey::unique_image_slot(lw.id_namespace);
+    lw.renderer_resources
+        .image_slots
+        .insert(ImageSlot::Node(root, kept), key);
+    lw.renderer_resources
+        .image_key_map
+        .insert(key, ImageRefHash::PLACE);
+    lw.gpu_state_manager
+        .note_display_lists_submitted(&lw.layout_results, ENV);
+    let held = |lw: &LayoutWindow| {
+        lw.gpu_state_manager
+            .display_list_is_held(root, &lw.layout_results[&root].display_list, ENV)
+    };
+    assert!(held(&lw), "harness: the renderer holds the list it was sent");
+
+    let _ = lw.apply_content_change(ContentChange::Image {
+        dom_id: root,
+        node_id: kept,
+        image: pixels(200),
+        dirty_rect: None,
+    });
+    assert!(held(&lw), "the first picture on a kept place is pixels under the place's key");
+
+    let _ = lw.apply_content_change(ContentChange::Image {
+        dom_id: root,
+        node_id: unkept,
+        image: pixels(90),
+        dirty_rect: None,
+    });
+    assert!(!held(&lw), "a node without a place: its first picture is a change of the list");
+}
+
 // -- A3-window-31: the CSS diff of a view that rendered again ---------------------------------
 
 /// The data of the view of [`moved_label_page`]: how many labels it draws and how far to the
