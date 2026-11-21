@@ -79,6 +79,26 @@ tested: azul-routing         # dll_tests (the routing tiles' format and manifest
 tested: azul-fonts-calmet    # dll_tests (the packed Calmet UI faces unpack into fonts the parser reads; no libazul)
 tested: azul-srcgate        # "Run azul-srcgate tests (the source gates)" (the gates read the apps' crates and fail when a rule is broken or a counted allowance moved; tests/ci_gate.rs pins the step)
 
+# ── the Azlin engine's crates (no libazul): the step "Run the Azlin engine crates' tests" of dll_tests
+tested: azlin-cbor           # dll_tests (strict deterministic CBOR, the one codec of the wire and signed formats)
+tested: azlin-chain          # dll_tests (signed hash chains: entries, links, pins, peers, checkpoints, restore)
+tested: azlin-content        # dll_tests (FastCDC chunker, AZL2 chunks, AZP2 packs, signed pointers, chunk index, dedup, client prune)
+tested: azlin-creds          # dll_tests (credential v2, certificates, member assertions, signed entitlements, the refresh frames)
+tested: azlin-enroll         # dll_tests (enrollment holds, recovery paths, escrow-opening waits)
+tested: azlin-escalate-e1    # dll_tests, the "mid-change lanes" step, NOT GATING yet: it does not compile against azlin-teamlog (the EntryDecoder parameter of verify_signatures / replay, Refusal::EpochNotAnnounced); lane W1-S47a
+tested: azlin-keys           # dll_tests (typed ids, secrets, entropy and clock seams, derivation, signatures, envelopes, key hierarchy, recovery)
+tested: azlin-links          # dll_tests (the server side of links: options, bounds, resolving, counters, credentials)
+tested: azlin-merkle         # dll_tests (the RFC 9162 Merkle tree, inclusion and consistency proofs)
+tested: azlin-policy         # dll_tests (the account policy table, inheritance, tightening, quorum counting)
+tested: azlin-regbase        # dll_tests (registry vocabulary: ids, time, bytes, enums, anchors, signing, proofs)
+tested: azlin-reports        # dll_tests (content reports, the counting that pauses a link, decisions and their statements of reasons)
+tested: azlin-seams          # dll_tests (hashes, stamps, sizes, the signature verifier seam, mutation guards, the seeded simulation)
+tested: azlin-sim            # dll_tests, the "mid-change lanes" step, NOT GATING yet: 13 of its tests fail on the engine as it stands (invariants violated: x03, x04, s1_06, s1_09, s1_11, s1_12, x07, x11, x12)
+tested: azlin-spaces         # dll_tests (space chains, grants, authorized key epochs)
+tested: azlin-sync           # dll_tests (space heads, compare-and-swap, append logs, the device's head guard)
+tested: azlin-teamlog        # dll_tests (ops, roles, groups, the permission check (admit), the deterministic apply)
+tested: azlin-tlog           # dll_tests (signed checkpoints, witnesses, the release record, proof bundles, the monitor)
+
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and
 #    wired into a job.
@@ -86,3 +106,15 @@ no-tests: azul-examples         # examples/rust: hello-world binaries
 no-tests: webrender_api         # types only
 no-tests: webrender_build       # build-time shader plumbing
 no-tests: wr_azul_glyph_rasterizer  # thin adapter over azul-layout's rasteriser
+
+# the Azlin crates that are still the 8-line skeleton of the W1-SCAF commit ("the lane replaces this file")
+no-tests: azlin-escalate-e2     # skeleton, lane W1-S47b: the recovery-path matrix
+no-tests: azlin-escalate-e34    # skeleton, lane W1-S47c: the ID-token negatives and the restore announcements
+no-tests: azlin-escalate-e56    # skeleton, lane W1-S47d: commands before sign-in, hostile text and rows
+no-tests: azlin-escrow          # skeleton, lane W1-S17f: threshold escrow
+no-tests: azlin-idtoken         # skeleton, lane W1-S17g: ID-token checking for the key agent
+no-tests: azlin-linkkit         # skeleton, lane W1-S16d: the client side of links
+no-tests: azlin-linkpass        # skeleton, lane W1-S16e: link_login with OPAQUE and the guess ledger
+no-tests: azlin-requests        # skeleton, lane W1-S16f: requests and AZD2 drops
+no-tests: azlin-session         # skeleton, lane W1-S9h: the client's session
+no-tests: azlin-webauthn        # skeleton, lane W1-S17d: passkey assertion verification

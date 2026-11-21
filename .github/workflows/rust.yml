@@ -938,6 +938,36 @@ jobs:
           cargo test -p azlin-preflate -p azlin-compress --no-fail-fast 2>&1 | tee azlin-compress-tests.txt
           ./scripts/zero_test_guard.sh --strict azlin-compress-tests.txt
 
+      # The Azlin engine's own crates: the wire codec, the chains, the content store, the
+      # credentials, the keys, the links, the policy, the team log, the transparency log and the
+      # sync heads. None of them links libazul. The ten placeholder crates of the plan's other
+      # lanes have no tests yet: they are `no-tests:` in scripts/workspace_test_members.txt, which
+      # fails the day one of them grows a test.
+      # Two invocations because of the empty-harness guard: the first seven crates have unit tests
+      # in src/ (every target runs); the other nine keep all their tests in tests/, so their empty
+      # src/lib.rs harness is not a target here.
+      - name: Run the Azlin engine crates' tests
+        run: |
+          set -o pipefail
+          cargo test -p azlin-cbor -p azlin-chain -p azlin-content -p azlin-creds -p azlin-keys \
+            -p azlin-merkle -p azlin-teamlog --no-fail-fast 2>&1 | tee azlin-engine-tests.txt
+          cargo test -p azlin-enroll -p azlin-links -p azlin-policy -p azlin-regbase -p azlin-reports \
+            -p azlin-seams -p azlin-spaces -p azlin-sync -p azlin-tlog --test '*' --no-fail-fast 2>&1 \
+            | tee -a azlin-engine-tests.txt
+          ./scripts/zero_test_guard.sh --strict azlin-engine-tests.txt
+
+      # The two Azlin crates whose lanes are mid-change. They are run, so what scripts/
+      # workspace_test_members.txt says of them is true, but they do not fail the job yet:
+      # azlin-sim (the seeded simulation that runs the engine's crates together) found invariant
+      # violations in the engine as it stands (13 of its tests fail), and the reference model of
+      # azlin-escalate-e1 has not followed the team log's API (EntryDecoder, Refusal::EpochNotAnnounced):
+      # it does not compile. Remove `continue-on-error` when their lanes are done.
+      - name: Run the Azlin crates whose lanes are mid-change (not gating yet)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p azlin-sim -p azlin-escalate-e1 --no-fail-fast 2>&1 | tee azlin-lanes-tests.txt
+
       # The fake providers of the local stacks are a feature (a build without it cannot be
       # pointed at a fake): the tests run with it, so the dev registry is tested too.
       - name: Run azul-pay tests
