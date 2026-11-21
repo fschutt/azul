@@ -14605,8 +14605,9 @@ impl LayoutWindow {
     ///   host than a new one would be;
     /// - a node of the document is in a state (`:hover`, `:focus`, ...): a document that
     ///   is rendered anew starts at rest, and this one would keep the state;
-    /// - the sheet makes generated content, a node declares an `animation`, the theme is a
-    ///   spin ([`Self::rebuild_can_keep_the_styled_dom`]).
+    /// - the sheet makes generated content, or the theme is a spin
+    ///   ([`Self::kept_dom_can_be_restyled`]). A declared `animation` does not matter here:
+    ///   the re-render of a view starts no transition down any path.
     #[allow(clippy::type_complexity)] // the document, its CSS diff, its clean flags
     fn restyle_kept_child(
         &mut self,
@@ -14647,7 +14648,7 @@ impl LayoutWindow {
                     &changed,
                     self.node_identity,
                 )
-                || !self.rebuild_can_keep_the_styled_dom(kept)
+                || !self.kept_dom_can_be_restyled(kept)
             {
                 return None;
             }
@@ -18976,6 +18977,14 @@ impl LayoutWindow {
     ///   every node of a fresh DOM before it is cascaded.
     #[must_use]
     pub fn rebuild_can_keep_the_styled_dom(&self, retained: &StyledDom) -> bool {
+        self.kept_dom_can_be_restyled(retained) && !styled_dom_declares_an_animation(retained)
+    }
+
+    /// The two conditions of [`Self::rebuild_can_keep_the_styled_dom`] that are about the
+    /// DOM's making, not about its animations: the sheet makes no generated content and the
+    /// app theme is no flora spin. All a view's document is asked (the re-render of a view
+    /// starts no transition and slides nothing: [`css_diff_between`] says why).
+    fn kept_dom_can_be_restyled(&self, retained: &StyledDom) -> bool {
         #[cfg(feature = "widgets")]
         {
             use crate::widgets::themes::spin::FloraSpin;
@@ -18986,7 +18995,32 @@ impl LayoutWindow {
         }
         !azul_core::generated_content::css_generates_nodes(
             &retained.get_css_property_cache().retained_author_css,
-        ) && !styled_dom_declares_an_animation(retained)
+        )
+    }
+
+    /// [`Self::rebuild_can_keep_the_styled_dom`] for a rebuild that changed the nodes
+    /// `changed` where they stand, asked of the nodes it can restyle instead of the whole
+    /// DOM: no node declares `animation: move` (a full rebuild slides such a node to its
+    /// new place whichever node changed), and none of the nodes the changes REACH
+    /// (`StyledDom::nodes_reached_by_changes`) declares an `animation` (a full rebuild
+    /// turns the property changes of such a node into transitions). A node the changes do
+    /// not reach keeps every property it resolved, so a full rebuild starts no transition
+    /// on it either: an animated switch or tab somewhere in the window no longer sends
+    /// every rebuild of the window down the full path.
+    #[must_use]
+    pub fn rebuild_can_restyle_in_place(&self, retained: &StyledDom, changed: &[usize]) -> bool {
+        if !self.kept_dom_can_be_restyled(retained) || styled_dom_declares_a_move(retained) {
+            return false;
+        }
+        let reached = retained.nodes_reached_by_changes(changed);
+        !styled_dom_declares_an_animation_among(
+            retained,
+            reached
+                .iter()
+                .enumerate()
+                .filter(|(_, reached)| **reached)
+                .map(|(index, _)| index),
+        )
     }
 
     /// Styles `retained` again after a rebuild wrote nodes onto it where they stood
@@ -19678,9 +19712,11 @@ impl LayoutWindow {
     /// - there is no tree before this one;
     /// - the new tree was flattened under another selector context than the old one was
     ///   cascaded under (a window that was resized or changed its theme with the rebuild);
-    /// - a node of the old tree declares an `animation`: the property changes of such a node
-    ///   become transitions measured from the old cascade, and it slides from its old rect;
+    /// - a node of the old tree declares `animation: move`: it slides from its old rect,
+    ///   which is captured against the old layout in the order `begin_reconciliation` keeps;
     /// - a departing node declares `-azul-animation-out`: the old result is kept as a zombie.
+    /// (Any other declared `animation` is served: [`Self::style_reconciled_dom`] starts the
+    /// transitions of the nodes whose properties moved, measured from the old cascade.)
     pub fn begin_reconciliation_before_styling(
         &mut self,
         dom_id: DomId,
@@ -19692,7 +19728,7 @@ impl LayoutWindow {
             let old = &self.layout_results.get(&dom_id)?.styled_dom;
             if old.css_property_cache.ptr.dynamic_context
                 != styled_dom.css_property_cache.ptr.dynamic_context
-                || styled_dom_declares_an_animation(old)
+                || styled_dom_declares_a_move(old)
             {
                 return None;
             }
@@ -19990,6 +20026,18 @@ impl LayoutWindow {
             });
         drop(span_css_diff);
 
+        // The transitions a declared `animation` asks for, as `begin_reconciliation` captures
+        // them, for the matched nodes whose properties can have moved (not the ones that
+        // kept their rows: every property of those resolves as it did).
+        let mut restyled = restyled;
+        let (captured_transitions, kept_transitions) = self.capture_declared_transitions(
+            dom_id,
+            styled_dom,
+            &pending.node_moves,
+            kept.as_deref(),
+            &mut restyled,
+        );
+
         if !pending.node_moves.is_empty() {
             if let Some(old) = self.layout_results.get(&dom_id) {
                 styled_dom.migrate_user_overrides_from(
@@ -19997,6 +20045,26 @@ impl LayoutWindow {
                     &pending.node_moves,
                 );
             }
+        }
+
+        // As `begin_reconciliation` (the managers name the new nodes already): a tween the
+        // rebuild left running ends by clearing its override; frame 0 of every captured
+        // transition holds the new tree at its `from` value before the first layout; one
+        // transition per (node, property).
+        for t in &mut self.css_transitions {
+            if kept_transitions.contains(&(t.node, t.prop_type)) {
+                t.keeps_target = false;
+            }
+        }
+        let holds: Vec<(NodeId, azul_css::props::property::CssProperty)> = captured_transitions
+            .iter()
+            .map(|tr| (tr.node, tr.from.clone()))
+            .collect();
+        drop(styled_dom.restyle_user_properties(&holds));
+        for tr in captured_transitions {
+            self.css_transitions
+                .retain(|t| !(t.node == tr.node && t.prop_type == tr.prop_type));
+            self.css_transitions.push(tr);
         }
 
         self.pending_css_dirty = Some((dom_id, restyled.clone()));
@@ -20011,6 +20079,119 @@ impl LayoutWindow {
             old.node_data.as_ref(),
             styled_dom.node_data.as_ref(),
         ))
+    }
+
+    /// The transitions of a rebuild that was reconciled before it was styled
+    /// ([`Self::style_reconciled_dom`]): for every matched pair whose OLD node declares an
+    /// `animation` (the old tree governs) and whose properties moved, a [`CssTransition`]
+    /// per moved property the list covers, from the value the old cascade resolves (a
+    /// mid-flight override included: retargeting) to the new cascade's - the per-pair
+    /// rule of [`Self::begin_reconciliation`], read under the same states (the new node in
+    /// the interaction state of the old one).
+    ///
+    /// Two things differ from that function, both because this one runs AFTER the managers
+    /// were remapped: a tween that is already running toward the same value is found by the
+    /// NEW node's id, and the answer's second list (the tweens left running) holds new ids.
+    /// A pair that kept its rows (`unchanged`) is not looked at. A node with an `animation`
+    /// whose properties moved is named in `restyled` whatever moved (the full path never
+    /// leaves such a node to its fingerprint: a tween of the change is driven through the
+    /// diff).
+    #[allow(clippy::type_complexity)] // the captured transitions and the ones left running
+    fn capture_declared_transitions(
+        &self,
+        dom_id: DomId,
+        styled_dom: &StyledDom,
+        node_moves: &[azul_core::diff::NodeMove],
+        unchanged: Option<&[bool]>,
+        restyled: &mut Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    ) -> (
+        Vec<CssTransition>,
+        Vec<(NodeId, azul_css::props::property::CssPropertyType)>,
+    ) {
+        use azul_css::dynamic_selector::ResolveSystemColors;
+
+        let mut captured: Vec<CssTransition> = Vec::new();
+        let mut left_running: Vec<(NodeId, azul_css::props::property::CssPropertyType)> = Vec::new();
+        let Some(old_result) = self.layout_results.get(&dom_id) else {
+            return (captured, left_running);
+        };
+        let old_cache = &old_result.styled_dom.css_property_cache.ptr;
+        let new_cache = &styled_dom.css_property_cache.ptr;
+        let old_data = old_result.styled_dom.node_data.as_ref();
+        let new_data = styled_dom.node_data.as_ref();
+        let old_states = old_result.styled_dom.styled_nodes.as_ref();
+        let new_states = styled_dom.styled_nodes.as_ref();
+        let inherited = InheritedIds::between(old_cache, new_cache, old_data.len(), new_data.len());
+        for m in node_moves {
+            if unchanged.is_some_and(|unchanged| {
+                unchanged.get(m.new_node_id.index()).copied().unwrap_or(false)
+            }) {
+                continue;
+            }
+            let (Some(old_nd), Some(new_nd), Some(old_state), Some(new_state)) = (
+                old_data.get(m.old_node_id.index()),
+                new_data.get(m.new_node_id.index()),
+                old_states.get(m.old_node_id.index()),
+                new_states.get(m.new_node_id.index()),
+            ) else {
+                continue;
+            };
+            let Some(old_anims) =
+                declared_animations(old_cache, old_nd, m.old_node_id, &old_state.styled_node_state)
+            else {
+                continue;
+            };
+            let new_node_state =
+                with_interaction_of(new_state.styled_node_state, old_state.styled_node_state);
+            let (_, changed) = changed_styles(
+                old_cache,
+                new_cache,
+                (old_nd, m.old_node_id, &old_state.styled_node_state),
+                (new_nd, m.new_node_id, &new_node_state),
+                &inherited,
+            );
+            if changed.is_empty() {
+                continue;
+            }
+            let mut worst = azul_css::props::property::RelayoutScope::None;
+            for (ty, before, after) in changed {
+                worst = worst.max(ty.relayout_scope(true));
+                let Some(anim) = declared_animation_for(&old_anims, ty) else {
+                    continue;
+                };
+                let value = |v: Option<&azul_css::props::property::CssProperty>| {
+                    v.map_or_else(
+                        || azul_css::props::property::CssProperty::auto(ty),
+                        Clone::clone,
+                    )
+                };
+                let to = value(after).resolve_system_colors(new_cache.dynamic_context.as_deref());
+                let running = dom_id == DomId::ROOT_ID
+                    && self
+                        .css_transitions
+                        .iter()
+                        .any(|t| t.node == m.new_node_id && t.prop_type == ty && t.to == to);
+                if running {
+                    left_running.push((m.new_node_id, ty));
+                    continue;
+                }
+                captured.push(CssTransition::declared(
+                    m.new_node_id,
+                    ty,
+                    value(before).resolve_system_colors(old_cache.dynamic_context.as_deref()),
+                    to,
+                    anim,
+                    false,
+                ));
+            }
+            // Named for the layout, with the widest scope of what moved, also where the CSS
+            // diff left the node to its fingerprint.
+            match restyled.iter().position(|(node, _)| *node == m.new_node_id) {
+                Some(at) => restyled[at].1 = restyled[at].1.max(worst),
+                None => restyled.push((m.new_node_id, worst)),
+            }
+        }
+        (captured, left_running)
     }
 
     /// The track a node's declared `-azul-animation-in` resolves to, over its
@@ -38224,6 +38405,41 @@ pub fn styled_dom_declares_an_animation(styled_dom: &StyledDom) -> bool {
                     CssProperty::Animation(value) => value.get_property().is_some(),
                     _ => false,
                 })
+        })
+}
+
+/// [`styled_dom_declares_an_animation`] asked of the nodes `nodes` alone (node indices).
+#[must_use]
+pub fn styled_dom_declares_an_animation_among(
+    styled_dom: &StyledDom,
+    nodes: impl Iterator<Item = usize>,
+) -> bool {
+    let cache = &styled_dom.css_property_cache.ptr;
+    let data = styled_dom.node_data.as_ref();
+    let states = styled_dom.styled_nodes.as_ref();
+    let mut nodes = nodes;
+    nodes.any(|index| {
+        let (Some(node), Some(state)) = (data.get(index), states.get(index)) else {
+            return false;
+        };
+        declared_animations(cache, node, NodeId::new(index), &state.styled_node_state).is_some()
+    })
+}
+
+/// The `animation` list node `id` declares under `state` in `cache`, if it declares one: the
+/// declared-only lookup the reconciliation makes of every matched node (nothing is cascaded).
+fn declared_animations(
+    cache: &azul_core::prop_cache::CssPropertyCache,
+    node: &azul_core::dom::NodeData,
+    id: NodeId,
+    state: &azul_core::styled_dom::StyledNodeState,
+) -> Option<azul_css::props::basic::animation::StyleAnimationVec> {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+    cache
+        .get_property_if_declared(node, &id, state, &CssPropertyType::Animation)
+        .and_then(|property| match property {
+            CssProperty::Animation(value) => value.get_property().cloned(),
+            _ => None,
         })
 }
 

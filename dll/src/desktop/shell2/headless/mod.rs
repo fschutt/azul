@@ -14250,12 +14250,14 @@ mod tests {
         siblings: bool,
     }
 
-    /// The inline styles a row can have.
-    const DF_PLACES: [&str; 4] = [
+    /// The inline styles a row can have. The walks pick among the first four; the fifth (a
+    /// declared `animation` over every property) is set by the tests that are about it.
+    const DF_PLACES: [&str; 5] = [
         "",
         "position: relative; left: 4px;",
         "position: relative; left: 9px;",
         "width: 150px;",
+        "animation: all 200ms ease-out;",
     ];
 
     /// `body > .df-list[.df-dense] > .df-row.df-k<n>[#df-id<n>] > span.df-cell > text`, under a
@@ -14761,6 +14763,15 @@ mod tests {
             0,
             "a changed text styles no node"
         );
+        // ... and the solver was handed the diff: nobody wrote this DOM since its last pass
+        // (`dom_written_since_its_pass`), so it took over the fingerprints of the nodes the
+        // rebuild did not change instead of hashing all 182 again.
+        let skips = window
+            .common
+            .layout_window
+            .as_ref()
+            .map_or(0, |lw| lw.layout_cache.last_fingerprint_skips);
+        assert!(skips >= 150, "the solver hashed the changed text, not the page: {skips} skips");
     }
 
     /// `(rebuilds that kept the styled DOM, cascades, boxes the solver built fresh)` for one
@@ -14931,6 +14942,74 @@ mod tests {
             hovered,
             "the row is still hovered after the rebuild: its text shows the colour it hands down"
         );
+    }
+
+    // --- The gate `animation`, narrowed to the nodes a rebuild can restyle ----------------------
+
+    /// What the window's transitions are, as text: node, property, from, to.
+    fn df_transitions(window: &HeadlessWindow) -> Vec<String> {
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let mut out: Vec<String> = lw
+            .css_transitions
+            .iter()
+            .map(|t| format!("{:?} {:?}: {:?} -> {:?}", t.node, t.prop_type, t.from, t.to))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// A page of 12 rows whose row 2 declares `animation: all 200ms`, after `change`, rebuilt
+    /// with `steps`: `(rebuilds that kept the styled DOM, rebuilds reconciled first that kept
+    /// rows, the transitions that run afterwards)`.
+    fn df_cost_beside_an_animated_row(
+        steps: &[azul_layout::window::DiffFirstStep],
+        change: impl FnOnce(&mut DfPage),
+    ) -> (usize, usize, Vec<String>) {
+        let state = df_state_with(12, false);
+        df_change(&state, |page| page.rows[2].place = 4);
+        let mut window = df_window(&state);
+        df_change(&state, change);
+        let kept = azul_layout::window::kept_dom_rebuilds_on_this_thread();
+        let tree = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        df_rebuild(&mut window, steps);
+        (
+            azul_layout::window::kept_dom_rebuilds_on_this_thread() - kept,
+            azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - tree,
+            df_transitions(&window),
+        )
+    }
+
+    /// A node that declares an `animation` somewhere in the window does not send every
+    /// rebuild down the full path: a class that changes on ANOTHER row keeps the styled DOM
+    /// (exit 1.46), a row that comes is reconciled first and keeps rows (exit 1.47), and no
+    /// transition starts, as down the full path. When the ANIMATED row's own class changes,
+    /// exit 1.46 leaves it alone (its property changes become transitions), exit 1.47 takes
+    /// it and starts the transitions the full path starts.
+    #[test]
+    fn an_animated_node_elsewhere_does_not_send_a_rebuild_down_the_full_path() {
+        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree};
+        let all = [Text, Nodes, Style, Tree];
+
+        let other_class = |page: &mut DfPage| page.rows[7].kind = (page.rows[7].kind + 1) % 4;
+        let (kept, tree, transitions) = df_cost_beside_an_animated_row(&all, other_class);
+        assert_eq!((kept, tree), (1, 0), "another row's class: the styled DOM is kept");
+        assert!(transitions.is_empty(), "and nothing animates: {transitions:?}");
+
+        let row_comes = |page: &mut DfPage| {
+            let row = page.rows[0].clone();
+            page.rows.push(row);
+        };
+        let (kept, tree, transitions) = df_cost_beside_an_animated_row(&all, row_comes);
+        assert_eq!((kept, tree), (0, 1), "a row comes: reconciled first, rows kept");
+        assert!(transitions.is_empty(), "and nothing animates: {transitions:?}");
+
+        // Row 2 is `df-k2` (a colour, a font size); `df-k1` gives it a background and a width.
+        let its_own_class = |page: &mut DfPage| page.rows[2].kind = 1;
+        let (kept, tree, transitions) = df_cost_beside_an_animated_row(&all, its_own_class);
+        assert_eq!((kept, tree), (0, 1), "the animated row's class: not exit 1.46, exit 1.47");
+        let (_, _, reference) = df_cost_beside_an_animated_row(&[], its_own_class);
+        assert!(!reference.is_empty(), "premise: the full path starts transitions for it");
+        assert_eq!(transitions, reference, "the same transitions as down the full path");
     }
 
     // --- A style a callback wrote, and the rebuild it asked for (a slider's drag) -------------

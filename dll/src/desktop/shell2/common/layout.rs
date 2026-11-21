@@ -1117,7 +1117,7 @@ pub fn regenerate_layout(
                         changed,
                         layout_window.node_identity,
                     )
-                    && layout_window.rebuild_can_keep_the_styled_dom(&lr.styled_dom)
+                    && layout_window.rebuild_can_restyle_in_place(&lr.styled_dom, changed)
             })
     });
     if let (true, Some(changed)) = (nodes_adoptable, changed_nodes) {
