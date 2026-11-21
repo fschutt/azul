@@ -14092,7 +14092,14 @@ impl LayoutWindow {
             if !shaped(live) {
                 return false;
             }
-            azul_core::diff::adopt_fresh_payloads(live.styled_dom.node_data.as_mut(), transfers)
+            let repointing = azul_core::diff::adopt_fresh_payloads(
+                live.styled_dom.node_data.as_mut(),
+                transfers,
+            );
+            // A carry can give a node a marker (carried, never compared): the lists the
+            // DOM derives from its node data are made again (A6-18b).
+            live.styled_dom.rebuild_derived_node_lists();
+            repointing
         } else {
             let Some(mut retired) = self.retired_child_results.remove(&child) else {
                 return false;
@@ -14103,6 +14110,7 @@ impl LayoutWindow {
             }
             let nodes = retired.styled_dom.node_data.as_mut();
             let repointing = azul_core::diff::adopt_fresh_payloads(nodes, transfers);
+            retired.styled_dom.rebuild_derived_node_lists();
             self.layout_results.insert(child, retired);
             repointing
         };

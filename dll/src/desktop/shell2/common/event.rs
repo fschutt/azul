@@ -8552,6 +8552,9 @@ pub trait PlatformWindow {
                         if idx < layout_result.styled_dom.node_data.as_ref().len() {
                             layout_result.styled_dom.node_data.as_container_mut()[*node_id]
                                 .set_tab_index(*tab_index);
+                            // A node that got its first tab index can take focus now: the
+                            // DOM's list of those nodes is made again (A6-16b).
+                            layout_result.styled_dom.rebuild_derived_node_lists();
                         }
                     }
                 }

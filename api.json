@@ -36871,6 +36871,12 @@
                                 "nodes_with_datasets": {
                                     "type": "NodeHierarchyItemIdVec"
                                 },
+                                "focusable_nodes": {
+                                    "type": "NodeHierarchyItemIdVec"
+                                },
+                                "nodes_with_markers": {
+                                    "type": "NodeHierarchyItemIdVec"
+                                },
                                 "tag_ids_to_node_ids": {
                                     "type": "TagIdToNodeIdMappingVec"
                                 },

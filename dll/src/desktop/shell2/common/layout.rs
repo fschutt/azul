@@ -777,6 +777,9 @@ pub fn regenerate_layout(
         // identical rebuild must not reset a slider's drag).
         let repointing =
             azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
+        // A carry can give a node a marker (carried, never compared): the lists the DOM
+        // derives from its node data are made again (A6-18b).
+        retained.rebuild_derived_node_lists();
         layout_window.repoint_merged_datasets(&repointing);
 
         // Re-derive hover/focus/active flags from the managers. A state
@@ -979,6 +982,9 @@ pub fn regenerate_layout(
             azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
         layout_window.repoint_merged_datasets(&repointing);
         azul_core::diff::adopt_fresh_texts(retained.node_data.as_mut(), &user_dom, &changed);
+        // A carry can give a node a marker (carried, never compared): the lists the DOM
+        // derives from its node data are made again (A6-18b).
+        retained.rebuild_derived_node_lists();
 
         // The runtime states, as the pre-cascade skip writes them: a cascade only for a state
         // that came with this call.
@@ -1577,6 +1583,8 @@ pub fn regenerate_layout(
                     .get_mut(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded");
                 azul_core::diff::carry_fresh_values(retained.styled_dom.node_data.as_mut(), fresh);
+                // The marker is carried, never compared (A6-18b).
+                retained.styled_dom.rebuild_derived_node_lists();
             }
 
             if !window_size_changed && !overlay_retires {

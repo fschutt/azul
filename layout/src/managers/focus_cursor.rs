@@ -476,6 +476,14 @@ impl crate::managers::NodeIdRemap for FocusManager {
 /// `TabIndex::NoKeyboardFocus` (tabindex=-1) nodes stay focusable by click /
 /// API but are NEVER part of the Tab order. The previous linear `NodeId` walk
 /// both ignored positive-tabindex ordering and tabbed onto tabindex=-1 nodes.
+/// Tests: how many nodes `collect_tab_order` asked "can you take focus?" on
+/// this thread: the nodes of the DOMs' `focusable_nodes` lists (it was every
+/// node of every DOM).
+#[cfg(test)]
+thread_local! {
+    static TAB_STOP_CANDIDATES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 fn collect_tab_order(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     out_of_scope: &BTreeSet<DomId>,
@@ -508,9 +516,21 @@ fn collect_tab_order(
         // (a map's 12,500 labels) is done after this one pass - the walks
         // below (for transient windows, for what is rendered) are over every
         // node again and decide only about these.
-        let focusable: Vec<NodeId> = (0..node_data.len())
-            .map(NodeId::new)
-            .filter(|n| node_data.get(*n).is_some_and(|nd| nd.is_focusable()))
+        // Read off the list the styled DOM keeps of them
+        // (`StyledDom::focusable_nodes`, A6-16b), not found by asking every
+        // node. Each listed node is asked again: a node written in place
+        // since (a tombstone) may have stopped being one.
+        let focusable: Vec<NodeId> = layout
+            .styled_dom
+            .focusable_nodes
+            .as_ref()
+            .iter()
+            .filter_map(|id| id.into_crate_internal())
+            .filter(|n| {
+                #[cfg(test)]
+                TAB_STOP_CANDIDATES.with(|asked| asked.set(asked.get() + 1));
+                node_data.get(*n).is_some_and(|nd| nd.is_focusable())
+            })
             .collect();
         if focusable.is_empty() {
             continue;
@@ -1893,6 +1913,58 @@ mod autotest_generated {
             })
             .collect();
         assert_eq!(both, alone_as_dom_1);
+    }
+
+    /// A6-16b. A Tab press asked every node of every DOM whether it can take
+    /// focus (12,500 labels of a map, none of which can). It reads the list
+    /// each styled DOM keeps of those nodes: a DOM of n plain nodes costs 0
+    /// questions at n = 300 and at n = 1,200, a DOM with 5 focusable nodes 5.
+    ///
+    /// A node that gets its first tab index in place (a callback's
+    /// `SetNodeTabIndex`) is in the list after
+    /// `rebuild_derived_node_lists`, which the shells' pass calls.
+    ///
+    /// Mutations: the pass over `node_data` back in fails the counts; the
+    /// rebuild left out after the in-place write fails "the new stop".
+    #[test]
+    fn a_tab_press_asks_the_tab_stops_not_the_nodes() {
+        let asked = || TAB_STOP_CANDIDATES.with(core::cell::Cell::get);
+        let plain = |n: usize| {
+            let divs: Vec<Dom> = (0..n).map(|_| Dom::create_div()).collect();
+            StyledDom::create_from_dom(Dom::create_body().with_children(divs.into()))
+        };
+        for n in [300, 1200] {
+            let before = asked();
+            let order = collect_tab_order(&window(vec![(dom(0), plain(n))]), &BTreeSet::new());
+            assert!(order.is_empty());
+            assert_eq!(asked() - before, 0, "{n} plain nodes: none is asked");
+        }
+        // The fixture: a button, a text area and four nodes with a tab index
+        // (one of them -1: it can take focus, and is no stop).
+        let before = asked();
+        let alone = tab_order_of(tab_fixture());
+        assert_eq!(asked() - before, 6, "the six nodes that can take focus");
+        let before = asked();
+        let both = collect_tab_order(
+            &window(vec![(dom(0), plain(1200)), (dom(1), tab_fixture())]),
+            &BTreeSet::new(),
+        );
+        assert_eq!(asked() - before, 6, "and not one of the 1,200 beside them");
+        assert_eq!(both.len(), alone.len());
+
+        // A plain node gets its first tab index in place.
+        let mut fixture = tab_fixture();
+        let first_div = NodeId::new(1);
+        assert!(!alone.iter().any(|id| id.node.into_crate_internal() == Some(first_div)));
+        fixture.node_data.as_container_mut()[first_div]
+            .set_tab_index(TabIndex::OverrideInParent(0));
+        fixture.rebuild_derived_node_lists();
+        let order = tab_order_of(fixture);
+        assert!(
+            order.iter().any(|id| id.node.into_crate_internal() == Some(first_div)),
+            "the new stop is in the order"
+        );
+        assert_eq!(order.len(), alone.len() + 1);
     }
 
     #[test]
