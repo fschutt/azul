@@ -172,6 +172,29 @@ thread_local! {
     pub(crate) static ABS_INTERIORS_REUSED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// Where the flow puts the out-of-flow box at `node_index`: its parent's
+/// content box plus the offset its parent's layout stored for it
+/// (`warm.relative_position`, its static position seen from there) - what
+/// `cache::position_bfc_child_descendants` writes into the box's slot when
+/// it derives the positions below the parent. `None` when no offset was
+/// stored or the parent has no position.
+fn flow_static_position(
+    tree: &LayoutTree,
+    calculated_positions: &super::PositionVec,
+    node_index: usize,
+) -> Option<LogicalPosition> {
+    let offset = tree
+        .warm(LayoutNodeId::new(node_index))
+        .and_then(|w| w.relative_position)?;
+    let parent = tree.get(LayoutNodeId::new(node_index)).and_then(|n| n.parent)?;
+    let parent_pos = super::pos_get(calculated_positions, parent)?;
+    let edges = tree.get(LayoutNodeId::new(parent))?.box_props.unpack();
+    Some(LogicalPosition::new(
+        parent_pos.x + edges.border.left + edges.padding.left + offset.x,
+        parent_pos.y + edges.border.top + edges.padding.top + offset.y,
+    ))
+}
+
 /// Whether a reused interior (`cache::AbsInterior`) is laid out anyway and
 /// compared with what the reuse kept: in this crate's tests always, elsewhere
 /// when `AZ_CHECK_ABS_INTERIOR_REUSE` is set. A difference panics: the reuse
@@ -775,7 +798,22 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                             StyleDirection::Rtl => {
                                 // Set right to static position, apply rule 1 (width from content,
                                 // solve for left)
-                                let static_offset = static_pos.x - containing_block_rect.origin.x;
+                                // The static position as the flow has it, not
+                                // the box's slot: a pass that did not place the
+                                // box again left LAST pass's solved position in
+                                // the slot, and this arm does not solve a
+                                // position to itself (it comes out
+                                // `static - margin-right`), so the box moved
+                                // left by its right margin on every such pass.
+                                // A fixed box under a positioned parent has
+                                // its static position set above.
+                                let static_x = if position_type == LayoutPosition::Absolute {
+                                    flow_static_position(tree, calculated_positions, node_index)
+                                        .map_or(static_pos.x, |flow| flow.x)
+                                } else {
+                                    static_pos.x
+                                };
+                                let static_offset = static_x - containing_block_rect.origin.x;
                                 let right_static =
                                     (cb_width - static_offset - border_box_width).max(0.0);
                                 let solved_left =
