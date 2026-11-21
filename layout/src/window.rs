@@ -3276,6 +3276,14 @@ pub struct DomGenerations {
     /// indices of the `Image` items found then
     /// (`LayoutWindow::invoke_background_image_callbacks_into_overlay`).
     image_items: BTreeMap<DomId, ((u64, u64), Vec<usize>)>,
+    /// Per DOM: the `(generation, list revision)` its list was last walked at for the
+    /// reference frames of its nodes, and the push of each by the node that owns it
+    /// (`node_patch::frame_owners`): where a node that is moved finds its items without a
+    /// walk of the list (`LayoutWindow::move_node_in_place`).
+    frame_owners: BTreeMap<DomId, ((u64, u64), BTreeMap<NodeId, usize>)>,
+    /// Boxes were moved where they lie since the shell last built its hit-test index from
+    /// the layout results (`LayoutWindow::take_boxes_moved_in_place`).
+    boxes_moved_in_place: bool,
 }
 
 impl DomGenerations {
@@ -3300,6 +3308,36 @@ impl DomGenerations {
             .retain(|dom_id, _| live.contains_key(dom_id));
         self.image_items
             .retain(|dom_id, _| live.contains_key(dom_id));
+        self.frame_owners
+            .retain(|dom_id, _| live.contains_key(dom_id));
+    }
+
+    /// The boxes of `dom_id` MOVED where they lie and nothing else of it changed
+    /// (`LayoutWindow::move_node_in_place`). The DOM is another one, as after every write of
+    /// the app (its boxes are elsewhere); what was found for the generation before that a
+    /// move cannot change - which boxes draw a callback image, at which indices the `Image`
+    /// items and the reference frames of its list are - is kept under the new one, or
+    /// every move would have the next frame walk the DOM's boxes and items to find it again.
+    fn bump_for_a_move(&mut self, dom_id: DomId) {
+        let before = self.list_stamp(dom_id);
+        self.bump(dom_id);
+        let after = self.list_stamp(dom_id);
+        if let Some((found_at, _)) = self.callback_images.get_mut(&dom_id) {
+            if *found_at == before.0 {
+                *found_at = after.0;
+            }
+        }
+        if let Some((found_at, _)) = self.image_items.get_mut(&dom_id) {
+            if *found_at == before {
+                *found_at = after;
+            }
+        }
+        if let Some((found_at, _)) = self.frame_owners.get_mut(&dom_id) {
+            if *found_at == before {
+                *found_at = after;
+            }
+        }
+        self.boxes_moved_in_place = true;
     }
 
     /// The items of `dom_id`'s display list were replaced or spliced (see `list_revisions`).
@@ -3317,6 +3355,23 @@ impl DomGenerations {
         )
     }
 }
+
+/// How many layout boxes a move of a node where it lies looked at on this thread
+/// (`LayoutWindow::move_node_in_place`): what a test reads to say that a move looks at the
+/// boxes of the moved node and not at those of its document.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MOVED_BOXES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn moved_boxes(steps: usize) {
+    MOVED_BOXES.with(|visited| visited.set(visited.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn moved_boxes(_steps: usize) {}
 
 /// How many display-list items the search for callback backgrounds looked at on this thread
 /// to find the `Image` items of a list
@@ -11599,11 +11654,43 @@ impl LayoutWindow {
             });
             (changed, variables)
         };
+        // A3-window-49: a write that moves nothing but the node's `left` / `top` and the
+        // value of its `transform` (a label dragged or turned: one such write per mouse
+        // move) may be shown by moving the node where it lies. What its insets resolve to
+        // BEFORE the write is read here, while the style still is the one it was placed
+        // with.
+        let insets_before = (!variables
+            && !changed.is_empty()
+            && changed.iter().all(|key| {
+                matches!(
+                    key,
+                    Some(CssPropertyType::Left | CssPropertyType::Top | CssPropertyType::Transform)
+                )
+            }))
+        .then(|| {
+            solver3::positioning::resolve_position_offsets(
+                &layout_result.styled_dom,
+                Some(node_id),
+                LogicalSize {
+                    width: 0.0,
+                    height: 0.0,
+                },
+                layout_result.viewport.size,
+            )
+        });
         layout_result.styled_dom.node_data.as_container_mut()[node_id].set_style(new_style);
         if changed.is_empty() {
             // Regrouped, not restyled: every property resolves as before.
             return unchanged;
         }
+        if let Some(before) = insets_before {
+            if let Some(moved) = self.move_node_in_place(dom_id, node_id, &changed, &before) {
+                return moved;
+            }
+        }
+        let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+            return unchanged;
+        };
         // A style the app wrote: the DOM is another one (`DomGenerations`).
         self.dom_generations.bump(dom_id);
 
@@ -11680,6 +11767,540 @@ impl LayoutWindow {
                 ContentDirtyTier::RebuildDisplayList
             },
         }
+    }
+
+    /// Whether boxes were moved where they lie ([`Self::move_node_in_place`]) since this was
+    /// last asked; asking clears it. A hit-test index built from the layout results before
+    /// such a move has the moved boxes where they were: its owner builds it again before
+    /// the next query (the shell, in `perform_hit_test`).
+    pub fn take_boxes_moved_in_place(&mut self) -> bool {
+        core::mem::take(&mut self.dom_generations.boxes_moved_in_place)
+    }
+
+    /// The index of the `PushReferenceFrame` that `node` owns in the display list of
+    /// `dom_id`, from the per-list table of them (`DomGenerations::frame_owners`): one walk
+    /// of the list when the list is another one than at the last ask, a lookup afterwards.
+    fn frame_push_of(&mut self, dom_id: DomId, node: NodeId) -> Option<usize> {
+        let stamp = self.dom_generations.list_stamp(dom_id);
+        let fresh = self
+            .dom_generations
+            .frame_owners
+            .get(&dom_id)
+            .is_some_and(|(found_at, _)| *found_at == stamp);
+        if !fresh {
+            let list = &self.layout_results.get(&dom_id)?.display_list;
+            let owners = solver3::display_list::node_patch::frame_owners(list);
+            self.dom_generations
+                .frame_owners
+                .insert(dom_id, (stamp, owners));
+        }
+        self.dom_generations
+            .frame_owners
+            .get(&dom_id)?
+            .1
+            .get(&node)
+            .copied()
+    }
+
+    /// A3-window-49: THE O(1) MOVE. The app wrote the style of `node_id` (the write is
+    /// already in the node) and all that differs are the px values of its `left` / `top`
+    /// and / or the value of its `transform` (`changed`): a label dragged or turned, one
+    /// write per mouse move. `before` are the insets it was placed with.
+    ///
+    /// Such a write was a pass over the node's document: the cascade's tail over every node,
+    /// the font and value walks of a layout pass, a display list patched from the kept one,
+    /// then the window's own pass (`relayout_child_dom_in_place`: 12,470 nodes and 17,495
+    /// items of a map view looked at to move one label). What it changes is known without
+    /// any of that:
+    ///
+    /// - STYLE: `left` / `top` are read from the node's own style by every reader but the
+    ///   compact cache, whose two slots are written here; nothing inherits them and no
+    ///   other row of the cascade is made from them.
+    /// - BOXES: an absolutely positioned or fixed box whose `right` / `bottom` are `auto`
+    ///   stands at its containing block's edge plus `left` / `top`, so it moves by the
+    ///   difference, with every box below it (a box with a transform is the containing
+    ///   block of all of them): the positions of the window's result and of the solver's
+    ///   cache move together, and the box's fingerprint in the kept tree becomes the one
+    ///   of the style it now stands for (a later pass finds it clean, a rebuild whose DOM
+    ///   says otherwise finds the difference).
+    /// - ITEMS: the node opens a reference frame, and what it paints is that frame's range
+    ///   of the list (`node_patch::movable_frame`): the range is shifted in place.
+    /// - A `transform` value alone moves no box and changes no item: it is published under
+    ///   the key the list binds, as a `set_css_property(transform)` is
+    ///   ([`Self::write_bound_gpu_properties`]).
+    ///
+    /// Returns the result of the write (`Paint`), or `None` when the write cannot be shown
+    /// this way - then nothing but the two compact slots and the published transform value
+    /// were written, which the caller's general path computes again: a node without a
+    /// reference frame of its own or with several boxes, an inset in another unit or
+    /// against a `right` / `bottom`, a relatively positioned or sticky box, an override or
+    /// an `!important` rule on the property, a pass owed to the document, a tween of a
+    /// caret or selection in flight, a tree another holder keeps.
+    ///
+    /// What a move still costs that grows with the document is not in this function: the
+    /// renderer takes the list as a changed one (the CPU compositor's copy and diff, the
+    /// GPU translation), and the shell builds its hit-test index again before the next
+    /// query ([`Self::take_boxes_moved_in_place`]).
+    #[allow(clippy::too_many_lines)] // one check-then-write sequence, in the order it must run
+    fn move_node_in_place(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        changed: &[Option<azul_css::props::property::CssPropertyType>],
+        before: &solver3::positioning::PositionOffsets,
+    ) -> Option<crate::overlay::ContentChangeResult> {
+        use azul_css::{
+            compact_cache::{encode_px_slot, PX_SLOT_INHERIT, PX_SLOT_THRESHOLD},
+            css::CssDeclaration,
+            props::{
+                layout::LayoutPosition,
+                property::{CssProperty, CssPropertyType as Ty},
+                style::StyleBackgroundContent,
+            },
+        };
+
+        use crate::{
+            overlay::{ContentChangeResult, ContentDirtyTier},
+            solver3::{
+                display_list::{dl_patching_enabled, node_patch},
+                positioning,
+            },
+        };
+
+        /// A node with more boxes below it than this is laid out by a pass.
+        const MAX_BOXES: usize = 1024;
+
+        let moves_x = changed.contains(&Some(Ty::Left));
+        let moves_y = changed.contains(&Some(Ty::Top));
+        let moves = moves_x || moves_y;
+        let turns = changed.contains(&Some(Ty::Transform));
+        if !dl_patching_enabled() || self.text_edit_manager.tween.is_active() {
+            return None;
+        }
+        // No pass is owed to this DOM: its boxes are where its styles put them.
+        if self.content_changed_doms.contains(&dom_id)
+            || self.css_dirty_waiting.contains_key(&dom_id)
+            || self
+                .pending_css_dirty
+                .as_ref()
+                .is_some_and(|(dom, _)| *dom == dom_id)
+        {
+            return None;
+        }
+
+        // ---- 1. What the node is. Nothing is written before all of it holds. ----
+        let (index, size, left_slot, top_slot, fingerprint, subtree, proven_inside) = {
+            let result = self.layout_results.get(&dom_id)?;
+            let styled_dom = &result.styled_dom;
+            let tree = &result.layout_tree;
+            let boxes = tree.dom_to_layout.get(&node_id)?;
+            if boxes.len() != 1 {
+                return None;
+            }
+            let index = boxes[0].index();
+            let hot = tree.get(LayoutNodeId::new(index))?;
+            if hot.dom_node_id != Some(node_id) {
+                return None;
+            }
+            let size = hot.used_size?;
+            let property_cache = styled_dom.get_css_property_cache();
+            let is_changed = |ty: Ty| changed.contains(&Some(ty));
+            // An override or an `!important` rule outranks the style that was written.
+            if property_cache
+                .user_overridden_properties
+                .get(node_id.index())
+                .is_some_and(|pinned| pinned.iter().any(|(ty, _)| is_changed(*ty)))
+                || property_cache
+                    .inline_overruled
+                    .get(&node_id.index())
+                    .is_some_and(|rules| rules.iter().any(|(_, ty)| is_changed(*ty)))
+            {
+                return None;
+            }
+
+            // The style as written: each changed property declared once, as a value, under
+            // no condition.
+            let node_data = styled_dom.node_data.as_container();
+            let own = node_data.get(node_id)?;
+            let (mut left, mut top, mut transform) = (None, None, false);
+            let mut declared = [0_usize; 3];
+            for rule in own.get_style().rules.as_ref() {
+                for declaration in rule.declarations.as_ref() {
+                    let Some(ty) = declaration.get_type() else {
+                        continue;
+                    };
+                    if !is_changed(ty) {
+                        continue;
+                    }
+                    let CssDeclaration::Static(property) = declaration else {
+                        return None;
+                    };
+                    if !rule.conditions.as_ref().is_empty()
+                        || rule.priority < azul_css::css::rule_priority::INLINE
+                    {
+                        return None;
+                    }
+                    match property {
+                        CssProperty::Left(value) => {
+                            declared[0] += 1;
+                            left = value.get_property().map(|v| v.inner);
+                        }
+                        CssProperty::Top(value) => {
+                            declared[1] += 1;
+                            top = value.get_property().map(|v| v.inner);
+                        }
+                        CssProperty::Transform(value) => {
+                            declared[2] += 1;
+                            transform = value
+                                .get_property()
+                                .is_some_and(|functions| !functions.as_ref().is_empty());
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+            let px_slot = |length: Option<azul_css::props::basic::pixel::PixelValue>| {
+                length
+                    .map(encode_px_slot)
+                    .filter(|slot| *slot < PX_SLOT_THRESHOLD)
+            };
+            let (left_slot, top_slot) = (px_slot(left), px_slot(top));
+            if (moves_x && (declared[0] != 1 || left_slot.is_none()))
+                || (moves_y && (declared[1] != 1 || top_slot.is_none()))
+                || (turns && (declared[2] != 1 || !transform))
+            {
+                return None;
+            }
+
+            // The fingerprint the kept tree holds for the box against the one of the style
+            // as it is now (the node's state as the tree knows it): nothing but the values
+            // of its insets and of its transform may differ.
+            let cold = tree.cold(LayoutNodeId::new(index))?;
+            let states = styled_dom.styled_nodes.as_container();
+            let state = states.get(node_id).map(|styled| &styled.styled_node_state);
+            let mut fingerprint = azul_core::diff::NodeDataFingerprint::compute(own, state);
+            fingerprint.state_hash = cold.node_data_fingerprint.state_hash;
+            let values_alone = azul_core::diff::NodeChangeSet::INLINE_STYLE_INSETS
+                | azul_core::diff::NodeChangeSet::INLINE_STYLE_PAINT;
+            if cold.node_data_fingerprint.diff(&fingerprint).bits & !values_alone != 0 {
+                return None;
+            }
+
+            let mut subtree: Vec<usize> = Vec::new();
+            let mut proven_inside: Vec<usize> = Vec::new();
+            if moves {
+                if !matches!(
+                    positioning::get_position_type(styled_dom, Some(node_id)),
+                    LayoutPosition::Absolute | LayoutPosition::Fixed
+                ) {
+                    return None;
+                }
+                // The insets it was placed with: px lengths (nothing of the containing
+                // block is in them) and none on the opposite side (the box is not
+                // stretched between two).
+                let compact = property_cache.compact_cache.as_ref()?;
+                let slots = compact.tier2_dims.get(node_id.index())?;
+                if (moves_x
+                    && (before.left.is_none()
+                        || before.right.is_some()
+                        || slots.left >= PX_SLOT_THRESHOLD))
+                    || (moves_y
+                        && (before.top.is_none()
+                            || before.bottom.is_some()
+                            || slots.top >= PX_SLOT_THRESHOLD))
+                {
+                    return None;
+                }
+                // No box around it in a named flow (a region paints its parts).
+                let mut at = hot.parent;
+                let mut steps = 0_usize;
+                while let Some(around) = at {
+                    steps += 1;
+                    if steps > tree.nodes.len() {
+                        return None;
+                    }
+                    let id = LayoutNodeId::new(around);
+                    if tree.warm(id).is_some_and(|w| w.flow.is_some()) {
+                        return None;
+                    }
+                    at = tree.get(id)?.parent;
+                }
+                // The boxes that move: the node's and every box below it. None of them in
+                // a named flow, none below it fixed or sticky (placed by something else
+                // than the box above it), none reading its insets from the box above it.
+                subtree.push(index);
+                let mut next = 0_usize;
+                while next < subtree.len() {
+                    if subtree.len() > MAX_BOXES {
+                        return None;
+                    }
+                    let below = subtree[next];
+                    moved_boxes(1);
+                    let id = LayoutNodeId::new(below);
+                    let warm = tree.warm(id)?;
+                    if warm.flow.is_some() {
+                        return None;
+                    }
+                    if below != index {
+                        if matches!(
+                            warm.computed_style.position,
+                            LayoutPosition::Fixed | LayoutPosition::Sticky
+                        ) {
+                            return None;
+                        }
+                        let inherits = tree
+                            .get(id)
+                            .and_then(|n| n.dom_node_id)
+                            .and_then(|n| compact.tier2_dims.get(n.index()))
+                            .is_some_and(|d| {
+                                [d.left, d.top, d.right, d.bottom].contains(&PX_SLOT_INHERIT)
+                            });
+                        if inherits {
+                            return None;
+                        }
+                    }
+                    subtree.extend_from_slice(tree.children(below));
+                    next += 1;
+                }
+                // The boxes whose text has its background proven by a box of the subtree
+                // (`compute_uniform_text_bg`: the first box upwards that paints any
+                // background decides): that proof's rect moves with them.
+                let paints = |layout_box: usize| {
+                    tree.get(LayoutNodeId::new(layout_box))
+                        .and_then(|n| n.dom_node_id)
+                        .is_some_and(|dom_node| {
+                            states.get(dom_node).is_some_and(|styled| {
+                                solver3::getters::get_background_contents(
+                                    styled_dom,
+                                    dom_node,
+                                    &styled.styled_node_state,
+                                )
+                                .iter()
+                                .any(|layer| {
+                                    !matches!(layer, StyleBackgroundContent::Color(c) if c.a == 0)
+                                })
+                            })
+                        })
+                };
+                for start in &subtree {
+                    let mut at = Some(*start);
+                    let mut steps = 0_usize;
+                    while let Some(layout_box) = at {
+                        steps += 1;
+                        if steps > subtree.len() {
+                            break;
+                        }
+                        if paints(layout_box) {
+                            proven_inside.push(*start);
+                            break;
+                        }
+                        if layout_box == index {
+                            break;
+                        }
+                        at = tree.get(LayoutNodeId::new(layout_box)).and_then(|n| n.parent);
+                    }
+                }
+                proven_inside.sort_unstable();
+            }
+
+            // The solver's cache of this DOM starts its next pass from this very tree and
+            // from positions of its own: they are moved with the result's.
+            let cache = if dom_id == DomId::ROOT_ID {
+                &self.layout_cache
+            } else {
+                self.child_layout_caches.get(&dom_id)?
+            };
+            if !cache
+                .tree
+                .as_ref()
+                .is_some_and(|kept| Arc::ptr_eq(kept, &result.layout_tree))
+                || cache.calculated_positions.len() != result.calculated_positions.len()
+            {
+                return None;
+            }
+            if turns
+                && !self
+                    .gpu_state_manager
+                    .caches
+                    .get(&dom_id)
+                    .is_some_and(|gpu| gpu.css_transform_keys.contains_key(&node_id))
+            {
+                return None;
+            }
+            (
+                index,
+                size,
+                left_slot,
+                top_slot,
+                fingerprint,
+                subtree,
+                proven_inside,
+            )
+        };
+
+        // ---- 2. The node's items: the range of its reference frame. ----
+        let frame = if moves {
+            let push = self.frame_push_of(dom_id, node_id)?;
+            let result = self.layout_results.get(&dom_id)?;
+            let position = solver3::pos_get(&result.calculated_positions, index)?;
+            let pop = node_patch::movable_frame(
+                &result.display_list,
+                push,
+                node_id,
+                LogicalRect::new(position, size),
+            )?;
+            Some((push, pop))
+        } else {
+            None
+        };
+        if moves {
+            // Where the box stood: page breaks from there on are no longer known.
+            self.mark_pagination_dirty_at_node(dom_id, node_id);
+        }
+
+        // ---- 3. The style rows, and what they now resolve to. ----
+        let result = self.layout_results.get_mut(&dom_id)?;
+        if let Some(slots) = result
+            .styled_dom
+            .get_css_property_cache_mut()
+            .compact_cache
+            .as_mut()
+            .and_then(|compact| compact.tier2_dims.get_mut(node_id.index()))
+        {
+            if let (true, Some(slot)) = (moves_x, left_slot) {
+                slots.left = slot;
+            }
+            if let (true, Some(slot)) = (moves_y, top_slot) {
+                slots.top = slot;
+            }
+        }
+        let after = positioning::resolve_position_offsets(
+            &result.styled_dom,
+            Some(node_id),
+            LogicalSize {
+                width: 0.0,
+                height: 0.0,
+            },
+            result.viewport.size,
+        );
+        let delta = LogicalPosition {
+            x: if moves_x {
+                after.left? - before.left?
+            } else {
+                0.0
+            },
+            y: if moves_y {
+                after.top? - before.top?
+            } else {
+                0.0
+            },
+        };
+        if !delta.x.is_finite() || !delta.y.is_finite() {
+            return None;
+        }
+        if turns {
+            let gpu = self.gpu_state_manager.caches.get_mut(&dom_id)?;
+            if !gpu.refresh_transform_value_of(
+                &result.styled_dom,
+                node_id,
+                (size.width, size.height),
+            ) {
+                return None;
+            }
+        }
+
+        // ---- 4. The kept tree: the box's fingerprint. The cache lets go of the tree for
+        // the write and takes it back (`Arc::get_mut`: no copy of the tree; a tree a third
+        // holder keeps is not written, and the pass of the general path lays out). ----
+        let cache = if dom_id == DomId::ROOT_ID {
+            &mut self.layout_cache
+        } else {
+            self.child_layout_caches.get_mut(&dom_id)?
+        };
+        drop(cache.tree.take());
+        let written = match Arc::get_mut(&mut result.layout_tree)
+            .and_then(|tree| tree.cold_mut(LayoutNodeId::new(index)))
+        {
+            Some(cold) => {
+                cold.node_data_fingerprint = fingerprint;
+                true
+            }
+            None => false,
+        };
+        cache.tree = Some(Arc::clone(&result.layout_tree));
+        if !written {
+            return None;
+        }
+
+        // ---- 5. The boxes and the items, moved together. ----
+        let moved = moves && (delta.x != 0.0 || delta.y != 0.0);
+        if moved {
+            for layout_box in &subtree {
+                for positions in [
+                    &mut result.calculated_positions,
+                    &mut cache.calculated_positions,
+                ] {
+                    if let Some(position) = positions.get_mut(*layout_box) {
+                        if position.x != solver3::POSITION_UNSET.x {
+                            position.x += delta.x;
+                            position.y += delta.y;
+                        }
+                    }
+                }
+            }
+            if let Some((push, pop)) = frame {
+                // The cache's own hold on the list, as for every patch of a kept list
+                // (`patch_display_list`): let go of for the write, so that a list nobody
+                // else holds is written where it lies, and taken back. A cache that holds
+                // another list is emptied: its next pass builds from the boxes as they are.
+                let cache_holds_it = cache
+                    .cached_display_list
+                    .as_ref()
+                    .map(|cached| Arc::ptr_eq(&cached.5, &result.display_list));
+                match cache_holds_it {
+                    Some(true) => {
+                        if let Some(cached) = cache.cached_display_list.as_mut() {
+                            drop(core::mem::take(&mut cached.5));
+                        }
+                    }
+                    Some(false) => cache.cached_display_list = None,
+                    None => {}
+                }
+                node_patch::move_frame(
+                    Arc::make_mut(&mut result.display_list),
+                    push,
+                    pop,
+                    delta,
+                    &proven_inside,
+                );
+                if cache_holds_it == Some(true) {
+                    if let Some(cached) = cache.cached_display_list.as_mut() {
+                        cached.5 = Arc::clone(&result.display_list);
+                    }
+                }
+            }
+            // The list changed outside a layout pass: what the last pass recorded about
+            // its own patch and move describes this list no longer.
+            cache.record_full_emission();
+            cache.last_patch_move = None;
+        }
+
+        // ---- 6. The books. ----
+        if moved {
+            if dom_id != DomId::ROOT_ID {
+                // As the other patches of a view's list do.
+                self.layout_cache.record_full_emission();
+            }
+            self.dom_generations.bump_for_a_move(dom_id);
+            self.mark_pagination_dirty_at_node(dom_id, node_id);
+        } else {
+            // A turn alone: the node is another one for whoever keeps a result by the
+            // DOM's generation; no box and no item moved.
+            self.dom_generations.bump(dom_id);
+        }
+        Some(ContentChangeResult {
+            tier: ContentDirtyTier::Paint,
+        })
     }
 
     /// The declaration keys whose declarations - static values, `var()` /

@@ -4175,6 +4175,17 @@ impl CommonWindowState {
     ) -> azul_core::hit_test::FullHitTest {
         use azul_core::window::CursorPosition;
 
+        // A3-window-49: boxes that were moved where they lie (a label dragged by its
+        // `left` / `top`: no layout pass, so nothing built the tester again) are hit where
+        // they are now.
+        if self
+            .layout_window
+            .as_mut()
+            .is_some_and(|lw| lw.take_boxes_moved_in_place())
+        {
+            self.rebuild_cpu_hit_tester();
+        }
+
         let focused_node = self
             .layout_window
             .as_ref()
