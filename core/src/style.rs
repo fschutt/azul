@@ -954,6 +954,24 @@ pub(crate) fn has_sibling_combinator(path: &CssPath) -> bool {
     })
 }
 
+/// Whether `path` reads a node's place among its siblings ([`CascadeInfo`]) in any of its
+/// compounds: `:first-child`, `:last-child`, `:nth-child`. These are the only selectors
+/// that do (`match_pseudo_selector`); a node that keeps its data and its ancestors but
+/// moves among its siblings can match another set of rules only through one of them.
+#[must_use]
+pub(crate) fn has_structural_pseudo(path: &CssPath) -> bool {
+    path.selectors.as_ref().iter().any(|s| {
+        matches!(
+            s,
+            CssPathSelector::PseudoSelector(
+                CssPathPseudoSelector::First
+                    | CssPathPseudoSelector::Last
+                    | CssPathPseudoSelector::NthChild(_)
+            )
+        )
+    })
+}
+
 /// Matches a single group of CSS selectors against a DOM node.
 ///
 /// Returns true if all selectors in the group match the given node.
