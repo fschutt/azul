@@ -1669,13 +1669,29 @@ mod audit_a8_tests {
                 }
             }
         };
-        let mut cache = TextShapingCache::new();
-        let before = shaped();
-        pass(&mut cache);
-        assert_eq!(shaped() - before, 5_000, "each paragraph is shaped once in a pass");
-        let after_first = shaped();
-        pass(&mut cache);
-        assert_eq!(shaped(), after_first, "the next pass over the same text shapes nothing");
+        // The shaped store's key holds the font registry's generation, which is the
+        // PROCESS's: a face another test of this binary registers while a pass runs makes
+        // every later key a new one (2,275 paragraphs were shaped again in the first run of
+        // this test beside the `fontreg` tests). The two passes are counted only when no face
+        // was registered from the first call to the last.
+        let registry = crate::text3::fontreg::generation;
+        for attempt in 0.. {
+            assert!(attempt < 50, "premise: the font registry stands still for two passes");
+            let stood_at = registry();
+            let mut cache = TextShapingCache::new();
+            let before = shaped();
+            pass(&mut cache);
+            let first = shaped() - before;
+            let after_first = shaped();
+            pass(&mut cache);
+            let second = shaped() - after_first;
+            if registry() != stood_at {
+                continue;
+            }
+            assert_eq!(first, 5_000, "each paragraph is shaped once in a pass");
+            assert_eq!(second, 0, "the next pass over the same text shapes nothing");
+            break;
+        }
     }
 
     /// A8-16 (wrong output): the same text of the same node laid out at
