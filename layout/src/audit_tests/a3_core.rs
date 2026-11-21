@@ -856,3 +856,125 @@ fn a_dom_that_declares_no_zoom_ratio_alignment_or_transform_is_not_asked_for_the
     assert!(!declared(&shouting, DOM_HAS_ZOOM_OR_ASPECT_RATIO));
     assert!(!declared(&shouting, DOM_HAS_VERTICAL_ALIGN));
 }
+
+/// A3-core-21: the guard that keeps `display_list/node_patch.rs` (A3-window's patch of one
+/// node's decorations into a kept list) in step with the builder. The patch paints a box's
+/// background-and-border run with the build's own function, so that run cannot drift; what it
+/// has to KNOW is what the walk emits for a box between that run and the box's content run,
+/// because a run the list does not hold yet is inserted right before the content run when
+/// nothing lies between (`plan_one`: the box's scroll hit area, its clips and scroll frames,
+/// the stacking contexts below it, its selection, its placeholder prompt).
+///
+/// This pins that rule from the builder's side: between the two runs of one box a build emits
+/// only structure the walk pushes (untagged), the runs of OTHER boxes, and the box's own
+/// selection run; and for a box that neither clips nor scrolls nor has a context below it,
+/// nothing at all. Whoever makes the walk emit something else there has to teach
+/// `node_patch::plan_one` to ask about it (its `content_follows`), or a hover colour is
+/// inserted at the wrong place.
+#[test]
+fn between_a_boxes_background_run_and_its_content_run_a_build_emits_only_what_the_patch_asks_about()
+{
+    let label = |css: &str| Dom::create_span_with_text("label").with_css(css);
+    // 0 body, 1 layer, 2 the plain label (3 its text), 4 the clipping label (5), 6 a label
+    // that is a stacking context with a box below it (7 its text, 8 the box below, 9 its text).
+    let page = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_div()
+            .with_css("position: relative; width: 600px; height: 400px;")
+            .with_child(label(
+                "position: absolute; left: 10px; top: 10px; width: 80px; height: 20px; \
+                 background: #ff0000;",
+            ))
+            .with_child(label(
+                "position: absolute; left: 10px; top: 50px; width: 80px; height: 20px; \
+                 overflow: hidden; background: #00ff00;",
+            ))
+            .with_child(
+                label(
+                    "position: absolute; left: 10px; top: 90px; width: 80px; height: 20px; \
+                     z-index: 1; background: #0000ff;",
+                )
+                .with_child(label(
+                    "position: absolute; left: 0px; top: 0px; width: 40px; height: 10px; \
+                     z-index: -1; background: #ffff00;",
+                )),
+            ),
+    );
+    let lw = laid_out(page);
+    let result = lw.layout_results.get(&DomId::ROOT_ID).expect("the root's layout");
+    let list = &result.display_list;
+    let tags = &list.layout_node_mapping;
+    assert_eq!(tags.len(), list.items.len(), "harness: every item has its tag slot");
+
+    // Per layout box: where its background run ends and where its content run starts.
+    let boxes = result.layout_tree.nodes.len();
+    let mut background_end = vec![None; boxes];
+    let mut content_start = vec![None; boxes];
+    for (i, tag) in tags.iter().enumerate() {
+        match tag {
+            Some((index, EmitPhase::BgBorder)) => background_end[*index] = Some(i + 1),
+            Some((index, EmitPhase::Content)) if content_start[*index].is_none() => {
+                content_start[*index] = Some(i);
+            }
+            _ => {}
+        }
+    }
+    let structure = |item: &DisplayListItem| {
+        matches!(
+            item,
+            DisplayListItem::PushClip { .. }
+                | DisplayListItem::PopClip
+                | DisplayListItem::PushScrollFrame { .. }
+                | DisplayListItem::PopScrollFrame
+                | DisplayListItem::PushStackingContext { .. }
+                | DisplayListItem::PopStackingContext
+                | DisplayListItem::PushReferenceFrame { .. }
+                | DisplayListItem::PopReferenceFrame
+                | DisplayListItem::PushOpacity { .. }
+                | DisplayListItem::PopOpacity
+                | DisplayListItem::HitTestArea { .. }
+        )
+    };
+    let mut both_runs = 0;
+    let mut with_something_between = 0;
+    for index in 0..boxes {
+        let (Some(from), Some(to)) = (background_end[index], content_start[index]) else {
+            continue;
+        };
+        assert!(from <= to, "box {index}: the content run comes after the background run");
+        both_runs += 1;
+        with_something_between += usize::from(from < to);
+        for i in from..to {
+            let allowed = match tags[i] {
+                None | Some((_, EmitPhase::ScWalk)) => structure(&list.items[i]),
+                Some((other, EmitPhase::Selection)) => other == index,
+                Some((other, _)) => other != index,
+            };
+            assert!(
+                allowed,
+                "box {index}: item {i} ({:?}, tag {:?}) lies between its background run and its \
+                 content run: `node_patch::plan_one` does not ask about it",
+                list.items[i], tags[i]
+            );
+        }
+    }
+    assert!(both_runs >= 3, "harness: the labels paint a background and a content run ({both_runs})");
+    assert!(
+        with_something_between >= 1,
+        "harness: a clipping label has its clip between the two runs"
+    );
+
+    // The plain label: nothing between, the place a first hover colour is inserted at.
+    let plain = result
+        .layout_tree
+        .dom_to_layout
+        .get(&NodeId::new(2))
+        .and_then(|boxes| boxes.first())
+        .expect("the plain label has a box")
+        .index();
+    assert_eq!(
+        background_end[plain], content_start[plain],
+        "a box that neither clips nor scrolls nor has a context below it paints its content \
+         run right after its background run"
+    );
+    assert!(background_end[plain].is_some(), "harness: the plain label paints both runs");
+}
