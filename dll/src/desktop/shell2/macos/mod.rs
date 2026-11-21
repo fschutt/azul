@@ -5085,7 +5085,12 @@ define_class!(
                     // The user may have changed the wallpaper while away: the
                     // metals read it again (one `stat` when it is the same)
                     // and the window redraws when it changed.
-                    if crate::desktop::wallpaper::refresh() {
+                    if macos_window
+                        .common
+                        .layout_window
+                        .as_ref()
+                        .is_some_and(crate::desktop::wallpaper::refresh)
+                    {
                         macos_window.request_redraw();
                     }
                     macos_window.dynamic_selector_context.window_focused = true;
@@ -7826,7 +7831,12 @@ impl MacOSWindow {
         // top-level window builds its own manager over the shared fc_cache.
         let fc_cache = fc_cache_opt.unwrap_or_else(|| Arc::new(FcFontCache::build()));
         let mut layout_window = match parent_lw {
-            Some(parent) => LayoutWindow::from_font_manager(parent.font_manager.clone_shared()),
+            Some(parent) => {
+                let child = LayoutWindow::from_font_manager(parent.font_manager.clone_shared());
+                // Its metals read the desktop's wallpaper like any window's.
+                crate::desktop::wallpaper::install(&child);
+                child
+            }
             // Shares the app-level manager's font pools instead of starting a
             // private universe; falls back to a fresh one when there is none.
             None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
