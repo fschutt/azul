@@ -3628,6 +3628,105 @@ mod tests {
         }
     }
 
+    /// The family of the face the app ships in
+    /// `a_layout_callbacks_snapshot_resolves_the_family_of_the_apps_shipped_face`.
+    const SHIPPED_FAMILY: &str = "Azul Snapshot Shipped Face";
+
+    /// What a layout callback saw of the font cache snapshot it made from its info.
+    #[derive(Debug, Clone)]
+    struct SnapshotSeen {
+        /// The registered fonts of the app (its shipped face among them).
+        app: Arc<azul_layout::text3::fontreg::RegisteredFonts>,
+        /// Whether the snapshot's font manager draws with the registered fonts of the app.
+        has_the_apps_fonts: bool,
+        /// The ids the family of the shipped face is indexed under in the snapshot's font manager.
+        family_ids: Vec<rust_fontconfig::FontId>,
+    }
+
+    /// A layout callback that makes a font cache snapshot of its info, as an app that paginates a
+    /// document in its callback does (`FontCacheSnapshot::from_layout_info`).
+    extern "C" fn layout_with_a_snapshot(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+        let snapshot = azul_layout::resource_handles::FontCacheSnapshot::from_layout_info(&info);
+        if let (Some(mut seen), Some(manager)) =
+            (data.downcast_mut::<SnapshotSeen>(), snapshot.as_font_manager())
+        {
+            let has_the_apps_fonts = Arc::ptr_eq(&manager.registered_fonts, &seen.app);
+            let norm = rust_fontconfig::utils::normalize_family_name(SHIPPED_FAMILY);
+            let family_ids: Vec<rust_fontconfig::FontId> = manager
+                .memory_families
+                .get(&norm)
+                .map(|faces| faces.iter().map(|face| face.font_match.id).collect())
+                .unwrap_or_default();
+            seen.has_the_apps_fonts = has_the_apps_fonts;
+            seen.family_ids = family_ids;
+        }
+        Dom::create_body()
+    }
+
+    /// An app with a shipped face (`AppConfig::add_font`): a layout callback of its window makes
+    /// a font cache snapshot from its info - what an app paginates a document with - and the
+    /// family of the shipped face resolves in it to the face the window draws with, the very id,
+    /// because the window hands the app's registered fonts to its callbacks. A window that has
+    /// none of the app's fonts hands none over.
+    /// Mutation: `regenerate_layout` leaving `registered_fonts` out of the ref data it builds
+    /// fails the first block.
+    #[test]
+    fn a_layout_callbacks_snapshot_resolves_the_family_of_the_apps_shipped_face() {
+        use azul_layout::text3::fontreg::RegisteredFonts;
+
+        let norm = rust_fontconfig::utils::normalize_family_name(SHIPPED_FAMILY);
+        // The app's registered fonts, with the face it ships.
+        let app = Arc::new(RegisteredFonts::default());
+        let face = azul_layout::text3::ui_fonts::bundled_ui_fonts()[0].bytes.clone();
+        app.set_app_fonts(&[azul_core::resources::NamedFont::new(
+            SHIPPED_FAMILY.into(),
+            face.into(),
+        )]);
+
+        // One layout of a window, given the app's registered fonts or not: the ids the window
+        // itself has the family under, and what its callback saw.
+        let layout = |given: Option<&Arc<RegisteredFonts>>| {
+            let state = Arc::new(RefCell::new(RefAny::new(SnapshotSeen {
+                app: Arc::clone(&app),
+                has_the_apps_fonts: false,
+                family_ids: Vec::new(),
+            })));
+            let mut window = make_window_with(&state, layout_with_a_snapshot);
+            if let Some(fonts) = given {
+                window.share_registered_fonts(fonts);
+            }
+            window.regenerate_layout().expect("the layout runs");
+            let on_screen: Vec<rust_fontconfig::FontId> = window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.font_manager.memory_families.get(&norm))
+                .map(|faces| faces.iter().map(|face| face.font_match.id).collect())
+                .unwrap_or_default();
+            let (has_the_apps_fonts, in_the_snapshot) = state
+                .borrow_mut()
+                .downcast_ref::<SnapshotSeen>()
+                .map(|seen| (seen.has_the_apps_fonts, seen.family_ids.clone()))
+                .expect("the layout callback ran");
+            (on_screen, has_the_apps_fonts, in_the_snapshot)
+        };
+
+        let (on_screen, has_the_apps_fonts, in_the_snapshot) = layout(Some(&app));
+        assert!(!on_screen.is_empty(), "premise: the window draws the family with the shipped face");
+        assert!(has_the_apps_fonts, "the snapshot draws with the registered fonts of the app");
+        assert_eq!(
+            in_the_snapshot, on_screen,
+            "the family resolves to the face the window draws with"
+        );
+
+        let (on_screen, has_the_apps_fonts, in_the_snapshot) = layout(None);
+        assert!(on_screen.is_empty(), "a window that has no fonts of the app has no shipped face");
+        assert!(
+            !has_the_apps_fonts && in_the_snapshot.is_empty(),
+            "and the snapshot of its callback has none either"
+        );
+    }
+
     /// State for the harvested-breakpoint pin: counts `layout()` invocations.
     #[derive(Debug, Clone)]
     struct BreakpointState {
