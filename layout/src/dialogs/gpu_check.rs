@@ -5,7 +5,7 @@
 //! published through [`crate::appenv::gpu_status`]) says what the RENDERER
 //! got, and the dll's provisioning check
 //! (`VideoStartupCheck::run`/`remediate`, reached through
-//! [`crate::appenv::gpu_provision_hooks`]) says whether hardware decode is
+//! [`crate::callbacks::CallbackInfo::get_gpu_provision_hooks`]) says whether hardware decode is
 //! ready, whether the machine is SAFE TO REBOOT, and what a one-click repair
 //! would run.
 //!
@@ -31,7 +31,7 @@ use azul_css::AzString;
 
 use super::{cpu_dialog_window, style};
 use crate::{
-    appenv::{GpuProvisionOutcome, GpuProvisionReport, GpuStatus},
+    appenv::{GpuProvisionHooks, GpuProvisionOutcome, GpuProvisionReport, GpuStatus},
     callbacks::CallbackInfo,
     thread::{
         Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
@@ -80,10 +80,11 @@ pub fn open(info: &mut CallbackInfo) {
     let state = RefAny::new(GpuDialogState {
         phase: GpuPhase::Checking,
     });
+    let hooks = info.get_gpu_provision_hooks();
     info.add_thread(
         ThreadId::unique(),
         Thread::create(
-            RefAny::new(CheckTask),
+            RefAny::new(CheckTask { hooks }),
             state.clone(),
             check_worker as ThreadCallbackType,
         ),
@@ -96,13 +97,18 @@ pub fn open(info: &mut CallbackInfo) {
     ));
 }
 
-struct CheckTask;
+/// What a worker of the dialog needs of the app: the provisioning hooks the window the dialog
+/// was opened from holds (a worker has no window to ask).
+struct CheckTask {
+    hooks: Option<GpuProvisionHooks>,
+}
 struct NewPhase(GpuPhase);
 
 /// Background: the provisioning readiness check. INSPECTION ONLY — it
 /// dlopen's codec libraries and reads kernel/driver state, changes nothing.
-extern "C" fn check_worker(mut _init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
-    let phase = match crate::appenv::gpu_provision_hooks() {
+extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+    let hooks = init.downcast_ref::<CheckTask>().and_then(|task| task.hooks);
+    let phase = match hooks {
         Some(hooks) => GpuPhase::Report((hooks.check)()),
         None => GpuPhase::Unavailable(
             "This build has no driver-provisioning support, so only the renderer's own report is \
@@ -118,8 +124,9 @@ extern "C" fn check_worker(mut _init: RefAny, mut sender: ThreadSender, _recv: T
 
 /// Background: the CONSENTED remediation. Side-effecting — driver install
 /// and/or kernel repair through pkexec.
-extern "C" fn remediate_worker(mut _init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
-    let phase = match crate::appenv::gpu_provision_hooks() {
+extern "C" fn remediate_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+    let hooks = init.downcast_ref::<CheckTask>().and_then(|task| task.hooks);
+    let phase = match hooks {
         Some(hooks) => {
             // One writeback per command, so the bar moves for real. (The
             // main-thread drain reads the queue until it is EMPTY — see the
@@ -180,10 +187,11 @@ extern "C" fn on_repair_now(mut state: RefAny, mut info: CallbackInfo) -> Update
             step: String::new(),
         };
     }
+    let hooks = info.get_gpu_provision_hooks();
     info.add_thread(
         ThreadId::unique(),
         Thread::create(
-            RefAny::new(CheckTask),
+            RefAny::new(CheckTask { hooks }),
             state.clone(),
             remediate_worker as ThreadCallbackType,
         ),

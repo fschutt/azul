@@ -1,12 +1,12 @@
-//! Process-wide snapshot of the app-level configuration that ENGINE services
-//! (updater, system dialogs) need outside any callback: the app's name and
-//! version, where the update manifest lives, the changelog URL, the support
-//! mailbox.
+//! Snapshot of the app-level configuration that ENGINE services (updater,
+//! system dialogs) need: the app's name and version, where the update
+//! manifest lives, the changelog URL, the support mailbox.
 //!
-//! `AppConfig` is the source of truth; `App::run` publishes it here once at
-//! startup (same pattern as `window::set_global_system_animations`). Layout
-//! examples and tests that never go through `App::run` call [`set_app_env`]
-//! directly.
+//! `AppConfig` is the source of truth; every shell hands each window it builds
+//! the snapshot of it ([`AppEnv::from_config`], `LayoutWindow::set_app_settings`),
+//! and the services read it through the window (`CallbackInfo::app_env`) - a
+//! worker thread gets a copy when it is started. A window nobody seeded (a
+//! layout test) holds the [`AppEnv::default`] one, so every test has its own.
 
 use std::sync::RwLock;
 
@@ -107,27 +107,6 @@ impl AppEnv {
             self.update_allow_unsigned,
         )
     }
-}
-
-static APP_ENV: RwLock<Option<AppEnv>> = RwLock::new(None);
-
-/// Publishes the snapshot (called by `App::run`; re-callable — tests and
-/// multi-`App` processes overwrite the previous value).
-pub fn set_app_env(env: AppEnv) {
-    if let Ok(mut slot) = APP_ENV.write() {
-        *slot = Some(env);
-    }
-}
-
-/// The current snapshot; a default (no manifest, no mailbox) when nothing
-/// was published.
-#[must_use]
-pub fn app_env() -> AppEnv {
-    APP_ENV
-        .read()
-        .ok()
-        .and_then(|slot| slot.clone())
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -233,6 +212,8 @@ pub struct GpuStatus {
     pub ok: bool,
 }
 
+// A fact about the machine's GPU, probed by the windows that open a GL context: every probe on one
+// machine says the same, so whichever published last stands.
 static GPU_STATUS: RwLock<Option<GpuStatus>> = RwLock::new(None);
 
 /// Publishes the probe outcome (called from the shell's GL init).
@@ -288,9 +269,10 @@ pub struct GpuProvisionOutcome {
 /// `(commands_finished, total, running_command)`.
 pub type GpuProvisionProgressFn<'a> = &'a mut dyn FnMut(usize, usize, &str);
 
-/// The dll's provisioning entry points, published by `App::run`. `check` is
-/// INSPECTION ONLY; `remediate` is side-effecting (pkexec) and must never be
-/// called without explicit user consent.
+/// The dll's provisioning entry points, handed to every window its shells build
+/// (`LayoutWindow::gpu_provision`). `check` is INSPECTION ONLY; `remediate` is
+/// side-effecting (pkexec) and must never be called without explicit user
+/// consent.
 #[derive(Debug, Copy, Clone)]
 pub struct GpuProvisionHooks {
     /// Runs the readiness checks. Blocking — call it on a thread.
@@ -299,19 +281,4 @@ pub struct GpuProvisionHooks {
     /// Reports progress before each command it runs:
     /// `on_step(commands_finished, total, running_command)`.
     pub remediate: fn(GpuProvisionProgressFn<'_>) -> GpuProvisionOutcome,
-}
-
-static GPU_PROVISION: RwLock<Option<GpuProvisionHooks>> = RwLock::new(None);
-
-/// Publishes the provisioning hooks (called by `App::run`).
-pub fn set_gpu_provision_hooks(hooks: GpuProvisionHooks) {
-    if let Ok(mut slot) = GPU_PROVISION.write() {
-        *slot = Some(hooks);
-    }
-}
-
-/// The provisioning hooks, if a shell published them.
-#[must_use]
-pub fn gpu_provision_hooks() -> Option<GpuProvisionHooks> {
-    GPU_PROVISION.read().ok().and_then(|slot| *slot)
 }

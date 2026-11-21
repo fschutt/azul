@@ -208,6 +208,8 @@ impl E2eScriptHandle {
     #[must_use]
     pub fn new() -> Self {
         use core::sync::atomic::{AtomicU64, Ordering};
+        // Process-wide on purpose: the handle is handed to C callers (it is `repr(C)`) and has to
+        // stay unique among every script the process runs, in whichever window.
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self {
             id: NEXT.fetch_add(1, Ordering::Relaxed),
@@ -1815,7 +1817,12 @@ impl CallbackInfo {
         callback: crate::updater::UpdateCheckCallback,
         options: crate::updater::UpdateOptions,
     ) -> ThreadId {
-        let (thread_id, thread) = crate::updater::spawn_update_check(data, callback, options);
+        let (thread_id, thread) = crate::updater::spawn_update_check(
+            self.get_layout_window().app_env.clone(),
+            data,
+            callback,
+            options,
+        );
         self.add_thread(thread_id, thread);
         thread_id
     }
@@ -5864,6 +5871,22 @@ impl CallbackInfo {
         self.get_layout_window().scroll_manager.is_natural_scroll()
     }
 
+    /// The app's configuration snapshot the engine services read - its name and version, where
+    /// the update manifest lives, the changelog URL, the support mailbox - as this window holds
+    /// it (`AppConfig`, handed to the window by the shell that built it). A worker thread
+    /// takes a copy when it is started.
+    #[must_use]
+    pub fn get_app_env(&self) -> crate::appenv::AppEnv {
+        self.get_layout_window().app_env.clone()
+    }
+
+    /// What the dll can do about the machine's video drivers, if its shell handed this window
+    /// the hooks (the graphics-check dialog asks).
+    #[must_use]
+    pub fn get_gpu_provision_hooks(&self) -> Option<crate::appenv::GpuProvisionHooks> {
+        self.get_layout_window().gpu_provision
+    }
+
     /// The PLATFORM's natural-scrolling preference, if it reports one
     /// (9b-ii-b-i-a): macOS's setting, the Windows precision touchpad's, a
     /// Wayland compositor's `axis_relative_direction`. `false` also when the
@@ -8333,7 +8356,7 @@ impl RenderImageCallbackInfo {
 /// for a frame it prepares itself: a callback image used as a BACKGROUND
 /// layer (`background: url(id)` / `builtin(<name>)` naming one) - its
 /// corner radii are the layer's - and an image node (radii zero).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RenderImageCallbackExtras {
     /// The corner radii of the rect the frame fills, logical px: top-left,
     /// top-right, bottom-right, bottom-left.
@@ -8363,35 +8386,33 @@ pub struct RenderImageCallbackExtras {
     /// Whether the window takes a frame later: a window a desktop shell draws
     /// on the CPU shows the layer's previous frame (or its base colour) while
     /// a slow callback draws the new one off the UI thread. Such a callback
-    /// answers with any frame, calls [`mark_frame_deferred`], and is asked
+    /// answers with any frame, calls [`Self::mark_frame_deferred`], and is asked
     /// again on the window's next frames until it answers for real. Off for
     /// a window that must draw every frame whole (headless, tests,
     /// screenshots).
     pub may_defer: bool,
-}
-
-std::thread_local! {
-    /// Set by a render callback that deferred its frame
-    /// ([`mark_frame_deferred`]), taken by the window that asked it.
-    static FRAME_DEFERRED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
-}
-
-/// Called by a render callback that was allowed to defer
-/// ([`RenderImageCallbackExtras::may_defer`]) and did: its answer is a stand-in,
-/// and the real frame is drawn off the UI thread. The window keeps the frame
-/// the layer shows (its base colour before the first one) and asks again on
-/// its next frames.
-pub fn mark_frame_deferred() {
-    FRAME_DEFERRED.with(|deferred| deferred.set(true));
-}
-
-/// Whether the render callback just invoked on this thread deferred its frame
-/// ([`mark_frame_deferred`]); clears the mark.
-pub(crate) fn take_frame_deferred() -> bool {
-    FRAME_DEFERRED.with(core::cell::Cell::take)
+    /// Set by the callback that deferred its frame ([`Self::mark_frame_deferred`]), read by
+    /// the window that asked it, once the callback returned: the answer to one invocation
+    /// belongs to that invocation's extras, not to the thread it ran on.
+    pub deferred: core::cell::Cell<bool>,
 }
 
 impl RenderImageCallbackExtras {
+    /// Called by a render callback that was allowed to defer ([`Self::may_defer`]) and did:
+    /// its answer is a stand-in, and the real frame is drawn off the UI thread. The window
+    /// keeps the frame the layer shows (its base colour before the first one) and asks again
+    /// on its next frames.
+    pub fn mark_frame_deferred(&self) {
+        self.deferred.set(true);
+    }
+
+    /// Whether the callback this was handed to deferred its frame
+    /// ([`Self::mark_frame_deferred`]).
+    #[must_use]
+    pub fn frame_was_deferred(&self) -> bool {
+        self.deferred.get()
+    }
+
     /// No radii, the window's origin, the light `material_light` describes,
     /// no properties.
     #[must_use]
@@ -8421,6 +8442,7 @@ impl RenderImageCallbackExtras {
             custom_properties: core::ptr::null(),
             clip_path: core::ptr::null(),
             may_defer: false,
+            deferred: core::cell::Cell::new(false),
         }
     }
 
@@ -11076,12 +11098,6 @@ mod node_attribute_flag_tests {
     }
 }
 
-/// Tests: how many markers [`node_by_marker`] compared on this thread.
-#[cfg(test)]
-thread_local! {
-    static MARKERS_COMPARED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-}
-
 /// The first node of `styled_dom`, in node order, whose marker is `want`
 /// (`CallbackInfo::get_node_id_by_marker` for one DOM). Read off the list the
 /// styled DOM keeps of its marked nodes (`StyledDom::nodes_with_markers`,
@@ -11091,6 +11107,16 @@ pub(crate) fn node_by_marker(
     styled_dom: &StyledDom,
     want: &str,
 ) -> Option<NodeId> {
+    node_by_marker_counting(styled_dom, want, &mut || {})
+}
+
+/// [`node_by_marker`], telling `compared` about each marker it compares: what a test counts
+/// to say a lookup reads the marked nodes and not every node (the test owns the count).
+pub(crate) fn node_by_marker_counting(
+    styled_dom: &StyledDom,
+    want: &str,
+    compared: &mut dyn FnMut(),
+) -> Option<NodeId> {
     let nodes = styled_dom.node_data.as_container();
     styled_dom
         .nodes_with_markers
@@ -11098,8 +11124,7 @@ pub(crate) fn node_by_marker(
         .iter()
         .filter_map(NodeHierarchyItemId::into_crate_internal)
         .find(|node| {
-            #[cfg(test)]
-            MARKERS_COMPARED.with(|compared| compared.set(compared.get() + 1));
+            compared();
             nodes
                 .get(*node)
                 .and_then(|data| data.get_marker())
@@ -11115,7 +11140,7 @@ mod audit_a6_marker_tests {
         styled_dom::StyledDom,
     };
 
-    use super::{node_by_marker, MARKERS_COMPARED};
+    use super::{node_by_marker, node_by_marker_counting};
 
     /// `body` with `n` plain children, then one marked "view", then one marked "picture".
     fn page(n: usize) -> StyledDom {
@@ -11148,14 +11173,13 @@ mod audit_a6_marker_tests {
     /// out after the in-place write fails "the marker that arrived".
     #[test]
     fn a_lookup_by_marker_reads_the_marked_nodes() {
-        let compared = || MARKERS_COMPARED.with(core::cell::Cell::get);
         for n in [300, 1200] {
             let dom = page(n);
             assert_eq!(dom.nodes_with_markers.as_ref().len(), 2);
             for want in ["view", "picture", "nobody"] {
-                let before = compared();
-                let found = node_by_marker(&dom, want);
-                assert!(compared() - before <= 2, "{n} nodes, {want}: {}", compared() - before);
+                let mut compared = 0_usize;
+                let found = node_by_marker_counting(&dom, want, &mut || compared += 1);
+                assert!(compared <= 2, "{n} nodes, {want}: {compared}");
                 assert_eq!(found, by_walk(&dom, want), "{n} nodes, {want}");
             }
             assert_eq!(node_by_marker(&dom, "view"), Some(NodeId::new(n + 1)));
