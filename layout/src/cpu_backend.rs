@@ -75,6 +75,26 @@ pub fn frame_may_reuse_previous_pixels(
         && !force_full_repaint
 }
 
+/// May a frame that has damage repaint that damage alone (the flat walk over its rects)?
+///
+/// Only while the previous frame's pixels can be reused (`can_reuse_previous_frame`), and not
+/// for a list with a group only the layered compositor paints right - a blur or another
+/// filter the walk does not apply, a backdrop filter (`cpurender::full_repaint_needs_layers`):
+/// the walk paints such a group UNFILTERED inside every rect it repaints, so "damaged ==
+/// full" does not hold for it (A1-38, A2-cpu-R08: a caret blinking in a blurred panel left a
+/// sharp patch per blink). Not for the frame after such a list either: what its layers put
+/// on screen is not what the walk would have. Those frames are full repaints.
+#[must_use]
+pub fn frame_may_repaint_its_damage_alone(
+    can_reuse_previous_frame: bool,
+    list: &crate::solver3::display_list::DisplayList,
+    previous: Option<&crate::solver3::display_list::DisplayList>,
+) -> bool {
+    can_reuse_previous_frame
+        && !cpurender::full_repaint_needs_layers(list)
+        && !previous.is_some_and(cpurender::full_repaint_needs_layers)
+}
+
 /// What a frame reports for presenting it by moves: the moves, and the rects to copy from the
 /// frame after them. The invariant: the previous frame, the moves in order, then those rects
 /// copied, is the new frame.
@@ -986,8 +1006,11 @@ impl CpuBackend {
             // panel left a sharp patch per blink. Those frames are full repaints through the
             // layers (A1-38); an idle frame of such a window is still skipped above.
             Some(mut rects)
-                if can_reuse_previous_frame
-                    && !cpurender::full_repaint_needs_layers(display_list) =>
+                if frame_may_repaint_its_damage_alone(
+                    can_reuse_previous_frame,
+                    display_list,
+                    self.previous_display_list.as_deref(),
+                ) =>
             {
                 // Incremental: changed items + (scroll strips added below)
                 rects.extend(resize_damage);
@@ -1652,5 +1675,48 @@ mod audit_a1_tests {
         assert_eq!(after, FrameDamage::Rects(vec![strip]));
         // A full repaint: no moves, everything.
         assert_eq!(present_by_moves(false, &[], Vec::new(), &[], moves), (Vec::new(), FrameDamage::Full));
+    }
+
+    /// A2-cpu-R08 (A1-38): a frame of a list with `filter: blur()` never repaints its damage
+    /// alone. A 200 x 100 box with `filter: blur(4px)` and a caret over it: the full repaint
+    /// blurs the box through its layer, the walk over the caret's damage rect (2 x 18) would
+    /// paint that rect of the box unblurred - so the frame is a full repaint. The frame after
+    /// such a list is one too. A list without such a group repaints its damage.
+    /// Mutation: the gate as it was (`can_reuse_previous_frame` alone) lets the blurred list
+    /// through.
+    #[test]
+    fn a_list_with_a_blur_never_repaints_its_damage_alone() {
+        use azul_css::props::{
+            basic::{pixel::PixelValue, ColorU},
+            style::filter::{StyleBlur, StyleFilter},
+        };
+
+        use crate::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem};
+        let boxed = |blur: bool| {
+            let fill = DisplayListItem::Rect {
+                bounds: lr(10.0, 10.0, 200.0, 100.0).into(),
+                color: ColorU { r: 200, g: 0, b: 0, a: 255 },
+                border_radius: BorderRadius::default(),
+            };
+            let items = if blur {
+                vec![
+                    DisplayListItem::PushFilter {
+                        bounds: lr(10.0, 10.0, 200.0, 100.0).into(),
+                        filters: vec![StyleFilter::Blur(StyleBlur { width: PixelValue::px(4.0), height: PixelValue::px(4.0) })],
+                    },
+                    fill,
+                    DisplayListItem::PopFilter,
+                ]
+            } else {
+                vec![fill]
+            };
+            DisplayList { items, ..Default::default() }
+        };
+        let (blurred, plain) = (boxed(true), boxed(false));
+        assert!(frame_may_repaint_its_damage_alone(true, &plain, Some(&plain)));
+        assert!(frame_may_repaint_its_damage_alone(true, &plain, None));
+        assert!(!frame_may_repaint_its_damage_alone(true, &blurred, Some(&blurred)), "the walk does not blur");
+        assert!(!frame_may_repaint_its_damage_alone(true, &plain, Some(&blurred)), "the frame after it");
+        assert!(!frame_may_repaint_its_damage_alone(false, &plain, Some(&plain)));
     }
 }
