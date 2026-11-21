@@ -7052,9 +7052,20 @@ impl X11Window {
                         // need to know one exists before computing window dims.
                         if layout_window.layout_results.contains_key(&dom_id) {
                             let ws = &layout_window.current_window_state;
-                            let width = ws.size.dimensions.width;
-                            let height = ws.size.dimensions.height;
                             let dpi = ws.size.dpi as f32 / 96.0;
+                            // A10-05: the frame is as large as the WINDOW, in
+                            // device pixels. The logical size is px / dpi, and
+                            // the renderer's ceil(logical * dpi) of that lands
+                            // one pixel above px wherever the f32 round trip
+                            // overshoots (1003 px at 175 %: a 1004 px frame).
+                            // Hand it the length that renders to exactly px.
+                            let phys = ws.size.get_physical_size();
+                            let width = azul_layout::window::present_geometry::logical_len_for_px(
+                                phys.width, dpi,
+                            );
+                            let height = azul_layout::window::present_geometry::logical_len_for_px(
+                                phys.height, dpi,
+                            );
 
                             if width > 0.0 && height > 0.0 {
                                 // Shared CPU renderer (the SAME path as headless):

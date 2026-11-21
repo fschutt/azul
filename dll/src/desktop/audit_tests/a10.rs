@@ -264,3 +264,35 @@ fn every_shell_presents_through_the_one_damage_conversion() {
         );
     }
 }
+
+/// A10-05. X11 and Win32 learn their size in device pixels and store
+/// `px / dpi` as the logical size; the frame is `ceil(logical * dpi)` of what
+/// the shell hands `render_frame`. They hand it
+/// `present_geometry::logical_len_for_px(px, dpi)` (tested exhaustively in
+/// azul-layout), so the frame is the window's size and not one pixel more
+/// (1003 px at 175 %: 1004 without it).
+///
+/// Mutation: passing `ws.size.dimensions.width` to `render_frame` again
+/// fails here.
+#[test]
+fn x11_and_win32_render_a_frame_of_the_windows_pixel_size() {
+    for (shell, source, decl) in [
+        ("X11", X11_RS, "if let RenderMode::Cpu(gc) = &self.render_mode {"),
+        ("Win32", WINDOWS_RS, "pub fn render_and_present(&mut self, layout_was_regenerated: bool)"),
+    ] {
+        let arm = body(source, decl);
+        let render = arm
+            .find("self.cpu_backend.render_frame(")
+            .unwrap_or_else(|| panic!("{shell}: the CPU arm no longer calls render_frame"));
+        let before = &arm[..render];
+        assert!(
+            before.contains("let phys = ws.size.get_physical_size();")
+                && before.matches("present_geometry::logical_len_for_px(").count() == 2,
+            "{shell}: width and height of the CPU frame must come from the window's pixel size"
+        );
+        assert!(
+            !before.contains("let width = ws.size.dimensions.width;"),
+            "{shell}: the CPU frame is sized from the stored logical size again"
+        );
+    }
+}
