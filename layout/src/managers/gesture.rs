@@ -14,8 +14,6 @@
 //! - File drop from OS
 
 use alloc::vec::Vec;
-#[cfg(feature = "std")]
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::{
     dom::{DomId, NodeId},
@@ -26,21 +24,6 @@ use azul_core::{
     window::WindowPosition,
 };
 use azul_css::{impl_option, AzString};
-
-#[cfg(feature = "std")]
-static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);
-
-/// Allocate a new unique event ID
-#[cfg(feature = "std")]
-pub fn allocate_event_id() -> u64 {
-    NEXT_EVENT_ID.fetch_add(1, Ordering::Relaxed)
-}
-
-/// Allocate a new unique event ID (no_std fallback: returns 0)
-#[cfg(not(feature = "std"))]
-pub fn allocate_event_id() -> u64 {
-    0
-}
 
 /// Helper function to convert `CoreDuration` to milliseconds
 ///
@@ -868,6 +851,9 @@ pub struct GestureAndDragManager {
     long_press_callbacks_invoked: Vec<u64>,
     /// Counter for generating unique session IDs
     next_session_id: u64,
+    /// The event id of the next input sample this manager records
+    /// ([`Self::allocate_event_id`]).
+    next_event_id: u64,
     /// Native-platform gesture override slot.
     ///
     /// Platforms with first-class gesture recognizers (iOS `UIKit`,
@@ -941,6 +927,14 @@ impl Default for GestureAndDragManager {
 }
 
 impl GestureAndDragManager {
+    /// A new event id, one more than the last this manager allocated: the id
+    /// of the input sample about to be recorded.
+    pub fn allocate_event_id(&mut self) -> u64 {
+        let id = self.next_event_id;
+        self.next_event_id += 1;
+        id
+    }
+
     /// (`input_sessions`, `long_press_callbacks_invoked`). Used by
     /// `AZ_E2E_TEST` to watch for unbounded growth.
     #[must_use]
@@ -958,6 +952,7 @@ impl GestureAndDragManager {
             config: GestureDetectionConfig::default(),
             input_sessions: Vec::new(),
             next_session_id: 1,
+            next_event_id: 1,
             active_drag: None,
             drag_source_node: azul_core::dom::OptionDomNodeId::None,
             drag_image: None,
@@ -1188,11 +1183,12 @@ impl GestureAndDragManager {
         window_position: WindowPosition,
         screen_position: LogicalPosition,
     ) -> u64 {
+        let event_id = self.allocate_event_id();
         self.start_input_session_with_pen(
             position,
             timestamp,
             button_state,
-            allocate_event_id(),
+            event_id,
             0.5,        // default pressure for mouse
             (0.0, 0.0), // no tilt for mouse
             (0.0, 0.0), // no touch radius for mouse
@@ -1261,11 +1257,12 @@ impl GestureAndDragManager {
         button_state: u8,
         screen_position: LogicalPosition,
     ) -> bool {
+        let event_id = self.allocate_event_id();
         self.record_input_sample_with_pen(
             position,
             timestamp,
             button_state,
-            allocate_event_id(),
+            event_id,
             0.5,        // default pressure for mouse
             (0.0, 0.0), // no tilt for mouse
             (0.0, 0.0), // no touch radius for mouse
@@ -1327,6 +1324,7 @@ impl GestureAndDragManager {
     /// Returns whether a sample was recorded: `false` without a session, or
     /// once its button was released.
     pub fn record_hold_sample(&mut self, timestamp: CoreInstant) -> bool {
+        let event_id = self.allocate_event_id();
         let Some(session) = self.last_primary_session_mut() else {
             return false;
         };
@@ -1337,7 +1335,7 @@ impl GestureAndDragManager {
             return false;
         };
         sample.timestamp = timestamp;
-        sample.event_id = allocate_event_id();
+        sample.event_id = event_id;
         if session.samples.len() >= MAX_SAMPLES_PER_SESSION {
             let remove_count = session.samples.len() - MAX_SAMPLES_PER_SESSION + DRAIN_BATCH_SIZE;
             session.samples.drain(0..remove_count);
@@ -1442,6 +1440,7 @@ impl GestureAndDragManager {
         timestamp: CoreInstant,
         screen_position: LogicalPosition,
     ) -> bool {
+        let event_id = self.allocate_event_id();
         let Some(session) = self
             .input_sessions
             .iter_mut()
@@ -1461,7 +1460,7 @@ impl GestureAndDragManager {
             screen_position,
             timestamp,
             button_state: TOUCH_CONTACT_BUTTON_STATE,
-            event_id: allocate_event_id(),
+            event_id,
             pressure: 0.5,
             tilt: crate::callbacks::PenTilt {
                 x_tilt: 0.0,
@@ -5016,19 +5015,26 @@ mod autotest_generated {
 
     // ------------------------------------------------- event ids
 
-    #[cfg(feature = "std")]
     #[test]
     fn allocate_event_id_is_strictly_monotonic() {
-        let a = allocate_event_id();
-        let b = allocate_event_id();
-        let c = allocate_event_id();
+        let mut m = GestureAndDragManager::new();
+        let a = m.allocate_event_id();
+        let b = m.allocate_event_id();
+        let c = m.allocate_event_id();
         assert!(a < b && b < c, "ids must increase: {a} {b} {c}");
     }
 
-    #[cfg(not(feature = "std"))]
     #[test]
-    fn allocate_event_id_is_zero_without_std() {
-        assert_eq!(allocate_event_id(), 0);
+    fn each_manager_counts_its_own_event_ids() {
+        let mut first = GestureAndDragManager::new();
+        let mut second = GestureAndDragManager::new();
+        assert_eq!(first.allocate_event_id(), 1);
+        assert_eq!(first.allocate_event_id(), 2);
+        assert_eq!(
+            second.allocate_event_id(),
+            1,
+            "another window's manager has its own ids"
+        );
     }
 
     #[cfg(feature = "std")]
