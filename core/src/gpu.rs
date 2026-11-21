@@ -546,6 +546,21 @@ impl GpuValueCache {
         key
     }
 
+    /// Gives `node` a key in `channel` when it has none, and leaves its
+    /// value alone: a frame that is keyed before its value is known (a
+    /// sheen layer, keyed with its material and moved when the cursor
+    /// comes). Returns the key.
+    pub fn ensure_transform_key(&mut self, channel: TransformChannel, node: NodeId) -> TransformKey {
+        let (keys, _) = self.transform_maps_mut(channel);
+        let mut minted = false;
+        let key = *keys.entry(node).or_insert_with(|| {
+            minted = true;
+            TransformKey::unique()
+        });
+        self.wrote(minted);
+        key
+    }
+
     /// Writes `value` for `node` in `channel` and leaves its key alone (a
     /// value without a key binds nothing). Returns the value it had.
     pub fn set_transform_value(
@@ -678,6 +693,30 @@ impl GpuValueCache {
         let value_changed = values.insert(node, value) != Some(value);
         self.wrote(minted || value_changed);
         key
+    }
+
+    /// Gives `node` an opacity key in `channel` when it has none, and leaves
+    /// its value alone. Returns the key.
+    pub fn ensure_opacity_key(&mut self, channel: OpacityChannel, node: NodeId) -> OpacityKey {
+        let (keys, _) = self.opacity_maps_mut(channel);
+        let mut minted = false;
+        let key = *keys.entry(node).or_insert_with(|| {
+            minted = true;
+            OpacityKey::unique()
+        });
+        self.wrote(minted);
+        key
+    }
+
+    /// Every node that has an opacity key in `channel`, with the key.
+    pub fn opacity_keys_of(
+        &self,
+        channel: OpacityChannel,
+    ) -> impl Iterator<Item = (NodeId, OpacityKey)> + '_ {
+        self.opacity_maps(channel)
+            .0
+            .iter()
+            .map(|(node, key)| (*node, *key))
     }
 
     /// Writes the opacity `value` for `node` in `channel` and leaves its key
@@ -2330,6 +2369,13 @@ mod audit_a2_gpu_tests {
             assert!(moved_since(&cache, &mut last), "{channel:?}: emptied");
             cache.clear_transforms(channel);
             assert!(!moved_since(&cache, &mut last), "{channel:?}: it was empty");
+            let only_a_key = cache.ensure_transform_key(channel, node);
+            assert!(moved_since(&cache, &mut last), "{channel:?}: a key without a value yet");
+            assert_eq!(cache.ensure_transform_key(channel, node), only_a_key);
+            assert!(!moved_since(&cache, &mut last), "{channel:?}: the node had its key");
+            assert_eq!(cache.transform_value(channel, node), None);
+            cache.clear_transforms(channel);
+            assert!(moved_since(&cache, &mut last));
         }
 
         for channel in OPACITY_CHANNELS {
@@ -2351,6 +2397,14 @@ mod audit_a2_gpu_tests {
             assert!(!moved_since(&cache, &mut last));
             let _ = cache.key_opacity(channel, node, 0.75);
             assert!(moved_since(&cache, &mut last));
+            cache.clear_opacities(channel);
+            assert!(moved_since(&cache, &mut last));
+            let only_a_key = cache.ensure_opacity_key(channel, node);
+            assert!(moved_since(&cache, &mut last), "{channel:?}: a key without a value yet");
+            assert_eq!(cache.ensure_opacity_key(channel, node), only_a_key);
+            assert!(!moved_since(&cache, &mut last));
+            assert_eq!(cache.opacity_keys_of(channel).collect::<Vec<_>>(), vec![(node, only_a_key)]);
+            assert_eq!(cache.opacity_value(channel, node), None);
             cache.clear_opacities(channel);
             assert!(moved_since(&cache, &mut last));
         }
