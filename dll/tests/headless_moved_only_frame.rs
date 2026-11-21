@@ -40,7 +40,9 @@ const H: f32 = 120.0;
 /// The node order of the page: the root 0, the flex row 1, its items 2 and 3.
 const ROW: usize = 1;
 
-/// A 300x60 white flex row holding two opaque 60x40 items on a grey page.
+/// A 300x100 white flex row holding two opaque 60x40 items on a grey page. The row is as tall as a
+/// column of its two items needs (80 px): in a shorter one `flex-direction: column` would shrink both
+/// items (flex-shrink), which then no longer only move.
 fn page() -> StyledDom {
     let node = |class: &str| {
         Dom::create_node(NodeType::Div)
@@ -50,7 +52,7 @@ fn page() -> StyledDom {
     let css = r#"
         * { margin: 0px; padding: 0px; }
         .root { width: 100%; height: 100%; background: #888; }
-        .row { display: flex; width: 300px; height: 60px; background: #fff; }
+        .row { display: flex; width: 300px; height: 100px; background: #fff; }
         .a { width: 60px; height: 40px; background: #cc2222; }
         .b { width: 60px; height: 40px; background: #2255cc; }
     "#;
