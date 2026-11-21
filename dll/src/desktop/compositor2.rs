@@ -198,6 +198,50 @@ fn wr_hit_test_items() -> bool {
     *ON.get_or_init(|| std::env::var("AZ_WR_HIT_TEST").map(|v| v == "1").unwrap_or(false))
 }
 
+/// The scroll id, and the first half of the spatial key, of the scroll frame a
+/// view's content is put under ([`view_content_scroll_frames`]). A node's scroll
+/// id is a hash and a transform key a counter from 1: neither is this.
+const VIEW_CONTENT_FRAME: u64 = u64::MAX - 1;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own answer to [`view_content_scroll_frames`], for its thread.
+    static VIEW_CONTENT_FRAMES: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether the content of a view - the display list of a DOM other than the
+/// window's own, which WebRender draws as an iframe - is put under an explicit
+/// scroll frame of its own. On unless the environment says `AZ_WR_VIEW_SLICE=0`
+/// (read once per process).
+///
+/// The frame does not scroll and moves nothing. It is there for WebRender's
+/// picture cache, which cuts its slices by SCROLL ROOT, and an iframe's own
+/// (pipeline root) frame is never one (`SceneSpatialTree::find_scroll_root`).
+/// Without a scroll frame inside it a view's content had the root of the
+/// document for its scroll root: the view scrolls on its pipeline's root
+/// frame, so to the cache every primitive of the view moved on every frame of
+/// a pan, and every tile under it was drawn again - a map's 17,495 items
+/// prepared, batched and rasterised per pan frame. With the frame the view's
+/// slice hangs on the frame, the pan is an offset ABOVE the slice's spatial
+/// node, and WebRender moves the tiles it has and draws the strip that came
+/// into view (audit A4-08). A transform inside the view (a zoom of the map) is
+/// below the frame: its steps draw the tiles again, as before.
+///
+/// This is the arrangement WebRender is made for (a page: a root iframe, in it
+/// an explicit scroll frame, in that the content). What it cannot be checked
+/// for without a window is the picture on the screen while a view pans; hence
+/// the switch. A view under a transformed box of its host gets no slice of its
+/// own (the fork looks above the root pipeline, A4-28).
+fn view_content_scroll_frames() -> bool {
+    #[cfg(test)]
+    if let Some(on) = VIEW_CONTENT_FRAMES.with(core::cell::Cell::get) {
+        return on;
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !std::env::var("AZ_WR_VIEW_SLICE").is_ok_and(|v| v == "0"))
+}
+
 /// `builder.push_hit_test` for the lists that still feed WebRender's hit
 /// tester ([`wr_hit_test_items`]); nothing otherwise.
 #[inline]
@@ -280,7 +324,28 @@ pub fn translate_displaylist_to_wr(
         display_list.items.len()
     );
 
-    let spatial_id = SpatialId::root_scroll_node(pipeline_id);
+    // The space every item of the list is in unless a frame of the list opens
+    // another: the pipeline's root scroll frame - or, for a view, a scroll frame
+    // of the view's own inside it ([`view_content_scroll_frames`]). It has no
+    // scroll range (content and frame are one rect) and never gets an offset.
+    let spatial_id = if pipeline_id.0 != 0 && view_content_scroll_frames() {
+        let extent = LayoutRect::from_origin_and_size(
+            LayoutPoint::zero(),
+            LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32),
+        );
+        builder.define_scroll_frame(
+            SpatialId::root_scroll_node(pipeline_id),
+            ExternalScrollId(VIEW_CONTENT_FRAME, pipeline_id),
+            extent,
+            extent,
+            LayoutVector2D::zero(),
+            0,
+            HasScrollLinkedEffect::No,
+            SpatialTreeItemKey::new(VIEW_CONTENT_FRAME, 0),
+        )
+    } else {
+        SpatialId::root_scroll_node(pipeline_id)
+    };
     let root_clip_chain_id = WrClipChainId::INVALID;
 
     // NOTE: We DON'T push a stacking context here anymore!
@@ -4777,6 +4842,89 @@ mod audit_a4_tests {
                 webrender::api::SpatialTreeItemKey::new(key.id as u64, u64::MAX),
             )
         );
+    }
+
+    /// A4-08. The content of a view (the list of a DOM other than the window's
+    /// own) is under an explicit scroll frame of the view's own, inside the
+    /// pipeline's root frame: the scroll root WebRender cuts the view's picture
+    /// cache by, so a pan of the view moves tiles (see
+    /// `view_content_scroll_frames`). The frame has no scroll range. The
+    /// window's own list has none, and `AZ_WR_VIEW_SLICE=0` (here per thread)
+    /// leaves a view without one, as before.
+    /// Mutation: `pipeline_id.0 != 0 &&` dropped gives the window's list a frame;
+    /// `spatial_id` left at the pipeline's root puts the rect outside the frame.
+    #[test]
+    fn a_views_content_is_under_a_scroll_frame_of_its_own() {
+        use std::collections::BTreeMap;
+
+        use azul_core::resources::{DpiScaleFactor, RendererResources};
+        use azul_layout::solver3::display_list::DisplayList;
+        use webrender::api::{
+            units::DeviceIntSize, ExternalScrollId, PipelineId, SpatialId, SpatialTreeItem,
+        };
+
+        // (the pipeline, its scroll frames as (parent, external id, id, content
+        // == frame), the space of its one rect)
+        let translate = |dom: u32| {
+            let list = DisplayList {
+                items: vec![DisplayListItem::Rect {
+                    bounds: rect(10.0, 10.0, 30.0, 20.0).into(),
+                    color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                    border_radius: Default::default(),
+                }],
+                ..DisplayList::default()
+            };
+            let pipeline = PipelineId(dom, 0);
+            let (_, built) = super::translate_displaylist_to_wr(
+                &list,
+                pipeline,
+                DeviceIntSize::new(800, 600),
+                &RendererResources::default(),
+                DpiScaleFactor::new(1.0),
+                Vec::new(),
+                &BTreeMap::new(),
+                0,
+            )
+            .expect("the list translates");
+            let mut frames = Vec::new();
+            built.iter_spatial_tree(|item| {
+                if let SpatialTreeItem::ScrollFrame(f) = item {
+                    frames.push((
+                        f.parent_space,
+                        f.external_id,
+                        f.scroll_frame_id,
+                        f.content_rect == f.frame_rect,
+                    ));
+                }
+            });
+            let mut spaces = Vec::new();
+            let mut iter = built.iter();
+            while let Some(item) = iter.next() {
+                if let DisplayItem::Rectangle(r) = item.item() {
+                    spaces.push(r.common.spatial_id);
+                }
+            }
+            (pipeline, frames, spaces)
+        };
+
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(Some(true)));
+        let (window, frames, spaces) = translate(0);
+        assert!(frames.is_empty(), "the window's own list: {frames:?}");
+        assert_eq!(spaces, vec![SpatialId::root_scroll_node(window)]);
+
+        let (view, frames, spaces) = translate(3);
+        assert_eq!(frames.len(), 1, "a view: one frame for its content");
+        let (parent, external, frame, without_a_range) = frames[0];
+        assert_eq!(parent, SpatialId::root_scroll_node(view));
+        assert_eq!(external, ExternalScrollId(super::VIEW_CONTENT_FRAME, view));
+        assert!(without_a_range, "it does not scroll");
+        assert_eq!(spaces, vec![frame], "the content is in it");
+
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(Some(false)));
+        let (view, frames, spaces) = translate(3);
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(None));
+        assert!(frames.is_empty(), "the switch: no frame");
+        assert_eq!(spaces, vec![SpatialId::root_scroll_node(view)]);
     }
 
     /// A scroll box's bar with a thumb that the GPU moves (`thumb_transform_key`).
