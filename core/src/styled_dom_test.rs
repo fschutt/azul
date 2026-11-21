@@ -3152,7 +3152,7 @@ mod audit_diff_first_tests {
     /// rebuild's ([`tree_page`], `cascade_reusing`). [`page_own`] is the page for the exits
     /// that keep the DOM.
     fn page(sections: &[Section], dense: bool, siblings: bool) -> Dom {
-        page_of(sections, dense, siblings, false)
+        page_of(sections, dense, siblings, false, false)
     }
 
     /// [`page`] with each section's place as its box's OWN inline style (`NodeData::set_css`):
@@ -3161,12 +3161,21 @@ mod audit_diff_first_tests {
     /// written against [`page`] and never styled a place: a step that changed one found the
     /// two builds "not a change of nodes" and compared the untouched DOM with a new one.
     fn page_own(sections: &[Section], dense: bool, siblings: bool) -> Dom {
-        page_of(sections, dense, siblings, true)
+        page_of(sections, dense, siblings, true, false)
+    }
+
+    /// [`page`] whose links are LINKS: each `<a>` has an `href`, so the UA's `:link` colour is
+    /// its own (`ua_css::is_link`: an `<a>` without an `href` is a placeholder, not `:link`,
+    /// and inherits its colour). Added by the verifier for
+    /// `a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, the only test
+    /// that builds it: every other walk keeps the page it was written against.
+    fn page_with_hrefs(sections: &[Section]) -> Dom {
+        page_of(sections, false, false, false, true)
     }
 
     /// [`page`] (`own` false: a place is a sheet hung on the box) and [`page_own`] (`own`
-    /// true: it is the box's own style).
-    fn page_of(sections: &[Section], dense: bool, siblings: bool, own: bool) -> Dom {
+    /// true: it is the box's own style). `href`: the links have one ([`page_with_hrefs`]).
+    fn page_of(sections: &[Section], dense: bool, siblings: bool, own: bool, href: bool) -> Dom {
         let text = |value: &str| {
             Dom::create_text_do_not_use_without_block_level_wrapper(value.to_string())
         };
@@ -3188,11 +3197,14 @@ mod audit_diff_first_tests {
             }
             let mut paragraph = Dom::create_node(NodeType::P).with_child(text(WORDS[section.text]));
             if section.link {
-                paragraph = paragraph.with_child(
-                    Dom::create_node(NodeType::A)
-                        .with_class("link".into())
-                        .with_child(text("link")),
-                );
+                let mut link = Dom::create_node(NodeType::A)
+                    .with_class("link".into())
+                    .with_child(text("link"));
+                if href {
+                    link = link
+                        .with_attribute(crate::dom::AttributeType::Href("https://a.b/".into()));
+                }
+                paragraph = paragraph.with_child(link);
             }
             list = list.with_child(
                 block
@@ -3502,7 +3514,11 @@ mod audit_diff_first_tests {
                 )
                 .cloned()
         };
-        let mut dom = StyledDom::create_from_dom(page(&sections(4), false, false));
+        // Premise corrected by the verifier: an `<a>` without `href` is not `:link` and gets no
+        // UA colour (`ua_css::is_link`): on `page` the link answered the list's #222222 and
+        // the third premise below could not hold. The page is `page` with an `href` on each
+        // link; every other line of the test is as its owner wrote it.
+        let mut dom = StyledDom::create_from_dom(page_with_hrefs(&sections(4)));
         let at_rest = [colour(&dom, list), colour(&dom, link), colour(&dom, link_text)];
         assert!(at_rest[0].is_some(), "premise: the list has a colour of its own");
         assert!(
