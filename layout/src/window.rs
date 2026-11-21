@@ -11201,13 +11201,9 @@ impl LayoutWindow {
         }
 
         if *CASCADE_ENABLED.get_or_init(azul_core::profile::cascade_enabled) {
-            // The walks the cache of the DOM this pass laid out counted: it is in
-            // `layout_results` now.
-            let counts = self
-                .layout_results
-                .get(&dom_id)
-                .map(|result| result.styled_dom.get_css_property_cache().drain_css_prop_counts())
-                .unwrap_or_default();
+            // The walks the cache of the DOM this pass laid out counted. The DOM is still
+            // this function's own here; `layout_results` takes it at the end of the pass.
+            let counts = styled_dom.get_css_property_cache().drain_css_prop_counts();
             let total: usize = counts.iter().map(|(_, n)| *n).sum();
             if total > 0 {
                 eprintln!("[CASCADE] cascade-walks this pass: {total} total");
