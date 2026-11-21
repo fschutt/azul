@@ -780,14 +780,28 @@ pub fn regenerate_layout(
             .iter()
             .map(|n| n.styled_node_state.clone())
             .collect();
-        let retained =
-            apply_runtime_states_before_layout(retained, layout_window, current_window_state);
+        let mut retained = raise_runtime_states(retained, layout_window, current_window_state);
         let states_changed = retained
             .styled_nodes
             .as_ref()
             .iter()
             .map(|n| &n.styled_node_state)
             .ne(states_before.iter());
+        // The kept DOM was cascaded under the states it holds: the last pass applied them,
+        // and every hover / focus / press since restyled what it flipped. A cascade is owed
+        // only for a state that came with THIS call. `restyle_for_raised_states` asks whether
+        // any state is raised, not whether one moved: with the pointer over any node and a
+        // rule that names a state left of its subject (`.btn:hover .ink`) it ran the whole
+        // cascade - every node matched, inherited and compacted again - on every identical
+        // rebuild, to arrive at what the DOM held. The drag states are written without a
+        // restyle (`SystemChange::InitDragVisualState`, `SetDragOverState`): while one is
+        // raised the cascade runs as before.
+        let drag_state_raised = retained.styled_nodes.as_ref().iter().any(|n| {
+            n.styled_node_state.dragging || n.styled_node_state.drag_over
+        });
+        if states_changed || drag_state_raised {
+            let _ = retained.restyle_for_raised_states();
+        }
 
         // An identical DOM whose inline docking changed (a panel dropped on
         // another zone, torn off, docked back) still has to re-graft: the
@@ -1856,6 +1870,25 @@ pub(super) fn incremental_relayout(
 /// to work correctly - the display list generation reads these states to determine
 /// which CSS properties to apply.
 fn apply_runtime_states_before_layout(
+    styled_dom: azul_core::styled_dom::StyledDom,
+    layout_window: &LayoutWindow,
+    current_window_state: &FullWindowState,
+) -> azul_core::styled_dom::StyledDom {
+    let mut styled_dom = raise_runtime_states(styled_dom, layout_window, current_window_state);
+
+    // Rules that name a state left of their subject (`.btn:hover .ink`,
+    // `.frame:focus-within .hint`) were matched while every node was at rest;
+    // match them again now that the runtime states are back.
+    let _ = styled_dom.restyle_for_raised_states();
+
+    styled_dom
+}
+
+/// The flags of [`apply_runtime_states_before_layout`] without its cascade: every state the
+/// managers hold is raised on `styled_dom`, none is lowered, no rule is matched. For a DOM
+/// that was cascaded under its states already (the one the pre-cascade skip keeps): its
+/// caller runs the cascade only when a state came with this call.
+fn raise_runtime_states(
     mut styled_dom: azul_core::styled_dom::StyledDom,
     layout_window: &LayoutWindow,
     current_window_state: &FullWindowState,
@@ -1991,11 +2024,6 @@ fn apply_runtime_states_before_layout(
             }
         }
     }
-
-    // Rules that name a state left of their subject (`.btn:hover .ink`,
-    // `.frame:focus-within .hint`) were matched while every node was at rest;
-    // match them again now that the runtime states are back.
-    let _ = styled_dom.restyle_for_raised_states();
 
     styled_dom
 }

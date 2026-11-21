@@ -13820,6 +13820,130 @@ mod tests {
         );
         assert_eq!(caret.text_byte, 0, "at its start");
     }
+
+    // --- A3-window-46: an identical rebuild under the pointer runs no cascade ----------------
+    //
+    // The pre-cascade skip keeps the styled DOM of the last pass, which was cascaded under the
+    // states it holds. It wrote the same states again and ran the whole cascade whenever ANY
+    // state was raised and a rule names a state left of its subject (`.btn:hover .ink`): every
+    // `RefreshDom` with the pointer over a button, for the DOM it already had.
+
+    extern "C" fn a3w_hover_noop(
+        _data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    /// A button at (0, 0), 120 x 60, whose hover shows in its child: the ink (20 x 20 at the
+    /// button's top left) is green at rest and red while the BUTTON is hovered.
+    extern "C" fn a3w_hover_left_of_subject_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_component_css(azul_css::css::Css::from_string(
+                ".a3w-btn { width: 120px; height: 60px; } .a3w-ink { width: 20px; height: 20px; \
+                 background: #00ff00; } .a3w-btn:hover .a3w-ink { background: #ff0000; }"
+                    .into(),
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_class("a3w-btn".into())
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::MouseEnter),
+                        RefAny::new(()),
+                        a3w_hover_noop as usize,
+                    )
+                    .with_child(Dom::create_div().with_class("a3w-ink".into())),
+            )
+    }
+
+    /// The solid background the ink of [`a3w_hover_left_of_subject_layout`] resolves to now.
+    fn a3w_ink_colour(window: &HeadlessWindow) -> Option<azul_css::props::basic::ColorU> {
+        let ink = node_with_class(window, "a3w-ink")?;
+        let lw = window.common.layout_window.as_ref()?;
+        let styled = &lw.layout_results.get(&azul_core::dom::DomId::ROOT_ID)?.styled_dom;
+        let state = styled.styled_nodes.as_container()[ink].styled_node_state;
+        azul_layout::solver3::getters::get_background_contents(styled, ink, &state)
+            .into_iter()
+            .find_map(|layer| match layer {
+                azul_css::props::style::StyleBackgroundContent::Color(c) => Some(c),
+                _ => None,
+            })
+    }
+
+    const A3W_RED: azul_css::props::basic::ColorU = azul_css::props::basic::ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+
+    #[test]
+    fn an_identical_rebuild_under_a_hovered_node_runs_no_cascade() {
+        use crate::desktop::shell2::common::{
+            event::PlatformWindow, layout::LayoutRegenerateResult,
+        };
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, a3w_hover_left_of_subject_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        // Over the button, beside the ink.
+        step(&mut window, HeadlessEvent::MouseMove { x: 80.0, y: 40.0 });
+        assert_eq!(
+            a3w_ink_colour(&window),
+            Some(A3W_RED),
+            "premise: the button is hovered and the rule left of the ink holds"
+        );
+
+        let cascades = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout().expect("the identical rebuild");
+        assert!(
+            matches!(result, LayoutRegenerateResult::LayoutUnchanged),
+            "premise: an identical rebuild takes the unchanged exit"
+        );
+        assert_eq!(
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - cascades,
+            0,
+            "no state moved: the DOM that is kept is styled for the states it holds"
+        );
+        assert_eq!(a3w_ink_colour(&window), Some(A3W_RED), "and still shows the hover");
+    }
+
+    /// The other direction: a hover the managers hold and the kept DOM does not (the pointer
+    /// came over the button and the rebuild runs before any restyle) is cascaded by the rebuild.
+    #[test]
+    fn a_hover_that_comes_with_an_identical_rebuild_is_cascaded() {
+        use azul_core::window::CursorPosition;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, a3w_hover_left_of_subject_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        assert_ne!(a3w_ink_colour(&window), Some(A3W_RED), "premise: at rest the ink is green");
+
+        // The hit test alone: the hover manager knows the button, no event pass restyled it.
+        let pos = LogicalPosition { x: 80.0, y: 40.0 };
+        window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
+        window.update_hit_test_at(pos);
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window.regenerate_layout().expect("the identical rebuild");
+        assert_eq!(
+            a3w_ink_colour(&window),
+            Some(A3W_RED),
+            "the state came with the rebuild: the rule left of the ink is matched for it"
+        );
+    }
 }
 
 #[cfg(test)]
