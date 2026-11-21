@@ -7597,6 +7597,11 @@ impl MacOSWindow {
             .update_window_state(event::WindowStateSource::Os, |ws| {
                 ws.size.dpi = (new_hidpi.inner.get() * BASE_DPI) as u32
             });
+        // A frame at another scale shares no pixel with the one before it,
+        // and the display list (logical px) is the same at both: without
+        // this the CPU frame kept the old scale's pixels wherever the list
+        // did not change (see `cpu_frame_scale_changed`).
+        self.cpu_frame_scale_changed();
         let result = self.process_window_events(0);
         self.apply_activation_pass_result(result);
 
@@ -8759,6 +8764,24 @@ impl MacOSWindow {
         }
     }
 
+    /// The window's DPI factor is changing: the next CPU frame is repainted
+    /// in full.
+    ///
+    /// `CpuBackend::render_frame` repaints what the display list's diff
+    /// reports and keeps every other pixel of the frame before. The list is
+    /// in logical pixels, so at another DPI factor it is the SAME list while
+    /// every device pixel is another one: the frame kept the old scale's
+    /// pixels (its top-left quarter when the factor doubles: the previous
+    /// frame, half size; cropped and doubled when it halves) until something
+    /// else damaged them. Called at every write of `size.dpi` that changes
+    /// it.
+    pub(super) fn cpu_frame_scale_changed(&mut self) {
+        #[cfg(feature = "cpurender")]
+        {
+            self.cpu_backend.force_full_repaint = true;
+        }
+    }
+
     /// Synchronize window size from content view bounds
     ///
     /// This ensures the window state always reflects the actual view size,
@@ -8810,6 +8833,9 @@ impl MacOSWindow {
             // Os-source for the same reason as the dimension write above: the
             // scale is an OS fact, keep the OS-sync baseline in lockstep.
             let new_dpi = (scale_factor * BASE_DPI) as u32;
+            if new_dpi != self.common.current_window_state().size.dpi {
+                self.cpu_frame_scale_changed();
+            }
             self.common
                 .update_window_state(event::WindowStateSource::Os, |ws| ws.size.dpi = new_dpi);
 
