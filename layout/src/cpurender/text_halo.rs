@@ -67,8 +67,11 @@ use azul_core::{
 };
 use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU, FontRef};
 
+#[cfg(test)]
+use super::raster::blurred_glyphs;
 use super::raster::{
-    blurred_glyphs, shadow_blur_radius, shadow_spread_px, text_run_clip, BufferedRun, PixelBox,
+    blurred_glyph_coverage, shadow_blur_radius, shadow_spread_px, text_run_clip, BufferedRun,
+    PixelBox,
 };
 use crate::{
     glyph_cache::GlyphCache,
@@ -1850,7 +1853,9 @@ impl Scope<'_> {
     /// The halo drawn with the first glyph on `sought.anchor`: the runs moved by
     /// less than a device pixel, so the picture fits the text wherever it
     /// stands. `admit` is asked, with the bytes of the box the glyphs can reach,
-    /// once it is known that there is a picture to draw and before it is drawn;
+    /// once it is known that there is a picture to draw and before it is drawn
+    /// (the part of the box the picture will hold is known only from the glyphs
+    /// as drawn, [`halo_pixels`]: after the raster this question is the gate of);
     /// `spent` is told how long drawing it took. `into`: the rect, from the
     /// anchor, of the picture that stands in for this one, which it is kept in
     /// when its ink fits, and how far beyond the ink it may lie ([`cropped`]).
@@ -1953,9 +1958,8 @@ impl Scope<'_> {
             });
         }
         let pixels = GLYPHS.with(|glyph_cache| {
-            blurred_glyphs(
+            halo_pixels(
                 &runs,
-                ColorU::WHITE,
                 buffer,
                 radius,
                 spread,
@@ -1963,15 +1967,86 @@ impl Scope<'_> {
                 font_manager,
                 dpi,
                 &mut glyph_cache.borrow_mut(),
-                (0.0, 0.0),
             )
         });
         let reach = radius as i32 + dilation_reach(spread);
+        // Cut to its ink from the part of the box the glyphs can paint: the
+        // picture's place follows the part's corner, and what `into` covers of
+        // the box outside the part is clear, as the box is there.
         let kept = pixels
-            .and_then(|pixels| cropped(pixels.data(), buffer, anchor, sought.scale, reach, into));
+            .and_then(|(part, rgba)| cropped(&rgba, part, anchor, sought.scale, reach, into));
         spent(started.elapsed());
         kept.map_or(Drawn::NotAPicture, |kept| Drawn::Picture { kept, box_bytes })
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: a halo is drawn the way it was before it was made from its
+    /// coverage - four channels grown and blurred over the whole box
+    /// (`blurred_glyphs`) - which is what [`halo_pixels`] is held against.
+    static HALO_FROM_THE_WHOLE_BOX: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The halo of `runs` in premultiplied white: the part of `buffer` the glyphs
+/// can paint once grown by `spread` and blurred by `radius` (device px of the
+/// target; every pixel of `buffer` outside it is clear) and that part's RGBA
+/// pixels. `None` when nothing of it paints.
+///
+/// White premultiplied by a coverage c is (c, c, c, c), and the dilation and the
+/// blur treat every channel alike: the four channels of a halo drawn in white
+/// are one. So the glyphs are grown and blurred on their alpha alone, in the part
+/// they can paint (`blurred_glyph_coverage`, audit A8-04 and A8-29: a quarter of
+/// the dilation, over about a third of the box), and each coverage byte is
+/// written four times - the picture `blurred_glyphs` drew, byte for byte (audit
+/// A5-17).
+#[allow(clippy::too_many_arguments)]
+fn halo_pixels(
+    runs: &[BufferedRun<'_>],
+    buffer: PixelBox,
+    radius: u32,
+    spread: f32,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi: f32,
+    glyph_cache: &mut GlyphCache,
+) -> Option<(PixelBox, Vec<u8>)> {
+    #[cfg(test)]
+    if HALO_FROM_THE_WHOLE_BOX.with(Cell::get) {
+        let whole = blurred_glyphs(
+            runs,
+            ColorU::WHITE,
+            buffer,
+            radius,
+            spread,
+            renderer_resources,
+            font_manager,
+            dpi,
+            glyph_cache,
+            (0.0, 0.0),
+        )?;
+        return Some((buffer, whole.data().to_vec()));
+    }
+    let (part, coverage) = blurred_glyph_coverage(
+        runs,
+        ColorU::WHITE,
+        buffer,
+        radius,
+        spread,
+        renderer_resources,
+        font_manager,
+        dpi,
+        glyph_cache,
+        (0.0, 0.0),
+    )?;
+    if part.width == 0 || part.height == 0 {
+        return None;
+    }
+    let mut rgba = Vec::with_capacity(coverage.len() * 4);
+    for c in coverage {
+        rgba.extend_from_slice(&[c; 4]);
+    }
+    Some((part, rgba))
 }
 
 /// The part of a picture that paints: the columns `x0..x1` and rows `y0..y1` of
@@ -2524,6 +2599,122 @@ mod audit_a5_tests {
         let stats = text_halo_stats();
         assert_eq!((stats.pending, stats.unkept, stats.scans), (2, 0, 1));
         assert!(admit(BYTES, 6), "no budget: every halo is drawn");
+    }
+
+    /// A5-17. A halo made from its coverage is the halo that was drawn in four
+    /// channels over its whole box, byte for byte: the picture, where it lies
+    /// from the pen, its ink - for a solid outline, a wider one, an outline with
+    /// a blur and a blur alone, at device scales 1 and 2, cut to its ink and kept
+    /// in the rect of a stand-in. It rests on two facts, both checked here on
+    /// real glyphs: a halo drawn in white has four equal channels (white
+    /// premultiplied by its coverage, every channel grown and blurred alike),
+    /// and outside the part the coverage is returned for the box is clear.
+    ///
+    /// Mutation: `[c; 4]` -> `[c, c, c, 255]` in `halo_pixels`, or `buffer` in
+    /// place of `part` in `Scope::draw`'s call of `cropped` (the picture a part's
+    /// corner off its place), fails this.
+    #[cfg(feature = "std")]
+    #[test]
+    fn a_halo_from_its_coverage_is_the_halo_drawn_in_four_channels() {
+        use super::super::raster::lcd_pretile_tests::{load_test_font_pub, rr_with_pub, shape_pub};
+
+        let Some(font) = load_test_font_pub() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = rr_with_pub(&font);
+        // A label under a text shadow, its first pen at `x`, `y` (CSS px).
+        let shadowed = |text: &str, size: f32, x: f32, y: f32, blur: f32, spread: f32| {
+            let clip = LogicalRect::new(
+                LogicalPosition::new(x - 32.0, y - 48.0),
+                LogicalSize::new(400.0, 96.0),
+            );
+            vec![
+                DisplayListItem::PushTextShadow {
+                    shadow: StyleBoxShadow {
+                        blur_radius: PixelValueNoPercent {
+                            inner: PixelValue::px(blur),
+                        },
+                        spread_radius: PixelValueNoPercent {
+                            inner: PixelValue::px(spread),
+                        },
+                        color: ColorU::WHITE,
+                        ..StyleBoxShadow::default()
+                    },
+                },
+                DisplayListItem::Text {
+                    glyphs: shape_pub(&font, text, size, x, y),
+                    font_hash,
+                    font_size_px: size,
+                    color: ColorU::BLACK,
+                    clip_rect: clip.into(),
+                    line_box: clip.into(),
+                    source_node_index: None,
+                },
+                DisplayListItem::PopTextShadow,
+            ]
+        };
+        // The label's halo at `dpi`: over the whole box in four channels
+        // (`whole`, the way it was drawn) or from its coverage.
+        let draw = |items: &[DisplayListItem],
+                    dpi: f32,
+                    whole: bool,
+                    into: Option<((i32, i32, i32, i32), i32)>|
+         -> Option<(Kept, usize)> {
+            let scope = scope_at(items, 0).expect("a shadow over text");
+            let mut geometry = Vec::new();
+            let sought = scope.sought(dpi, &mut geometry);
+            HALO_FROM_THE_WHOLE_BOX.with(|from| from.set(whole));
+            let drawn = scope.draw(&sought, dpi, &rr, &fm, |_| true, |_| (), into);
+            HALO_FROM_THE_WHOLE_BOX.with(|from| from.set(false));
+            match drawn {
+                Drawn::Picture { kept, box_bytes } => Some((kept, box_bytes)),
+                Drawn::NotAPicture | Drawn::Left => None,
+            }
+        };
+        let same = |new: &Kept, old: &Kept, what: &str| {
+            assert_eq!(
+                (new.offset, new.width, new.height, new.ink, new.reach, new.scale),
+                (old.offset, old.width, old.height, old.ink, old.reach, old.scale),
+                "{what}: where the picture lies"
+            );
+            let (new, old) = (
+                new.image.get_bytes().expect("a picture in memory"),
+                old.image.get_bytes().expect("a picture in memory"),
+            );
+            assert!(
+                old.chunks_exact(4).all(|p| p[0] == p[3] && p[1] == p[3] && p[2] == p[3]),
+                "{what}: a halo drawn in white has four equal channels"
+            );
+            assert!(old.chunks_exact(4).any(|p| p[3] != 0), "{what}: the glyphs paint");
+            assert!(new == old, "{what}: the picture from the coverage is not the picture drawn");
+        };
+        let labels = [("Tuebingen", 13.8, 40.3, 60.0), ("Neckar 12", 9.0, 20.0, 31.5)];
+        for dpi in [1.0_f32, 2.0] {
+            for (text, size, x, y) in labels {
+                for (blur, spread) in [(0.0_f32, 1.5_f32), (0.0, 2.25), (1.0, 1.5), (2.0, 0.0)] {
+                    let what = format!("{text:?} at {dpi}x, blur {blur}, spread {spread}");
+                    let items = shadowed(text, size, x, y, blur, spread);
+                    let (old, old_box) = draw(&items, dpi, true, None).expect("a picture");
+                    let (new, new_box) = draw(&items, dpi, false, None).expect("a picture");
+                    assert_eq!(new_box, old_box, "{what}: the box asked room for");
+                    same(&new, &old, &what);
+
+                    // Kept in the rect of a stand-in: the ink and a rim of two
+                    // and three pixels, which reaches beyond the part.
+                    let (l, t, r, b) = old.ink;
+                    let place = Some(((l - 2, t - 3, r + 3, b + 2), 4));
+                    let (old, _) = draw(&items, dpi, true, place).expect("a picture");
+                    let (new, _) = draw(&items, dpi, false, place).expect("a picture");
+                    assert_eq!(old.rect(), (l - 2, t - 3, r + 3, b + 2), "{what}: premise: the place is taken");
+                    same(&new, &old, &format!("{what}, in a place"));
+                }
+            }
+        }
+        // Nothing to draw is no picture either way: a text of spaces.
+        let blank = shadowed("   ", 12.0, 40.0, 60.0, 0.0, 1.5);
+        assert!(draw(&blank, 2.0, true, None).is_none());
+        assert!(draw(&blank, 2.0, false, None).is_none());
     }
 }
 
