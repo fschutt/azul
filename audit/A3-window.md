@@ -618,6 +618,27 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - severity: medium
 - status: open: not started (needs a drag context inside a view for its test)
 
+### A3-window-44 the editor's label drag is `set_node_style`, not a node drag: per move a cascade pass and a list build of the view, and the label does not follow
+- file:line: `window.rs` `apply_node_style_change` (and the non-GPU path of `apply_node_css_change`), `follow_host_in_kept_view`;
+  the editor: `mapedit3/src/ui/main/map.rs:1672 / 1675` (`info.set_node_style(node, Css::parse_inline("position: absolute;
+  left: ..; top: ..; transform-origin: ..; transform: rotate(..)"))` per mouse move of a drag with tool G or R).
+- class: waste + wrong-output
+- evidence (read in round 4, on the integration state): the editor never sets `draggable`, so a drag on a label is a
+  WINDOW drag for azul (`event.rs` about 13163: `ActivateWindowDrag`), `as_node_drag()` is `None` and
+  `update_drag_visual` (A3-window-43) returns `DoNothing`: row 43 is not the editor's drag. What a move costs instead:
+  `apply_node_style_change` on a node of the view's DOM: (1) `recascade_ua_inheritance_and_compact()` over all 12.5k
+  nodes; (2) `cascade_epoch + 1`; (3) `left` / `top` are layout properties, the DOM is a child:
+  `regenerate_display_list_for_dom(child)` = 12.5k nodes -> 17.5k items, built from the positions of the LAST layout
+  (nothing lays the child out); (4) tier `Relayout` -> `ShouldIncrementalRelayout` -> the funnel lays the WINDOW's DOM
+  out, keeps the view (`unchanged_virtual_views`), and `follow_host_in_kept_view` returns at its first check (host,
+  mode, text and box did not move): the child is not laid out, so a label moved with tool G stays where it was until
+  the release renders the view again (a turn with tool R shows: the transform value is read at the list build);
+  (5) `rebuild_cpu_hit_tester()` for the window. The same holds for a layout-affecting `:hover` rule and for
+  `set_css_property(left)` inside a view: layout dirt of a kept child DOM is never served.
+- fix: see the commit(s) named in the status.
+- severity: high
+- status: open: found while reading for 43; the fix (an inset-only move of an out-of-flow box as a move of its boxes and items) is not built yet
+
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
 - `images_in_display_lists`: per list the GPU path takes (`register_frame_resources`), not per frame.
