@@ -2575,3 +2575,45 @@ fn a_patched_frame_of_a_colour_fade_copies_no_list() {
     }
     assert!(patched_frames >= 3, "harness: the fade's frames are patches ({patched_frames})");
 }
+
+// -- A3-window-15: a decoration written from a callback is painted into the kept list ----------
+
+/// `set_css_property(background)` on one label of a view: its background run is painted into
+/// the list the view has, as a hover's is, and the write is a repaint - not a build of the
+/// view's whole list per written property. What the list then holds is what a build gives.
+/// Mutation: the patch arm of `apply_node_css_change` removed (one list build, tier
+/// `RebuildDisplayList`).
+#[test]
+fn a_decoration_written_from_a_callback_is_painted_into_the_list() {
+    use azul_css::props::{
+        basic::color::ColorU, property::CssProperty, style::StyleBackgroundContent,
+    };
+
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let (mut lw, child) = label_window(40);
+    lw.frame_report.reset_counters();
+    let marked = CssProperty::background_content(
+        vec![StyleBackgroundContent::Color(ColorU {
+            r: 255,
+            g: 200,
+            b: 0,
+            a: 255,
+        })]
+        .into(),
+    );
+    // Label 3 (3 % 3 == 0: no background of its own): its span is node 7.
+    let tier = lw
+        .apply_content_change(ContentChange::NodeCss {
+            dom_id: child,
+            node_id: NodeId::new(7),
+            props: vec![marked],
+            override_only: false,
+        })
+        .tier;
+    assert_eq!(tier, ContentDirtyTier::Paint, "a decoration is a repaint");
+    assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built");
+    let patched = painted_lines(&lw, child);
+    lw.regenerate_display_list_for_dom(child);
+    assert_eq!(patched, lines(&lw.layout_results[&child].display_list), "what a build gives");
+}

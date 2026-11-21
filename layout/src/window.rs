@@ -12671,7 +12671,7 @@ impl LayoutWindow {
             .map(|prop| (node_id, prop.clone()))
             .chain(seeded.iter().map(|tr| (tr.node, tr.from.clone())))
             .collect();
-        let _restyle_result = layout_result.styled_dom.restyle_user_properties(&writes);
+        let restyle_result = layout_result.styled_dom.restyle_user_properties(&writes);
         // A style the app wrote (not a value the list binds: that path returned above): the
         // DOM is another one (`DomGenerations`).
         self.dom_generations.bump(dom_id);
@@ -12718,6 +12718,17 @@ impl LayoutWindow {
                 // built here, from the boxes of the layout before the write:
                 // the node stayed where it was until the view rendered again.
                 self.relayout_child_dom_in_place(dom_id, node_id);
+            } else if seeded.is_empty()
+                && self.patch_restyled_decorations(dom_id, &restyle_result)
+            {
+                // A3-window-15: a write of nothing but DECORATIONS (a background, a
+                // border colour, a shadow: a row marked from a callback) is painted
+                // into the list the DOM has, as a `:hover` that changes them is - no
+                // list is built, here or by the host on the tier, and the frame is a
+                // repaint. It built the DOM's whole list per written property set.
+                return ContentChangeResult {
+                    tier: ContentDirtyTier::Paint,
+                };
             } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
                 // The full-write path rebuilds the DL inline (its historical
                 // contract); a host rebuilds the root's list once, on the
