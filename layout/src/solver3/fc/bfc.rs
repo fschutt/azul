@@ -182,7 +182,78 @@ pub(super) fn centers_blocks_the_legacy_way(styled_dom: &StyledDom, dom_id: Node
 
 /// What a layout pass keeps for [`layout_bfc`] (`solver3::PassMemo::bfc`).
 #[derive(Debug, Default)]
-pub struct BfcPassMemo {}
+pub struct BfcPassMemo {
+    /// Position vectors for the first pass of [`layout_bfc`], which sizes a
+    /// block's children at positions nobody keeps. Each is as long as the
+    /// layout tree and holds no position while it lies here.
+    ///
+    /// The first pass made a new `Vec` for every block, and a position vector
+    /// is indexed by the box's index in the WHOLE tree: writing the position
+    /// of a box at index i fills the vector up to i. So every block with a
+    /// child in flow allocated and filled a vector as long as its own index
+    /// in the tree - blocks x tree length / 2 positions per pass, about 300 MB
+    /// of fills for a page of 5,000 rows of two nested blocks.
+    scratch_positions: Vec<super::super::PositionVec>,
+}
+
+/// How many scratch position vectors [`BfcPassMemo`] made on this thread, how
+/// many entries it unset when it took one back, and how many it then still
+/// found set (`audit_tests::a3_solver`: a handful per pass, one per box below
+/// the block, and none).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SCRATCH_VECTORS_MADE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static SCRATCH_ENTRIES_UNSET: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static SCRATCH_ENTRIES_LEFT_SET: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+impl BfcPassMemo {
+    /// A position vector with no position set, at least `tree_len` long: one
+    /// taken back earlier, or a new one.
+    fn lend(&mut self, tree_len: usize) -> super::super::PositionVec {
+        if let Some(mut positions) = self.scratch_positions.pop() {
+            if positions.len() < tree_len {
+                positions.resize(tree_len, crate::solver3::POSITION_UNSET);
+            }
+            positions
+        } else {
+            #[cfg(test)]
+            SCRATCH_VECTORS_MADE.with(|n| n.set(n.get() + 1));
+            alloc::vec![crate::solver3::POSITION_UNSET; tree_len]
+        }
+    }
+
+    /// Takes back a vector lent to the sizing of the boxes `sized` and
+    /// everything below them, and unsets the positions that wrote.
+    ///
+    /// `cache::calculate_layout_for_subtree` writes positions of boxes below
+    /// the one it is called for and of no other (its children as its
+    /// formatting context placed them, their descendants, the out-of-flow
+    /// boxes its inline boxes hold), so the subtrees of `sized` are all
+    /// there is to unset: the vector is then what a new one would be to
+    /// `pos_get` / `pos_contains`, the only readers a sizing pass has.
+    fn take_back(
+        &mut self,
+        mut positions: super::super::PositionVec,
+        tree: &LayoutTree,
+        sized: &[usize],
+    ) {
+        let mut stack: Vec<usize> = sized.to_vec();
+        while let Some(index) = stack.pop() {
+            #[cfg(test)]
+            SCRATCH_ENTRIES_UNSET.with(|n| n.set(n.get() + 1));
+            if let Some(position) = positions.get_mut(index) {
+                *position = crate::solver3::POSITION_UNSET;
+            }
+            stack.extend_from_slice(tree.children(index));
+        }
+        #[cfg(test)]
+        SCRATCH_ENTRIES_LEFT_SET.with(|n| {
+            n.set(n.get() + positions.iter().filter(|p| p.x != f32::MIN).count());
+        });
+        self.scratch_positions.push(positions);
+    }
+}
 
 pub(super) fn layout_bfc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
@@ -253,7 +324,10 @@ pub(super) fn layout_bfc<T: ParsedFontTrait>(
     // gutter only for a node that happened to BE a layout root.
     let mut child_scrollbar_reflow = false;
     {
-        let mut temp_positions: super::super::PositionVec = Vec::new();
+        // Lent by the pass and given back below (`BfcPassMemo`); an error
+        // on the way drops it.
+        let mut temp_positions: super::super::PositionVec =
+            ctx.pass_memo.bfc.lend(tree.nodes.len());
 
         // A `::marker` riding the first line is laid out with that line, not
         // as a block of this flow (`is_marker_on_a_line`).
@@ -324,6 +398,7 @@ pub(super) fn layout_bfc<T: ParsedFontTrait>(
                 crate::solver3::cache::ComputeMode::ComputeSize,
             )?;
         }
+        ctx.pass_memo.bfc.take_back(temp_positions, tree, &bfc_children);
     }
 
     bfc_place_children(

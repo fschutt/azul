@@ -724,6 +724,132 @@ fn siblings_of_a_block_that_grew_in_a_bordered_box_stand_as_in_a_fresh_layout() 
     );
 }
 
+/// `body(0) > k x [div(1 + 2 i) > div(2 + 2 i)]`: `k` rows, each a block with one block in flow
+/// (5 px high) - `k` blocks whose first pass sizes a child.
+fn rows_of_nested_blocks(k: usize) -> Dom {
+    let mut body = Dom::create_body().with_css("margin: 0px;");
+    for _ in 0..k {
+        body = body
+            .with_child(Dom::create_div().with_child(Dom::create_div().with_css("height: 5px;")));
+    }
+    body
+}
+
+/// A3-solver-15. The first pass of `fc::layout_bfc` made a new position vector for every block
+/// with a child in flow, and writing the position of a box at tree index i fills a vector up
+/// to i: blocks x tree length / 2 positions per pass. The vectors are lent by the pass
+/// (`PassMemo::bfc`) and given back with the written entries unset.
+///
+/// Mutation: `Vec::new()` per block (no pool) is not counted as "made", but
+/// `lend` making a new vector on every call makes one per block and fails the bound; a
+/// `take_back` that unsets every entry of the vector grows 16x in `unset`.
+#[test]
+fn the_first_pass_of_a_block_borrows_its_position_vector_from_the_pass() {
+    use crate::solver3::fc::{SCRATCH_ENTRIES_LEFT_SET, SCRATCH_ENTRIES_UNSET, SCRATCH_VECTORS_MADE};
+    let counts = |k: usize| {
+        let mut lw = window();
+        SCRATCH_VECTORS_MADE.with(|n| n.set(0));
+        SCRATCH_ENTRIES_UNSET.with(|n| n.set(0));
+        SCRATCH_ENTRIES_LEFT_SET.with(|n| n.set(0));
+        lay_out(&mut lw, rows_of_nested_blocks(k));
+        (
+            SCRATCH_VECTORS_MADE.with(std::cell::Cell::get),
+            SCRATCH_ENTRIES_UNSET.with(std::cell::Cell::get),
+            SCRATCH_ENTRIES_LEFT_SET.with(std::cell::Cell::get),
+        )
+    };
+    let ((made_small, unset_small, left_small), (made_large, unset_large, left_large)) =
+        (counts(200), counts(800));
+    assert!(
+        unset_small >= 200,
+        "harness: the first passes of the 200 rows gave their vectors back ({unset_small})"
+    );
+    assert!(
+        made_small <= 8 && made_large <= 8,
+        "a page of rows two blocks deep made {made_small} / {made_large} position vectors: one \
+         per nesting level is enough"
+    );
+    assert!(
+        unset_large < unset_small * 6,
+        "four times the rows unset {unset_large} entries for {unset_small}: more than linear"
+    );
+    assert_eq!(
+        (left_small, left_large),
+        (0, 0),
+        "a vector given back still held positions: the next block would take them for its own"
+    );
+}
+
+/// A3-solver-15, the result, on pages whose blocks hold every kind of child the first pass
+/// meets (blocks in flow, absolutely positioned boxes with and without insets, a flex row, an
+/// inline-block with a block inside): no vector comes back with a position left in it, and the
+/// rows stand below each other.
+#[test]
+fn position_vectors_come_back_empty_and_the_rows_stand_where_they_did() {
+    use crate::solver3::fc::SCRATCH_ENTRIES_LEFT_SET;
+    let mut lw = window();
+    lay_out(&mut lw, rows_of_nested_blocks(40));
+    for i in [0_usize, 1, 17, 39] {
+        // Row i is DOM node 1 + 2 i, 5 px high like the block in it.
+        #[allow(clippy::cast_precision_loss)] // small pixel counts
+        let y = (5 * i) as f32;
+        let (row, inner) = (position_of(&lw, 1 + 2 * i), position_of(&lw, 2 + 2 * i));
+        assert!(
+            row.x.abs() < 0.01 && (row.y - y).abs() < 0.01 && (inner.y - y).abs() < 0.01,
+            "row {i} stands at ({}, {}), its block at y = {}: both belong at (0, {y})",
+            row.x,
+            row.y,
+            inner.y
+        );
+    }
+
+    let mixed = || {
+        let mut body = Dom::create_body().with_css("margin: 0px;");
+        for i in 0..12 {
+            body = body.with_child(
+                Dom::create_div()
+                    .with_css("position: relative;")
+                    .with_child(Dom::create_div().with_css("height: 4px;"))
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("position: absolute; left: 3px; top: 1px; width: 5px;")
+                            .with_child(Dom::create_div().with_css("height: 2px;")),
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("position: absolute; width: 5px;")
+                            .with_child(Dom::create_div().with_css("height: 2px;")),
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("display: flex; flex-direction: row;")
+                            .with_child(
+                                Dom::create_div()
+                                    .with_css("width: 20px;")
+                                    .with_child(Dom::create_div().with_css("height: 3px;")),
+                            ),
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("display: inline-block; width: 30px;")
+                            .with_child(Dom::create_div().with_css(&format!("height: {}px;", 2 + i))),
+                    ),
+            );
+        }
+        body
+    };
+    SCRATCH_ENTRIES_LEFT_SET.with(|n| n.set(0));
+    let mut lw = window();
+    lay_out(&mut lw, mixed());
+    // The same page again: the passes that reuse the first one's tree give theirs back too.
+    lay_out(&mut lw, mixed());
+    assert_eq!(
+        SCRATCH_ENTRIES_LEFT_SET.with(std::cell::Cell::get),
+        0,
+        "a position vector was given back with a position of a box outside the sized subtrees"
+    );
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
