@@ -3139,18 +3139,27 @@ fn list_value_damage(
 ///
 /// A node's GROUP is the reference frame the display list opens for it (or,
 /// without one, its opacity group): the item its animation drives. The group
-/// is on screen when its content - mapped through its own live transform and
-/// every enclosing reference frame's, about each frame's origin
-/// (`affine_rect_about`), then moved by the scroll frames around it - meets
-/// `viewport` and every clip around it (`ScrollStack::visible`, the walk the
-/// damage producers share), and no enclosing opacity group is fully
-/// transparent.
+/// is on screen when its content, where the rasteriser PAINTS it, meets
+/// `viewport` and every clip around it, and no enclosing opacity group is
+/// fully transparent.
+///
+/// "Where it is painted" is the walk the damage producers share
+/// ([`ScrollStack`] with the live matrices): the content less the scroll
+/// frames around it, through its own live matrix and every enclosing
+/// frame's, each about its box's corner where that corner is painted, in
+/// list order. (It used to map through all the frames about their UNSCROLLED
+/// corners and subtract the whole scroll afterwards, which is the same thing
+/// only while no scroll frame lies inside a frame that turns or scales: a
+/// group down a scrolled list inside a scaled panel was placed `(M - 1) x
+/// offset` from where it shows, and could be judged off screen while it was
+/// in view.) The clips and scroll boxes around the group are taken where
+/// they are painted, too, each through the frames it was pushed under.
 ///
 /// The node's OWN opacity is not consulted: it is what its animation drives,
-/// and a fade-in that starts at 0 must not cull itself. Clips opened INSIDE a
-/// transformed frame are in that frame's local space and are skipped, and a
-/// perspective matrix on the way out makes the answer "visible": the culler
-/// may keep a hidden animation running, never stop a visible one.
+/// and a fade-in that starts at 0 must not cull itself. A perspective matrix
+/// on the way out makes the answer "visible" (and a clip under one counts as
+/// everywhere): the culler may keep a hidden animation running, never stop a
+/// visible one.
 ///
 /// One entry per queried node that has a group in this list. A node missing
 /// from the map has none - its keys are not minted yet, or it paints nothing
@@ -3165,25 +3174,13 @@ pub fn node_groups_on_screen(
     viewport: LogicalRect,
     nodes: &std::collections::BTreeSet<azul_core::dom::NodeId>,
 ) -> std::collections::BTreeMap<azul_core::dom::NodeId, bool> {
-    /// A reference frame open at the current item.
-    struct OpenFrame {
-        origin: LogicalPosition,
-        matrix: azul_core::transform::ComputedTransform3D,
-        /// Moves its content (not the identity).
-        transformed: bool,
-        /// How many scroll frames and clips were open OUTSIDE it: the
-        /// ones in screen space for everything painted inside it.
-        frames_outside: usize,
-        clips_outside: usize,
-    }
-
     let mut out = std::collections::BTreeMap::new();
     if nodes.is_empty() {
         return out;
     }
     let items = &display_list.items;
-    let mut stack = ScrollStack::new(scroll_offsets);
-    let mut frames: Vec<OpenFrame> = Vec::new();
+    // The frames, scroll boxes and clips open at the current item, as they are painted.
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, live_transforms);
     // One entry per open opacity group: is it fully transparent?
     let mut transparent: Vec<bool> = Vec::new();
 
@@ -3195,8 +3192,10 @@ pub fn node_groups_on_screen(
             _ => None,
         };
         if let Some(node) = group_node {
-            // The group's content in its own space, under its own matrix.
-            let own = match item {
+            // Read BEFORE stepping over the group's own push: the scroll frames around it.
+            let scrolled = stack.scrolled();
+            // Where the group's content is painted; `None`: it cannot be placed (perspective).
+            let on_screen = match item {
                 DisplayListItem::PushReferenceFrame {
                     transform_key,
                     initial_transform,
@@ -3204,37 +3203,25 @@ pub fn node_groups_on_screen(
                 } => {
                     let m = live_transforms
                         .get(&transform_key.id)
-                        .unwrap_or(initial_transform);
+                        .copied()
+                        .unwrap_or(*initial_transform);
                     let content =
                         reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner());
-                    affine_rect_about(m, bounds.inner().origin, content)
+                    // Through its own matrix and the frames around it, in one go.
+                    let mut frames = stack.frames.clone();
+                    frames.push(moved_by(*bounds.inner(), scrolled).origin, m);
+                    frames.map(moved_by(content, scrolled))
                 }
-                DisplayListItem::PushOpacity { bounds, .. } => Some(*bounds.inner()),
+                DisplayListItem::PushOpacity { bounds, .. } => stack.on_screen(*bounds.inner()),
                 _ => None,
             };
-            // Out through every enclosing frame, innermost first.
-            let on_page = own.and_then(|r| {
-                frames
-                    .iter()
-                    .rev()
-                    .try_fold(r, |r, f| affine_rect_about(&f.matrix, f.origin, r))
-            });
-            let visible = match on_page {
+            let visible = match on_screen {
                 None => true,
                 Some(r) => {
-                    let on_screen = moved_by(r, stack.scrolled());
-                    let (open, clips) = frames
-                        .iter()
-                        .find(|f| f.transformed)
-                        .map_or((stack.open.len(), stack.clips.len()), |f| {
-                            (f.frames_outside, f.clips_outside)
-                        });
-                    let area = stack.open[..open.min(stack.open.len())]
-                        .iter()
-                        .map(|(_, _, clip)| *clip)
-                        .chain(stack.clips[..clips.min(stack.clips.len())].iter().copied())
-                        .fold(viewport, intersect_logical_rects);
-                    let shown = intersect_logical_rects(on_screen, area);
+                    let area = stack
+                        .visible()
+                        .map_or(viewport, |around| intersect_logical_rects(viewport, around));
+                    let shown = intersect_logical_rects(r, area);
                     !transparent.iter().any(|t| *t)
                         && shown.size.width > 0.0
                         && shown.size.height > 0.0
@@ -3248,25 +3235,6 @@ pub fn node_groups_on_screen(
 
         stack.step(item);
         match item {
-            DisplayListItem::PushReferenceFrame {
-                transform_key,
-                initial_transform,
-                bounds,
-            } => {
-                let matrix = *live_transforms
-                    .get(&transform_key.id)
-                    .unwrap_or(initial_transform);
-                frames.push(OpenFrame {
-                    origin: bounds.inner().origin,
-                    transformed: !is_identity_2d(&matrix.m),
-                    matrix,
-                    frames_outside: stack.open.len(),
-                    clips_outside: stack.clips.len(),
-                });
-            }
-            DisplayListItem::PopReferenceFrame => {
-                frames.pop();
-            }
             DisplayListItem::PushOpacity {
                 opacity,
                 opacity_key,

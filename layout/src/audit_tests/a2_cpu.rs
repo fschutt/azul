@@ -1583,3 +1583,82 @@ fn a2_cpu_28_a_frame_whose_matrix_changed_in_a_structural_diff_is_damaged_by_wha
     );
     assert!(covers(lr(200.0, 5.0, 4.0, 4.0)), "the item that came: {damage:?}");
 }
+
+// ---------------------------------------------------------------------------------------------
+// The animation culler's "is it on screen" (A2-cpu-22)
+// ---------------------------------------------------------------------------------------------
+
+/// A2-cpu-22. A group down a scrolled list inside a scaled panel is on screen where the
+/// rasteriser paints it.
+///
+/// Hand-computed, window 400 x 300: a panel frame scaled by 2 about the window's corner; in it
+/// a scroll box with the clip (0, 0) 200 x 150 (on screen (0, 0) 400 x 300) scrolled by 280; in
+/// that the group, its box and content (0, 300) 50 x 50. Painted: `2 x (300 - 280) = 40`, rows
+/// 40 .. 140, columns 0 .. 100: in view. `node_groups_on_screen` mapped the content through the
+/// panel about its unscrolled corner and subtracted the scroll after: `2 x 300 - 280 = 320`, rows
+/// 320 .. 420, below the 300 px window: "off screen", and the group's animation was culled while
+/// it showed. Unscrolled, the group is at rows 600 .. 700: off screen under both.
+///
+/// mutation: `frames.map(moved_by(content, scrolled))` -> `frames.map(content)` followed by
+/// `moved_by(.., scrolled)` in `node_groups_on_screen` fails here.
+#[test]
+fn a2_cpu_22_a_group_down_a_scrolled_list_in_a_scaled_panel_is_on_screen_where_it_is_painted() {
+    use std::collections::{BTreeSet, HashMap};
+
+    use crate::cpurender::node_groups_on_screen;
+
+    let node = NodeId::new(7);
+    let nodes: BTreeSet<NodeId> = core::iter::once(node).collect();
+    let frame = |key: usize, k: f32, bounds: WindowLogicalRect| DisplayListItem::PushReferenceFrame {
+        transform_key: azul_core::resources::TransformKey { id: key },
+        initial_transform: azul_core::transform::ComputedTransform3D {
+            m: [
+                [k, 0.0, 0.0, 0.0],
+                [0.0, k, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        },
+        bounds,
+    };
+    let items = vec![
+        frame(9, 2.0, wlr(0.0, 0.0, 400.0, 300.0)),
+        DisplayListItem::PushScrollFrame {
+            clip_bounds: wlr(0.0, 0.0, 200.0, 150.0),
+            content_size: LogicalSize::new(200.0, 1500.0),
+            scroll_id: 1,
+        },
+        // The group the node's animation drives: item 2.
+        frame(3, 1.0, wlr(0.0, 300.0, 50.0, 50.0)),
+        rect(0.0, 300.0, 50.0, 50.0, [200, 0, 0]),
+        DisplayListItem::PopReferenceFrame,
+        DisplayListItem::PopScrollFrame,
+        DisplayListItem::PopReferenceFrame,
+    ];
+    let mut node_mapping = vec![None; items.len()];
+    node_mapping[2] = Some(node);
+    let panel = DisplayList {
+        items,
+        node_mapping,
+        ..Default::default()
+    };
+    let viewport = lr(0.0, 0.0, 400.0, 300.0);
+    let (no_transforms, no_opacities) = (HashMap::new(), HashMap::new());
+    let scrolled_to = |dy: f32| {
+        let mut offsets = ScrollOffsetMap::new();
+        offsets.insert(1, (0.0, dy));
+        node_groups_on_screen(&panel, &offsets, &no_transforms, &no_opacities, viewport, &nodes)
+            .get(&node)
+            .copied()
+    };
+    assert_eq!(
+        scrolled_to(280.0),
+        Some(true),
+        "scrolled by 280 the group is painted at rows 2 x (300 - 280) = 40 .. 140"
+    );
+    assert_eq!(
+        scrolled_to(0.0),
+        Some(false),
+        "unscrolled it is at rows 600 .. 700, under the window"
+    );
+}
