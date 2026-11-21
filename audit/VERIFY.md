@@ -228,19 +228,19 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
 Tree: `audit/integration`, clean. Merged since the first verifier's hand-over: `audit/A4` at `a1fc02edf`
 (`d6ff63ad7`), `audit/A3-solver` at `79a700d1f` (`1fc01c22b`), `audit/A1` at `6c4d7265a` (`45720ab97`) and at
 `269117619` (`cb9574447`), `audit/A3-window` at `1af12829a` (`f1e2af9c8`), `audit/diff-first` at `8e7a62d2c`
-(`7c8de48b6`). Verifier commits: `2f34d89fa` (guard fixtures), `b1a7898b2` and `35d1d70c5` (the two compile
+(`7c8de48b6`) and at `bf43a5e96` (`56c7a51e9`). Verifier commits: `2f34d89fa` (guard fixtures), `b1a7898b2` and `35d1d70c5` (the two compile
 fixes), `270e178c9` (swept-pointer harness), `13545f86c` (widgets golden).
 
-Results on head `35d1d70c5` (whole suites, run from the built binaries; NOT yet the gate):
-- core lib 3143 / 0; layout lib 10906 / 0 / 1 ignored; layout `tests/all` 3059 / 1 / 5 (the ribbon guard,
-  expected red); dll lib 3861 / 3 / 9 (three `..._under_the_pointer_...` walks: node 1's `TextColor`);
+Results on head `56c7a51e9` (whole suites, run from the built binaries; NOT yet the gate):
+- core lib 3143 / 0 (on `35d1d70c5`); layout lib 10910 / 0 / 1 ignored; layout `tests/all`: the ribbon guard is
+  green (the whole suite was last run on `35d1d70c5`: 3059 / 1, that guard); dll lib 3861 / 3 / 9 (three
+  `..._under_the_pointer_...` walks: node 1's `TextColor`);
 - fork `cargo test -p webrender --lib` 107 / 0 (webrender tree `9d963f70`); Linux / Windows checks 0 errors on
   `cb9574447` (to be repeated); css and `headless_lifecycle`: not run again since the last gate.
 
 Open, with whom:
-- diff-first owner (through the coordinator): a follow-up commit for the ribbon guard (tween frames translate)
-  and the three red dll walks. The coordinator names the commit; merge it, then build and run the layout
-  tests and the dll lib.
+- diff-first owner (through the coordinator): one more commit for the three red dll walks. The coordinator
+  names the commit; merge it, then build and run the layout tests and the dll lib, then the gate.
 - second round only, on the coordinator's word: `audit/A5` `dbde1ccf5`, `audit/dom-builder`, `audit/A10` and
   `audit/A8` beyond what is merged; the fixture of `a_box_that_moved_in_a_pass_...`.
 
@@ -455,3 +455,9 @@ What is left for the checkpoint, in order:
     `::a_rebuild_that_changed_the_tree_under_the_pointer_leaves_what_the_full_path_leaves` (seed 1, step 4, kind 5),
     `::a_rebuild_that_styled_its_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves` (the same).
     No environment switch changes them. Sent to the coordinator for the diff-first owner.
+- merge `audit/diff-first` at `bf43a5e96` (`56c7a51e9`, no conflict, 0 compile errors): a tween frame translates a
+  moved box's run (`DisplayList::translated_since_painted`); the switch `AZ_DL_TRANSLATE_MOVED_RUNS` is three-way
+  (unset: this; `1`: always translate; `0`: never). Layout lib whole (log `70-layout-lib`): **10910 / 0 / 1
+  ignored** (`audit_tests::diff_first` 7 / 0); `tests/all` filters `a_growing_ribbon a_height_tween
+  a_layout_tween_frame_reuses`: 16 / 0 (the ribbon guard is green as written). dll lib whole (log `72-dll-lib`):
+  **3861 / 3 / 9 ignored**: the three `..._under_the_pointer_...` walks, message unchanged; the owner's next commit.
