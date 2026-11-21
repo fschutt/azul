@@ -265,12 +265,12 @@ fn spend(time: Duration) {
     });
 }
 
-/// Whether a halo whose box holds `box_bytes` is drawn now: the frame's budget
-/// lets it, and there is room to keep it ([`HaloCache::make_room`]). Counted
-/// either way: a halo the budget leaves is `pending` (a later frame draws it, and
-/// is owed), one there is no room for is `unkept` (no frame is owed: the next
-/// one would find the same).
-fn admit(box_bytes: usize) -> bool {
+/// Whether a halo of `shape` whose box holds `box_bytes` is drawn now: the
+/// frame's budget lets it, and there is room to keep it
+/// ([`HaloCache::make_room`]). Counted either way: a halo the budget leaves is
+/// `pending` (a later frame draws it, and is owed), one there is no room for is
+/// `unkept` (no frame is owed: the next one would find the same).
+fn admit(box_bytes: usize, shape: u64) -> bool {
     if !budget_left() {
         count_in_budget(false);
         HALOS.with(|halos| halos.borrow_mut().stats.pending += 1);
@@ -278,7 +278,7 @@ fn admit(box_bytes: usize) -> bool {
     }
     let room = HALOS.with(|halos| {
         let mut halos = halos.borrow_mut();
-        let room = halos.make_room(box_bytes);
+        let room = halos.make_room(box_bytes, Some(shape));
         if !room {
             halos.stats.unkept += 1;
         }
@@ -301,7 +301,7 @@ fn admit_preview(box_bytes: usize) -> bool {
             budget.previews < PREVIEWS_ANYWAY || budget.previews_spent < PREVIEW_TIME
         })
     });
-    if !within || !HALOS.with(|halos| halos.borrow_mut().make_room(box_bytes)) {
+    if !within || !HALOS.with(|halos| halos.borrow_mut().make_room(box_bytes, None)) {
         return false;
     }
     BUDGET.with(|cell| {
@@ -377,6 +377,20 @@ pub fn text_halo_stats() -> TextHaloStats {
         stats.kept_bytes = halos.bytes as u64;
         stats
     })
+}
+
+/// How much this thread's halo cache holds from now on: at most `max_halos`
+/// pictures of `max_bytes` bytes together (`MAX_HALOS`, `MAX_HALO_BYTES` unless
+/// set). What is kept beyond them goes as a frame needs room, by the cache's own
+/// rules. For a host that knows its budget, and for the tests of a host: a view
+/// that does not fit can be told from one that does without drawing 96 MB.
+#[doc(hidden)]
+pub fn text_halo_bounds_in_this_thread(max_halos: usize, max_bytes: usize) {
+    HALOS.with(|halos| {
+        let mut halos = halos.borrow_mut();
+        halos.max_entries = max_halos;
+        halos.max_bytes = max_bytes;
+    });
 }
 
 /// `AZ_HALO_STATS=1`: one line on stderr for every scan that drew, dropped, left or
@@ -475,7 +489,8 @@ pub fn text_halos(
                 // Kept: its picture, or the note that it cannot be one.
                 (Some(kept), _) => kept,
                 (None, Some((renderer_resources, font_manager))) => {
-                    match scope.draw(&sought, dpi, renderer_resources, font_manager, admit, spend) {
+                    let admitted = |box_bytes: usize| admit(box_bytes, sought.shape);
+                    match scope.draw(&sought, dpi, renderer_resources, font_manager, admitted, spend) {
                         Drawn::Picture { kept, box_bytes } => {
                             HALOS.with(|halos| {
                                 halos.borrow_mut().insert(
@@ -492,7 +507,7 @@ pub fn text_halos(
                             // Remembered, so it is not tried on every frame.
                             HALOS.with(|halos| {
                                 let mut halos = halos.borrow_mut();
-                                if halos.make_room(0) {
+                                if halos.make_room(0, None) {
                                     halos.insert(&sought, &geometry, None, 0, false);
                                 }
                             });
@@ -611,11 +626,13 @@ struct Entry {
     text: u64,
     geometry: Vec<i32>,
     shape: u64,
-    /// The scan that last used it as a shadow's own picture: that scan does not
-    /// drop it.
+    /// The scan that last used it, as a shadow's own picture or as a stand-in:
+    /// that scan and the one after it do not drop it ([`HaloCache::make_room`]).
     used_in: u64,
-    /// The cache's clock when it was last used at all, as a stand-in too: the
-    /// entry used longest ago is dropped first.
+    /// The scan that last used it as a shadow's OWN picture (0: none has).
+    own_in: u64,
+    /// The cache's clock when it was last used: of the entries that may be
+    /// dropped the one used longest ago is dropped first.
     last_used: u64,
 }
 
@@ -638,12 +655,14 @@ fn close(a: &[i32], b: &[i32]) -> bool {
 /// A halo is found by what its pixels depend on: the text (`by_text`: fonts,
 /// sizes, glyphs, blur, spread and scale, exactly) and the geometry (clips and
 /// glyph positions, to within a step: [`close`]). Bounded by entries and by
-/// bytes, with one rule above both: a SCAN - one frame's look at its display
-/// lists, [`within_halo_budget`] - never drops an entry it has used as a
-/// shadow's own picture. So what a frame shows is kept for as long as frames
-/// show it, and the cache thrashes at no size: when the pictures of the scan
-/// itself fill it, a new one is not drawn ([`Self::make_room`] says no) and its
-/// shadow keeps what it had, for this frame and the next.
+/// bytes, with one rule above both ([`Self::make_room`]): a SCAN - one frame's
+/// look at its display lists, [`within_halo_budget`] - drops no entry that it or
+/// the scan before it has used, as a shadow's own picture or as a stand-in. (The
+/// scan before it: a scan uses its entries one by one, in list order, and the
+/// ones it has not come to yet are the last frame's.) So what a frame paints is
+/// kept for as long as frames paint it, and the cache thrashes at no size: when
+/// the pictures in use fill it, a new one is not drawn and its shadow keeps
+/// what it had, for this frame and the next.
 #[derive(Debug)]
 struct HaloCache {
     entries: HashMap<u64, Entry>,
@@ -659,17 +678,13 @@ struct HaloCache {
     clock: u64,
     /// The scan under way (or the last one).
     scan: u64,
-    /// The scan in which [`Self::make_room`] last found nothing to drop: until
-    /// the next scan nothing can be (entries are only added and used in a scan),
-    /// and ten thousand halos that do not fit do not each look through the cache.
-    nothing_to_drop_in: Option<u64>,
-    /// The entries the scan under way may drop, the one used longest ago LAST
-    /// (it is popped first), as they were at `victims_at` on the clock: sorted
-    /// once when room is first needed, not searched for each entry dropped (a
-    /// zoom that settles in a full cache drops as many pictures as it draws:
-    /// a search of every entry for each was the entries squared, audit A9 H14).
-    victims: Vec<u64>,
-    victims_at: u64,
+    /// The entries the scan under way may drop - those neither it nor the scan
+    /// before it has used - the one used longest ago LAST (it is popped first).
+    /// `None` until the scan first needs room: sorted once then, not searched
+    /// for each entry dropped (a view of new pictures that drops a view of old
+    /// ones searched every entry for each: the entries squared, audit A9 H14).
+    /// An entry in it that the scan uses after all is passed over.
+    victims: Option<Vec<u64>>,
     /// How often that list was made (a test counts it).
     victim_lists: u64,
     max_entries: usize,
@@ -686,12 +701,9 @@ impl HaloCache {
             next_id: 0,
             bytes: 0,
             clock: 0,
-            // From 1: an entry that no scan has used as a shadow's own picture
-            // says 0.
-            scan: 1,
-            nothing_to_drop_in: None,
-            victims: Vec::new(),
-            victims_at: 0,
+            // From 2: "no scan" is 0, and the scan before the first is not it.
+            scan: 2,
+            victims: None,
             victim_lists: 0,
             max_entries,
             max_bytes,
@@ -699,11 +711,11 @@ impl HaloCache {
         }
     }
 
-    /// A new scan begins: what the last one used may be dropped again, and the
-    /// numbers of a scan start at zero.
+    /// A new scan begins: what the scan before the last one used, and no scan
+    /// since, may be dropped; the numbers of a scan start at zero.
     fn begin_scan(&mut self) {
         self.scan += 1;
-        self.victims.clear();
+        self.victims = None;
         self.stats = TextHaloStats {
             scans: self.stats.scans + 1,
             created_total: self.stats.created_total,
@@ -722,14 +734,15 @@ impl HaloCache {
     }
 
     /// Entry `id` used as a shadow's own picture: what it keeps (`None`: the
-    /// shadow cannot be a picture), not dropped by this scan from now on.
-    /// `counted`: its first use in a scan counts in the scan's numbers.
+    /// shadow cannot be a picture). `counted`: its first such use in a scan
+    /// counts in the scan's numbers.
     fn use_own(&mut self, id: u64, counted: bool) -> Option<Option<Kept>> {
         self.clock += 1;
         let entry = self.entries.get_mut(&id)?;
         entry.last_used = self.clock;
-        if entry.used_in != self.scan {
-            entry.used_in = self.scan;
+        entry.used_in = self.scan;
+        if entry.own_in != self.scan {
+            entry.own_in = self.scan;
             if counted {
                 self.stats.frame_halos += 1;
                 self.stats.frame_box_bytes += entry.box_bytes as u64;
@@ -739,9 +752,8 @@ impl HaloCache {
     }
 
     /// The picture that stands in for a halo of `shape` without one of its own:
-    /// the newest picture of that shape, if it `fits`. A use, but not one that keeps the entry
-    /// from being dropped: a stand-in that held its place would leave no room
-    /// for the pictures that replace it.
+    /// the newest picture of that shape, if it `fits`. A use like any other: the
+    /// stand-in is kept while frames paint it.
     fn stand_in(
         &mut self,
         shape: u64,
@@ -753,68 +765,90 @@ impl HaloCache {
         let kept = entry.kept.as_ref().filter(|kept| fits(*kept))?.clone();
         self.clock += 1;
         entry.last_used = self.clock;
+        entry.used_in = self.scan;
         if counted {
             self.stats.stand_ins += 1;
         }
         Some(kept)
     }
 
-    /// Makes room for one more entry of `bytes`: drops entries this scan has not
-    /// used as a shadow's own picture, the one used longest ago first, until both
-    /// bounds hold. `false` when they cannot: the scan's own pictures fill the
-    /// cache (or `bytes` alone is more than it holds); what was dropped on the
-    /// way was of earlier frames.
-    fn make_room(&mut self, bytes: usize) -> bool {
+    /// Whether one more entry of `bytes` fits both bounds.
+    fn fits(&self, bytes: usize) -> bool {
+        self.entries.len() < self.max_entries && self.bytes + bytes <= self.max_bytes
+    }
+
+    /// Makes room for one more entry of `bytes`. `false` when there is none to
+    /// make: the pictures in use fill the cache, or `bytes` alone is more than
+    /// it holds (what was dropped on the way was in no frame's use).
+    ///
+    /// Dropped, the one used longest ago first, are the entries that neither
+    /// this scan nor the one before it has used. An LRU that asks no more than
+    /// "used longest ago" drops, in a cache smaller than the view, the labels the
+    /// same scan looked at first for the ones it draws last, and the next frame
+    /// draws those again: the halos of a map went and came a few per frame for as
+    /// long as frames were made (audit A5-01).
+    ///
+    /// `replacing`: the entry is drawn as the own picture of a shadow of this
+    /// shape. When nothing else makes room, the picture standing in for that
+    /// shape gives way to it - it is what the new one replaces - unless a shadow
+    /// has it as its own picture in this scan. Without this a view of stand-ins
+    /// in a full cache would stay a view of stand-ins: none could go before its
+    /// replacement was drawn, and none could be drawn.
+    fn make_room(&mut self, bytes: usize, replacing: Option<u64>) -> bool {
         if bytes > self.max_bytes {
             return false;
         }
-        while self.entries.len() >= self.max_entries || self.bytes + bytes > self.max_bytes {
-            let Some(oldest) = self.next_victim() else {
-                return false;
+        while !self.fits(bytes) {
+            let dropped = match self.next_victim() {
+                Some(oldest) => oldest,
+                None => {
+                    let Some(stand_in) = replacing
+                        .and_then(|shape| self.by_shape.get(&shape).copied())
+                        .filter(|id| {
+                            self.entries.get(id).is_some_and(|entry| {
+                                entry.own_in != self.scan
+                                    && self.entries.len() <= self.max_entries
+                                    && self.bytes - entry.bytes + bytes <= self.max_bytes
+                            })
+                        })
+                    else {
+                        return false;
+                    };
+                    stand_in
+                }
             };
-            self.remove(oldest);
+            self.remove(dropped);
             self.stats.evicted += 1;
             self.stats.evicted_total += 1;
         }
         true
     }
 
-    /// The entry to drop next: of those this scan has not used as a shadow's own
-    /// picture, the one used longest ago. `None` when there is none.
+    /// The entry to drop next: of those neither this scan nor the one before it
+    /// has used, the one used longest ago. `None` when there is none.
     fn next_victim(&mut self) -> Option<u64> {
         let scan = self.scan;
-        if self.nothing_to_drop_in == Some(scan) {
-            return None;
-        }
-        loop {
-            while let Some(id) = self.victims.pop() {
-                // Still kept, not used as an own picture since the list was made,
-                // and not used at all since (a stand-in that this frame paints
-                // goes after the pictures nothing uses: it is in the next list).
-                let droppable = self
-                    .entries
-                    .get(&id)
-                    .is_some_and(|entry| entry.used_in != scan && entry.last_used <= self.victims_at);
-                if droppable {
-                    return Some(id);
-                }
-            }
+        let droppable = |entry: &Entry| entry.used_in + 1 < scan;
+        if self.victims.is_none() {
             let mut victims: Vec<(u64, u64)> = self
                 .entries
                 .iter()
-                .filter(|(_, entry)| entry.used_in != scan)
+                .filter(|(_, entry)| droppable(*entry))
                 .map(|(id, entry)| (entry.last_used, *id))
                 .collect();
-            if victims.is_empty() {
-                self.nothing_to_drop_in = Some(scan);
-                return None;
-            }
             // The newest first: the one used longest ago is popped first.
             victims.sort_unstable_by(|a, b| b.0.cmp(&a.0));
-            self.victims = victims.into_iter().map(|(_, id)| id).collect();
-            self.victims_at = self.clock;
+            self.victims = Some(victims.into_iter().map(|(_, id)| id).collect());
             self.victim_lists += 1;
         }
+        let victims = self.victims.as_mut()?;
+        while let Some(id) = victims.pop() {
+            // Still kept, and not used by this scan since the list was made.
+            if self.entries.get(&id).is_some_and(|entry| droppable(entry)) {
+                return Some(id);
+            }
+        }
+        None
     }
 
     /// The small picture kept for `text` and `geometry` (a [`Scope::preview`]
@@ -825,16 +859,16 @@ impl HaloCache {
         self.clock += 1;
         let entry = self.entries.get_mut(&id)?;
         entry.last_used = self.clock;
+        entry.used_in = self.scan;
         if entry.kept.is_some() {
             self.by_shape.insert(shape, id);
         }
         Some(entry.kept.clone())
     }
 
-    /// Keeps `kept` for what `sought` and `geometry` name. As a shadow's own
-    /// picture it is used by this scan; as a `preview` it is a stand-in, which
-    /// no scan holds on to. The caller made room for it ([`Self::make_room`],
-    /// for at least its bytes).
+    /// Keeps `kept` for what `sought` and `geometry` name, as used by this scan:
+    /// as a shadow's own picture, or as a `preview` drawn to stand in. The caller
+    /// made room for it ([`Self::make_room`], for at least its bytes).
     fn insert(
         &mut self,
         sought: &Sought,
@@ -871,8 +905,8 @@ impl HaloCache {
                 text: sought.text,
                 geometry: geometry.to_vec(),
                 shape: sought.shape,
-                // No scan is numbered 0 ([`Self::new`]).
-                used_in: if preview { 0 } else { self.scan },
+                used_in: self.scan,
+                own_in: if preview { 0 } else { self.scan },
                 last_used: self.clock,
             },
         );
@@ -1129,7 +1163,7 @@ impl Scope<'_> {
             Drawn::NotAPicture => {
                 HALOS.with(|halos| {
                     let mut halos = halos.borrow_mut();
-                    if halos.make_room(0) {
+                    if halos.make_room(0, None) {
                         halos.insert(&small, &geometry, None, 0, true);
                     }
                 });
@@ -1366,7 +1400,7 @@ mod audit_a5_tests {
             let sought = label(n);
             if let Some(id) = cache.find(sought.text, &GEOMETRY) {
                 let _ = cache.use_own(id, true);
-            } else if drawn < budget && cache.make_room(BYTES) {
+            } else if drawn < budget && cache.make_room(BYTES, None) {
                 drawn += 1;
                 cache.insert(&sought, &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
             }
@@ -1385,9 +1419,9 @@ mod audit_a5_tests {
     /// used: the labels that have a halo keep it, frame after frame, and an
     /// unchanged view comes to rest - no picture drawn, none dropped.
     ///
-    /// Mutation: without `.filter(|(_, entry)| entry.used_in != scan)` in
-    /// `HaloCache::make_room` the frame after the cache is full paints fewer labels
-    /// with a halo than the one before it, and this fails.
+    /// Mutation: `droppable` always true in `HaloCache::next_victim` (the entry
+    /// used longest ago goes, whoever uses it) makes the frame after the cache is
+    /// full paint fewer labels with a halo than the one before it: this fails.
     #[test]
     fn a_view_of_more_halos_than_the_cache_holds_keeps_the_halos_it_has() {
         const LABELS: u64 = 1567;
@@ -1412,34 +1446,52 @@ mod audit_a5_tests {
         assert_eq!(cache.stats.evicted_total, 0);
     }
 
-    /// A5-01. Pictures no frame shows any more make room, the one used longest
-    /// ago first; the pictures of the scan under way never do.
+    /// A5-01. Pictures no frame paints any more make room, the one used longest
+    /// ago first; the pictures of the scan under way and of the one before it
+    /// never do. (The one before it: a scan needs room while it has not come to
+    /// all of its labels yet; the pictures it has not come to are the last
+    /// frame's.)
+    ///
+    /// Mutation: `entry.used_in + 1 < scan` -> `entry.used_in < scan` in
+    /// `next_victim` (only the scan under way holds on) fails the second frame.
     #[test]
     fn pictures_of_earlier_frames_make_room_oldest_first() {
-        let mut cache = HaloCache::new(3, usize::MAX);
-        cache.begin_scan();
-        for n in 0..3 {
-            assert!(cache.make_room(BYTES));
-            cache.insert(&label(n), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
-        }
-        assert!(!cache.make_room(BYTES), "the scan uses all three: there is no room for a fourth");
-        assert_eq!(cache.entries.len(), 3, "and nothing was dropped for it");
-
-        // The next frame shows labels 2 and 1 (in that order) and a new one.
-        cache.begin_scan();
-        for n in [2, 1] {
+        let own = |cache: &mut HaloCache, n: u64| {
             let id = cache.find(label(n).text, &GEOMETRY).expect("kept");
             assert!(cache.use_own(id, true).is_some());
+        };
+        let mut cache = HaloCache::new(3, usize::MAX);
+        // Frame 1 paints labels 0, 1 and 2.
+        cache.begin_scan();
+        for n in 0..3 {
+            assert!(cache.make_room(BYTES, None));
+            cache.insert(&label(n), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
         }
-        assert!(cache.make_room(BYTES), "label 0 is of an earlier frame");
+        assert!(!cache.make_room(BYTES, None), "the scan uses all three: no room for a fourth");
+        assert_eq!(cache.entries.len(), 3, "and nothing was dropped for it");
+
+        // Frame 2 paints 2 and 1 (in that order): 0 is the last frame's.
+        cache.begin_scan();
+        own(&mut cache, 2);
+        own(&mut cache, 1);
+        assert!(!cache.make_room(BYTES, None), "the last frame's picture stays this frame");
+        assert!(cache.find(label(0).text, &GEOMETRY).is_some());
+
+        // Frame 3 paints them again and a new label: 0, in no frame for two, goes.
+        cache.begin_scan();
+        own(&mut cache, 2);
+        own(&mut cache, 1);
+        assert!(cache.make_room(BYTES, None), "label 0 is of an earlier frame");
         cache.insert(&label(3), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
         assert!(cache.find(label(0).text, &GEOMETRY).is_none(), "label 0 made room");
         assert_eq!((cache.stats.evicted, cache.stats.evicted_total), (1, 1));
-        assert!(!cache.make_room(BYTES), "1, 2 and 3 are this frame's");
+        assert!(!cache.make_room(BYTES, None), "1, 2 and 3 are this frame's");
 
-        // A frame that shows none of them: the one used longest ago goes first.
+        // Two frames that paint none of them: the one used longest ago goes first.
         cache.begin_scan();
-        assert!(cache.make_room(BYTES));
+        assert!(!cache.make_room(BYTES, None), "they are the last frame's");
+        cache.begin_scan();
+        assert!(cache.make_room(BYTES, None));
         cache.insert(&label(4), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
         assert!(cache.find(label(2).text, &GEOMETRY).is_none(), "2 was used before 1 and 3");
         assert!(cache.find(label(1).text, &GEOMETRY).is_some());
@@ -1447,53 +1499,56 @@ mod audit_a5_tests {
         assert_eq!(cache.bytes, 3 * BYTES);
     }
 
-    /// A5-01. The bytes bound as the entries bound: the scan's own pictures stay,
+    /// A5-01. The bytes bound as the entries bound: the pictures in use stay,
     /// and a picture larger than the whole budget is never kept.
     #[test]
-    fn the_bytes_of_a_scans_own_pictures_are_not_given_up() {
+    fn the_bytes_of_the_pictures_in_use_are_not_given_up() {
         let mut cache = HaloCache::new(usize::MAX, 3 * BYTES);
         cache.begin_scan();
         for n in 0..3 {
-            assert!(cache.make_room(BYTES));
+            assert!(cache.make_room(BYTES, None));
             cache.insert(&label(n), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
         }
-        assert!(!cache.make_room(1), "not one byte is free, and the scan uses them all");
-        assert!(!cache.make_room(4 * BYTES), "more than the cache holds");
+        assert!(!cache.make_room(1, None), "not one byte is free, and the scan uses them all");
+        assert!(!cache.make_room(4 * BYTES, None), "more than the cache holds");
         assert_eq!(cache.bytes, 3 * BYTES);
+        // Two frames of another view later they make room.
         cache.begin_scan();
-        assert!(cache.make_room(2 * BYTES), "an earlier frame's pictures make room");
+        cache.begin_scan();
+        assert!(cache.make_room(2 * BYTES, None), "an earlier frame's pictures make room");
         assert_eq!(cache.bytes, BYTES);
     }
 
-    /// A5-06 (A9 H14). A zoom that settles in a full cache draws a view of new
-    /// pictures and drops as many old ones. The entries to drop are sorted once
-    /// for the scan, not searched for the oldest once per picture dropped (n
-    /// searches of n entries): one list for 256 pictures, and one for 1,024.
+    /// A5-06 (A9 H14). A view of new pictures in a full cache drops as many old
+    /// ones as it draws. The entries to drop are sorted once for the scan, not
+    /// searched for the oldest once per picture dropped (n searches of n
+    /// entries): one list for 256 pictures, and one for 1,024.
     ///
-    /// Mutation: `self.victims = Vec::new()` after a victim is returned in
-    /// `next_victim` (a list per dropped entry) fails this.
+    /// Mutation: `self.victims = None;` before `return Some(id)` in `next_victim`
+    /// (a list per dropped entry) fails this.
     #[test]
     fn dropping_a_view_of_old_pictures_sorts_the_cache_once() {
         for n in [256u64, 1024] {
             let mut cache = HaloCache::new(n as usize, usize::MAX);
             cache.begin_scan();
             for old in 0..n {
-                assert!(cache.make_room(BYTES));
+                assert!(cache.make_room(BYTES, None));
                 cache.insert(&label(old), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
             }
+            // The view changes; a frame later the old pictures are in no use.
+            cache.begin_scan();
             cache.begin_scan();
             let lists = cache.victim_lists;
             for new in n..2 * n {
-                assert!(cache.make_room(BYTES), "{new}: an old picture makes room");
+                assert!(cache.make_room(BYTES, None), "{new}: an old picture makes room");
                 cache.insert(&label(new), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
             }
             assert_eq!(cache.stats.evicted, n, "every old picture went");
             assert_eq!(cache.victim_lists - lists, 1, "{n} pictures dropped from one list");
             assert_eq!(cache.entries.len() as u64, n);
             assert_eq!(cache.bytes, n as usize * BYTES);
-            // The oldest went first: the last one dropped was the newest old one.
             assert!(cache.find(label(n).text, &GEOMETRY).is_some());
-            assert!(!cache.make_room(BYTES), "the rest is this scan's own");
+            assert!(!cache.make_room(BYTES, None), "the rest is this scan's own");
         }
     }
 
@@ -1585,10 +1640,17 @@ mod audit_a5_tests {
     }
 
     /// A5-02. The stand-in of a shape is its newest picture; the size is no part
-    /// of the shape, the fonts and the glyphs are. Standing in does not keep a
-    /// picture from making room: the pictures that replace the stand-ins need it.
+    /// of the shape, the fonts and the glyphs are. A stand-in a frame paints is
+    /// kept like a label's own picture - and gives way to the one picture it
+    /// stands for: in a full cache a view of stand-ins would otherwise stay one
+    /// (none could go before its replacement was drawn, none could be drawn).
+    ///
+    /// Mutation: `entry.used_in = self.scan;` removed from `HaloCache::stand_in`
+    /// (a stand-in holds no place) does not fail here but in
+    /// `a_view_that_does_not_fit_...` of the dll's `audit_tests::a5`; `replacing`
+    /// ignored in `make_room` fails this.
     #[test]
-    fn the_newest_picture_of_a_shape_stands_in_and_holds_no_room() {
+    fn a_stand_in_is_kept_while_it_is_painted_and_gives_way_to_what_it_stands_for() {
         let near = label_items(20.0, 100.0, 6.0);
         let mut geometry = Vec::new();
         let small = scopes(&near)[0].sought(1.0, &mut geometry);
@@ -1597,10 +1659,15 @@ mod audit_a5_tests {
         assert_eq!(small.shape, large.shape, "of the same shape");
         assert_eq!((small.scale, large.scale), (12.0, 24.0));
 
-        let mut cache = HaloCache::new(2, usize::MAX);
+        // A cache with room for one picture: the label's, at the small size.
+        let mut cache = HaloCache::new(1, usize::MAX);
         cache.begin_scan();
         assert!(cache.stand_in(small.shape, true, |_| true).is_none(), "nothing kept yet");
         cache.insert(&small, &geometry, Some(picture(50, 15, small.scale)), 3000, false);
+
+        // The zoom settles: the label is laid out at the large size, and the
+        // frame's budget leaves its picture for later. The small one stands in.
+        cache.begin_scan();
         let stood = cache.stand_in(large.shape, true, |_| true).expect("the small one stands in");
         assert_eq!((stood.width, stood.scale), (50, 12.0));
         assert_eq!(cache.stats.stand_ins, 1);
@@ -1608,17 +1675,21 @@ mod audit_a5_tests {
             cache.stand_in(large.shape, true, |kept| kept.scale > 12.0).is_none(),
             "a picture that does not fit does not stand in"
         );
+        assert!(!cache.make_room(1, None), "a stand-in a frame paints is kept");
 
-        // The next frame: the label is drawn at the large size while the small
-        // picture stands in, then the cache needs the room.
+        // The next frame draws the label's own picture: the stand-in gives way.
         cache.begin_scan();
         assert!(cache.stand_in(large.shape, true, |_| true).is_some());
+        assert!(cache.make_room(100 * 30 * 4, Some(large.shape)), "for what it stands for");
+        assert!(cache.entries.is_empty());
+        assert_eq!(cache.stats.evicted, 1);
         cache.insert(&large, &geometry, Some(picture(100, 30, large.scale)), 12000, false);
         let newest = cache.stand_in(small.shape, false, |_| true).expect("a picture of the shape");
         assert_eq!(newest.scale, 24.0, "the newest one");
-        assert!(cache.make_room(1), "the stand-in was not this frame's own picture");
-        assert_eq!(cache.entries.len(), 1);
-        assert!(cache.find(large.text, &geometry).is_some(), "the frame's own picture stays");
+        assert!(
+            !cache.make_room(1, Some(small.shape)),
+            "a label's own picture of this frame is not what another replaces"
+        );
     }
 
     /// A5-04. A picture is kept cut to what it paints, one clear pixel left all
@@ -1662,15 +1733,15 @@ mod audit_a5_tests {
     #[test]
     fn the_budget_counts_what_is_drawn_and_what_is_left() {
         let ((), left) = within_halo_budget(2, Duration::from_millis(5), || {
-            assert!(admit(BYTES) && admit(BYTES), "two as of right");
-            assert!(admit(BYTES), "no time spent yet: a third");
+            assert!(admit(BYTES, 1) && admit(BYTES, 2), "two as of right");
+            assert!(admit(BYTES, 3), "no time spent yet: a third");
             spend(Duration::from_millis(5));
-            assert!(!admit(BYTES), "the time is spent");
-            assert!(!admit(BYTES));
+            assert!(!admit(BYTES, 4), "the time is spent");
+            assert!(!admit(BYTES, 5));
         });
         assert_eq!(left, 2);
         let stats = text_halo_stats();
         assert_eq!((stats.pending, stats.unkept, stats.scans), (2, 0, 1));
-        assert!(admit(BYTES), "no budget: every halo is drawn");
+        assert!(admit(BYTES, 6), "no budget: every halo is drawn");
     }
 }
