@@ -138,6 +138,11 @@ fn equal_labels_take_their_style_by_its_inputs_instead_of_building_it() {
 /// `text_transform`, `tab_size`) serves that label the plain label's style: it is "taken by
 /// its inputs" and the field does not differ (and the memo's own check panics). A keyword of
 /// `vertical-align` is in the key twice, in the tier-1 enums and as the cascade answers it.
+///
+/// A label that differs in something its style does NOT hold (`text-align`, one of the tier-1
+/// enums) has other inputs and is built: a field too many in the key costs a build, not the
+/// allocation - `by_value` still gives it the plain label's. Mutation: without the lookup in
+/// the `by_value` bucket (always `Arc::new`) the two are two allocations.
 #[test]
 #[allow(clippy::float_cmp)] // sizes read from declarations, not computed
 fn labels_that_differ_in_one_input_get_their_own_style_and_equal_ones_share_one() {
@@ -155,6 +160,7 @@ fn labels_that_differ_in_one_input_get_their_own_style_and_equal_ones_share_one(
         "text-transform: uppercase;",
         "vertical-align: super;",
         "tab-size: 4px;",
+        "text-align: center;",
         "",
     ];
     let styled = labels(&css);
@@ -162,8 +168,8 @@ fn labels_that_differ_in_one_input_get_their_own_style_and_equal_ones_share_one(
     let styles = styles_of(&styled);
     assert_each_is_the_style_its_node_builds(&styled, &styles);
 
-    // The plain labels: 0, 1 and - after all the others - 13.
-    for i in [1_usize, 13] {
+    // The plain labels: 0, 1 and - after all the others - 14.
+    for i in [1_usize, 14] {
         assert!(
             taken_by_inputs(span(i)) && taken_by_inputs(text(i)),
             "harness: the plain label {i} and its text take their style by its inputs"
@@ -206,6 +212,16 @@ fn labels_that_differ_in_one_input_get_their_own_style_and_equal_ones_share_one(
         (styles[span(2)].font_size_px - 20.0).abs() < 0.01,
         "`font-size: 20px` gave a label {} px",
         styles[span(2)].font_size_px
+    );
+
+    // Label 13: other inputs (`text-align`), the same style.
+    assert!(
+        !taken_by_inputs(span(13)),
+        "harness: a label with another `text-align` has other inputs than the plain one"
+    );
+    assert!(
+        Arc::ptr_eq(&styles[span(13)], plain),
+        "a label built to the plain label's style does not share its allocation"
     );
 }
 

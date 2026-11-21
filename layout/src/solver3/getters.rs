@@ -12856,6 +12856,9 @@ mod style_interning_tests {
             bucket.insert(0, std::sync::Arc::clone(&impostor));
         }
         cache.by_node.clear();
+        // The node must BUILD again to meet the bucket: its inputs would
+        // answer before the build otherwise (`by_inputs`, A3-solver-20b).
+        cache.by_inputs.clear();
 
         let rebuilt = get_style_properties_cached(&mut cache, &sd, NodeId::new(0), None, viewport);
         assert_ne!(
