@@ -1569,3 +1569,104 @@ fn a_frame_over_the_lists_of_the_frame_before_walks_no_item_for_callback_backgro
         "the view's list, once; the window's own was not touched"
     );
 }
+
+// -- A3-window-14: the reconciliation of a rebuild keeps a first rect only for a node that
+// declares a move, and finds the mounted and unmounted roots without a set of every node -------
+
+/// A body with a spacer `spacer_px` high, `boxes` boxes of 20 px below it (the box `mover`
+/// declares `animation: move`), and with `panel` a box of two children after them.
+fn rects_page(spacer_px: f32, boxes: usize, mover: Option<usize>, panel: bool) -> StyledDom {
+    let mut body = Dom::create_body()
+        .with_css("margin: 0px; padding: 0px;")
+        .with_child(Dom::create_div().with_css(&format!("width: 100px; height: {spacer_px}px;")));
+    for i in 0..boxes {
+        let own = if mover == Some(i) {
+            "animation: move 200ms ease-out;"
+        } else {
+            ""
+        };
+        body = body
+            .with_child(Dom::create_div().with_css(&format!("width: 50px; height: 20px; {own}")));
+    }
+    if panel {
+        body = body.with_child(
+            Dom::create_div()
+                .with_css("width: 80px; height: 40px;")
+                .with_child(Dom::create_div().with_css("width: 10px; height: 10px;"))
+                .with_child(Dom::create_div().with_css("width: 10px; height: 10px;")),
+        );
+    }
+    StyledDom::create(&mut body, azul_css::css::Css::empty())
+}
+
+/// `first` laid out, then `next` reconciled against it as the shells do before they lay it out.
+fn reconciliation_of(first: StyledDom, mut next: StyledDom) -> crate::window::PendingReconciliation {
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_new_generation(
+        first,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    lw.begin_reconciliation(DomId::ROOT_ID, &mut next, azul_core::task::Instant::now())
+}
+
+/// Every matched node's rect was looked up and kept on every rebuild; only a node that declares
+/// a move is ever slid from it. A page of boxes that all moved down 40 px and declare nothing
+/// keeps none, at 50 boxes and at 200.
+#[test]
+fn a_rebuild_keeps_no_first_rect_for_a_page_without_a_declared_move() {
+    for boxes in [50usize, 200] {
+        let pending = reconciliation_of(
+            rects_page(20.0, boxes, None, false),
+            rects_page(60.0, boxes, None, false),
+        );
+        assert!(
+            pending.node_moves.len() >= boxes,
+            "premise: the boxes are matched ({} of {boxes})",
+            pending.node_moves.len()
+        );
+        assert_eq!(
+            pending.first_rects.len(),
+            0,
+            "nothing declares a move: no rect of the old layout is read ({boxes} boxes)"
+        );
+    }
+}
+
+/// The node that declares a move keeps its first rect (it slides from there), and it alone.
+#[test]
+fn a_rebuild_keeps_the_first_rect_of_the_node_that_declares_a_move() {
+    let pending = reconciliation_of(
+        rects_page(20.0, 50, Some(7), false),
+        rects_page(60.0, 50, Some(7), false),
+    );
+    assert_eq!(pending.move_modes.len(), 1, "premise: one box declares a move");
+    assert_eq!(pending.first_rects.len(), 1, "its rect before the rebuild, and no other");
+    let rect = pending.first_rects.values().next().expect("the rect");
+    assert_eq!(
+        (rect.size.width, rect.size.height),
+        (50.0, 20.0),
+        "the box the old layout gave the node that slides"
+    );
+}
+
+/// A subtree that comes with the rebuild is mounted at its root and entered node by node, in
+/// document order; one that goes is unmounted at its root: as the sets of node ids said.
+#[test]
+fn a_subtree_that_comes_or_goes_is_mounted_or_unmounted_at_its_root() {
+    let came = reconciliation_of(rects_page(20.0, 12, None, false), rects_page(20.0, 12, None, true));
+    assert_eq!(came.entered.len(), 3, "the panel and its two children are new: {:?}", came.entered);
+    assert!(came.entered.windows(2).all(|pair| pair[0] < pair[1]), "in document order");
+    assert_eq!(came.mounted, vec![came.entered[0]], "mounted once, at the panel");
+    assert!(came.unmounted.is_empty(), "nothing went");
+
+    let went = reconciliation_of(rects_page(20.0, 12, None, true), rects_page(20.0, 12, None, false));
+    assert!(went.entered.is_empty() && went.mounted.is_empty(), "nothing came");
+    assert_eq!(went.unmounted.len(), 1, "unmounted once, at the panel: {:?}", went.unmounted);
+}

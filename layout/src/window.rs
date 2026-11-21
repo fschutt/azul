@@ -18229,15 +18229,6 @@ impl LayoutWindow {
         );
         drop(span_reconcile_dom);
 
-        // Geometry captured BEFORE the swap, because the old solved rects die
-        // with the old tree.
-        let mut first_rects = BTreeMap::new();
-        for m in &diff.node_moves {
-            if let Some(r) = self.get_node_bounds(dom_id, m.old_node_id) {
-                first_rects.insert(m.old_node_id, layout_rect_to_logical(r));
-            }
-        }
-
         // Mount / Unmount, derived STRUCTURALLY from the correspondence.
         //
         // NOT from `diff.events`: those are a callback DISPATCH list, gated on
@@ -18248,31 +18239,48 @@ impl LayoutWindow {
         //
         // A node absent from `node_moves` is by definition unmatched: present
         // in one tree and not the other.
-        let matched_old: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.old_node_id).collect();
-        let matched_new: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.new_node_id).collect();
+        //
+        // A flag per node of each tree, and the unmatched nodes in document order. These were
+        // four `BTreeSet`s of node ids - the matched and the unmatched of both trees, n
+        // inserts each on every rebuild - asked for one node at a time below.
+        let mut old_is_matched = vec![false; old_node_data.len()];
+        let mut new_is_matched = vec![false; styled_dom.node_data.len()];
+        for m in &diff.node_moves {
+            if let Some(flag) = old_is_matched.get_mut(m.old_node_id.index()) {
+                *flag = true;
+            }
+            if let Some(flag) = new_is_matched.get_mut(m.new_node_id.index()) {
+                *flag = true;
+            }
+        }
 
         // Only SUBTREE ROOTS animate. A descendant of an entering node is drawn
         // inside its ancestor's transform, so animating it as well would apply
         // the effect twice and cost a GPU key per node in the subtree.
         let is_root = |id: NodeId,
                        hier: &[azul_core::styled_dom::NodeHierarchyItem],
-                       unmatched: &BTreeSet<NodeId>|
+                       is_matched: &[bool]|
          -> bool {
             hier.get(id.index()).is_none_or(|item| {
-                // `parent` is a 1-based index with 0 meaning "no parent".
+                // `parent` is a 1-based index with 0 meaning "no parent". A parent that is
+                // no node of the tree is no unmatched node of it.
                 item.parent
                     .checked_sub(1)
-                    .is_none_or(|p| !unmatched.contains(&NodeId::new(p)))
+                    .is_none_or(|p| is_matched.get(p).copied().unwrap_or(true))
             })
         };
 
-        let unmatched_new: BTreeSet<NodeId> = (0..styled_dom.node_data.len())
-            .map(NodeId::new)
-            .filter(|id| !matched_new.contains(id))
+        let unmatched_new: Vec<NodeId> = new_is_matched
+            .iter()
+            .enumerate()
+            .filter(|(_, matched)| !**matched)
+            .map(|(index, _)| NodeId::new(index))
             .collect();
-        let unmatched_old: BTreeSet<NodeId> = (0..old_node_data.len())
-            .map(NodeId::new)
-            .filter(|id| !matched_old.contains(id))
+        let unmatched_old: Vec<NodeId> = old_is_matched
+            .iter()
+            .enumerate()
+            .filter(|(_, matched)| !**matched)
+            .map(|(index, _)| NodeId::new(index))
             .collect();
 
         // An INITIAL mount is not a transition. With no previous tree every node
@@ -18285,13 +18293,13 @@ impl LayoutWindow {
             unmatched_new
                 .iter()
                 .copied()
-                .filter(|id| is_root(*id, &new_hierarchy, &unmatched_new))
+                .filter(|id| is_root(*id, &new_hierarchy, &new_is_matched))
                 .collect()
         };
         let unmounted: Vec<NodeId> = unmatched_old
             .iter()
             .copied()
-            .filter(|id| is_root(*id, &old_hierarchy, &unmatched_old))
+            .filter(|id| is_root(*id, &old_hierarchy, &old_is_matched))
             .collect();
 
         // Departing geometry, captured before the old arena goes: where each
@@ -18490,6 +18498,23 @@ impl LayoutWindow {
             }
         }
         drop(span_css_diff);
+
+        // Geometry captured BEFORE the swap, because the old solved rects die with the old
+        // tree: of the nodes that DECLARE a move, the only ones `finish_reconciliation` slides
+        // and so the only ones whose first rect is ever read. Every matched node's rect was
+        // looked up and put into the map on every rebuild - a box lookup and a map insert per
+        // node of the window - for a page in which nothing declares a move.
+        let mut first_rects = BTreeMap::new();
+        if !move_modes.is_empty() {
+            for m in &diff.node_moves {
+                if !move_modes.contains_key(&m.new_node_id) {
+                    continue;
+                }
+                if let Some(r) = self.get_node_bounds(dom_id, m.old_node_id) {
+                    first_rects.insert(m.old_node_id, layout_rect_to_logical(r));
+                }
+            }
+        }
 
         let span_transfer = crate::probe::Probe::span("reconcile_transfer_states");
         if !diff.node_moves.is_empty() {
@@ -18731,7 +18756,7 @@ impl LayoutWindow {
             first_rects,
             exit_rects,
             new_node_count: styled_dom.node_data.len(),
-            entered: unmatched_new.into_iter().collect(),
+            entered: unmatched_new,
             events: diff.events,
             old_node_data,
             animate_moves: true,
