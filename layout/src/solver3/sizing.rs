@@ -1223,7 +1223,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
 
         // Get pre-loaded fonts from font manager
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.ctx.loaded_fonts();
 
         // +spec:intrinsic-sizing:ae8beb - min-content = zero-width CB, max-content = infinite-width
         // CB +spec:intrinsic-sizing:8c94e2 - min-content/max-content intrinsic size
@@ -1335,7 +1335,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         if IfcMeasureKey::of(&constraints) != key {
             return None;
         }
-        if !Arc::ptr_eq(&fonts, &self.ctx.font_manager.get_loaded_fonts()) {
+        if !Arc::ptr_eq(&fonts, &self.ctx.loaded_fonts()) {
             return None;
         }
         // The box around this one may hold nothing else either.
