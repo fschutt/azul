@@ -87,6 +87,8 @@ fn a9_04_a_dropped_child_leaves_no_fingerprints_or_layout_cache() {
         structure_root: 1,
         style_root: 2,
         text_shapes: Vec::new(),
+        subtree_len: Vec::new(),
+        sheets: Vec::new(),
     };
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     let host = NodeId::new(3);
