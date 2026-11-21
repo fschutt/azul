@@ -3512,23 +3512,16 @@ impl LayoutWindow {
             self.unchanged_virtual_views(&root_dom)
         };
 
-        // Stash every child dom's arena before the clear, so re-materialization
-        // can reconcile against it (see `previous_child_arenas`). Rebuilt fresh
-        // each pass so a vanished host cannot leak a stale stash. A kept
+        // The arena of every child dom outlives the clear below, so re-materialization
+        // can reconcile against it: in its retired result while this pass runs
+        // (`retired_child_results`, read in place by `reconcile_rematerialized_child`),
+        // and after the pass in `previous_child_arenas` for a child no view rendered
+        // again (below, after the layout). Every arena used to be deep-copied HERE, on
+        // every pass that did not keep its view: 12,470 nodes of a map view per rebuild
+        // of the window's DOM, for a copy of what the retired result holds anyway.
+        // Emptied each pass so a vanished host cannot leak a stale stash. A kept
         // view's child stays live, where the reconcile finds it anyway.
         self.previous_child_arenas.clear();
-        for (dom_id, result) in &self.layout_results {
-            if *dom_id == DomId::ROOT_ID || kept_doms.contains(dom_id) {
-                continue;
-            }
-            self.previous_child_arenas.insert(
-                *dom_id,
-                (
-                    result.styled_dom.node_data.as_ref().to_vec(),
-                    result.styled_dom.node_hierarchy.as_ref().to_vec(),
-                ),
-            );
-        }
 
         // Clear previous results for a full relayout - all but the kept
         // views' children. A child rendered again starts from fresh content,
@@ -3575,8 +3568,20 @@ impl LayoutWindow {
             system_callbacks,
             debug_messages,
         );
-        // What no view took back goes now.
-        self.retired_child_results.clear();
+        // What no view took back goes now. A child no view rendered again in this pass
+        // (its host laid out no box for it: it has no live result) leaves its arena for
+        // the re-materialization that comes later (`previous_child_arenas`).
+        for (dom_id, retired) in core::mem::take(&mut self.retired_child_results) {
+            if !self.layout_results.contains_key(&dom_id) {
+                self.previous_child_arenas.insert(
+                    dom_id,
+                    (
+                        retired.styled_dom.node_data.as_ref().to_vec(),
+                        retired.styled_dom.node_hierarchy.as_ref().to_vec(),
+                    ),
+                );
+            }
+        }
         // A kept view this pass never reached (its host laid out no box for
         // it any more - hidden by a restyle) keeps nothing: its child result
         // goes, as the clear above took it before views were kept, and the
@@ -29744,67 +29749,133 @@ impl LayoutWindow {
         Vec<NodeId>,
         Option<Vec<(NodeId, azul_css::props::property::RelayoutScope)>>,
     ) {
-        // The old arena: still live on the programmatic re-invoke path, or
-        // stashed by the funnel just before it cleared `layout_results`.
-        let old = self.layout_results.get(&child_dom_id).map_or_else(
-            || self.previous_child_arenas.remove(&child_dom_id),
-            |r| {
-                Some((
-                    r.styled_dom.node_data.as_ref().to_vec(),
-                    r.styled_dom.node_hierarchy.as_ref().to_vec(),
-                ))
-            },
-        );
-        // First materialization: nothing to map from - diffed against an
-        // empty arena, every node of the view enters (its `AfterMount`), as
-        // the root's first frame is diffed against an empty DOM.
-        let rematerialized = old.is_some();
-        let (old_node_data, old_hierarchy) = old.unwrap_or_default();
-
-        let new_node_data = new_styled_dom.node_data.as_ref().to_vec();
-        let new_hierarchy = new_styled_dom.node_hierarchy.as_ref().to_vec();
-        let empty_layout = azul_core::OrderedMap::default();
-        let diff = azul_core::diff::reconcile_dom(
-            &old_node_data,
-            &new_node_data,
-            &old_hierarchy,
-            &new_hierarchy,
-            &empty_layout,
-            &empty_layout,
-            child_dom_id,
-            now,
-            self.node_identity,
-        );
-        let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
-        // The CSS diff of the nodes the two builds share, when the styles of the DOM moved
-        // and the cascade of the DOM before is still there to compare with.
-        let restyled = if rematerialized && styles_moved {
-            self.layout_results
-                .get(&child_dom_id)
-                .map(|old_result| css_diff_between(&old_result.styled_dom, new_styled_dom, &diff.node_moves))
-        } else {
+        // The old arena, READ WHERE IT LIES: still live on the programmatic re-invoke
+        // path, in the result the funnel retired for the pass that is running, or stashed
+        // by an earlier pass that rendered no view for it (`previous_child_arenas`). The
+        // new arena is read in the styled DOM. Both were deep-copied here (and the old
+        // one a second time by the funnel): two to three copies of every node of the view
+        // - its inline style, its attributes, its handlers and their data, its text - per
+        // render, 12,470 nodes each for a map view.
+        let stashed = if self.layout_results.contains_key(&child_dom_id)
+            || self.retired_child_results.contains_key(&child_dom_id)
+        {
             None
+        } else {
+            self.previous_child_arenas.remove(&child_dom_id)
         };
-        // A node of the view that entered and asks for focus (`autofocus`) takes it, as
-        // in the root DOM: a page that appears in a view takes the keys.
-        let matched_new: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.new_node_id).collect();
-        // The nodes of the view that entered with this render (every node on its
-        // first): what an `autofocus` and a declared `-azul-animation-in` act on.
-        let entered: Vec<NodeId> = (0..new_node_data.len())
-            .map(NodeId::new)
-            .filter(|n| !matched_new.contains(n))
-            .collect();
-        let entered_autofocus = first_entered_autofocus(&new_node_data, entered.iter().copied());
-        #[cfg(feature = "std")]
-        if std::env::var("AZ_VV_RECONCILE_TRACE").is_ok() {
-            eprintln!(
-                "[vv-reconcile] dom={child_dom_id:?} old_n={} new_n={} moves={} sample={:?}",
-                old_node_data.len(),
-                new_node_data.len(),
-                diff.node_moves.len(),
-                diff.node_moves.iter().take(6).collect::<Vec<_>>(),
+        let identity = self.node_identity;
+        let no_nodes: &[azul_core::dom::NodeData] = &[];
+        let no_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] = &[];
+        // Everything that reads the two arenas, before `self` is written to below (the
+        // old arena is borrowed from `self.layout_results` / `self.retired_child_results`).
+        let (rematerialized, map, restyled, entered, entered_autofocus, unmount_invocations, lifecycle_events) = {
+            let live = self.layout_results.get(&child_dom_id);
+            let old_result = live.or_else(|| self.retired_child_results.get(&child_dom_id));
+            // First materialization: nothing to map from - diffed against an
+            // empty arena, every node of the view enters (its `AfterMount`), as
+            // the root's first frame is diffed against an empty DOM.
+            let rematerialized = old_result.is_some() || stashed.is_some();
+            let old_node_data: &[azul_core::dom::NodeData] = match (old_result, stashed.as_ref()) {
+                (Some(r), _) => r.styled_dom.node_data.as_ref(),
+                (None, Some((nodes, _))) => nodes.as_slice(),
+                (None, None) => no_nodes,
+            };
+            let old_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
+                match (old_result, stashed.as_ref()) {
+                    (Some(r), _) => r.styled_dom.node_hierarchy.as_ref(),
+                    (None, Some((_, hierarchy))) => hierarchy.as_slice(),
+                    (None, None) => no_hierarchy,
+                };
+            let new_node_data: &[azul_core::dom::NodeData] = new_styled_dom.node_data.as_ref();
+            let new_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
+                new_styled_dom.node_hierarchy.as_ref();
+            let empty_layout = azul_core::OrderedMap::default();
+            let diff = azul_core::diff::reconcile_dom(
+                old_node_data,
+                new_node_data,
+                old_hierarchy,
+                new_hierarchy,
+                &empty_layout,
+                &empty_layout,
+                child_dom_id,
+                now,
+                identity,
             );
-        }
+            let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+            // The CSS diff of the nodes the two builds share, when the styles of the DOM moved
+            // and the cascade of the DOM before is still there to compare with.
+            let restyled = if rematerialized && styles_moved {
+                live.map(|old_result| {
+                    css_diff_between(&old_result.styled_dom, new_styled_dom, &diff.node_moves)
+                })
+            } else {
+                None
+            };
+            // The nodes of the view that entered with this render (every node on its
+            // first): what an `autofocus` and a declared `-azul-animation-in` act on.
+            let mut is_matched = vec![false; new_node_data.len()];
+            for m in &diff.node_moves {
+                if let Some(flag) = is_matched.get_mut(m.new_node_id.index()) {
+                    *flag = true;
+                }
+            }
+            let entered: Vec<NodeId> = (0..new_node_data.len())
+                .filter(|index| !is_matched[*index])
+                .map(NodeId::new)
+                .collect();
+            // A node of the view that entered and asks for focus (`autofocus`) takes it, as
+            // in the root DOM: a page that appears in a view takes the keys.
+            let entered_autofocus = first_entered_autofocus(new_node_data, entered.iter().copied());
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_VV_RECONCILE_TRACE").is_ok() {
+                eprintln!(
+                    "[vv-reconcile] dom={child_dom_id:?} old_n={} new_n={} moves={} sample={:?}",
+                    old_node_data.len(),
+                    new_node_data.len(),
+                    diff.node_moves.len(),
+                    diff.node_moves.iter().take(6).collect::<Vec<_>>(),
+                );
+            }
+            // The view's lifecycle, as the root's reconciliation queues it (the
+            // shell's `regenerate_layout`): a node that entered hears its
+            // `AfterMount` - a field in a view takes the keyboard - and a node
+            // that left its `BeforeUnmount`, invoked against its OLD node data
+            // (it has none in the new arena). They were dropped here. Collected while
+            // the old arena is at hand, queued below in the order they were queued in.
+            let mut unmount_invocations = Vec::new();
+            let mut lifecycle_events = Vec::new();
+            for event in diff.events {
+                use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
+                if event.event_type == EventType::Unmount {
+                    let old = event
+                        .target
+                        .node
+                        .into_crate_internal()
+                        .and_then(|nid| old_node_data.get(nid.index()));
+                    if let Some(nd) = old {
+                        for cb in nd.get_callbacks().as_ref() {
+                            if matches!(
+                                cb.event,
+                                EventFilter::Component(ComponentEventFilter::BeforeUnmount)
+                            ) {
+                                unmount_invocations.push((cb.clone(), event.clone()));
+                            }
+                        }
+                    }
+                } else {
+                    lifecycle_events.push(event);
+                }
+            }
+            (
+                rematerialized,
+                map,
+                restyled,
+                entered,
+                entered_autofocus,
+                unmount_invocations,
+                lifecycle_events,
+            )
+        };
         if rematerialized {
             self.remap_node_ids(child_dom_id, &map);
         }
@@ -29814,34 +29885,8 @@ impl LayoutWindow {
                 node: NodeHierarchyItemId::from_crate_internal(Some(node)),
             });
         }
-        // The view's lifecycle, as the root's reconciliation queues it (the
-        // shell's `regenerate_layout`): a node that entered hears its
-        // `AfterMount` - a field in a view takes the keyboard - and a node
-        // that left its `BeforeUnmount`, invoked against its OLD node data
-        // (it has none in the new arena). They were dropped here.
-        for event in diff.events {
-            use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
-            if event.event_type == EventType::Unmount {
-                let old = event
-                    .target
-                    .node
-                    .into_crate_internal()
-                    .and_then(|nid| old_node_data.get(nid.index()));
-                if let Some(nd) = old {
-                    for cb in nd.get_callbacks().as_ref() {
-                        if matches!(
-                            cb.event,
-                            EventFilter::Component(ComponentEventFilter::BeforeUnmount)
-                        ) {
-                            self.pending_unmount_invocations
-                                .push((cb.clone(), event.clone()));
-                        }
-                    }
-                }
-            } else {
-                self.pending_lifecycle_events.push(event);
-            }
-        }
+        self.pending_unmount_invocations.extend(unmount_invocations);
+        self.pending_lifecycle_events.extend(lifecycle_events);
         (entered, restyled)
     }
 
