@@ -753,3 +753,77 @@ fn a4_23_a_bound_background_colour_changes_as_a_value_and_no_list() {
     assert!(!idle.frame);
     assert_eq!(idle.lists, 0);
 }
+
+/// A4-10g. The scans of a frame's resources walk a display list for its fonts
+/// and images once, and not again while the list is the one the window holds:
+/// a second full transaction over the same lists walks none (it walked every
+/// item of every list twice, and hashed every glyph under a text shadow).
+/// What is kept is what a walk of the list finds.
+///
+/// Mutation: `list_names` without the `push` walks the list in each scan (the
+/// count is 3 and more); an `image_items` that leaves out the last index fails
+/// the comparison.
+#[test]
+fn a4_10g_a_list_the_window_holds_is_walked_for_its_fonts_and_images_once() {
+    use std::collections::HashSet;
+
+    use azul_core::resources::Au;
+
+    use crate::desktop::wr_translate2::{list_name_walks, list_names};
+
+    let mut view = Recorder::new(1.0);
+    publish_gpu_frame(&view.window, 0, 0, 0);
+    // Text without a shadow (no halo is drawn: the passes below are the same on
+    // every machine) and one picture.
+    view.lay_out(
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(
+                Dom::create_p().with_css("font-size: 12px; color: #111111;").with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("Street".to_string()),
+                ),
+            )
+            .with_child(Dom::create_image(picture(16, 90)).with_css("width: 16px; height: 16px;")),
+    );
+    let list = Arc::clone(&view.window.layout_results[&DomId::ROOT_ID].display_list);
+
+    let before = list_name_walks();
+    let names = list_names(&list);
+    assert_eq!(list_name_walks() - before, 1);
+    let fonts: HashSet<(u64, Au)> = list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Text {
+                font_hash,
+                font_size_px,
+                ..
+            } => Some((font_hash.font_hash, Au::from_px(*font_size_px))),
+            _ => None,
+        })
+        .collect();
+    assert!(!fonts.is_empty(), "the labels are text");
+    assert_eq!(names.fonts.len(), fonts.len(), "each once");
+    assert_eq!(names.fonts.iter().copied().collect::<HashSet<_>>(), fonts);
+    let image_items: Vec<usize> = list
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| LayoutWindow::image_of_item(item).is_some())
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(image_items.len(), 1, "the one picture of the DOM");
+    assert_eq!(names.image_items, image_items);
+
+    // Two full transactions over the lists the window holds: no walk.
+    let first = full(&mut view);
+    assert_eq!(first.lists, 1);
+    assert_eq!(first.added.len(), 1, "the picture is registered from what is kept");
+    let _ = full(&mut view);
+    assert_eq!(list_name_walks() - before, 1, "one walk of the list for all of it");
+
+    // A list laid out again is another list: walked once.
+    view.lay_out(labels(2, 1.0));
+    let _ = full(&mut view);
+    assert_eq!(list_name_walks() - before, 2);
+}

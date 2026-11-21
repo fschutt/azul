@@ -932,6 +932,91 @@ pub fn collect_image_resource_updates(
     (updates, live)
 }
 
+/// What a display list names of fonts and images ([`list_names`]).
+#[derive(Debug)]
+pub(crate) struct ListNames {
+    /// Every (font, size) a text item of the list is set in, once.
+    pub(crate) fonts: Vec<(u64, Au)>,
+    /// The indices of the items that draw or clip by an image
+    /// (`LayoutWindow::image_of_item`), in list order.
+    pub(crate) image_items: Vec<usize>,
+}
+
+/// The [`ListNames`] kept for one display list ([`LIST_NAMES`]).
+struct KeptNames {
+    list: std::sync::Weak<azul_layout::solver3::display_list::DisplayList>,
+    names: std::rc::Rc<ListNames>,
+}
+
+thread_local! {
+    /// [`ListNames`] by the list's allocation. The `Weak` is what makes the
+    /// address an identity: while it is held the allocation is not given to
+    /// another list, and a list that has a `Weak` is never changed in place
+    /// (`Arc::get_mut` refuses, `Arc::make_mut` moves it to a new allocation):
+    /// the same address with a living list is the same items.
+    static LIST_NAMES: RefCell<Vec<KeptNames>> = const { RefCell::new(Vec::new()) };
+    /// Tests: how many lists [`list_names`] walked on this thread.
+    #[cfg(test)]
+    static LIST_NAME_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Tests: how many lists [`list_names`] has walked on this thread.
+#[cfg(test)]
+pub(crate) fn list_name_walks() -> usize {
+    LIST_NAME_WALKS.with(std::cell::Cell::get)
+}
+
+/// The fonts and the image items of `list`: one walk of its items, kept while
+/// the list lives. The scans of a frame's resources asked every list of the
+/// window for its fonts and for its images in every transaction that scans
+/// (a full one, and every frame that still draws text halos), also the lists
+/// that had not changed - two walks of the 17,495 items of a map view each time
+/// (audit A4-10g). Lists that are gone are forgotten here.
+pub(crate) fn list_names(
+    list: &std::sync::Arc<azul_layout::solver3::display_list::DisplayList>,
+) -> std::rc::Rc<ListNames> {
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    let at = std::sync::Arc::as_ptr(list);
+    let found = LIST_NAMES.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        kept.retain(|held| held.list.strong_count() > 0);
+        kept.iter()
+            .find(|held| core::ptr::eq(held.list.as_ptr(), at))
+            .map(|held| std::rc::Rc::clone(&held.names))
+    });
+    if let Some(found) = found {
+        return found;
+    }
+    #[cfg(test)]
+    LIST_NAME_WALKS.with(|walks| walks.set(walks.get() + 1));
+    let mut fonts: HashSet<(u64, Au)> = HashSet::new();
+    let mut image_items = Vec::new();
+    for (index, item) in list.items.iter().enumerate() {
+        if let DisplayListItem::Text {
+            font_hash,
+            font_size_px,
+            ..
+        } = item
+        {
+            fonts.insert((font_hash.font_hash, Au::from_px(*font_size_px)));
+        } else if LayoutWindow::image_of_item(item).is_some() {
+            image_items.push(index);
+        }
+    }
+    let names = std::rc::Rc::new(ListNames {
+        fonts: fonts.into_iter().collect(),
+        image_items,
+    });
+    LIST_NAMES.with(|kept| {
+        kept.borrow_mut().push(KeptNames {
+            list: std::sync::Arc::downgrade(list),
+            names: std::rc::Rc::clone(&names),
+        });
+    });
+    names
+}
+
 /// What a scan of the display lists found of text halos
 /// ([`collect_image_resource_updates_and_halos`]).
 #[derive(Debug, Default)]
@@ -974,9 +1059,23 @@ fn collect_image_resource_updates_and_halos(
     // masks and the mask of a stroke (the GPU backend paints a stroke as a
     // colour through that mask - it has no vector rasteriser - so the mask is
     // uploaded like any other image; the CPU backend ignores it and strokes the
-    // outline directly). ONE scan, the image GC's and the e2e runner's too.
-    let images_in_display_list: FastBTreeSet<ImageRef> =
-        layout_window.images_in_display_lists().cloned().collect();
+    // outline directly). ONE definition of which items those are, the image
+    // GC's and the e2e runner's too (`LayoutWindow::image_of_item`); which
+    // items of a list have one is kept while the list lives (`list_names`).
+    let images_in_display_list: FastBTreeSet<ImageRef> = layout_window
+        .layout_results
+        .values()
+        .flat_map(|layout_result| {
+            let list = &layout_result.display_list;
+            let names = list_names(list);
+            (0..names.image_items.len()).filter_map(move |nth| {
+                list.items
+                    .get(names.image_items[nth])
+                    .and_then(LayoutWindow::image_of_item)
+            })
+        })
+        .cloned()
+        .collect();
 
     // The text shadows the compositor paints as kept pictures: drawn here the
     // first time they are seen, and live while a list holds them. A halo is a
@@ -997,8 +1096,8 @@ fn collect_image_resource_updates_and_halos(
         time,
         || {
             for (dom_id, layout_result) in &layout_window.layout_results {
-                let halos = azul_layout::cpurender::text_halos(
-                    &layout_result.display_list.items,
+                let halos = azul_layout::cpurender::text_halos_of_list(
+                    &layout_result.display_list,
                     dpi,
                     Some((renderer_resources, &layout_window.font_manager)),
                 );
@@ -1018,7 +1117,7 @@ fn collect_image_resource_updates_and_halos(
         painted.clear();
         for (dom_id, layout_result) in &layout_window.layout_results {
             let halos =
-                azul_layout::cpurender::text_halos(&layout_result.display_list.items, dpi, None);
+                azul_layout::cpurender::text_halos_of_list(&layout_result.display_list, dpi, None);
             if !halos.is_empty() {
                 painted.push((*dom_id, halos));
             }
@@ -1103,8 +1202,6 @@ pub fn collect_font_resource_updates(
         AddFontInstance, FontInstanceKey, FontInstanceOptions, FontInstancePlatformOptions,
         FontRenderMode, IdNamespace, FONT_INSTANCE_FLAG_NO_AUTOHINT,
     };
-    use azul_layout::solver3::display_list::{DisplayList, DisplayListItem};
-
     log_debug!(
         LogCategory::Rendering,
         "[collect_font_resource_updates] Scanning {} DOMs for fonts",
@@ -1116,18 +1213,10 @@ pub fn collect_font_resource_updates(
     let mut resource_updates = Vec::new();
 
     // Collect all unique font hash + size combinations from display lists
-    for (dom_id, layout_result) in &layout_window.layout_results {
-        for item in &layout_result.display_list.items {
-            if let DisplayListItem::Text {
-                font_hash,
-                font_size_px,
-                ..
-            } = item
-            {
-                let font_sizes = font_hash_sizes.entry(font_hash.font_hash).or_default();
-                let font_size_au = Au::from_px(*font_size_px);
-                font_sizes.insert(font_size_au);
-            }
+    // (kept per list while the list lives: `list_names`).
+    for layout_result in layout_window.layout_results.values() {
+        for &(font_hash, font_size_au) in &list_names(&layout_result.display_list).fonts {
+            font_hash_sizes.entry(font_hash).or_default().insert(font_size_au);
         }
     }
 
@@ -1820,8 +1909,9 @@ fn reserve_image_places(
     };
     for (dom_id, layout_result) in lists.into_iter().flatten() {
         let list = &layout_result.display_list;
-        for (index, item) in list.items.iter().enumerate() {
-            let DisplayListItem::Image { image, .. } = item else {
+        // Only the items that have an image are looked at (`list_names`).
+        for &index in &list_names(list).image_items {
+            let Some(DisplayListItem::Image { image, .. }) = list.items.get(index) else {
                 continue;
             };
             if !image.is_null_image() {

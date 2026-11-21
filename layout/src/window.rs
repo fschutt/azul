@@ -13518,22 +13518,33 @@ impl LayoutWindow {
     /// A stroke's mask is a live image too - leaving it out makes the GC free the
     /// mask the compositor is still drawing through.
     pub fn images_in_display_lists(&self) -> impl Iterator<Item = &ImageRef> + '_ {
-        use crate::solver3::display_list::DisplayListItem;
-
         self.layout_results
             .values()
             .flat_map(|layout_result| layout_result.display_list.items.iter())
-            .filter_map(|item| match item {
-                DisplayListItem::Image { image, .. } => Some(image),
-                DisplayListItem::PushImageMaskClip {
-                    mask_image: Some(mask_image),
-                    ..
-                } => Some(mask_image),
-                DisplayListItem::StrokedPath {
-                    mask: Some(mask), ..
-                } => Some(mask),
-                _ => None,
-            })
+            .filter_map(Self::image_of_item)
+    }
+
+    /// The image one display list item draws or clips by, when it has one: what
+    /// [`Self::images_in_display_lists`] is made of, item by item (audit A4-10g:
+    /// the GPU shell keeps WHICH items of a list have one while the list lives,
+    /// and asks this of those items alone).
+    #[must_use]
+    pub fn image_of_item(
+        item: &crate::solver3::display_list::DisplayListItem,
+    ) -> Option<&ImageRef> {
+        use crate::solver3::display_list::DisplayListItem;
+
+        match item {
+            DisplayListItem::Image { image, .. } => Some(image),
+            DisplayListItem::PushImageMaskClip {
+                mask_image: Some(mask_image),
+                ..
+            } => Some(mask_image),
+            DisplayListItem::StrokedPath {
+                mask: Some(mask), ..
+            } => Some(mask),
+            _ => None,
+        }
     }
 
     /// Helper function to convert `ScrollManager` to nested format for `CallbackInfo`

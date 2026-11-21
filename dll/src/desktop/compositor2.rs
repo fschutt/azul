@@ -26,7 +26,7 @@ use azul_css::props::{
     style::border_radius::StyleBorderRadius,
 };
 use azul_layout::{
-    cpurender::{text_halos, TextHalo},
+    cpurender::{text_halos_of_held_list, TextHalo},
     solver3::display_list::{BorderRadius, DisplayList},
     window::DomLayoutResult,
 };
@@ -420,8 +420,9 @@ pub fn translate_displaylist_to_wr(
     // were drawn and registered with the frame's resources), by the index of
     // their PushTextShadow: a shadow's own picture, or for a spread shadow whose
     // picture a later frame draws the one that stands in for it. Every other
-    // shadow goes to WebRender's own.
-    let halos: BTreeMap<usize, TextHalo> = text_halos(&display_list.items, dpi_scale, None)
+    // shadow goes to WebRender's own. (What the list's shadows are found by is
+    // kept from the scan of the frame's resources while the list is the same.)
+    let halos: BTreeMap<usize, TextHalo> = text_halos_of_held_list(display_list, dpi_scale, None)
         .into_iter()
         .map(|halo| (halo.push, halo))
         .collect();

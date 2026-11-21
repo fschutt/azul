@@ -55,7 +55,8 @@ use std::{
     cell::{Cell, RefCell},
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    sync::Arc,
+    rc::Rc,
+    sync::{Arc, Weak},
     time::{Duration, Instant},
 };
 
@@ -72,7 +73,7 @@ use super::raster::{
 use crate::{
     glyph_cache::GlyphCache,
     image_memo::ImageMemo,
-    solver3::display_list::DisplayListItem,
+    solver3::display_list::{DisplayList, DisplayListItem},
     text3::cache::{FontHash, FontManager},
 };
 
@@ -539,20 +540,162 @@ pub fn text_halos(
     if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
         return Vec::new();
     }
-    // The scan that draws counts what it finds; the one that only looks (the
-    // translation of the same lists, right after) does not count it twice.
-    let counted = fonts.is_some();
+    halos_of(items, &shadows(items, dpi), dpi, fonts)
+}
+
+/// [`text_halos`] of a display list that is held in an `Arc`: what its shadows
+/// are found by is worked out once and kept while the list lives
+/// ([`list_shadows`]). The scans of a frame's resources ask this of every list of
+/// a window in every transaction that scans, also of the lists that did not
+/// change (audit A4-10g).
+#[must_use]
+pub fn text_halos_of_list(
+    list: &Arc<DisplayList>,
+    dpi: f32,
+    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+) -> Vec<TextHalo> {
+    if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
+        return Vec::new();
+    }
+    halos_of(&list.items, &list_shadows(list, Some(list), dpi), dpi, fonts)
+}
+
+/// [`text_halos`] of a display list that [`text_halos_of_list`] may have been
+/// asked about (the translation of a list is handed the list, not its `Arc`):
+/// then what was kept for it is used; nothing is kept here.
+#[must_use]
+pub fn text_halos_of_held_list(
+    list: &DisplayList,
+    dpi: f32,
+    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+) -> Vec<TextHalo> {
+    if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
+        return Vec::new();
+    }
+    halos_of(&list.items, &list_shadows(list, None, dpi), dpi, fonts)
+}
+
+/// What one text shadow of a display list is found and painted by: all that
+/// [`halos_of`] reads of its [`Scope`] unless a picture has to be drawn, as plain
+/// values. A function of the list's items and the scale alone.
+#[derive(Debug, Clone)]
+struct Shadow {
+    /// [`Scope::push`].
+    push: usize,
+    /// [`Scope::color`].
+    color: ColorU,
+    /// [`Scope::offset`].
+    offset: (f32, f32),
+    /// [`Scope::spread`].
+    spread: f32,
+    /// [`Scope::reach`] at the scale.
+    reach: i32,
+    /// [`Scope::sought`] at the scale ...
+    sought: Sought,
+    /// ... and the geometry it filled.
+    geometry: Vec<i32>,
+}
+
+/// The [`Shadow`]s of `items` at `dpi`, in list order: one walk of the items,
+/// two hashes of every glyph under a shadow.
+fn shadows(items: &[DisplayListItem], dpi: f32) -> Vec<Shadow> {
+    #[cfg(test)]
+    SHADOW_WALKS.with(|walks| walks.set(walks.get() + 1));
     let mut geometry = Vec::new();
     scopes(items)
         .into_iter()
-        .filter_map(|scope| {
+        .map(|scope| {
             let sought = scope.sought(dpi, &mut geometry);
+            Shadow {
+                push: scope.push,
+                color: scope.color,
+                offset: scope.offset,
+                spread: scope.spread,
+                reach: scope.reach(dpi),
+                sought,
+                geometry: geometry.clone(),
+            }
+        })
+        .collect()
+}
+
+/// The [`Shadow`]s kept for one display list ([`LIST_SHADOWS`]).
+struct ListShadows {
+    /// The list, by its allocation.
+    list: Weak<DisplayList>,
+    /// The bits of the scale they were worked out at.
+    scale: u32,
+    shadows: Rc<Vec<Shadow>>,
+}
+
+thread_local! {
+    /// The [`Shadow`]s of the display lists [`text_halos_of_list`] was asked about,
+    /// by the list's allocation and the scale. The `Weak` is what makes the
+    /// address an identity: while it is held the allocation is not given to
+    /// another list, and a list that has a `Weak` is never changed in place
+    /// (`Arc::get_mut` refuses, `Arc::make_mut` moves it to a new allocation) -
+    /// so the same address with a living list is the same items.
+    static LIST_SHADOWS: RefCell<Vec<ListShadows>> = const { RefCell::new(Vec::new()) };
+    /// Tests: how often [`shadows`] walked a list on this thread.
+    #[cfg(test)]
+    static SHADOW_WALKS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// The [`Shadow`]s of `list` at `dpi`: the kept ones when the list is one that is
+/// kept for ([`LIST_SHADOWS`]), worked out otherwise - and kept when the caller
+/// has the list's `Arc` (`keep`, the same list). Lists that are gone are
+/// forgotten here.
+fn list_shadows(list: &DisplayList, keep: Option<&Arc<DisplayList>>, dpi: f32) -> Rc<Vec<Shadow>> {
+    let at: *const DisplayList = list;
+    let scale = dpi.to_bits();
+    let found = LIST_SHADOWS.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        kept.retain(|held| held.list.strong_count() > 0);
+        kept.iter()
+            .find(|held| core::ptr::eq(held.list.as_ptr(), at) && held.scale == scale)
+            .map(|held| Rc::clone(&held.shadows))
+    });
+    if let Some(found) = found {
+        return found;
+    }
+    let made = Rc::new(shadows(&list.items, dpi));
+    if let Some(arc) = keep {
+        LIST_SHADOWS.with(|kept| {
+            let mut kept = kept.borrow_mut();
+            // One scale per list: a window that changed its scale asks at the new one.
+            kept.retain(|held| !core::ptr::eq(held.list.as_ptr(), at));
+            kept.push(ListShadows {
+                list: Arc::downgrade(arc),
+                scale,
+                shadows: Rc::clone(&made),
+            });
+        });
+    }
+    made
+}
+
+/// [`text_halos`] for the shadows of `items` as `shadows` tells them
+/// ([`shadows`] of the same items at the same `dpi`).
+fn halos_of(
+    items: &[DisplayListItem],
+    shadows: &[Shadow],
+    dpi: f32,
+    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+) -> Vec<TextHalo> {
+    // The scan that draws counts what it finds; the one that only looks (the
+    // translation of the same lists, right after) does not count it twice.
+    let counted = fonts.is_some();
+    shadows
+        .iter()
+        .filter_map(|shadow| {
+            let sought = shadow.sought;
+            let geometry: &[i32] = &shadow.geometry;
             // The shadow's own picture: kept and shown, kept and waiting to be
             // shown (`waiting`: the lists still paint the picture that stands in
             // for it, `HaloCache::insert_waiting`), or not kept.
             let (own, mut waiting) = HALOS.with(|halos| {
                 let mut halos = halos.borrow_mut();
-                match halos.find(sought.text, &geometry) {
+                match halos.find(sought.text, geometry) {
                     Some(id) if halos.waits(id) => (None, Some(id)),
                     Some(id) => (halos.use_own(id, counted), None),
                     None => (None, None),
@@ -564,16 +707,19 @@ pub fn text_halos(
                 // Drawn already: what stands in for it is found below.
                 (None, _) if waiting.is_some() => None,
                 (None, Some((renderer_resources, font_manager))) => {
+                    // The shadow's text itself, for the picture to draw (`shadow`
+                    // was made from this item: it is there).
+                    let scope = scope_at(items, shadow.push)?;
                     let admitted = |box_bytes: usize| admit(box_bytes, sought.shape);
                     // The place of the picture that stands in for this shadow,
                     // looked up before room is made for the new one (the
                     // stand-in may be what gives way to it).
-                    let place = (scope.spread > 0.0 && slots_on())
+                    let place = (shadow.spread > 0.0 && slots_on())
                         .then(|| {
                             HALOS.with(|halos| {
                                 halos
                                     .borrow()
-                                    .place_of(sought.shape, sought.scale, scope.reach(dpi))
+                                    .place_of(sought.shape, sought.scale, shadow.reach)
                             })
                         })
                         .flatten();
@@ -598,7 +744,7 @@ pub fn text_halos(
                                         kept.slot = halos.take_slot(place);
                                         halos.insert(
                                             &sought,
-                                            &geometry,
+                                            geometry,
                                             Some(kept.clone()),
                                             box_bytes,
                                             false,
@@ -610,7 +756,7 @@ pub fn text_halos(
                                         kept.slot = halos.new_slot();
                                         waiting = halos.insert_waiting(
                                             &sought,
-                                            &geometry,
+                                            geometry,
                                             kept.clone(),
                                             box_bytes,
                                             place.id,
@@ -620,7 +766,7 @@ pub fn text_halos(
                                         kept.slot = halos.new_slot();
                                         halos.insert(
                                             &sought,
-                                            &geometry,
+                                            geometry,
                                             Some(kept.clone()),
                                             box_bytes,
                                             false,
@@ -639,7 +785,7 @@ pub fn text_halos(
                             HALOS.with(|halos| {
                                 let mut halos = halos.borrow_mut();
                                 if halos.make_room(0, None) {
-                                    halos.insert(&sought, &geometry, None, 0, false);
+                                    halos.insert(&sought, geometry, None, 0, false);
                                 }
                             });
                             None
@@ -655,7 +801,7 @@ pub fn text_halos(
                 Some(kept) => (kept, false),
                 // Without a spread the renderer's own shadow is the halo until
                 // the picture is drawn.
-                None if scope.spread <= 0.0 && waiting.is_none() => return None,
+                None if shadow.spread <= 0.0 && waiting.is_none() => return None,
                 None => {
                     // Stretched more than eight times either way a picture is
                     // a smear: such a halo waits for its own.
@@ -672,8 +818,12 @@ pub fn text_halos(
                             (shown, false)
                         }
                         (None, None, Some((renderer_resources, font_manager))) => {
-                            let small =
-                                scope.preview(&sought, dpi, renderer_resources, font_manager)?;
+                            let small = scope_at(items, shadow.push)?.preview(
+                                &sought,
+                                dpi,
+                                renderer_resources,
+                                font_manager,
+                            )?;
                             HALOS.with(|halos| halos.borrow_mut().stats.stand_ins += 1);
                             (small, true)
                         }
@@ -684,14 +834,14 @@ pub fn text_halos(
             let (origin, size) = placed(
                 &kept,
                 sought.anchor,
-                stand_in.then(|| (sought.scale / kept.scale, scope.reach(dpi))),
+                stand_in.then(|| (sought.scale / kept.scale, shadow.reach)),
             );
             Some(TextHalo {
-                push: scope.push,
+                push: shadow.push,
                 slot: kept.slot,
                 image: kept.image,
-                color: scope.color,
-                origin: (origin.0 + scope.offset.0 * dpi, origin.1 + scope.offset.1 * dpi),
+                color: shadow.color,
+                origin: (origin.0 + shadow.offset.0 * dpi, origin.1 + shadow.offset.1 * dpi),
                 size,
                 width: kept.width,
                 height: kept.height,
@@ -1406,62 +1556,62 @@ fn shadow_px(value: &azul_css::props::basic::pixel::PixelValue) -> f32 {
 /// alone. A shadow with neither is not one: `WebRender` draws it as a plain
 /// copy of the text, without a surface.
 fn scopes(items: &[DisplayListItem]) -> Vec<Scope<'_>> {
-    let mut out = Vec::new();
-    for (push, item) in items.iter().enumerate() {
-        let DisplayListItem::PushTextShadow { shadow } = item else {
-            continue;
-        };
-        let blur = shadow_px(&shadow.blur_radius.inner).max(0.0);
-        let spread = shadow_px(&shadow.spread_radius.inner).max(0.0);
-        if (blur <= 0.0 && spread <= 0.0) || shadow.color.a == 0 {
-            continue;
-        }
-        let mut runs = Vec::new();
-        let mut closed = false;
-        for inner in &items[push + 1..] {
-            match inner {
-                DisplayListItem::Text {
-                    glyphs,
-                    font_hash,
-                    font_size_px,
-                    clip_rect,
-                    ..
-                } => {
-                    if let (false, Some(ink)) = (glyphs.is_empty(), inner.visual_bounds()) {
-                        runs.push(Run {
-                            glyphs,
-                            font_hash: *font_hash,
-                            font_size_px: *font_size_px,
-                            clip_rect: *clip_rect.inner(),
-                            ink,
-                        });
-                    }
+    (0..items.len()).filter_map(|push| scope_at(items, push)).collect()
+}
+
+/// The shadow that `items[push]` opens, when it is one a halo can stand for
+/// ([`scopes`]).
+fn scope_at(items: &[DisplayListItem], push: usize) -> Option<Scope<'_>> {
+    let DisplayListItem::PushTextShadow { shadow } = items.get(push)? else {
+        return None;
+    };
+    let blur = shadow_px(&shadow.blur_radius.inner).max(0.0);
+    let spread = shadow_px(&shadow.spread_radius.inner).max(0.0);
+    if (blur <= 0.0 && spread <= 0.0) || shadow.color.a == 0 {
+        return None;
+    }
+    let mut runs = Vec::new();
+    let mut closed = false;
+    for inner in &items[push + 1..] {
+        match inner {
+            DisplayListItem::Text {
+                glyphs,
+                font_hash,
+                font_size_px,
+                clip_rect,
+                ..
+            } => {
+                if let (false, Some(ink)) = (glyphs.is_empty(), inner.visual_bounds()) {
+                    runs.push(Run {
+                        glyphs,
+                        font_hash: *font_hash,
+                        font_size_px: *font_size_px,
+                        clip_rect: *clip_rect.inner(),
+                        ink,
+                    });
                 }
-                // They paint nothing on either backend: the text's layout
-                // (kept for PDF and accessibility) and its hit area.
-                DisplayListItem::TextLayout { .. } | DisplayListItem::HitTestArea { .. } => {}
-                DisplayListItem::PopTextShadow => {
-                    closed = true;
-                    break;
-                }
-                _ => break,
             }
-        }
-        if closed && !runs.is_empty() {
-            out.push(Scope {
-                push,
-                color: shadow.color,
-                offset: (
-                    shadow_px(&shadow.offset_x.inner),
-                    shadow_px(&shadow.offset_y.inner),
-                ),
-                blur,
-                spread,
-                runs,
-            });
+            // They paint nothing on either backend: the text's layout
+            // (kept for PDF and accessibility) and its hit area.
+            DisplayListItem::TextLayout { .. } | DisplayListItem::HitTestArea { .. } => {}
+            DisplayListItem::PopTextShadow => {
+                closed = true;
+                break;
+            }
+            _ => break,
         }
     }
-    out
+    (closed && !runs.is_empty()).then(|| Scope {
+        push,
+        color: shadow.color,
+        offset: (
+            shadow_px(&shadow.offset_x.inner),
+            shadow_px(&shadow.offset_y.inner),
+        ),
+        blur,
+        spread,
+        runs,
+    })
 }
 
 /// What a scope's halo is found by ([`Scope::sought`]), besides its geometry.
@@ -2065,7 +2215,7 @@ mod audit_a5_tests {
 
     /// The display list of a label of two glyphs, `advance` apart, whose first pen
     /// is at `x`, `y`, in 12 px type under a spread shadow.
-    fn label_items(x: f32, y: f32, advance: f32) -> Vec<DisplayListItem> {
+    pub(super) fn label_items(x: f32, y: f32, advance: f32) -> Vec<DisplayListItem> {
         let glyph = |index: u32, dx: f32| GlyphInstance {
             index,
             point: LogicalPosition::new(x + dx, y),
@@ -2618,5 +2768,65 @@ mod audit_a4_tests {
         assert_eq!(shown.scale, 48.0);
         assert!(!cache.waits(waiting));
         assert_eq!(cache.by_shape.get(&9), Some(&waiting));
+    }
+
+    /// A4-10g. What a list's shadows are found by is worked out once while the
+    /// list lives - the scan of a frame's resources and the translation ask it
+    /// of every list in every transaction that scans, also of the lists that did
+    /// not change (1,567 labels of some 15 glyphs, two hashes a glyph, per
+    /// question) - and again for the list a change makes of it.
+    ///
+    /// Mutation: without `held.scale == scale` in `list_shadows` the count after
+    /// the other scale stays 2; with `keep` ignored the first count is 3.
+    #[test]
+    fn a_lists_shadows_are_worked_out_once_while_the_list_is_the_same() {
+        use super::audit_a5_tests::label_items;
+
+        let walks = || SHADOW_WALKS.with(Cell::get);
+        let list_at = |x: f32| {
+            Arc::new(DisplayList {
+                items: label_items(x, 100.0, 5.0),
+                ..DisplayList::default()
+            })
+        };
+        let mut held = list_at(20.0);
+        let before = walks();
+        assert_eq!(list_shadows(&held, Some(&held), 2.0).len(), 1);
+        assert_eq!(list_shadows(&held, Some(&held), 2.0).len(), 1);
+        // The translation's question: the list, without its `Arc`.
+        assert_eq!(list_shadows(&held, None, 2.0).len(), 1);
+        assert_eq!(walks() - before, 1, "one walk for three questions");
+        assert_eq!(
+            list_shadows(&held, None, 2.0)[0].sought.text,
+            shadows(&held.items, 2.0)[0].sought.text,
+            "the kept answer is the walk's"
+        );
+        assert_eq!(walks() - before, 2, "the line above walked once itself");
+
+        // Another scale is another answer, and the one kept from then on.
+        let _ = list_shadows(&held, Some(&held), 1.0);
+        assert_eq!(walks() - before, 3);
+        let _ = list_shadows(&held, None, 1.0);
+        assert_eq!(walks() - before, 3);
+
+        // A change moves the list: what is kept holds a `Weak` of it, and such a
+        // list is not changed in place. The list the change made is walked.
+        let was_at = Arc::as_ptr(&held);
+        Arc::make_mut(&mut held).items.clear();
+        assert!(!core::ptr::eq(was_at, Arc::as_ptr(&held)));
+        assert!(list_shadows(&held, Some(&held), 1.0).is_empty());
+        assert_eq!(walks() - before, 4);
+
+        // A list nothing is kept for is walked at each question.
+        let loose = list_at(40.0);
+        let _ = list_shadows(&loose, None, 2.0);
+        let _ = list_shadows(&loose, None, 2.0);
+        assert_eq!(walks() - before, 6);
+
+        // A list that is gone is forgotten at the next question.
+        let kept = LIST_SHADOWS.with(|kept| kept.borrow().len());
+        drop(held);
+        let _ = list_shadows(&loose, None, 2.0);
+        assert_eq!(LIST_SHADOWS.with(|kept| kept.borrow().len()), kept - 1);
     }
 }
