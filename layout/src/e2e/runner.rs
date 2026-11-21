@@ -8207,6 +8207,41 @@ mod audit_a11_tests {
 
     use super::*;
 
+    /// `assert_memory_growth` (A9's request): against a `snapshot_resources` baseline it passes within
+    /// its bound, names a missing snapshot, refuses an unknown parameter and a missing bound.
+    /// Mutation: the growth compared with `>=` 0 (any growth fails) -> the first scenario fails on
+    /// the bytes a run allocates; the check of `vs` removed -> the second passes.
+    #[cfg(feature = "probe")]
+    #[test]
+    fn a11_memory_growth_is_measured_against_a_snapshot() {
+        let run = |steps: serde_json::Value| -> E2eTestResult {
+            let test: E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "a11_memory_growth",
+                "setup": { "window_width": 200, "window_height": 100, "dpi": 96 },
+                "steps": steps
+            }))
+            .expect("scenario json");
+            run_e2e_test(&test)
+        };
+        let ok = run(serde_json::json!([
+            { "op": "wait_frame" },
+            { "op": "snapshot_resources", "as": "warm" },
+            { "op": "wait_frame" },
+            { "op": "assert_memory_growth", "vs": "warm", "max_bytes": 1_u64 << 40 }
+        ]));
+        assert_eq!(ok.status, "pass", "{:#?}", ok.steps);
+        for steps in [
+            serde_json::json!([{ "op": "assert_memory_growth", "vs": "nowhere", "max_bytes": 1 }]),
+            serde_json::json!([{ "op": "snapshot_resources", "as": "a" },
+                               { "op": "assert_memory_growth", "vs": "a", "max_byte": 1 }]),
+            serde_json::json!([{ "op": "snapshot_resources", "as": "a" },
+                               { "op": "assert_memory_growth", "vs": "a" }]),
+        ] {
+            let bad = run(steps);
+            assert_eq!(bad.status, "fail", "{:#?}", bad.steps);
+        }
+    }
+
     /// A6-08 in the runner: a window event is planned over the window listeners only. 300 nodes, two
     /// of them listen to the window: the list is those two, and the same nodes a walk over every
     /// node finds. Mutation: `window_listeners` answering every node (the walk) -> 300 != 2.

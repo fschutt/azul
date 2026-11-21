@@ -3408,7 +3408,8 @@ pub enum DebugEvent {
         name: String,
     },
     /// Store the current font/image/resource counters under `as`, for a later
-    /// `assert_resource_counts`.
+    /// `assert_resource_counts`, and the process's resident memory, for a later
+    /// `assert_memory_growth`.
     SnapshotResources {
         #[serde(rename = "as")]
         name: String,
@@ -5000,6 +5001,9 @@ pub struct E2eScratch {
     frame_snapshots: BTreeMap<String, Vec<u8>>,
     /// Named resource-counter snapshots taken by the `snapshot_resources` op.
     resource_snapshots: BTreeMap<String, BTreeMap<String, u64>>,
+    /// The process's resident memory (bytes) when each `snapshot_resources` was taken, under the
+    /// same name: the baseline of `assert_memory_growth`.
+    memory_snapshots: BTreeMap<String, u64>,
     /// Named per-manager state snapshots taken by the `snapshot_managers` op and
     /// diffed by `assert_only_managers_changed` — the NON-INTERFERENCE primitive.
     /// See [`manager_fingerprints`].
@@ -7120,6 +7124,7 @@ impl AssertionResult {
 /// | `assert_damage_sound`| `vs`, `which?`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
 /// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `payload?`, `withdrawn?`, `count?`, `scheduled?`, `deliver_at?` |
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
+/// | `assert_memory_growth` | `vs` (a `snapshot_resources` name), `max_bytes` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
     op: &str,
@@ -7153,6 +7158,7 @@ pub fn evaluate_assertion(
         "assert_idle_stable" => eval_assert_idle_stable(params, callback_info),
         "assert_work_bounded" => eval_assert_work_bounded(params, callback_info),
         "assert_resource_counts" => eval_assert_resource_counts(params, callback_info),
+        "assert_memory_growth" => eval_assert_memory_growth(params, callback_info),
         // Manager / composition / damage-soundness (E2E_PLAN §(c)/(g1)/(g2)/(g3))
         "assert_state_machines_idle" => eval_assert_state_machines_idle(params, callback_info),
         "assert_manager_invariants" => eval_assert_manager_invariants(params, callback_info),
@@ -10363,6 +10369,74 @@ fn eval_assert_work_bounded(
          layout pass(es), {vv_size_passes} VirtualView size pass(es) over {} frame(s), depth cap \
          not hit",
         report.frames_since_reset
+    ))
+}
+
+/// The process's resident memory now, bytes (`probe::current_rss_bytes`: the physical footprint on
+/// macOS, `VmRSS` on Linux, the working set on Windows); 0 where the build has no reader.
+#[cfg(feature = "std")]
+fn resident_bytes_now() -> u64 {
+    #[cfg(all(feature = "probe", not(feature = "web_lift")))]
+    {
+        azul_layout::probe::current_rss_bytes().0
+    }
+    #[cfg(not(all(feature = "probe", not(feature = "web_lift"))))]
+    {
+        0
+    }
+}
+
+/// `assert_memory_growth` — a leak guard by bytes: the process's resident memory now is at most
+/// `max_bytes` more than when the `snapshot_resources` named `vs` was taken. Taken after a warm-up
+/// repetition and asserted after N more, it bounds what N repetitions of a gesture leave behind
+/// (the caches a gesture fills are bounded and full after the first; a leak grows with N).
+/// Shrinking passes. A build without a resident-memory reader (no `probe` feature) FAILS: it would
+/// pass while measuring nothing.
+#[cfg(feature = "std")]
+fn eval_assert_memory_growth(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_memory_growth", params, &["vs", "max_bytes"]) {
+        return bad;
+    }
+    let Some(name) = params.get("vs").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_memory_growth: missing 'vs' (a snapshot_resources name)");
+    };
+    let Some(max_bytes) = params.get("max_bytes").and_then(serde_json::Value::as_u64) else {
+        return AssertionResult::fail("assert_memory_growth: missing or invalid 'max_bytes' (a number of bytes)");
+    };
+    let Some(before) = scratch(callback_info).memory_snapshots.get(name).copied() else {
+        return AssertionResult::fail(format!(
+            "assert_memory_growth: no snapshot named '{name}' (use snapshot_resources first)"
+        ));
+    };
+    let now = resident_bytes_now();
+    if now == 0 || before == 0 {
+        return AssertionResult::fail(
+            "assert_memory_growth: this build reads no resident memory (the probe feature is off):              refusing to pass while measuring nothing",
+        );
+    }
+    let growth = now.saturating_sub(before);
+    let mib = |b: u64| b as f64 / 1_048_576.0;
+    if growth > max_bytes {
+        return AssertionResult::fail_with(
+            format!(
+                "assert_memory_growth: the resident memory grew {:.1} MiB since '{name}' ({:.1} -> {:.1} MiB)",
+                mib(growth),
+                mib(before),
+                mib(now)
+            ),
+            format!("at most {max_bytes} bytes ({:.1} MiB)", mib(max_bytes)),
+            growth.to_string(),
+        );
+    }
+    AssertionResult::pass(format!(
+        "assert_memory_growth: {:.1} MiB since '{name}' ({:.1} -> {:.1} MiB), at most {:.1}",
+        mib(growth),
+        mib(before),
+        mib(now),
+        mib(max_bytes)
     ))
 }
 
@@ -17717,9 +17791,11 @@ pub fn process_debug_event(
 
         DebugEvent::SnapshotResources { name } => {
             let counts = collect_resource_counts(callback_info.get_layout_window());
-            scratch(callback_info)
-                .resource_snapshots
-                .insert(name.clone(), counts);
+            let resident = resident_bytes_now();
+            let mut scratch = scratch(callback_info);
+            scratch.resource_snapshots.insert(name.clone(), counts);
+            scratch.memory_snapshots.insert(name.clone(), resident);
+            drop(scratch);
             send_ok(request, None, None);
         }
 
