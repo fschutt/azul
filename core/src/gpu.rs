@@ -107,8 +107,8 @@ impl<K: Ord> StampedKey for K {}
 /// the values of one channel, by node (`K` = [`NodeId`], the default) or,
 /// for a scrollbar's fade, by DOM and node. A `HashMap` that carries a
 /// STAMP of its content - its own write generation. Two readers use the
-/// stamps: [`GpuValueCache::value_generation`] is the newest of them (a
-/// frame that finds it unchanged reads no value again), and
+/// stamps: [`GpuValueCache::value_generation`] is one number made of all
+/// of them (a frame that finds it unchanged reads no value again), and
 /// [`GpuValueCache::transform_stamps`] are those of the six maps a node's
 /// reference frame is read from (the hit tester keeps where every frame's
 /// boxes are painted while they are what they were, instead of reading
@@ -126,6 +126,13 @@ impl<K: Ord> StampedKey for K {}
 /// through `DerefMut`: an `entry()` for a key that is there changes nothing
 /// and still moves the generation, and every frame that skips work on an
 /// unchanged generation would stop skipping.
+///
+/// A map that is REPLACED whole (by an empty one, by a clone taken earlier)
+/// has the stamp of what replaced it, which can be an OLDER number than it
+/// had. The rule still holds (that stamp is that content), so a reader
+/// compares every stamp it depends on for equality and never asks for the
+/// newest alone: `transform_stamps` is the six numbers, `value_generation`
+/// a number every stamp goes into.
 #[derive(Clone)]
 pub struct StampedMap<V, K = NodeId> {
     map: HashMap<K, V>,
@@ -381,10 +388,10 @@ pub struct GpuValueCache {
     pub scrollbar_h_opacity_values: StampedMap<f32, (DomId, NodeId)>,
     /// The stamp of the last NOTED write ([`Self::note_value_write`]): one
     /// part of the WRITE GENERATION of the bound values, which is read with
-    /// [`Self::value_generation`] and is the newest of this and of the
-    /// values' own stamps. A frame that finds the generation it last read
-    /// has nothing to read again - no copy of the values, no comparison
-    /// with the previous ones, no synchronization with the compositor.
+    /// [`Self::value_generation`] and is made of this and of the values'
+    /// own stamps. A frame that finds the generation it last read has
+    /// nothing to read again - no copy of the values, no comparison with
+    /// the previous ones, no synchronization with the compositor.
     ///
     /// Every bound value of this cache moves the generation by itself,
     /// whoever writes it, and only when a value or a key really changed (a
@@ -426,25 +433,35 @@ impl GpuValueCache {
         Self::default()
     }
 
-    /// The write generation of the bound values: the NEWEST stamp of this
-    /// cache - of its twenty-four value maps and of the sheens' light, which
-    /// stamp themselves ([`StampedMap`], [`StampedValue`]), and of the last
-    /// write that was noted ([`Self::note_value_write`]: `clear`, a
-    /// rekeying). One clock for all of them ([`next_map_stamp`]), so the
-    /// newest stamp is another number after any of them changed, and the
-    /// same number while none did. Only equality is meaningful.
+    /// The write generation of the bound values: ONE NUMBER MADE OF EVERY
+    /// STAMP of this cache - of its twenty-four value maps and of the
+    /// sheens' light, which stamp themselves ([`StampedMap`],
+    /// [`StampedValue`]), and of the last write that was noted
+    /// ([`Self::note_value_write`]: `clear`, a rekeying). The same number
+    /// while none of them changed, another one after any did; 0 is the
+    /// cache nobody wrote. Only equality is meaningful.
+    ///
+    /// Every stamp goes in at a place of its own (`g = g * STEP + stamp`,
+    /// `STEP` odd): ONE stamp that changes changes the number, whichever
+    /// it is and whatever it changes to; several that change at once give
+    /// the old number only if their differences cancel modulo 2^64 (as two
+    /// windows' generations can collide in
+    /// `GpuStateManager::value_generation`: not in practice). It was the
+    /// NEWEST stamp alone, which is right only while no stamp ever goes
+    /// back - and a map that is replaced whole (an empty one, a clone
+    /// taken earlier) goes back to an older stamp, which the newest of the
+    /// other maps hid: values had changed and the generation had not.
     #[must_use]
     pub const fn value_generation(&self) -> u64 {
+        const STEP: u64 = 0x9E37_79B9_7F4A_7C15;
         let stamps = self.value_stamps();
-        let mut newest = self.value_generation;
+        let mut generation = self.value_generation;
         let mut i = 0;
         while i < stamps.len() {
-            if stamps[i] > newest {
-                newest = stamps[i];
-            }
+            generation = generation.wrapping_mul(STEP).wrapping_add(stamps[i]);
             i += 1;
         }
-        newest
+        generation
     }
 
     /// The stamps of every bound value of this cache: the twelve transform
@@ -2820,16 +2837,24 @@ mod audit_a6_tests {
     }
 
     /// ONE clock (the merge of A3-core's write generation, A2-gpu's write methods and the
-    /// stamps): the write generation is the newest stamp of the cache. A transform map
+    /// stamps): the write generation is made of every stamp of the cache. A transform map
     /// written directly - no write method, no `note_value_write` - moves it; a write that
-    /// changes nothing moves neither it nor the stamps; a noted write (an opacity) moves the
-    /// generation and leaves the frames' stamps alone; a scrollbar thumb moves the generation
-    /// and not the frames' stamps either (its maps are stamped, and are no frame's).
+    /// changes nothing moves neither it nor the stamps; a noted write moves the generation
+    /// and leaves the frames' stamps alone; a scrollbar thumb moves the generation and not
+    /// the frames' stamps either (its maps are stamped, and are no frame's).
+    ///
+    /// A6-23, the last step: a map REPLACED by a clone taken earlier goes back to the
+    /// clone's older stamp. Keys {a}: stamp s1; a second key: s2; an opacity written after
+    /// it: s3, the newest. The key map put back to its clone: s1 again, s3 still the newest.
+    /// The newest stamp alone answered s3 before and after: the keys had changed and the
+    /// generation had not.
+    ///
     /// Mutations: `value_generation()` answering the noted stamp only (the field) fails the
     /// direct write; `key_transform` through `entry()` again fails "the same value" (the key
-    /// map restamps); a thumb map among `transform_stamps` fails the last step.
+    /// map restamps); a thumb map among `transform_stamps` fails the step before the last;
+    /// `value_generation()` as the maximum of the stamps fails "a map put back".
     #[test]
-    fn the_write_generation_is_the_newest_stamp_of_the_cache() {
+    fn the_write_generation_is_made_of_every_stamp_of_the_cache() {
         let node = NodeId::new(9);
         let mut cache = GpuValueCache::default();
         assert_eq!(cache.value_generation(), 0);
@@ -2868,6 +2893,29 @@ mod audit_a6_tests {
         let before = cache.value_generation();
         cache.clear();
         assert!(cache.value_generation() != before && cache.value_generation() != 0);
+
+        // A map put back to an earlier clone of itself: an older stamp, and not the newest
+        // of the cache either before or after.
+        let (a, b) = (NodeId::new(1), NodeId::new(2));
+        cache.opacity_keys.insert(a, OpacityKey::unique());
+        let earlier = cache.opacity_keys.clone();
+        cache.opacity_keys.insert(b, OpacityKey::unique());
+        cache.current_opacity_values.insert(a, 0.5);
+        let newest = cache.current_opacity_values.stamp();
+        assert!(earlier.stamp() < cache.opacity_keys.stamp() && cache.opacity_keys.stamp() < newest);
+        let before = cache.value_generation();
+        cache.opacity_keys = earlier;
+        assert!(!cache.opacity_keys.contains_key(&b), "harness: the keys did change");
+        assert_eq!(
+            cache.value_stamps().into_iter().max(),
+            Some(newest),
+            "harness: the newest stamp is the one it was"
+        );
+        assert_ne!(cache.value_generation(), before, "a map put back is another generation");
+        // And a map emptied by replacing it.
+        let before = cache.value_generation();
+        cache.opacity_keys = StampedMap::default();
+        assert_ne!(cache.value_generation(), before, "a map replaced by an empty one");
     }
 
     /// The fields of `GpuValueCache` as its source declares them, in order: (name, type).
