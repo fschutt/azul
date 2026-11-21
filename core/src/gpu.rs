@@ -201,29 +201,69 @@ impl GpuValueCache {
     ///
     /// THE rule, shared by the display-list builder (which emits a
     /// `PushReferenceFrame` exactly when this is `Some`), the hit tester and
-    /// every "where is it on screen" question: the CSS `transform` channel
-    /// first, then the ANIMATION channel - an engine-driven transition (a
-    /// FLIP slide, a keyframe transform) moves a node that has no CSS
-    /// `transform` of its own - then the STICKY channel, a `position:
-    /// sticky` box following its scroller. A key without a value opens
-    /// nothing. A sticky box with a transform of its own keeps the
-    /// transform and is placed where its layout pass stuck it.
+    /// every "where is it on screen" question. A node has up to three
+    /// transform channels: its CSS `transform`, the ANIMATION channel - an
+    /// engine-driven movement of the painted node (a FLIP slide, an enter
+    /// track, a drag) - and the STICKY channel, a `position: sticky` box
+    /// following its scroller. A key without a value is no channel.
+    ///
+    /// The node gets ONE frame. Its key is the key of the first channel it
+    /// has, in that order (so the key a list binds does not change when a
+    /// second channel starts or ends), and its matrix is the PRODUCT of all
+    /// the channels it has, in that order: the CSS transform first, then the
+    /// animation, then the sticky translation (`css.then(anim).then(sticky)`).
+    /// Every channel's matrix acts in the node's own box, about its top-left
+    /// corner, so the product does too. A dragged or sliding node that has a
+    /// CSS transform of its own used to show the CSS matrix alone: the drag
+    /// and the slide were not drawn, and a transformed sticky box did not
+    /// follow its scroller between layouts.
+    ///
+    /// The value under the frame's key in [`Self::for_each_bound_value`] is
+    /// this product: the display list, both renderers and the hit tester
+    /// read the same matrix.
     #[must_use]
     pub fn reference_frame_of(&self, node: NodeId) -> Option<(TransformKey, ComputedTransform3D)> {
-        self.css_transform_keys
+        let css = self
+            .css_transform_keys
             .get(&node)
             .zip(self.css_current_transform_values.get(&node))
-            .or_else(|| {
-                self.anim_transform_keys
-                    .get(&node)
-                    .zip(self.anim_current_transform_values.get(&node))
-            })
-            .or_else(|| {
-                self.sticky_transform_keys
-                    .get(&node)
-                    .zip(self.sticky_current_transform_values.get(&node))
-            })
-            .map(|(key, transform)| (*key, *transform))
+            .map(|(key, transform)| (*key, *transform));
+        self.frame_of_channels(node, css)
+    }
+
+    /// The one frame of `node` ([`Self::reference_frame_of`]) with `css` as
+    /// its CSS channel: the first channel's key and the product of the
+    /// channels in the order CSS, animation, sticky.
+    fn frame_of_channels(
+        &self,
+        node: NodeId,
+        css: Option<(TransformKey, ComputedTransform3D)>,
+    ) -> Option<(TransformKey, ComputedTransform3D)> {
+        // The two other channels are empty in almost every DOM: no lookup then.
+        let animation = if self.anim_current_transform_values.is_empty() {
+            None
+        } else {
+            self.anim_transform_keys
+                .get(&node)
+                .zip(self.anim_current_transform_values.get(&node))
+                .map(|(key, transform)| (*key, *transform))
+        };
+        let sticky = if self.sticky_current_transform_values.is_empty() {
+            None
+        } else {
+            self.sticky_transform_keys
+                .get(&node)
+                .zip(self.sticky_current_transform_values.get(&node))
+                .map(|(key, transform)| (*key, *transform))
+        };
+        let mut frame: Option<(TransformKey, ComputedTransform3D)> = None;
+        for (key, transform) in [css, animation, sticky].into_iter().flatten() {
+            frame = Some(match frame {
+                None => (key, transform),
+                Some((first_key, so_far)) => (first_key, so_far.then(&transform)),
+            });
+        }
+        frame
     }
 
     /// [`Self::reference_frame_of`] for a node laid out at `size` (its border
@@ -262,7 +302,13 @@ impl GpuValueCache {
                 };
                 at_size.map(|transform| (*key, transform))
             });
-        css.or_else(|| self.reference_frame_of(node))
+        // The CSS channel at this pass's size, with the node's other channels
+        // on top of it; a node whose cascade holds no transform any more
+        // keeps what the cache has for it until the next sync removes it.
+        match css {
+            Some(css) => self.frame_of_channels(node, Some(css)),
+            None => self.reference_frame_of(node),
+        }
     }
 
     /// The matrix `node` is painted with now ([`Self::reference_frame_of`]),
@@ -418,18 +464,47 @@ impl GpuValueCache {
                 on_transform(key.id, value);
             }
         }
+        // A node's frame is bound to the key of its FIRST channel (CSS,
+        // animation, sticky) and painted with the product of all its
+        // channels (`reference_frame_of`): that product is the value under
+        // the frame's key. A key that is not its node's frame key binds
+        // nothing in a list and carries its own channel's value. A DOM in
+        // which no node has a second channel takes the plain values without a
+        // lookup more than before.
+        let animated = !self.anim_current_transform_values.is_empty();
+        let stuck = !self.sticky_current_transform_values.is_empty();
         // The ANIMATION channel is separate from the CSS one because
         // `synchronize` owns `css_transform_keys` and evicts anything not
-        // backed by a CSS `transform`; by key id the two are
-        // indistinguishable, which is the intent.
+        // backed by a CSS `transform`.
         for (node_id, key) in &self.anim_transform_keys {
             if let Some(value) = self.anim_current_transform_values.get(node_id) {
-                on_transform(key.id, value);
+                // The animation key is the frame key of a node without a CSS
+                // transform; its product differs from its own value only when
+                // the node is sticky as well.
+                let product = if stuck {
+                    self.reference_frame_of(*node_id)
+                        .filter(|(frame_key, _)| frame_key == key)
+                        .map(|(_, product)| product)
+                } else {
+                    None
+                };
+                match product {
+                    Some(product) => on_transform(key.id, &product),
+                    None => on_transform(key.id, value),
+                }
             }
         }
         for (node_id, key) in &self.css_transform_keys {
             if let Some(value) = self.css_current_transform_values.get(node_id) {
-                on_transform(key.id, value);
+                if animated || stuck {
+                    // The CSS key is its node's frame key whenever it has a value.
+                    let product = self
+                        .reference_frame_of(*node_id)
+                        .map_or(*value, |(_, product)| product);
+                    on_transform(key.id, &product);
+                } else {
+                    on_transform(key.id, value);
+                }
             }
         }
         for (node_id, key) in &self.sticky_transform_keys {
@@ -447,9 +522,20 @@ impl GpuValueCache {
                 on_opacity(key.id, value);
             }
         }
+        // The opacity twin of the frame rule: a node's layer binds its
+        // ANIMATION opacity key when it has one, else its CSS key (the
+        // display-list builder's `PushOpacity`), and is painted at the
+        // product of the two - a half-transparent node that slides or fades
+        // in stays half transparent instead of showing the animation's
+        // opacity alone.
         for (node_id, key) in &self.anim_opacity_keys {
             if let Some(&value) = self.anim_current_opacity_values.get(node_id) {
-                on_opacity(key.id, value);
+                let css = if self.current_opacity_values.is_empty() {
+                    None
+                } else {
+                    self.current_opacity_values.get(node_id)
+                };
+                on_opacity(key.id, css.map_or(value, |css| value * css));
             }
         }
         for (node_id, key) in &self.opacity_keys {
@@ -1252,5 +1338,166 @@ mod audit_a2_gpu_tests {
             "the refresh publishes the resized node's matrix"
         );
         assert_eq!(built() - before, 2);
+    }
+
+    /// Every bound transform and opacity of `cache`, by key id.
+    fn bound_values(cache: &GpuValueCache) -> (HashMap<usize, ComputedTransform3D>, HashMap<usize, f32>) {
+        let mut transforms = HashMap::new();
+        let mut opacities = HashMap::new();
+        cache.for_each_bound_value(
+            DomId::ROOT_ID,
+            |key, value| {
+                transforms.insert(key, *value);
+            },
+            |key, value| {
+                opacities.insert(key, value);
+            },
+        );
+        (transforms, opacities)
+    }
+
+    fn moved(m: &ComputedTransform3D, x: f32, y: f32) -> (f32, f32) {
+        let p = m
+            .transform_point2d(crate::geom::LogicalPosition::new(x, y))
+            .expect("an affine matrix maps every point");
+        (p.x, p.y)
+    }
+
+    /// A2-gpu-10. A node has one frame, and it showed one channel: a node
+    /// with a CSS `transform` that was dragged, slid (FLIP) or stuck was
+    /// painted with its CSS matrix alone, on both renderers and in the hit
+    /// tester.
+    ///
+    /// By hand, in the node's own box (origin = its top-left corner): CSS
+    /// `scale(2)` about the corner, a drag by (30, 10), a sticky shift of
+    /// (0, -5). The point (10, 10): scaled (20, 20), dragged (50, 30), stuck
+    /// (50, 25). Old: (20, 20). The other order - the drag and the shift
+    /// scaled with the node - would give ((10 + 30) x 2, (10 - 5 + 10) x 2) =
+    /// (80, 30).
+    ///
+    /// Mutations: `so_far.then(&transform)` -> `transform.then(&so_far)` in
+    /// `frame_of_channels` gives (80, 30) and fails "CSS, then the drag, then
+    /// the sticky shift"; `for_each_bound_value` publishing the CSS value
+    /// under the CSS key fails "the frame's key carries the product".
+    #[test]
+    fn a_node_is_painted_with_the_product_of_its_channels() {
+        let scale = ComputedTransform3D::new_scale(2.0, 2.0, 1.0);
+        let drag = ComputedTransform3D::new_translation(30.0, 10.0, 0.0);
+        let stick = ComputedTransform3D::new_translation(0.0, -5.0, 0.0);
+        let (all, sliding, plain) = (NodeId::new(1), NodeId::new(2), NodeId::new(3));
+        let (css_key, anim_key, sticky_key) =
+            (TransformKey::unique(), TransformKey::unique(), TransformKey::unique());
+        let (sliding_anim_key, sliding_sticky_key, plain_key) =
+            (TransformKey::unique(), TransformKey::unique(), TransformKey::unique());
+
+        let mut cache = GpuValueCache::empty();
+        // `all`: every channel.
+        cache.css_transform_keys.insert(all, css_key);
+        cache.css_current_transform_values.insert(all, scale);
+        cache.anim_transform_keys.insert(all, anim_key);
+        cache.anim_current_transform_values.insert(all, drag);
+        cache.sticky_transform_keys.insert(all, sticky_key);
+        cache.sticky_current_transform_values.insert(all, stick);
+        // `sliding`: no CSS transform, an animation and a sticky shift.
+        cache.anim_transform_keys.insert(sliding, sliding_anim_key);
+        cache.anim_current_transform_values.insert(sliding, drag);
+        cache.sticky_transform_keys.insert(sliding, sliding_sticky_key);
+        cache.sticky_current_transform_values.insert(sliding, stick);
+        // `plain`: a CSS transform alone.
+        cache.css_transform_keys.insert(plain, plain_key);
+        cache.css_current_transform_values.insert(plain, scale);
+
+        let (frame_key, product) = cache.reference_frame_of(all).expect("a frame");
+        assert_eq!(frame_key, css_key, "the frame keeps the key of its first channel");
+        assert_eq!(
+            moved(&product, 10.0, 10.0),
+            (50.0, 25.0),
+            "CSS, then the drag, then the sticky shift"
+        );
+        assert_eq!(cache.painted_transform_of(all), Some(product));
+
+        let (frame_key, product_sliding) = cache.reference_frame_of(sliding).expect("a frame");
+        assert_eq!(frame_key, sliding_anim_key);
+        assert_eq!(moved(&product_sliding, 10.0, 10.0), (40.0, 15.0));
+
+        assert_eq!(cache.reference_frame_of(plain), Some((plain_key, scale)));
+        assert_eq!(cache.reference_frame_of(NodeId::new(9)), None);
+
+        // What both renderers read by key.
+        let (transforms, _) = bound_values(&cache);
+        assert_eq!(
+            transforms.get(&css_key.id),
+            Some(&product),
+            "the frame's key carries the product"
+        );
+        assert_eq!(transforms.get(&anim_key.id), Some(&drag), "a key no list binds: its own value");
+        assert_eq!(transforms.get(&sticky_key.id), Some(&stick));
+        assert_eq!(transforms.get(&sliding_anim_key.id), Some(&product_sliding));
+        assert_eq!(transforms.get(&sliding_sticky_key.id), Some(&stick));
+        assert_eq!(transforms.get(&plain_key.id), Some(&scale));
+
+        // The second channel ends: the frame is the CSS matrix again, under
+        // the same key (no list is rebuilt for a key that did not change).
+        cache.anim_transform_keys.remove(&all);
+        cache.anim_current_transform_values.remove(&all);
+        cache.sticky_transform_keys.remove(&all);
+        cache.sticky_current_transform_values.remove(&all);
+        assert_eq!(cache.reference_frame_of(all), Some((css_key, scale)));
+    }
+
+    /// A2-gpu-10, the list's side: `reference_frame_at` bakes the CSS matrix
+    /// of this pass's size WITH the node's other channels.
+    ///
+    /// A `.t` node (`rotate(45deg)` about the centre of its 100 x 40 box,
+    /// (50, 20)) dragged by (30, 10): its centre stays the centre under the
+    /// rotation and is then moved by the drag: (80, 30). Old: (50, 20).
+    #[test]
+    fn the_list_bakes_the_product_of_the_channels() {
+        let styled = labels(4);
+        let size = (100.0_f32, 40.0_f32);
+        let mut cache = GpuValueCache::empty();
+        let _ = cache.synchronize_with_sizes(&styled, &|_| Some(size));
+        let node = *cache.css_transform_keys.keys().next().expect("a transformed node");
+        let css_key = cache.css_transform_keys[&node];
+        let drag = ComputedTransform3D::new_translation(30.0, 10.0, 0.0);
+        cache.anim_transform_keys.insert(node, TransformKey::unique());
+        cache.anim_current_transform_values.insert(node, drag);
+
+        for at in [size, (60.0_f32, 40.0_f32)] {
+            let (key, baked) = cache.reference_frame_at(&styled, node, at).expect("a frame");
+            assert_eq!(key, css_key);
+            let (cx, cy) = (at.0 / 2.0, at.1 / 2.0);
+            let (x, y) = moved(&baked, cx, cy);
+            assert!(
+                (x - (cx + 30.0)).abs() < 1e-3 && (y - (cy + 10.0)).abs() < 1e-3,
+                "box {at:?}: the centre ({cx}, {cy}) is painted at ({x}, {y})"
+            );
+        }
+    }
+
+    /// A2-gpu-10, opacity: a node's layer binds its animation opacity key
+    /// when it has one, and showed the animation's opacity alone. A node at
+    /// CSS `opacity: 0.5` half way through a fade-in (0.4): 0.5 x 0.4 = 0.2
+    /// under the key its layer binds. Old: 0.4.
+    ///
+    /// Mutation: `css.map_or(value, |css| value * css)` -> `value` fails it.
+    #[test]
+    fn a_fading_node_keeps_its_css_opacity() {
+        let (both, fading) = (NodeId::new(1), NodeId::new(2));
+        let (css_key, anim_key, fading_key) =
+            (OpacityKey::unique(), OpacityKey::unique(), OpacityKey::unique());
+        let mut cache = GpuValueCache::empty();
+        cache.opacity_keys.insert(both, css_key);
+        cache.current_opacity_values.insert(both, 0.5);
+        cache.anim_opacity_keys.insert(both, anim_key);
+        cache.anim_current_opacity_values.insert(both, 0.4);
+        cache.anim_opacity_keys.insert(fading, fading_key);
+        cache.anim_current_opacity_values.insert(fading, 0.4);
+
+        let (_, opacities) = bound_values(&cache);
+        let layer = opacities[&anim_key.id];
+        assert!((layer - 0.2).abs() < 1e-6, "the layer's key carries 0.5 x 0.4: {layer}");
+        assert_eq!(opacities.get(&css_key.id), Some(&0.5), "the CSS key: its own value");
+        assert_eq!(opacities.get(&fading_key.id), Some(&0.4), "no CSS opacity: the animation's");
     }
 }
