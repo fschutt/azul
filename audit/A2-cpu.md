@@ -465,6 +465,10 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
 
 ## For area A1
 
+State at `audit/A1` `d17af4dc9`: item 1 (A2-cpu-04), item 3 (A2-cpu-07), A2-cpu-21 and the constraints of items 6
+and 7 are done there (read under `## Review of A1`). Still A1's: item 2 (the five clip sites of A2-cpu-06), item 4
+(A2-cpu-16, which A1 holds as `blocked (a)`), A2-cpu-19, -20, -27, and the review's findings A2-cpu-R01 to -R08.
+
 1. **A2-cpu-04, frame extent.** `FrameIndex` keeps, per frame, its extent WITHOUT its inner frames (`own`) and the list
    of its direct inner frames; `reference_frame_extent(list, idx, transforms)` = `own` united with
    `affine_rect_about(live_or_initial(inner), inner.bounds.origin, extent(inner))` for each inner frame, recursively
@@ -517,6 +521,9 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
    where the composite writes and `group_part_within` is computed per band.
 
 ## For area A6
+
+State at `audit/A6` `12460bb7a`: done as asked (`1f910ffbc`, `da6be4605`, `31884b79c`; read under `## Review of A6`).
+Still A6's: A2-cpu-R09.
 
 **A2-cpu-03.** `resolve_chain` must apply the links in order, each frame about its own origin, instead of one summed
 scroll and one composed matrix. With the chain outermost first:
