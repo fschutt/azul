@@ -1764,7 +1764,8 @@ fn painted_over_later(
             }
             DisplayListItem::HitTestArea { .. } => {}
             other if !other.is_state_management() => {
-                if let Some(b) = other.visual_bounds().or_else(|| other.bounds()) {
+                // (A run's ink as the list knows it, A3-core-26.)
+                if let Some(b) = display_list.visual_bounds_of(i).or_else(|| other.bounds()) {
                     // Inside a later scroll frame it shows somewhere in the
                     // outermost one's window.
                     let seen = later.iter().flatten().next().copied().unwrap_or(b);
@@ -2497,11 +2498,13 @@ fn scroll_fast_path_eligible_with(
     // told from a flat fill: the clip is repainted.
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(start);
-    for it in &items[..start] {
+    for (index, it) in items[..start].iter().enumerate() {
         if let Some(at) = stack.placement() {
             backdrop.push((it, at));
         } else {
-            let turned = it.visual_bounds().map(|b| stack.on_screen(b));
+            // (A run's ink as the list knows it, A3-core-26: a turned run's wide last glyph
+            // over the clip is a turned item over the clip.)
+            let turned = display_list.visual_bounds_of(index).map(|b| stack.on_screen(b));
             if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, clip_bounds))) {
                 return false;
             }
@@ -3893,11 +3896,12 @@ pub fn execute_virtual_view_shift_with(
         let mut behind = ScrollStack::with_transforms(scroll_offsets, transforms);
         let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(shift.index);
         let mut turned_over_the_clip = false;
-        for it in &items[..shift.index] {
+        for (index, it) in items[..shift.index].iter().enumerate() {
             if let Some(at) = behind.placement() {
                 backdrop.push((it, at));
             } else {
-                let turned = it.visual_bounds().map(|b| behind.on_screen(b));
+                // (A run's ink as the list knows it, A3-core-26.)
+                let turned = display_list.visual_bounds_of(index).map(|b| behind.on_screen(b));
                 if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, &shift.clip))) {
                     turned_over_the_clip = true;
                     break;
@@ -3933,7 +3937,7 @@ pub fn execute_virtual_view_shift_with(
         shift.clip.origin.x + shift.clip.size.width,
         shift.clip.origin.y + shift.clip.size.height,
     );
-    for it in &items[shift.index + 1..] {
+    for (after, it) in items[shift.index + 1..].iter().enumerate() {
         // Where the item is PAINTED, read before stepping over it: through the scroll frames
         // AND the reference frames around it, with their live matrices (A1-36). A panel
         // placed by `transform` was repainted where it is laid out while the move dragged it
@@ -3942,7 +3946,10 @@ pub fn execute_virtual_view_shift_with(
         let painted = if it.is_state_management() || paints_nothing(it) {
             None
         } else {
-            it.visual_bounds()
+            // (A run's ink as the list knows it, A3-core-26: the end of a wide glyph over the
+            // view is dragged by the move like the rest of the run.)
+            display_list
+                .visual_bounds_of(shift.index + 1 + after)
                 .or_else(|| it.bounds())
                 .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
         };
@@ -4059,7 +4066,8 @@ fn overlay_rects_after(
         let on_screen = if can_be_one {
             #[cfg(test)]
             OVERLAY_BOUNDS_READ.with(|n| n.set(n.get() + 1));
-            it.visual_bounds().map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
+            // (A run's ink as the list knows it, A3-core-26.)
+            display_list.visual_bounds_of(i).map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
         } else {
             None
         };
@@ -4463,12 +4471,18 @@ fn render_display_list_range(
         render_single_item(
             item,
             display_list.uniform_text_bgs.get(i).copied().flatten(),
-            // A frame's extent with the frames inside it where their live matrices paint
-            // them, as the flat walk takes it (A1-60).
-            display_list
-                .frame_index()
-                .extent_with(&display_list.items, i, &render_state.transforms)
-                .or_else(|| reference_frame_extent(display_list, i)),
+            // A text run: its ink as the list knows it, as the flat walk hands it to the
+            // `Text` arm (A3-core-26; the item alone has an estimate). Else a frame's extent
+            // with the frames inside it where their live matrices paint them, as the flat
+            // walk takes it (A1-60).
+            if matches!(item, DisplayListItem::Text { .. }) {
+                display_list.text_ink_at(i).and(display_list.visual_bounds_of(i))
+            } else {
+                display_list
+                    .frame_index()
+                    .extent_with(&display_list.items, i, &render_state.transforms)
+                    .or_else(|| reference_frame_extent(display_list, i))
+            },
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -4967,7 +4981,8 @@ impl PaintedOverMovers {
                 if !paints_for_a_mover(it) {
                     return None;
                 }
-                let b = it.visual_bounds()?;
+                // (A run's ink as the list knows it, A3-core-26.)
+                let b = display_list.visual_bounds_of(i)?;
                 (!destinations.iter().any(|m| inside_within_half_a_pixel(m, &b))).then_some((i, b, false))
             })
             .collect();
@@ -13109,6 +13124,64 @@ mod audit_a1_tests {
         assert_eq!((read_small, read_large), (2, 2), "the two boxes after the frame, however long the page");
         assert_eq!(small, vec![lr(80.0, 20.0, 20.0, 30.0)], "the box over the clip, cut to it");
         assert_eq!(small, large);
+    }
+
+    /// A3-core-26 (b): the scans of the shifts ask the LIST where a run paints, not the item.
+    /// A run painted after a scroll frame, beside the frame's clip (x 0 .. 100): two glyphs
+    /// at 20 px, pens at x = 150 and 162. The item's estimate begins an em left of the first
+    /// pen, at x = 130: beside the clip. Its ink begins at x = 89 (a mark that reaches 2.9 em
+    /// LEFT of its pen: 150 - 58, less the pad of 3): over the clip. What a scroll step has
+    /// to repaint after its move is the part of the ink over the clip, (89, 33) 11 x 24 -
+    /// the move drags those pixels - and what is painted over a mover (`PaintedOverMovers`)
+    /// counts the run by its ink too: with a mover that lands on (120, 20) 70 x 50 the
+    /// estimate lies inside the landing box (the run is no candidate) and the ink does not.
+    /// Mutation: `it.visual_bounds()` at either site, as it was: nothing to repaint, no
+    /// candidate.
+    #[test]
+    fn the_scans_of_a_shift_take_a_run_by_the_ink_its_list_knows() {
+        let clip = lr(0.0, 0.0, 100.0, 300.0);
+        let everything = lr(0.0, 0.0, 1000.0, 1000.0);
+        let pen = |x: f32| azul_core::ui_solver::GlyphInstance {
+            index: 1,
+            point: LogicalPosition { x, y: 50.0 },
+            size: LogicalSize { width: 0.0, height: 20.0 },
+        };
+        let mut page = listed(vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: clip.into(),
+                content_size: LogicalSize { width: 100.0, height: 2000.0 },
+                scroll_id: 4,
+            },
+            opaque(0.0, 0.0, 100.0, 2000.0, [240, 240, 230]),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::Text {
+                glyphs: vec![pen(150.0), pen(162.0)],
+                font_hash: crate::text3::cache::FontHash::from_hash(1),
+                font_size_px: 20.0,
+                color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                clip_rect: everything.into(),
+                line_box: everything.into(),
+                source_node_index: None,
+            },
+        ]);
+        let estimate = page.items[3].visual_bounds().expect("a run has bounds");
+        assert_eq!(estimate.origin.x, 130.0, "premise: an em left of the first pen, beside the clip");
+        let scan = |page: &DisplayList| overlay_rects_after_frame_in(page, 4, &clip, &ScrollOffsetMap::new(), &HashMap::new());
+        let landing = [lr(120.0, 20.0, 70.0, 50.0)];
+        let over_movers =
+            |page: &DisplayList| PaintedOverMovers::of(page, &landing).candidates.iter().any(|(index, _, _)| *index == 3);
+        assert!(scan(&page).is_empty(), "premise: by its estimate the run is beside the clip");
+        assert!(!over_movers(&page), "premise: by its estimate the run lies in the landing box");
+        // The ink: from 61 px left of the first pen to 26 px right of it, 17 px above to 7 below.
+        page.text_ink = vec![
+            None,
+            None,
+            None,
+            Some(crate::solver3::display_list::TextInk { min: (-61.0, -17.0), max: (26.0, 7.0), glyphs: 2 }),
+        ];
+        assert_eq!(page.visual_bounds_of(3), Some(lr(89.0, 33.0, 87.0, 24.0)));
+        assert_eq!(scan(&page), vec![lr(89.0, 33.0, 11.0, 24.0)], "the part of the ink over the clip");
+        assert!(over_movers(&page), "the ink reaches out of the landing box");
     }
 }
 

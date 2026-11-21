@@ -766,6 +766,13 @@ pub struct TextInk {
     pub glyphs: u32,
 }
 
+/// What [`text_ink_of_run`] grows the box of a run's glyphs by on every side, logical px: a
+/// pixel and a tenth of the em. A reader that wants the glyphs' boxes themselves (does a
+/// clip cut the glyphs?) takes it off again.
+pub(crate) fn text_ink_pad(font_size_px: f32) -> f32 {
+    1.0 + 0.1 * font_size_px
+}
+
 /// The ink of the run `glyphs` at `font_size_px` in a face of `units_per_em` units to the em
 /// whose glyph `id` has the outline box `glyph_box(id)` (font units, y up: `[x_min, y_min,
 /// x_max, y_max]`; all zero: no outline): the union of `pen + box x font_size / units_per_em`
@@ -804,7 +811,7 @@ pub(crate) fn text_ink_of_run(
     if x1 < x0 || y1 < y0 {
         (x0, y0, x1, y1) = (first.point.x, first.point.y, first.point.x, first.point.y);
     }
-    let pad = 1.0 + 0.1 * font_size_px;
+    let pad = text_ink_pad(font_size_px);
     let ink = TextInk {
         min: (x0 - pad - first.point.x, y0 - pad - first.point.y),
         max: (x1 + pad - first.point.x, y1 + pad - first.point.y),
