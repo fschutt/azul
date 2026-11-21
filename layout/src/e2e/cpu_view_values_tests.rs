@@ -482,3 +482,48 @@ fn a_zoom_step_is_counted_and_a_settled_frame_counts_nothing() {
         "an idle frame walks, paints, clears and blits nothing"
     );
 }
+
+/// A1-11 (`audit/A1.md`; A10-08): a frame painted at another scale factor than the frame
+/// before is painted in full, and keeps no group surface of the old factor. The backend is
+/// told that its last frame was at a factor of 2; the next frame, at 1, must not be a repaint
+/// of parts (the list did not change: the diff alone finds nothing and the frame would be
+/// skipped, showing the old scale's pixels).
+/// Mutation: `dpi_changed` left out of `frame_may_reuse_previous_pixels` skips the frame.
+#[test]
+fn a1_11_a_frame_at_another_scale_factor_is_painted_in_full() {
+    let z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let first = z.frame(&mut backend);
+    let _ = z.frame(&mut backend);
+    assert!(matches!(backend.last_frame_damage, crate::window::FrameDamage::None), "premise: an idle frame");
+    backend.last_dpi_factor = Some(2.0);
+    let again = z.frame(&mut backend);
+    assert!(
+        matches!(backend.last_frame_damage, crate::window::FrameDamage::Full),
+        "another factor: a full frame, got {:?}",
+        backend.last_frame_damage
+    );
+    assert_eq!(backend.last_dpi_factor, Some(1.0));
+    assert!(backend.retained_frames.is_empty(), "no surface of the old factor is kept");
+    assert!(first.data() == again.data(), "and it is the frame a first paint gives");
+}
+
+/// A1-16: the GPU values a frame paints with are moved into its render state and come back:
+/// after a zoom step the backend holds the picture's matrix again (the next frame diffs
+/// against it), and that next frame, with nothing written, is idle.
+/// Mutation: the values not moved back leaves `previous_gpu_values` empty, and the next frame
+/// sees every value as changed.
+#[test]
+fn a1_16_the_values_a_frame_painted_with_are_the_next_frames_previous_values() {
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let _ = z.frame(&mut backend);
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let _ = z.frame(&mut backend);
+    assert!(
+        !backend.previous_gpu_values.transforms.is_empty(),
+        "the frame's values are the backend's again"
+    );
+    let _ = z.frame(&mut backend);
+    assert!(matches!(backend.last_frame_damage, crate::window::FrameDamage::None), "nothing written: an idle frame");
+}
