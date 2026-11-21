@@ -2541,6 +2541,12 @@ pub struct NodeDataExt {
     /// control it belongs to is pressed, because a press activates only the
     /// pressed node and its ancestors.
     pub part_of_parent: bool,
+    /// The tree below this node in its FLAT form, on the root of a `Dom` a
+    /// [`DomBuilder`] made (`builder::FlatDom`): the `Dom`'s `children` are
+    /// empty and everything below the root is in here until something needs
+    /// the tree (`Dom::expand_flat`). Never on a node of a styled DOM: every
+    /// way to one expands it first.
+    pub flat: Option<Box<builder::FlatDom>>,
 }
 
 // The MARKER is EXCLUDED from equality, ordering and hashing (USER ruling
@@ -2571,6 +2577,7 @@ impl NodeDataExt {
         &Option<ComponentOrigin>,
         &Vec<crate::resources::AnimationFunction>,
         bool,
+        &Option<Box<builder::FlatDom>>,
     ) {
         (
             &self.attributes,
@@ -2584,6 +2591,7 @@ impl NodeDataExt {
             &self.component_origin,
             &self.animation_callbacks,
             self.part_of_parent,
+            &self.flat,
         )
     }
 }
@@ -2606,6 +2614,7 @@ impl NodeDataExt {
             && self.component_origin.is_none()
             && self.animation_callbacks.is_empty()
             && !self.part_of_parent
+            && self.flat.is_none()
     }
 }
 
@@ -7629,6 +7638,11 @@ impl Dom {
 
     #[inline]
     pub fn add_child(&mut self, child: Self) {
+        // A `Dom` that carries its tree flat (`DomBuilder::finish`) becomes the
+        // tree it stands for before it takes or becomes a child.
+        let mut child = child;
+        child.expand_flat();
+        self.expand_flat();
         // AUDIT: cheap ONE-LEVEL consistency check (O(child.children), not the
         // full O(subtree) recompute — `add_child` is a per-child hot path, so a
         // recursive assert would make debug DOM construction O(n^2)). Assuming
@@ -7656,6 +7670,21 @@ impl Dom {
 
     #[inline]
     pub fn set_children(&mut self, children: DomVec) {
+        // As in `add_child`: a flat child becomes its tree; the children this
+        // `Dom` carried flat are the ones being replaced.
+        let mut children = children;
+        if children.iter().any(Self::is_flat) {
+            // Through an owned vector: a list that is not library-allocated is copied
+            // first instead of being written where it lies.
+            let mut owned = children.into_library_owned_vec();
+            for child in &mut owned {
+                child.expand_flat();
+            }
+            children = owned.into();
+        }
+        if let Some(extra) = self.root.existing_extra_fields_mut() {
+            extra.flat = None;
+        }
         // AUDIT: one-level check per child (see `add_child`) — verifies each
         // child's own cached estimate is internally consistent before we trust
         // it, without an O(subtree) recompute.
@@ -8190,6 +8219,9 @@ impl Dom {
     }
 
     pub fn fixup_children_estimated(&mut self) -> usize {
+        // Every way to a `StyledDom` starts here, at every node: a `Dom` that
+        // carries its tree flat is its tree from here on.
+        self.expand_flat();
         if self.children.is_empty() {
             self.estimated_total_children = 0;
         } else {
@@ -8208,6 +8240,11 @@ impl core::iter::FromIterator<Self> for Dom {
         let mut estimated_total_children = 0;
         let children = iter
             .into_iter()
+            .map(|mut c| {
+                // As in `add_child`: a flat child becomes its tree.
+                c.expand_flat();
+                c
+            })
             .inspect(|c| {
                 estimated_total_children += c.estimated_total_children + 1;
             })
@@ -8244,6 +8281,17 @@ impl fmt::Debug for Dom {
         print_dom(self, f)
     }
 }
+
+/// The builder of the flat form: a child module, so it reads a node's rarely
+/// used fields where they are.
+#[path = "dom_builder.rs"]
+pub mod builder;
+#[cfg(feature = "std")]
+pub use self::builder::set_flat_widgets_on_this_thread;
+pub use self::builder::{
+    fingerprint_built_dom, fingerprint_built_dom_against, flat_expansions_on_this_thread,
+    flat_widgets_enabled, DomBuilder, FlatDom,
+};
 
 #[cfg(test)]
 #[path = "dom_test.rs"]

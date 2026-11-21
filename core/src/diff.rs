@@ -252,7 +252,7 @@ fn non_static_declarations(
 /// old static-only walk did; `var()` references and custom-property
 /// definitions count too, or a definition-only change fingerprinted as "no
 /// change" and its readers kept their stale values.
-fn hash_inline_style<H: core::hash::Hasher>(style: &azul_css::css::Css, h: &mut H) {
+pub(crate) fn hash_inline_style<H: core::hash::Hasher>(style: &azul_css::css::Css, h: &mut H) {
     use azul_css::css::CssDeclaration;
     for rule in style.rules.as_ref() {
         // The conditions are part of the style: the same declaration for

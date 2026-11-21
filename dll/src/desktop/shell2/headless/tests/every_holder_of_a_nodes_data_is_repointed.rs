@@ -89,6 +89,7 @@ const NOT_WALKED: &[(&str, &str, &str)] = &[
     ),
     ("core/src/dom.rs", "Dom", BEING_BUILT),
     ("core/src/dom.rs", "FastDom", BEING_BUILT),
+    ("core/src/dom_builder.rs", "*", BEING_BUILT),
     ("core/src/styled_dom.rs", "CompactDom", BEING_BUILT),
     ("core/src/xml.rs", "CompactDomBuilder", BEING_BUILT),
     ("core/src/xml.rs", "DomXml", BEING_BUILT),

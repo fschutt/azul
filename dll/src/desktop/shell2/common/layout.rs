@@ -662,9 +662,13 @@ pub fn regenerate_layout(
     // fresh DOM IS the retained DOM's shape, exactly as if the app had built
     // the widgets itself; `style_user_dom_for` below then finds nothing left
     // to replace.
+    //
+    // A DOM its builder handed over FLAT (`azul_core::dom::DomBuilder`) stays flat
+    // here when none of its nodes can be a raw form control (a scan of the node
+    // kinds); any other DOM is resolved as before.
     let mut user_dom = user_dom;
     let span_form_controls = azul_layout::probe::Probe::span("regen_form_controls");
-    let _ = layout_window.resolve_form_controls(&mut user_dom);
+    let _ = layout_window.resolve_form_controls_keeping_flat(&mut user_dom);
     drop(span_form_controls);
 
     // 1.4. PRE-CASCADE DIFF (user directive 2026-08-08: "the start should just
@@ -687,8 +691,16 @@ pub fn regenerate_layout(
     // NodeIds — the transfer indices would mis-target; those windows keep
     // the full path until the offset mapping exists).
     let span_fingerprint = azul_layout::probe::Probe::span("regen_fingerprint_dom");
+    // A flat DOM answers from the tiers its builder made node by node (its root is
+    // hashed, no other node) and STAYS flat when it reads as the build before did:
+    // the exit below then drops it without one of its nodes ever becoming a
+    // `NodeData`. When anything differs it becomes its tree here, so every reader
+    // below (`nodes_at`, the passes before styling) reads what it always read.
     let precascade = if layout_window.e2e_mount.xml().is_none() {
-        Some(azul_core::diff::fingerprint_dom(&user_dom))
+        Some(azul_core::dom::fingerprint_built_dom_against(
+            &mut user_dom,
+            layout_window.last_dom_fingerprints.as_ref(),
+        ))
     } else {
         layout_window.last_dom_fingerprints = None;
         None

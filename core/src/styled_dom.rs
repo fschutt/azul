@@ -1389,6 +1389,46 @@ impl StyledDom {
     /// `NodeDataVec`. CSS is collected from `CssWithNodeIdVec`.
     #[must_use]
     pub fn create_from_fast_dom(fast_dom: crate::dom::FastDom) -> Self {
+        Self::create_from_fast_dom_inheriting(fast_dom, None, &[], Vec::new())
+    }
+
+    /// [`Self::create_from_fast_dom`] with what [`Self::create_from_dom_inheriting`]
+    /// takes beside the DOM: the window context the first cascade runs under, the
+    /// USER-origin sheets (appended after the DOM's own, never scoped) and what the root
+    /// inherits from a host outside the DOM. For the same nodes, hierarchy and sheets
+    /// the result is the `StyledDom` the tree path makes: the sheets of
+    /// `fast_dom.css` are scoped to their owners' subtrees as `scope_inline_css` scopes
+    /// them and merged in the order they are listed (a `Dom` that carries its tree flat
+    /// lists them as `take_css_from_dom` takes them out of a tree:
+    /// `Dom::into_fast_dom`).
+    #[must_use]
+    pub fn create_from_fast_dom_inheriting(
+        fast_dom: crate::dom::FastDom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        user_sheets: &[Css],
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> Self {
+        let mut styled_dom = Self::unstyled_from_fast_dom_inheriting(
+            fast_dom,
+            context,
+            user_sheets,
+            inherited_from_host,
+        );
+        styled_dom.cascade_at_rest();
+        styled_dom
+    }
+
+    /// [`Self::create_from_fast_dom_inheriting`] WITHOUT its cascade: the sheets of
+    /// `fast_dom.css` scoped and merged with `user_sheets`, the arenas taken as they are -
+    /// and the result left unstyled ([`Self::unstyled_from_compact_dom`] says what that
+    /// is), as [`Self::unstyled_from_dom_inheriting`] leaves the DOM it flattens.
+    #[must_use]
+    pub fn unstyled_from_fast_dom_inheriting(
+        fast_dom: crate::dom::FastDom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        user_sheets: &[Css],
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> Self {
         use azul_css::css::Css;
 
         // 1. Merge CSS from CssWithNodeIdVec into a single Css, scoping each node-attached
@@ -1424,6 +1464,12 @@ impl StyledDom {
                 }
             }
         }
+        // The user-origin sheets after the DOM's own, unscoped, as
+        // `create_from_dom_inheriting` appends them.
+        for css in user_sheets {
+            combined_rules.extend(css.rules.clone().into_library_owned_vec());
+            combined_keyframes.extend(css.keyframes.clone().into_library_owned_vec());
+        }
         let combined_css = if combined_rules.is_empty() && combined_keyframes.is_empty() {
             Css::empty()
         } else {
@@ -1456,15 +1502,14 @@ impl StyledDom {
             root: NodeId::ZERO,
         };
 
-        // 4. Delegate to create() which handles cascade, UA CSS, etc. We need a mutable Dom to pass
-        //    to create(), but we already have CompactDom. Instead, inline the cascade logic from
-        //    create() with our CompactDom.
-        Self::create_from_compact_dom(
+        // 4. The unstyled DOM of the arenas (generated nodes, presentational hints, the
+        //    tree tables); the cascade is the caller's.
+        Self::unstyled_from_compact_dom(
             compact_dom,
             combined_css,
             node_hierarchy_items,
-            None,
-            Vec::new(),
+            context,
+            inherited_from_host,
         )
     }
 
@@ -1810,12 +1855,28 @@ impl StyledDom {
     /// before at hand, [`Self::cascade_reusing`].
     #[must_use]
     pub fn unstyled_from_dom_inheriting(
-        mut dom: Dom,
+        dom: Dom,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
         user_sheets: &[Css],
         inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
     ) -> Self {
         use azul_css::css::Css;
+
+        // A `Dom` that carries its tree flat (`DomBuilder::finish`) goes to the unstyled
+        // DOM from its arenas: no tree is built, walked or flattened in between. The
+        // result is the one the tree path below makes of the tree the `Dom` stands for
+        // (`unstyled_from_fast_dom_inheriting`); the cascade is the caller's either way.
+        let mut dom = match dom.into_fast_dom() {
+            Ok(fast_dom) => {
+                return Self::unstyled_from_fast_dom_inheriting(
+                    fast_dom,
+                    context,
+                    user_sheets,
+                    inherited_from_host,
+                );
+            }
+            Err(dom) => dom,
+        };
 
         // #47: scope each node's inline css to its subtree BEFORE collecting, so a
         // non-root node's with_css cannot leak to the whole tree. Uses the same
