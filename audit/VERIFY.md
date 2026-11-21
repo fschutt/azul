@@ -194,7 +194,8 @@ results, read that file, or run the steps of point 3 again.
 | core | `cargo test -p azul-core --no-fail-fast` | lib 3128 + every integration target and the doc tests | 7 (lib) | | the seven `audit_diff_first_tests` below |
 | dll lib | `cargo test -p azul-dll --lib --no-fail-fast` | 3834 | 16 | 9 | the same 16 as the first run (table "dll lib failures") (base: 3731 / 0 / 9) |
 | dll `headless_lifecycle` | `cargo test -p azul-dll --test headless_lifecycle` | 8 | 0 | 0 | none (base: 8) |
-| Linux, Windows | `cargo check -p azul-dll --target x86_64-unknown-linux-gnu` / `x86_64-pc-windows-gnu` | refused by the disk floor in the chain (8.x GB free), started again after a cleanup: result in the log below or in `<scratchpad>/verify/gate.txt` (blocks "== check ...") | | | |
+| Linux | `cargo check -p azul-dll --target x86_64-unknown-linux-gnu` | compiles, 0 errors (1 min 19 s; 392 MB of metadata, deleted after) | | | |
+| Windows | `cargo check -p azul-dll --target x86_64-pc-windows-gnu` | compiles, 0 errors (1 min 16 s; 455 MB, deleted after) | | | |
 | fork tests | `render_api::audit_a4_tests`, `spatial_tree` | NOT RUN: disk | | | |
 
 core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in `<scratchpad>/verify/42-failures.txt`):
@@ -231,7 +232,7 @@ What is left for the checkpoint, in order:
    `AZ_NO_TAFFY_MEASURE_JOURNAL=1`.) Tell the coordinator rows 1 and 2 at once.
 2. (DONE in the gate.) `cargo test -p azul-css --no-fail-fast`, `cargo test -p azul-core` (A8 changed the css parser and core's prop
    cache; `cargo test -p azul-core --lib compact::audit_a8_tests`).
-3. (DONE except the cross-target checks and the fork tests: table "THE GATE" above.) The gate on that tree: `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast`;
+3. (DONE except the fork's own tests, "not run: disk": table "THE GATE" above.) The gate on that tree: `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast`;
    delete its binaries; `cargo test -p azul-dll --lib --no-fail-fast`; `cargo test -p azul-dll --test
    headless_lifecycle`; `cargo check -p azul-dll --target x86_64-unknown-linux-gnu`, then
    `--target x86_64-pc-windows-gnu` (check only; delete `<target>/<triple>` after each). Fork tests only with the
@@ -316,3 +317,8 @@ What is left for the checkpoint, in order:
   `audit/A8` at `1b3cd3449` (done: `b419ea882`, no conflict), rows 1 and 2, then the gate on that tree; the rest
   of the queue is a second round: `audit/A1` at `e1494255d` (text ink table), `audit/A3-solver` at `33a88a9ed`,
   `audit/A5` at `dbde1ccf5`, newer `audit/A3-window`, `audit/diff-first` beyond `cfc4d6d72`, `audit/dom-builder`.
+- the gate on the checkpoint tree (head `e19bed682`): see the table "THE GATE". Linux and Windows checks: 0
+  errors each. Fork tests: not run (disk: 9.6 GB free after the gate; the fork's test build is a full build of
+  webrender's dependencies). Compile fixes needed by the whole branch: 17, all in azul-layout (none in css, core,
+  dll, the fork, or for Linux / Windows).
+- the verifier stops here (context short). Everything is committed; nothing was pushed.
