@@ -802,8 +802,12 @@ impl CompositorState {
                     // frame's origin.
                     let live = azul_core::transform::ComputedTransform3D { m: *m };
                     let origin = bounds.inner().origin;
+                    // (With the frames inside it where their live matrices paint them, A1-60.)
                     let extent = device_pixel_box(
-                        reference_frame_extent(display_list, i)
+                        display_list
+                            .frame_index()
+                            .extent_with(&display_list.items, i, live_transforms)
+                            .or_else(|| reference_frame_extent(display_list, i))
                             .unwrap_or_else(|| *bounds.inner()),
                         dpi_factor,
                     );
@@ -1729,7 +1733,9 @@ fn painted_over_later(
                 } else {
                     // Everything it paints, moved - then past its pop.
                     let frame = index.frame_at(i);
-                    let content = frame.map_or_else(|| *bounds.inner(), |f| f.extent);
+                    let content = index
+                        .extent_with(items, i, live_transforms)
+                        .unwrap_or_else(|| frame.map_or_else(|| *bounds.inner(), |f| f.extent));
                     let moved = affine_rect_about(m, bounds.inner().origin, content)
                         .unwrap_or(UNBOUNDED);
                     let seen = later.iter().flatten().next().copied().unwrap_or(moved);
@@ -2913,9 +2919,14 @@ fn gpu_value_damage_of(
                 // unlike a moved reference frame whose content extent is
                 // unknowable from the item.
                 if changed_o.contains(&k.id) {
-                    // All of what the group paints fades (A2-gpu-06), not only its box.
-                    let faded = index.opacity_extent(idx).unwrap_or_else(|| *bounds.inner());
-                    both(&mut out, moved_by(faded, scrolled), &frames_old, &frames_new);
+                    // All of what the group paints fades (A2-gpu-06), not only its box: where
+                    // the frames inside it were painted and where they are (A1-60).
+                    for values in [old_transforms, new_transforms] {
+                        let faded = index
+                            .opacity_extent_with(items, idx, values)
+                            .unwrap_or_else(|| *bounds.inner());
+                        both(&mut out, moved_by(faded, scrolled), &frames_old, &frames_new);
+                    }
                 }
             }
             _ => {}
@@ -3218,8 +3229,11 @@ pub fn node_groups_on_screen(
                         .get(&transform_key.id)
                         .copied()
                         .unwrap_or(*initial_transform);
-                    let content =
-                        reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner());
+                    let content = display_list
+                        .frame_index()
+                        .extent_with(&display_list.items, idx, live_transforms)
+                        .or_else(|| reference_frame_extent(display_list, idx))
+                        .unwrap_or_else(|| *bounds.inner());
                     // Through its own matrix and the frames around it, in one go.
                     let mut frames = stack.frames.clone();
                     frames.push(moved_by(*bounds.inner(), scrolled).origin, m);
@@ -4370,7 +4384,12 @@ fn render_display_list_range(
         render_single_item(
             item,
             display_list.uniform_text_bgs.get(i).copied().flatten(),
-            reference_frame_extent(display_list, i),
+            // A frame's extent with the frames inside it where their live matrices paint
+            // them, as the flat walk takes it (A1-60).
+            display_list
+                .frame_index()
+                .extent_with(&display_list.items, i, &render_state.transforms)
+                .or_else(|| reference_frame_extent(display_list, i)),
             pixmap,
             dpi_factor,
             renderer_resources,
