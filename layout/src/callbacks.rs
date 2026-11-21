@@ -5883,7 +5883,7 @@ impl CallbackInfo {
     /// What the dll can do about the machine's video drivers, if its shell handed this window
     /// the hooks (the graphics-check dialog asks).
     #[must_use]
-    pub fn get_gpu_provision_hooks(&self) -> Option<crate::appenv::GpuProvisionHooks> {
+    pub const fn get_gpu_provision_hooks(&self) -> Option<crate::appenv::GpuProvisionHooks> {
         self.get_layout_window().gpu_provision
     }
 
@@ -5902,7 +5902,7 @@ impl CallbackInfo {
 
     /// Whether the platform reported a natural-scrolling preference at all.
     #[must_use]
-    pub fn has_system_natural_scroll(&self) -> bool {
+    pub const fn has_system_natural_scroll(&self) -> bool {
         self.get_layout_window()
             .scroll_manager
             .system_natural_scroll()
@@ -8409,7 +8409,7 @@ impl RenderImageCallbackExtras {
     /// Whether the callback this was handed to deferred its frame
     /// ([`Self::mark_frame_deferred`]).
     #[must_use]
-    pub fn frame_was_deferred(&self) -> bool {
+    pub const fn frame_was_deferred(&self) -> bool {
         self.deferred.get()
     }
 

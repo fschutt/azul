@@ -3884,7 +3884,7 @@ pub struct WindowSwitches {
 
 impl WindowSwitches {
     /// The steps that are on for this window: its own choice, else the environment's.
-    fn diff_first_steps(&self) -> u16 {
+    fn diff_first_steps(self) -> u16 {
         self.diff_first
             .unwrap_or_else(diff_first_steps_from_environment)
     }

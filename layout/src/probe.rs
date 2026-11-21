@@ -61,7 +61,7 @@ mod imp {
         /// Names of the currently-open spans, outermost first: what a crash report reads as
         /// "what scope was the app in" ([`span_path`]). Kept while a reader of it is installed
         /// ([`TRACK_SCOPE`]: the telemetry panic hook), with recording on or off - that
-        /// diagnostic must not depend on AZ_PROFILE. Cost then: one push/pop of a `&'static str`
+        /// diagnostic must not depend on `AZ_PROFILE`. Cost then: one push/pop of a `&'static str`
         /// per span; without a reader, none.
         span_names: RefCell<Vec<&'static str>>,
         /// This thread's own recording mode, in the codes of [`RECORDING`] (0: it made no choice
