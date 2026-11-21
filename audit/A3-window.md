@@ -115,6 +115,133 @@ one walk of the earlier siblings per call, for contenteditable nodes only, see "
 Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_grows`,
 `the_animation_keys_of_a_rebuild_take_a_step_per_node`, and Z9's own.
 
+## Why a full DOM rebuild is slow
+
+Written in round 4 on the integration state (`fd1230f3d`), by reading; nothing was run. `layout.rs` =
+`dll/src/desktop/shell2/common/layout.rs`, `window.rs` = `layout/src/window.rs`, `mod.rs` = `layout/src/solver3/mod.rs`.
+All times are ESTIMATES from the work per node (an allocation 20-50 ns, a SipHash of a small node 60-150 ns, a
+`BTreeMap` insert 50-100 ns, a `NodeData` clone 4-8 allocations); the spans of part 5 give the real numbers. n = 4,000.
+
+### 1. The trace of one `RefreshDom`
+
+A rebuild takes one of three exits of `regenerate_layout` (`layout.rs:237`). Which one is decided at step 5 by TWO
+numbers: the fold of every node's structure hash and the fold of every node's style hash of the fresh `Dom`, against
+those of the last rebuild (`last_dom_fingerprints`, two `Vec<u64>`: no copy of the DOM is kept for it).
+(A) both equal: the "pre-cascade skip". (B) the full path, which ends early when the styled result is "layout
+equivalent". (C) the full path with a layout.
+
+| # | stage | where | identical DOM | one text changed | 500 nodes appear | work per node | est. ns / node | est. ms at 4,000 | made cheaper by | what is left |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | shell preamble | `layout.rs:250-560` | O(1) | O(1) | O(1) | a font query for the UI font (`:452`), a clone of the image-id map (`:510`), seven `ensure_*` | - | 0.05-0.2 | - | the font query and the map clone run per rebuild for nothing |
+| 2 | the app's layout callback builds the `Dom` | `layout.rs:586` | O(n) | O(n) | O(n) | a `Dom` per node (`NodeData` + `children: Vec<Dom>` + `css: Vec`); `with_class` = a `Box<NodeDataExt>` + an attribute `Vec` + the string; `with_css("..")` = a CSS parse per node (the editor measured 10 us, m4p `272fa82`); `with_child` = a push into the parent's `Vec` (it grows by doubling and moves ~250 B per child each time); a callback = a `Vec` + a `RefAny` clone; a text = a string | 300-1,000 typed; 10,000 with a CSS string | 1.2-4 (40 with strings) | editor `272fa82` (classes instead of strings) | everything: the callback builds every node whatever changed. See "the fast DOM" below |
+| 3 | raw form controls -> widgets | `layout.rs:662`, again in `window.rs:23942` | O(n) walk | same | same | pointer chase | 5-10 | 0.03 | - | walked twice on the full path |
+| 4 | `fingerprint_dom`: THE EARLY DIFF | `layout.rs:684` -> `core/src/diff.rs:3369` | O(n) | O(n) | O(n) | two SipHashes over every field and every inline declaration, two pushes; for a node with handlers a `NodeData` with a clone of its callback `Vec` (`values_to_carry`) | 150-400 | 0.6-1.6 | - | hashes are folded to ONE yes/no; the per-node arrays are used again only at step 16 |
+| 5 | the decision | `layout.rs:731` | exit A | exit C | exit C | - | - | - | - | one differing hash anywhere = everything below |
+| 6A | fresh handlers / datasets onto the kept DOM | `layout.rs:769` (`adopt_fresh_payloads`, `repoint_merged_datasets`) | O(nodes with handlers) | - | - | drop + move of a callback `Vec` | 50-100 | 0.1-0.3 | A3-window-12 | `for_each_refany` per replaced allocation (A3-window-39, -42) |
+| 7A | runtime states | `layout.rs:777-790` | O(n) + **a full cascade** | - | - | a clone and a compare of every node's state; `apply_runtime_states_before_layout` ends in `StyledDom::restyle_for_raised_states` (`core/src/styled_dom.rs:2428`): when a sheet has a state LEFT of a subject (`.btn:hover .ink`: every widget theme) and such a state is raised (the pointer is over anything), `restyle(css)` = stage 10's cascade over all n nodes, although the kept DOM already has exactly these states | 20; 2,000-6,000 when it cascades | 0.1; **8-24** | **A3-window-46** (this round): not on exit A when no state moved | - |
+| 8A | exit | `layout.rs:801-839` | every view WITHOUT a stated version renders again (`queue_virtual_view_reinvoke_after_rebuild`) | - | - | the view's callback, its styling, reconciliation, layout, list | - | the editor's map: 24 ms + the view's pipeline | A3-window-20 (the version contract; the editor must state it: For area A7-editor) | - |
+| 9 | the fresh `Dom` is dropped (exit A) or moved into the arena (C) | end of `regenerate_layout` / `create_from_dom` | O(n) frees | O(n) | O(n) | 4-8 frees per node | 100-300 | 0.4-1.2 | A3-core-11c (moves instead of clones on C) | exit A builds and frees the whole tree to learn "nothing changed" |
+| 10 | STYLING | `layout.rs:967` -> `window.rs:23929` -> `StyledDom::create_from_dom_inheriting` | skipped | **O(n)** | **O(n)** | 4-5 walks of the `Dom` (form controls, `dom_has_webview`, translation, theme spin, icons); sheets (memo); flatten; cascade tree; rule matching per node; inheritance; UA; compact cache; tag ids | 2,000-6,000 | 8-24 | A3-core-02, -04, -06, -07, -09, -11a/b/c, -12, -13 (the superlinear parts and the repeated walks) | the whole cascade, for every node, BEFORE anything knows which nodes changed |
+| 11 | CSD decoration, second inheritance + compact pass | `layout.rs:1005-1097` | skipped | skipped unless a titlebar is injected | same | - | - | 0 (was 1-3) | A3-window-18 | - |
+| 12 | `begin_reconciliation`: THE DIFF | `layout.rs:1127` -> `window.rs:18177` | skipped | O(n) | O(n) | a deep copy of the old arena (`:18199`: 4-8 allocations per node) and of both hierarchies; `reconcile_dom`: keys, three `BTreeMap`s of n, 2-3 hashes per node; `first_rects` for EVERY matched node (`:18229`); four `BTreeSet`s of n (`:18245-18270`); the CSS diff (`unchanged_cascades` O(n), an `animation` lookup per node, the property compare only where a cascade input moved); state transfer; a repoint pass over the old copy; `remap_node_ids` (every manager) | 1,200-2,500 | 5-10 | A3-window-01, -03, -12, -13, -31, -40; **A3-window-14** (this round: the rects and the sets) | the arena copy; the three maps of `reconcile_dom`; the diff runs AFTER stage 10 |
+| 13 | lifecycle events, lost focus, autofocus | `layout.rs:1208-1322` | skipped | O(events) | O(events + entered) | - | - | < 0.1 | - | - |
+| 14 | runtime states onto the new DOM | `layout.rs:1346` | - | O(n) + **a second full cascade** when a state left of a subject is raised (as 7A) | same | as 7A | 20; 2,000-6,000 | 0.1; **8-24** | - | **open**: the cascade of stage 10 runs at rest because the node ids of the hovered nodes are not known before the diff. The diff-first design (part 4) ends it |
+| 15 | `is_layout_equivalent` | `layout.rs:1381` -> `core/src/styled_dom.rs:4233` | - | O(n) field compares up to the changed node, then false | O(1): the counts differ | compare of every field of the pair | 50-150 | 0.2-0.6 | - | a second diff after the diff; true only when stage 4 said "changed" for a DOM that reads alike |
+| 16 | `dom_diff_clean` for the solver | `layout.rs:1468` | - | O(n), set | **not set** (the node count differs) | 2 compares + a parent lookup | 5 | 0.02 | - | with a node added or removed the solver is told nothing |
+| 17 | fonts | `window.rs:9191-9303` | - | O(n) + O(text) | same | the stack signature (3 mixes per node), `CharSet::of_dom` (every character) | 10-30 | 0.05-0.1 | A3-window-22, -23, -24, -25 | - |
+| 18 | GPU value sync | `window.rs:9616`, `:9810` | - | O(n) (core, A2-gpu's) | same | - | 10-50 | 0.05-0.2 | A2-gpu / A3-core-08 | - |
+| 19 | layout: the solver's reconcile | `mod.rs:802-876` | - | skipped when 16 says every node is clean and no css dirt is staged; here one node is not clean: `reconcile_and_invalidate_restyled`, fingerprint only for the nodes 16 does not name clean | fingerprint of EVERY node (16 not set) | a `NodeDataFingerprint` (3-5 hashes) per node, the tree rebuilt node by node | 200-500 | 0.1 / 0.8-2 | A3-solver-10 (fingerprint once), A3-window-08, -40 | a second structural diff that derives again what stage 12 knew |
+| 20 | layout: sizing and positioning | `mod.rs:1140-1790` | - | O(dirty + ancestors) | O(500 + ancestors + reflowed siblings) | A3-solver's notes, answer 3 | - | small / 2-10 | A3-solver (01-21) | A3-solver-14, -17 |
+| 21 | display list | `mod.rs:941-1001`, `:1931-2120` | - | PATCHED (the tree kept its shape: `PatchState`, `dl_patched_pass`): re-emit of the reflowed blocks, the rest spliced from the kept list; one new list allocation | **REBUILT**: `generate_display_list_impl` for every node (the node count changed, `last_reconcile_structure_preserved` is false) | emit per item | 1,000-3,000 | 0.5-1 / 4-12 | A3-core-01, -05, -16, -19; the patch paths of A3-window-07 are for restyles, not rebuilds | a new node anywhere = every item emitted again and a new list for the renderers |
+| 22 | tail of the pass | `window.rs:9798-10100` | - | O(n) | O(n) | a copy of the positions, the scrollbar-key loop, `scan_for_virtual_views`, `update_scrollbar_transforms`, `reconcile_webviews` (every node of every DOM); a11y only with a reader attached | 30-80 | 0.1-0.3 | A3-core-10a/b/c, A3-window-26, -28 | A3-window-27, -29 |
+| 23 | `finish_reconciliation` | `layout.rs:1533` -> `window.rs:18771` | - | O(n) | O(n) | `anim_keys_for_moves`: a key (hash) per node of the new tree, on every rebuild, read only by animations | 100-200 | 0.4-0.8 | A3-window-02, -03 | the keys are computed whether or not anything animates |
+| 24 | scroll state, capability walks | `layout.rs:1537-1641` | - | O(nodes of ALL DOMs) | same | `register_scroll_nodes`; two walks of every node of every DOM (the view's 12.5k included) for geolocation probes and gamepad / sensor handlers | 10-20 | 0.05 (+0.2 for the view) | A3-window-28 | two walks where one would do; nothing cached per DOM generation |
+| 25 | hit-test index | shell tail (`rebuild_cpu_hit_tester_after`, `event.rs:3984`) | skipped (`LayoutUnchanged`) | rebuilt for every DOM | same | A6's notes | - | A6's | A6 | not keyed by the per-DOM generation |
+| 26 | CPU renderer | `layout/src/cpu_backend.rs:588-622` | skipped by identity (the list is the same allocation) | `damage_dl_diff`: old and new list compared item by item (the patched list is a new allocation) | same, over a list that is all new items | compare per item | 20-60 per item | 0.1-0.4 | A1, A2-cpu, A9-03 | - |
+| 27 | GPU path | `wr_translate2.rs:2688` (A4, trigger 5) | lightweight transaction, nothing sent | full transaction: a scan of every list for fonts, images and halos; translation of every list that is a new allocation, O(items); scene build over all items; frame build; the UI thread waits for both (`flush_scene_builder`) | same | A4's table | - | 3-8 + 10-30 (A4's estimate for the view's list) | A4-01, -09, -23 | a changed list is translated and scene-built whole |
+
+**The fast DOM.** `FastDom` (`core/src/dom.rs:4865`) is two flat arenas (`NodeHierarchyItemVec`, `NodeDataVec`) and
+the sheets by node id. Its only producer is the XML loader (`core/src/xml.rs:6681` `CompactDomBuilder`,
+`xml_node_to_fast_dom`) and its only consumer `StyledDom::create_from_fast_dom` (`styled_dom.rs:1300`). It is not in
+`api.json`, the layout callback cannot return one, and no widget builds one: every `layout()` builds the tree `Dom`
+(`dom.rs:4798`, whose own comment calls it "the slow tree-based DOM"). The flat arena saves the per-parent
+`Vec<Dom>` and the flatten pass, not the per-node `NodeData` heap (the `Box<NodeDataExt>` for a class, the
+attribute `Vec`, the inline-style `Vec`, the callback `Vec`): about a third of the allocations of stage 2.
+
+### 2. The other two cases
+
+They are the columns "one text changed" and "500 nodes appear" above. In words:
+- **One text changed**: exit C. Stages 2-4 and 10 (the whole cascade), 12 (the whole diff with its copies), 14
+  (a second cascade while the pointer is over a hovered node), 15, 23 and 24 run for all 4,000 nodes; only then the
+  layout (19-21) does work for one node, because stage 16 hands it the early diff. Est. total in azul after the
+  callback: 16-40 ms, of which the changed node needs under 1 ms.
+- **500 nodes appear among 3,500**: as above, and in addition the solver fingerprints every node again (16 is not
+  set when the count differs), the display list is emitted for all 4,000 nodes, both renderers get a new list. Est.
+  25-70 ms; the 500 new nodes need 3-8 ms of it.
+
+### 3. The answer
+
+Ranked by what an identical rebuild still costs (est., 4,000 nodes): the app's callback building the tree (1.2-4 ms;
+40 ms with a CSS string per node) > the cascade of stage 7A when a hover is raised (8-24 ms; removed this round) > a
+view without a stated version rendering again (the editor: its whole map pipeline) > the fingerprint (0.6-1.6 ms) >
+freeing the tree (0.4-1.2 ms) > the rest (0.3 ms). So an identical rebuild is 2.5-7 ms and cannot be under the cost
+of building and freeing 4,000 `Dom` nodes while the callback builds them all.
+
+Ranked for a CHANGED rebuild (what the 37-65 ms of a panel toggle are made of): the cascade (10; twice with 14) >
+the reconciliation with its copies (12) > the display list for all nodes (21) and its translation / scene build
+(27) > the solver's reconcile (19) > the callback (2) > the tails (15, 22-24).
+
+What holds and what does not:
+- "We do a diff, which should be fast": there are FIVE diffs, none of them first. The fingerprint (4) runs early
+  but is folded to one bit; `reconcile_dom` (12) runs after the whole cascade; the CSS diff is inside 12;
+  `is_layout_equivalent` (15) after that; the solver's reconcile (19) after that; the renderers diff the lists
+  (26). Each derives again what an earlier one knew. Everything before stage 12 is whole-document work that no
+  diff result can shorten, and it is the larger half.
+- "We cache a lot and should reuse it": caches keyed by CONTENT survive a rebuild and are hit: the sheet parse
+  (A3-core-09), shaped text (text3, by text and font), the font chains (by the stacks' signature and the characters),
+  the solver's boxes (by node fingerprint), the display list (by the root's subtree hash, viewport, key population),
+  images by id. Caches keyed by NODE ID, by allocation or by a generation are rebuilt by every rebuild that reaches
+  styling, because the rebuild makes a new `StyledDom`: all of `CssPropertyCache` (matched rules, cascaded and
+  inherited values, the compact cache), the tag ids, the node states, `RefAny` identity (transferred), the GPU keys
+  (remapped), the hit-test index, the per-DOM generation and what hangs on it (callback-image lists, a11y), and on
+  the renderer side everything keyed by the list's allocation.
+- "We patch the display list": for restyles and in-place writes (hover / press decorations, caret, image, colour
+  tween, text glyphs) and inside a layout pass whose tree kept its shape (stage 21, the text case). A `RefreshDom`
+  that adds or removes one node is not one of them: every item is emitted again.
+- "Full DOM rebuilds should be 1-2 ms": true today only for exit A, minus the callback. 250-500 ns per node is the
+  cost of ONE of the stages 2, 4, 9 or 12 alone.
+
+### 4. What makes it 1-2 ms
+
+(a) Local fixes of this round (each a finding block below; a row is done when its status names a commit):
+- A3-window-45: spans for every stage of the table (part 5).
+- A3-window-46: exit A runs no cascade when no node's state moved.
+- A3-window-14: `begin_reconciliation` captures a first rect only for a node that declares a move and keeps no
+  set of n ids.
+- A3-window-47: a rebuild whose only changes are TEXTS keeps the styled DOM (the first step of the diff-first
+  pipeline; switch `AZ_DIFF_FIRST`).
+(b) The re-architecture, "diff first" (the user's directive of 2026-11-21: the diff as early as possible, every
+later stage works only for what it names, no copies): section `## The diff-first pipeline`, with what is built and
+what is not.
+
+### 5. How to measure it
+
+`AZ_PROFILE=cpu` prints the spans of one pass (`Probe::span`, drained per layout pass in `layout_dom_recursive_impl`);
+the editor's `scripts/profile_spans.py` reads them. Stage -> span (the ones marked * are added by A3-window-45 and
+exist once that row names its commit):
+1 `regen_preamble`*; 2 `cb:<name>` (`span_for_fn`); 3 `regen_form_controls`*; 4 `regen_fingerprint_dom`*;
+6A-8A `regen_precascade_exit`* (inside it `regen_runtime_states`*); 10 `regen_style_user_dom`*; 11 `regen_csd`*;
+12 `regen_begin_reconciliation`* (inside: `reconcile_arena_copy`*, `reconcile_dom`*, `reconcile_css_diff`*,
+`reconcile_transfer_states`*, `reconcile_remap_node_ids`*); 13 `regen_lifecycle_queue`*; 14 `regen_runtime_states`*;
+15 `regen_layout_equivalent`*; 16 `regen_dom_diff_clean`*; 17 `font_requirements`*, `font_chain_resolve`,
+`font_load_missing`; 18 `sync_css_gpu_values`*; 19-21 `solver3_layout_document` (inside: `doc_setup_to_reconcile`,
+`reconcile_skipped_unchanged` or the solver's reconcile spans, `display_list_cache_hit`, `calc_intrinsic_sizes`,
+`root_layout_pass`, `position_out_of_flow`, `generate_display_list`, `dl_patched_pass`, `dl_generate`,
+`cache_writeback`); 22 `layout_pass_tail`*, `a11y_update_tree`; 23 `regen_finish_reconciliation`*; 24
+`register_scroll_nodes`, `regen_capability_walks`*; 26 `damage_dl_diff`; 27 A4's counters (`xlate`, `list MB`).
+Without a span: 9 (the drop of the `Dom` is inside `regen_precascade_exit` / `regen_style_user_dom`), 25 (A6's), the
+steps inside `create_from_dom_inheriting` (azul-core has no `Probe`: the cascade is one span, `regen_style_user_dom`).
+
 ## Findings
 
 ### A3-window-01 reconcile_dom, passes B2 / B3: unmatched new nodes x old nodes of the same structural hash
@@ -638,6 +765,35 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - fix: see the commit(s) named in the status.
 - severity: high
 - status: open: found while reading for 43; the fix (an inset-only move of an out-of-flow box as a move of its boxes and items) is not built yet
+
+### A3-window-45 no span covers the stages of a rebuild outside the solver
+- file:line: `dll/.../common/layout.rs` `regenerate_layout`; `window.rs` `begin_reconciliation`,
+  `finish_reconciliation`, `layout_dom_recursive_impl`
+- class: waste (unmeasurable: the cascade, the reconciliation and the shell's walks of a rebuild are in no span, so
+  `AZ_PROFILE=cpu` shows the solver and the callback and nothing between them)
+- fix: the spans of "Why a full DOM rebuild is slow", part 5. No test (a span has no behaviour).
+- severity: medium
+- status: open: not committed yet
+
+### A3-window-46 an identical rebuild runs the whole cascade when the pointer is over a node with a hover rule left of a subject
+- file:line: `dll/.../common/layout.rs` 777-790 (exit A of `regenerate_layout`) -> `apply_runtime_states_before_layout`
+  -> `StyledDom::restyle_for_raised_states` (`core/src/styled_dom.rs:2428`)
+- class: waste, per `RefreshDom` with an unchanged DOM: O(n) cascade (matching, inheritance, compact cache)
+- evidence: the pre-cascade skip keeps the retained `StyledDom`, whose node states and cascade are those of the
+  last pass and of every hover / focus restyle since. It then writes the same states again from the managers and
+  calls `restyle_for_raised_states`, which runs `restyle(retained_author_css)` whenever `left_state_mask & raised
+  != 0`: a sheet with `.btn:hover .ink` and the pointer over any node. The states did not move, so the cascade
+  computes what the DOM already holds. (On the full path the same call is a SECOND cascade over the fresh DOM:
+  stage 14; that one is owed there, the first cascade ran at rest.)
+- severity: high
+- status: open: not committed yet
+
+### A3-window-47 a rebuild that changed only texts runs the whole pipeline (diff-first, step 1)
+- file:line: `dll/.../common/layout.rs` `regenerate_layout` (the exit decision at 731); `core/src/diff.rs`
+  `fingerprint_dom`
+- class: waste, per `RefreshDom` that changes a counter, a status line, a clock: stages 10-15, 23 for all n nodes
+- severity: high
+- status: open: not committed yet
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
